@@ -63,6 +63,25 @@ describe("live-shipping-pool", () => {
     expect(totals.capReached).toBe(true);
   });
 
+  it("helmet first purchase hits the $9.99 show cap (not the $3.99 card tier)", () => {
+    const capped = { ...showCap, shippingCapCents: 999 };
+    const groups = packageGroupsFromProfileRows([
+      { itemId: "h1", profile: seedToProfileInput(helmet) },
+    ]);
+    const totals = computePoolTotalsFromGroups(groups, capped);
+    expect(totals.buyerTotalCents).toBe(999);
+    expect(totals.capReached).toBe(true);
+
+    const due = computeBuyerLiveShippingTotals({
+      shippingMode: "capped",
+      shippingCapCents: 999,
+      sellerPaysOverCap: true,
+      estimatedEligibleBundleShippingCents: totals.buyerTotalCents,
+      shippingAlreadyChargedCents: 0,
+    });
+    expect(due.shippingDueForThisPurchaseCents).toBe(999);
+  });
+
   it("does not charge shipping again after show cap was paid on a prior win", () => {
     const due = computeBuyerLiveShippingTotals({
       shippingMode: "capped",

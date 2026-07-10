@@ -2,7 +2,7 @@
  * Live auction settlement totals (explicit breakdown for orders + charges).
  *
  * subtotal = winning bid (itemPriceUsd)
- * tax = Stripe Tax at checkout when nexus applies; $0 on saved-card auto-charge until checkout
+ * tax = Stripe Tax when nexus applies (uses buyer Wallet ship-to on saved-card charge)
  * shipping = bundled live session incremental cost (weight tiers, capped)
  * total = subtotal + tax + shipping
  */

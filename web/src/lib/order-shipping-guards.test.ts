@@ -2,9 +2,34 @@ import { describe, expect, it } from "vitest";
 import {
   canBuyerUpdateOrderShipping,
   canSellerCreateShippingLabel,
+  isIncompleteOrderShipping,
   sellerMayMarkOrderShipped,
   sellerMayShowFulfillmentControls,
 } from "@/lib/order-shipping-guards";
+
+describe("isIncompleteOrderShipping", () => {
+  it("treats auction-win placeholders as incomplete", () => {
+    expect(
+      isIncompleteOrderShipping({
+        shipAddress: "Coordinate shipping with the seller",
+        shipCity: "—",
+        shipState: "—",
+        shipZip: "00000",
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts a real US ship-to", () => {
+    expect(
+      isIncompleteOrderShipping({
+        shipAddress: "123 Main St",
+        shipCity: "Austin",
+        shipState: "TX",
+        shipZip: "78701",
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("canSellerCreateShippingLabel", () => {
   it("rejects unpaid orders", () => {

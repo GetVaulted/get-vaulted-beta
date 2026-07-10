@@ -10,6 +10,7 @@ import {
 import {
   computePoolTotalsFromGroups,
   liveShowShippingConfigFromRoom,
+  resolveLiveRoomItemForSessionOrder,
 } from "@/services/shipping/live-shipping-pool";
 import {
   groupItemsIntoPackages,
@@ -28,6 +29,7 @@ type Db = Pick<
   | "liveShippingSessionItem"
   | "liveRoomItem"
   | "liveRoom"
+  | "liveAuctionInventoryHold"
   | "order"
   | "platformShippingProfile"
   | "shipmentPackage"
@@ -89,27 +91,29 @@ export async function buildSessionPackageGroups(
   }> = [];
 
   for (const si of session.items) {
-    const liveItem = await db.liveRoomItem.findFirst({
-      where: { liveRoomId: session.liveShowId, listingId: si.listingId },
-      orderBy: { updatedAt: "desc" },
-      select: {
-        id: true,
-        shippingProfileId: true,
-        customWeightOz: true,
-        customLengthIn: true,
-        customWidthIn: true,
-        customHeightIn: true,
-        requiresSeparatePackage: true,
-        shippingProfile: true,
-        shippingProfileSnapshotJson: true,
-      },
+    const liveItem = await resolveLiveRoomItemForSessionOrder(db, {
+      liveShowId: session.liveShowId,
+      listingId: si.listingId,
+      orderId: si.orderId,
     });
+    const appliedWeightOz =
+      Number.isFinite(si.appliedWeightOz) && si.appliedWeightOz > 0 ? si.appliedWeightOz : null;
+    const weightOverride =
+      appliedWeightOz != null
+        ? {
+            customWeightOz: appliedWeightOz,
+            customLengthIn: liveItem?.customLengthIn ?? null,
+            customWidthIn: liveItem?.customWidthIn ?? null,
+            customHeightIn: liveItem?.customHeightIn ?? null,
+            requiresSeparatePackage: liveItem?.requiresSeparatePackage ?? null,
+          }
+        : liveItem ?? undefined;
 
     if (liveItem?.shippingProfile) {
       rows.push({
         itemId: liveItem.id,
         profile: liveItem.shippingProfile,
-        overrides: liveItem,
+        overrides: weightOverride,
       });
       continue;
     }
@@ -123,7 +127,7 @@ export async function buildSessionPackageGroups(
       rows.push({
         itemId: liveItem?.id ?? si.orderId,
         profile: fallback,
-        overrides: liveItem ?? undefined,
+        overrides: weightOverride,
       });
       continue;
     }
@@ -138,9 +142,10 @@ export async function buildSessionPackageGroups(
         defaultLengthIn: 6,
         defaultWidthIn: 4,
         defaultHeightIn: 1,
-        bundleAllowed: true,
-        requiresSeparatePackage: false,
+        bundleAllowed: !(liveItem?.requiresSeparatePackage === true),
+        requiresSeparatePackage: liveItem?.requiresSeparatePackage === true,
       },
+      overrides: weightOverride,
     });
   }
 

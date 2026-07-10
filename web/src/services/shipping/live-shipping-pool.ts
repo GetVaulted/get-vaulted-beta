@@ -25,9 +25,55 @@ type Db = Pick<
   | "liveRoomItem"
   | "liveShippingSession"
   | "liveShippingSessionItem"
+  | "liveAuctionInventoryHold"
   | "platformShippingProfile"
   | "sellerShippingProfile"
+  | "listing"
 >;
+
+const LIVE_ITEM_SHIPPING_SELECT = {
+  id: true,
+  shippingProfileId: true,
+  customWeightOz: true,
+  customLengthIn: true,
+  customWidthIn: true,
+  customHeightIn: true,
+  requiresSeparatePackage: true,
+  shippingProfile: true,
+} as const;
+
+/**
+ * Resolve the queue-row shipping profile for a session order.
+ * Break/multi-unit wins create ephemeral listings that do not match `LiveRoomItem.listingId`,
+ * so fall back through the inventory hold that still points at the host liveRoomItem.
+ */
+export async function resolveLiveRoomItemForSessionOrder(
+  db: Db | TransactionClient,
+  args: { liveShowId: string; listingId: string; orderId: string },
+) {
+  const byListing = await db.liveRoomItem.findFirst({
+    where: { liveRoomId: args.liveShowId, listingId: args.listingId },
+    orderBy: { updatedAt: "desc" },
+    select: LIVE_ITEM_SHIPPING_SELECT,
+  });
+  if (byListing) return byListing;
+
+  const hold = await db.liveAuctionInventoryHold.findFirst({
+    where: {
+      liveRoomItemId: { not: null },
+      liveRoomItem: { liveRoomId: args.liveShowId },
+      OR: [{ orderId: args.orderId }, { listingId: args.listingId }],
+    },
+    orderBy: { updatedAt: "desc" },
+    select: { liveRoomItemId: true },
+  });
+  if (!hold?.liveRoomItemId) return null;
+
+  return db.liveRoomItem.findFirst({
+    where: { id: hold.liveRoomItemId, liveRoomId: args.liveShowId },
+    select: LIVE_ITEM_SHIPPING_SELECT,
+  });
+}
 
 export type BuyerShippingPoolTotals = {
   rawEstimateCents: number;
@@ -147,7 +193,10 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
     where: { id: sessionId },
     select: {
       liveShowId: true,
-      items: { orderBy: { createdAt: "asc" }, select: { orderId: true, listingId: true } },
+      items: {
+        orderBy: { createdAt: "asc" },
+        select: { orderId: true, listingId: true, appliedWeightOz: true },
+      },
       liveShow: { select: { defaultShippingProfileId: true, category: true } },
     },
   });
@@ -155,25 +204,33 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
 
   const rows: ProfileRow[] = [];
   for (const si of session.items) {
-    const liveItem = await db.liveRoomItem.findFirst({
-      where: { liveRoomId: session.liveShowId, listingId: si.listingId },
-      orderBy: { updatedAt: "desc" },
-      select: {
-        id: true,
-        shippingProfileId: true,
-        customWeightOz: true,
-        customLengthIn: true,
-        customWidthIn: true,
-        customHeightIn: true,
-        requiresSeparatePackage: true,
-        shippingProfile: true,
-      },
+    const appliedWeightOz =
+      Number.isFinite(si.appliedWeightOz) && si.appliedWeightOz > 0 ? si.appliedWeightOz : null;
+    const liveItem = await resolveLiveRoomItemForSessionOrder(db, {
+      liveShowId: session.liveShowId,
+      listingId: si.listingId,
+      orderId: si.orderId,
     });
+    const weightOverride =
+      appliedWeightOz != null
+        ? {
+            customWeightOz: appliedWeightOz,
+            customLengthIn: liveItem?.customLengthIn ?? null,
+            customWidthIn: liveItem?.customWidthIn ?? null,
+            customHeightIn: liveItem?.customHeightIn ?? null,
+            requiresSeparatePackage: liveItem?.requiresSeparatePackage ?? null,
+          }
+        : liveItem ?? undefined;
+
     if (liveItem?.shippingProfile) {
-      rows.push({ itemId: liveItem.id, profile: liveItem.shippingProfile, overrides: liveItem });
+      rows.push({
+        itemId: liveItem.id,
+        profile: liveItem.shippingProfile,
+        overrides: weightOverride,
+      });
       continue;
     }
-    const listing = await ("listing" in db ? db.listing : prisma.listing).findUnique({
+    const listing = await db.listing.findUnique({
       where: { id: si.listingId },
       select: {
         shippingBaseWeightOz: true,
@@ -195,7 +252,7 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
         listing.shippingBaseWeightOz > 0
           ? listing.shippingBaseWeightOz
           : null;
-      const weightOz = parcelWeight ?? baseWeight ?? 4;
+      const weightOz = appliedWeightOz ?? parcelWeight ?? baseWeight ?? 4;
       rows.push({
         itemId: liveItem?.id ?? si.orderId,
         profile: {
@@ -207,10 +264,10 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
           defaultWidthIn: listing.parcelWidthIn ?? 6,
           defaultHeightIn: listing.parcelHeightIn ?? 1,
           bundleGroup: "general",
-          bundleAllowed: true,
-          requiresSeparatePackage: false,
+          bundleAllowed: !(liveItem?.requiresSeparatePackage === true),
+          requiresSeparatePackage: liveItem?.requiresSeparatePackage === true,
         },
-        overrides: liveItem ?? undefined,
+        overrides: weightOverride,
       });
       continue;
     }
@@ -223,7 +280,7 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
       rows.push({
         itemId: liveItem?.id ?? si.orderId,
         profile: fallback,
-        overrides: liveItem ?? undefined,
+        overrides: weightOverride,
       });
     }
   }

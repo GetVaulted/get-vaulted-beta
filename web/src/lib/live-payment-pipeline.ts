@@ -21,6 +21,7 @@ import {
 import {
   createLiveBuyNowOrder,
   finalizeBreakSpotPaid,
+  refreshBuyerShippingOnOrderIfIncomplete,
   releaseBreakSpotOnDefiniteFailure,
 } from "@/lib/live-buy-now-purchase";
 import { resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
@@ -221,6 +222,7 @@ async function applyOrderTaxPlanForLiveCharge(args: {
   shippingPriceUsd: number;
   applicationFeeCents: number;
 }) {
+  await refreshBuyerShippingOnOrderIfIncomplete(args.orderId);
   const order = await prisma.order.findUnique({
     where: { id: args.orderId },
     select: {

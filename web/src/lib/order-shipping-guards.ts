@@ -62,6 +62,7 @@ export function isIncompleteOrderShipping(order: {
   const lower = addr.toLowerCase();
   if (lower.includes("coordinate shipping")) return true;
   if (city === "—" || city === "-") return true;
+  if (state === "—" || state === "-") return true;
   return false;
 }
 

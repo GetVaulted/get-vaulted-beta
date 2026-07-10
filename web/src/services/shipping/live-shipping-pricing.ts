@@ -362,7 +362,11 @@ export async function addOrderToLiveShippingSessionTx(
     let appliedWeightOz = itemCount === 0 ? baseWeightOz : incrementalWeightOz;
     if (liveItem?.shippingProfile) {
       const resolved = resolveShippingProfileDimensions(liveItem.shippingProfile, liveItem);
-      appliedWeightOz = itemCount === 0 ? resolved.weightOz : Math.max(1, resolved.weightOz * 0.25);
+      // Separate-package profiles (helmets, etc.) always contribute full package weight.
+      appliedWeightOz =
+        itemCount === 0 || resolved.requiresSeparatePackage
+          ? resolved.weightOz
+          : Math.max(1, resolved.weightOz * 0.25);
     } else {
       const fallbackProfile = await resolveDefaultProfileForLiveShow({
         showDefaultProfileId: liveItem?.liveRoom.defaultShippingProfileId ?? showOnly?.defaultShippingProfileId ?? null,
@@ -371,7 +375,10 @@ export async function addOrderToLiveShippingSessionTx(
       });
       if (fallbackProfile) {
         const resolved = resolveShippingProfileDimensions(fallbackProfile, liveItem ?? undefined);
-        appliedWeightOz = itemCount === 0 ? resolved.weightOz : Math.max(1, resolved.weightOz * 0.25);
+        appliedWeightOz =
+          itemCount === 0 || resolved.requiresSeparatePackage
+            ? resolved.weightOz
+            : Math.max(1, resolved.weightOz * 0.25);
       }
     }
 

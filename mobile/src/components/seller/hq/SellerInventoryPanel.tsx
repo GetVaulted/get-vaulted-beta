@@ -18,6 +18,7 @@ import type { useSellerInventory } from '../../../hooks/useSellerInventory';
 import {
   bucketListings,
   countBucket,
+  defaultInventoryBucketForChannel,
   INVENTORY_BUCKET_LABELS,
   type InventoryBucket,
 } from '../../../lib/sellerInventoryBuckets';
@@ -32,7 +33,7 @@ const BUCKETS: InventoryBucket[] = ['active', 'drafts', 'sold'];
 function statusStyle(status: ListingPreview['status']) {
   switch (status) {
     case 'active':
-      return { bg: 'rgba(52,199,89,0.15)', fg: colors.success, label: 'Live' };
+      return { bg: 'rgba(52,199,89,0.15)', fg: colors.success, label: 'Active' };
     case 'draft':
       return { bg: 'rgba(255,255,255,0.06)', fg: colors.textSecondary, label: 'Draft' };
     case 'sold':
@@ -96,7 +97,10 @@ export function SellerInventoryPanel({
             <Pressable
               key={ch}
               style={[styles.channelTab, on && { borderColor: chCfg.border, backgroundColor: chCfg.fill }]}
-              onPress={() => setChannelTab(ch)}
+              onPress={() => {
+                setChannelTab(ch);
+                setBucketTab(defaultInventoryBucketForChannel(ch));
+              }}
             >
               <Ionicons name={chCfg.icon} size={16} color={on ? chCfg.primary : colors.textMuted} />
               <Text style={[styles.channelTabTxt, on && { color: chCfg.primary }]}>

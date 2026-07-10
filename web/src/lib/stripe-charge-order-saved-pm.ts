@@ -12,7 +12,10 @@ import {
   resolveConnectPaymentTaxPlan,
 } from "@/lib/sales-tax-charge";
 import { resolveCheckoutApplicationFeeCents, resolveLiveRoomIdForOrder } from "@/lib/live-show-gmv";
-import { finalizeLiveBuyNowPurchaseComplete } from "@/lib/live-buy-now-purchase";
+import {
+  finalizeLiveBuyNowPurchaseComplete,
+  refreshBuyerShippingOnOrderIfIncomplete,
+} from "@/lib/live-buy-now-purchase";
 import { syncOrderShippingFromLiveSessionTx } from "@/services/shipping/live-commerce-shipping-settlement";
 import {
   finalizeStripeMarketplaceOrderPaid,
@@ -293,6 +296,8 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
   }
 
   await syncLiveBundledShippingOnOrder(row.id);
+  // Auction wins often start with ship placeholders; Wallet default is required for nexus tax (e.g. TX).
+  await refreshBuyerShippingOnOrderIfIncomplete(row.id);
 
   const buyer = await prisma.user.findUnique({
     where: { id: args.buyerId },
