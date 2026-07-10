@@ -56,6 +56,7 @@ export function MarketplaceItemPurchasePanel({
     listing.buyingFormat === "buy_now" &&
     listing.price >= LAYAWAY_MIN_LISTING_PRICE_USD;
   const allowTrades = listing.acceptTradeOffers === true;
+  const tradeOnly = listing.tradeOnly === true;
   const isOwnListing = Boolean(session?.user?.id && listing.sellerId && session.user.id === listing.sellerId);
   const legacyAuction =
     listing.buyingFormat === "auction" &&
@@ -145,14 +146,18 @@ export function MarketplaceItemPurchasePanel({
   const priceBlock = (
     <div className="space-y-1">
       <p className="font-mono text-4xl font-black tracking-tight text-gold-bright sm:text-[2.75rem]">
-        {formatMarketplaceUsd(listing.price)}
+        {tradeOnly ? "Trade offers" : formatMarketplaceUsd(listing.price)}
       </p>
-      <MarketplaceItemShippingEstimateLine
-        listingId={listing.id}
-        flatShippingUsd={listing.shippingPriceUsd}
-        handlingEstimate={extras.handlingEstimateDisplay}
-      />
-      {allowLayaway ? (
+      {tradeOnly ? (
+        <p className="text-xs font-medium text-zinc-400">This listing is trade-only — not for sale at the listed price.</p>
+      ) : (
+        <MarketplaceItemShippingEstimateLine
+          listingId={listing.id}
+          flatShippingUsd={listing.shippingPriceUsd}
+          handlingEstimate={extras.handlingEstimateDisplay}
+        />
+      )}
+      {allowLayaway && !tradeOnly ? (
         <p className="text-xs font-medium text-gold-bright/80">Layaway available — 25% deposit to reserve</p>
       ) : null}
     </div>
@@ -163,8 +168,16 @@ export function MarketplaceItemPurchasePanel({
       <div className={part === "all" ? "pt-4" : undefined}>
         {isOwnListing ? (
           <p className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-sm text-zinc-400">
-            This is your listing — buyers will use Buy now here.
+            {tradeOnly ? "This is your trade-only listing — collectors can send trade offers here." : "This is your listing — buyers will use Buy now here."}
           </p>
+        ) : tradeOnly ? (
+          <Link
+            href={`/trade/new?listingId=${encodeURIComponent(listing.id)}`}
+            className="inline-flex h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-gold to-gold-bright px-6 text-base font-bold text-zinc-950 shadow-[0_0_32px_-8px_rgba(201,162,39,0.55)] transition hover:brightness-110 active:scale-[0.995]"
+          >
+            <TradeIcon />
+            Send trade offer
+          </Link>
         ) : (
           <>
             <Link
@@ -200,7 +213,7 @@ export function MarketplaceItemPurchasePanel({
           </>
         )}
 
-        {(showMakeOffer || showTradeButton) && !isOwnListing ? (
+        {(showMakeOffer || (showTradeButton && !tradeOnly)) && !isOwnListing ? (
           <div className="mt-3 grid grid-cols-2 gap-2.5">
             {showMakeOffer ? (
               <button

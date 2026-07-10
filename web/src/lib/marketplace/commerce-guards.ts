@@ -6,6 +6,7 @@ import {
   resolveMarketplaceCanonicalStatus,
   type MarketplaceCanonicalStatus,
 } from "@/lib/marketplace/canonical-status";
+import { isTradeOnlyListing } from "@/lib/listing-commerce-mode";
 import { prisma } from "@/lib/prisma";
 import { PAYMENT_PAID, PAYMENT_PENDING } from "@/services/payments";
 
@@ -38,6 +39,7 @@ export type ListingCommerceContext = {
     allowOffers: boolean;
     acceptTradeOffers: boolean;
     allowLayaway: boolean;
+    priceUsd: number;
   };
   activeLayaway: {
     id: string;
@@ -66,6 +68,7 @@ const listingSelect = {
   allowOffers: true,
   acceptTradeOffers: true,
   allowLayaway: true,
+  priceUsd: true,
 } as const;
 
 /** Load listing + active layaway + marketplace order for commerce enforcement. */
@@ -148,6 +151,7 @@ function assertExistingOrderBlocksPurchase(ctx: ListingCommerceContext, buyerId:
 /** Block Buy Now unless listing is available for this buyer. */
 export function assertBuyNowAllowed(ctx: ListingCommerceContext, buyerId: string): void {
   assertNotOwnListing(ctx, buyerId);
+  if (isTradeOnlyListing(ctx.listing)) throw new CommerceGuardError("ITEM_NOT_AVAILABLE");
   if (ctx.listing.moderationRemovedAt) throw new CommerceGuardError("ITEM_NOT_AVAILABLE");
   if (ctx.listing.buyingFormat !== "buy_now") throw new CommerceGuardError("ITEM_NOT_AVAILABLE");
 
@@ -171,6 +175,7 @@ export function assertBuyNowAllowed(ctx: ListingCommerceContext, buyerId: string
 /** Block starting a new layaway unless listing is open for this buyer. */
 export function assertLayawayStartAllowed(ctx: ListingCommerceContext, buyerId: string): void {
   assertNotOwnListing(ctx, buyerId);
+  if (isTradeOnlyListing(ctx.listing)) throw new CommerceGuardError("ITEM_NOT_AVAILABLE");
   if (ctx.listing.moderationRemovedAt) throw new CommerceGuardError("ITEM_NOT_AVAILABLE");
   if (ctx.listing.buyingFormat !== "buy_now") throw new CommerceGuardError("ITEM_NOT_AVAILABLE");
   if (!ctx.listing.allowLayaway) throw new CommerceGuardError("ITEM_NOT_AVAILABLE");

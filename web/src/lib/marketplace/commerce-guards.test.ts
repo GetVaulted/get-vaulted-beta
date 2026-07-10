@@ -28,6 +28,7 @@ const baseListing = {
   allowOffers: true,
   acceptTradeOffers: true,
   allowLayaway: true,
+  priceUsd: 250,
 };
 
 describe("commerce-guards", () => {
@@ -210,5 +211,17 @@ describe("commerce-guards", () => {
         "buyer_b",
       ),
     ).toThrow(CommerceGuardError);
+  });
+
+  it("blocks Buy Now and layaway on trade-only listings", () => {
+    const tradeOnlyListing = {
+      ...baseListing,
+      allowOffers: false,
+      allowLayaway: false,
+      acceptTradeOffers: true,
+      priceUsd: 1,
+    };
+    expect(() => assertBuyNowAllowed(ctx({ listing: tradeOnlyListing }), "buyer_a")).toThrow(CommerceGuardError);
+    expect(() => assertLayawayStartAllowed(ctx({ listing: tradeOnlyListing }), "buyer_a")).toThrow(CommerceGuardError);
   });
 });
