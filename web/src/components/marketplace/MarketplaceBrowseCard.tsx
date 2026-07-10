@@ -2,7 +2,7 @@ import Link from "next/link";
 import { CardImagePlaceholder } from "@/components/ui/CardImagePlaceholder";
 import { MarketplaceWatchlistToggle } from "@/components/marketplace/MarketplaceWatchlistToggle";
 import type { MarketplaceListing } from "@/content/marketplace-listings";
-import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
+import { marketplaceListingPriceLabel } from "@/lib/format-marketplace-usd";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 
 type MarketplaceBrowseCardProps = {
@@ -104,7 +104,7 @@ export function MarketplaceBrowseCard({
           {listing.title}
         </h3>
         <p className={`font-mono font-black leading-none tracking-tight text-gold-bright ${priceClass}`}>
-          {formatMarketplaceUsd(listing.price)}
+          {marketplaceListingPriceLabel(listing)}
         </p>
         <div
           className={`pointer-events-auto flex flex-wrap items-center gap-x-2 gap-y-1 text-zinc-500 ${compact ? "text-[9px]" : "text-[10px] sm:text-[11px]"}`}
@@ -124,11 +124,13 @@ export function MarketplaceBrowseCard({
         </div>
         {(listing.allowOffers || listing.acceptTradeOffers) && !compact ? (
           <p className="text-[9px] font-semibold uppercase tracking-wide text-zinc-600">
-            {listing.allowOffers && listing.acceptTradeOffers
-              ? "Offers & trades welcome"
-              : listing.allowOffers
-                ? "Offers welcome"
-                : "Trades welcome"}
+            {listing.tradeOnly
+              ? "Trade only"
+              : listing.allowOffers && listing.acceptTradeOffers
+                ? "Offers & trades welcome"
+                : listing.allowOffers
+                  ? "Offers welcome"
+                  : "Trades welcome"}
           </p>
         ) : null}
         {asPreview ? (

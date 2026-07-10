@@ -11,3 +11,8 @@ export function formatMarketplaceUsd(amount: number): string {
     maximumFractionDigits: hasCents ? 2 : 0,
   });
 }
+
+/** Card/detail price line — trade-only listings use a label instead of the $1 placeholder. */
+export function marketplaceListingPriceLabel(listing: { price: number; tradeOnly?: boolean }): string {
+  return listing.tradeOnly ? "Trade only" : formatMarketplaceUsd(listing.price);
+}

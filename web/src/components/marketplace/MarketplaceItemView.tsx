@@ -174,7 +174,7 @@ export function MarketplaceItemView({
         />
       </div>
 
-      {!legacyAuction ? (
+      {!legacyAuction && !listing.tradeOnly ? (
         <MarketplaceItemStickyBuyBar
           mode="buy_now"
           buyNowPrice={listing.price}

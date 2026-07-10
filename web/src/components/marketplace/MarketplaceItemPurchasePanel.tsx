@@ -11,7 +11,7 @@ import { isLegacyMarketplaceTimedAuction } from "@/lib/marketplace-commerce-poli
 import { MarketplaceMakeOfferModal } from "@/components/marketplace/MarketplaceMakeOfferModal";
 import { MarketplaceItemShippingEstimateLine } from "@/components/marketplace/MarketplaceItemShippingEstimateLine";
 
-import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
+import { formatMarketplaceUsd, marketplaceListingPriceLabel } from "@/lib/format-marketplace-usd";
 function OfferIcon() {
   return (
     <svg className="size-4 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -146,7 +146,7 @@ export function MarketplaceItemPurchasePanel({
   const priceBlock = (
     <div className="space-y-1">
       <p className="font-mono text-4xl font-black tracking-tight text-gold-bright sm:text-[2.75rem]">
-        {tradeOnly ? "Trade offers" : formatMarketplaceUsd(listing.price)}
+        {tradeOnly ? "Trade only" : formatMarketplaceUsd(listing.price)}
       </p>
       {tradeOnly ? (
         <p className="text-xs font-medium text-zinc-400">This listing is trade-only — not for sale at the listed price.</p>
