@@ -3,7 +3,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { countRoomPresenceViewers } from '../lib/liveRoomPresenceCount';
 import { buildPresenceChannelKey } from '../lib/liveRoomPresenceKey';
 import { releaseLiveRoomChannel, retainLiveRoomChannel, subscribeLiveRoomChannel } from '../lib/liveRoomSharedChannel';
-import { ensureSupabaseReady, getSupabase, isSupabaseConfigured } from '../lib/supabase';
+import { ensureSupabaseReady, getSupabase } from '../lib/supabase';
 
 /**
  * Supabase Realtime presence for live rooms — same channel as web (`gv-room-{id}`).
@@ -37,7 +37,7 @@ export function useRealtimeRoomPresence(opts: {
   }, [enabled, liveRoomId, trackSelf, userId]);
 
   useEffect(() => {
-    if (!enabled || !liveRoomId || !isSupabaseConfigured()) return undefined;
+    if (!enabled || !liveRoomId) return undefined;
 
     const presenceKey = presenceKeyRef.current;
     if (!presenceKey) return undefined;
@@ -46,6 +46,10 @@ export function useRealtimeRoomPresence(opts: {
     let heartbeatId: ReturnType<typeof setInterval> | null = null;
     let appStateSub: { remove: () => void } | null = null;
     let channel: ReturnType<typeof retainLiveRoomChannel> | null = null;
+    // Don't gate on isSupabaseConfigured() up front — on a cold app start (store builds
+    // especially) bootstrap from /api/mobile/supabase-config may not have resolved yet, and this
+    // effect has no other trigger to re-run once it does. Always attempt ensureSupabaseReady()
+    // below; it's a no-op once already configured.
     let supabase = getSupabase();
     let unsubscribeStatus: (() => void) | null = null;
 

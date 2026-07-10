@@ -272,7 +272,6 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
   }
 
   const fulfillmentOrderIdSet = new Set(fulfillmentOrderIds);
-  const liveShowSessionOrderIds = new Set(ordersBySession.map((o) => o.id));
 
   const spotCommerceAnchors: SpotCommerceAnchor[] = [
     ...spots.map((s) => ({
@@ -313,7 +312,6 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
   const rows: HostRecentSaleRowDTO[] = [];
   for (const o of orderById.values()) {
     if (fulfillmentOrderIdSet.has(o.id)) continue;
-    if (liveShowSessionOrderIds.has(o.id)) continue;
     if (shouldHideOrderForSpotCommerceRow(o, spotCommerceAnchors)) continue;
     const mapped = mapOrder(o);
     if (!includeHostRecentSaleRow(mapped)) continue;

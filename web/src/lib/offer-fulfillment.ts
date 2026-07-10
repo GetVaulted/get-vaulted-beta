@@ -258,7 +258,7 @@ export async function createOrderFromAuctionWin(
         where: {
           id: params.liveRoomItemId!,
           liveRoomId: params.liveAuctionLiveShowId!,
-          liveRoom: { sellerId: params.sellerId, roomType: { in: ["auction", "break"] } },
+          liveRoom: { sellerId: params.sellerId, roomType: { in: ["auction", "break", "sale"] } },
         },
         select: { id: true },
       }),

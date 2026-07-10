@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { buildPresenceChannelKey } from '../lib/liveRoomPresenceKey';
 import { releaseLiveRoomChannel, retainLiveRoomChannel, subscribeLiveRoomChannel } from '../lib/liveRoomSharedChannel';
-import { ensureSupabaseReady, getSupabase, isSupabaseConfigured } from '../lib/supabase';
+import { ensureSupabaseReady, getSupabase } from '../lib/supabase';
 import { RT_EVENT, RT_EVENT_ALIASES, type RoomBroadcastPayload } from '../lib/realtimeChannels';
 
 export type LiveRoomChatBroadcastMessage = {
@@ -48,7 +48,7 @@ export function useRealtimeRoomSubscription(opts: {
   });
 
   useEffect(() => {
-    if (!opts.enabled || !opts.liveRoomId || !isSupabaseConfigured()) return undefined;
+    if (!opts.enabled || !opts.liveRoomId) return undefined;
 
     let cancelled = false;
     let channel: ReturnType<typeof retainLiveRoomChannel> | null = null;
