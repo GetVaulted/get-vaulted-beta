@@ -474,6 +474,39 @@ export async function generateBundledShippoLabelForSession(
       ),
     );
 
+    const { chargeSellerForLabelCost, markOrderLabelCostReversalFailed } = await import(
+      "@/services/shipping/charge-seller-label-cost"
+    );
+    for (let idx = 0; idx < eligible.length; idx++) {
+      const o = eligible[idx]!;
+      const orderLabelCost = baseEach + (idx === 0 ? remainder : 0);
+      const debit = await chargeSellerForLabelCost({
+        orderId: o.id,
+        labelCostCents: orderLabelCost,
+        shippoTransactionId: transactionId,
+      });
+      if (!debit.ok) {
+        await markOrderLabelCostReversalFailed(o.id);
+        console.error("[shippo] bundled label cost debit failed", {
+          orderId: o.id,
+          sessionId,
+          code: debit.code,
+          error: debit.error,
+        });
+      }
+    }
+
+    try {
+      const { processLabelCreatedPayoutEvaluation } = await import(
+        "@/services/payout/process-payout-tier-events"
+      );
+      for (const o of eligible) {
+        void processLabelCreatedPayoutEvaluation(o.id);
+      }
+    } catch (payoutErr) {
+      console.warn("[shippo] bundled label payout evaluation failed", payoutErr);
+    }
+
     const tn = trackingNumber ? ` Tracking: ${trackingNumber}.` : "";
     for (const o of eligible) {
       const lt = o.listing.title.length > 80 ? `${o.listing.title.slice(0, 77)}…` : o.listing.title;

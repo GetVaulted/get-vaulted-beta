@@ -163,8 +163,8 @@ describe("instant payout limits/exposure use seller net, not raw item price", ()
     });
   });
 
-  it("checks and records the fee-adjusted, shipping-inclusive seller net (not itemPriceUsd) for a marketplace order", async () => {
-    // item $100, 8% marketplace fee => $8 fee, plus $15 shipping pass-through => net $107.
+  it("checks and records the fee-adjusted seller net including shipping before label deduction", async () => {
+    // item $100, 8% marketplace fee => $8 fee, plus $15 shipping => net $107 (no label yet).
     prismaMock.order.findUnique.mockResolvedValue(
       baseOrder({ itemPriceUsd: 100, shippingPriceUsd: 15 }),
     );
@@ -173,6 +173,23 @@ describe("instant payout limits/exposure use seller net, not raw item price", ()
 
     expect(checkInstantPayoutLimits).toHaveBeenCalledWith("seller_1", 107);
     expect(recordInstantPayoutRelease).toHaveBeenCalledWith("seller_1", "ord_1", 107);
+  });
+
+  it("subtracts Get Vaulted label cost from instant-payout exposure after label debit", async () => {
+    prismaMock.order.findUnique.mockResolvedValue(
+      baseOrder({
+        itemPriceUsd: 100,
+        shippingPriceUsd: 15,
+        shippingLabelCostCents: 1500,
+        shippingLabelCostReversedCents: 1500,
+      }),
+    );
+
+    await processLabelCreatedPayoutEvaluation("ord_1");
+
+    // 100 - 8 + 15 - 15 = 92
+    expect(checkInstantPayoutLimits).toHaveBeenCalledWith("seller_1", 92);
+    expect(recordInstantPayoutRelease).toHaveBeenCalledWith("seller_1", "ord_1", 92);
   });
 
   it("falls back (does not release) when the seller-net amount exceeds the instant limit, even if raw item price would have passed", async () => {

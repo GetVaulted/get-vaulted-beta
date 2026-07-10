@@ -16,7 +16,7 @@ describe("seller-payout-estimate", () => {
     ).toBe(87);
   });
 
-  it("includes shipping pass-through in estimate", () => {
+  it("includes shipping pass-through in estimate before a Get Vaulted label", () => {
     expect(
       estimateSellerOrderPayoutUsd({
         itemPriceUsd: 100,
@@ -25,6 +25,40 @@ describe("seller-payout-estimate", () => {
         platformFeePercent: 8,
       }),
     ).toBe(97);
+  });
+
+  it("subtracts Get Vaulted label cost from payout estimate when labeled", () => {
+    expect(
+      estimateSellerOrderPayoutUsd({
+        itemPriceUsd: 100,
+        shippingPriceUsd: 5.48,
+        payoutReserveAmountCents: 0,
+        platformFeePercent: 8,
+        shippingLabelCostCents: 548,
+      }),
+    ).toBe(92);
+    expect(
+      estimateSellerOrderPayoutUsd({
+        itemPriceUsd: 1.99,
+        shippingPriceUsd: 5.48,
+        payoutReserveAmountCents: 0,
+        platformFeePercent: 8,
+        shippingLabelCostReversedCents: 548,
+      }),
+    ).toBe(1.83);
+  });
+
+  it("prefers cumulative reversed cents over latest label cost", () => {
+    expect(
+      estimateSellerOrderPayoutUsd({
+        itemPriceUsd: 100,
+        shippingPriceUsd: 10,
+        payoutReserveAmountCents: 0,
+        platformFeePercent: 8,
+        shippingLabelCostCents: 500,
+        shippingLabelCostReversedCents: 1100,
+      }),
+    ).toBe(91);
   });
 
   it("estimates Stripe processing fee on buyer charge total", () => {

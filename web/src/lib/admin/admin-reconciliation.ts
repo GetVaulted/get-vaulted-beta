@@ -28,6 +28,7 @@ const orderSelect = {
   payoutStatus: true,
   payoutReserveAmountCents: true,
   shippingLabelCostCents: true,
+  shippingLabelCostReversedCents: true,
   listing: { select: { isCompanyListing: true } },
   liveShippingSession: {
     select: {
@@ -98,8 +99,7 @@ export type AdminReconciliationReport = {
    *  share is clawed back via `reverse_transfer`). This is an explicit, flagged assumption — not a
    *  verified business rule — see the audit report for details. */
   platformFeeRetainedOnRefunds: true;
-  /** Platform fee revenue minus actual carrier label cost. Does not subtract platformFeeOnRefundedOrdersUsd
-   *  because current behavior retains that fee (see `platformFeeRetainedOnRefunds`). */
+  /** Platform fee revenue minus unrecovered carrier label cost (label spend not clawed back from seller). */
   companyNetRevenueUsd: number;
   assumptions: string[];
 };
@@ -132,6 +132,7 @@ export async function loadAdminReconciliationReport(
   let platformFeeOnRefundedOrdersUsd = 0;
 
   let shippingLabelCostUsd = 0;
+  let unrecoveredLabelCostUsd = 0;
 
   const payoutBuckets = new Map<string, { orderCount: number; sellerNetUsd: number }>();
 
@@ -139,7 +140,10 @@ export async function loadAdminReconciliationReport(
     // Label cost is a real sunk carrier expense the moment a label is purchased, independent of
     // whether the sale is later refunded — count it whenever present.
     if (o.shippingLabelCostCents != null) {
-      shippingLabelCostUsd += Math.max(0, o.shippingLabelCostCents) / 100;
+      const labelUsd = Math.max(0, o.shippingLabelCostCents) / 100;
+      shippingLabelCostUsd += labelUsd;
+      const reversedUsd = Math.max(0, o.shippingLabelCostReversedCents ?? 0) / 100;
+      unrecoveredLabelCostUsd += Math.max(0, labelUsd - reversedUsd);
     }
 
     if (PAID_PAYMENT_STATUSES.has(o.paymentStatus)) {
@@ -155,10 +159,13 @@ export async function loadAdminReconciliationReport(
       salesTaxCollectedUsd += Math.max(0, o.taxUsd);
       shippingCollectedUsd += Math.max(0, o.shippingPriceUsd);
 
-      // Shipping is a pass-through to the seller, not platform revenue — included here so this
-      // matches the seller-facing Sales report's payout estimate for the same order.
+      // Shipping is pass-through to the seller; Get Vaulted label cost is clawed back when purchased.
       const shippingUsd = Math.max(0, o.shippingPriceUsd ?? 0);
-      const net = item - feeUsd - Math.max(0, o.payoutReserveAmountCents) / 100 + shippingUsd;
+      const labelCostUsd =
+        o.shippingLabelCostReversedCents != null && o.shippingLabelCostReversedCents > 0
+          ? o.shippingLabelCostReversedCents / 100
+          : Math.max(0, o.shippingLabelCostCents ?? 0) / 100;
+      const net = item - feeUsd - Math.max(0, o.payoutReserveAmountCents) / 100 + shippingUsd - labelCostUsd;
       sellerNetUsd += Math.max(0, net);
 
       const bucket = payoutBuckets.get(o.payoutStatus) ?? { orderCount: 0, sellerNetUsd: 0 };
@@ -182,7 +189,7 @@ export async function loadAdminReconciliationReport(
     .map(([status, v]) => ({ status, orderCount: v.orderCount, sellerNetUsd: round2(v.sellerNetUsd) }))
     .sort((a, b) => b.orderCount - a.orderCount);
 
-  const companyNetRevenueUsd = platformRevenueUsd - shippingLabelCostUsd;
+  const companyNetRevenueUsd = platformRevenueUsd - unrecoveredLabelCostUsd;
 
   return {
     rangeKey,
@@ -213,7 +220,8 @@ export async function loadAdminReconciliationReport(
       "Platform fees use the same tiered/flat resolver as the seller sales report (marketplace flat % vs live-show GMV tiers).",
       "Stripe processing fees are estimated (2.9% + $0.30 default) and paid by sellers on Connect — shown for reference only, not deducted from company net revenue.",
       "ASSUMPTION FLAGGED FOR REVIEW: platform application fees are currently kept in full even when an order is fully refunded or charged back — only the seller's transferred share is clawed back (reverse_transfer). If the business intends to also refund the platform's own fee, add refund_application_fee: true to the Stripe refund calls.",
-      "Seller net excludes tips and includes shipping pass-through (item price + shipping − platform fee − payout reserve), matching the seller-facing Sales report's payout estimate for the same order.",
+      "Seller net excludes tips (item price + shipping − platform fee − payout reserve − Get Vaulted label cost when a platform label was purchased), matching the seller-facing Sales report's payout estimate for the same order.",
+      "Shipping label cost is recovered from the seller via Stripe transfer reversal when a Get Vaulted label is purchased. External (non-platform) shipping leaves shipping with the seller and is not deducted here. Label cost still appears in shippingLabelCostUsd for carrier spend tracking; company net treats recovered label costs as offset when reversal succeeds.",
       "Shipping label cost counts every order with a purchased label in range, including later-refunded orders, since the carrier cost is not recovered on refund.",
       "Refund/dispute adjustments include both buyer-refunded orders and lost Stripe disputes (chargebacks); live-show GMV is rolled back for both so later sales in the same show aren't taxed at an incorrectly low fee tier.",
       "ASSUMPTION FLAGGED FOR REVIEW: payoutReserveAmountCents is bookkeeping-only. It is computed after the seller's share has already moved via a Stripe Connect destination-charge transfer, so it reduces the seller-net figure shown here and in seller reports but does NOT actually hold back any real Stripe balance. Treat the 'reserve' as a soft risk signal, not a funded holdback, unless the payment architecture changes to separate charges and transfers.",

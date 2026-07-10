@@ -74,6 +74,8 @@ export type SellerSalesOrderDetail = {
   platformFeeEstimateUsd: number;
   stripeProcessingFeeEstimateUsd: number;
   payoutEstimateUsd: number;
+  shippingLabelCostCents?: number | null;
+  shippingLabelCostReversedCents?: number | null;
   sellerNextAction: string;
   listing: {
     id: string;
@@ -152,6 +154,10 @@ function normalizeSellerSalesOrder(raw: Record<string, unknown>): SellerSalesOrd
     platformFeeEstimateUsd: coerceUsd(raw.platformFeeEstimateUsd),
     stripeProcessingFeeEstimateUsd: coerceUsd(raw.stripeProcessingFeeEstimateUsd),
     payoutEstimateUsd: coerceUsd(raw.payoutEstimateUsd),
+    shippingLabelCostCents:
+      typeof raw.shippingLabelCostCents === 'number' ? raw.shippingLabelCostCents : null,
+    shippingLabelCostReversedCents:
+      typeof raw.shippingLabelCostReversedCents === 'number' ? raw.shippingLabelCostReversedCents : null,
     sellerNextAction: typeof raw.sellerNextAction === 'string' ? raw.sellerNextAction : '',
     listing,
     buyer,

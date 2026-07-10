@@ -87,7 +87,7 @@ describe("loadAdminFinanceSummary fee-tier consistency with seller reports", () 
     expect(summary.platformFeesUsd).toBe(0);
   });
 
-  it("includes shipping pass-through in pending seller payout, matching the seller Sales report", async () => {
+  it("includes shipping pass-through in pending seller payout before a label debit", async () => {
     prismaMock.order.findMany.mockResolvedValue([
       {
         itemPriceUsd: 100,
@@ -96,6 +96,8 @@ describe("loadAdminFinanceSummary fee-tier consistency with seller reports", () 
         paymentStatus: "paid",
         payoutStatus: "held",
         payoutReserveAmountCents: 0,
+        shippingLabelCostCents: null,
+        shippingLabelCostReversedCents: 0,
         listing: { isCompanyListing: false },
         liveShippingSession: null,
       },
@@ -105,6 +107,26 @@ describe("loadAdminFinanceSummary fee-tier consistency with seller reports", () 
 
     // Seller net = item(100) - fee(8) - reserve(0) + shipping(15) = 107; "held" counts as pending.
     expect(summary.pendingPayoutsUsd).toBe(107);
+  });
+
+  it("subtracts Get Vaulted label cost from pending seller payout after debit", async () => {
+    prismaMock.order.findMany.mockResolvedValue([
+      {
+        itemPriceUsd: 100,
+        shippingPriceUsd: 15,
+        totalUsd: 123,
+        paymentStatus: "paid",
+        payoutStatus: "held",
+        payoutReserveAmountCents: 0,
+        shippingLabelCostCents: 1500,
+        shippingLabelCostReversedCents: 1500,
+        listing: { isCompanyListing: false },
+        liveShippingSession: null,
+      },
+    ]);
+
+    const summary = await loadAdminFinanceSummary();
+    expect(summary.pendingPayoutsUsd).toBe(92);
   });
 
   it("counts marketplace order refunds and chargebacks, not just layaway refunds", async () => {

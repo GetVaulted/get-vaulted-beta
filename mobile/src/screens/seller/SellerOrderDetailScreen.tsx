@@ -346,8 +346,17 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
               {payoutStatus?.detail ? <Text style={styles.line}>{payoutStatus.detail}</Text> : null}
               <MoneyLine label={`Get Vaulted (${orderFeeRateLabel})`} value={`−${formatMoney(platformFeeUsd)}`} />
               <MoneyLine label={`Stripe (${STRIPE_FEE_RATE_LABEL})`} value={`−${formatMoney(stripeFeeUsd)}`} />
+              {(detail.shippingLabelCostReversedCents ?? detail.shippingLabelCostCents ?? 0) > 0 ? (
+                <MoneyLine
+                  label="Shipping label"
+                  value={`−${formatMoney((detail.shippingLabelCostReversedCents ?? detail.shippingLabelCostCents ?? 0) / 100)}`}
+                />
+              ) : null}
               <View style={styles.divider} />
               <MoneyLine label="Est. payout" value={formatMoney(detail.payoutEstimateUsd ?? 0)} strong accent />
+              <Text style={styles.line}>
+                Shipping collected at checkout is yours. A Get Vaulted label deducts the carrier cost from payout.
+              </Text>
             </View>
 
             {activityLog.length > 0 ? (

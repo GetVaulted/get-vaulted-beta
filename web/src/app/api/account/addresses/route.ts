@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { validateAddressCreateInput, type AddressInput } from "@/lib/address-book";
 import { verifyAddressCreateData } from "@/lib/apply-address-verification";
 import { ensureBuyerShippingFromSellerShipFrom } from "@/lib/ensure-buyer-shipping-from-seller-ship-from";
+import { syncBuyerWalletShippingToOpenOrders } from "@/lib/live-buy-now-purchase";
 
 async function enrichShippingAddressForLabels<T extends { type: string; email: string | null }>(
   userId: string,
@@ -61,11 +62,21 @@ export async function POST(req: Request) {
       },
     });
   });
+  let syncedOpenOrders = 0;
+  if (data.type === "shipping") {
+    try {
+      const sync = await syncBuyerWalletShippingToOpenOrders(auth.userId);
+      syncedOpenOrders = sync.updatedOrderIds.length;
+    } catch (e) {
+      console.error("[api/account/addresses POST] sync open order shipping", e);
+    }
+  }
   return NextResponse.json(
     {
       address,
       verified: data.isVerified,
       corrected: verified.corrected,
+      syncedOpenOrders,
     },
     { status: 201 },
   );

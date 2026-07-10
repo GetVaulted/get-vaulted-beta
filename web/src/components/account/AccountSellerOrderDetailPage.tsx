@@ -51,6 +51,8 @@ type OrderDetail = {
   payoutEstimateUsd: number;
   platformFeeEstimateUsd: number;
   stripeProcessingFeeEstimateUsd: number;
+  shippingLabelCostCents?: number | null;
+  shippingLabelCostReversedCents?: number | null;
   liveShowId?: string | null;
   listing: { id: string; title: string; status?: string; images: { url: string }[] };
   buyer: { username: string | null };
@@ -369,6 +371,8 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
               payoutEstimateUsd={order.payoutEstimateUsd}
               payoutStatus={order.payoutStatus}
               shippingAddressIncomplete={shippingAddressIncomplete}
+              shippingLabelCostCents={order.shippingLabelCostCents}
+              shippingLabelCostReversedCents={order.shippingLabelCostReversedCents}
             />
           </aside>
         </div>

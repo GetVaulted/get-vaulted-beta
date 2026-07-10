@@ -73,6 +73,8 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
       paymentStatus: true,
       payoutStatus: true,
       payoutReserveAmountCents: true,
+      shippingLabelCostCents: true,
+      shippingLabelCostReversedCents: true,
       listing: { select: { isCompanyListing: true } },
       liveShippingSession: {
         select: {
@@ -104,11 +106,13 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
     platformFeesUsd += feeUsd;
     processingFeesUsd += estimateStripeProcessingFeeUsd(o.totalUsd);
 
-    // Shipping is a pass-through to the seller (not platform revenue) — include it in seller net
-    // so this figure matches what `estimateSellerOrderPayoutUsd` shows sellers on their own
-    // Sales report for the same order.
+    // Shipping is pass-through to the seller; GV label cost is deducted when purchased.
     const shippingUsd = Math.max(0, o.shippingPriceUsd ?? 0);
-    const sellerNet = item - feeUsd - Math.max(0, o.payoutReserveAmountCents) / 100 + shippingUsd;
+    const labelCostUsd =
+      o.shippingLabelCostReversedCents != null && o.shippingLabelCostReversedCents > 0
+        ? o.shippingLabelCostReversedCents / 100
+        : Math.max(0, o.shippingLabelCostCents ?? 0) / 100;
+    const sellerNet = item - feeUsd - Math.max(0, o.payoutReserveAmountCents) / 100 + shippingUsd - labelCostUsd;
 
     if (o.payoutStatus === "paid_out") {
       sellerPayoutsUsd += Math.max(0, sellerNet);

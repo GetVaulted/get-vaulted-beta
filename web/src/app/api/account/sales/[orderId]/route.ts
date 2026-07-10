@@ -51,6 +51,8 @@ const orderSelect = {
   payoutMethod: true,
   stripeCheckoutSessionId: true,
   shippingChargedCents: true,
+  shippingLabelCostCents: true,
+  shippingLabelCostReversedCents: true,
   liveShippingSession: {
     select: {
       liveShowId: true,

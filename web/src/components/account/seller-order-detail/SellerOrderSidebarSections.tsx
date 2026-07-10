@@ -28,6 +28,8 @@ export type SellerOrderSidebarProps = {
   payoutEstimateUsd: number;
   payoutStatus: string;
   shippingAddressIncomplete?: boolean;
+  shippingLabelCostCents?: number | null;
+  shippingLabelCostReversedCents?: number | null;
 };
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
@@ -93,12 +95,19 @@ export function SellerOrderSidebarSections(props: SellerOrderSidebarProps) {
         <div className="space-y-2">
           <MoneyRow label="Get Vaulted fee" value={`−${formatMoney(props.platformFeeEstimateUsd)}`} />
           <MoneyRow label="Stripe fee" value={`−${formatMoney(props.stripeProcessingFeeEstimateUsd)}`} />
+          {(props.shippingLabelCostReversedCents ?? props.shippingLabelCostCents ?? 0) > 0 ? (
+            <MoneyRow
+              label="Shipping label"
+              value={`−${formatMoney((props.shippingLabelCostReversedCents ?? props.shippingLabelCostCents ?? 0) / 100)}`}
+            />
+          ) : null}
           <div className="my-2 border-t border-white/[0.06]" />
           <MoneyRow label="Est. payout" value={formatMoney(props.payoutEstimateUsd)} strong accent />
           <p className="pt-1 text-xs text-zinc-500">
             Status: <span className="font-semibold text-zinc-300">{formatPayoutStatus(props.payoutStatus)}</span>
             {" · "}
-            3-day hold after delivery
+            Shipping collected at checkout is yours. Creating a Get Vaulted label deducts the carrier cost from
+            payout. 3-day hold after delivery.
           </p>
         </div>
       </Panel>

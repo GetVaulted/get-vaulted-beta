@@ -1658,6 +1658,14 @@ model Order {
   shippingChargedCents       Int?
   /// Carrier label price from Shippo (cents) when a label is purchased.
   shippingLabelCostCents     Int?
+  /// Stripe Connect destination-charge transfer id (tr_…) for this order's payment.
+  stripeTransferId           String?
+  /// Latest Stripe transfer reversal id (trr_…) that clawed back a Get Vaulted label cost.
+  shippingLabelCostReversalId String?
+  /// Shippo transaction id that was last successfully charged to the seller (idempotency).
+  shippingLabelCostChargedShippoTransactionId String?
+  /// Cumulative label cost reversed from the seller Connect balance (cents). Used for payout net.
+  shippingLabelCostReversedCents Int                    @default(0)
   /// Seller subsidy when cap/free shipping applies (cents).
   sellerShippingSubsidyCents Int                        @default(0)
   shippingCapApplied         Boolean                    @default(false)

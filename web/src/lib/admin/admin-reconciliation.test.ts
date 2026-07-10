@@ -19,6 +19,7 @@ function marketplaceOrder(overrides: Record<string, unknown> = {}) {
     payoutStatus: "held",
     payoutReserveAmountCents: 0,
     shippingLabelCostCents: null,
+    shippingLabelCostReversedCents: 0,
     listing: { isCompanyListing: false },
     liveShippingSession: null,
     ...overrides,
@@ -110,7 +111,24 @@ describe("loadAdminReconciliationReport", () => {
     const report = await loadAdminReconciliationReport("30d");
 
     expect(report.shippingLabelCostUsd).toBe(12.5);
+    // No seller reversal recorded → unrecovered label cost reduces company net.
     expect(report.companyNetRevenueUsd).toBe(report.platformRevenueUsd - 12.5);
+  });
+
+  it("does not reduce company net for label costs already clawed back from the seller", async () => {
+    prismaMock.order.findMany.mockResolvedValue([
+      marketplaceOrder({
+        shippingLabelCostCents: 750,
+        shippingLabelCostReversedCents: 750,
+      }),
+    ]);
+
+    const report = await loadAdminReconciliationReport("30d");
+
+    expect(report.shippingLabelCostUsd).toBe(7.5);
+    expect(report.companyNetRevenueUsd).toBe(report.platformRevenueUsd);
+    // Seller net = 100 - 8 + 10 - 7.5 = 94.5
+    expect(report.sellerNetUsd).toBe(94.5);
   });
 
   it("applies the live-show tiered fee instead of the flat marketplace rate for live orders", async () => {

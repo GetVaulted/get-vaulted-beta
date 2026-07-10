@@ -45,6 +45,8 @@ const orderSelect = {
   itemPriceUsd: true,
   shippingPriceUsd: true,
   totalUsd: true,
+  shippingLabelCostCents: true,
+  shippingLabelCostReversedCents: true,
   payoutStatus: true,
   payoutMethod: true,
   payoutBlockedReason: true,
@@ -64,18 +66,16 @@ const orderSelect = {
 } as const;
 
 /**
- * Actual dollar amount transferred to the seller's Connect balance at charge time (item +
- * shipping − platform fee). Instant-payout exposure limits must be measured against this, not
- * raw `itemPriceUsd` — otherwise the platform's real risk (what it could lose to a subsequent
- * refund/chargeback after paying out instantly) is measured against the wrong number, understating
- * exposure on high-shipping orders and overstating it on high-fee orders. `payoutReserveAmountCents`
- * is intentionally NOT subtracted here: it's bookkeeping only today (computed after the Stripe
- * transfer already happened) and does not reduce what actually reached the seller — see
- * `payoutReserveAmountCents` schema comment for the full policy writeup.
+ * Seller net for instant-payout exposure: item + shipping − platform fee − GV label cost already
+ * clawed back. Instant-payout limits must track what remains on the Connect balance after label
+ * deductions, not raw `itemPriceUsd`. `payoutReserveAmountCents` is intentionally NOT subtracted
+ * here: it's bookkeeping only today (computed after the Stripe transfer already happened).
  */
 function resolveOrderSellerNetUsd(order: {
   itemPriceUsd: number;
   shippingPriceUsd: number;
+  shippingLabelCostCents?: number | null;
+  shippingLabelCostReversedCents?: number | null;
   paymentStatus: string;
   listing: { isCompanyListing: boolean };
   liveShippingSession: {
@@ -97,6 +97,8 @@ function resolveOrderSellerNetUsd(order: {
     shippingPriceUsd: order.shippingPriceUsd,
     platformFeePercent: feePct,
     payoutReserveAmountCents: 0,
+    shippingLabelCostCents: order.shippingLabelCostCents,
+    shippingLabelCostReversedCents: order.shippingLabelCostReversedCents,
   });
 }
 

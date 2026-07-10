@@ -11,14 +11,23 @@ export function estimateSellerOrderPayoutUsd(args: {
   payoutReserveAmountCents: number;
   platformFeePercent?: number;
   shippingPriceUsd?: number;
+  /** Cumulative Get Vaulted label cost already deducted from seller (USD cents). */
+  shippingLabelCostCents?: number | null;
+  shippingLabelCostReversedCents?: number | null;
 }): number {
   const feePct = args.platformFeePercent ?? marketplacePlatformFeePercent();
   const item = Math.max(0, args.itemPriceUsd);
   const feeUsd = (item * feePct) / 100;
   const reserveUsd = Math.max(0, args.payoutReserveAmountCents) / 100;
   const shippingUsd = Math.max(0, args.shippingPriceUsd ?? 0);
-  // Platform fee on item only; shipping pass-through; Stripe processing deducted separately by Stripe.
-  return Math.max(0, Math.round((item - feeUsd - reserveUsd + shippingUsd) * 100) / 100);
+  const reversedCents =
+    args.shippingLabelCostReversedCents != null
+      ? Math.max(0, args.shippingLabelCostReversedCents)
+      : Math.max(0, args.shippingLabelCostCents ?? 0);
+  const labelCostUsd = reversedCents / 100;
+  // Platform fee on item only; shipping pass-through; GV label cost deducted when purchased.
+  // Stripe processing deducted separately by Stripe.
+  return Math.max(0, Math.round((item - feeUsd - reserveUsd + shippingUsd - labelCostUsd) * 100) / 100);
 }
 
 const DEFAULT_STRIPE_PROCESSING_PERCENT = 2.9;

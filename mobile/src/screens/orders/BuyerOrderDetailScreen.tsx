@@ -19,6 +19,7 @@ import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader
 import { VaultImage } from '../../components/ui/VaultImage';
 import { ReportButton } from '../../components/trust/ReportSheet';
 import { OrderRefundRequestSection } from '../../components/orders/OrderRefundRequestSection';
+import { BuyerOrderShipToSection } from '../../components/orders/BuyerOrderShipToSection';
 import { useAuth } from '../../auth/AuthContext';
 import {
   openContactSupport,
@@ -205,6 +206,8 @@ export function BuyerOrderDetailScreen({ navigation, route }: Props) {
               }
             />
           </View>
+
+          <BuyerOrderShipToSection accessToken={session?.access_token} orderId={order.id} />
 
           {order.status !== 'pending_payment' && order.status !== 'cancelled' && order.status !== 'canceled' ? (
             <OrderRefundRequestSection

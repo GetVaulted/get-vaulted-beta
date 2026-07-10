@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canBuyerUpdateOrderShipping,
   canSellerCreateShippingLabel,
   sellerMayMarkOrderShipped,
   sellerMayShowFulfillmentControls,
@@ -73,5 +74,55 @@ describe("sellerMayShowFulfillmentControls", () => {
     expect(sellerMayShowFulfillmentControls({ paymentStatus: "failed" })).toBe(false);
     expect(sellerMayShowFulfillmentControls({ paymentStatus: "expired" })).toBe(false);
     expect(sellerMayShowFulfillmentControls({ paymentStatus: "paid" })).toBe(true);
+  });
+});
+
+describe("canBuyerUpdateOrderShipping", () => {
+  it("allows paid order with no label", () => {
+    expect(
+      canBuyerUpdateOrderShipping({
+        status: "paid",
+        labelUrl: null,
+        shippoTransactionId: null,
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  it("allows exception retry when no label PDF", () => {
+    expect(
+      canBuyerUpdateOrderShipping({
+        status: "paid",
+        labelUrl: null,
+        shippoTransactionId: "txn_1",
+        fulfillmentStatus: "exception",
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  it("blocks when label exists", () => {
+    expect(
+      canBuyerUpdateOrderShipping({
+        status: "paid",
+        labelUrl: "https://example/label.pdf",
+        shippoTransactionId: null,
+      }),
+    ).toEqual({ ok: false, code: "LABEL_EXISTS" });
+  });
+
+  it("blocks shipped and terminal statuses", () => {
+    expect(
+      canBuyerUpdateOrderShipping({
+        status: "shipped",
+        labelUrl: null,
+        shippoTransactionId: null,
+      }),
+    ).toEqual({ ok: false, code: "ALREADY_SHIPPED" });
+    expect(
+      canBuyerUpdateOrderShipping({
+        status: "delivered",
+        labelUrl: null,
+        shippoTransactionId: null,
+      }),
+    ).toEqual({ ok: false, code: "TERMINAL" });
   });
 });

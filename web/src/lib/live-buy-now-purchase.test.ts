@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/order-shipping-guards", () => ({ isIncompleteOrderShipping: vi.fn().mockReturnValue(false) }));
+const { isIncompleteOrderShipping, canBuyerUpdateOrderShipping } = vi.hoisted(() => ({
+  isIncompleteOrderShipping: vi.fn().mockReturnValue(false),
+  canBuyerUpdateOrderShipping: vi.fn().mockReturnValue({ ok: true }),
+}));
+
+vi.mock("@/lib/order-shipping-guards", () => ({
+  isIncompleteOrderShipping,
+  canBuyerUpdateOrderShipping,
+}));
 vi.mock("@/lib/address-book", () => ({ isShippingAddressCompleteForLabels: vi.fn().mockReturnValue(true) }));
 vi.mock("@/lib/escrow-config", () => ({
   isEscrowConfigured: vi.fn().mockReturnValue(false),
@@ -68,12 +76,23 @@ const prismaMock = vi.hoisted(() => ({
     updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     delete: vi.fn().mockResolvedValue(undefined),
   },
+  address: { findFirst: vi.fn() },
+  order: {
+    findUnique: vi.fn(),
+    findMany: vi.fn(),
+    update: vi.fn().mockResolvedValue(undefined),
+  },
   $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(prismaMock)),
 }));
 
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
-import { finalizeBreakSpotPaid, releaseBreakSpotOnDefiniteFailure } from "@/lib/live-buy-now-purchase";
+import {
+  applyBuyerWalletShippingToOrder,
+  finalizeBreakSpotPaid,
+  releaseBreakSpotOnDefiniteFailure,
+  syncBuyerWalletShippingToOpenOrders,
+} from "@/lib/live-buy-now-purchase";
 import { emitBreakSpotsChanged, emitLiveRoomMessagesRefetch } from "@/lib/realtime-emit-server";
 import { createNotification } from "@/lib/notifications";
 
@@ -270,5 +289,87 @@ describe("releaseBreakSpotOnDefiniteFailure — FIX 6", () => {
     await releaseBreakSpotOnDefiniteFailure("spot_missing");
 
     expect(prismaMock.breakSpot.delete).not.toHaveBeenCalled();
+  });
+});
+
+const walletAddr = {
+  id: "addr_1",
+  fullName: "Test Buyer",
+  name: "Test Buyer",
+  line1: "123 Main St",
+  line2: null,
+  city: "Austin",
+  state: "TX",
+  postalCode: "78701",
+  country: "US",
+  phone: "5125550100",
+};
+
+const baseShipOrder = {
+  id: "ord_1",
+  buyerId: "buyer_1",
+  status: "paid",
+  buyerAddressId: "addr_old",
+  shipRecipientName: "Old Name",
+  shipAddress: "999 Test Ln",
+  shipCity: "Austin",
+  shipState: "TX",
+  shipZip: "78701",
+  shipCountry: "US",
+  fulfillmentStatus: "pending",
+  shippoTransactionId: null,
+  labelUrl: null,
+  trackingNumber: null,
+};
+
+describe("applyBuyerWalletShippingToOrder", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    canBuyerUpdateOrderShipping.mockReturnValue({ ok: true });
+    isIncompleteOrderShipping.mockReturnValue(false);
+    prismaMock.address.findFirst.mockResolvedValue(walletAddr);
+    prismaMock.order.findUnique.mockResolvedValue(baseShipOrder);
+  });
+
+  it("copies Wallet default onto a paid pre-label order", async () => {
+    const result = await applyBuyerWalletShippingToOrder("ord_1", "buyer_1");
+    expect(result).toMatchObject({ ok: true, updated: true });
+    expect(prismaMock.order.update).toHaveBeenCalledWith({
+      where: { id: "ord_1" },
+      data: expect.objectContaining({
+        shipAddress: "123 Main St",
+        shipCity: "Austin",
+        shipZip: "78701",
+        buyerAddressId: "addr_1",
+      }),
+    });
+  });
+
+  it("rejects when another buyer owns the order", async () => {
+    const result = await applyBuyerWalletShippingToOrder("ord_1", "other_buyer");
+    expect(result).toEqual({ ok: false, code: "FORBIDDEN" });
+    expect(prismaMock.order.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects when a label already exists", async () => {
+    canBuyerUpdateOrderShipping.mockReturnValue({ ok: false, code: "LABEL_EXISTS" });
+    const result = await applyBuyerWalletShippingToOrder("ord_1", "buyer_1");
+    expect(result).toEqual({ ok: false, code: "LABEL_EXISTS" });
+    expect(prismaMock.order.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("syncBuyerWalletShippingToOpenOrders", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    canBuyerUpdateOrderShipping.mockReturnValue({ ok: true });
+    prismaMock.address.findFirst.mockResolvedValue(walletAddr);
+    prismaMock.order.findMany.mockResolvedValue([baseShipOrder]);
+  });
+
+  it("updates eligible open orders from Wallet", async () => {
+    const result = await syncBuyerWalletShippingToOpenOrders("buyer_1");
+    expect(result.updatedOrderIds).toEqual(["ord_1"]);
+    expect(prismaMock.order.update).toHaveBeenCalledTimes(1);
   });
 });

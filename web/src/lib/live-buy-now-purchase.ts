@@ -1,7 +1,7 @@
 import { OrderPaymentMethod } from "@/generated/prisma/enums";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { prisma } from "@/lib/prisma";
-import { isIncompleteOrderShipping } from "@/lib/order-shipping-guards";
+import { canBuyerUpdateOrderShipping, isIncompleteOrderShipping } from "@/lib/order-shipping-guards";
 import { isShippingAddressCompleteForLabels } from "@/lib/address-book";
 import { isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
 import {
@@ -95,33 +95,72 @@ function orderShippingNeedsBuyerRefresh(order: {
   return isIncompleteOrderShipping(order);
 }
 
-/** Refresh buyer Wallet default onto an order when ship-to placeholders are stale (including paid orders). */
-export async function refreshBuyerShippingOnOrderIfIncomplete(
+type OrderShipToSelect = {
+  id: true;
+  buyerId: true;
+  status: true;
+  buyerAddressId: true;
+  shipRecipientName: true;
+  shipAddress: true;
+  shipCity: true;
+  shipState: true;
+  shipZip: true;
+  shipCountry: true;
+  fulfillmentStatus: true;
+  shippoTransactionId: true;
+  labelUrl: true;
+  trackingNumber: true;
+};
+
+const orderShipToSelect = {
+  id: true,
+  buyerId: true,
+  status: true,
+  buyerAddressId: true,
+  shipRecipientName: true,
+  shipAddress: true,
+  shipCity: true,
+  shipState: true,
+  shipZip: true,
+  shipCountry: true,
+  fulfillmentStatus: true,
+  shippoTransactionId: true,
+  labelUrl: true,
+  trackingNumber: true,
+} satisfies OrderShipToSelect;
+
+function orderShipToMatchesSnapshot(
+  order: {
+    buyerAddressId: string | null;
+    shipRecipientName: string | null;
+    shipAddress: string | null;
+    shipCity: string | null;
+    shipState: string | null;
+    shipZip: string | null;
+    shipCountry: string | null;
+  },
+  shipping: BuyerShippingSnapshot,
+): boolean {
+  return (
+    order.buyerAddressId === shipping.buyerAddressId &&
+    (order.shipRecipientName ?? "").trim() === shipping.shipRecipientName &&
+    (order.shipAddress ?? "").trim() === shipping.shipAddress &&
+    (order.shipCity ?? "").trim() === shipping.shipCity &&
+    (order.shipState ?? "").trim() === shipping.shipState &&
+    (order.shipZip ?? "").trim() === shipping.shipZip &&
+    (order.shipCountry ?? "").trim().toUpperCase() === shipping.shipCountry
+  );
+}
+
+async function writeBuyerShippingOntoOrder(
   orderId: string,
-): Promise<
-  { ok: true; updated: boolean } | { ok: false; code: "ORDER_NOT_FOUND" | "NO_SHIPPING_ADDRESS" }
-> {
-  const order = await prisma.order.findUnique({
-    where: { id: orderId },
-    select: {
-      id: true,
-      buyerId: true,
-      buyerAddressId: true,
-      shipAddress: true,
-      shipCity: true,
-      shipState: true,
-      shipZip: true,
-      fulfillmentStatus: true,
-      shippoTransactionId: true,
-      labelUrl: true,
-    },
-  });
-  if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
-  if (!isIncompleteOrderShipping(order)) return { ok: true, updated: false };
-
-  const shipping = await resolveBuyerDefaultShippingForOrder(order.buyerId);
-  if (!shipping) return { ok: false, code: "NO_SHIPPING_ADDRESS" };
-
+  order: {
+    fulfillmentStatus: string;
+    shippoTransactionId: string | null;
+    labelUrl: string | null;
+  },
+  shipping: BuyerShippingSnapshot,
+): Promise<void> {
   const resetException =
     order.fulfillmentStatus === "exception" &&
     !order.shippoTransactionId?.trim() &&
@@ -140,7 +179,103 @@ export async function refreshBuyerShippingOnOrderIfIncomplete(
       ...(resetException ? { fulfillmentStatus: "pending" } : {}),
     },
   });
+}
+
+/** Refresh buyer Wallet default onto an order when ship-to placeholders are stale (including paid orders). */
+export async function refreshBuyerShippingOnOrderIfIncomplete(
+  orderId: string,
+): Promise<
+  { ok: true; updated: boolean } | { ok: false; code: "ORDER_NOT_FOUND" | "NO_SHIPPING_ADDRESS" }
+> {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: orderShipToSelect,
+  });
+  if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
+  if (!isIncompleteOrderShipping(order)) return { ok: true, updated: false };
+
+  const shipping = await resolveBuyerDefaultShippingForOrder(order.buyerId);
+  if (!shipping) return { ok: false, code: "NO_SHIPPING_ADDRESS" };
+
+  await writeBuyerShippingOntoOrder(orderId, order, shipping);
   return { ok: true, updated: true };
+}
+
+/**
+ * Copy the buyer's current Wallet default ship-to onto an order before a label exists.
+ * Works for paid orders with a complete-but-wrong address (unlike incomplete-only refresh).
+ */
+export async function applyBuyerWalletShippingToOrder(
+  orderId: string,
+  buyerId: string,
+): Promise<
+  | { ok: true; updated: boolean; shipping: BuyerShippingSnapshot }
+  | {
+      ok: false;
+      code:
+        | "ORDER_NOT_FOUND"
+        | "FORBIDDEN"
+        | "NO_SHIPPING_ADDRESS"
+        | "LABEL_EXISTS"
+        | "ALREADY_SHIPPED"
+        | "TERMINAL";
+    }
+> {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: orderShipToSelect,
+  });
+  if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
+  if (order.buyerId !== buyerId) return { ok: false, code: "FORBIDDEN" };
+
+  const gate = canBuyerUpdateOrderShipping(order);
+  if (!gate.ok) return { ok: false, code: gate.code };
+
+  const shipping = await resolveBuyerDefaultShippingForOrder(buyerId);
+  if (!shipping) return { ok: false, code: "NO_SHIPPING_ADDRESS" };
+
+  if (orderShipToMatchesSnapshot(order, shipping)) {
+    return { ok: true, updated: false, shipping };
+  }
+
+  await writeBuyerShippingOntoOrder(orderId, order, shipping);
+  return { ok: true, updated: true, shipping };
+}
+
+/** After Wallet shipping changes, push the new default onto all pre-label open orders. */
+export async function syncBuyerWalletShippingToOpenOrders(
+  buyerId: string,
+): Promise<{ updatedOrderIds: string[]; skipped: number }> {
+  const shipping = await resolveBuyerDefaultShippingForOrder(buyerId);
+  if (!shipping) return { updatedOrderIds: [], skipped: 0 };
+
+  const orders = await prisma.order.findMany({
+    where: {
+      buyerId,
+      status: { notIn: ["cancelled", "delivered", "completed", "shipped"] },
+      OR: [{ labelUrl: null }, { labelUrl: "" }],
+    },
+    select: orderShipToSelect,
+    take: 100,
+    orderBy: { createdAt: "desc" },
+  });
+
+  const updatedOrderIds: string[] = [];
+  let skipped = 0;
+  for (const order of orders) {
+    const gate = canBuyerUpdateOrderShipping(order);
+    if (!gate.ok) {
+      skipped += 1;
+      continue;
+    }
+    if (orderShipToMatchesSnapshot(order, shipping)) {
+      skipped += 1;
+      continue;
+    }
+    await writeBuyerShippingOntoOrder(order.id, order, shipping);
+    updatedOrderIds.push(order.id);
+  }
+  return { updatedOrderIds, skipped };
 }
 
 export async function syncBuyerDefaultShippingToPendingOrder(

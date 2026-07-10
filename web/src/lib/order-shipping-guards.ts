@@ -64,3 +64,33 @@ export function isIncompleteOrderShipping(order: {
   if (city === "—" || city === "-") return true;
   return false;
 }
+
+/**
+ * Buyer may replace order ship-to from Wallet only before a label ships.
+ * Paid orders with a complete-but-wrong address are included.
+ */
+export function canBuyerUpdateOrderShipping(order: {
+  status: string;
+  labelUrl: string | null;
+  shippoTransactionId: string | null;
+  fulfillmentStatus?: string | null;
+  trackingNumber?: string | null;
+}): { ok: true } | { ok: false; code: "LABEL_EXISTS" | "ALREADY_SHIPPED" | "TERMINAL" } {
+  const status = (order.status ?? "").trim().toLowerCase();
+  if (
+    status === "cancelled" ||
+    status === "canceled" ||
+    status === "delivered" ||
+    status === "completed"
+  ) {
+    return { ok: false, code: "TERMINAL" };
+  }
+  if (status === "shipped" || order.trackingNumber?.trim()) {
+    return { ok: false, code: "ALREADY_SHIPPED" };
+  }
+  if (order.labelUrl?.trim()) return { ok: false, code: "LABEL_EXISTS" };
+  if (order.shippoTransactionId?.trim() && order.fulfillmentStatus !== "exception") {
+    return { ok: false, code: "LABEL_EXISTS" };
+  }
+  return { ok: true };
+}

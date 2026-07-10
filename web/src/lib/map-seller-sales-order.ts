@@ -55,6 +55,8 @@ export type SellerSalesOrderRowInput = {
   payoutReserveAmountCents: number;
   deliveryConfirmedAt: Date | null;
   payoutMethod: string;
+  shippingLabelCostCents?: number | null;
+  shippingLabelCostReversedCents?: number | null;
   liveShippingSession: {
     liveShowId: string | null;
     liveShow: { completedSalesGmvUsd: number; finalSalesGmvUsd: number | null; status: string; title?: string } | null;
@@ -145,11 +147,15 @@ export function mapSellerSalesOrderForApi(user: SellerSalesOrderUser, o: SellerS
       platformFeePercent,
     }),
     stripeProcessingFeeEstimateUsd: estimateStripeProcessingFeeUsd(o.totalUsd),
+    shippingLabelCostCents: o.shippingLabelCostCents ?? null,
+    shippingLabelCostReversedCents: o.shippingLabelCostReversedCents ?? null,
     payoutEstimateUsd: estimateSellerOrderPayoutUsd({
       itemPriceUsd: o.itemPriceUsd,
       shippingPriceUsd: o.shippingPriceUsd,
       payoutReserveAmountCents: o.payoutReserveAmountCents,
       platformFeePercent,
+      shippingLabelCostCents: o.shippingLabelCostCents,
+      shippingLabelCostReversedCents: o.shippingLabelCostReversedCents,
     }),
     listing: o.listing,
     buyer: o.buyer,

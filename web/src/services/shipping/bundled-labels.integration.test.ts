@@ -26,6 +26,20 @@ vi.mock("@/lib/shippo", () => ({
   shippoPurchaseRate: (...args: unknown[]) => shippoHoisted.purchase(...args) as Promise<unknown>,
 }));
 
+vi.mock("@/services/shipping/charge-seller-label-cost", () => ({
+  chargeSellerForLabelCost: vi.fn().mockResolvedValue({
+    ok: true,
+    reversedCents: 501,
+    reversalId: "trr_bundle_1",
+    skipped: false,
+  }),
+  markOrderLabelCostReversalFailed: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/services/payout/process-payout-tier-events", () => ({
+  processLabelCreatedPayoutEvaluation: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe("generateBundledShippoLabelForSession (integration)", () => {
   beforeAll(async () => {
     await bootstrapIntegrationPrisma();

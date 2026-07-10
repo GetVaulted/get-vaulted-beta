@@ -213,12 +213,31 @@ export async function fulfillOrderShippingAfterPayment(
         shippingLabelCostCents,
       },
     });
+
+    const { chargeSellerForLabelCost, markOrderLabelCostReversalFailed } = await import(
+      "@/services/shipping/charge-seller-label-cost"
+    );
+    const debit = await chargeSellerForLabelCost({
+      orderId,
+      labelCostCents: shippingLabelCostCents,
+      shippoTransactionId: txId,
+    });
+    if (!debit.ok) {
+      await markOrderLabelCostReversalFailed(orderId);
+      console.error("[shipping] label cost debit failed after purchase", {
+        orderId,
+        code: debit.code,
+        error: debit.error,
+      });
+    }
+
     const chargedCents =
       order.shippingChargedCents ?? Math.round(Math.max(0, order.shippingPriceUsd) * 100);
     console.info("[shipping economics]", {
       orderId,
       shippingChargedCents: chargedCents,
       shippingLabelCostCents,
+      labelCostDebitOk: debit.ok,
     });
     const lt =
       order.listing.title.length > 80 ? `${order.listing.title.slice(0, 77)}...` : order.listing.title;
