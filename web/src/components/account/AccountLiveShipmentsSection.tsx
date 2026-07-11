@@ -6,7 +6,11 @@ import type {
   SellerLiveShippingDashboard,
   SellerLiveShippingSessionRow,
 } from "@/lib/seller-live-shipping-dashboard-types";
-import { openLabelForPrint } from "@/lib/seller-shipping-label-state";
+import {
+  openLabelForPrint,
+  type SellerLabelPrintFormat,
+} from "@/lib/seller-shipping-label-state";
+import { storeLabelPrintFormat } from "@/lib/shippo-label-format";
 
 type ManualParcel = { weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
 
@@ -78,7 +82,7 @@ function LabelParcelModal({
   contextLine: string;
   sessionId?: string;
   shippingChargedCents?: number;
-  onConfirm: (parcel: ManualParcel) => void;
+  onConfirm: (parcel: ManualParcel, labelFormat: SellerLabelPrintFormat) => void;
   onCancel: () => void;
 }) {
   const [weightOz, setWeightOz] = useState("4");
@@ -86,6 +90,7 @@ function LabelParcelModal({
   const [widthIn, setWidthIn] = useState("4");
   const [heightIn, setHeightIn] = useState("1");
   const [activePreset, setActivePreset] = useState<string>("Card mailer");
+  const [labelFormat, setLabelFormat] = useState<SellerLabelPrintFormat>("thermal_4x6");
   const [rateBusy, setRateBusy] = useState(false);
   const [rateError, setRateError] = useState<string | null>(null);
   const [rates, setRates] = useState<
@@ -238,6 +243,33 @@ function LabelParcelModal({
         </div>
         <p className="mt-1.5 text-[10px] text-zinc-600">L × W × H — measure the outside of the box or mailer</p>
 
+        <p className="mt-4 text-[10px] font-bold uppercase tracking-wide text-zinc-500">Label size</p>
+        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+          {(
+            [
+              ["thermal_4x6", "4×6 thermal", "Buys a real 4×6 PDF from Shippo for label printers"],
+              ["letter", "Letter (8.5×11)", "Full-page PDF for regular printers"],
+            ] as const
+          ).map(([value, title, hint]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => {
+                setLabelFormat(value);
+                storeLabelPrintFormat(value);
+              }}
+              className={`rounded-lg border px-2.5 py-2 text-left transition ${
+                labelFormat === value
+                  ? "border-amber-400/55 bg-amber-500/15 text-amber-50"
+                  : "border-white/[0.08] bg-zinc-900/60 text-zinc-300 hover:border-white/20 hover:bg-zinc-800/60"
+              }`}
+            >
+              <p className="text-[11px] font-semibold leading-tight">{title}</p>
+              <p className="mt-0.5 text-[10px] leading-tight text-zinc-400">{hint}</p>
+            </button>
+          ))}
+        </div>
+
         <div className="mt-4 rounded-lg border border-white/[0.08] bg-zinc-950/80 px-3 py-3">
           <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Estimated label cost</p>
           {!sessionId ? (
@@ -295,10 +327,12 @@ function LabelParcelModal({
           <button
             type="button"
             disabled={!valid || rateBusy}
-            onClick={() => valid && onConfirm(parsed)}
+            onClick={() => valid && onConfirm(parsed, labelFormat)}
             className="rounded-lg border border-sky-400/40 bg-sky-500/20 px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-sky-50 transition hover:bg-sky-500/30 disabled:opacity-40"
           >
-            {cheapestCents != null ? `Create label · ${formatMoneyCents(cheapestCents)}` : "Create label"}
+            {cheapestCents != null
+              ? `Create ${labelFormat === "thermal_4x6" ? "4×6" : "letter"} · ${formatMoneyCents(cheapestCents)}`
+              : `Create ${labelFormat === "thermal_4x6" ? "4×6" : "letter"} label`}
           </button>
         </div>
       </div>
@@ -574,8 +608,16 @@ type Props = {
   bundledBusySessionId: string | null;
   bundledSessionFeedback?: Record<string, { tone: "error" | "success" | "warning"; message: string }>;
   orderLabelFeedback?: Record<string, { tone: "error" | "success" | "warning"; message: string }>;
-  onCreateLabel: (orderId: string, manualParcel?: ManualParcel) => void;
-  onCreateBundledLabel: (sessionId: string, manualParcel?: ManualParcel) => void;
+  onCreateLabel: (
+    orderId: string,
+    manualParcel?: ManualParcel,
+    labelFormat?: SellerLabelPrintFormat,
+  ) => void;
+  onCreateBundledLabel: (
+    sessionId: string,
+    manualParcel?: ManualParcel,
+    labelFormat?: SellerLabelPrintFormat,
+  ) => void;
 };
 
 type ParcelModalState =
@@ -738,13 +780,13 @@ export function AccountLiveShipmentsSection({
           }
           sessionId={parcelModal.kind === "bundled" ? parcelModal.session.sessionId : undefined}
           shippingChargedCents={parcelModal.session.shippingChargedCents}
-          onConfirm={(parcel) => {
+          onConfirm={(parcel, format) => {
             const modal = parcelModal;
             setParcelModal(null);
             if (modal.kind === "bundled") {
-              onCreateBundledLabel(modal.session.sessionId, parcel);
+              onCreateBundledLabel(modal.session.sessionId, parcel, format);
             } else {
-              onCreateLabel(modal.orderId, parcel);
+              onCreateLabel(modal.orderId, parcel, format);
             }
           }}
           onCancel={() => setParcelModal(null)}

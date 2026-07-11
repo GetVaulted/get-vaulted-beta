@@ -14,7 +14,7 @@ import { ExpiredAuctionRecoveryPanel } from "@/components/listings/ExpiredAuctio
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
 import { orderStatusLabel, orderStatusTone } from "@/lib/order-status";
 import { sellerMayShowFulfillmentControls } from "@/lib/order-shipping-guards";
-import { readStoredLabelPrintFormat, type SellerLabelPrintFormat } from "@/lib/shippo-label-format";
+import { type SellerLabelPrintFormat } from "@/lib/shippo-label-format";
 import { openLabelForPrint } from "@/lib/seller-shipping-label-state";
 import type { SellerLiveShippingDashboard } from "@/lib/seller-live-shipping-dashboard-types";
 
@@ -299,7 +299,7 @@ export function AccountSalesPage() {
 
   const createLabel = async (
     orderId: string,
-    labelFormat: SellerLabelPrintFormat = readStoredLabelPrintFormat(),
+    labelFormat: SellerLabelPrintFormat = "thermal_4x6",
     manualParcel?: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number },
   ) => {
     setLabelError(null);
@@ -352,7 +352,7 @@ export function AccountSalesPage() {
 
   const createBundledLabel = async (
     sessionId: string,
-    labelFormat: SellerLabelPrintFormat = readStoredLabelPrintFormat(),
+    labelFormat: SellerLabelPrintFormat = "thermal_4x6",
     manualParcel?: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number },
   ) => {
     setLabelError(null);
@@ -514,8 +514,8 @@ export function AccountSalesPage() {
                 bundledBusySessionId={bundledBusySessionId}
                 bundledSessionFeedback={bundledSessionFeedback}
                 labelError={labelError}
-                onCreateLabel={(orderId, mp) => void createLabel(orderId, readStoredLabelPrintFormat(), mp)}
-                onCreateBundledLabel={(sid, mp) => void createBundledLabel(sid, readStoredLabelPrintFormat(), mp)}
+                onCreateLabel={(orderId, mp, fmt) => void createLabel(orderId, fmt ?? "thermal_4x6", mp)}
+                onCreateBundledLabel={(sid, mp, fmt) => void createBundledLabel(sid, fmt ?? "thermal_4x6", mp)}
                 onMarkShipped={(order) => {
                   const row = rows.find((r) => r.id === order.id);
                   if (row) setModal({ order: row, mode: "markShipped" });
@@ -590,8 +590,8 @@ export function AccountSalesPage() {
               bundledBusySessionId={bundledBusySessionId}
               bundledSessionFeedback={bundledSessionFeedback}
               orderLabelFeedback={orderLabelFeedback}
-              onCreateLabel={(orderId, mp) => void createLabel(orderId, readStoredLabelPrintFormat(), mp)}
-              onCreateBundledLabel={(sid, mp) => void createBundledLabel(sid, readStoredLabelPrintFormat(), mp)}
+              onCreateLabel={(orderId, mp, fmt) => void createLabel(orderId, fmt ?? "thermal_4x6", mp)}
+              onCreateBundledLabel={(sid, mp, fmt) => void createBundledLabel(sid, fmt ?? "thermal_4x6", mp)}
             />
             {rows.length === 0 ? (
               <p className="mt-6 text-center text-sm text-zinc-500">

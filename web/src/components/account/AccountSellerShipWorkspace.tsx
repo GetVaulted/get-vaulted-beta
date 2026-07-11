@@ -40,8 +40,16 @@ type Props = {
   bundledBusySessionId: string | null;
   bundledSessionFeedback?: Record<string, BundledFeedback>;
   labelError: string | null;
-  onCreateLabel: (orderId: string, manualParcel?: ManualParcel) => void;
-  onCreateBundledLabel: (sessionId: string, manualParcel?: ManualParcel) => void;
+  onCreateLabel: (
+    orderId: string,
+    manualParcel?: ManualParcel,
+    labelFormat?: "letter" | "thermal_4x6",
+  ) => void;
+  onCreateBundledLabel: (
+    sessionId: string,
+    manualParcel?: ManualParcel,
+    labelFormat?: "letter" | "thermal_4x6",
+  ) => void;
   onMarkShipped: (order: ShipWorkspaceOrder) => void;
 };
 
@@ -149,7 +157,11 @@ function ShipOrderCard({
 }: {
   order: ShipWorkspaceOrder;
   labelBusyId: string | null;
-  onCreateLabel: (orderId: string, manualParcel?: ManualParcel) => void;
+  onCreateLabel: (
+    orderId: string,
+    manualParcel?: ManualParcel,
+    labelFormat?: "letter" | "thermal_4x6",
+  ) => void;
   onMarkShipped: (order: ShipWorkspaceOrder) => void;
   phase: "needs_label" | "print_and_ship" | "awaiting_carrier" | "in_transit" | "wait_payment";
 }) {
@@ -341,7 +353,7 @@ function ShipOrderCard({
               disabled={!parcelValid}
               onClick={() => {
                 setShowParcelModal(false);
-                onCreateLabel(order.id, parsedParcel);
+                onCreateLabel(order.id, parsedParcel, "thermal_4x6");
               }}
               className="rounded-lg border border-sky-400/40 bg-sky-500/20 px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-sky-50 transition hover:bg-sky-500/30 disabled:opacity-40"
             >
@@ -364,7 +376,11 @@ function BundleShipCard({
   session: SellerLiveShippingSessionRow;
   bundledBusySessionId: string | null;
   bundledSessionFeedback?: BundledFeedback;
-  onCreateBundledLabel: (sessionId: string, manualParcel?: ManualParcel) => void;
+  onCreateBundledLabel: (
+    sessionId: string,
+    manualParcel?: ManualParcel,
+    labelFormat?: "letter" | "thermal_4x6",
+  ) => void;
 }) {
   const [showParcelModal, setShowParcelModal] = useState(false);
   const [activePreset, setActivePreset] = useState("Card mailer");
@@ -524,7 +540,7 @@ function BundleShipCard({
               disabled={!parcelValid}
               onClick={() => {
                 setShowParcelModal(false);
-                onCreateBundledLabel(session.sessionId, parsedParcel);
+                onCreateBundledLabel(session.sessionId, parsedParcel, "thermal_4x6");
               }}
               className="rounded-lg border border-sky-400/40 bg-sky-500/20 px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-sky-50 transition hover:bg-sky-500/30 disabled:opacity-40"
             >

@@ -195,7 +195,7 @@ export async function fulfillOrderShippingAfterPayment(
 
     const tx = (await shippoPurchaseRate(
       picked.object_id,
-      shippoLabelFileTypeForPrintFormat(options?.labelFormat ?? "letter"),
+      shippoLabelFileTypeForPrintFormat(options?.labelFormat ?? "thermal_4x6"),
     )) as {
       object_id?: string;
       tracking_number?: string;

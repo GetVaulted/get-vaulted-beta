@@ -457,7 +457,7 @@ export async function generateBundledShippoLabelForSession(
 
       const tx = (await shippoPurchaseRate(
         cheapest.object_id,
-        shippoLabelFileTypeForPrintFormat(options?.labelFormat ?? "letter"),
+        shippoLabelFileTypeForPrintFormat(options?.labelFormat ?? "thermal_4x6"),
       )) as {
         object_id?: string;
         tracking_number?: string;
