@@ -6,6 +6,7 @@ import type {
   SellerLiveShippingDashboard,
   SellerLiveShippingSessionRow,
 } from "@/lib/seller-live-shipping-dashboard-types";
+import { openLabelForPrint } from "@/lib/seller-shipping-label-state";
 
 type ManualParcel = { weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
 
@@ -440,14 +441,30 @@ function SessionCard({
             <p className="mt-1 font-mono text-[10px] text-emerald-200/90">Tracking {s.bundledLabel.trackingNumber}</p>
           ) : null}
           {s.bundledLabel.labelUrl ? (
-            <a
-              href={s.bundledLabel.labelUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 inline-flex rounded-md border border-emerald-400/35 bg-emerald-500/15 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-50 transition hover:bg-emerald-500/25"
-            >
-              View label
-            </a>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => openLabelForPrint(s.bundledLabel!.labelUrl!, "letter")}
+                className="rounded-md border border-emerald-400/35 bg-emerald-500/15 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-50 transition hover:bg-emerald-500/25"
+              >
+                Print letter
+              </button>
+              <button
+                type="button"
+                onClick={() => openLabelForPrint(s.bundledLabel!.labelUrl!, "thermal_4x6")}
+                className="rounded-md border border-amber-400/40 bg-amber-500/20 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-50 transition hover:bg-amber-500/30"
+              >
+                Print 4×6
+              </button>
+              <a
+                href={s.bundledLabel.labelUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-md border border-zinc-500/35 bg-zinc-800/40 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-zinc-200 transition hover:bg-zinc-700/50"
+              >
+                Open PDF
+              </a>
+            </div>
           ) : null}
         </div>
       ) : null}

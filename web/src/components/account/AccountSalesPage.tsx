@@ -389,8 +389,8 @@ export function AccountSalesPage() {
         setBundledSessionFeedback((prev) => ({ ...prev, [sessionId]: { tone: "success", message: msg } }));
       } else {
         const msg = j.labelUrl
-          ? "Bundled label created — open View label below."
-          : "Label purchase recorded. Refresh if the PDF link does not appear.";
+          ? "Bundled label created — use Print letter or Print 4×6 below."
+          : "Label purchase recorded. Refresh if the print buttons do not appear.";
         setBundledSessionFeedback((prev) => ({ ...prev, [sessionId]: { tone: "success", message: msg } }));
       }
       await load();
