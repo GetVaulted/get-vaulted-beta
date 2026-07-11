@@ -644,3 +644,166 @@ export async function generateBundledShippoLabelForSession(
     throw e;
   }
 }
+
+export type BundledRatePreview = {
+  amountCents: number;
+  amount: string;
+  currency: string;
+  carrier: string;
+  service: string;
+  estimatedDays: number | null;
+};
+
+/**
+ * Quote Shippo rates for a session parcel without purchasing a label.
+ * Used by the confirm-package modal so sellers see cost before Create label.
+ */
+export async function previewBundledShippoRatesForSession(
+  sessionId: string,
+  sellerId: string,
+  parcel: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number },
+): Promise<{
+  rates: BundledRatePreview[];
+  cheapestCents: number | null;
+  shippingChargedCents: number;
+  orderCount: number;
+}> {
+  if (!isShippoConfigured()) throw new Error("SHIPPO_NOT_CONFIGURED");
+
+  const session = await prisma.liveShippingSession.findFirst({
+    where: { id: sessionId, sellerId },
+    include: {
+      seller: {
+        select: {
+          email: true,
+          shipFromStreet: true,
+          shipFromCity: true,
+          shipFromState: true,
+          shipFromZip: true,
+          shipFromCountry: true,
+          shipFromName: true,
+          defaultShipFromAddress: { select: { email: true, phone: true } },
+        },
+      },
+      orders: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          buyer: { select: { email: true } },
+          buyerAddress: { select: { email: true, phone: true } },
+          listing: { select: { shipAlone: true, title: true, id: true, parcelWeightOz: true, shippingBaseWeightOz: true, parcelLengthIn: true, parcelWidthIn: true, parcelHeightIn: true } },
+        },
+      },
+    },
+  });
+
+  if (!session) throw new Error("SESSION_NOT_FOUND");
+  if (!isCombinedLiveBundleSession(session.destinationAddressId)) {
+    throw new Error("NOT_A_COMBINED_BUNDLE_SESSION");
+  }
+
+  const eligible = filterEligibleBundledOrders(session.orders as SessionOrder[]);
+  if (eligible.length === 0) throw new Error("NO_ELIGIBLE_ORDERS");
+
+  const first = eligible[0]!;
+  const firstOrder = session.orders.find((o) => o.id === first.id);
+  if (!firstOrder) throw new Error("NO_ELIGIBLE_ORDERS");
+  for (const o of eligible.slice(1)) {
+    if (!addressesMatch(first, o)) throw new Error("MISMATCHED_SHIP_TO_ADDRESSES");
+  }
+
+  const from = session.seller;
+  if (!from.shipFromStreet || !from.shipFromCity || !from.shipFromState || !from.shipFromZip || !from.shipFromCountry) {
+    throw new Error("SELLER_SHIP_FROM_INCOMPLETE");
+  }
+
+  const sellerContact = resolveSellerShippoContact({
+    userEmail: from.email,
+    addressEmail: from.defaultShipFromAddress?.email,
+    addressPhone: from.defaultShipFromAddress?.phone,
+  });
+  if (!sellerContact) throw new Error(SELLER_SHIPPO_CONTACT_MISSING);
+
+  const buyerContact = resolveBuyerShippoContact({
+    userEmail: firstOrder.buyer.email,
+    addressEmail: firstOrder.buyerAddress?.email,
+    addressPhone: firstOrder.buyerAddress?.phone,
+  });
+  if (!buyerContact) throw new Error(BUYER_SHIPPO_CONTACT_MISSING);
+
+  const addressFrom: ShippoAddress = withShippoContact(
+    {
+      name: from.shipFromName || "Seller",
+      street1: from.shipFromStreet,
+      city: from.shipFromCity,
+      state: from.shipFromState,
+      zip: from.shipFromZip,
+      country: from.shipFromCountry,
+    },
+    sellerContact,
+  );
+  const addressTo: ShippoAddress = withShippoContact(
+    {
+      name: first.shipRecipientName,
+      street1: first.shipAddress,
+      city: first.shipCity,
+      state: first.shipState,
+      zip: first.shipZip,
+      country: first.shipCountry,
+    },
+    buyerContact,
+  );
+
+  const shippoParcel: ShippoParcel = {
+    length: String(parcel.lengthIn),
+    width: String(parcel.widthIn),
+    height: String(parcel.heightIn),
+    distance_unit: "in",
+    weight: String(Math.max(0.1, parcel.weightOz)),
+    mass_unit: "oz",
+  };
+
+  const shipment = (await shippoCreateShipment({
+    address_from: addressFrom,
+    address_to: addressTo,
+    parcels: [shippoParcel],
+    async: false,
+  })) as { object_id?: string };
+
+  const sid = shipment.object_id;
+  if (!sid) throw new Error("Shippo shipment missing object_id");
+
+  const ratesRes = (await shippoListRates(sid)) as {
+    results?: {
+      object_id?: string;
+      amount?: string;
+      currency?: string;
+      provider?: string;
+      servicelevel?: { name?: string };
+      estimated_days?: number;
+    }[];
+  };
+  const filtered = filterShippoRatesUspsUps(ratesRes.results ?? []);
+  const rates: BundledRatePreview[] = filtered.slice(0, 4).map((r) => ({
+    amountCents: Math.round(Number(r.amount ?? 0) * 100),
+    amount: String(r.amount ?? "0"),
+    currency: (r.currency ?? "USD").toUpperCase(),
+    carrier: r.provider ?? "Carrier",
+    service: r.servicelevel?.name ?? "Service",
+    estimatedDays: typeof r.estimated_days === "number" ? r.estimated_days : null,
+  }));
+
+  const shippingChargedCents = session.orders.reduce((sum, o) => {
+    if (o.paymentStatus !== PAYMENT_PAID) return sum;
+    if (o.shippingChargedCents != null && Number.isFinite(o.shippingChargedCents)) {
+      return sum + Math.max(0, Math.floor(o.shippingChargedCents));
+    }
+    return sum;
+  }, 0);
+
+  return {
+    rates,
+    cheapestCents: rates[0]?.amountCents ?? null,
+    shippingChargedCents,
+    orderCount: eligible.length,
+  };
+}

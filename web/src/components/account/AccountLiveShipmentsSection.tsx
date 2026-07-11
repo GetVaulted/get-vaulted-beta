@@ -69,10 +69,14 @@ const PARCEL_PRESETS: Array<{
 
 function LabelParcelModal({
   contextLine,
+  sessionId,
+  shippingChargedCents,
   onConfirm,
   onCancel,
 }: {
   contextLine: string;
+  sessionId?: string;
+  shippingChargedCents?: number;
   onConfirm: (parcel: ManualParcel) => void;
   onCancel: () => void;
 }) {
@@ -81,7 +85,15 @@ function LabelParcelModal({
   const [widthIn, setWidthIn] = useState("4");
   const [heightIn, setHeightIn] = useState("1");
   const [activePreset, setActivePreset] = useState<string>("Card mailer");
+  const [rateBusy, setRateBusy] = useState(false);
+  const [rateError, setRateError] = useState<string | null>(null);
+  const [rates, setRates] = useState<
+    { amountCents: number; carrier: string; service: string; estimatedDays: number | null }[]
+  >([]);
+  const [cheapestCents, setCheapestCents] = useState<number | null>(null);
+  const [chargedCents, setChargedCents] = useState(shippingChargedCents ?? 0);
   const firstRef = useRef<HTMLInputElement>(null);
+  const rateReqId = useRef(0);
 
   useEffect(() => {
     firstRef.current?.focus();
@@ -104,22 +116,76 @@ function LabelParcelModal({
   };
   const valid = Object.values(parsed).every((v) => Number.isFinite(v) && v > 0);
 
+  useEffect(() => {
+    if (!sessionId || !valid) {
+      setRates([]);
+      setCheapestCents(null);
+      setRateError(null);
+      setRateBusy(false);
+      return;
+    }
+    const reqId = ++rateReqId.current;
+    setRateBusy(true);
+    setRateError(null);
+    const t = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await fetch(
+            `/api/account/live-shipping/${encodeURIComponent(sessionId)}/preview-rates`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(parsed),
+            },
+          );
+          const j = (await res.json().catch(() => ({}))) as {
+            error?: string;
+            rates?: { amountCents: number; carrier: string; service: string; estimatedDays: number | null }[];
+            cheapestCents?: number | null;
+            shippingChargedCents?: number;
+          };
+          if (rateReqId.current !== reqId) return;
+          if (!res.ok) {
+            setRates([]);
+            setCheapestCents(null);
+            setRateError(j.error ?? "Could not quote rates.");
+            return;
+          }
+          setRates(Array.isArray(j.rates) ? j.rates : []);
+          setCheapestCents(typeof j.cheapestCents === "number" ? j.cheapestCents : null);
+          if (typeof j.shippingChargedCents === "number") setChargedCents(j.shippingChargedCents);
+          setRateError(null);
+        } catch {
+          if (rateReqId.current !== reqId) return;
+          setRates([]);
+          setCheapestCents(null);
+          setRateError("Network error — could not quote rates.");
+        } finally {
+          if (rateReqId.current === reqId) setRateBusy(false);
+        }
+      })();
+    }, 450);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- quote when dims change
+  }, [sessionId, weightOz, lengthIn, widthIn, heightIn, valid]);
+
+  const marginCents = cheapestCents != null ? chargedCents - cheapestCents : null;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
     >
-      <div className="w-full max-w-lg rounded-2xl border border-white/[0.1] bg-[#0e0e12] p-5 shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/[0.1] bg-[#0e0e12] p-5 shadow-2xl">
         <h2 className="text-base font-bold text-zinc-100">Confirm package details</h2>
         <p className="mt-1 text-[11px] text-zinc-400">
-          Select the package type that matches what you&apos;re actually shipping, then adjust if needed. This replaces the system estimate.
+          Select the package type that matches what you&apos;re actually shipping, then check the estimated label cost before creating.
         </p>
 
         <div className="mt-3 rounded-lg border border-zinc-700/50 bg-zinc-900/60 px-3 py-2 text-[11px] text-zinc-400">
           {contextLine}
         </div>
 
-        {/* Quick-fill presets */}
         <p className="mt-4 text-[10px] font-bold uppercase tracking-wide text-zinc-500">Package type</p>
         <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
           {PARCEL_PRESETS.map((p) => (
@@ -142,7 +208,6 @@ function LabelParcelModal({
           ))}
         </div>
 
-        {/* Manual override fields */}
         <p className="mt-4 text-[10px] font-bold uppercase tracking-wide text-zinc-500">Adjust if needed</p>
         <div className="mt-1.5 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {(
@@ -172,6 +237,52 @@ function LabelParcelModal({
         </div>
         <p className="mt-1.5 text-[10px] text-zinc-600">L × W × H — measure the outside of the box or mailer</p>
 
+        <div className="mt-4 rounded-lg border border-white/[0.08] bg-zinc-950/80 px-3 py-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Estimated label cost</p>
+          {!sessionId ? (
+            <p className="mt-1.5 text-[12px] text-zinc-500">
+              Rate preview is available when creating a bundled label for the whole session.
+            </p>
+          ) : rateBusy ? (
+            <p className="mt-1.5 text-[12px] text-zinc-400">Getting Shippo rates…</p>
+          ) : rateError ? (
+            <p className="mt-1.5 text-[12px] text-rose-200">{rateError}</p>
+          ) : cheapestCents != null ? (
+            <>
+              <p className="mt-1 font-mono text-lg font-semibold text-sky-100">
+                {formatMoneyCents(cheapestCents)}
+                <span className="ml-2 text-[11px] font-normal text-zinc-500">cheapest USPS/UPS</span>
+              </p>
+              <p className="mt-1 text-[11px] text-zinc-400">
+                Buyer paid {formatMoneyCents(chargedCents)} for shipping
+                {marginCents != null ? (
+                  <>
+                    {" · "}
+                    <span className={marginCents < 0 ? "font-semibold text-rose-300" : "font-semibold text-emerald-300"}>
+                      {formatMoneyCents(marginCents)} margin
+                    </span>
+                  </>
+                ) : null}
+              </p>
+              {rates.length > 1 ? (
+                <ul className="mt-2 space-y-1 border-t border-white/[0.06] pt-2">
+                  {rates.map((r, i) => (
+                    <li key={`${r.carrier}-${r.service}-${i}`} className="flex justify-between gap-2 text-[11px]">
+                      <span className="text-zinc-400">
+                        {r.carrier} {r.service}
+                        {r.estimatedDays != null ? ` · ~${r.estimatedDays}d` : ""}
+                      </span>
+                      <span className="font-mono text-zinc-200">{formatMoneyCents(r.amountCents)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </>
+          ) : (
+            <p className="mt-1.5 text-[12px] text-zinc-500">Enter package details to see rates.</p>
+          )}
+        </div>
+
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
@@ -182,11 +293,11 @@ function LabelParcelModal({
           </button>
           <button
             type="button"
-            disabled={!valid}
+            disabled={!valid || rateBusy}
             onClick={() => valid && onConfirm(parsed)}
             className="rounded-lg border border-sky-400/40 bg-sky-500/20 px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-sky-50 transition hover:bg-sky-500/30 disabled:opacity-40"
           >
-            Create label
+            {cheapestCents != null ? `Create label · ${formatMoneyCents(cheapestCents)}` : "Create label"}
           </button>
         </div>
       </div>
@@ -608,6 +719,8 @@ export function AccountLiveShipmentsSection({
                   parcelModal.session.orders.find((o) => o.id === parcelModal.orderId)?.listingTitle ?? "Order"
                 } · System est: ${parcelModal.session.pricingWeightOz.toFixed(1)} oz`
           }
+          sessionId={parcelModal.kind === "bundled" ? parcelModal.session.sessionId : undefined}
+          shippingChargedCents={parcelModal.session.shippingChargedCents}
           onConfirm={(parcel) => {
             const modal = parcelModal;
             setParcelModal(null);
