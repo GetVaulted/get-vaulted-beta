@@ -33,7 +33,9 @@ export function sellerShipQueuePhase(order: SellerShipQueueOrder): SellerShipQue
       ? "in_transit"
       : "awaiting_carrier";
   }
-  const hasLabel = Boolean(order.shippoTransactionId?.trim() || order.labelUrl?.trim());
+  const hasLabel =
+    order.fulfillmentStatus !== "exception" &&
+    Boolean(order.shippoTransactionId?.trim() || order.labelUrl?.trim());
   if (!hasLabel) return "needs_label";
   return "print_and_ship";
 }

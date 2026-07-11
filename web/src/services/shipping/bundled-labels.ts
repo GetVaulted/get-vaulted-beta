@@ -37,6 +37,7 @@ import {
   filterShippoRatesUspsUps,
   type PackageGroup,
 } from "@/lib/unified-shipping-engine";
+import { orderHasUsableShippingLabel } from "@/lib/seller-shipping-label-state";
 
 export type GenerateBundledShippoLabelResult = {
   alreadyExisted: boolean;
@@ -81,8 +82,12 @@ export function isCombinedLiveBundleSession(destinationAddressId: string | null)
   return !destinationAddressId.startsWith("ship-alone:");
 }
 
-function orderHasLabel(o: { shippoTransactionId: string | null; labelUrl: string | null }): boolean {
-  return Boolean(o.shippoTransactionId?.trim() || o.labelUrl?.trim());
+function orderHasLabel(o: {
+  shippoTransactionId: string | null;
+  labelUrl: string | null;
+  fulfillmentStatus?: string | null;
+}): boolean {
+  return orderHasUsableShippingLabel(o);
 }
 
 type ListingShipProfile = {
@@ -147,6 +152,7 @@ type SessionOrder = {
   buyerId: string;
   sellerId: string;
   paymentStatus: string;
+  fulfillmentStatus: string;
   shippoTransactionId: string | null;
   labelUrl: string | null;
   shipRecipientName: string;
@@ -270,6 +276,29 @@ export async function generateBundledShippoLabelForSession(
   const eligible = filterEligibleBundledOrders(session.orders as SessionOrder[]);
   if (eligible.length === 0) {
     throw new Error("NO_ELIGIBLE_ORDERS");
+  }
+
+  // Failed/exception attempts still leave shippo ids behind — clear them so a fresh bundle can purchase.
+  const exceptionIds = eligible
+    .filter((o) => o.fulfillmentStatus === "exception" || o.shippoTransactionId || o.labelUrl)
+    .map((o) => o.id);
+  if (exceptionIds.length > 0) {
+    await prisma.order.updateMany({
+      where: { id: { in: exceptionIds }, fulfillmentStatus: "exception" },
+      data: {
+        shippoTransactionId: null,
+        shippoShipmentId: null,
+        carrier: null,
+        service: null,
+        trackingNumber: null,
+        trackingUrl: null,
+        labelUrl: null,
+        shippingStatus: null,
+        fulfillmentStatus: "pending",
+        labelCreatedAt: null,
+        shippingLabelCostCents: null,
+      },
+    });
   }
 
   const first = eligible[0]!;

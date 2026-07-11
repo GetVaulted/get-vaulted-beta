@@ -4,6 +4,7 @@ import type {
   SellerLiveShippingLabelStatus,
   SellerLiveShippingSessionRow,
 } from "@/lib/seller-live-shipping-dashboard-types";
+import { orderHasUsableShippingLabel } from "@/lib/seller-shipping-label-state";
 import { prisma } from "@/lib/prisma";
 import { PAYMENT_PAID } from "@/services/payments";
 
@@ -14,8 +15,12 @@ export type {
   SellerLiveShippingSessionRow,
 } from "@/lib/seller-live-shipping-dashboard-types";
 
-function orderHasLabel(o: { shippoTransactionId: string | null; labelUrl: string | null }): boolean {
-  return Boolean(o.shippoTransactionId?.trim() || o.labelUrl?.trim());
+function orderHasLabel(o: {
+  shippoTransactionId: string | null;
+  labelUrl: string | null;
+  fulfillmentStatus?: string | null;
+}): boolean {
+  return orderHasUsableShippingLabel(o);
 }
 
 function orderChargedCents(o: {
@@ -33,7 +38,12 @@ function orderChargedCents(o: {
 }
 
 function labelStatusForSession(
-  orders: { paymentStatus: string; shippoTransactionId: string | null; labelUrl: string | null }[],
+  orders: {
+    paymentStatus: string;
+    shippoTransactionId: string | null;
+    labelUrl: string | null;
+    fulfillmentStatus?: string | null;
+  }[],
 ): SellerLiveShippingLabelStatus {
   if (orders.length === 0) return "empty";
   const paid = orders.filter((o) => o.paymentStatus === PAYMENT_PAID);
