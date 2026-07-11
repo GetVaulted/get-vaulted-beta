@@ -1,11 +1,204 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type {
   SellerLiveShippingDashboard,
   SellerLiveShippingSessionRow,
 } from "@/lib/seller-live-shipping-dashboard-types";
+
+type ManualParcel = { weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
+
+const PARCEL_PRESETS: Array<{
+  label: string;
+  description: string;
+  weightOz: number;
+  lengthIn: number;
+  widthIn: number;
+  heightIn: number;
+}> = [
+  {
+    label: "Card mailer",
+    description: "PWE / bubble mailer, a few cards",
+    weightOz: 4,
+    lengthIn: 6,
+    widthIn: 4,
+    heightIn: 1,
+  },
+  {
+    label: "Padded mailer",
+    description: "Bubble mailer, stack of cards or small items",
+    weightOz: 8,
+    lengthIn: 9,
+    widthIn: 6,
+    heightIn: 1,
+  },
+  {
+    label: "Small box",
+    description: "Graded slab, loose packs, multiple cards",
+    weightOz: 16,
+    lengthIn: 10,
+    widthIn: 7,
+    heightIn: 3,
+  },
+  {
+    label: "Medium box",
+    description: "Large haul, mix of items from a break",
+    weightOz: 32,
+    lengthIn: 12,
+    widthIn: 9,
+    heightIn: 5,
+  },
+  {
+    label: "Mini helmet",
+    description: "Mini collectible helmet (~1.5 lbs)",
+    weightOz: 24,
+    lengthIn: 11,
+    widthIn: 8,
+    heightIn: 7,
+  },
+  {
+    label: "Full-size helmet",
+    description: "Full NFL / MLB helmet (~5 lbs)",
+    weightOz: 80,
+    lengthIn: 14,
+    widthIn: 12,
+    heightIn: 12,
+  },
+];
+
+function LabelParcelModal({
+  session,
+  onConfirm,
+  onCancel,
+}: {
+  session: SellerLiveShippingSessionRow;
+  onConfirm: (parcel: ManualParcel) => void;
+  onCancel: () => void;
+}) {
+  const [weightOz, setWeightOz] = useState("4");
+  const [lengthIn, setLengthIn] = useState("6");
+  const [widthIn, setWidthIn] = useState("4");
+  const [heightIn, setHeightIn] = useState("1");
+  const [activePreset, setActivePreset] = useState<string>("Card mailer");
+  const firstRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    firstRef.current?.focus();
+    firstRef.current?.select();
+  }, []);
+
+  const applyPreset = (p: (typeof PARCEL_PRESETS)[number]) => {
+    setWeightOz(String(p.weightOz));
+    setLengthIn(String(p.lengthIn));
+    setWidthIn(String(p.widthIn));
+    setHeightIn(String(p.heightIn));
+    setActivePreset(p.label);
+  };
+
+  const parsed = {
+    weightOz: parseFloat(weightOz),
+    lengthIn: parseFloat(lengthIn),
+    widthIn: parseFloat(widthIn),
+    heightIn: parseFloat(heightIn),
+  };
+  const valid = Object.values(parsed).every((v) => Number.isFinite(v) && v > 0);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div className="w-full max-w-lg rounded-2xl border border-white/[0.1] bg-[#0e0e12] p-5 shadow-2xl">
+        <h2 className="text-base font-bold text-zinc-100">Confirm package details</h2>
+        <p className="mt-1 text-[11px] text-zinc-400">
+          Select the package type that matches what you&apos;re actually shipping, then adjust if needed. This replaces the system estimate.
+        </p>
+
+        <div className="mt-3 rounded-lg border border-zinc-700/50 bg-zinc-900/60 px-3 py-2 text-[11px] text-zinc-400">
+          <span className="font-semibold text-zinc-300">{session.liveShowTitle}</span>
+          {" · "}
+          {session.buyer.name?.trim() ? `${session.buyer.name} (@${session.buyer.username})` : `@${session.buyer.username}`}
+          {" · "}
+          {session.orderCount} order{session.orderCount === 1 ? "" : "s"}
+          {" · "}
+          <span className="font-mono text-zinc-500">System est: {session.pricingWeightOz.toFixed(1)} oz</span>
+        </div>
+
+        {/* Quick-fill presets */}
+        <p className="mt-4 text-[10px] font-bold uppercase tracking-wide text-zinc-500">Package type</p>
+        <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+          {PARCEL_PRESETS.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              onClick={() => applyPreset(p)}
+              className={`rounded-lg border px-2.5 py-2 text-left transition ${
+                activePreset === p.label
+                  ? "border-sky-400/60 bg-sky-500/15 text-sky-50"
+                  : "border-white/[0.08] bg-zinc-900/60 text-zinc-300 hover:border-white/20 hover:bg-zinc-800/60"
+              }`}
+            >
+              <p className="text-[11px] font-semibold leading-tight">{p.label}</p>
+              <p className="mt-0.5 text-[10px] leading-tight text-zinc-400 line-clamp-2">{p.description}</p>
+              <p className="mt-1 font-mono text-[10px] text-zinc-500">
+                {p.weightOz} oz · {p.lengthIn}×{p.widthIn}×{p.heightIn}&quot;
+              </p>
+            </button>
+          ))}
+        </div>
+
+        {/* Manual override fields */}
+        <p className="mt-4 text-[10px] font-bold uppercase tracking-wide text-zinc-500">Adjust if needed</p>
+        <div className="mt-1.5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {(
+            [
+              ["Weight (oz)", weightOz, setWeightOz, firstRef],
+              ["Length (in)", lengthIn, setLengthIn, null],
+              ["Width (in)", widthIn, setWidthIn, null],
+              ["Height (in)", heightIn, setHeightIn, null],
+            ] as [string, string, (v: string) => void, React.RefObject<HTMLInputElement> | null][]
+          ).map(([lbl, val, setter, ref]) => (
+            <label key={lbl} className="flex flex-col gap-1">
+              <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">{lbl}</span>
+              <input
+                ref={ref ?? undefined}
+                type="number"
+                min="0.1"
+                step="0.1"
+                value={val}
+                onChange={(e) => {
+                  setter(e.target.value);
+                  setActivePreset("");
+                }}
+                className="w-full rounded-lg border border-white/[0.12] bg-zinc-900 px-2.5 py-2 font-mono text-sm text-zinc-100 outline-none focus:border-sky-400/60 focus:ring-1 focus:ring-sky-400/30"
+              />
+            </label>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[10px] text-zinc-600">L × W × H — measure the outside of the box or mailer</p>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-lg border border-white/[0.1] px-4 py-2 text-[12px] font-semibold text-zinc-300 transition hover:border-white/20 hover:text-zinc-100"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!valid}
+            onClick={() => valid && onConfirm(parsed)}
+            className="rounded-lg border border-sky-400/40 bg-sky-500/20 px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-sky-50 transition hover:bg-sky-500/30 disabled:opacity-40"
+          >
+            Create label
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function formatMoneyCents(cents: number) {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
@@ -38,7 +231,7 @@ function SessionCard({
   bundledBusySessionId,
   bundledSessionFeedback,
   onCreateLabel,
-  onCreateBundledLabel,
+  onRequestBundledLabel,
 }: {
   s: SellerLiveShippingSessionRow;
   expanded: boolean;
@@ -47,7 +240,8 @@ function SessionCard({
   bundledBusySessionId: string | null;
   bundledSessionFeedback?: { tone: "error" | "success" | "warning"; message: string };
   onCreateLabel: (orderId: string) => void;
-  onCreateBundledLabel: (sessionId: string) => void;
+  /** Opens the weight/dims confirmation modal before creating a label. */
+  onRequestBundledLabel: (session: SellerLiveShippingSessionRow) => void;
 }) {
   const buyerDisplay = s.buyer.name?.trim() ? `${s.buyer.name} (@${s.buyer.username})` : `@${s.buyer.username}`;
   const canShowPerOrderLabelCta =
@@ -111,7 +305,7 @@ function SessionCard({
           <button
             type="button"
             disabled={bundledBusySessionId === s.sessionId}
-            onClick={() => onCreateBundledLabel(s.sessionId)}
+            onClick={() => onRequestBundledLabel(s)}
             className="mt-2 rounded-md border border-sky-400/40 bg-sky-500/20 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-sky-50 transition hover:bg-sky-500/30 disabled:opacity-50"
           >
             {bundledBusySessionId === s.sessionId ? "Creating…" : "Create bundled label"}
@@ -236,7 +430,7 @@ type Props = {
   bundledBusySessionId: string | null;
   bundledSessionFeedback?: Record<string, { tone: "error" | "success" | "warning"; message: string }>;
   onCreateLabel: (orderId: string) => void;
-  onCreateBundledLabel: (sessionId: string) => void;
+  onCreateBundledLabel: (sessionId: string, manualParcel?: ManualParcel) => void;
 };
 
 export function AccountLiveShipmentsSection({
@@ -249,6 +443,7 @@ export function AccountLiveShipmentsSection({
   onCreateBundledLabel,
 }: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
+  const [parcelModalSession, setParcelModalSession] = useState<SellerLiveShippingSessionRow | null>(null);
 
   const grouped = useMemo(() => {
     if (!data?.sessions.length) return [];
@@ -370,12 +565,24 @@ export function AccountLiveShipmentsSection({
                 bundledBusySessionId={bundledBusySessionId}
                 bundledSessionFeedback={bundledSessionFeedback?.[s.sessionId]}
                 onCreateLabel={onCreateLabel}
-                onCreateBundledLabel={onCreateBundledLabel}
+                onRequestBundledLabel={setParcelModalSession}
               />
             ))}
           </div>
         </Fragment>
       ))}
+
+      {parcelModalSession ? (
+        <LabelParcelModal
+          session={parcelModalSession}
+          onConfirm={(parcel) => {
+            const sid = parcelModalSession.sessionId;
+            setParcelModalSession(null);
+            onCreateBundledLabel(sid, parcel);
+          }}
+          onCancel={() => setParcelModalSession(null)}
+        />
+      ) : null}
     </section>
   );
 }

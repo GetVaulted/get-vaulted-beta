@@ -180,11 +180,18 @@ function addressesMatch(a: SessionOrder, b: SessionOrder): boolean {
 /**
  * Purchase one Shippo label for all eligible paid, non-ship-alone orders in a combined live session.
  * If any order in the session already has a label, returns that label metadata without calling Shippo again.
+ *
+ * `manualParcel` bypasses the calculated package-group dimensions and uses the seller-supplied values
+ * directly. Useful when the system estimate (e.g. from a mis-configured shipping profile) does not match
+ * the actual box the seller is packing — the seller confirms real weight + dims in the UI before creating.
  */
 export async function generateBundledShippoLabelForSession(
   sessionId: string,
   sellerId: string,
-  options?: { labelFormat?: SellerLabelPrintFormat },
+  options?: {
+    labelFormat?: SellerLabelPrintFormat;
+    manualParcel?: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
+  },
 ): Promise<GenerateBundledShippoLabelResult> {
   if (!isShippoConfigured()) {
     throw new Error("SHIPPO_NOT_CONFIGURED");
@@ -323,35 +330,69 @@ export async function generateBundledShippoLabelForSession(
   );
 
   const listings = eligible.map((o) => o.listing);
-  const built = await buildSessionPackageGroups(sessionId);
-  const packageGroups =
-    built && built.groups.length > 0
-      ? built.groups
-      : [
-          {
-            packageIndex: 0,
-            items: eligible.map((o) => ({
-              itemId: o.id,
-              profile: {
-                id: "legacy",
-                slug: "legacy",
-                name: "Legacy",
-                weightOz: physicalListingWeightOz(o.listing),
-                lengthIn: 10,
-                widthIn: 8,
-                heightIn: 4,
-                bundleAllowed: true,
-                requiresSeparatePackage: false,
-                bundleGroup: "legacy",
-                maxUnitsPerParcel: null,
-              },
-            })),
-            weightOz: listings.reduce((sum, li) => sum + physicalListingWeightOz(li), 0) + bundleWeightBufferOz(),
-            lengthIn: maxBundleDimensionsInches(listings).length,
-            widthIn: maxBundleDimensionsInches(listings).width,
-            heightIn: maxBundleDimensionsInches(listings).height,
+
+  // If the seller confirmed actual weight + dims in the UI, use a single manual package instead of
+  // the calculated package groups (which can be wrong if the show's shipping profile is misconfigured).
+  let packageGroups: PackageGroup[];
+  if (options?.manualParcel) {
+    const mp = options.manualParcel;
+    packageGroups = [
+      {
+        packageIndex: 0,
+        items: eligible.map((o) => ({
+          itemId: o.id,
+          profile: {
+            id: "manual",
+            slug: "manual",
+            name: "Seller override",
+            weightOz: mp.weightOz,
+            lengthIn: mp.lengthIn,
+            widthIn: mp.widthIn,
+            heightIn: mp.heightIn,
+            bundleAllowed: true,
+            requiresSeparatePackage: false,
+            bundleGroup: "manual",
+            maxUnitsPerParcel: null,
           },
-        ];
+        })),
+        weightOz: mp.weightOz,
+        lengthIn: mp.lengthIn,
+        widthIn: mp.widthIn,
+        heightIn: mp.heightIn,
+      },
+    ];
+  } else {
+    const built = await buildSessionPackageGroups(sessionId);
+    packageGroups =
+      built && built.groups.length > 0
+        ? built.groups
+        : [
+            {
+              packageIndex: 0,
+              items: eligible.map((o) => ({
+                itemId: o.id,
+                profile: {
+                  id: "legacy",
+                  slug: "legacy",
+                  name: "Legacy",
+                  weightOz: physicalListingWeightOz(o.listing),
+                  lengthIn: 10,
+                  widthIn: 8,
+                  heightIn: 4,
+                  bundleAllowed: true,
+                  requiresSeparatePackage: false,
+                  bundleGroup: "legacy",
+                  maxUnitsPerParcel: null,
+                },
+              })),
+              weightOz:
+                listings.reduce((sum, li) => sum + physicalListingWeightOz(li), 0) + bundleWeightBufferOz(),
+              lengthIn: maxBundleDimensionsInches(listings).length,
+              widthIn: maxBundleDimensionsInches(listings).width,
+              heightIn: maxBundleDimensionsInches(listings).height,
+            },
+          ];
+  }
 
   let shippingLabelCostCentsTotal = 0;
   const primaryTxIds: string[] = [];

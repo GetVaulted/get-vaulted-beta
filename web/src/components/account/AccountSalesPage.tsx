@@ -321,6 +321,7 @@ export function AccountSalesPage() {
   const createBundledLabel = async (
     sessionId: string,
     labelFormat: SellerLabelPrintFormat = readStoredLabelPrintFormat(),
+    manualParcel?: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number },
   ) => {
     setLabelError(null);
     setBundledSessionFeedback((prev) => {
@@ -333,7 +334,7 @@ export function AccountSalesPage() {
       const res = await fetch(`/api/account/live-shipping/${encodeURIComponent(sessionId)}/create-label`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ labelFormat }),
+        body: JSON.stringify({ labelFormat, ...(manualParcel ? { manualParcel } : {}) }),
       });
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -482,7 +483,7 @@ export function AccountSalesPage() {
                 bundledSessionFeedback={bundledSessionFeedback}
                 labelError={labelError}
                 onCreateLabel={(orderId, labelFormat) => void createLabel(orderId, labelFormat)}
-                onCreateBundledLabel={(sid) => void createBundledLabel(sid)}
+                onCreateBundledLabel={(sid, mp) => void createBundledLabel(sid, readStoredLabelPrintFormat(), mp)}
                 onMarkShipped={(order) => {
                   const row = rows.find((r) => r.id === order.id);
                   if (row) setModal({ order: row, mode: "markShipped" });
@@ -557,7 +558,7 @@ export function AccountSalesPage() {
               bundledBusySessionId={bundledBusySessionId}
               bundledSessionFeedback={bundledSessionFeedback}
               onCreateLabel={(orderId) => void createLabel(orderId)}
-              onCreateBundledLabel={(sid) => void createBundledLabel(sid)}
+              onCreateBundledLabel={(sid, mp) => void createBundledLabel(sid, readStoredLabelPrintFormat(), mp)}
             />
             {rows.length === 0 ? (
               <p className="mt-6 text-center text-sm text-zinc-500">
