@@ -247,8 +247,8 @@ function LabelParcelModal({
         <div className="mt-1.5 grid grid-cols-2 gap-1.5">
           {(
             [
-              ["thermal_4x6", "4×6 thermal", "Buys a real 4×6 PDF from Shippo for label printers"],
-              ["letter", "Letter (8.5×11)", "Full-page PDF for regular printers"],
+              ["thermal_4x6", "4×6 thermal", "For thermal label printers"],
+              ["letter", "Letter (8.5×11)", "For regular home/office printers"],
             ] as const
           ).map(([value, title, hint]) => (
             <button
