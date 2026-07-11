@@ -10,7 +10,7 @@ import {
   openLabelForPrint,
   type SellerLabelPrintFormat,
 } from "@/lib/seller-shipping-label-state";
-import { storeLabelPrintFormat } from "@/lib/shippo-label-format";
+import { LabelSizePicker } from "@/components/account/LabelSizePicker";
 
 type ManualParcel = { weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
 
@@ -243,32 +243,7 @@ function LabelParcelModal({
         </div>
         <p className="mt-1.5 text-[10px] text-zinc-600">L × W × H — measure the outside of the box or mailer</p>
 
-        <p className="mt-4 text-[10px] font-bold uppercase tracking-wide text-zinc-500">Label size</p>
-        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-          {(
-            [
-              ["thermal_4x6", "4×6 thermal", "For thermal label printers"],
-              ["letter", "Letter (8.5×11)", "For regular home/office printers"],
-            ] as const
-          ).map(([value, title, hint]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => {
-                setLabelFormat(value);
-                storeLabelPrintFormat(value);
-              }}
-              className={`rounded-lg border px-2.5 py-2 text-left transition ${
-                labelFormat === value
-                  ? "border-amber-400/55 bg-amber-500/15 text-amber-50"
-                  : "border-white/[0.08] bg-zinc-900/60 text-zinc-300 hover:border-white/20 hover:bg-zinc-800/60"
-              }`}
-            >
-              <p className="text-[11px] font-semibold leading-tight">{title}</p>
-              <p className="mt-0.5 text-[10px] leading-tight text-zinc-400">{hint}</p>
-            </button>
-          ))}
-        </div>
+        <LabelSizePicker className="mt-4" value={labelFormat} onChange={setLabelFormat} />
 
         <div className="mt-4 rounded-lg border border-white/[0.08] bg-zinc-950/80 px-3 py-3">
           <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Estimated label cost</p>

@@ -14,6 +14,7 @@ import {
   orderHasPurchasedLabel,
   sellerTrackingStatusLabel,
 } from "@/lib/seller-shipping-label-state";
+import { LabelSizePurchaseDisclaimer } from "@/components/account/LabelSizePicker";
 
 export type SellerShippingLabelPanelProps = {
   orderId: string;
@@ -238,7 +239,12 @@ export function SellerShippingLabelPanel(props: SellerShippingLabelPanelProps) {
         ) : null}
 
         {(canCreateLabel && onCreateLabel && !shippingAddressIncomplete) || hasFile ? (
-          <LabelFormatToggle value={labelFormat} onChange={onFormatChange} disabled={busy} />
+          <div className="space-y-2">
+            <LabelFormatToggle value={labelFormat} onChange={onFormatChange} disabled={busy} />
+            {canCreateLabel && onCreateLabel && !shippingAddressIncomplete && !hasFile ? (
+              <LabelSizePurchaseDisclaimer />
+            ) : null}
+          </div>
         ) : null}
 
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">

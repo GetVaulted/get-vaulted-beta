@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
 import type { SellerLiveShippingDashboard, SellerLiveShippingSessionRow } from "@/lib/seller-live-shipping-dashboard-types";
-import { storeLabelPrintFormat, type SellerLabelPrintFormat } from "@/lib/shippo-label-format";
+import type { SellerLabelPrintFormat } from "@/lib/shippo-label-format";
 import { openLabelForPrint } from "@/lib/seller-shipping-label-state";
+import { LabelSizePicker } from "@/components/account/LabelSizePicker";
 import {
   countShipQueueActions,
   orderIdsAwaitingBundledLabel,
@@ -13,44 +14,6 @@ import {
   sellerShipQueuePhase,
 } from "@/lib/seller-ship-queue";
 
-function LabelSizePicker({
-  value,
-  onChange,
-}: {
-  value: SellerLabelPrintFormat;
-  onChange: (format: SellerLabelPrintFormat) => void;
-}) {
-  return (
-    <>
-      <p className="mt-4 text-[10px] font-bold uppercase tracking-wide text-zinc-500">Label size</p>
-      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-        {(
-          [
-            ["thermal_4x6", "4×6 thermal", "For thermal label printers"],
-            ["letter", "Letter (8.5×11)", "For regular home/office printers"],
-          ] as const
-        ).map(([format, title, hint]) => (
-          <button
-            key={format}
-            type="button"
-            onClick={() => {
-              onChange(format);
-              storeLabelPrintFormat(format);
-            }}
-            className={`rounded-lg border px-2.5 py-2 text-left transition ${
-              value === format
-                ? "border-amber-400/55 bg-amber-500/15 text-amber-50"
-                : "border-white/[0.08] bg-zinc-900/60 text-zinc-300 hover:border-white/20 hover:bg-zinc-800/60"
-            }`}
-          >
-            <p className="text-[11px] font-semibold leading-tight">{title}</p>
-            <p className="mt-0.5 text-[10px] leading-tight text-zinc-400">{hint}</p>
-          </button>
-        ))}
-      </div>
-    </>
-  );
-}
 export type ShipWorkspaceOrder = {
   id: string;
   totalUsd: number;
@@ -380,7 +343,7 @@ function ShipOrderCard({
               </label>
             ))}
           </div>
-          <LabelSizePicker value={labelFormat} onChange={setLabelFormat} />
+          <LabelSizePicker className="mt-4" value={labelFormat} onChange={setLabelFormat} />
           <div className="mt-5 flex justify-end gap-2">
             <button
               type="button"
@@ -569,7 +532,7 @@ function BundleShipCard({
           </div>
           <p className="mt-1.5 text-[10px] text-zinc-600">L × W × H — measure the outside of the box or mailer</p>
 
-          <LabelSizePicker value={labelFormat} onChange={setLabelFormat} />
+          <LabelSizePicker className="mt-4" value={labelFormat} onChange={setLabelFormat} />
 
           <div className="mt-5 flex justify-end gap-2">
             <button
