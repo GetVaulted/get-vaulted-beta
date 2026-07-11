@@ -214,6 +214,7 @@ export function AccountSalesPage() {
   const [bundledBusySessionId, setBundledBusySessionId] = useState<string | null>(null);
   const [labelError, setLabelError] = useState<string | null>(null);
   const [bundledSessionFeedback, setBundledSessionFeedback] = useState<Record<string, BundledSessionFeedback>>({});
+  const [orderLabelFeedback, setOrderLabelFeedback] = useState<Record<string, BundledSessionFeedback>>({});
   const salesLoadedOnceRef = useRef(false);
 
   useEffect(() => {
@@ -296,23 +297,54 @@ export function AccountSalesPage() {
     };
   }, [load]);
 
-  const createLabel = async (orderId: string, labelFormat: SellerLabelPrintFormat = readStoredLabelPrintFormat()) => {
+  const createLabel = async (
+    orderId: string,
+    labelFormat: SellerLabelPrintFormat = readStoredLabelPrintFormat(),
+    manualParcel?: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number },
+  ) => {
     setLabelError(null);
+    setOrderLabelFeedback((prev) => {
+      const next = { ...prev };
+      delete next[orderId];
+      return next;
+    });
     setLabelBusyId(orderId);
     try {
       const res = await fetch(`/api/account/sales/${encodeURIComponent(orderId)}/create-label`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ labelFormat }),
+        body: JSON.stringify({ labelFormat, ...(manualParcel ? { manualParcel } : {}) }),
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: string; warning?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        warning?: string;
+        order?: { labelUrl?: string | null; shippoTransactionId?: string | null };
+      };
       if (!res.ok) {
-        setLabelError(j.error ?? "Label creation failed.");
+        const msg = j.error ?? "Label creation failed.";
+        setLabelError(msg);
+        setOrderLabelFeedback((prev) => ({ ...prev, [orderId]: { tone: "error", message: msg } }));
         return;
       }
-      if (typeof j.warning === "string") setLabelError(j.warning);
-      else setLabelError(null);
+      if (typeof j.warning === "string" && j.warning.trim()) {
+        setLabelError(j.warning);
+        setOrderLabelFeedback((prev) => ({ ...prev, [orderId]: { tone: "warning", message: j.warning! } }));
+      } else if (!j.order?.labelUrl && !j.order?.shippoTransactionId) {
+        const msg = "Label was not created — check Shippo setup and ship-from address, then try again.";
+        setLabelError(msg);
+        setOrderLabelFeedback((prev) => ({ ...prev, [orderId]: { tone: "error", message: msg } }));
+      } else {
+        setLabelError(null);
+        setOrderLabelFeedback((prev) => ({
+          ...prev,
+          [orderId]: { tone: "success", message: "Label created — refresh if the PDF link does not appear." },
+        }));
+      }
       await load();
+    } catch {
+      const msg = "Network error — could not reach the server. Try again.";
+      setLabelError(msg);
+      setOrderLabelFeedback((prev) => ({ ...prev, [orderId]: { tone: "error", message: msg } }));
     } finally {
       setLabelBusyId(null);
     }
@@ -482,7 +514,7 @@ export function AccountSalesPage() {
                 bundledBusySessionId={bundledBusySessionId}
                 bundledSessionFeedback={bundledSessionFeedback}
                 labelError={labelError}
-                onCreateLabel={(orderId, labelFormat) => void createLabel(orderId, labelFormat)}
+                onCreateLabel={(orderId, mp) => void createLabel(orderId, readStoredLabelPrintFormat(), mp)}
                 onCreateBundledLabel={(sid, mp) => void createBundledLabel(sid, readStoredLabelPrintFormat(), mp)}
                 onMarkShipped={(order) => {
                   const row = rows.find((r) => r.id === order.id);
@@ -557,7 +589,8 @@ export function AccountSalesPage() {
               labelBusyId={labelBusyId}
               bundledBusySessionId={bundledBusySessionId}
               bundledSessionFeedback={bundledSessionFeedback}
-              onCreateLabel={(orderId) => void createLabel(orderId)}
+              orderLabelFeedback={orderLabelFeedback}
+              onCreateLabel={(orderId, mp) => void createLabel(orderId, readStoredLabelPrintFormat(), mp)}
               onCreateBundledLabel={(sid, mp) => void createBundledLabel(sid, readStoredLabelPrintFormat(), mp)}
             />
             {rows.length === 0 ? (

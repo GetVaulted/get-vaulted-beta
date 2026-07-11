@@ -68,11 +68,11 @@ const PARCEL_PRESETS: Array<{
 ];
 
 function LabelParcelModal({
-  session,
+  contextLine,
   onConfirm,
   onCancel,
 }: {
-  session: SellerLiveShippingSessionRow;
+  contextLine: string;
   onConfirm: (parcel: ManualParcel) => void;
   onCancel: () => void;
 }) {
@@ -116,13 +116,7 @@ function LabelParcelModal({
         </p>
 
         <div className="mt-3 rounded-lg border border-zinc-700/50 bg-zinc-900/60 px-3 py-2 text-[11px] text-zinc-400">
-          <span className="font-semibold text-zinc-300">{session.liveShowTitle}</span>
-          {" · "}
-          {session.buyer.name?.trim() ? `${session.buyer.name} (@${session.buyer.username})` : `@${session.buyer.username}`}
-          {" · "}
-          {session.orderCount} order{session.orderCount === 1 ? "" : "s"}
-          {" · "}
-          <span className="font-mono text-zinc-500">System est: {session.pricingWeightOz.toFixed(1)} oz</span>
+          {contextLine}
         </div>
 
         {/* Quick-fill presets */}
@@ -230,8 +224,9 @@ function SessionCard({
   labelBusyId,
   bundledBusySessionId,
   bundledSessionFeedback,
-  onCreateLabel,
+  orderLabelFeedback,
   onRequestBundledLabel,
+  onRequestOrderLabel,
 }: {
   s: SellerLiveShippingSessionRow;
   expanded: boolean;
@@ -239,9 +234,9 @@ function SessionCard({
   labelBusyId: string | null;
   bundledBusySessionId: string | null;
   bundledSessionFeedback?: { tone: "error" | "success" | "warning"; message: string };
-  onCreateLabel: (orderId: string) => void;
-  /** Opens the weight/dims confirmation modal before creating a label. */
+  orderLabelFeedback?: Record<string, { tone: "error" | "success" | "warning"; message: string }>;
   onRequestBundledLabel: (session: SellerLiveShippingSessionRow) => void;
+  onRequestOrderLabel: (session: SellerLiveShippingSessionRow, orderId: string) => void;
 }) {
   const buyerDisplay = s.buyer.name?.trim() ? `${s.buyer.name} (@${s.buyer.username})` : `@${s.buyer.username}`;
   const canShowPerOrderLabelCta =
@@ -350,20 +345,41 @@ function SessionCard({
         <div className="mt-3 rounded-lg border border-sky-500/25 bg-sky-950/20 px-3 py-2">
           <p className="text-[11px] font-semibold text-sky-100">Create shipping labels (per order)</p>
           <p className="mt-0.5 text-[10px] text-sky-200/80">
-            Use when a bundled label is not available (e.g. ship-alone items or mixed fulfillment).
+            Use when a bundled label is not available (e.g. ship-alone items or mixed fulfillment). Confirm weight and
+            dims before creating.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
-            {s.ordersNeedingLabels.map((oid) => (
-              <button
-                key={oid}
-                type="button"
-                disabled={labelBusyId === oid}
-                onClick={() => onCreateLabel(oid)}
-                className="rounded-md border border-sky-400/35 bg-sky-500/15 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-sky-100 transition hover:bg-sky-500/25 disabled:opacity-50"
-              >
-                {labelBusyId === oid ? "…" : `Label order…`}
-              </button>
-            ))}
+            {s.ordersNeedingLabels.map((oid) => {
+              const order = s.orders.find((o) => o.id === oid);
+              const fb = orderLabelFeedback?.[oid];
+              return (
+                <div key={oid} className="flex flex-col gap-1">
+                  <button
+                    type="button"
+                    disabled={labelBusyId === oid}
+                    onClick={() => onRequestOrderLabel(s, oid)}
+                    className="rounded-md border border-sky-400/35 bg-sky-500/15 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-sky-100 transition hover:bg-sky-500/25 disabled:opacity-50"
+                  >
+                    {labelBusyId === oid
+                      ? "Creating…"
+                      : `Label${order?.listingTitle ? `: ${order.listingTitle.slice(0, 28)}` : " order"}`}
+                  </button>
+                  {fb ? (
+                    <p
+                      className={`max-w-[220px] rounded-md border px-2 py-1 text-[10px] leading-snug ${
+                        fb.tone === "error"
+                          ? "border-rose-500/35 bg-rose-950/35 text-rose-100"
+                          : fb.tone === "warning"
+                            ? "border-amber-500/35 bg-amber-950/30 text-amber-100"
+                            : "border-emerald-500/35 bg-emerald-950/25 text-emerald-100"
+                      }`}
+                    >
+                      {fb.message}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : null}
@@ -429,9 +445,14 @@ type Props = {
   labelBusyId: string | null;
   bundledBusySessionId: string | null;
   bundledSessionFeedback?: Record<string, { tone: "error" | "success" | "warning"; message: string }>;
-  onCreateLabel: (orderId: string) => void;
+  orderLabelFeedback?: Record<string, { tone: "error" | "success" | "warning"; message: string }>;
+  onCreateLabel: (orderId: string, manualParcel?: ManualParcel) => void;
   onCreateBundledLabel: (sessionId: string, manualParcel?: ManualParcel) => void;
 };
+
+type ParcelModalState =
+  | { kind: "bundled"; session: SellerLiveShippingSessionRow }
+  | { kind: "order"; session: SellerLiveShippingSessionRow; orderId: string };
 
 export function AccountLiveShipmentsSection({
   data,
@@ -439,11 +460,12 @@ export function AccountLiveShipmentsSection({
   labelBusyId,
   bundledBusySessionId,
   bundledSessionFeedback,
+  orderLabelFeedback,
   onCreateLabel,
   onCreateBundledLabel,
 }: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
-  const [parcelModalSession, setParcelModalSession] = useState<SellerLiveShippingSessionRow | null>(null);
+  const [parcelModal, setParcelModal] = useState<ParcelModalState | null>(null);
 
   const grouped = useMemo(() => {
     if (!data?.sessions.length) return [];
@@ -564,23 +586,38 @@ export function AccountLiveShipmentsSection({
                 labelBusyId={labelBusyId}
                 bundledBusySessionId={bundledBusySessionId}
                 bundledSessionFeedback={bundledSessionFeedback?.[s.sessionId]}
-                onCreateLabel={onCreateLabel}
-                onRequestBundledLabel={setParcelModalSession}
+                orderLabelFeedback={orderLabelFeedback}
+                onRequestBundledLabel={(session) => setParcelModal({ kind: "bundled", session })}
+                onRequestOrderLabel={(session, orderId) => setParcelModal({ kind: "order", session, orderId })}
               />
             ))}
           </div>
         </Fragment>
       ))}
 
-      {parcelModalSession ? (
+      {parcelModal ? (
         <LabelParcelModal
-          session={parcelModalSession}
+          contextLine={
+            parcelModal.kind === "bundled"
+              ? `${parcelModal.session.liveShowTitle} · ${
+                  parcelModal.session.buyer.name?.trim()
+                    ? `${parcelModal.session.buyer.name} (@${parcelModal.session.buyer.username})`
+                    : `@${parcelModal.session.buyer.username}`
+                } · ${parcelModal.session.orderCount} order${parcelModal.session.orderCount === 1 ? "" : "s"} · System est: ${parcelModal.session.pricingWeightOz.toFixed(1)} oz`
+              : `${parcelModal.session.liveShowTitle} · ${
+                  parcelModal.session.orders.find((o) => o.id === parcelModal.orderId)?.listingTitle ?? "Order"
+                } · System est: ${parcelModal.session.pricingWeightOz.toFixed(1)} oz`
+          }
           onConfirm={(parcel) => {
-            const sid = parcelModalSession.sessionId;
-            setParcelModalSession(null);
-            onCreateBundledLabel(sid, parcel);
+            const modal = parcelModal;
+            setParcelModal(null);
+            if (modal.kind === "bundled") {
+              onCreateBundledLabel(modal.session.sessionId, parcel);
+            } else {
+              onCreateLabel(modal.orderId, parcel);
+            }
           }}
-          onCancel={() => setParcelModalSession(null)}
+          onCancel={() => setParcelModal(null)}
         />
       ) : null}
     </section>

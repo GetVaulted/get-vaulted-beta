@@ -21,9 +21,14 @@ import { resolveShippoPurchaseLabel } from "@/lib/shippo-transaction-label";
  */
 export async function fulfillOrderShippingAfterPayment(
   orderId: string,
-  options?: { labelFormat?: SellerLabelPrintFormat },
+  options?: {
+    labelFormat?: SellerLabelPrintFormat;
+    manualParcel?: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
+  },
 ): Promise<void> {
-  if (!isShippoConfigured()) return;
+  if (!isShippoConfigured()) {
+    throw new Error("SHIPPO_NOT_CONFIGURED");
+  }
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
@@ -72,8 +77,8 @@ export async function fulfillOrderShippingAfterPayment(
       },
     },
   });
-  if (!order) return;
-  if (order.paymentStatus !== "paid") return;
+  if (!order) throw new Error("ORDER_NOT_FOUND");
+  if (order.paymentStatus !== "paid") throw new Error("ORDER_NOT_PAID");
   if (order.shippoTransactionId) {
     if (order.labelUrl?.trim()) return;
     const { enrichSellerOrderLabelFromShippo } = await import("@/lib/enrich-seller-order-label-from-shippo");
@@ -110,8 +115,7 @@ export async function fulfillOrderShippingAfterPayment(
 
   const from = order.seller;
   if (!from.shipFromStreet || !from.shipFromCity || !from.shipFromState || !from.shipFromZip || !from.shipFromCountry) {
-    console.warn(`[shippo] skip order ${orderId}: seller ship-from incomplete`);
-    return;
+    throw new Error("SELLER_SHIP_FROM_INCOMPLETE");
   }
 
   const sellerContact = resolveSellerShippoContact({
@@ -151,7 +155,16 @@ export async function fulfillOrderShippingAfterPayment(
     buyerContact,
   );
 
-  const parcel = resolveMarketplaceQuoteParcel(order.listing);
+  const parcel = options?.manualParcel
+    ? {
+        weight: String(options.manualParcel.weightOz),
+        length: String(options.manualParcel.lengthIn),
+        width: String(options.manualParcel.widthIn),
+        height: String(options.manualParcel.heightIn),
+        distance_unit: "in" as const,
+        mass_unit: "oz" as const,
+      }
+    : resolveMarketplaceQuoteParcel(order.listing);
 
   try {
     const shipment = (await shippoCreateShipment({
