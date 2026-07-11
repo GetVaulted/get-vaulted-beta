@@ -25,6 +25,7 @@ type SellerPayload = {
   shipFromState: string | null;
   shipFromZip: string | null;
   shipFromCountry: string | null;
+  shipFromPhone: string | null;
 };
 
 type SellerHomeStats = {
