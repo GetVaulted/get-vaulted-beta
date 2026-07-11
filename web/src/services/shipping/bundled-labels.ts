@@ -256,6 +256,33 @@ export async function generateBundledShippoLabelForSession(
 
   const labeled = session.orders.find((o) => orderHasLabel(o));
   if (labeled) {
+    // Paid non-ship-alone siblings that missed the stamp (e.g. paid after first label) share the same package label.
+    const orphans = filterEligibleBundledOrders(session.orders as SessionOrder[]);
+    if (orphans.length > 0) {
+      await prisma.$transaction(
+        orphans.map((o) =>
+          prisma.order.update({
+            where: { id: o.id },
+            data: {
+              shippoShipmentId: labeled.shippoShipmentId ?? null,
+              shippoTransactionId: labeled.shippoTransactionId ?? null,
+              carrier: labeled.carrier ?? null,
+              service: labeled.service ?? null,
+              trackingNumber: labeled.trackingNumber ?? null,
+              trackingUrl: labeled.trackingUrl ?? null,
+              labelUrl: labeled.labelUrl ?? null,
+              shippingStatus: labeled.shippingStatus ?? (labeled.labelUrl ? "SUCCESS" : "label_pending"),
+              fulfillmentStatus: labeled.labelUrl ? "label_created" : labeled.fulfillmentStatus,
+              shippingLabelCostCents: 0,
+            },
+          }),
+        ),
+      );
+    }
+    const labeledIds = new Set([
+      ...session.orders.filter((o) => orderHasLabel(o)).map((o) => o.id),
+      ...orphans.map((o) => o.id),
+    ]);
     return {
       alreadyExisted: true,
       shippoShipmentId: labeled.shippoShipmentId ?? null,
@@ -269,7 +296,7 @@ export async function generateBundledShippoLabelForSession(
         const c = o.shippingLabelCostCents;
         return s + (c != null && Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0);
       }, 0),
-      orderIds: session.orders.filter((o) => orderHasLabel(o)).map((o) => o.id),
+      orderIds: [...labeledIds],
     };
   }
 

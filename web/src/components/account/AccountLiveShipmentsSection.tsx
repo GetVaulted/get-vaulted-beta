@@ -360,8 +360,13 @@ function SessionCard({
   onRequestOrderLabel: (session: SellerLiveShippingSessionRow, orderId: string) => void;
 }) {
   const buyerDisplay = s.buyer.name?.trim() ? `${s.buyer.name} (@${s.buyer.username})` : `@${s.buyer.username}`;
+  // Per-order CTAs are only for leftovers (usually ship-alone). Hide when a bundle label already covers the session.
+  const perOrderLabelIds =
+    s.bundled && (s.bundledLabel?.labelUrl || s.bundledLabel?.trackingNumber)
+      ? s.ordersNeedingLabels.filter((oid) => s.orders.find((o) => o.id === oid)?.shipAlone)
+      : s.ordersNeedingLabels;
   const canShowPerOrderLabelCta =
-    !s.canCreateBundledLabel && s.ordersNeedingLabels.length > 0 && s.labelStatus !== "awaiting_payment";
+    !s.canCreateBundledLabel && perOrderLabelIds.length > 0 && s.labelStatus !== "awaiting_payment";
 
   return (
     <article className="rounded-xl border border-white/[0.08] bg-black/40 p-4">
@@ -486,7 +491,7 @@ function SessionCard({
             dims before creating.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
-            {s.ordersNeedingLabels.map((oid) => {
+            {perOrderLabelIds.map((oid) => {
               const order = s.orders.find((o) => o.id === oid);
               const fb = orderLabelFeedback?.[oid];
               return (

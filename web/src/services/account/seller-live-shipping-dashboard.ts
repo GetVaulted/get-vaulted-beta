@@ -76,8 +76,13 @@ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db = 
           paymentStatus: true,
           fulfillmentStatus: true,
           trackingNumber: true,
+          trackingUrl: true,
+          carrier: true,
+          service: true,
+          shippoShipmentId: true,
           shippoTransactionId: true,
           labelUrl: true,
+          shippingStatus: true,
           listing: { select: { title: true, shipAlone: true } },
         },
       },
@@ -89,6 +94,49 @@ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db = 
   let totalLabel = 0;
 
   for (const s of sessions) {
+    const dest = s.destinationAddressId ?? null;
+    const bundled = !dest || !dest.startsWith("ship-alone:");
+
+    // Combined bundle already labeled: stamp paid non-ship-alone siblings that missed the update
+    // so the UI does not offer duplicate per-order labels for the same package.
+    if (bundled) {
+      const donor = s.orders.find((o) => orderHasLabel(o) && !o.listing.shipAlone);
+      if (donor) {
+        const orphans = s.orders.filter(
+          (o) => o.paymentStatus === PAYMENT_PAID && !orderHasLabel(o) && !o.listing.shipAlone,
+        );
+        if (orphans.length > 0) {
+          await prisma.order.updateMany({
+            where: { id: { in: orphans.map((o) => o.id) } },
+            data: {
+              shippoShipmentId: donor.shippoShipmentId,
+              shippoTransactionId: donor.shippoTransactionId,
+              carrier: donor.carrier,
+              service: donor.service,
+              trackingNumber: donor.trackingNumber,
+              trackingUrl: donor.trackingUrl,
+              labelUrl: donor.labelUrl,
+              shippingStatus: donor.shippingStatus ?? (donor.labelUrl ? "SUCCESS" : null),
+              fulfillmentStatus: donor.labelUrl ? "label_created" : donor.fulfillmentStatus,
+              shippingLabelCostCents: 0,
+            },
+          });
+          for (const o of orphans) {
+            o.shippoShipmentId = donor.shippoShipmentId;
+            o.shippoTransactionId = donor.shippoTransactionId;
+            o.carrier = donor.carrier;
+            o.service = donor.service;
+            o.trackingNumber = donor.trackingNumber;
+            o.trackingUrl = donor.trackingUrl;
+            o.labelUrl = donor.labelUrl;
+            o.shippingStatus = donor.shippingStatus ?? (donor.labelUrl ? "SUCCESS" : null);
+            o.fulfillmentStatus = donor.labelUrl ? "label_created" : donor.fulfillmentStatus;
+            o.shippingLabelCostCents = 0;
+          }
+        }
+      }
+    }
+
     const orders = s.orders;
     const shippingChargedCents = orders.reduce((sum, o) => sum + orderChargedCents(o), 0);
     const shippingLabelCostCents = orders.reduce((sum, o) => {
@@ -106,8 +154,6 @@ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db = 
     totalCharged += shippingChargedCents;
     totalLabel += shippingLabelCostCents;
 
-    const dest = s.destinationAddressId ?? null;
-    const bundled = !dest || !dest.startsWith("ship-alone:");
     const anyLabelInSession = orders.some(orderHasLabel);
     const hasEligibleBundledTarget = orders.some(
       (o) => o.paymentStatus === PAYMENT_PAID && !orderHasLabel(o) && !o.listing.shipAlone,
