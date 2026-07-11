@@ -9,6 +9,7 @@ import { SellerHubNav } from "@/components/seller/obs/SellerHubNav";
 import { SellerShipFromSetupCard } from "@/components/account/SellerShipFromSetupCard";
 import { useSellerSetupState } from "@/hooks/useSellerSetupState";
 import { SELLER_OBS_PATH } from "@/lib/obs-seller-paths";
+import { hasCompleteSellerShipFrom } from "@/lib/seller-shipping-readiness";
 import { SELLER_SETUP_PATH } from "@/lib/seller-setup-state";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 
@@ -124,7 +125,7 @@ function StatusPill({ tone, children }: { tone: "ready" | "pending" | "warn"; ch
 export function SellerHubPage() {
   const router = useRouter();
   const { status } = useSession();
-  const { activated, phase: setupPhase } = useSellerSetupState(status === "authenticated");
+  const { activated, phase: setupPhase, resolved: setupResolved } = useSellerSetupState(status === "authenticated");
   const [seller, setSeller] = useState<SellerPayload>({
     username: "",
     stripeAccountId: null,
@@ -272,11 +273,11 @@ export function SellerHubPage() {
   }, [load, status]);
 
   useEffect(() => {
-    if (loading || status !== "authenticated" || setupPhase === "loading") return;
+    if (loading || status !== "authenticated" || setupPhase === "loading" || !setupResolved) return;
     if (!activated) {
       router.replace(SELLER_SETUP_PATH);
     }
-  }, [loading, activated, setupPhase, router, status]);
+  }, [loading, activated, setupPhase, setupResolved, router, status]);
 
   useEffect(() => {
     if (!stripeEmbedOpen) return;
@@ -371,10 +372,12 @@ export function SellerHubPage() {
     );
   }
 
-  if (!activated) {
+  if (!setupResolved || !activated) {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
-        <div className="mx-auto max-w-[1920px] px-4 py-24 text-center text-sm text-zinc-500">Redirecting to seller setup…</div>
+        <div className="mx-auto max-w-[1920px] px-4 py-24 text-center text-sm text-zinc-500">
+          {setupResolved && !activated ? "Redirecting to seller setup…" : "Loading seller HQ…"}
+        </div>
       </main>
     );
   }
@@ -382,7 +385,16 @@ export function SellerHubPage() {
   const ps = payoutStatus(seller);
   const liveRoom = homeStats?.liveRoom;
   const isLiveNow = liveRoom?.status === "live";
-  const shipFromNeedsAttention = !readiness.checks.hasShipFromAddress;
+  const shipFromNeedsAttention = seller
+    ? !hasCompleteSellerShipFrom({
+        shipFromStreet: seller.shipFromStreet,
+        shipFromCity: seller.shipFromCity,
+        shipFromState: seller.shipFromState,
+        shipFromZip: seller.shipFromZip,
+        shipFromCountry: seller.shipFromCountry,
+        shipFromPhone: seller.shipFromPhone,
+      })
+    : !readiness.checks.hasShipFromAddress;
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[#030303]">

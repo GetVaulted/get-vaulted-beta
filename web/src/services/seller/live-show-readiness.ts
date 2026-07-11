@@ -91,7 +91,10 @@ export async function getSellerLiveReadiness(
   const stripeChargesEnabled = !stripeRequired || Boolean(user.stripeOnboardingComplete);
 
   const hasShippoConfigured = isShippoConfigured();
-  const hasShipFromAddress = hasCompleteSellerShipFrom(user);
+  // Address fields unlock Seller HQ; contact phone is still required to go live / buy labels.
+  const hasShipFromAddress =
+    hasCompleteSellerShipFrom(user) || sellerNeedsShipFromPhoneOnly(user);
+  const hasShipFromPhone = hasCompleteSellerShipFrom(user);
 
   const alternateCheckoutSellerRequired = isLiveAlternateCheckoutSellerRequired();
   const alternateCheckoutSellerLinked = Boolean(user.trustapUserId?.trim());
@@ -132,9 +135,11 @@ export async function getSellerLiveReadiness(
 
   if (!hasShipFromAddress) {
     issues.push(
-      sellerNeedsShipFromPhoneOnly(user)
-        ? "Add a contact phone for your saved ship-from address so we can buy USPS labels for your orders."
-        : "Add a complete ship-from address and contact phone so we can buy USPS labels for your orders.",
+      "Add a complete ship-from address and contact phone so we can buy USPS labels for your orders.",
+    );
+  } else if (!hasShipFromPhone) {
+    issues.push(
+      "Add a contact phone for your saved ship-from address so we can buy USPS labels for your orders.",
     );
   }
 
