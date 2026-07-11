@@ -140,7 +140,7 @@ function ShipModal({
         </h2>
         <p className="mt-1 text-xs text-zinc-500">
           {mode === "markShipped"
-            ? "Optional: add a carrier tracking number now, or leave blank and add it later."
+            ? "Confirms you dropped the package off. The buyer is notified when the carrier scans it (Shipped → In transit → Out for delivery → Delivered)."
             : "Add or update the tracking number for this shipment."}
         </p>
         <label className="mt-4 block">
