@@ -200,9 +200,13 @@ export async function createLiveCommerceFulfillmentOrderTx(
   });
   if (!show) throw new Error("LIVE_ROOM_NOT_FOUND");
 
+  // Do NOT inherit the show's defaultSellerShippingProfileId here.
+  // Break spot wins (e.g. "Live spot: Texans") are card mailers, not
+  // whatever heavy profile the seller set for individual auction items.
+  // Priority: item-level seller profile → seller's live_break_spot profile.
   const breakProfile = await resolveBreakSpotSellerProfile({
     sellerId: args.sellerId,
-    showDefaultSellerProfileId: show.defaultSellerShippingProfileId,
+    showDefaultSellerProfileId: null,
     itemSellerProfileId: liveItem?.sellerShippingProfileId ?? null,
     db: tx,
   });

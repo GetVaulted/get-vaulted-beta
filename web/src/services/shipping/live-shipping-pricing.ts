@@ -236,6 +236,7 @@ export async function addOrderToLiveShippingSessionTx(
               liveRoom: { sellerId: order.sellerId, roomType: { in: ["auction", "break", "sale"] } },
             },
             select: {
+              listingId: true,
               liveRoomId: true,
               shippingProfileId: true,
               customWeightOz: true,
@@ -255,6 +256,7 @@ export async function addOrderToLiveShippingSessionTx(
                 liveRoom: { sellerId: order.sellerId, roomType: { in: ["auction", "break", "sale"] } },
               },
               select: {
+                listingId: true,
                 liveRoomId: true,
                 shippingProfileId: true,
                 customWeightOz: true,
@@ -272,6 +274,7 @@ export async function addOrderToLiveShippingSessionTx(
                 liveRoom: { sellerId: order.sellerId, roomType: { in: ["auction", "break", "sale"] } },
               },
               select: {
+                listingId: true,
                 liveRoomId: true,
                 shippingProfileId: true,
                 customWeightOz: true,
@@ -359,15 +362,21 @@ export async function addOrderToLiveShippingSessionTx(
 
     const itemCount = await tx.liveShippingSessionItem.count({ where: { sessionId: session.id } });
 
+    // Break/PYT queue rows (liveRoomItem.listingId === null) are host board rows, not the item being
+    // shipped. Their platform profile (e.g. "Full-Size Helmet") belongs to the queue row, not to the
+    // ephemeral "Live spot: X" listing the buyer actually receives. Use the listing-derived weight
+    // (baseWeightOz / incrementalWeightOz) for those to avoid charging card buyers helmet rates.
+    const isBreakSpotQueueRow = liveItem != null && liveRoomItemId != null && liveItem.listingId == null;
+
     let appliedWeightOz = itemCount === 0 ? baseWeightOz : incrementalWeightOz;
-    if (liveItem?.shippingProfile) {
+    if (liveItem?.shippingProfile && !isBreakSpotQueueRow) {
       const resolved = resolveShippingProfileDimensions(liveItem.shippingProfile, liveItem);
       // Separate-package profiles (helmets, etc.) always contribute full package weight.
       appliedWeightOz =
         itemCount === 0 || resolved.requiresSeparatePackage
           ? resolved.weightOz
           : Math.max(1, resolved.weightOz * 0.25);
-    } else {
+    } else if (!isBreakSpotQueueRow) {
       const fallbackProfile = await resolveDefaultProfileForLiveShow({
         showDefaultProfileId: liveItem?.liveRoom.defaultShippingProfileId ?? showOnly?.defaultShippingProfileId ?? null,
         category: liveItem?.liveRoom.category ?? showOnly?.category ?? null,

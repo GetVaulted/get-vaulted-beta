@@ -98,18 +98,25 @@ export async function buildSessionPackageGroups(
     });
     const appliedWeightOz =
       Number.isFinite(si.appliedWeightOz) && si.appliedWeightOz > 0 ? si.appliedWeightOz : null;
+
+    // Break/PYT queue rows (liveRoomItem.listingId === null) are host board rows whose platform
+    // profile (e.g. "Full-Size Helmet") should NOT be applied to the ephemeral slot-win listing.
+    // Card buyers in a helmet break room must not be charged as 5-lb separate packages.
+    const isBreakSpotQueueRow = liveItem != null && liveItem.listingId == null;
+
     const weightOverride =
       appliedWeightOz != null
         ? {
             customWeightOz: appliedWeightOz,
-            customLengthIn: liveItem?.customLengthIn ?? null,
-            customWidthIn: liveItem?.customWidthIn ?? null,
-            customHeightIn: liveItem?.customHeightIn ?? null,
-            requiresSeparatePackage: liveItem?.requiresSeparatePackage ?? null,
+            customLengthIn: !isBreakSpotQueueRow ? (liveItem?.customLengthIn ?? null) : null,
+            customWidthIn: !isBreakSpotQueueRow ? (liveItem?.customWidthIn ?? null) : null,
+            customHeightIn: !isBreakSpotQueueRow ? (liveItem?.customHeightIn ?? null) : null,
+            // Break spot queue rows must not impose requiresSeparatePackage — card wins from a
+            // helmet break room should still be bundleable.
+            requiresSeparatePackage: !isBreakSpotQueueRow ? (liveItem?.requiresSeparatePackage ?? null) : null,
           }
-        : liveItem ?? undefined;
-
-    if (liveItem?.shippingProfile) {
+        : !isBreakSpotQueueRow ? (liveItem ?? undefined) : undefined;
+    if (liveItem?.shippingProfile && !isBreakSpotQueueRow) {
       rows.push({
         itemId: liveItem.id,
         profile: liveItem.shippingProfile,

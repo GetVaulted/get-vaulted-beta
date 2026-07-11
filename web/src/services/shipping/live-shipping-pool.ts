@@ -33,6 +33,7 @@ type Db = Pick<
 
 const LIVE_ITEM_SHIPPING_SELECT = {
   id: true,
+  listingId: true,
   shippingProfileId: true,
   customWeightOz: true,
   customLengthIn: true,
