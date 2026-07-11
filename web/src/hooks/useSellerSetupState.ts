@@ -74,8 +74,13 @@ export function useSellerSetupState(enabled: boolean) {
       setResolved(false);
       return;
     }
-    setPhase("loading");
-    setResolved(false);
+    // Soft refresh: keep the last known phase so the Account menu / seller tiles do not flash
+    // "Start Seller Setup" every time the dropdown opens while /api/account/seller reloads.
+    const hasCached = Boolean(checksRef.current);
+    if (!hasCached) {
+      setPhase("loading");
+      setResolved(false);
+    }
     const localWizard = readSellerWizardComplete();
     try {
       let res = await fetch("/api/account/seller", { credentials: "same-origin", cache: "no-store" });

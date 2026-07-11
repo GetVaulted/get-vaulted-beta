@@ -115,40 +115,47 @@ export function MyAccountPage() {
   ];
 
   const sellerTiles: HubTile[] =
-    setupPhase === "ready"
+    setupPhase === "ready" || setupPhase === "loading"
       ? [
           {
             href: SELLER_HQ_PATH,
             title: "Seller HQ",
-            description: "Listings, sales, live shows, and seller overview.",
+            description:
+              setupPhase === "loading"
+                ? "Loading seller status…"
+                : "Listings, sales, live shows, and seller overview.",
             accent: true,
           },
-          {
-            href: "/account/listings",
-            title: "My Listings",
-            description: "Draft, active, and sold inventory.",
-          },
-          {
-            href: "/account/sales",
-            title: "Sales",
-            description: "Orders to fulfill and recent sales.",
-          },
-          {
-            href: "/account/offers",
-            title: "Offers",
-            description: "Incoming and outgoing offers.",
-          },
-          {
-            href: "/seller/live",
-            title: "Go Live",
-            description: "Schedule or start a live show.",
-            accent: true,
-          },
+          ...(setupPhase === "ready"
+            ? [
+                {
+                  href: "/account/listings",
+                  title: "My Listings",
+                  description: "Draft, active, and sold inventory.",
+                },
+                {
+                  href: "/account/sales",
+                  title: "Sales",
+                  description: "Orders to fulfill and recent sales.",
+                },
+                {
+                  href: "/account/offers",
+                  title: "Offers",
+                  description: "Incoming and outgoing offers.",
+                },
+                {
+                  href: "/seller/live",
+                  title: "Go Live",
+                  description: "Schedule or start a live show.",
+                  accent: true,
+                },
+              ]
+            : []),
         ]
       : [
           {
             href: SELLER_SETUP_PATH,
-            title: setupPhase === "loading" ? "Start Seller Setup" : sellerSetupMenuLabel(setupPhase),
+            title: sellerSetupMenuLabel(setupPhase),
             description: "Connect payouts, add shipping, and unlock Seller HQ.",
             accent: true,
           },

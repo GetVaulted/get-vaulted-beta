@@ -49,27 +49,29 @@ function buildSections(
   setupPhase: ReturnType<typeof useSellerSetupState>["phase"],
   liveEnabled: boolean,
 ): { sections: MenuSection[]; bottomItems: MenuItem[] } {
-  const setupHref = sellerSetupMenuHref(setupPhase === "loading" ? "not_started" : setupPhase);
-  const setupLabel =
-    setupPhase === "loading" ? "Start Seller Setup" : sellerSetupMenuLabel(setupPhase);
-
+  // While seller status is still loading, do not point at setup — that caused a one-frame
+  // "Start Seller Setup" flash for activated sellers every time the Account menu opened.
   const sellingItems: MenuItem[] =
-    setupPhase === "ready"
+    setupPhase === "ready" || setupPhase === "loading"
       ? [
           { href: SELLER_HQ_PATH, label: "Seller HQ", icon: <StoreIcon /> },
-          { href: "/account/listings", label: "My Listings", icon: <TagIcon /> },
-          { href: "/account/sales", label: "Sales", icon: <ReceiptIcon /> },
-          {
-            href: liveHref(liveEnabled, "/seller/live"),
-            label: "Go Live",
-            icon: <BroadcastIcon />,
-            variant: "cta",
-          },
+          ...(setupPhase === "ready"
+            ? [
+                { href: "/account/listings", label: "My Listings", icon: <TagIcon /> },
+                { href: "/account/sales", label: "Sales", icon: <ReceiptIcon /> },
+                {
+                  href: liveHref(liveEnabled, "/seller/live"),
+                  label: "Go Live",
+                  icon: <BroadcastIcon />,
+                  variant: "cta" as const,
+                },
+              ]
+            : []),
         ]
       : [
           {
-            href: setupHref,
-            label: setupLabel,
+            href: sellerSetupMenuHref(setupPhase),
+            label: sellerSetupMenuLabel(setupPhase),
             icon: <SparkIcon />,
             variant: "cta",
           },
