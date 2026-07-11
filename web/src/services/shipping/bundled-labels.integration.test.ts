@@ -55,6 +55,11 @@ describe("generateBundledShippoLabelForSession (integration)", () => {
     shippoHoisted.create.mockReset();
     shippoHoisted.rates.mockReset();
     shippoHoisted.purchase.mockReset();
+    const { chargeSellerForLabelCost, markOrderLabelCostReversalFailed } = await import(
+      "@/services/shipping/charge-seller-label-cost"
+    );
+    vi.mocked(chargeSellerForLabelCost).mockClear();
+    vi.mocked(markOrderLabelCostReversalFailed).mockClear();
     vi.stubEnv("BUNDLE_WEIGHT_BUFFER_OZ", "0");
     shippoHoisted.create.mockResolvedValue({ object_id: "ship_bundle_1" });
     shippoHoisted.rates.mockResolvedValue({
@@ -173,9 +178,15 @@ describe("generateBundledShippoLabelForSession (integration)", () => {
     expect(u2?.shippoTransactionId).toBe("tx_bundle_1");
     expect(u1?.trackingNumber).toBe("1ZTRACKBUNDLE");
     expect(u2?.trackingNumber).toBe("1ZTRACKBUNDLE");
-    expect(u1?.shippingLabelCostCents).toBe(251);
-    expect(u2?.shippingLabelCostCents).toBe(250);
-    expect((u1?.shippingLabelCostCents ?? 0) + (u2?.shippingLabelCostCents ?? 0)).toBe(501);
+    // Full Shippo cost attributed to one debit order (not split across siblings).
+    const costs = [u1?.shippingLabelCostCents ?? 0, u2?.shippingLabelCostCents ?? 0].sort((a, b) => b - a);
+    expect(costs[0]).toBe(501);
+    expect(costs[1]).toBe(0);
+    const { chargeSellerForLabelCost } = await import("@/services/shipping/charge-seller-label-cost");
+    expect(chargeSellerForLabelCost).toHaveBeenCalledTimes(1);
+    expect(chargeSellerForLabelCost).toHaveBeenCalledWith(
+      expect.objectContaining({ labelCostCents: 501, shippoTransactionId: "tx_bundle_1" }),
+    );
   });
 
   it("returns existing label without calling Shippo when any order is already labeled", async () => {

@@ -161,6 +161,10 @@ type SessionOrder = {
   shipState: string;
   shipZip: string;
   shipCountry: string;
+  stripePaymentIntentId?: string | null;
+  shippingChargedCents?: number | null;
+  shippingPriceUsd?: number;
+  itemPriceUsd?: number;
   listing: ListingShipProfile;
 };
 
@@ -171,6 +175,27 @@ function filterEligibleBundledOrders(orders: SessionOrder[]): SessionOrder[] {
       !orderHasLabel(o) &&
       !o.listing.shipAlone,
   );
+}
+
+/** Prefer the order with a Stripe payment and the largest shipping charge to claw back the full label cost. */
+export function pickBundledLabelDebitOrder<
+  T extends {
+    id: string;
+    stripePaymentIntentId?: string | null;
+    shippingChargedCents?: number | null;
+    shippingPriceUsd?: number;
+  },
+>(orders: T[]): T | null {
+  if (orders.length === 0) return null;
+  const shipCents = (o: T) => {
+    if (o.shippingChargedCents != null && Number.isFinite(o.shippingChargedCents)) {
+      return Math.max(0, Math.floor(o.shippingChargedCents));
+    }
+    return Math.max(0, Math.round(Math.max(0, o.shippingPriceUsd ?? 0) * 100));
+  };
+  const withStripe = orders.filter((o) => Boolean(o.stripePaymentIntentId?.trim()));
+  const pool = withStripe.length > 0 ? withStripe : orders;
+  return [...pool].sort((a, b) => shipCents(b) - shipCents(a))[0] ?? null;
 }
 
 function addressesMatch(a: SessionOrder, b: SessionOrder): boolean {
@@ -539,9 +564,8 @@ export async function generateBundledShippoLabelForSession(
       });
     }
 
-    const n = eligible.length;
-    const baseEach = Math.floor(shippingLabelCostCentsTotal / n);
-    const remainder = shippingLabelCostCentsTotal - baseEach * n;
+    const debitOrder = pickBundledLabelDebitOrder(eligible);
+    const debitOrderId = debitOrder?.id ?? eligible[0]?.id ?? null;
 
     const transactionId = primaryTxIds[0] ?? null;
     const labelUrl = primaryLabelUrls[0]?.trim() || null;
@@ -551,8 +575,10 @@ export async function generateBundledShippoLabelForSession(
     const service = primaryService;
     const shippingStatus = labelUrl ? "SUCCESS" : "label_pending";
 
+    // Attribute the full Shippo label cost to one Stripe-backed order and claw it back in a single
+    // transfer reversal. Splitting across $0-shipping siblings left most of the cost unrecovered.
     await prisma.$transaction(
-      eligible.map((o, idx) =>
+      eligible.map((o) =>
         prisma.order.update({
           where: { id: o.id },
           data: {
@@ -565,7 +591,8 @@ export async function generateBundledShippoLabelForSession(
             labelUrl,
             shippingStatus,
             fulfillmentStatus: labelUrl ? "label_created" : "exception",
-            shippingLabelCostCents: baseEach + (idx === 0 ? remainder : 0),
+            shippingLabelCostCents: o.id === debitOrderId ? shippingLabelCostCentsTotal : 0,
+            ...(o.id === debitOrderId && labelUrl ? { labelCreatedAt: new Date() } : {}),
           },
         }),
       ),
@@ -574,22 +601,46 @@ export async function generateBundledShippoLabelForSession(
     const { chargeSellerForLabelCost, markOrderLabelCostReversalFailed } = await import(
       "@/services/shipping/charge-seller-label-cost"
     );
-    for (let idx = 0; idx < eligible.length; idx++) {
-      const o = eligible[idx]!;
-      const orderLabelCost = baseEach + (idx === 0 ? remainder : 0);
-      const debit = await chargeSellerForLabelCost({
-        orderId: o.id,
-        labelCostCents: orderLabelCost,
-        shippoTransactionId: transactionId,
-      });
-      if (!debit.ok) {
-        await markOrderLabelCostReversalFailed(o.id);
+
+    if (shippingLabelCostCentsTotal > 0 && debitOrderId) {
+      const debitCandidates = [
+        debitOrderId,
+        ...eligible.map((o) => o.id).filter((id) => id !== debitOrderId),
+      ];
+      let recovered = false;
+      let lastFailOrderId = debitOrderId;
+      for (const orderId of debitCandidates) {
+        const debit = await chargeSellerForLabelCost({
+          orderId,
+          labelCostCents: shippingLabelCostCentsTotal,
+          shippoTransactionId: transactionId,
+        });
+        if (debit.ok) {
+          if (orderId !== debitOrderId) {
+            await prisma.$transaction([
+              prisma.order.update({
+                where: { id: debitOrderId },
+                data: { shippingLabelCostCents: 0 },
+              }),
+              prisma.order.update({
+                where: { id: orderId },
+                data: { shippingLabelCostCents: shippingLabelCostCentsTotal },
+              }),
+            ]);
+          }
+          recovered = true;
+          break;
+        }
+        lastFailOrderId = orderId;
         console.error("[shippo] bundled label cost debit failed", {
-          orderId: o.id,
+          orderId,
           sessionId,
           code: debit.code,
           error: debit.error,
         });
+      }
+      if (!recovered) {
+        await markOrderLabelCostReversalFailed(lastFailOrderId);
       }
     }
 
