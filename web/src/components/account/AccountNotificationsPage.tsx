@@ -122,7 +122,7 @@ export function AccountNotificationsPage() {
             Buying updates (payment, shipping, delivery) and selling updates (payments, labels, disputes) in one place.
           </p>
           <div className="mt-4">
-            <AccountOrdersNav active="notifications" />
+            <AccountOrdersNav active="notifications" mode="buyer" />
           </div>
         </header>
 

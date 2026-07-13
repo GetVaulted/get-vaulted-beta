@@ -356,7 +356,7 @@ export function AccountPaymentMethodsPage() {
             Add a card and shipping address once — used for live shows, auction wins, and checkout.
           </p>
           <div className="mt-4">
-            <AccountOrdersNav active="payments" />
+            <AccountOrdersNav active="payments" mode="buyer" />
           </div>
         </header>
 

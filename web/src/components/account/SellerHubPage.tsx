@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
+import { SellerShipFromSetupCard } from "@/components/account/SellerShipFromSetupCard";
 import { StripeOnboardingEmbed } from "@/components/seller/StripeOnboardingEmbed";
 import { SellerHubNav } from "@/components/seller/obs/SellerHubNav";
-import { SellerShipFromSetupCard } from "@/components/account/SellerShipFromSetupCard";
 import { useSellerSetupState } from "@/hooks/useSellerSetupState";
 import { SELLER_OBS_PATH } from "@/lib/obs-seller-paths";
 import { hasCompleteSellerShipFrom } from "@/lib/seller-shipping-readiness";
@@ -425,6 +426,9 @@ export function SellerHubPage() {
                 New listing
               </Link>
             </div>
+          </div>
+          <div className="mt-4">
+            <AccountOrdersNav active="seller" mode="seller" />
           </div>
         </header>
 

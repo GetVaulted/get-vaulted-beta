@@ -260,7 +260,7 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
       <div className="relative mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-        <AccountOrdersNav active="sales" />
+        <AccountOrdersNav active="sales" mode="seller" />
         <Link
           href="/account/sales"
           className="mt-6 inline-flex text-[11px] font-semibold uppercase tracking-wider text-gold-bright/90 hover:text-gold-bright"

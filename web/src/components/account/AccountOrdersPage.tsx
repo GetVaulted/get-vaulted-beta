@@ -173,7 +173,7 @@ export function AccountOrdersPage() {
             </button>
           </div>
           <div className="mt-4">
-            <AccountOrdersNav active="orders" />
+            <AccountOrdersNav active="orders" mode="buyer" />
           </div>
         </header>
 

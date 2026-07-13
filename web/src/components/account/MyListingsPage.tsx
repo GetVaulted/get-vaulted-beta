@@ -217,7 +217,7 @@ export function MyListingsPage() {
               <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">My Listings</h1>
               <p className="mt-1.5 max-w-xl text-sm text-zinc-500">Manage your active, draft, and sold buy-now listings.</p>
               <div className="mt-4">
-                <AccountOrdersNav active="listings" />
+                <AccountOrdersNav active="listings" mode="seller" />
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2.5">

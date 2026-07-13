@@ -9,6 +9,7 @@ import { AccountSellerLiveSalesSection } from "@/components/account/AccountSelle
 import { AccountSellerShipWorkspace } from "@/components/account/AccountSellerShipWorkspace";
 import { SellerPayoutTierCard } from "@/components/account/SellerPayoutTierCard";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
+import { AccountSalesViewTabs } from "@/components/account/AccountSalesViewTabs";
 import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 import { ExpiredAuctionRecoveryPanel } from "@/components/listings/ExpiredAuctionRecoveryPanel";
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
@@ -446,48 +447,9 @@ export function AccountSalesPage() {
                 ? "Create labels, print, and mark packages shipped."
                 : "Full order history, payouts, and shipping details."}
           </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => selectSalesView("ship")}
-              className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition ${
-                salesView === "ship"
-                  ? "border-gold/45 bg-gold/12 text-gold-bright"
-                  : "border-white/10 bg-white/[0.02] text-zinc-500 hover:border-white/18 hover:text-zinc-300"
-              }`}
-            >
-              Ship queue
-            </button>
-            <button
-              type="button"
-              onClick={() => selectSalesView("all")}
-              className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition ${
-                salesView === "all"
-                  ? "border-gold/45 bg-gold/12 text-gold-bright"
-                  : "border-white/10 bg-white/[0.02] text-zinc-500 hover:border-white/18 hover:text-zinc-300"
-              }`}
-            >
-              All orders
-            </button>
-            <button
-              type="button"
-              onClick={() => selectSalesView("live")}
-              className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition ${
-                salesView === "live"
-                  ? "border-gold/45 bg-gold/12 text-gold-bright"
-                  : "border-white/10 bg-white/[0.02] text-zinc-500 hover:border-white/18 hover:text-zinc-300"
-              }`}
-            >
-              Live shows
-            </button>
-          </div>
-          <p className="mt-2 text-sm">
-            <Link href="/account/sales/layaways" className="font-semibold text-gold-bright hover:underline">
-              View layaways →
-            </Link>
-          </p>
+          <AccountSalesViewTabs active={salesView} />
           <div className="mt-4">
-            <AccountOrdersNav active="sales" />
+            <AccountOrdersNav active="sales" mode="seller" />
           </div>
         </header>
 

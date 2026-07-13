@@ -82,7 +82,7 @@ export function MessagesWorkspace({ children }: { children: React.ReactNode }) {
           <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">Messages</h1>
           <p className="mt-1.5 text-sm text-zinc-500">Conversations with buyers and sellers.</p>
           <div className="mt-4">
-            <AccountOrdersNav active="messages" />
+            <AccountOrdersNav active="messages" mode="buyer" />
           </div>
         </header>
 
