@@ -140,6 +140,7 @@ export function SellerHubPage() {
     shipFromState: null,
     shipFromZip: null,
     shipFromCountry: null,
+    shipFromPhone: null,
   });
   const [homeStats, setHomeStats] = useState<SellerHomeStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -215,6 +216,7 @@ export function SellerHubPage() {
           shipFromState: null,
           shipFromZip: null,
           shipFromCountry: null,
+          shipFromPhone: null,
         });
         return;
       }
@@ -242,6 +244,7 @@ export function SellerHubPage() {
         shipFromState: null,
         shipFromZip: null,
         shipFromCountry: null,
+        shipFromPhone: null,
       };
       setSeller(s);
       setReadiness(

@@ -18,7 +18,7 @@ const LABEL_PURCHASED_FULFILLMENT = new Set([
 export type SellerLabelOrderFields = {
   shippoTransactionId?: string | null;
   labelUrl?: string | null;
-  fulfillmentStatus?: string;
+  fulfillmentStatus?: string | null;
 };
 
 export function orderHasPurchasedLabel(order: SellerLabelOrderFields): boolean {

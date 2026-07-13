@@ -32,7 +32,9 @@ type Db = Pick<
   | "liveAuctionInventoryHold"
   | "order"
   | "platformShippingProfile"
+  | "sellerShippingProfile"
   | "shipmentPackage"
+  | "listing"
 >;
 
 function parseEnvFloat(name: string, fallback: number): number {

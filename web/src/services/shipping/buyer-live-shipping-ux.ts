@@ -30,7 +30,17 @@ export type BuyerLiveShippingSessionApi = {
   previewRequiresSeparatePackage: boolean;
 };
 
-type Db = Pick<PrismaClient, "liveRoom" | "liveRoomItem" | "liveShippingSession" | "liveShippingSessionItem" | "platformShippingProfile" | "sellerShippingProfile">;
+type Db = Pick<
+  PrismaClient,
+  | "liveRoom"
+  | "liveRoomItem"
+  | "liveShippingSession"
+  | "liveShippingSessionItem"
+  | "liveAuctionInventoryHold"
+  | "platformShippingProfile"
+  | "sellerShippingProfile"
+  | "listing"
+>;
 
 /**
  * Bundled live shipping pool for buyer UX (read-only).

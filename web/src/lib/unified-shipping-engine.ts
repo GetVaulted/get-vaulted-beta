@@ -418,8 +418,10 @@ export function computeLiveBuyerShippingCharge(args: {
 export type ShippoRateLike = {
   object_id?: string;
   amount?: string;
+  currency?: string;
   provider?: string;
   servicelevel?: { token?: string; name?: string };
+  estimated_days?: number;
 };
 
 const ALLOWED_CARRIERS = new Set(["usps", "ups"]);
