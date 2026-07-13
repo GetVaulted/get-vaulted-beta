@@ -21,9 +21,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ sessionId: str
   try {
     const body = (await req.json().catch(() => ({}))) as {
       labelFormat?: string;
+      selectedRateObjectId?: unknown;
       manualParcel?: { weightOz?: unknown; lengthIn?: unknown; widthIn?: unknown; heightIn?: unknown };
     };
     const labelFormat = parseCreateLabelRequestBody(body);
+    const selectedRateObjectId =
+      typeof body.selectedRateObjectId === "string" && body.selectedRateObjectId.trim()
+        ? body.selectedRateObjectId.trim()
+        : undefined;
 
     // Optional seller-confirmed package dimensions (bypasses calculated package groups).
     const mp = body.manualParcel;
@@ -44,6 +49,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ sessionId: str
     const result = await generateBundledShippoLabelForSession(sessionId, session.user.id, {
       labelFormat,
       manualParcel,
+      selectedRateObjectId,
     });
     if (!result.labelUrl && !result.alreadyExisted) {
       return NextResponse.json({

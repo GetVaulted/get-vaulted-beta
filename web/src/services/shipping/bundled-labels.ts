@@ -35,6 +35,7 @@ import { LIVE_BUNDLED_SHIPPING_DESTINATION_KEY } from "@/services/shipping/live-
 import { buildSessionPackageGroups } from "@/services/shipping/live-shipping-quote";
 import {
   filterShippoRatesUspsUps,
+  selectShippoRatesForSellerQuote,
   type PackageGroup,
 } from "@/lib/unified-shipping-engine";
 import { orderHasUsableShippingLabel } from "@/lib/seller-shipping-label-state";
@@ -222,6 +223,8 @@ export async function generateBundledShippoLabelForSession(
   options?: {
     labelFormat?: SellerLabelPrintFormat;
     manualParcel?: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
+    /** Shippo rate object_id from preview — only applied for single-parcel (manual) purchases. */
+    selectedRateObjectId?: string;
   },
 ): Promise<GenerateBundledShippoLabelResult> {
   if (!isShippoConfigured()) {
@@ -501,14 +504,19 @@ export async function generateBundledShippoLabelForSession(
         results?: { object_id?: string; amount?: string; provider?: string; servicelevel?: { name?: string } }[];
       };
       const rates = filterShippoRatesUspsUps(ratesRes.results ?? []);
-      const cheapest = rates[0];
-      if (!cheapest?.object_id) throw new Error("No Shippo rates");
+      const preferredId =
+        packageGroups.length === 1 && options?.selectedRateObjectId?.trim()
+          ? options.selectedRateObjectId.trim()
+          : null;
+      const picked =
+        (preferredId ? rates.find((r) => r.object_id === preferredId) : undefined) ?? rates[0];
+      if (!picked?.object_id) throw new Error("No Shippo rates");
 
-      const packageCostCents = Math.round(Number(cheapest.amount ?? 0) * 100);
+      const packageCostCents = Math.round(Number(picked.amount ?? 0) * 100);
       shippingLabelCostCentsTotal += packageCostCents;
 
       const tx = (await shippoPurchaseRate(
-        cheapest.object_id,
+        picked.object_id,
         shippoLabelFileTypeForPrintFormat(options?.labelFormat ?? "thermal_4x6"),
       )) as {
         object_id?: string;
@@ -518,7 +526,7 @@ export async function generateBundledShippoLabelForSession(
         status?: string;
       };
 
-      const transactionId = tx.object_id ?? cheapest.object_id;
+      const transactionId = tx.object_id ?? picked.object_id;
       let labelUrlForPackage = tx.label_url?.trim() || null;
       if (!labelUrlForPackage && transactionId) {
         try {
@@ -539,8 +547,8 @@ export async function generateBundledShippoLabelForSession(
         primaryLabelUrls.push(labelUrlForPackage ?? "");
         primaryTracking = tx.tracking_number ?? null;
         primaryTrackingUrl = tx.tracking_url_provider ?? null;
-        primaryCarrier = cheapest.provider ?? null;
-        primaryService = cheapest.servicelevel?.name ?? null;
+        primaryCarrier = picked.provider ?? null;
+        primaryService = picked.servicelevel?.name ?? null;
       }
 
       await prisma.shipmentPackage.create({
@@ -552,10 +560,10 @@ export async function generateBundledShippoLabelForSession(
           widthIn: group.widthIn,
           heightIn: group.heightIn,
           shippoShipmentId: sid,
-          shippoRateId: cheapest.object_id,
+          shippoRateId: picked.object_id,
           shippoTransactionId: transactionId ?? null,
-          carrier: cheapest.provider ?? null,
-          serviceLevel: cheapest.servicelevel?.name ?? null,
+          carrier: picked.provider ?? null,
+          serviceLevel: picked.servicelevel?.name ?? null,
           trackingNumber: tx.tracking_number ?? null,
           labelUrl: labelUrlForPackage,
           labelCostCents: packageCostCents,
@@ -724,6 +732,7 @@ export async function generateBundledShippoLabelForSession(
 }
 
 export type BundledRatePreview = {
+  objectId: string;
   amountCents: number;
   amount: string;
   currency: string;
@@ -860,15 +869,18 @@ export async function previewBundledShippoRatesForSession(
       estimated_days?: number;
     }[];
   };
-  const filtered = filterShippoRatesUspsUps(ratesRes.results ?? []);
-  const rates: BundledRatePreview[] = filtered.slice(0, 4).map((r) => ({
-    amountCents: Math.round(Number(r.amount ?? 0) * 100),
-    amount: String(r.amount ?? "0"),
-    currency: (r.currency ?? "USD").toUpperCase(),
-    carrier: r.provider ?? "Carrier",
-    service: r.servicelevel?.name ?? "Service",
-    estimatedDays: typeof r.estimated_days === "number" ? r.estimated_days : null,
-  }));
+  const filtered = selectShippoRatesForSellerQuote(ratesRes.results ?? [], 8);
+  const rates: BundledRatePreview[] = filtered
+    .filter((r) => Boolean(r.object_id))
+    .map((r) => ({
+      objectId: r.object_id!,
+      amountCents: Math.round(Number(r.amount ?? 0) * 100),
+      amount: String(r.amount ?? "0"),
+      currency: (r.currency ?? "USD").toUpperCase(),
+      carrier: r.provider ?? "Carrier",
+      service: r.servicelevel?.name ?? "Service",
+      estimatedDays: typeof r.estimated_days === "number" ? r.estimated_days : null,
+    }));
 
   const shippingChargedCents = session.orders.reduce((sum, o) => {
     if (o.paymentStatus !== PAYMENT_PAID) return sum;
@@ -878,9 +890,12 @@ export async function previewBundledShippoRatesForSession(
     return sum;
   }, 0);
 
+  const cheapestCents =
+    rates.length > 0 ? Math.min(...rates.map((r) => r.amountCents)) : null;
+
   return {
     rates,
-    cheapestCents: rates[0]?.amountCents ?? null,
+    cheapestCents,
     shippingChargedCents,
     orderCount: eligible.length,
   };

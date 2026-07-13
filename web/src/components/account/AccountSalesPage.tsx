@@ -354,6 +354,7 @@ export function AccountSalesPage() {
     sessionId: string,
     labelFormat: SellerLabelPrintFormat = "thermal_4x6",
     manualParcel?: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number },
+    selectedRateObjectId?: string,
   ) => {
     setLabelError(null);
     setBundledSessionFeedback((prev) => {
@@ -366,7 +367,11 @@ export function AccountSalesPage() {
       const res = await fetch(`/api/account/live-shipping/${encodeURIComponent(sessionId)}/create-label`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ labelFormat, ...(manualParcel ? { manualParcel } : {}) }),
+        body: JSON.stringify({
+          labelFormat,
+          ...(manualParcel ? { manualParcel } : {}),
+          ...(selectedRateObjectId ? { selectedRateObjectId } : {}),
+        }),
       });
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -476,7 +481,9 @@ export function AccountSalesPage() {
                 bundledSessionFeedback={bundledSessionFeedback}
                 labelError={labelError}
                 onCreateLabel={(orderId, mp, fmt) => void createLabel(orderId, fmt ?? "thermal_4x6", mp)}
-                onCreateBundledLabel={(sid, mp, fmt) => void createBundledLabel(sid, fmt ?? "thermal_4x6", mp)}
+                onCreateBundledLabel={(sid, mp, fmt, rateId) =>
+                  void createBundledLabel(sid, fmt ?? "thermal_4x6", mp, rateId)
+                }
                 onMarkShipped={(order) => {
                   const row = rows.find((r) => r.id === order.id);
                   if (row) setModal({ order: row, mode: "markShipped" });

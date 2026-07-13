@@ -6,6 +6,7 @@ import {
   groupItemsIntoPackages,
   pickCheapestShippoRate,
   resolveShippingProfileDimensions,
+  selectShippoRatesForSellerQuote,
   shipmentProfileEditLocked,
   suggestShippingProfileSlugForCategory,
 } from "@/lib/unified-shipping-engine";
@@ -96,6 +97,21 @@ describe("unified-shipping-engine", () => {
       { provider: "UPS", amount: "4.25", object_id: "u1" },
     ]);
     expect(rates.map((r) => r.object_id)).toEqual(["u1", "u2"]);
+  });
+
+  it("surfaces cheapest USPS and UPS before other services", () => {
+    const rates = selectShippoRatesForSellerQuote(
+      [
+        { provider: "USPS", amount: "5.00", object_id: "usps-cheap", servicelevel: { name: "Ground Advantage" } },
+        { provider: "USPS", amount: "8.00", object_id: "usps-pri", servicelevel: { name: "Priority" } },
+        { provider: "USPS", amount: "12.00", object_id: "usps-exp", servicelevel: { name: "Express" } },
+        { provider: "USPS", amount: "15.00", object_id: "usps-over", servicelevel: { name: "Priority Express" } },
+        { provider: "UPS", amount: "9.50", object_id: "ups-ground", servicelevel: { name: "Ground" } },
+        { provider: "FedEx", amount: "7.00", object_id: "fx", servicelevel: { name: "Ground" } },
+      ],
+      4,
+    );
+    expect(rates.map((r) => r.object_id)).toEqual(["usps-cheap", "ups-ground", "usps-pri", "usps-exp"]);
   });
 
   it("picks cheapest valid rate", () => {

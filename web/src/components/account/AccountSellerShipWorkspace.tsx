@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
 import type { SellerLiveShippingDashboard, SellerLiveShippingSessionRow } from "@/lib/seller-live-shipping-dashboard-types";
 import type { SellerLabelPrintFormat } from "@/lib/shippo-label-format";
@@ -51,6 +51,7 @@ type Props = {
     sessionId: string,
     manualParcel?: ManualParcel,
     labelFormat?: "letter" | "thermal_4x6",
+    selectedRateObjectId?: string,
   ) => void;
   onMarkShipped: (order: ShipWorkspaceOrder) => void;
 };
@@ -370,6 +371,7 @@ function BundleShipCard({
     sessionId: string,
     manualParcel?: ManualParcel,
     labelFormat?: "letter" | "thermal_4x6",
+    selectedRateObjectId?: string,
   ) => void;
 }) {
   const [showParcelModal, setShowParcelModal] = useState(false);
@@ -379,6 +381,14 @@ function BundleShipCard({
   const [lengthIn, setLengthIn] = useState("6");
   const [widthIn, setWidthIn] = useState("4");
   const [heightIn, setHeightIn] = useState("1");
+  const [rateBusy, setRateBusy] = useState(false);
+  const [rateError, setRateError] = useState<string | null>(null);
+  const [rates, setRates] = useState<
+    { objectId: string; amountCents: number; carrier: string; service: string; estimatedDays: number | null }[]
+  >([]);
+  const [selectedRateId, setSelectedRateId] = useState<string | null>(null);
+  const [chargedCents, setChargedCents] = useState(0);
+  const rateReqId = useRef(0);
 
   const applyPreset = (p: (typeof PARCEL_PRESETS)[number]) => {
     setWeightOz(String(p.weightOz));
@@ -396,11 +406,72 @@ function BundleShipCard({
   };
   const parcelValid = Object.values(parsedParcel).every((v) => Number.isFinite(v) && v > 0);
 
+  useEffect(() => {
+    if (!showParcelModal || !parcelValid) {
+      setRates([]);
+      setSelectedRateId(null);
+      setRateError(null);
+      setRateBusy(false);
+      return;
+    }
+    const reqId = ++rateReqId.current;
+    setRateBusy(true);
+    setRateError(null);
+    const t = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await fetch(
+            `/api/account/live-shipping/${encodeURIComponent(session.sessionId)}/preview-rates`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(parsedParcel),
+            },
+          );
+          const j = (await res.json().catch(() => ({}))) as {
+            error?: string;
+            rates?: {
+              objectId: string;
+              amountCents: number;
+              carrier: string;
+              service: string;
+              estimatedDays: number | null;
+            }[];
+            shippingChargedCents?: number;
+          };
+          if (rateReqId.current !== reqId) return;
+          if (!res.ok) {
+            setRates([]);
+            setSelectedRateId(null);
+            setRateError(j.error ?? "Could not quote USPS/UPS rates.");
+            return;
+          }
+          const nextRates = Array.isArray(j.rates) ? j.rates.filter((r) => r.objectId) : [];
+          setRates(nextRates);
+          setSelectedRateId(nextRates[0]?.objectId ?? null);
+          if (typeof j.shippingChargedCents === "number") setChargedCents(j.shippingChargedCents);
+          setRateError(null);
+        } catch {
+          if (rateReqId.current !== reqId) return;
+          setRates([]);
+          setSelectedRateId(null);
+          setRateError("Network error — could not quote rates.");
+        } finally {
+          if (rateReqId.current === reqId) setRateBusy(false);
+        }
+      })();
+    }, 450);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- quote when dims change
+  }, [showParcelModal, weightOz, lengthIn, widthIn, heightIn, parcelValid, session.sessionId]);
+
   const buyer = session.buyer.name?.trim()
     ? `${session.buyer.name} (@${session.buyer.username})`
     : `@${session.buyer.username}`;
   const busy = bundledBusySessionId === session.sessionId;
   const labelUrl = session.bundledLabel?.labelUrl;
+  const selectedRate = rates.find((r) => r.objectId === selectedRateId) ?? rates[0] ?? null;
+  const marginCents = selectedRate ? chargedCents - selectedRate.amountCents : null;
 
   return (
     <>
@@ -453,10 +524,10 @@ function BundleShipCard({
         className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
         onClick={(e) => { if (e.target === e.currentTarget) setShowParcelModal(false); }}
       >
-        <div className="w-full max-w-lg rounded-2xl border border-white/[0.1] bg-[#0e0e12] p-5 shadow-2xl">
+        <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/[0.1] bg-[#0e0e12] p-5 shadow-2xl">
           <h2 className="text-base font-bold text-zinc-100">Confirm package details</h2>
           <p className="mt-1 text-[11px] text-zinc-400">
-            Select the package type that matches what you&apos;re actually shipping, then adjust if needed.
+            Adjust the package, then pick a USPS or UPS rate before creating the label.
           </p>
           <div className="mt-3 rounded-lg border border-zinc-700/50 bg-zinc-900/60 px-3 py-2 text-[11px] text-zinc-400">
             <span className="font-semibold text-zinc-300">{session.liveShowTitle}</span>
@@ -515,6 +586,73 @@ function BundleShipCard({
 
           <LabelSizePicker className="mt-4" value={labelFormat} onChange={setLabelFormat} />
 
+          <div className="mt-4 rounded-lg border border-white/[0.08] bg-zinc-950/80 px-3 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">USPS &amp; UPS rates</p>
+            {rateBusy ? (
+              <p className="mt-1.5 text-[12px] text-zinc-400">Getting Shippo rates…</p>
+            ) : rateError ? (
+              <p className="mt-1.5 text-[12px] text-rose-200">{rateError}</p>
+            ) : rates.length > 0 ? (
+              <>
+                <ul className="mt-2 space-y-1.5">
+                  {rates.map((r) => {
+                    const selected = r.objectId === selectedRate?.objectId;
+                    return (
+                      <li key={r.objectId}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedRateId(r.objectId)}
+                          className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition ${
+                            selected
+                              ? "border-sky-400/50 bg-sky-500/15"
+                              : "border-white/[0.08] bg-zinc-900/50 hover:border-white/20"
+                          }`}
+                        >
+                          <span className="text-[11px] text-zinc-300">
+                            <span className="font-semibold text-zinc-100">{r.carrier}</span> {r.service}
+                            {r.estimatedDays != null ? ` · ~${r.estimatedDays}d` : ""}
+                          </span>
+                          <span className="font-mono text-[11px] text-zinc-100">
+                            {(r.amountCents / 100).toLocaleString("en-US", {
+                              style: "currency",
+                              currency: "USD",
+                              maximumFractionDigits: 2,
+                            })}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {chargedCents > 0 && selectedRate ? (
+                  <p className="mt-2 text-[11px] text-zinc-400">
+                    Buyer paid{" "}
+                    {(chargedCents / 100).toLocaleString("en-US", {
+                      style: "currency",
+                      currency: "USD",
+                      maximumFractionDigits: 2,
+                    })}
+                    {marginCents != null ? (
+                      <>
+                        {" · "}
+                        <span className={marginCents < 0 ? "font-semibold text-rose-300" : "font-semibold text-emerald-300"}>
+                          {(marginCents / 100).toLocaleString("en-US", {
+                            style: "currency",
+                            currency: "USD",
+                            maximumFractionDigits: 2,
+                          })}{" "}
+                          margin
+                        </span>
+                      </>
+                    ) : null}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="mt-1.5 text-[12px] text-zinc-500">Enter package details to see USPS and UPS rates.</p>
+            )}
+          </div>
+
           <div className="mt-5 flex justify-end gap-2">
             <button
               type="button"
@@ -525,14 +663,16 @@ function BundleShipCard({
             </button>
             <button
               type="button"
-              disabled={!parcelValid}
+              disabled={!parcelValid || rateBusy || !selectedRate}
               onClick={() => {
                 setShowParcelModal(false);
-                onCreateBundledLabel(session.sessionId, parsedParcel, labelFormat);
+                onCreateBundledLabel(session.sessionId, parsedParcel, labelFormat, selectedRate?.objectId);
               }}
               className="rounded-lg border border-sky-400/40 bg-sky-500/20 px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-sky-50 transition hover:bg-sky-500/30 disabled:opacity-40"
             >
-              Create {labelFormat === "thermal_4x6" ? "4×6" : "letter"} label
+              {selectedRate
+                ? `Create ${labelFormat === "thermal_4x6" ? "4×6" : "letter"} · ${(selectedRate.amountCents / 100).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 })}`
+                : `Create ${labelFormat === "thermal_4x6" ? "4×6" : "letter"} label`}
             </button>
           </div>
         </div>

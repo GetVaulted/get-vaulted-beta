@@ -447,6 +447,42 @@ export function filterShippoRatesUspsUps(rates: ShippoRateLike[]): ShippoRateLik
     });
 }
 
+/**
+ * Seller quote list: cheapest USPS + cheapest UPS first (so UPS isn't buried),
+ * then remaining USPS/UPS services by price.
+ */
+export function selectShippoRatesForSellerQuote(
+  rates: ShippoRateLike[],
+  maxRates = 8,
+): ShippoRateLike[] {
+  const allowed = filterShippoRatesUspsUps(rates);
+  if (allowed.length === 0) return [];
+
+  const cheapestByCarrier = new Map<string, ShippoRateLike>();
+  for (const rate of allowed) {
+    const key = normalizeCarrierKey(rate.provider);
+    if (!cheapestByCarrier.has(key)) cheapestByCarrier.set(key, rate);
+  }
+
+  const featured = [...cheapestByCarrier.values()].sort((a, b) => {
+    const aa = Number(a.amount);
+    const bb = Number(b.amount);
+    if (!Number.isFinite(aa)) return 1;
+    if (!Number.isFinite(bb)) return -1;
+    return aa - bb;
+  });
+
+  const featuredIds = new Set(
+    featured.map((r, i) => r.object_id ?? `featured-${normalizeCarrierKey(r.provider)}-${i}`),
+  );
+  const rest = allowed.filter((r, i) => {
+    const id = r.object_id ?? `rest-${normalizeCarrierKey(r.provider)}-${i}`;
+    return !featuredIds.has(id) && !(r.object_id && featured.some((f) => f.object_id === r.object_id));
+  });
+
+  return [...featured, ...rest].slice(0, Math.max(1, maxRates));
+}
+
 export type LiveShowCarrierPreferenceFilter = "usps" | "ups" | "best_rate";
 
 /** Restrict Shippo rates to seller/show carrier preference. */

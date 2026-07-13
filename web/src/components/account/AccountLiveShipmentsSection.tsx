@@ -82,7 +82,11 @@ function LabelParcelModal({
   contextLine: string;
   sessionId?: string;
   shippingChargedCents?: number;
-  onConfirm: (parcel: ManualParcel, labelFormat: SellerLabelPrintFormat) => void;
+  onConfirm: (
+    parcel: ManualParcel,
+    labelFormat: SellerLabelPrintFormat,
+    selectedRateObjectId?: string,
+  ) => void;
   onCancel: () => void;
 }) {
   const [weightOz, setWeightOz] = useState("4");
@@ -94,8 +98,9 @@ function LabelParcelModal({
   const [rateBusy, setRateBusy] = useState(false);
   const [rateError, setRateError] = useState<string | null>(null);
   const [rates, setRates] = useState<
-    { amountCents: number; carrier: string; service: string; estimatedDays: number | null }[]
+    { objectId: string; amountCents: number; carrier: string; service: string; estimatedDays: number | null }[]
   >([]);
+  const [selectedRateId, setSelectedRateId] = useState<string | null>(null);
   const [cheapestCents, setCheapestCents] = useState<number | null>(null);
   const [chargedCents, setChargedCents] = useState(shippingChargedCents ?? 0);
   const firstRef = useRef<HTMLInputElement>(null);
@@ -125,6 +130,7 @@ function LabelParcelModal({
   useEffect(() => {
     if (!sessionId || !valid) {
       setRates([]);
+      setSelectedRateId(null);
       setCheapestCents(null);
       setRateError(null);
       setRateBusy(false);
@@ -146,24 +152,34 @@ function LabelParcelModal({
           );
           const j = (await res.json().catch(() => ({}))) as {
             error?: string;
-            rates?: { amountCents: number; carrier: string; service: string; estimatedDays: number | null }[];
+            rates?: {
+              objectId: string;
+              amountCents: number;
+              carrier: string;
+              service: string;
+              estimatedDays: number | null;
+            }[];
             cheapestCents?: number | null;
             shippingChargedCents?: number;
           };
           if (rateReqId.current !== reqId) return;
           if (!res.ok) {
             setRates([]);
+            setSelectedRateId(null);
             setCheapestCents(null);
             setRateError(j.error ?? "Could not quote rates.");
             return;
           }
-          setRates(Array.isArray(j.rates) ? j.rates : []);
-          setCheapestCents(typeof j.cheapestCents === "number" ? j.cheapestCents : null);
+          const nextRates = Array.isArray(j.rates) ? j.rates.filter((r) => r.objectId) : [];
+          setRates(nextRates);
+          setSelectedRateId(nextRates[0]?.objectId ?? null);
+          setCheapestCents(typeof j.cheapestCents === "number" ? j.cheapestCents : nextRates[0]?.amountCents ?? null);
           if (typeof j.shippingChargedCents === "number") setChargedCents(j.shippingChargedCents);
           setRateError(null);
         } catch {
           if (rateReqId.current !== reqId) return;
           setRates([]);
+          setSelectedRateId(null);
           setCheapestCents(null);
           setRateError("Network error — could not quote rates.");
         } finally {
@@ -175,7 +191,9 @@ function LabelParcelModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- quote when dims change
   }, [sessionId, weightOz, lengthIn, widthIn, heightIn, valid]);
 
-  const marginCents = cheapestCents != null ? chargedCents - cheapestCents : null;
+  const selectedRate = rates.find((r) => r.objectId === selectedRateId) ?? rates[0] ?? null;
+  const selectedCents = selectedRate?.amountCents ?? cheapestCents;
+  const marginCents = selectedCents != null ? chargedCents - selectedCents : null;
 
   return (
     <div
@@ -246,7 +264,7 @@ function LabelParcelModal({
         <LabelSizePicker className="mt-4" value={labelFormat} onChange={setLabelFormat} />
 
         <div className="mt-4 rounded-lg border border-white/[0.08] bg-zinc-950/80 px-3 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Estimated label cost</p>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">USPS &amp; UPS rates</p>
           {!sessionId ? (
             <p className="mt-1.5 text-[12px] text-zinc-500">
               Rate preview is available when creating a bundled label for the whole session.
@@ -255,13 +273,33 @@ function LabelParcelModal({
             <p className="mt-1.5 text-[12px] text-zinc-400">Getting Shippo rates…</p>
           ) : rateError ? (
             <p className="mt-1.5 text-[12px] text-rose-200">{rateError}</p>
-          ) : cheapestCents != null ? (
+          ) : rates.length > 0 ? (
             <>
-              <p className="mt-1 font-mono text-lg font-semibold text-sky-100">
-                {formatMoneyCents(cheapestCents)}
-                <span className="ml-2 text-[11px] font-normal text-zinc-500">cheapest USPS/UPS</span>
-              </p>
-              <p className="mt-1 text-[11px] text-zinc-400">
+              <ul className="mt-2 space-y-1.5">
+                {rates.map((r) => {
+                  const selected = r.objectId === selectedRate?.objectId;
+                  return (
+                    <li key={r.objectId}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRateId(r.objectId)}
+                        className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition ${
+                          selected
+                            ? "border-sky-400/50 bg-sky-500/15"
+                            : "border-white/[0.08] bg-zinc-900/50 hover:border-white/20"
+                        }`}
+                      >
+                        <span className="text-[11px] text-zinc-300">
+                          <span className="font-semibold text-zinc-100">{r.carrier}</span> {r.service}
+                          {r.estimatedDays != null ? ` · ~${r.estimatedDays}d` : ""}
+                        </span>
+                        <span className="font-mono text-[11px] text-zinc-100">{formatMoneyCents(r.amountCents)}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="mt-2 text-[11px] text-zinc-400">
                 Buyer paid {formatMoneyCents(chargedCents)} for shipping
                 {marginCents != null ? (
                   <>
@@ -272,22 +310,9 @@ function LabelParcelModal({
                   </>
                 ) : null}
               </p>
-              {rates.length > 1 ? (
-                <ul className="mt-2 space-y-1 border-t border-white/[0.06] pt-2">
-                  {rates.map((r, i) => (
-                    <li key={`${r.carrier}-${r.service}-${i}`} className="flex justify-between gap-2 text-[11px]">
-                      <span className="text-zinc-400">
-                        {r.carrier} {r.service}
-                        {r.estimatedDays != null ? ` · ~${r.estimatedDays}d` : ""}
-                      </span>
-                      <span className="font-mono text-zinc-200">{formatMoneyCents(r.amountCents)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
             </>
           ) : (
-            <p className="mt-1.5 text-[12px] text-zinc-500">Enter package details to see rates.</p>
+            <p className="mt-1.5 text-[12px] text-zinc-500">Enter package details to see USPS and UPS rates.</p>
           )}
         </div>
 
@@ -301,12 +326,12 @@ function LabelParcelModal({
           </button>
           <button
             type="button"
-            disabled={!valid || rateBusy}
-            onClick={() => valid && onConfirm(parsed, labelFormat)}
+            disabled={!valid || rateBusy || (Boolean(sessionId) && !selectedRate)}
+            onClick={() => valid && onConfirm(parsed, labelFormat, selectedRate?.objectId)}
             className="rounded-lg border border-sky-400/40 bg-sky-500/20 px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-sky-50 transition hover:bg-sky-500/30 disabled:opacity-40"
           >
-            {cheapestCents != null
-              ? `Create ${labelFormat === "thermal_4x6" ? "4×6" : "letter"} · ${formatMoneyCents(cheapestCents)}`
+            {selectedCents != null
+              ? `Create ${labelFormat === "thermal_4x6" ? "4×6" : "letter"} · ${formatMoneyCents(selectedCents)}`
               : `Create ${labelFormat === "thermal_4x6" ? "4×6" : "letter"} label`}
           </button>
         </div>
@@ -597,6 +622,7 @@ type Props = {
     sessionId: string,
     manualParcel?: ManualParcel,
     labelFormat?: SellerLabelPrintFormat,
+    selectedRateObjectId?: string,
   ) => void;
 };
 
@@ -760,11 +786,11 @@ export function AccountLiveShipmentsSection({
           }
           sessionId={parcelModal.kind === "bundled" ? parcelModal.session.sessionId : undefined}
           shippingChargedCents={parcelModal.session.shippingChargedCents}
-          onConfirm={(parcel, format) => {
+          onConfirm={(parcel, format, rateId) => {
             const modal = parcelModal;
             setParcelModal(null);
             if (modal.kind === "bundled") {
-              onCreateBundledLabel(modal.session.sessionId, parcel, format);
+              onCreateBundledLabel(modal.session.sessionId, parcel, format, rateId);
             } else {
               onCreateLabel(modal.orderId, parcel, format);
             }
