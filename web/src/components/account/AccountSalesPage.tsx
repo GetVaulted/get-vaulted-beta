@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { AccountLiveShipmentsSection } from "@/components/account/AccountLiveShipmentsSection";
 import { AccountSellerLiveSalesSection } from "@/components/account/AccountSellerLiveSalesSection";
 import { AccountSellerShipWorkspace } from "@/components/account/AccountSellerShipWorkspace";
 import { SellerPayoutTierCard } from "@/components/account/SellerPayoutTierCard";
@@ -438,14 +437,14 @@ export function AccountSalesPage() {
         <header className="border-b border-white/[0.07] pb-5">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Account</p>
           <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">
-            {salesView === "ship" ? "Ship orders" : salesView === "live" ? "Live sales" : "All sales"}
+            {salesView === "ship" ? "Shipping queue" : salesView === "live" ? "Live sales" : "All sales"}
           </h1>
           <p className="mt-1.5 text-sm text-zinc-500">
             {salesView === "live"
               ? "Live sales by show — item, buyer, time, and amount as you sell."
               : salesView === "ship"
-                ? "Create labels, print, and mark packages shipped."
-                : "Full order history, payouts, and shipping details."}
+                ? "Create label → print → mark shipped. That’s the whole flow."
+                : "Sales history and payouts. Use the shipping queue to fulfill orders."}
           </p>
           <AccountSalesViewTabs active={salesView} />
           <div className="mt-4">
@@ -490,11 +489,11 @@ export function AccountSalesPage() {
         {salesView === "all" && rows !== null ? (
           <>
         <p className="mt-4 text-sm text-zinc-500">
-          Need to print a label?{" "}
+          Fulfill packages in the{" "}
           <button type="button" onClick={() => selectSalesView("ship")} className="font-semibold text-gold-bright hover:underline">
-            Open ship queue
+            shipping queue
           </button>
-          .
+          . This tab is sales history.
         </p>
         {labelError ? (
           <p className="mt-6 rounded-lg border border-rose-500/30 bg-rose-950/30 px-4 py-2 text-sm text-rose-100">{labelError}</p>
@@ -518,7 +517,7 @@ export function AccountSalesPage() {
               Open seller hub
             </Link>
           </div>
-        ) : rows.length === 0 && (!liveShipping || liveShipping.sessions.length === 0) ? (
+        ) : rows.length === 0 ? (
           <div className="mt-10 rounded-2xl border border-white/[0.08] bg-[#0a0a0d]/80 px-6 py-16 text-center">
             <p className="font-display text-lg font-semibold text-foreground">No sales yet.</p>
             <p className="mt-2 text-sm text-zinc-500">
@@ -545,22 +544,6 @@ export function AccountSalesPage() {
           </div>
         ) : (
           <>
-            <AccountLiveShipmentsSection
-              data={liveShipping}
-              loading={liveShippingLoading}
-              labelBusyId={labelBusyId}
-              bundledBusySessionId={bundledBusySessionId}
-              bundledSessionFeedback={bundledSessionFeedback}
-              orderLabelFeedback={orderLabelFeedback}
-              onCreateLabel={(orderId, mp, fmt) => void createLabel(orderId, fmt ?? "thermal_4x6", mp)}
-              onCreateBundledLabel={(sid, mp, fmt) => void createBundledLabel(sid, fmt ?? "thermal_4x6", mp)}
-            />
-            {rows.length === 0 ? (
-              <p className="mt-6 text-center text-sm text-zinc-500">
-                No orders in the table yet — live shipment bundles above reflect paid live checkouts.
-              </p>
-            ) : null}
-            {rows.length === 0 ? null : (
             <div className="mt-8 hidden overflow-x-auto rounded-xl border border-white/[0.08] bg-[#08080a] lg:block">
               <table className="w-full min-w-[1180px] border-collapse text-left text-sm">
                 <thead>
@@ -659,33 +642,22 @@ export function AccountSalesPage() {
                             >
                               View
                             </Link>
-                            {canCreateLabel ? (
-                              <button
-                                type="button"
-                                disabled={labelBusyId === o.id}
-                                onClick={() => void createLabel(o.id)}
-                                className="rounded-md border border-sky-400/30 bg-sky-500/10 px-2 py-1 text-[11px] font-medium text-sky-100/90 transition hover:bg-sky-500/15 disabled:opacity-50"
+                            {canCreateLabel || canMarkShipped ? (
+                              <Link
+                                href="/account/sales"
+                                className="rounded-md border border-gold/30 bg-gold/10 px-2 py-1 text-[11px] font-medium text-gold-bright transition hover:border-gold/45"
                               >
-                                {labelBusyId === o.id ? "…" : "Create label"}
-                              </button>
+                                Ship
+                              </Link>
                             ) : null}
                             {o.labelUrl ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => openLabelForPrint(o.labelUrl!, "letter")}
-                                  className="rounded-md border border-white/12 px-2 py-1 text-[11px] font-medium text-zinc-300 hover:border-gold/35"
-                                >
-                                  Print
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => openLabelForPrint(o.labelUrl!, "thermal_4x6")}
-                                  className="rounded-md border border-gold/25 px-2 py-1 text-[11px] font-medium text-gold-bright/90 hover:border-gold/40"
-                                >
-                                  4×6
-                                </button>
-                              </>
+                              <button
+                                type="button"
+                                onClick={() => openLabelForPrint(o.labelUrl!)}
+                                className="rounded-md border border-white/12 px-2 py-1 text-[11px] font-medium text-zinc-300 hover:border-gold/35"
+                              >
+                                Print
+                              </button>
                             ) : null}
                             {o.trackingUrl ? (
                               <a
@@ -696,15 +668,6 @@ export function AccountSalesPage() {
                               >
                                 Track
                               </a>
-                            ) : null}
-                            {canMarkShipped ? (
-                              <button
-                                type="button"
-                                onClick={() => setModal({ order: o, mode: "markShipped" })}
-                                className="rounded-md border border-emerald-400/25 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-100/90 transition hover:bg-emerald-500/15"
-                              >
-                                Mark shipped
-                              </button>
                             ) : null}
                             {canTracking ? (
                               <button
@@ -731,9 +694,7 @@ export function AccountSalesPage() {
                 </tbody>
               </table>
             </div>
-            )}
 
-            {rows.length === 0 ? null : (
             <div className="mt-6 space-y-3 lg:hidden">
               {rows.map((o) => {
                 const showRecovery = o.paymentStatus === "expired" || o.listing.status === "auction_ended_unpaid";
@@ -742,7 +703,6 @@ export function AccountSalesPage() {
                 const canMarkShipped =
                   fulfillmentAllowed && (o.status === "pending" || o.status === "paid");
                 const canTracking = fulfillmentAllowed && o.status === "shipped";
-                const paid = o.paymentStatus === "paid";
                 const hasLabel = Boolean(o.shippoTransactionId || o.labelUrl);
                 const canCreateLabel = fulfillmentAllowed && !hasLabel;
                 return (
@@ -802,33 +762,22 @@ export function AccountSalesPage() {
                       >
                         View order
                       </Link>
-                      {canCreateLabel ? (
-                        <button
-                          type="button"
-                          disabled={labelBusyId === o.id}
-                          onClick={() => void createLabel(o.id)}
-                          className="inline-flex h-9 flex-1 min-w-[5rem] items-center justify-center rounded-lg border border-sky-400/30 bg-sky-500/10 text-xs font-semibold text-sky-100"
+                      {canCreateLabel || canMarkShipped ? (
+                        <Link
+                          href="/account/sales"
+                          className="inline-flex h-9 flex-1 min-w-[5rem] items-center justify-center rounded-lg border border-gold/30 bg-gold/10 text-xs font-semibold text-gold-bright"
                         >
-                          {labelBusyId === o.id ? "…" : "Create label"}
-                        </button>
+                          Ship
+                        </Link>
                       ) : null}
                       {o.labelUrl ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => openLabelForPrint(o.labelUrl!, "letter")}
-                            className="inline-flex h-9 flex-1 min-w-[5rem] items-center justify-center rounded-lg border border-white/10 text-xs font-medium text-zinc-300"
-                          >
-                            Print
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openLabelForPrint(o.labelUrl!, "thermal_4x6")}
-                            className="inline-flex h-9 flex-1 min-w-[5rem] items-center justify-center rounded-lg border border-gold/25 text-xs font-medium text-gold-bright/90"
-                          >
-                            4×6
-                          </button>
-                        </>
+                        <button
+                          type="button"
+                          onClick={() => openLabelForPrint(o.labelUrl!)}
+                          className="inline-flex h-9 flex-1 min-w-[5rem] items-center justify-center rounded-lg border border-white/10 text-xs font-medium text-zinc-300"
+                        >
+                          Print
+                        </button>
                       ) : null}
                       {o.trackingUrl ? (
                         <a
@@ -839,15 +788,6 @@ export function AccountSalesPage() {
                         >
                           Tracking
                         </a>
-                      ) : null}
-                      {canMarkShipped ? (
-                        <button
-                          type="button"
-                          onClick={() => setModal({ order: o, mode: "markShipped" })}
-                          className="inline-flex h-9 flex-1 min-w-[5rem] items-center justify-center rounded-lg border border-emerald-400/30 bg-emerald-500/10 text-xs font-semibold text-emerald-100"
-                        >
-                          Mark shipped
-                        </button>
                       ) : null}
                       {canTracking ? (
                         <button
@@ -868,7 +808,6 @@ export function AccountSalesPage() {
                 );
               })}
             </div>
-            )}
           </>
         )}
       </>

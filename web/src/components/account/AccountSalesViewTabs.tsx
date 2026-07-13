@@ -20,7 +20,7 @@ export function AccountSalesViewTabs({ active }: Props) {
   return (
     <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Sales views">
       <Link href="/account/sales" role="tab" aria-selected={active === "ship"} className={TAB_CLASS(active === "ship")}>
-        Ship queue
+        Shipping queue
       </Link>
       <Link
         href="/account/sales?view=all"
