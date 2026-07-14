@@ -1,20 +1,25 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { TradeActionBar } from "@/components/trade/TradeActionBar";
+import { TradePlatformFeePayButton } from "@/components/trade/TradePlatformFeePayButton";
 import { TradeStatusTimeline } from "@/components/trade/TradeStatusTimeline";
 import { TradeValueSummary } from "@/components/trade/TradeValueSummary";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { GET_VAULTED_TRADE_PLATFORM_FEE_USD } from "@/lib/trade-platform-fee";
 import { expireOfferIfNeeded, formatMoney } from "@/lib/trade-offers";
 
 export const dynamic = "force-dynamic";
 
 export default async function TradeOfferDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ fee?: string }>;
 }) {
   const { id } = await params;
+  const feeFlash = (await searchParams)?.fee;
   const session = await getServerSessionSafe();
   if (!session?.user?.id) {
     redirect(`/signin?returnTo=${encodeURIComponent(`/trade/${encodeURIComponent(id)}`)}`);
@@ -69,6 +74,17 @@ export default async function TradeOfferDetailPage({
     }
   }
 
+  const viewerIsProposer = session.user.id === fresh.proposerId;
+  const viewerFeePaid = viewerIsProposer
+    ? Boolean(fresh.proposerPlatformFeePaidAt)
+    : session.user.id === fresh.recipientId
+      ? Boolean(fresh.recipientPlatformFeePaidAt)
+      : true;
+  const partnerFeePaid = viewerIsProposer
+    ? Boolean(fresh.recipientPlatformFeePaidAt)
+    : Boolean(fresh.proposerPlatformFeePaidAt);
+  const cashTotal = Math.max(0, fresh.proposerCashUsd) + Math.max(0, fresh.recipientCashUsd);
+
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
       <div className="mx-auto w-full max-w-[1000px] px-4 pb-16 pt-6 sm:px-6 lg:px-8">
@@ -87,14 +103,31 @@ export default async function TradeOfferDetailPage({
             <p className="mt-1 text-xs text-zinc-500">Expires {new Date(fresh.expiresAt).toLocaleString()}</p>
           ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
-            <Link href="/trade/new" className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200 hover:border-gold/35 hover:text-gold-bright">
+            <Link
+              href="/trade/new"
+              className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200 hover:border-gold/35 hover:text-gold-bright"
+            >
               Start another trade
             </Link>
-            <Link href="/trade/offers" className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200 hover:border-white/25">
+            <Link
+              href="/trade/offers"
+              className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200 hover:border-white/25"
+            >
               Back to offers
             </Link>
           </div>
         </header>
+
+        {feeFlash === "paid" ? (
+          <p className="mt-4 rounded-xl border border-emerald-300/25 bg-emerald-950/20 px-4 py-3 text-sm font-medium text-emerald-100">
+            Platform fee payment received. Thank you.
+          </p>
+        ) : null}
+        {feeFlash === "cancelled" ? (
+          <p className="mt-4 rounded-xl border border-amber-300/25 bg-amber-950/20 px-4 py-3 text-sm font-medium text-amber-100">
+            Checkout cancelled — you can pay the platform fee anytime from this page.
+          </p>
+        ) : null}
 
         <section className="mt-5 grid gap-4 md:grid-cols-2">
           <article className="rounded-2xl border border-white/[0.08] bg-[#09090c]/85 p-4">
@@ -140,13 +173,29 @@ export default async function TradeOfferDetailPage({
             <p className="mt-2 text-sm text-zinc-300">{fresh.messageToRecipient}</p>
           </section>
         ) : null}
-        {fresh.status === "accepted" ? (
-          <section className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-950/10 p-4">
-            <p className="text-sm font-semibold text-emerald-100">Next step: arrange shipping</p>
-            <p className="mt-1 text-xs text-emerald-100/80">
-              Agree on a tracked carrier, share tracking when you ship, and keep a record outside the app if you need
-              it for disputes.
-            </p>
+        {fresh.status === "accepted" || fresh.status === "completed" ? (
+          <section className="mt-4 rounded-2xl border border-gold/25 bg-[#0a0a0d]/90 p-4">
+            <p className="text-sm font-semibold text-gold-bright">After accept — costs</p>
+            <ul className="mt-2 space-y-1.5 text-xs text-zinc-400">
+              <li>
+                Get Vaulted platform fee: ${GET_VAULTED_TRADE_PLATFORM_FEE_USD.toFixed(2)} per party
+                {partnerFeePaid ? " · partner paid" : " · waiting on partner"}
+              </li>
+              <li>Outbound shipping: each party pays their own label at the actual carrier rate (coming next).</li>
+              {cashTotal > 0 ? (
+                <li>
+                  Cash on this trade: {formatMoney(cashTotal)} — settle off-platform, or pay on Get Vaulted later
+                  (Stripe card fees apply on-platform).
+                </li>
+              ) : (
+                <li>No cash on this trade.</li>
+              )}
+            </ul>
+            {isParticipant ? (
+              <div className="mt-4">
+                <TradePlatformFeePayButton offerId={fresh.id} alreadyPaid={viewerFeePaid} />
+              </div>
+            ) : null}
           </section>
         ) : null}
         <section className="mt-4 rounded-2xl border border-white/[0.08] bg-[#09090c]/85 p-4">

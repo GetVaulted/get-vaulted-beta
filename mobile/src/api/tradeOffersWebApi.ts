@@ -120,6 +120,28 @@ export async function acceptTradeOfferViaWeb(offerId: string): Promise<void> {
   await tradePost(`/api/trade/offers/${encodeURIComponent(offerId)}/accept`);
 }
 
+/** Start Stripe Checkout for this party's $2.99 Get Vaulted platform fee (web/Prisma path). */
+export async function createTradePlatformFeeCheckoutViaWeb(
+  offerId: string,
+): Promise<{ url: string | null; alreadyPaid: boolean }> {
+  const res = await tradeFetch(`/api/trade/offers/${encodeURIComponent(offerId)}/platform-fee-checkout`, {
+    method: 'POST',
+  });
+  const text = await readWebApiResponseText(res);
+  const body = parseWebApiJsonBody<{
+    error?: string;
+    url?: string | null;
+    alreadyPaid?: boolean;
+  }>(text);
+  if (!res.ok) {
+    throw new Error(apiFailureErrorMessage(res, text) ?? body?.error ?? 'Could not start platform fee checkout.');
+  }
+  return {
+    url: typeof body?.url === 'string' ? body.url : null,
+    alreadyPaid: body?.alreadyPaid === true,
+  };
+}
+
 export async function declineTradeOfferViaWeb(offerId: string): Promise<void> {
   await tradePost(`/api/trade/offers/${encodeURIComponent(offerId)}/decline`);
 }

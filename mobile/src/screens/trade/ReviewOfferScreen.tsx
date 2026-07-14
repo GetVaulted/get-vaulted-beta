@@ -66,11 +66,11 @@ export function ReviewOfferScreen({ navigation, route }: Props) {
       if (user && !isStaticMock && (isWebTradeApiConfigured() || isSupabaseConfigured())) {
         const outcome = await acceptTradeOfferAsRecipient(offer.id, user.id);
         await reload();
-        if (outcome === 'fee_due') {
+        if (outcome === 'fee_due' || outcome === 'accepted') {
           navigation.navigate('TradeCheckout', { offerId: offer.id });
           return;
         }
-        Alert.alert('Offer accepted', 'The other party has been notified. Trade checkout will open here when ready.');
+        Alert.alert('Offer accepted', 'The other party has been notified.');
         return;
       }
       navigation.navigate('TradeCheckout', { offerId: offer.id });

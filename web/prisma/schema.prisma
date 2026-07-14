@@ -502,6 +502,7 @@ enum TradeOfferEventType {
   offer_declined
   offer_cancelled
   offer_expired
+  platform_fee_paid
 }
 
 model User {
@@ -942,6 +943,12 @@ model TradeOffer {
   // Any future messaging must remain participant-scoped from the trade detail page.
   conversationId     String?
   expiresAt          DateTime?
+  /// When the proposer paid the $2.99 Get Vaulted platform fee.
+  proposerPlatformFeePaidAt DateTime?
+  /// When the recipient paid the $2.99 Get Vaulted platform fee.
+  recipientPlatformFeePaidAt DateTime?
+  proposerPlatformFeeCheckoutSessionId String?
+  recipientPlatformFeeCheckoutSessionId String?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
@@ -999,7 +1006,10 @@ model LiveRoom {
   sellerId                String
   seller                  User                        @relation(fields: [sellerId], references: [id], onDelete: Cascade)
   title                   String
+  /// Public schedule / discovery blurb (not in-room show notes).
   description             String                      @default("")
+  /// In-room show notes for people who enter the show (not discovery/share).
+  showNotes               String                      @default("")
   /// Browse / filter bucket (matches live directory chips)
   category                String                      @default("Other")
   roomType                LiveRoomType

@@ -55,6 +55,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       recipientUsername: fresh.recipient.username,
       proposerCashUsd: fresh.proposerCashUsd,
       recipientCashUsd: fresh.recipientCashUsd,
+      proposerPlatformFeePaidAt: fresh.proposerPlatformFeePaidAt?.toISOString() ?? null,
+      recipientPlatformFeePaidAt: fresh.recipientPlatformFeePaidAt?.toISOString() ?? null,
       messageToRecipient: fresh.messageToRecipient,
       expiresAt: fresh.expiresAt?.toISOString() ?? null,
       createdAt: fresh.createdAt.toISOString(),

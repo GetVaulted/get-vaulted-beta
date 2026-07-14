@@ -105,6 +105,10 @@ export function formatTradeEventNote(type: string, note: string | null): string 
   if (type === "offer_declined") return "Offer declined";
   if (type === "offer_cancelled") return "Offer cancelled";
   if (type === "offer_expired") return "Offer expired";
+  if (type === "platform_fee_paid") {
+    const amount = typeof obj.amountUsd === "number" ? obj.amountUsd : 2.99;
+    return `Platform fee paid · $${amount.toFixed(2)}`;
+  }
 
   return null;
 }

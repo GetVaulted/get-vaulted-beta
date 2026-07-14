@@ -11,7 +11,12 @@ import { colors, radii, spacing, typography } from '../../theme';
 import { useAuth } from '../../auth/AuthContext';
 import { useTradeOffer } from '../../hooks/useTradeOffer';
 import { postTradeFeeCheckout, getNetlifyFunctionsBase } from '../../lib/netlifyFunctions';
+import {
+  createTradePlatformFeeCheckoutViaWeb,
+  isWebTradeApiConfigured,
+} from '../../api/tradeOffersWebApi';
 import { TradeStatusBadge } from '../../components/trade/TradeStatusBadge';
+import { tradeFeeCentsForTier } from '../../lib/tradeFeeAmounts';
 
 type Props = NativeStackScreenProps<TradeCenterStackParamList, 'TradeCheckout'>;
 
@@ -48,7 +53,8 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
     );
   }
 
-  const amountCents = Math.max(100, Math.round(Number(offer.trade_fee) * 100));
+  const amountCents = tradeFeeCentsForTier(offer.shipping_weight_tier);
+  const webOk = isWebTradeApiConfigured();
   const netlifyOk = Boolean(getNetlifyFunctionsBase());
 
   const pay = async () => {
@@ -56,15 +62,27 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
       Alert.alert('Sign in required', 'Use the Trade Center home screen to authenticate.');
       return;
     }
-    if (!netlifyOk) {
-      Alert.alert(
-        'Netlify URL missing',
-        'Set EXPO_PUBLIC_NETLIFY_FUNCTIONS_BASE to your site base including /.netlify/functions',
-      );
-      return;
-    }
     setPaying(true);
     try {
+      if (webOk) {
+        const result = await createTradePlatformFeeCheckoutViaWeb(offer.id);
+        if (result.alreadyPaid) {
+          Alert.alert('Already paid', 'Your Get Vaulted platform fee is already recorded.');
+          await reload();
+          return;
+        }
+        if (!result.url) throw new Error('Checkout URL missing.');
+        await WebBrowser.openBrowserAsync(result.url);
+        await reload();
+        return;
+      }
+      if (!netlifyOk) {
+        Alert.alert(
+          'Checkout unavailable',
+          'Set EXPO_PUBLIC_WEB_API_BASE (or Netlify functions base) so trade fee checkout can open.',
+        );
+        return;
+      }
       const { url } = await postTradeFeeCheckout({
         tradeOfferId: offer.id,
         userId: user.id,
@@ -141,8 +159,8 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
           </Pressable>
         ) : (
           <Pressable
-            style={[styles.primary, (paying || !netlifyOk) && { opacity: 0.65 }]}
-            disabled={paying || !netlifyOk}
+            style={[styles.primary, (paying || (!webOk && !netlifyOk)) && { opacity: 0.65 }]}
+            disabled={paying || (!webOk && !netlifyOk)}
             onPress={() => void pay()}
           >
             {paying ? (
@@ -154,7 +172,7 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
         )}
 
         <Text style={styles.hintFoot}>
-          After returning from Stripe, keep this screen open — status refreshes every few seconds while labels generate.
+          {`After Stripe, return here — your $${(amountCents / 100).toFixed(2)} platform fee is recorded on the trade. Outbound shipping labels are charged separately at the actual carrier rate.`}
         </Text>
 
         <View style={{ height: spacing.xxxl }} />

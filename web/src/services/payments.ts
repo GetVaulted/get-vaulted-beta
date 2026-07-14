@@ -1937,6 +1937,19 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         await finalizeLiveItemVariantPurchasePaid(purchaseId, pi ?? undefined);
         return;
       }
+
+      if (kind === "trade_platform_fee") {
+        const tradeOfferId = session.metadata?.tradeOfferId;
+        const payerUserId = session.metadata?.payerUserId;
+        if (!tradeOfferId || !payerUserId) return;
+        const { finalizeTradePlatformFeePaid } = await import("@/lib/trade-platform-fee-checkout");
+        await finalizeTradePlatformFeePaid({
+          tradeOfferId,
+          payerUserId,
+          checkoutSessionId: session.id,
+        });
+        return;
+      }
       break;
     }
     case "checkout.session.expired": {
