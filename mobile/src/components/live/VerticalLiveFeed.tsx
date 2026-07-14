@@ -235,7 +235,7 @@ function LiveSlide({
   const [tipOpen, setTipOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [showNotesOpen, setShowNotesOpen] = useState(false);
-  const [showNotes, setShowNotes] = useState(() => normalizeLiveShowNotes(stream.showDescription));
+  const [showNotes, setShowNotes] = useState(() => normalizeLiveShowNotes(''));
   const [roomPaymentMethodId, setRoomPaymentMethodId] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportChatMessage, setReportChatMessage] = useState<ChatMessage | null>(null);
@@ -592,8 +592,8 @@ function LiveSlide({
   }, [stream.id, stream.roomStatus]);
 
   useEffect(() => {
-    setShowNotes(normalizeLiveShowNotes(stream.showDescription));
-  }, [stream.id, stream.showDescription]);
+    setShowNotes(normalizeLiveShowNotes(''));
+  }, [stream.id]);
 
   useEffect(() => {
     if (liveSession.roomSnap?.status === 'ended') setRoomStatus('ended');
@@ -612,7 +612,7 @@ function LiveSlide({
           setRoomStatus(row.status);
           if (row.status === 'live') setStreamRefreshNonce((n) => n + 1);
         }
-        setShowNotes(normalizeLiveShowNotes(row.description));
+        setShowNotes(normalizeLiveShowNotes(row.showNotes));
       });
     }, 20_000);
     return () => clearInterval(id);

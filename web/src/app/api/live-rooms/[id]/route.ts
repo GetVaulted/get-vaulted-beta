@@ -229,6 +229,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 type PatchBody = {
   title?: string;
   description?: string;
+  showNotes?: string;
   scheduledStartAt?: string | null;
   thumbnailUrl?: string;
   action?: string;
@@ -411,6 +412,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const data: {
     title?: string;
     description?: string;
+    showNotes?: string;
     thumbnailUrl?: string;
     scheduledStartAt?: Date | null;
     tipModeratorId?: string | null;
@@ -419,6 +421,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   if (typeof body.title === "string") data.title = body.title.trim().slice(0, 200);
   if (typeof body.description === "string") data.description = body.description.trim().slice(0, 4000);
+  if (typeof body.showNotes === "string") data.showNotes = body.showNotes.trim().slice(0, 4000);
   if (typeof body.thumbnailUrl === "string") data.thumbnailUrl = body.thumbnailUrl.trim().slice(0, 2000);
   if ("scheduledStartAt" in body) {
     if (body.scheduledStartAt == null || body.scheduledStartAt === "") {

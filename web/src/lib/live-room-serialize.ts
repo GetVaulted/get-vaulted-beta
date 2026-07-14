@@ -114,6 +114,8 @@ export type LiveRoomDetailDTO = {
   sellerUsername: string;
   title: string;
   description: string;
+  /** In-room show notes for people who enter (not discovery). */
+  showNotes: string;
   category: string;
   roomType: LiveRoomType;
   status: LiveRoomStatus;
@@ -329,6 +331,7 @@ export function buildLiveRoomDetail(room: LiveRoomDetailPayload): LiveRoomDetail
     sellerUsername: room.seller.username,
     title: room.title,
     description: room.description,
+    showNotes: room.showNotes ?? "",
     category: room.category,
     roomType: room.roomType,
     status: room.status,

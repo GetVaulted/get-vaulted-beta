@@ -17,6 +17,8 @@ export type LiveRoomApiRow = {
   id: string;
   title: string;
   description: string | null;
+  /** In-room show notes — present on detail fetches; omit/empty on discovery lists. */
+  showNotes?: string | null;
   category: string;
   roomType: 'auction' | 'sale' | 'break';
   status: 'scheduled' | 'live' | 'ended';
@@ -297,6 +299,7 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
       id?: string;
       title?: string;
       description?: string | null;
+      showNotes?: string | null;
       category?: string;
       roomType?: LiveRoomApiRow['roomType'];
       status?: LiveRoomApiRow['status'];
@@ -323,6 +326,7 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
     id: r.id!,
     title: r.title ?? 'Live show',
     description: r.description ?? null,
+    showNotes: r.showNotes ?? null,
     category: r.category ?? 'Other',
     roomType: r.roomType ?? 'auction',
     status: r.status ?? 'scheduled',

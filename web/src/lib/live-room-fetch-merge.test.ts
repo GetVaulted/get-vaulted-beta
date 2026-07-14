@@ -56,6 +56,7 @@ function room(partial: Partial<LiveRoomDetailDTO> & Pick<LiveRoomDetailDTO, "ite
     sellerUsername: "host",
     title: "Show",
     description: "",
+    showNotes: "",
     category: "Other",
     roomType: "break",
     status: "live",

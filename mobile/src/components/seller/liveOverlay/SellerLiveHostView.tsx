@@ -155,7 +155,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const [shareToast, setShareToast] = useState<string | null>(null);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [showNotesOpen, setShowNotesOpen] = useState(false);
-  const [showNotes, setShowNotes] = useState(() => normalizeLiveShowNotes(host.room?.description));
+  const [showNotes, setShowNotes] = useState(() => normalizeLiveShowNotes(host.room?.showNotes));
   const [chatDraft, setChatDraft] = useState('');
   const chatComposerRef = useRef<MentionComposerInputHandle>(null);
   const [modDrawerOpen, setModDrawerOpen] = useState(false);
@@ -166,8 +166,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const [chatExpanded, setChatExpanded] = useState(false);
 
   useEffect(() => {
-    setShowNotes(normalizeLiveShowNotes(host.room?.description));
-  }, [host.room?.description, roomId]);
+    setShowNotes(normalizeLiveShowNotes(host.room?.showNotes));
+  }, [host.room?.showNotes, roomId]);
 
   const roomLive = host.room?.status === 'live';
   const streamOnAir =

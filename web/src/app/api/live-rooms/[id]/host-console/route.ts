@@ -211,6 +211,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         sellerId: room.sellerId,
         title: room.title,
         description: room.description,
+        showNotes: room.showNotes,
         category: room.category,
         roomType: room.roomType,
         status: room.status,

@@ -1181,9 +1181,12 @@ export function SellerLivePage() {
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     rows={4}
-                    placeholder="What are you breaking? Any rules or shoutouts?"
+                    placeholder="Public blurb for the live directory and schedule (not in-room show notes)."
                     className="mt-2 w-full resize-y rounded-xl border border-white/[0.1] bg-black/50 px-4 py-3 text-sm leading-relaxed text-zinc-100 shadow-inner shadow-black/40 outline-none transition placeholder:text-zinc-600 focus:border-gold/40 focus:ring-2 focus:ring-gold/20"
                   />
+                  <p className="mt-1.5 text-[11px] text-zinc-600">
+                    In-room show notes for buyers are edited from the host console during the show.
+                  </p>
                 </label>
                 <div>
                   <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">Thumbnail</span>

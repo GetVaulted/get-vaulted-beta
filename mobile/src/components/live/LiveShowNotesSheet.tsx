@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { patchLiveRoomDescription } from '../../api/liveHostRepository';
+import { patchLiveRoomShowNotes } from '../../api/liveHostRepository';
 import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
 import {
   LIVE_SHOW_NOTES_MAX_CHARS,
@@ -69,7 +69,7 @@ export function LiveShowNotesSheet({
     void fetchLiveRoomPublicById(roomId)
       .then((row) => {
         if (cancelled) return;
-        const next = normalizeLiveShowNotes(row?.description);
+        const next = normalizeLiveShowNotes(row?.showNotes);
         setNotes(next);
         setDraft(next);
         onNotesLoadedRef.current?.(next);
@@ -87,7 +87,7 @@ export function LiveShowNotesSheet({
     const next = draft.trim().slice(0, LIVE_SHOW_NOTES_MAX_CHARS);
     setSaving(true);
     try {
-      await patchLiveRoomDescription(accessToken, roomId, next);
+      await patchLiveRoomShowNotes(accessToken, roomId, next);
       setNotes(next);
       setDraft(next);
       onSaved?.(next);

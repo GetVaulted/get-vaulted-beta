@@ -60,6 +60,8 @@ export type LiveRoomHostDetail = {
   status: 'scheduled' | 'live' | 'ended';
   roomType: 'auction' | 'sale' | 'break';
   description?: string | null;
+  /** In-room show notes (not discovery description). */
+  showNotes?: string | null;
   scheduledStartAt?: string | null;
   startedAt?: string | null;
   endedAt?: string | null;
@@ -149,6 +151,7 @@ export async function fetchLiveRoomForHost(
     status: room.status,
     roomType: room.roomType,
     description: room.description ?? null,
+    showNotes: room.showNotes ?? null,
     scheduledStartAt: room.scheduledStartAt ?? null,
     startedAt: room.startedAt ?? null,
     endedAt: room.endedAt ?? null,
@@ -229,15 +232,15 @@ export async function patchLiveRoomAction(
   }
 }
 
-/** Seller show notes (stored as live room `description`, max 4000). */
-export async function patchLiveRoomDescription(
+/** Seller in-room show notes (stored as live room `showNotes`, max 4000). */
+export async function patchLiveRoomShowNotes(
   accessToken: string,
   roomId: string,
-  description: string,
+  showNotes: string,
 ): Promise<void> {
   const res = await hostFetch(`/api/live-rooms/${encodeURIComponent(roomId)}`, accessToken, {
     method: 'PATCH',
-    body: JSON.stringify({ description }),
+    body: JSON.stringify({ showNotes }),
   });
   let j: { error?: string } = {};
   try {
@@ -307,6 +310,7 @@ export function hostConsoleRoomToDetail(room: HostConsoleRoom): LiveRoomHostDeta
     status: room.status,
     roomType: room.roomType,
     description: room.description ?? null,
+    showNotes: room.showNotes ?? null,
     scheduledStartAt: room.scheduledStartAt ?? null,
     startedAt: room.startedAt ?? null,
     endedAt: room.endedAt ?? null,

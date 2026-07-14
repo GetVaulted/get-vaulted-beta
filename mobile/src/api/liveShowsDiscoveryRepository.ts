@@ -78,7 +78,7 @@ function showToLiveStream(row: ShowRow, host?: ProfileRow): LiveStream {
     chat: emptyChat,
     recentBids: emptyBids,
     highlightsCount: 0,
-    showDescription: row.description?.trim() || 'Show notes will appear when the host publishes them.',
+    showDescription: row.description?.trim() || 'Live on Get Vaulted.',
     categoryTags: tags,
     engagementLine: '',
     discoveryTags: tags,
