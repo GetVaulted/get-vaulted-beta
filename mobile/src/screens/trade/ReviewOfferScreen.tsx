@@ -148,8 +148,8 @@ export function ReviewOfferScreen({ navigation, route }: Props) {
           <Text style={styles.feeCardKicker}>Get Vaulted trade fee</Text>
           <Text style={styles.feeAmt}>${feeYou.toFixed(2)}</Text>
           <Text style={styles.feeHint}>
-            ${feeYou.toFixed(2)} Get Vaulted fee per party. Each of you also pays your own outbound shipping at the
-            actual label rate. Partner pays the same platform fee (${feeThem.toFixed(2)}).
+            ${feeYou.toFixed(2)} Get Vaulted fee + your outbound Shippo label in one Stripe charge. Partner pays the
+            same fee plus their own label (~${feeThem.toFixed(2)} + shipping).
           </Text>
         </View>
 
@@ -176,7 +176,7 @@ export function ReviewOfferScreen({ navigation, route }: Props) {
         <View style={styles.protect}>
           <Ionicons name="ribbon-outline" size={18} color={colors.gold} />
           <Text style={styles.protectTxt}>
-            After you accept, each party pays $2.99 plus their outbound shipping. Labels generate once shipping is paid.
+            After you accept, pay fee + shipping in one checkout. Your label is purchased automatically after payment.
           </Text>
         </View>
 

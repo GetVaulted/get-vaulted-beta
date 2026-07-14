@@ -107,7 +107,19 @@ export function formatTradeEventNote(type: string, note: string | null): string 
   if (type === "offer_expired") return "Offer expired";
   if (type === "platform_fee_paid") {
     const amount = typeof obj.amountUsd === "number" ? obj.amountUsd : 2.99;
+    const shippingCents = typeof obj.shippingChargedCents === "number" ? obj.shippingChargedCents : null;
+    if (shippingCents != null && shippingCents > 0) {
+      return `Platform fee + shipping paid · $${amount.toFixed(2)} fee + $${(shippingCents / 100).toFixed(2)} label`;
+    }
     return `Platform fee paid · $${amount.toFixed(2)}`;
+  }
+  if (type === "shipping_label_purchased") {
+    const tracking = typeof obj.trackingNumber === "string" ? obj.trackingNumber : null;
+    return tracking ? `Shipping label purchased · ${tracking}` : "Shipping label purchased";
+  }
+  if (type === "shipping_label_failed") {
+    const err = typeof obj.error === "string" ? obj.error : null;
+    return err ? `Label purchase failed · ${err}` : "Label purchase failed";
   }
 
   return null;

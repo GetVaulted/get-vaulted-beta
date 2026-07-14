@@ -178,10 +178,10 @@ export default async function TradeOfferDetailPage({
             <p className="text-sm font-semibold text-gold-bright">After accept — costs</p>
             <ul className="mt-2 space-y-1.5 text-xs text-zinc-400">
               <li>
-                Get Vaulted platform fee: ${GET_VAULTED_TRADE_PLATFORM_FEE_USD.toFixed(2)} per party
+                One Stripe charge per party: ${GET_VAULTED_TRADE_PLATFORM_FEE_USD.toFixed(2)} Get Vaulted fee + your
+                outbound Shippo label
                 {partnerFeePaid ? " · partner paid" : " · waiting on partner"}
               </li>
-              <li>Outbound shipping: each party pays their own label at the actual carrier rate (coming next).</li>
               {cashTotal > 0 ? (
                 <li>
                   Cash on this trade: {formatMoney(cashTotal)} — settle off-platform, or pay on Get Vaulted later
@@ -192,8 +192,30 @@ export default async function TradeOfferDetailPage({
               )}
             </ul>
             {isParticipant ? (
-              <div className="mt-4">
+              <div className="mt-4 space-y-3">
                 <TradePlatformFeePayButton offerId={fresh.id} alreadyPaid={viewerFeePaid} />
+                {viewerIsProposer && fresh.proposerLabelUrl ? (
+                  <a
+                    href={fresh.proposerLabelUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex text-sm font-semibold text-gold-bright hover:underline"
+                  >
+                    Download your shipping label
+                    {fresh.proposerTrackingNumber ? ` · ${fresh.proposerTrackingNumber}` : ""}
+                  </a>
+                ) : null}
+                {!viewerIsProposer && fresh.recipientLabelUrl ? (
+                  <a
+                    href={fresh.recipientLabelUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex text-sm font-semibold text-gold-bright hover:underline"
+                  >
+                    Download your shipping label
+                    {fresh.recipientTrackingNumber ? ` · ${fresh.recipientTrackingNumber}` : ""}
+                  </a>
+                ) : null}
               </div>
             ) : null}
           </section>

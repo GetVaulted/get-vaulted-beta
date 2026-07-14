@@ -102,7 +102,7 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
-      <TradeFlowHeader navigation={navigation} title="Get Vaulted Trade Fee" subtitle="$2.99 platform fee · shipping separate" />
+      <TradeFlowHeader navigation={navigation} title="Trade checkout" subtitle="Fee + shipping · one charge" />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <Text style={styles.pipeTitle}>Offer status</Text>
@@ -110,8 +110,8 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
         </View>
 
         <Text style={styles.intro}>
-          Pay the $2.99 Get Vaulted fee for your side. Your outbound shipping is charged at the actual carrier label
-          rate. After Stripe confirms payment, labels generate automatically when shipping is covered.
+          One Stripe payment covers your $2.99 Get Vaulted fee and your outbound shipping label. Rates are quoted live
+          when you tap Pay.
         </Text>
 
         <View style={styles.pipeline}>
@@ -130,15 +130,15 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
         <View style={styles.card}>
           <View style={styles.line}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.lineLbl}>Get Vaulted platform fee</Text>
-              <Text style={styles.hint}>$2.99 per party. Outbound shipping is billed at the actual label rate.</Text>
+              <Text style={styles.lineLbl}>Platform fee (reference)</Text>
+              <Text style={styles.hint}>$2.99 + live Shippo label rate — charged together at Stripe.</Text>
             </View>
-            <Text style={styles.lineAmt}>${(amountCents / 100).toFixed(2)}</Text>
+            <Text style={styles.lineAmt}>${(amountCents / 100).toFixed(2)}+</Text>
           </View>
           <View style={styles.totalRule} />
           <View style={styles.line}>
-            <Text style={styles.totalLbl}>Platform fee due</Text>
-            <Text style={styles.totalAmt}>${(amountCents / 100).toFixed(2)}</Text>
+            <Text style={styles.totalLbl}>Checkout total</Text>
+            <Text style={styles.totalAmt}>Quoted in Stripe</Text>
           </View>
         </View>
 
@@ -166,13 +166,14 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
             {paying ? (
               <ActivityIndicator color={colors.background} />
             ) : (
-              <Text style={styles.primaryTxt}>Pay ${(amountCents / 100).toFixed(2)} with Stripe</Text>
+              <Text style={styles.primaryTxt}>Pay fee + shipping with Stripe</Text>
             )}
           </Pressable>
         )}
 
         <Text style={styles.hintFoot}>
-          {`After Stripe, return here — your $${(amountCents / 100).toFixed(2)} platform fee is recorded on the trade. Outbound shipping labels are charged separately at the actual carrier rate.`}
+          Stripe will show $2.99 plus your outbound label rate as one payment. Your label is purchased automatically
+          after payment.
         </Text>
 
         <View style={{ height: spacing.xxxl }} />

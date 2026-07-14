@@ -890,8 +890,8 @@ Escrow (when applicable):
 • Sellers see pending payout until release conditions met.
 
 Trade fees:
-• Each party pays a $2.99 Get Vaulted platform fee.
-• Each party also pays their own outbound shipping at the actual label rate.
+• Each party pays one Stripe charge: a $2.99 Get Vaulted platform fee plus their outbound shipping label.
+• Shipping is quoted at the actual carrier rate at checkout.
 • Optional cash can be settled off-platform, or paid on Get Vaulted (Stripe card fees apply).
 
 Live and marketplace:

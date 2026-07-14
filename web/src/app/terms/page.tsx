@@ -259,8 +259,8 @@ export default function TermsPage() {
               $1,000, 7.25% from $1,000 up to $3,000, and 6.5% above $3,000 in a single show;
             </li>
             <li>
-              Trade Center: a $2.99 Get Vaulted platform fee per party, plus each party’s actual outbound shipping label
-              cost; optional cash may be settled off-platform or paid on Get Vaulted;
+              Trade Center: one charge per party of a $2.99 Get Vaulted platform fee plus that party’s outbound shipping
+              label (quoted at checkout); optional cash may be settled off-platform or paid on Get Vaulted;
             </li>
             <li>
               Stripe’s standard card-processing fee (approximately 2.9% + $0.30 per charge) applies in addition when a

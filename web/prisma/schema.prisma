@@ -503,6 +503,8 @@ enum TradeOfferEventType {
   offer_cancelled
   offer_expired
   platform_fee_paid
+  shipping_label_purchased
+  shipping_label_failed
 }
 
 model User {
@@ -949,6 +951,27 @@ model TradeOffer {
   recipientPlatformFeePaidAt DateTime?
   proposerPlatformFeeCheckoutSessionId String?
   recipientPlatformFeeCheckoutSessionId String?
+  /// Shipping portion charged (cents) in the combined platform-fee + label checkout.
+  proposerShippingChargedCents Int?
+  recipientShippingChargedCents Int?
+  proposerShippoShipmentId String?
+  recipientShippoShipmentId String?
+  proposerShippoRateObjectId String?
+  recipientShippoRateObjectId String?
+  proposerShippoTransactionId String?
+  recipientShippoTransactionId String?
+  proposerLabelUrl String?
+  recipientLabelUrl String?
+  proposerTrackingNumber String?
+  recipientTrackingNumber String?
+  proposerTrackingUrl String?
+  recipientTrackingUrl String?
+  proposerLabelPurchasedAt DateTime?
+  recipientLabelPurchasedAt DateTime?
+  proposerLabelErrorMessage String?
+  recipientLabelErrorMessage String?
+  /// Optional parcel tier for outbound quotes (defaults to cards_slabs).
+  shippingWeightTier String?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 

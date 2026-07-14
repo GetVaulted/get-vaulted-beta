@@ -3,13 +3,18 @@ import { publicSiteBaseUrl } from "@/lib/live-room-share-metadata";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { stripeCheckoutSessionPaymentOptions } from "@/lib/stripe-payment-method-config";
 import { GET_VAULTED_TRADE_PLATFORM_FEE_USD, tradePlatformFeeCents } from "@/lib/trade-platform-fee";
+import { fetchTradeOutboundShippingQuote } from "@/lib/trade-shipping-quote";
+import { purchaseTradePartyLabelAfterCheckout } from "@/lib/trade-shippo-label-purchase";
 
 export type TradePlatformFeeCheckoutResult =
-  | { ok: true; url: string; alreadyPaid: false }
+  | { ok: true; url: string; alreadyPaid: false; shippingUsd: number; totalUsd: number }
   | { ok: true; url: null; alreadyPaid: true }
   | { ok: false; error: string; status: number };
 
-/** Create Stripe Checkout for this party's $2.99 Get Vaulted trade platform fee. */
+/**
+ * Create Stripe Checkout for this party's combined charge:
+ * $2.99 Get Vaulted platform fee + actual outbound Shippo label rate (one payment).
+ */
 export async function createTradePlatformFeeCheckout(args: {
   tradeOfferId: string;
   payerUserId: string;
@@ -31,7 +36,7 @@ export async function createTradePlatformFeeCheckout(args: {
   });
   if (!offer) return { ok: false, error: "Offer not found.", status: 404 };
   if (offer.status !== "accepted" && offer.status !== "completed") {
-    return { ok: false, error: "Platform fee is only due after the trade is accepted.", status: 409 };
+    return { ok: false, error: "Checkout is only available after the trade is accepted.", status: 409 };
   }
 
   const isProposer = offer.proposerId === args.payerUserId;
@@ -47,10 +52,36 @@ export async function createTradePlatformFeeCheckout(args: {
     return { ok: true, url: null, alreadyPaid: true };
   }
 
-  const amountCents = tradePlatformFeeCents();
+  const quoteResult = await fetchTradeOutboundShippingQuote({
+    tradeOfferId: offer.id,
+    payerUserId: args.payerUserId,
+  });
+  if (!quoteResult.ok) {
+    return { ok: false, error: quoteResult.error, status: quoteResult.status };
+  }
+  const quote = quoteResult.quote;
+
+  const platformFeeCents = tradePlatformFeeCents();
+  const shippingCents = quote.amountCents;
+  const totalCents = platformFeeCents + shippingCents;
   const base = publicSiteBaseUrl();
   const tradePath = `/trade/${encodeURIComponent(offer.id)}`;
   const stripe = getStripe();
+
+  await prisma.tradeOffer.update({
+    where: { id: offer.id },
+    data: isProposer
+      ? {
+          proposerShippingChargedCents: shippingCents,
+          proposerShippoShipmentId: quote.shippoShipmentId,
+          proposerShippoRateObjectId: quote.shippoRateObjectId,
+        }
+      : {
+          recipientShippingChargedCents: shippingCents,
+          recipientShippoShipmentId: quote.shippoShipmentId,
+          recipientShippoRateObjectId: quote.shippoRateObjectId,
+        },
+  });
 
   const session = await stripe.checkout.sessions.create(
     {
@@ -63,10 +94,21 @@ export async function createTradePlatformFeeCheckout(args: {
           quantity: 1,
           price_data: {
             currency: "usd",
-            unit_amount: amountCents,
+            unit_amount: platformFeeCents,
             product_data: {
               name: "Get Vaulted — trade platform fee",
-              description: `$${GET_VAULTED_TRADE_PLATFORM_FEE_USD.toFixed(2)} platform fee for your side of this trade. Outbound shipping is charged separately at the actual label rate.`,
+              description: `$${GET_VAULTED_TRADE_PLATFORM_FEE_USD.toFixed(2)} platform fee for your side of this trade.`,
+            },
+          },
+        },
+        {
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: shippingCents,
+            product_data: {
+              name: "Outbound shipping label",
+              description: `${quote.carrier} ${quote.serviceLevel} — your package to your trade partner.`,
             },
           },
         },
@@ -76,6 +118,12 @@ export async function createTradePlatformFeeCheckout(args: {
         tradeOfferId: offer.id,
         payerUserId: args.payerUserId,
         party: isProposer ? "proposer" : "recipient",
+        shippingChargedCents: String(shippingCents),
+        shippoShipmentId: quote.shippoShipmentId,
+        shippoRateObjectId: quote.shippoRateObjectId,
+        carrier: quote.carrier.slice(0, 80),
+        serviceLevel: quote.serviceLevel.slice(0, 120),
+        mockShipping: quote.mock ? "1" : "0",
       },
       payment_intent_data: {
         metadata: {
@@ -85,7 +133,12 @@ export async function createTradePlatformFeeCheckout(args: {
         },
       },
     },
-    { idempotencyKey: `trade_platform_fee_${offer.id}_${args.payerUserId}` },
+    {
+      idempotencyKey: `trade_checkout_${offer.id}_${args.payerUserId}_${shippingCents}_${quote.shippoRateObjectId}`.slice(
+        0,
+        255,
+      ),
+    },
   );
 
   if (!session.url) {
@@ -99,14 +152,24 @@ export async function createTradePlatformFeeCheckout(args: {
       : { recipientPlatformFeeCheckoutSessionId: session.id },
   });
 
-  return { ok: true, url: session.url, alreadyPaid: false };
+  return {
+    ok: true,
+    url: session.url,
+    alreadyPaid: false,
+    shippingUsd: shippingCents / 100,
+    totalUsd: totalCents / 100,
+  };
 }
 
-/** Mark a party's $2.99 platform fee paid after Stripe Checkout completes. */
+/** Mark platform fee paid and purchase this party's outbound Shippo label (same Stripe charge). */
 export async function finalizeTradePlatformFeePaid(args: {
   tradeOfferId: string;
   payerUserId: string;
   checkoutSessionId: string;
+  shippingChargedCents?: number | null;
+  shippoRateObjectId?: string | null;
+  carrier?: string | null;
+  serviceLevel?: string | null;
 }): Promise<void> {
   const offer = await prisma.tradeOffer.findUnique({
     where: { id: args.tradeOfferId },
@@ -116,6 +179,10 @@ export async function finalizeTradePlatformFeePaid(args: {
       recipientId: true,
       proposerPlatformFeePaidAt: true,
       recipientPlatformFeePaidAt: true,
+      proposerShippoRateObjectId: true,
+      recipientShippoRateObjectId: true,
+      proposerShippingChargedCents: true,
+      recipientShippingChargedCents: true,
     },
   });
   if (!offer) return;
@@ -124,34 +191,64 @@ export async function finalizeTradePlatformFeePaid(args: {
   const isRecipient = offer.recipientId === args.payerUserId;
   if (!isProposer && !isRecipient) return;
 
-  if (isProposer && offer.proposerPlatformFeePaidAt) return;
-  if (isRecipient && offer.recipientPlatformFeePaidAt) return;
+  const alreadyPaid = isProposer
+    ? Boolean(offer.proposerPlatformFeePaidAt)
+    : Boolean(offer.recipientPlatformFeePaidAt);
 
-  const now = new Date();
-  await prisma.$transaction(async (tx) => {
-    await tx.tradeOffer.update({
-      where: { id: offer.id },
-      data: isProposer
-        ? {
-            proposerPlatformFeePaidAt: now,
-            proposerPlatformFeeCheckoutSessionId: args.checkoutSessionId,
-          }
-        : {
-            recipientPlatformFeePaidAt: now,
-            recipientPlatformFeeCheckoutSessionId: args.checkoutSessionId,
-          },
+  const shippingCents =
+    args.shippingChargedCents ??
+    (isProposer ? offer.proposerShippingChargedCents : offer.recipientShippingChargedCents) ??
+    null;
+  const rateId =
+    args.shippoRateObjectId?.trim() ||
+    (isProposer ? offer.proposerShippoRateObjectId : offer.recipientShippoRateObjectId) ||
+    null;
+
+  if (!alreadyPaid) {
+    const now = new Date();
+    await prisma.$transaction(async (tx) => {
+      await tx.tradeOffer.update({
+        where: { id: offer.id },
+        data: isProposer
+          ? {
+              proposerPlatformFeePaidAt: now,
+              proposerPlatformFeeCheckoutSessionId: args.checkoutSessionId,
+              proposerShippingChargedCents: shippingCents ?? undefined,
+              proposerShippoRateObjectId: rateId ?? undefined,
+            }
+          : {
+              recipientPlatformFeePaidAt: now,
+              recipientPlatformFeeCheckoutSessionId: args.checkoutSessionId,
+              recipientShippingChargedCents: shippingCents ?? undefined,
+              recipientShippoRateObjectId: rateId ?? undefined,
+            },
+      });
+      await tx.tradeOfferEvent.create({
+        data: {
+          tradeOfferId: offer.id,
+          type: "platform_fee_paid",
+          actorUserId: args.payerUserId,
+          note: JSON.stringify({
+            amountUsd: GET_VAULTED_TRADE_PLATFORM_FEE_USD,
+            shippingChargedCents: shippingCents,
+            checkoutSessionId: args.checkoutSessionId,
+            party: isProposer ? "proposer" : "recipient",
+            combinedCheckout: true,
+          }),
+        },
+      });
     });
-    await tx.tradeOfferEvent.create({
-      data: {
-        tradeOfferId: offer.id,
-        type: "platform_fee_paid",
-        actorUserId: args.payerUserId,
-        note: JSON.stringify({
-          amountUsd: GET_VAULTED_TRADE_PLATFORM_FEE_USD,
-          checkoutSessionId: args.checkoutSessionId,
-          party: isProposer ? "proposer" : "recipient",
-        }),
-      },
-    });
+  }
+
+  const labelResult = await purchaseTradePartyLabelAfterCheckout({
+    tradeOfferId: offer.id,
+    payerUserId: args.payerUserId,
+    shippoRateObjectId: rateId,
+    shippingChargedCents: shippingCents,
+    carrier: args.carrier,
+    serviceLevel: args.serviceLevel,
   });
+  if (!labelResult.ok) {
+    console.error("[finalizeTradePlatformFeePaid] label purchase failed", labelResult.error);
+  }
 }

@@ -1942,11 +1942,20 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         const tradeOfferId = session.metadata?.tradeOfferId;
         const payerUserId = session.metadata?.payerUserId;
         if (!tradeOfferId || !payerUserId) return;
+        const shippingChargedCentsRaw = session.metadata?.shippingChargedCents;
+        const shippingChargedCents =
+          shippingChargedCentsRaw != null && Number.isFinite(Number(shippingChargedCentsRaw))
+            ? Math.round(Number(shippingChargedCentsRaw))
+            : null;
         const { finalizeTradePlatformFeePaid } = await import("@/lib/trade-platform-fee-checkout");
         await finalizeTradePlatformFeePaid({
           tradeOfferId,
           payerUserId,
           checkoutSessionId: session.id,
+          shippingChargedCents,
+          shippoRateObjectId: session.metadata?.shippoRateObjectId ?? null,
+          carrier: session.metadata?.carrier ?? null,
+          serviceLevel: session.metadata?.serviceLevel ?? null,
         });
         return;
       }

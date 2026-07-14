@@ -16,6 +16,8 @@ function eventLabel(type: string): string {
   if (type === "offer_cancelled") return "Offer cancelled";
   if (type === "offer_expired") return "Offer expired";
   if (type === "platform_fee_paid") return "Platform fee paid";
+  if (type === "shipping_label_purchased") return "Shipping label purchased";
+  if (type === "shipping_label_failed") return "Label purchase failed";
   return "Trade update";
 }
 
