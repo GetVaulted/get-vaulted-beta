@@ -13,6 +13,7 @@ import { WizardShell } from "@/components/account/sellerSetup/WizardShell";
 import { SELLER_SHIP_FROM_COUNTRY, sellerNeedsShipFromPhoneOnly } from "@/lib/seller-shipping-readiness";
 import {
   isPayoutSetupComplete,
+  isPayoutSetupSubmitted,
   isRequiredSellerSetupComplete,
   SELLER_HQ_PATH,
 } from "@/lib/seller-setup-state";
@@ -42,6 +43,7 @@ type SellerPayload = {
 type LiveReadinessChecks = {
   hasStripeAccount: boolean;
   stripeChargesEnabled: boolean;
+  stripePayoutSubmitted: boolean;
   hasShipFromAddress: boolean;
 };
 
@@ -432,7 +434,7 @@ export function SellerSetupWizard() {
   }
 
   const checks = readiness.checks;
-  const payoutsDone = isPayoutSetupComplete(checks);
+  const payoutsDone = isPayoutSetupSubmitted(checks);
   const payoutPhase = payoutsDone
     ? "connected"
     : payoutReconciling
