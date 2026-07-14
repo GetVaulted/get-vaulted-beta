@@ -219,23 +219,22 @@ export async function fetchTradeOutboundShippingQuote(args: {
         ? { results: inlineRates }
         : ((await shippoListRates(shipmentId)) as { results?: ShippoRateRow[] });
 
-    const ranked = (ratesRes.results ?? [])
-      .map((row) => {
-        const cents = parseRateAmountCents(row.amount);
-        const rateId = row.object_id?.trim();
-        if (cents == null || cents <= 0 || !rateId) return null;
-        return {
-          amountCents: cents,
-          amountUsd: cents / 100,
-          carrier: (row.provider ?? "Carrier").trim() || "Carrier",
-          serviceLevel: (row.servicelevel?.name ?? row.servicelevel?.token ?? "Shipping").trim() || "Shipping",
-          shippoShipmentId: shipmentId,
-          shippoRateObjectId: rateId,
-          mock: false as const,
-        };
-      })
-      .filter((q): q is TradeOutboundShippingQuote => Boolean(q))
-      .sort((a, b) => a.amountCents - b.amountCents);
+    const ranked: TradeOutboundShippingQuote[] = [];
+    for (const row of ratesRes.results ?? []) {
+      const cents = parseRateAmountCents(row.amount);
+      const rateId = row.object_id?.trim();
+      if (cents == null || cents <= 0 || !rateId) continue;
+      ranked.push({
+        amountCents: cents,
+        amountUsd: cents / 100,
+        carrier: (row.provider ?? "Carrier").trim() || "Carrier",
+        serviceLevel: (row.servicelevel?.name ?? row.servicelevel?.token ?? "Shipping").trim() || "Shipping",
+        shippoShipmentId: shipmentId,
+        shippoRateObjectId: rateId,
+        mock: false,
+      });
+    }
+    ranked.sort((a, b) => a.amountCents - b.amountCents);
 
     const best = ranked[0];
     if (!best) {
