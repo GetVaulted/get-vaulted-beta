@@ -10,7 +10,7 @@ type SupabaseAdmin = NonNullable<ReturnType<typeof getSupabaseAdminClient>>;
  * Prisma `User.id` may be a cuid (legacy email account) while Supabase `profiles.id`
  * is always the Auth UUID. Resolve the Auth id before reading/writing profiles.
  */
-async function resolveSupabaseAuthUserId(
+export async function resolveSupabaseAuthUserId(
   admin: SupabaseAdmin,
   prismaUserId: string,
   opts?: { email?: string | null; username?: string | null },

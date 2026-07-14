@@ -45,7 +45,7 @@ export function ProfileStep({
       const blob = await compressImageFileToBlob(file);
       const fd = new FormData();
       fd.set("file", blob, "profile.jpg");
-      const res = await fetch("/api/uploads/listing-image", { method: "POST", body: fd });
+      const res = await fetch("/api/uploads/avatar", { method: "POST", body: fd });
       const j = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
       if (!res.ok || typeof j.url !== "string") {
         setUploadError(j.error ?? "Could not upload photo.");

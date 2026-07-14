@@ -5,6 +5,7 @@ import {
   usernamePolicyUserMessage,
 } from '../lib/username-policy';
 import { prepareProfileAvatarForUpload, avatarUrlWithCacheBust } from '../lib/profileAvatarUpload';
+import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import { getSupabase } from '../lib/supabase';
 import type { ProfileLite } from '../types/tradeOffers';
 
@@ -131,23 +132,37 @@ export async function checkUsernameAvailable(raw: string): Promise<{ available: 
 }
 
 /**
- * Upload a circle-cropped JPEG to Storage `avatars/{userId}/avatar.jpg` and return the public URL.
+ * Upload a circle-cropped JPEG via Next.js `/api/uploads/avatar` (service role → `avatars` bucket).
+ * Avoids client-side Storage RLS failures during seller onboarding / profile edit.
  */
 export async function uploadMyAvatar(userId: string, localUri: string, _mimeType?: string): Promise<string> {
   const sb = getSupabase();
   if (!sb) throw new Error('Supabase is not configured');
+  const { data: sessionData } = await sb.auth.getSession();
+  const accessToken = sessionData.session?.access_token?.trim();
+  if (!accessToken) throw new Error('Sign in again to upload a profile photo.');
+
   const preparedUri = await prepareProfileAvatarForUpload(localUri);
-  const path = `${userId}/avatar.jpg`;
-  const response = await fetch(preparedUri);
-  const body = await response.arrayBuffer();
-  const { error: upErr } = await sb.storage.from('avatars').upload(path, body, {
-    contentType: 'image/jpeg',
-    upsert: true,
+  const form = new FormData();
+  form.append('file', {
+    uri: preparedUri,
+    name: 'avatar.jpg',
+    type: 'image/jpeg',
+  } as unknown as Blob);
+
+  const res = await fetchWebApiMobile('/api/uploads/avatar', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
   });
-  if (upErr) throw new Error(upErr.message);
-  const { data } = sb.storage.from('avatars').getPublicUrl(path);
-  if (!data?.publicUrl) throw new Error('Could not resolve avatar URL');
-  return avatarUrlWithCacheBust(data.publicUrl);
+  const body = (await res.json().catch(() => null)) as { url?: string; error?: string } | null;
+  if (!res.ok) {
+    throw new Error(body?.error?.trim() || `Could not upload photo (${res.status}).`);
+  }
+  const url = body?.url?.trim();
+  if (!url) throw new Error('Could not resolve avatar URL');
+  void userId;
+  return avatarUrlWithCacheBust(url);
 }
 
 export async function fetchProfileIdByUsername(raw: string): Promise<string | null> {
