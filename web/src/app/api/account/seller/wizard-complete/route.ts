@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
 import { isRequiredSellerSetupComplete } from "@/lib/seller-setup-state";
 import { isStripeConfigured } from "@/lib/stripe";
+import { isStripePayoutSetupSubmittedFromAccount } from "@/lib/stripe-payout-submitted";
 
 /** Persist seller onboarding wizard completion (step 5) for cross-platform HQ unlock. */
 export async function POST(req: Request) {
@@ -40,6 +41,7 @@ export async function POST(req: Request) {
   }
 
   // Pull latest Connect state before gating — mobile often finishes Stripe UI before webhooks land.
+  let liveStripeSubmitted = false;
   if (isStripeConfigured()) {
     try {
       await syncStripeConnectFromEmailSibling(userId);
@@ -53,7 +55,8 @@ export async function POST(req: Request) {
     const accountId = stripeRow?.stripeAccountId?.trim();
     if (accountId) {
       try {
-        await refreshSellerStripeFromStripeApi({ userId, stripeAccountId: accountId });
+        const { account } = await refreshSellerStripeFromStripeApi({ userId, stripeAccountId: accountId });
+        liveStripeSubmitted = isStripePayoutSetupSubmittedFromAccount(account);
       } catch (e) {
         console.warn("[wizard-complete] stripe refresh failed", e);
       }
@@ -61,19 +64,23 @@ export async function POST(req: Request) {
   }
 
   const readiness = await getSellerLiveReadiness(userId);
-  if (!isRequiredSellerSetupComplete(readiness.checks)) {
+  const checks = {
+    ...readiness.checks,
+    stripePayoutSubmitted: readiness.checks.stripePayoutSubmitted || liveStripeSubmitted,
+  };
+  if (!isRequiredSellerSetupComplete(checks)) {
     const missing: string[] = [];
-    if (!readiness.checks.hasStripeAccount) missing.push("connect Stripe payouts");
-    if (!readiness.checks.stripeChargesEnabled) {
-      missing.push("finish Stripe verification (submitted details may still be reviewing)");
+    if (!checks.hasStripeAccount) missing.push("connect Stripe payouts");
+    if (!checks.stripePayoutSubmitted && !checks.stripeChargesEnabled) {
+      missing.push("submit Stripe payout details (open Continue Stripe if anything is still due)");
     }
-    if (!readiness.checks.hasShipFromAddress) missing.push("add your ship-from address");
+    if (!checks.hasShipFromAddress) missing.push("add your ship-from address");
     const detail = missing.length ? ` Still needed: ${missing.join("; ")}.` : "";
     return NextResponse.json(
       {
         error: `Complete payout and shipping setup before finishing seller onboarding.${detail}`,
         code: "SELLER_SETUP_INCOMPLETE",
-        checks: readiness.checks,
+        checks,
         issues: readiness.issues,
       },
       { status: 400 },
@@ -94,10 +101,13 @@ export async function POST(req: Request) {
   if (firstCompletion) {
     const handle = existing?.username?.trim() || "seller";
     const email = existing?.email?.trim() || "unknown";
+    const verified = checks.stripeChargesEnabled;
     scheduleNotifyAdmins({
       type: "admin_seller_onboarded",
       title: "Seller onboarding complete",
-      body: `@${handle} (${email}) finished seller setup and can go live / list.`,
+      body: verified
+        ? `@${handle} (${email}) finished seller setup and can go live / list.`
+        : `@${handle} (${email}) finished seller setup; Stripe verification is still pending before they can go live / publish.`,
       href: "/admin/users",
       dedupeKey: `seller-onboard:${userId}`,
     });
@@ -105,6 +115,6 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     setupWizardComplete: Boolean(updated.sellerSetupWizardCompletedAt),
-    readiness,
+    readiness: { ...readiness, checks },
   });
 }

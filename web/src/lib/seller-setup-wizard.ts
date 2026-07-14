@@ -1,4 +1,4 @@
-import { isPayoutSetupComplete, type SellerReadinessChecks } from "@/lib/seller-setup-state";
+import { isPayoutSetupSubmitted, type SellerReadinessChecks } from "@/lib/seller-setup-state";
 
 export const SELLER_WIZARD_TOTAL_STEPS = 5;
 export const SELLER_WIZARD_COMPLETE_KEY = "gv_seller_wizard_complete";
@@ -11,7 +11,7 @@ export function resolveSellerWizardStep(input: {
   wizardComplete: boolean;
 }): SellerWizardStep {
   const checks = input.checks;
-  const payoutsDone = isPayoutSetupComplete(checks);
+  const payoutsDone = isPayoutSetupSubmitted(checks);
   const shippingDone = Boolean(checks?.hasShipFromAddress);
   const started = Boolean(checks?.hasStripeAccount || checks?.hasShipFromAddress);
 

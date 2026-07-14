@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { hasCompleteSellerShipFrom, sellerNeedsShipFromPhoneOnly } from "@/lib/seller-shipping-readiness";
 import { isShippoConfigured } from "@/lib/shippo";
 import { isStripeConfigured } from "@/lib/stripe";
+import { parseRequirementsDue } from "@/lib/stripe-connect-status-response";
+import { isStripePayoutSetupSubmitted } from "@/lib/stripe-payout-submitted";
 
 export type { LiveShowReadiness, LiveShowReadinessChecks } from "@/lib/live-show-readiness-types";
 
@@ -47,6 +49,9 @@ export async function getSellerLiveReadiness(
     select: {
       stripeAccountId: true,
       stripeOnboardingComplete: true,
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
+      stripeRequirementsDue: true,
       defaultShipFromAddressId: true,
       shipFromStreet: true,
       shipFromCity: true,
@@ -74,6 +79,7 @@ export async function getSellerLiveReadiness(
       checks: {
         hasStripeAccount: false,
         stripeChargesEnabled: false,
+        stripePayoutSubmitted: false,
         hasShippoConfigured: isShippoConfigured(),
         hasShipFromAddress: false,
         alternateCheckoutSellerReady: false,
@@ -86,9 +92,20 @@ export async function getSellerLiveReadiness(
   const hasStripeAccount = Boolean(user.stripeAccountId?.trim());
   /**
    * Mirrors Stripe onboarding completion (details submitted + no currently_due / pending_verification requirements),
-   * synchronized from Stripe webhooks/status checks.
+   * synchronized from Stripe webhooks/status checks. Required to go live / publish.
    */
   const stripeChargesEnabled = !stripeRequired || Boolean(user.stripeOnboardingComplete);
+  const requirementsSnap = parseRequirementsDue(user.stripeRequirementsDue);
+  const stripePayoutSubmitted =
+    !stripeRequired ||
+    isStripePayoutSetupSubmitted({
+      hasStripeAccount,
+      stripeOnboardingComplete: Boolean(user.stripeOnboardingComplete),
+      stripeChargesEnabled: user.stripeChargesEnabled ?? null,
+      stripePayoutsEnabled: user.stripePayoutsEnabled ?? null,
+      currentlyDue: requirementsSnap?.currentlyDue ?? [],
+      pendingVerification: requirementsSnap?.pendingVerification ?? [],
+    });
 
   const hasShippoConfigured = isShippoConfigured();
   // Address fields unlock Seller HQ; contact phone is still required to go live / buy labels.
@@ -114,6 +131,7 @@ export async function getSellerLiveReadiness(
   const checks: LiveShowReadinessChecks = {
     hasStripeAccount: !stripeRequired || hasStripeAccount,
     stripeChargesEnabled,
+    stripePayoutSubmitted,
     hasShippoConfigured,
     hasShipFromAddress,
     alternateCheckoutSellerReady: !alternateCheckoutSellerRequired || alternateCheckoutSellerLinked,

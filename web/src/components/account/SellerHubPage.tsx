@@ -47,6 +47,7 @@ type SellerHomeStats = {
 type LiveReadinessChecks = {
   hasStripeAccount: boolean;
   stripeChargesEnabled: boolean;
+  stripePayoutSubmitted?: boolean;
   hasShippoConfigured: boolean;
   hasShipFromAddress: boolean;
   alternateCheckoutSellerReady: boolean;
@@ -155,6 +156,7 @@ export function SellerHubPage() {
     checks: {
       hasStripeAccount: false,
       stripeChargesEnabled: false,
+      stripePayoutSubmitted: false,
       hasShippoConfigured: false,
       hasShipFromAddress: false,
       alternateCheckoutSellerReady: false,
@@ -254,6 +256,7 @@ export function SellerHubPage() {
           checks: {
             hasStripeAccount: false,
             stripeChargesEnabled: false,
+            stripePayoutSubmitted: false,
             hasShippoConfigured: false,
             hasShipFromAddress: false,
             alternateCheckoutSellerReady: false,

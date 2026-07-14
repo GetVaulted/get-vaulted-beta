@@ -1,4 +1,4 @@
-import { isPayoutSetupComplete, type SellerReadinessChecks } from './seller-setup-state';
+import { isPayoutSetupSubmitted, type SellerReadinessChecks } from './seller-setup-state';
 
 export const SELLER_WIZARD_TOTAL_STEPS = 5;
 
@@ -10,7 +10,7 @@ export function resolveSellerWizardStep(input: {
   sellerAgreementAccepted: boolean;
 }): SellerWizardStep {
   const checks = input.checks;
-  const payoutsDone = isPayoutSetupComplete(checks);
+  const payoutsDone = isPayoutSetupSubmitted(checks);
   const shippingDone = Boolean(checks?.hasShipFromAddress);
   const started = Boolean(checks?.hasStripeAccount || checks?.hasShipFromAddress);
 

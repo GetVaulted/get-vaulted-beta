@@ -13,6 +13,7 @@ const EMPTY_READINESS: LiveShowReadiness = {
   checks: {
     hasStripeAccount: false,
     stripeChargesEnabled: false,
+    stripePayoutSubmitted: false,
     hasShippoConfigured: false,
     hasShipFromAddress: false,
     alternateCheckoutSellerReady: false,

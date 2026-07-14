@@ -13,6 +13,7 @@ import {
 } from "@/lib/stripe-connect-status-response";
 import { onboardingUiStatusFromPartial } from "@/lib/stripe-connect-account-map";
 import { syncStripeConnectUserRowsForAccountId } from "@/lib/sync-stripe-connect-user";
+import { isStripePayoutSetupSubmitted, isStripePayoutSetupSubmittedFromAccount } from "@/lib/stripe-payout-submitted";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 
 export const runtime = "nodejs";
@@ -60,15 +61,21 @@ export async function GET(request: Request) {
     let payoutsEnabled = user.stripePayoutsEnabled ?? null;
     let requirementsSnap = parseRequirementsDue(user.stripeRequirementsDue);
     let verificationStatus = user.stripeVerificationStatus ?? null;
-    let payoutSetupSubmitted = false;
+    let payoutSetupSubmitted = isStripePayoutSetupSubmitted({
+      hasStripeAccount: Boolean(user.stripeAccountId?.trim()),
+      stripeOnboardingComplete: Boolean(user.stripeOnboardingComplete),
+      stripeChargesEnabled: user.stripeChargesEnabled ?? null,
+      stripePayoutsEnabled: user.stripePayoutsEnabled ?? null,
+      currentlyDue: requirementsSnap?.currentlyDue ?? [],
+      pendingVerification: requirementsSnap?.pendingVerification ?? [],
+    });
 
     if (user.stripeAccountId?.trim()) {
       try {
         const stripe = getStripe();
         const account = await stripe.accounts.retrieve(user.stripeAccountId);
         const currentlyDue = account.requirements?.currently_due ?? [];
-        payoutSetupSubmitted =
-          Boolean(account.details_submitted) && currentlyDue.length === 0;
+        payoutSetupSubmitted = isStripePayoutSetupSubmittedFromAccount(account);
         console.info("[stripe connect status] account retrieved", {
           userId: auth.userId,
           stripeAccountId: user.stripeAccountId,

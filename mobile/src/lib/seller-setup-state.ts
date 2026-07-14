@@ -8,21 +8,37 @@ export type SellerLifecycleState =
 
 export type SellerReadinessChecks = {
   hasStripeAccount: boolean;
+  /** Full Stripe verification clear (charges / onboarding complete). Required to sell / go live. */
   stripeChargesEnabled: boolean;
+  /**
+   * Hosted Connect submitted (details_submitted + no currently_due).
+   * Pending Stripe review still counts — enough to finish the seller wizard / unlock HQ.
+   */
+  stripePayoutSubmitted: boolean;
   hasShipFromAddress: boolean;
 };
 
 export type SellerSetupPhase = 'loading' | 'not_started' | 'partial' | 'ready';
 
+/** Wizard / Seller HQ unlock — Stripe submitted (+ ship-from), not full verification. */
 export function isRequiredSellerSetupComplete(
   checks: SellerReadinessChecks | null | undefined,
 ): boolean {
   if (!checks) return false;
-  return Boolean(checks.hasStripeAccount && checks.stripeChargesEnabled && checks.hasShipFromAddress);
+  const payoutOk = checks.stripePayoutSubmitted || checks.stripeChargesEnabled;
+  return Boolean(checks.hasStripeAccount && payoutOk && checks.hasShipFromAddress);
 }
 
+/** Full payout verification — publish / go-live gate (not wizard). */
 export function isPayoutSetupComplete(checks: SellerReadinessChecks | null | undefined): boolean {
   return Boolean(checks?.hasStripeAccount && checks?.stripeChargesEnabled);
+}
+
+/** Wizard payout step — submitted or fully verified. */
+export function isPayoutSetupSubmitted(checks: SellerReadinessChecks | null | undefined): boolean {
+  return Boolean(
+    checks?.hasStripeAccount && (checks.stripePayoutSubmitted || checks.stripeChargesEnabled),
+  );
 }
 
 export function isSellerActivated(
@@ -103,6 +119,7 @@ export function normalizeSellerReadinessChecks(
   return {
     hasStripeAccount: Boolean(raw?.hasStripeAccount),
     stripeChargesEnabled: Boolean(raw?.stripeChargesEnabled),
+    stripePayoutSubmitted: Boolean(raw?.stripePayoutSubmitted || raw?.stripeChargesEnabled),
     hasShipFromAddress: Boolean(raw?.hasShipFromAddress),
   };
 }

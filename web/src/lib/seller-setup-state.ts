@@ -11,17 +11,25 @@ export const SELLER_HQ_PATH = "/account/seller";
 
 export type SellerReadinessChecks = {
   hasStripeAccount: boolean;
+  /** Full Stripe verification clear (charges / onboarding complete). Required to sell / go live. */
   stripeChargesEnabled: boolean;
+  /**
+   * Hosted Connect submitted (details_submitted + no currently_due).
+   * Pending Stripe review still counts — enough to finish the seller wizard / unlock HQ.
+   */
+  stripePayoutSubmitted: boolean;
   hasShipFromAddress: boolean;
 };
 
 export type SellerSetupPhase = "loading" | "not_started" | "partial" | "ready";
 
+/** Wizard / Seller HQ unlock — Stripe submitted (+ ship-from), not full verification. */
 export function isRequiredSellerSetupComplete(
   checks: SellerReadinessChecks | null | undefined,
 ): boolean {
   if (!checks) return false;
-  return Boolean(checks.hasStripeAccount && checks.stripeChargesEnabled && checks.hasShipFromAddress);
+  const payoutOk = checks.stripePayoutSubmitted || checks.stripeChargesEnabled;
+  return Boolean(checks.hasStripeAccount && payoutOk && checks.hasShipFromAddress);
 }
 
 /** Seller is fully activated (required setup + onboarding wizard finished). */
@@ -74,7 +82,7 @@ export function computeSellerSetupProgress(input: SellerSetupProgressInput): {
 } {
   const checks = input.checks;
   const steps = [
-    Boolean(checks?.hasStripeAccount && checks?.stripeChargesEnabled),
+    Boolean(checks?.hasStripeAccount && (checks.stripePayoutSubmitted || checks.stripeChargesEnabled)),
     Boolean(checks?.hasShipFromAddress),
     input.hasProfilePhoto,
     input.hasBio,
@@ -84,8 +92,16 @@ export function computeSellerSetupProgress(input: SellerSetupProgressInput): {
   return { completed, total: steps.length };
 }
 
+/** Full payout verification — publish / go-live gate (not wizard). */
 export function isPayoutSetupComplete(checks: SellerReadinessChecks | null | undefined): boolean {
   return Boolean(checks?.hasStripeAccount && checks?.stripeChargesEnabled);
+}
+
+/** Wizard payout step — submitted or fully verified. */
+export function isPayoutSetupSubmitted(checks: SellerReadinessChecks | null | undefined): boolean {
+  return Boolean(
+    checks?.hasStripeAccount && (checks.stripePayoutSubmitted || checks.stripeChargesEnabled),
+  );
 }
 
 export function resolveSellerLifecycleState(input: {

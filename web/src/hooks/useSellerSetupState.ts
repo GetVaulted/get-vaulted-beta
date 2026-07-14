@@ -20,6 +20,7 @@ import {
 const DEFAULT_CHECKS: SellerReadinessChecks = {
   hasStripeAccount: false,
   stripeChargesEnabled: false,
+  stripePayoutSubmitted: false,
   hasShipFromAddress: false,
 };
 

@@ -1,6 +1,6 @@
 import type { SellerConnectStatusResponse } from '../api/stripeConnectRepository';
 import { isSellerPayoutSetupComplete } from '../api/stripeConnectRepository';
-import { isPayoutSetupComplete, type SellerReadinessChecks } from './seller-setup-state';
+import { isPayoutSetupSubmitted, type SellerReadinessChecks } from './seller-setup-state';
 
 export type PayoutReconcileUiState =
   | 'complete'
@@ -8,19 +8,21 @@ export type PayoutReconcileUiState =
   | 'continue_stripe'
   | 'status_unavailable';
 
-/** Payout wizard step complete — must match server `isRequiredSellerSetupComplete` (not merely submitted). */
+/** Payout wizard step complete — submitted (pending Stripe review OK) or fully verified. */
 export function isWizardPayoutStepComplete(
   checks: SellerReadinessChecks | null | undefined,
   connect: SellerConnectStatusResponse | null | undefined,
 ): boolean {
-  if (isPayoutSetupComplete(checks)) return true;
+  if (isPayoutSetupSubmitted(checks)) return true;
   if (isSellerPayoutSetupComplete(connect)) return true;
   if (!connect?.stripe_account_id?.trim()) return false;
-  // Do not treat `payout_setup_submitted` / pending_review as complete — wizard-complete API rejects that.
   return Boolean(
-    connect.payout_setup_complete ||
+    connect.payout_setup_submitted ||
+      connect.payout_setup_complete ||
       connect.stripe_onboarding_complete ||
       connect.can_publish_active_listings ||
+      connect.onboarding_ui_status === 'pending_review' ||
+      connect.onboarding_ui_status === 'verified' ||
       (connect.stripe_charges_enabled === true && connect.stripe_payouts_enabled === true),
   );
 }
