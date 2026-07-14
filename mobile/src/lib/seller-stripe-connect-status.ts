@@ -8,7 +8,7 @@ export type PayoutReconcileUiState =
   | 'continue_stripe'
   | 'status_unavailable';
 
-/** Payout wizard step complete — seller readiness and/or live Connect status. */
+/** Payout wizard step complete — must match server `isRequiredSellerSetupComplete` (not merely submitted). */
 export function isWizardPayoutStepComplete(
   checks: SellerReadinessChecks | null | undefined,
   connect: SellerConnectStatusResponse | null | undefined,
@@ -16,11 +16,12 @@ export function isWizardPayoutStepComplete(
   if (isPayoutSetupComplete(checks)) return true;
   if (isSellerPayoutSetupComplete(connect)) return true;
   if (!connect?.stripe_account_id?.trim()) return false;
+  // Do not treat `payout_setup_submitted` / pending_review as complete — wizard-complete API rejects that.
   return Boolean(
     connect.payout_setup_complete ||
-      connect.payout_setup_submitted ||
       connect.stripe_onboarding_complete ||
-      connect.can_publish_active_listings,
+      connect.can_publish_active_listings ||
+      (connect.stripe_charges_enabled === true && connect.stripe_payouts_enabled === true),
   );
 }
 

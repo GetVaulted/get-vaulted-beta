@@ -126,6 +126,14 @@ export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuth
     if (referralCode) {
       await attributeReferralOnSignup(created.id, referralCode);
     }
+    const { scheduleNotifyAdmins } = await import("@/lib/admin/notify-admins");
+    scheduleNotifyAdmins({
+      type: "admin_new_user",
+      title: "New account created",
+      body: `@${username} (${email}) just signed up.`,
+      href: "/admin/users",
+      dedupeKey: `new-user:${created.id}`,
+    });
     return created.id;
   } catch {
     const byEmail = await prisma.user.findUnique({ where: { email }, select: { id: true } });

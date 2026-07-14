@@ -363,11 +363,26 @@ export async function loadAccountSellerPayload(userId: string, opts?: { provisio
           sellerSetupWizardCompletedAt: now,
           sellerAgreementAcceptedAt: user.sellerAgreementAcceptedAt ?? now,
         },
-        select: { sellerSetupWizardCompletedAt: true, sellerAgreementAcceptedAt: true },
+        select: {
+          sellerSetupWizardCompletedAt: true,
+          sellerAgreementAcceptedAt: true,
+          username: true,
+          email: true,
+        },
       });
       setupWizardComplete = true;
       sellerSetupWizardCompletedAt = healed.sellerSetupWizardCompletedAt?.toISOString() ?? null;
       sellerAgreementAcceptedAt = healed.sellerAgreementAcceptedAt?.toISOString() ?? null;
+      const { scheduleNotifyAdmins } = await import("@/lib/admin/notify-admins");
+      const handle = healed.username?.trim() || "seller";
+      const email = healed.email?.trim() || "unknown";
+      scheduleNotifyAdmins({
+        type: "admin_seller_onboarded",
+        title: "Seller onboarding complete",
+        body: `@${handle} (${email}) finished seller setup and can go live / list.`,
+        href: "/admin/users",
+        dedupeKey: `seller-onboard:${userId}`,
+      });
     } catch (e) {
       console.error("[loadAccountSellerPayload] seller wizard heal failed", e);
     }
