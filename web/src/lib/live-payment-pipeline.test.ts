@@ -24,6 +24,7 @@ vi.mock("@/lib/live-buy-now-purchase", () => ({
   createLiveBuyNowOrder: vi.fn(),
   finalizeBreakSpotPaid: vi.fn(),
   releaseBreakSpotOnDefiniteFailure: vi.fn(),
+  refreshBuyerShippingOnOrderIfIncomplete: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/lib/live-show-gmv", () => ({

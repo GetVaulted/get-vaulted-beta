@@ -27,7 +27,7 @@ describe("buildOrderLifecycleEmailContent", () => {
       trackingNumber: "1Z999AA10123456784",
     });
     expect(out.text).toContain("1Z999AA10123456784");
-    expect(out.subject).toContain("On the way");
+    expect(out.subject).toContain("Shipped");
   });
 });
 
