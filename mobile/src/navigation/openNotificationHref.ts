@@ -121,6 +121,11 @@ export function openNotificationHref(
     return true;
   }
 
+  if (path.startsWith('/account/seller') || ctx?.type === 'stripe_connect_action_required') {
+    n.navigate('MainTabs', { screen: 'HQ' });
+    return true;
+  }
+
   if (path.startsWith('/account/listings') || ctx?.type === 'item_sold' || ctx?.type === 'seller_ready_to_ship') {
     n.navigate('MainTabs', { screen: 'HQ' });
     return true;

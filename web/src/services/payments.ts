@@ -2684,6 +2684,16 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         pending_verification: account.requirements?.pending_verification ?? [],
       });
       await syncStripeConnectUserRowsForAccountId(account.id);
+      const currentlyDue = account.requirements?.currently_due ?? [];
+      if (currentlyDue.length > 0) {
+        const { scheduleNotifySellersStripeActionRequired } = await import(
+          "@/lib/notify-seller-stripe-action-required"
+        );
+        scheduleNotifySellersStripeActionRequired({
+          stripeAccountId: account.id,
+          currentlyDue,
+        });
+      }
       break;
     }
     case "capability.updated": {
@@ -2699,6 +2709,21 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       if (!accountId) break;
       console.info("[stripe capability.updated]", { accountId, capabilityId: cap.id });
       await syncStripeConnectUserRowsForAccountId(accountId);
+      try {
+        const account = await stripe.accounts.retrieve(accountId);
+        const currentlyDue = account.requirements?.currently_due ?? [];
+        if (currentlyDue.length > 0) {
+          const { scheduleNotifySellersStripeActionRequired } = await import(
+            "@/lib/notify-seller-stripe-action-required"
+          );
+          scheduleNotifySellersStripeActionRequired({
+            stripeAccountId: accountId,
+            currentlyDue,
+          });
+        }
+      } catch (e) {
+        console.warn("[stripe capability.updated] account retrieve for notify failed", e);
+      }
       break;
     }
     default:

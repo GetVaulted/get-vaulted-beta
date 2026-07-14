@@ -28,6 +28,14 @@ describe('openNotificationHref', () => {
     expect(nav.navigate).toHaveBeenCalledWith('SellerOrderDetail', { orderId: 'order_1' });
   });
 
+  it('routes /account/seller to Seller HQ for Stripe Connect follow-up', () => {
+    const nav = fakeNav();
+    expect(openNotificationHref(nav, '/account/seller', { type: 'stripe_connect_action_required' })).toBe(
+      true,
+    );
+    expect(nav.navigate).toHaveBeenCalledWith('MainTabs', { screen: 'HQ' });
+  });
+
   it('routes a listing href to ProductDetail', () => {
     const nav = fakeNav();
     expect(openNotificationHref(nav, '/listing/lst_1')).toBe(true);
