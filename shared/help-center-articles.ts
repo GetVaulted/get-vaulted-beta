@@ -890,7 +890,9 @@ Escrow (when applicable):
 • Sellers see pending payout until release conditions met.
 
 Trade fees:
-• Vault-to-vault trades include a protection fee based on shipping weight tier — shown before you send an offer.
+• Each party pays a $2.99 Get Vaulted platform fee.
+• Each party also pays their own outbound shipping at the actual label rate.
+• Optional cash can be settled off-platform, or paid on Get Vaulted (Stripe card fees apply).
 
 Live and marketplace:
 • Seller fee schedules appear in seller terms and order breakdowns.
@@ -914,7 +916,7 @@ Send an offer on mobile:
 2. Tap Trade or Make trade offer.
 3. Select listings from your inventory to offer.
 4. Add cash on your side or request cash from them if the trade is uneven.
-5. Choose shipping weight tier — sets trade protection fee.
+5. Choose shipping size so we can quote your outbound label rate (platform fee is a flat $2.99 per party).
 6. Add a message and send.
 
 On web:
@@ -955,10 +957,14 @@ After acceptance:
     summary: 'Ship your side after a trade is accepted.',
     body: `Accepted trades require both parties to ship using protected labels when provided.
 
+Costs:
+• $2.99 Get Vaulted platform fee per party.
+• Each party pays their own outbound shipping at the actual label rate.
+
 Steps:
 1. Open Trade Center → active trade detail.
-2. Review ship-by dates and label purchase buttons.
-3. Generate your outbound label to the other party's verified address.
+2. Pay your platform fee (and shipping when quoted).
+3. Review ship-by dates and download your outbound label.
 4. Ship within the stated window and confirm tracking in the trade timeline.
 
 If label fails:

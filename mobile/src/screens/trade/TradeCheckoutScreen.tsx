@@ -84,7 +84,7 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
-      <TradeFlowHeader navigation={navigation} title="Get Vaulted Trade Fee" subtitle="Bundled · includes shipping" />
+      <TradeFlowHeader navigation={navigation} title="Get Vaulted Trade Fee" subtitle="$2.99 platform fee · shipping separate" />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <Text style={styles.pipeTitle}>Offer status</Text>
@@ -92,8 +92,8 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
         </View>
 
         <Text style={styles.intro}>
-          One flat trade fee unlocks your outbound label, tracking, and trade protection. After Stripe confirms payment,
-          the server moves this trade through labels automatically.
+          Pay the $2.99 Get Vaulted fee for your side. Your outbound shipping is charged at the actual carrier label
+          rate. After Stripe confirms payment, labels generate automatically when shipping is covered.
         </Text>
 
         <View style={styles.pipeline}>
@@ -112,19 +112,19 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
         <View style={styles.card}>
           <View style={styles.line}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.lineLbl}>Get Vaulted Trade Fee</Text>
-              <Text style={styles.hint}>Charged once per trade acceptance (your outbound).</Text>
+              <Text style={styles.lineLbl}>Get Vaulted platform fee</Text>
+              <Text style={styles.hint}>$2.99 per party. Outbound shipping is billed at the actual label rate.</Text>
             </View>
             <Text style={styles.lineAmt}>${(amountCents / 100).toFixed(2)}</Text>
           </View>
           <View style={styles.totalRule} />
           <View style={styles.line}>
-            <Text style={styles.totalLbl}>Total due</Text>
+            <Text style={styles.totalLbl}>Platform fee due</Text>
             <Text style={styles.totalAmt}>${(amountCents / 100).toFixed(2)}</Text>
           </View>
         </View>
 
-        <Text style={styles.feeTitle}>What the Get Vaulted Trade Fee includes</Text>
+        <Text style={styles.feeTitle}>How trade costs work</Text>
         {TRADE_FEE_INCLUDES_BULLETS.map((t) => (
           <View key={t} style={styles.bullet}>
             <Ionicons name="ellipse" size={6} color={colors.goldMuted} />

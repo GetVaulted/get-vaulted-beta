@@ -157,7 +157,7 @@ export function TradeDetailScreen({ navigation, route }: Props) {
           <>
             <Text style={styles.section}>Shipping & tracking</Text>
             <Text style={styles.shipLead}>
-              Labels are included in each party's trade fee. Download PDFs from Shippo when ready.
+              Each party pays $2.99 plus their own outbound shipping. Download label PDFs from Shippo when ready.
             </Text>
             {labels.map((L) => (
                 <ShipCard
@@ -175,7 +175,7 @@ export function TradeDetailScreen({ navigation, route }: Props) {
         ) : null}
 
         <View style={styles.kpi}>
-          <Text style={styles.kpiLbl}>Your trade fee (reference)</Text>
+          <Text style={styles.kpiLbl}>Your platform fee (reference)</Text>
           <Text style={styles.kpiVal}>${Number(offer.trade_fee).toFixed(2)}</Text>
           <Text style={[styles.kpiLbl, { marginTop: spacing.md }]}>Cash difference</Text>
           <Text style={styles.kpiVal}>

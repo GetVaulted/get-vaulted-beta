@@ -148,13 +148,13 @@ export function ReviewOfferScreen({ navigation, route }: Props) {
           <Text style={styles.feeCardKicker}>Get Vaulted trade fee</Text>
           <Text style={styles.feeAmt}>${feeYou.toFixed(2)}</Text>
           <Text style={styles.feeHint}>
-            Flat bundled fee for your outbound lane (tier: {offer.shipping_weight_tier ?? 'default'}). Partner pays
-            their own outbound fee (~${feeThem.toFixed(2)} at same tier in MVP).
+            ${feeYou.toFixed(2)} Get Vaulted fee per party. Each of you also pays your own outbound shipping at the
+            actual label rate. Partner pays the same platform fee (${feeThem.toFixed(2)}).
           </Text>
         </View>
 
         <View style={styles.includesBox}>
-          <Text style={styles.includesTitle}>What the Get Vaulted Trade Fee includes</Text>
+          <Text style={styles.includesTitle}>How trade costs work</Text>
           {TRADE_FEE_INCLUDES_BULLETS.map((b) => (
             <View key={b} style={styles.bulletRow}>
               <Ionicons name="checkmark-circle" size={16} color={colors.goldMuted} />
@@ -168,12 +168,15 @@ export function ReviewOfferScreen({ navigation, route }: Props) {
           <Text style={styles.metaVal}>
             {offer.cash_difference >= 0 ? '+' : ''}${offer.cash_difference.toFixed(2)}
           </Text>
+          <Text style={styles.feeHint}>
+            Settle cash off-platform, or pay on Get Vaulted (Stripe card processing fees apply).
+          </Text>
         </View>
 
         <View style={styles.protect}>
           <Ionicons name="ribbon-outline" size={18} color={colors.gold} />
           <Text style={styles.protectTxt}>
-            After you accept, pay the trade fee in Checkout — labels generate server-side and status updates live here.
+            After you accept, each party pays $2.99 plus their outbound shipping. Labels generate once shipping is paid.
           </Text>
         </View>
 
