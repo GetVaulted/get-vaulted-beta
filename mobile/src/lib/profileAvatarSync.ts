@@ -2,6 +2,19 @@ import { fetchSellerAccount, patchSellerProfile } from '../api/sellerAccountRepo
 import { updateMyProfile } from '../api/profilesRepository';
 import { getSupabase } from './supabase';
 
+async function resolveAccessToken(explicit?: string | null): Promise<string | null> {
+  const fromArgs = explicit?.trim();
+  if (fromArgs) return fromArgs;
+  const sb = getSupabase();
+  if (!sb) return null;
+  try {
+    const { data } = await sb.auth.getSession();
+    return data.session?.access_token?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Write avatar URL to Supabase profile + auth metadata + web account (Prisma User.image). */
 export async function persistProfileAvatarEverywhere(args: {
   userId: string;
@@ -15,9 +28,15 @@ export async function persistProfileAvatarEverywhere(args: {
     await sb.auth.updateUser({ data: { avatar_url: args.publicUrl } });
   }
 
-  const token = args.accessToken?.trim();
+  const token = await resolveAccessToken(args.accessToken);
   if (token) {
-    await patchSellerProfile(token, { image: args.publicUrl });
+    try {
+      await patchSellerProfile(token, { image: args.publicUrl });
+    } catch (e) {
+      console.warn('[persistProfileAvatarEverywhere] web profile sync failed', e);
+    }
+  } else {
+    console.warn('[persistProfileAvatarEverywhere] no access token — skipped web User.image sync');
   }
 }
 
@@ -28,7 +47,7 @@ export async function resolveCanonicalProfileAvatar(args: {
   supabaseAvatarUrl?: string | null;
 }): Promise<string | null> {
   const fromSupabase = args.supabaseAvatarUrl?.trim() || null;
-  const token = args.accessToken?.trim();
+  const token = await resolveAccessToken(args.accessToken);
 
   if (fromSupabase) {
     if (token) {
@@ -48,9 +67,9 @@ export async function resolveCanonicalProfileAvatar(args: {
     const fromWeb = acct.seller.image?.trim() || null;
     if (!fromWeb) return null;
     await updateMyProfile(args.userId, { avatar_url: fromWeb });
-    const sb = getSupabase();
-    if (sb) {
-      await sb.auth.updateUser({ data: { avatar_url: fromWeb } });
+    const client = getSupabase();
+    if (client) {
+      await client.auth.updateUser({ data: { avatar_url: fromWeb } });
     }
     return fromWeb;
   } catch {

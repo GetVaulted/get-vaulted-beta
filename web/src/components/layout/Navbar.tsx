@@ -56,13 +56,16 @@ export function Navbar() {
   const [slidIn, setSlidIn] = useState(false);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const drawerPanelRef = useRef<HTMLElement>(null);
+  const avatarPullAttemptedRef = useRef(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const drawerTitleId = useId();
   const pathname = usePathname();
   const router = useRouter();
   const isSellerOnboarding = pathname?.startsWith("/account/seller/setup") ?? false;
-  const { data: session, status } = useSession();
+  const { data: session, status, update: updateSession } = useSession();
   const hideOnMobileLiveRoom = /^\/live\/[^/]+/.test(pathname ?? "");
   const liveMarketplaceEnabled = useLiveMarketplaceEnabled();
+  const menuImage = session?.user?.image?.trim() || avatarUrl;
   const primaryNav = useMemo(
     () =>
       navLinks.map((item) =>
@@ -76,6 +79,35 @@ export function Navbar() {
   useEffect(() => {
     setHydrated(true);
   }, []);
+
+  // Mobile may have saved avatar to Supabase before Prisma/session had it — pull once if nav has no photo.
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    const sessionImage = session?.user?.image?.trim() || null;
+    if (sessionImage) {
+      setAvatarUrl(sessionImage);
+      return;
+    }
+    if (avatarPullAttemptedRef.current) return;
+    avatarPullAttemptedRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/account/profile", { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const j = (await res.json().catch(() => ({}))) as { user?: { image?: string | null } };
+        const image = j.user?.image?.trim() || null;
+        if (cancelled || !image) return;
+        setAvatarUrl(image);
+        await updateSession({ image });
+      } catch {
+        /* best-effort */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.image, status, updateSession]);
 
   useEffect(() => {
     if (open) {
@@ -193,7 +225,7 @@ export function Navbar() {
                       username: session.user.username,
                       name: session.user.name,
                       email: session.user.email,
-                      image: session.user.image,
+                      image: menuImage,
                     }}
                     isAdmin={session.user.role === "admin"}
                     variant="list"
@@ -362,7 +394,7 @@ export function Navbar() {
                     username: session.user.username,
                     name: session.user.name,
                     email: session.user.email,
-                    image: session.user.image,
+                    image: menuImage,
                   }}
                   isAdmin={session.user.role === "admin"}
                   className="hidden md:block"

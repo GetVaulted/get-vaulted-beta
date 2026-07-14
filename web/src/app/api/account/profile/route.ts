@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
-import { syncSupabaseProfileAvatar } from "@/lib/sync-profile-avatar";
+import { ensurePrismaAvatarFromSupabase, syncSupabaseProfileAvatar } from "@/lib/sync-profile-avatar";
 
 type PatchBody = {
   name?: unknown;
@@ -31,12 +31,23 @@ export async function GET(req: Request) {
   const auth = await resolveAccountUserId(req);
   if (auth instanceof NextResponse) return auth;
 
-  const user = await prisma.user.findUnique({
+  let user = await prisma.user.findUnique({
     where: { id: auth.userId },
     select: { username: true, name: true, image: true },
   });
   if (!user) {
     return NextResponse.json({ error: "Account not found." }, { status: 404 });
+  }
+
+  if (!user.image?.trim()) {
+    try {
+      const hydrated = await ensurePrismaAvatarFromSupabase(auth.userId);
+      if (hydrated) {
+        user = { ...user, image: hydrated };
+      }
+    } catch (e) {
+      console.error("[account/profile GET] avatar hydrate failed", e);
+    }
   }
 
   return NextResponse.json({ user });
