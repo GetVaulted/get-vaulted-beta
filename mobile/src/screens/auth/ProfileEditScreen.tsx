@@ -25,6 +25,7 @@ import {
 import { ProfileAvatarCropModal } from '../../components/profile/ProfileAvatarCropModal';
 import { SellerHQEntryBanner } from '../../components/seller/SellerHQEntryBanner';
 import { useAuth } from '../../auth/AuthContext';
+import { useSellerSetupState } from '../../hooks/useSellerSetupState';
 import { useSellerStripeConnect } from '../../hooks/useSellerStripeConnect';
 import type { SellerHQEntryPhase } from '../../lib/sellerHubEntry';
 import { avatarUrlWithCacheBust } from '../../lib/profileAvatarUpload';
@@ -43,6 +44,7 @@ export function ProfileEditScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { user, session } = useAuth();
   const sellerConnect = useSellerStripeConnect(session?.access_token);
+  const sellerSetup = useSellerSetupState(session?.access_token, user?.id, Boolean(user?.id));
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -198,6 +200,8 @@ export function ProfileEditScreen({ navigation }: Props) {
             hasUser={Boolean(user)}
             connect={sellerConnect.status}
             connectLoading={sellerConnect.loading}
+            sellerActivated={sellerSetup.displayActivated}
+            wizardComplete={sellerSetup.wizardComplete}
             compact
             onPress={(phase: SellerHQEntryPhase) => {
               if (phase === 'guest') {
