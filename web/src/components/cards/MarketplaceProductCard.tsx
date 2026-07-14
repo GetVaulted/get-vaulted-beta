@@ -7,6 +7,8 @@ type MarketplaceProductCardProps = {
   seller: string;
   price: number;
   seed: string;
+  /** Seller-uploaded photos; first URL is shown when present. */
+  imageUrls?: string[];
   href?: string;
   compact?: boolean;
 };
@@ -18,16 +20,24 @@ export function MarketplaceProductCard({
   seller,
   price,
   seed,
+  imageUrls,
   href = "#cart",
   compact,
 }: MarketplaceProductCardProps) {
+  const photoUrl = imageUrls?.[0];
+
   return (
     <article
       className={`group relative flex min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0b0b0e] shadow-[0_14px_44px_-26px_rgba(0,0,0,0.88),inset_0_1px_0_rgba(255,255,255,0.04)] transition-all duration-300 ease-out hover:scale-105 hover:border-gold/45 hover:shadow-[0_28px_64px_-22px_rgba(201,162,39,0.32),0_0_40px_-10px_rgba(201,162,39,0.2)]`}
     >
       <div className="relative aspect-square w-full overflow-hidden border-b border-white/5">
         <div className="absolute inset-0 z-0">
-          <CardImagePlaceholder seed={seed} variant="slab" boostProduct={!!compact} className="h-full w-full" />
+          {photoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photoUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <CardImagePlaceholder seed={seed} variant="slab" boostProduct={!!compact} className="h-full w-full" />
+          )}
         </div>
         <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-t from-black/5 via-transparent to-black/25 opacity-95" />
         <span className="absolute left-2 top-2 z-[2] rounded-md border border-gold/45 bg-black/85 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gold-bright shadow-[0_4px_18px_rgba(0,0,0,0.55)] backdrop-blur-sm">

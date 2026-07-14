@@ -66,6 +66,7 @@ export function FeaturedMarketplaceSection() {
                 seller={item.sellerUsername}
                 price={item.price}
                 seed={item.imageSeed}
+                imageUrls={item.imageUrls}
                 href={item.href}
               />
             ))}
