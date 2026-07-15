@@ -81,6 +81,7 @@ export function useStageSubscribe({
     const el = videoRef.current;
     if (el && streamRef.current && el.srcObject === streamRef.current) {
       el.muted = muted;
+      el.volume = 1;
     }
   }, [muted, videoRef]);
 
@@ -131,6 +132,7 @@ export function useStageSubscribe({
       if (!el) return;
       if (el.srcObject !== stream) el.srcObject = stream;
       el.muted = mutedRef.current;
+      el.volume = 1;
       void el.play().catch(() => {
         /* autoplay may be blocked; the player's tap-for-sound UI handles it */
       });

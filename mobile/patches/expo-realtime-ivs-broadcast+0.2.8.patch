@@ -1,0 +1,156 @@
+diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
+index 7f05628..f89d430 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
++++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
+@@ -73,6 +73,10 @@ class ExpoRealtimeIvsBroadcastModule : Module(), IVSStageManagerDelegate, Pictur
+             IVSStageManager.instance?.initializeStage(audioConfig = null, videoConfig = null)
+         }
+ 
++        AsyncFunction("setStageAudioPreset") { preset: String ->
++            IVSStageManager.instance?.setAudioPreset(preset)
++        }
++
+         AsyncFunction("initializeLocalStreams") { audioConfig: Map<String, Any>?, videoConfig: Map<String, Any>? ->
+             // TODO: Add audioConfig and videoConfig
+             IVSStageManager.instance?.initializeLocalStreams()
+diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
+index b1047d4..bdc7fbb 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
++++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
+@@ -94,7 +94,28 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+         Log.i("ExpoIVSStageManager", "✅ IVSStageManager: Local streams initialized.")
+     }
+ 
++    /**
++     * Must be called before creating a Stage or DeviceDiscovery.
++     * Live shopping uses media volume (studio / subscribeOnly), not call volume (videoChat).
++     */
++    fun setAudioPreset(presetName: String) {
++        val preset = when (presetName) {
++            "subscribeOnly" -> StageAudioManager.UseCasePreset.SUBSCRIBE_ONLY
++            "videoChat" -> StageAudioManager.UseCasePreset.VIDEO_CHAT
++            else -> StageAudioManager.UseCasePreset.STUDIO
++        }
++        try {
++            StageAudioManager.getInstance(context).setPreset(preset)
++            Log.i("ExpoIVSStageManager", "StageAudioManager preset set to ")
++        } catch (e: IllegalStateException) {
++            Log.w("ExpoIVSStageManager", "Could not set audio preset (Stage/DeviceDiscovery already started): ")
++        }
++    }
++
+     fun initializeStage(audioConfig: StageAudioConfiguration? = null, videoConfig: StageVideoConfiguration? = null) {
++        // Default to studio (media volume) before any DeviceDiscovery/Stage creation.
++        setAudioPreset("studio")
++
+         // Setup audio configuration
+         val audioConfiguration = StageAudioConfiguration()
+         val finalAudioConfig = audioConfig ?: audioConfiguration
+diff --git a/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts b/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts
+index 7173e36..c9dec3c 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts
++++ b/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts
+@@ -5,6 +5,7 @@ export { ExpoIVSStagePreviewView } from './ExpoIVSStagePreviewView';
+ export { ExpoIVSRemoteStreamView } from './ExpoIVSRemoteStreamView';
+ export { useStageParticipants } from './useStageParticipants';
+ export declare function initializeStage(audioConfig?: LocalAudioConfig, videoConfig?: LocalVideoConfig): Promise<void>;
++export declare function setStageAudioPreset(preset: 'studio' | 'subscribeOnly' | 'videoChat'): Promise<void>;
+ export declare function initializeLocalStreams(audioConfig?: LocalAudioConfig, videoConfig?: LocalVideoConfig): Promise<void>;
+ /**
+  * Destroy local camera and microphone streams, fully releasing hardware resources.
+diff --git a/node_modules/expo-realtime-ivs-broadcast/build/index.js b/node_modules/expo-realtime-ivs-broadcast/build/index.js
+index eda6386..8fa09a5 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/build/index.js
++++ b/node_modules/expo-realtime-ivs-broadcast/build/index.js
+@@ -10,6 +10,9 @@ export { useStageParticipants } from './useStageParticipants';
+ export async function initializeStage(audioConfig, videoConfig) {
+     return await ExpoRealtimeIvsBroadcastModule.initializeStage(audioConfig, videoConfig);
+ }
++export async function setStageAudioPreset(preset) {
++    return await ExpoRealtimeIvsBroadcastModule.setStageAudioPreset(preset);
++}
+ export async function initializeLocalStreams(audioConfig, videoConfig) {
+     return await ExpoRealtimeIvsBroadcastModule.initializeLocalStreams(audioConfig, videoConfig);
+ }
+diff --git a/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift b/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift
+index 8aafd8a..48a51b8 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift
++++ b/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift
+@@ -32,6 +32,10 @@ public class ExpoRealtimeIvsBroadcastModule: Module, IVSStageManagerDelegate {
+       self.ivsStageManager?.initializeStage(audioConfig: nil, videoConfig: nil)
+     }
+ 
++    AsyncFunction("setStageAudioPreset") { (preset: String) -> Void in
++      self.ivsStageManager?.setAudioPreset(preset)
++    }
++
+     AsyncFunction("initializeLocalStreams") { (audioConfigMap: [String: Any]?, videoConfigMap: [String: Any]?) -> Void in
+         // For now, using nil, which will use default configurations in IVSStageManager
+         self.ivsStageManager?.initializeLocalStreams(audioConfig: nil, videoConfig: nil)
+diff --git a/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift b/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
+index f92f823..530c6f2 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
++++ b/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
+@@ -624,13 +624,23 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+     }
+ 
+     private func setupAudioSession() {
+-        // It's crucial to prepare the audio session *before* joining a stage.
+-        // The IVSStageAudioManager handles this.
+-        // We will set a preset suitable for video conferencing.
+-        stageAudioManager.setPreset(.videoChat)
+-        print("IVSStageAudioManager preset to .videoChat")
+-        // Note: Error handling for setPreset is not explicitly shown in the IVS SDK docs,
+-        // but you might want to wrap in do-catch if issues arise, though it's a void func.
++        // Live shopping needs media volume (not call volume). .videoChat routes through
++        // call volume and sounds quiet when users raise the side volume rocker.
++        // See: https://docs.aws.amazon.com/ivs/latest/RealTimeUserGuide/broadcast-mobile-audio-modes.html
++        setAudioPreset("studio")
++    }
++
++    /// Must be called before creating a Stage or DeviceDiscovery. Safe to call again after leave.
++    func setAudioPreset(_ presetName: String) {
++        switch presetName {
++        case "subscribeOnly":
++            stageAudioManager.setPreset(.subscribeOnly)
++        case "videoChat":
++            stageAudioManager.setPreset(.videoChat)
++        default:
++            stageAudioManager.setPreset(.studio)
++        }
++        print("IVSStageAudioManager preset to \(presetName)")
+     }
+ 
+     // MARK: - Public API (to be called from ExpoRealtimeIvsBroadcastModule)
+diff --git a/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts b/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
+index b5f4c71..d667152 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
++++ b/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
+@@ -6,6 +6,7 @@ import { LocalAudioConfig, LocalVideoConfig, PermissionStatusMap, ExpoRealtimeIv
+ // for our event names and payloads, resolving the 'never' type error.
+ export type ExpoRealtimeIvsBroadcastModuleType = {
+   initializeStage(audioConfig?: LocalAudioConfig, videoConfig?: LocalVideoConfig): Promise<void>;
++  setStageAudioPreset(preset: 'studio' | 'subscribeOnly' | 'videoChat'): Promise<void>;
+   initializeLocalStreams(audioConfig?: LocalAudioConfig, videoConfig?: LocalVideoConfig): Promise<void>;
+   destroyLocalStreams(): Promise<void>;
+   joinStage(token: string, options?: { targetParticipantId?: string }): Promise<void>;
+diff --git a/node_modules/expo-realtime-ivs-broadcast/src/index.ts b/node_modules/expo-realtime-ivs-broadcast/src/index.ts
+index a6c36ed..070d7af 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/src/index.ts
++++ b/node_modules/expo-realtime-ivs-broadcast/src/index.ts
+@@ -32,6 +32,15 @@ export async function initializeStage(audioConfig?: LocalAudioConfig, videoConfi
+   return await ExpoRealtimeIvsBroadcastModule.initializeStage(audioConfig, videoConfig);
+ }
+ 
++/**
++ * Configure IVS StageAudioManager before join/DeviceDiscovery.
++ * Use `studio` for hosts and `subscribeOnly` for viewers (media volume).
++ * Avoid `videoChat` � it uses call volume and sounds quiet with the media volume rocker.
++ */
++export async function setStageAudioPreset(preset: 'studio' | 'subscribeOnly' | 'videoChat'): Promise<void> {
++  return await ExpoRealtimeIvsBroadcastModule.setStageAudioPreset(preset);
++}
++
+ export async function initializeLocalStreams(audioConfig?: LocalAudioConfig, videoConfig?: LocalVideoConfig): Promise<void> {
+   return await ExpoRealtimeIvsBroadcastModule.initializeLocalStreams(audioConfig, videoConfig);
+ }

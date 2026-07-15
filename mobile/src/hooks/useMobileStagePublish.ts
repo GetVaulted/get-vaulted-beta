@@ -190,7 +190,7 @@ export function useMobileStagePublish(args: {
     setError(null);
 
     try {
-      await ensureStageSdkInitialized();
+      await ensureStageSdkInitialized('studio');
       const perms = await requestPermissions();
       if (perms.camera === 'unavailable' || perms.microphone === 'unavailable') {
         setPermissionState('unavailable');

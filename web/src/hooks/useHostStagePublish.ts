@@ -49,11 +49,20 @@ const HOST_MAX_REJOIN_ATTEMPTS = 5;
 const HOST_TOKEN_REFRESH_MS = 50 * 60 * 1000;
 
 function mediaConstraints(videoDeviceId?: string, audioDeviceId?: string): MediaStreamConstraints {
+  const audio: MediaTrackConstraints = {
+    // Keep host mic levels consistent for viewers (bare `audio: true` often captures quietly).
+    autoGainControl: true,
+    echoCancellation: true,
+    noiseSuppression: true,
+  };
+  if (audioDeviceId) {
+    audio.deviceId = { exact: audioDeviceId };
+  }
   return {
     video: videoDeviceId
       ? { deviceId: { exact: videoDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
       : { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-    audio: audioDeviceId ? { deviceId: { exact: audioDeviceId } } : true,
+    audio,
   };
 }
 

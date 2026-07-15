@@ -179,6 +179,9 @@ export function LiveStagePlayback({
   const hlsPlayerSetup = (p: VideoPlayer) => {
     p.loop = false;
     p.muted = muted;
+    p.volume = 1;
+    // Take exclusive audio focus so live HLS isn't ducked by other system audio.
+    p.audioMixingMode = 'doNotMix';
     p.staysActiveInBackground = true;
     p.bufferOptions = {
       preferredForwardBufferDuration: 3,

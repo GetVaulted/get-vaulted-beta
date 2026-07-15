@@ -320,6 +320,7 @@ export function LiveVideoStagePlayback({
       setVideoHasData(false);
       setAutoplayBlocked(false);
       el.muted = mutedRef.current;
+      el.volume = 1;
       el.playsInline = true;
       el.setAttribute("playsinline", "");
       el.setAttribute("webkit-playsinline", "");
@@ -711,7 +712,10 @@ export function LiveVideoStagePlayback({
 
   useEffect(() => {
     const el = videoRef.current;
-    if (el) el.muted = muted;
+    if (el) {
+      el.muted = muted;
+      el.volume = 1;
+    }
   }, [muted]);
 
   // Continuous live-edge correction loop. Runs for BOTH HLS.js and native Safari/iOS (which ignores

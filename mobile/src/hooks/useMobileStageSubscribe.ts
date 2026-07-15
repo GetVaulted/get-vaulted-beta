@@ -216,7 +216,7 @@ export function useMobileStageSubscribe(args: {
       });
 
       try {
-        await ensureStageSdkInitialized();
+        await ensureStageSdkInitialized('subscribeOnly');
         if (cancelled) return;
 
         const token = await resolveViewerStageToken(args.roomId, args.accessToken!);
