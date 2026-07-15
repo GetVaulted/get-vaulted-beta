@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 import { ensurePrismaAvatarFromSupabase, syncSupabaseProfileAvatar } from "@/lib/sync-profile-avatar";
-import { syncSupabaseProfileUsername } from "@/lib/sync-profile-username";
 
 type PatchBody = {
   /** @deprecated Ignored — display name is always the username. */
@@ -19,6 +18,23 @@ function trimImageUrl(s: unknown): string | null | undefined {
     return undefined;
   }
   return t.slice(0, 2048);
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T | void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          console.warn(`[account/profile] ${label} timed out after ${ms}ms`);
+          resolve();
+        }, ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export async function GET(req: Request) {
@@ -66,6 +82,9 @@ export async function PATCH(req: Request) {
   }
 
   const image = trimImageUrl(body.image);
+  if (image === undefined) {
+    return NextResponse.json({ error: "No valid profile fields to update." }, { status: 400 });
+  }
 
   const existing = await prisma.user.findUnique({
     where: { id: auth.userId },
@@ -75,20 +94,15 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Account not found." }, { status: 404 });
   }
 
-  // Display name is not editable — always pin Prisma `name` to username.
-  const data: { name: string; image?: string | null } = { name: existing.username };
-  if (image !== undefined) data.image = image;
-
+  // Image-only updates (mobile avatar sync). Keep Prisma `name` pinned to username without
+  // calling username sync on every photo save — that was stalling mobile profile photo uploads.
   const user = await prisma.user.update({
     where: { id: auth.userId },
-    data,
+    data: { image, name: existing.username },
     select: { name: true, image: true, username: true },
   });
 
-  if (image !== undefined) {
-    await syncSupabaseProfileAvatar(auth.userId, image);
-  }
-  await syncSupabaseProfileUsername(auth.userId, user.username);
+  await withTimeout(syncSupabaseProfileAvatar(auth.userId, image), 8_000, "syncSupabaseProfileAvatar");
 
   return NextResponse.json({
     user: {

@@ -44,15 +44,29 @@ export async function uploadAvatarToSupabase(
   }
 
   const objectKey = `${authId}/avatar.jpg`;
-  const { error } = await supabase.storage.from(AVATARS_BUCKET).upload(objectKey, body, {
+  const uploadPromise = supabase.storage.from(AVATARS_BUCKET).upload(objectKey, body, {
     contentType,
     upsert: true,
     cacheControl: "3600",
   });
 
+  let timedOut = false;
+  const { error } = await Promise.race([
+    uploadPromise,
+    new Promise<{ error: { message: string } }>((resolve) => {
+      setTimeout(() => {
+        timedOut = true;
+        resolve({ error: { message: "Avatar upload timed out." } });
+      }, 20_000);
+    }),
+  ]);
+
   if (error) {
     console.error("[uploadAvatarToSupabase]", error.message);
-    return { ok: false, message: "Upload failed." };
+    return {
+      ok: false,
+      message: timedOut ? "Upload timed out. Try a smaller photo." : "Upload failed.",
+    };
   }
 
   const { data } = supabase.storage.from(AVATARS_BUCKET).getPublicUrl(objectKey);
