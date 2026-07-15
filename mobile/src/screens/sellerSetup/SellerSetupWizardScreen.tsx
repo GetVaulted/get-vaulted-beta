@@ -75,7 +75,6 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const [shippingSaved, setShippingSaved] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
 
-  const [displayName, setDisplayName] = useState('');
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [profileBusy, setProfileBusy] = useState(false);
   const [finishBusy, setFinishBusy] = useState(false);
@@ -185,7 +184,6 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     setShipState(setup.seller.shipFromState ?? '');
     setShipZip(setup.seller.shipFromZip ?? '');
     setShipPhone(setup.seller.shipFromPhone ?? '');
-    setDisplayName(setup.seller.name ?? '');
     setProfileImage(setup.seller.image);
     setShippingSaved(sellerHasShipFromAddress(setup.checks, setup.seller));
   }, [setup.seller, setup.checks]);
@@ -347,10 +345,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     if (!token) return;
     setProfileBusy(true);
     try {
-      const body: { name?: string; image?: string } = {};
-      if (displayName.trim()) body.name = displayName.trim();
-      if (profileImage) body.image = profileImage;
-      if (Object.keys(body).length) await patchSellerProfile(token, body);
+      if (profileImage) await patchSellerProfile(token, { image: profileImage });
       await finishWizard();
     } catch (e) {
       Alert.alert('Could not save', e instanceof Error ? e.message : 'Unknown error');
@@ -616,8 +611,8 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
             <>
               <Text style={styles.title}>Seller profile</Text>
               <Text style={styles.body}>
-                Optional — photo and display name help buyers recognize your shop. Favorite categories are set when you
-                create listings.
+                Optional — add a photo so buyers recognize your shop. Your username is your public name and @handle.
+                Favorite categories are set when you create listings.
               </Text>
               <View style={styles.avatarBlock}>
                 {profileImage ? (
@@ -631,16 +626,6 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                   <Text style={styles.link}>{profileImage ? 'Change photo' : 'Add profile photo'}</Text>
                 </Pressable>
               </View>
-              <Text style={styles.fieldLabel}>Display name / bio</Text>
-              <TextInput
-                value={displayName}
-                onChangeText={setDisplayName}
-                placeholder="Tell buyers a little about your shop…"
-                placeholderTextColor={colors.textMuted}
-                multiline
-                numberOfLines={3}
-                style={[styles.input, styles.textArea]}
-              />
               <Pressable
                 style={styles.agreementRow}
                 onPress={() => setSellerAgreementAccepted((v) => !v)}

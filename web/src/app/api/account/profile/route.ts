@@ -2,19 +2,13 @@ import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 import { ensurePrismaAvatarFromSupabase, syncSupabaseProfileAvatar } from "@/lib/sync-profile-avatar";
+import { syncSupabaseProfileUsername } from "@/lib/sync-profile-username";
 
 type PatchBody = {
+  /** @deprecated Ignored — display name is always the username. */
   name?: unknown;
   image?: unknown;
 };
-
-function trimOptional(s: unknown, max: number): string | null | undefined {
-  if (s === undefined) return undefined;
-  if (typeof s !== "string") return undefined;
-  const t = s.trim();
-  if (!t) return null;
-  return t.slice(0, max);
-}
 
 function trimImageUrl(s: unknown): string | null | undefined {
   if (s === undefined) return undefined;
@@ -50,7 +44,14 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({ user });
+  // Public identity is username only — keep `name` aligned for legacy clients.
+  return NextResponse.json({
+    user: {
+      username: user.username,
+      name: user.username,
+      image: user.image,
+    },
+  });
 }
 
 export async function PATCH(req: Request) {
@@ -64,15 +65,19 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const name = trimOptional(body.name, 120);
   const image = trimImageUrl(body.image);
-  const data: { name?: string | null; image?: string | null } = {};
-  if (name !== undefined) data.name = name;
-  if (image !== undefined) data.image = image;
 
-  if (!Object.keys(data).length) {
-    return NextResponse.json({ error: "No valid profile fields to update." }, { status: 400 });
+  const existing = await prisma.user.findUnique({
+    where: { id: auth.userId },
+    select: { username: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: "Account not found." }, { status: 404 });
   }
+
+  // Display name is not editable — always pin Prisma `name` to username.
+  const data: { name: string; image?: string | null } = { name: existing.username };
+  if (image !== undefined) data.image = image;
 
   const user = await prisma.user.update({
     where: { id: auth.userId },
@@ -83,6 +88,13 @@ export async function PATCH(req: Request) {
   if (image !== undefined) {
     await syncSupabaseProfileAvatar(auth.userId, image);
   }
+  await syncSupabaseProfileUsername(auth.userId, user.username);
 
-  return NextResponse.json({ user });
+  return NextResponse.json({
+    user: {
+      username: user.username,
+      name: user.username,
+      image: user.image,
+    },
+  });
 }

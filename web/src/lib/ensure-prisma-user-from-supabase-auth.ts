@@ -101,9 +101,6 @@ export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuth
   }
 
   const { username, usernameChosenAt } = await resolveInitialUsername(supabaseUser);
-  const displayRaw = meta?.display_name;
-  const display =
-    typeof displayRaw === "string" && displayRaw.trim() ? displayRaw.trim().slice(0, 120) : null;
 
   const emailVerifiedAt = supabaseUser.email_confirmed_at
     ? new Date(supabaseUser.email_confirmed_at)
@@ -117,7 +114,7 @@ export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuth
         email,
         username,
         usernameChosenAt,
-        name: display,
+        name: username,
         emailVerified: emailVerifiedAt,
         referralCode: ownReferralCode,
       },

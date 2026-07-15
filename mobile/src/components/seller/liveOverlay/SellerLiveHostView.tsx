@@ -228,9 +228,12 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     if (!user?.id) return;
     void fetchProfileById(user.id).then((p) => {
       if (!p) return;
-      if (p.username?.trim()) setSellerUsername(p.username.trim());
-      if (p.display_name?.trim()) setHostName(p.display_name.trim());
-      else if (p.username?.trim()) setHostName(p.username.trim());
+      if (p.username?.trim()) {
+        setSellerUsername(p.username.trim());
+        setHostName(p.username.trim());
+      } else if (p.display_name?.trim()) {
+        setHostName(p.display_name.trim());
+      }
       if (p.avatar_url?.trim()) setHostAvatarUrl(p.avatar_url.trim());
       else setHostAvatarUrl(null);
     });

@@ -165,7 +165,7 @@ export function MyAccountPage() {
     {
       href: "/account/profile",
       title: "Edit profile",
-      description: "Display name and profile photo on your public storefront.",
+      description: "Username and profile photo on your public storefront.",
     },
     {
       href: "/account/payment-methods",

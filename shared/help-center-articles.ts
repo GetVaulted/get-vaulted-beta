@@ -1139,7 +1139,7 @@ Guests:
 
 Edit profile:
 1. Settings → View Profile, or open your profile from Account Hub.
-2. Update display name, bio, avatar photo, and storefront highlights as available.
+2. Update username, avatar photo, and storefront highlights as available.
 3. Save changes — username changes may be limited or rate-limited for abuse prevention.
 
 Public vs private:

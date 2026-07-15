@@ -120,7 +120,7 @@ export function UserProfileScreen({ navigation, route }: Props) {
     void load();
   }, [load]);
 
-  const displayName = profile?.display_name?.trim() || profile?.username?.trim() || 'Collector';
+  const displayName = profile?.username?.trim() || profile?.display_name?.trim() || 'Collector';
   const handle = profile?.username ? `@${profile.username}` : '@vaulted';
 
   const isOwnProfile = user?.id === userId;

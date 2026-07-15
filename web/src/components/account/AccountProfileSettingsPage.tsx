@@ -17,7 +17,6 @@ export function AccountProfileSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
   const [initialUsername, setInitialUsername] = useState("");
-  const [displayName, setDisplayName] = useState("");
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [usernameEligibility, setUsernameEligibility] = useState<{
     canChange: boolean;
@@ -55,7 +54,6 @@ export function AccountProfileSettingsPage() {
         if (!cancelled) {
           setUsername(j.user.username ?? session?.user?.username ?? "");
           setInitialUsername(j.user.username ?? session?.user?.username ?? "");
-          setDisplayName(j.user.name?.trim() ?? "");
           setProfileImage(j.user.image?.trim() || null);
         }
         const usernameRes = await fetch("/api/account/username", { cache: "no-store" });
@@ -142,8 +140,7 @@ export function AccountProfileSettingsPage() {
         }
       }
 
-      const body: { name?: string; image?: string | null } = {};
-      body.name = displayName.trim();
+      const body: { image?: string | null } = {};
       body.image = profileImage;
       const res = await fetch("/api/account/profile", {
         method: "PATCH",
@@ -213,7 +210,7 @@ export function AccountProfileSettingsPage() {
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Profile</p>
           <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground">Edit profile</h1>
           <p className="mt-1.5 text-sm text-zinc-500">
-            Update what buyers see on your public storefront. Seller payouts and shipping are separate.
+            Your username is your public name and @handle. Seller payouts and shipping are separate.
           </p>
         </header>
 
@@ -259,22 +256,15 @@ export function AccountProfileSettingsPage() {
               spellCheck={false}
               className="mt-1 w-full rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-sm text-zinc-100 outline-none transition focus:border-gold/35 disabled:opacity-55"
             />
+            <p className="mt-1 text-xs text-zinc-500">
+              Shown everywhere as @{username.trim() || "username"} — including mentions.
+            </p>
             {usernameEligibility?.canClaimOfficialPlatformUsername ? (
               <p className="mt-1 text-xs text-zinc-500">
                 Platform admin accounts can claim the official <span className="text-zinc-300">@getvaulted</span> username.
               </p>
             ) : null}
             {usernameLockHint ? <p className="mt-1 text-xs text-zinc-500">{usernameLockHint}</p> : null}
-          </label>
-
-          <label className="block">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-600">Display name</span>
-            <input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Shown on your public profile"
-              className="mt-1 w-full rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-sm text-zinc-100 outline-none transition focus:border-gold/35"
-            />
           </label>
 
           {error ? (

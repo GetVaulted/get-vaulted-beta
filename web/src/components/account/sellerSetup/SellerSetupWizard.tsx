@@ -80,7 +80,6 @@ export function SellerSetupWizard() {
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const [displayName, setDisplayName] = useState("");
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [profileSaveBusy, setProfileSaveBusy] = useState(false);
   const [profileSaveError, setProfileSaveError] = useState<string | null>(null);
@@ -122,7 +121,6 @@ export function SellerSetupWizard() {
         setShipState(s.shipFromState ?? "");
         setShipZip(s.shipFromZip ?? "");
         setShipPhone(s.shipFromPhone ?? j.shipFromAddresses?.find((a) => a.isDefault)?.phone ?? j.shipFromAddresses?.[0]?.phone ?? "");
-        setDisplayName(s.name ?? "");
         setProfileImage(s.image);
         setShippingSaved(Boolean(j.readiness?.checks.hasShipFromAddress));
       }
@@ -357,14 +355,11 @@ export function SellerSetupWizard() {
     setProfileSaveError(null);
     setProfileSaveBusy(true);
     try {
-      const body: { name?: string; image?: string } = {};
-      if (displayName.trim()) body.name = displayName.trim();
-      if (profileImage) body.image = profileImage;
-      if (Object.keys(body).length) {
+      if (profileImage) {
         const res = await fetch("/api/account/profile", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ image: profileImage }),
         });
         const j = (await res.json().catch(() => ({}))) as { error?: string };
         if (!res.ok) {
@@ -525,14 +520,12 @@ export function SellerSetupWizard() {
 
       {step === 4 ? (
         <ProfileStep
-          displayName={displayName}
           imageUrl={profileImage}
           saveBusy={profileSaveBusy}
           saveError={profileSaveError}
           sellerAgreementAccepted={sellerAgreementAccepted}
           onSellerAgreementChange={setSellerAgreementAccepted}
           onBack={goBack}
-          onDisplayNameChange={setDisplayName}
           onImageChange={setProfileImage}
           onSave={() => void saveProfile()}
           onSkip={skipProfile}

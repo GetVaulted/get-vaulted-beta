@@ -52,7 +52,7 @@ export async function generateMetadata({
   if (!canIndexShop) return { title: "Seller | Get Vaulted" };
   return buildSellerPageMetadata({
     username: user.username,
-    displayName: user.name,
+    displayName: user.username,
     imageUrl: user.image,
   });
 }
@@ -134,7 +134,7 @@ export default async function SellerShopPage({
       <JsonLdScript
         data={buildSellerProfileJsonLd({
           username: user.username,
-          displayName: user.name,
+          displayName: user.username,
           imageUrl: user.image,
         })}
       />
@@ -168,7 +168,6 @@ export default async function SellerShopPage({
               <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">
                 @{user.username}
               </h1>
-              {user.name ? <p className="mt-1 text-sm text-zinc-400">{user.name}</p> : null}
               <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm">
                 <span className="text-[11px] font-medium text-zinc-500">{credibility}</span>
                 {verified ? (

@@ -76,7 +76,7 @@ export async function completeProfileSetup(args: {
   const now = new Date();
   const updated = await prisma.user.update({
     where: { id: args.userId },
-    data: { username: parsed.normalized, usernameChosenAt: now },
+    data: { username: parsed.normalized, name: parsed.normalized, usernameChosenAt: now },
     select: { username: true, usernameChosenAt: true },
   });
 
@@ -139,7 +139,7 @@ export async function changeUsername(args: {
   const now = new Date();
   const updated = await prisma.user.update({
     where: { id: args.userId },
-    data: { username: parsed.normalized, usernameChosenAt: now },
+    data: { username: parsed.normalized, name: parsed.normalized, usernameChosenAt: now },
     select: { username: true, usernameChosenAt: true },
   });
 
@@ -194,7 +194,7 @@ export async function adminChangeUsername(args: {
   const now = new Date();
   const updated = await prisma.user.update({
     where: { id: args.targetUserId },
-    data: { username: parsed.normalized, usernameChosenAt: now },
+    data: { username: parsed.normalized, name: parsed.normalized, usernameChosenAt: now },
     select: { username: true, usernameChosenAt: true },
   });
 

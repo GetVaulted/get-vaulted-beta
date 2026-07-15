@@ -185,12 +185,12 @@ export function SellerHubScreen() {
           ? meta.full_name.trim()
           : '';
     const metaUsername = typeof meta?.username === 'string' ? meta.username.trim() : '';
-    // Prefer profiles table (what Settings updates) over auth metadata / email local-part.
+    // Prefer username (public @handle) over legacy display_name / auth metadata.
     const uname = profileUsername || metaUsername || null;
     const displayName =
+      uname ||
       profileDisplayName ||
       metaDisplay ||
-      uname ||
       user?.email?.split('@')[0] ||
       'Creator';
     const handle = uname ? `@${uname}` : '@you';
