@@ -22,7 +22,7 @@ import { buildExclusiveHostPinUpdates } from '../lib/liveItemVariant';
 import { mergeLiveRoomItemsById, reconcileHostActiveItem } from '../lib/mergeLiveRoomItems';
 import { mergeRandomSpotClaimIntoItem, type RandomSpotClaim } from '../lib/liveVariantSpotBoard';
 import { useRealtimeRoomPresence } from './useRealtimeRoomPresence';
-import { DEFAULT_AUCTION_SEC } from '../components/seller/liveConsole/VaultPinnedLotCard';
+import { buildHostStartAuctionPatch, DEFAULT_AUCTION_SEC } from '../lib/liveAuctionStartPayload';
 import type { ChatMessage } from '../types';
 
 export function useSellerLiveConsole({
@@ -66,6 +66,7 @@ export function useSellerLiveConsole({
   const [busy, setBusy] = useState(false);
   const [startingAuction, setStartingAuction] = useState(false);
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
+  const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(DEFAULT_AUCTION_SEC);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [pricingEditItem, setPricingEditItem] = useState<LiveRoomItemRow | null>(null);
   const [pinningVariantId, setPinningVariantId] = useState<string | null>(null);
@@ -393,11 +394,15 @@ export function useSellerLiveConsole({
     void run(async () => {
       setStartingAuction(true);
       try {
-        await patchLiveRoomItem(accessToken, roomId, activeItem.id, {
-          action: 'startAuction',
-          auctionDurationSec: DEFAULT_AUCTION_SEC,
-          clutchTimeEnabled: hostClutchTimeEnabled,
-        });
+        await patchLiveRoomItem(
+          accessToken,
+          roomId,
+          activeItem.id,
+          buildHostStartAuctionPatch({
+            auctionDurationSec: hostAuctionDurationSec,
+            clutchTimeEnabled: hostClutchTimeEnabled,
+          }),
+        );
       } finally {
         setStartingAuction(false);
       }
@@ -440,11 +445,15 @@ export function useSellerLiveConsole({
       await patchLiveRoomItem(accessToken, roomId, item.id, { status: 'active' });
       setStartingAuction(true);
       try {
-        await patchLiveRoomItem(accessToken, roomId, item.id, {
-          action: 'startAuction',
-          auctionDurationSec: DEFAULT_AUCTION_SEC,
-          clutchTimeEnabled: hostClutchTimeEnabled,
-        });
+        await patchLiveRoomItem(
+          accessToken,
+          roomId,
+          item.id,
+          buildHostStartAuctionPatch({
+            auctionDurationSec: hostAuctionDurationSec,
+            clutchTimeEnabled: hostClutchTimeEnabled,
+          }),
+        );
       } finally {
         setStartingAuction(false);
       }
@@ -483,6 +492,8 @@ export function useSellerLiveConsole({
     startingAuction,
     hostClutchTimeEnabled,
     toggleHostClutchTime: () => setHostClutchTimeEnabled((v) => !v),
+    hostAuctionDurationSec,
+    setHostAuctionDurationSec,
     inventoryOpen,
     setInventoryOpen,
     pricingEditItem,

@@ -322,8 +322,44 @@ describe('resolveLiveBuyerCommerceHud', () => {
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
     expect(hud.bottomRightLabel).toBe('Hold to Bid $40.00');
     expect(hud.itemTitle).toBe('Chiefs');
+    expect(hud.categoryType).toBe('PYT 1 Box Break');
     expect(hud.buyerPrimaryDisabled).toBe(false);
     expect(hud.buyerPinnedVariantId).toBe('v1');
+  });
+
+  it('shows auctioned team title even when isHot was cleared mid-auction', () => {
+    const snap = {
+      roomType: 'sale',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemTitle: 'PYT 1 Box Break',
+      activeItemSalesFormat: 'variant_selection',
+      activeItemVariantAssignmentMode: 'pick',
+      activeSpotCommerceMode: 'auction',
+      auctionVariantId: 'v1',
+      biddingOpen: true,
+      lotBidPhase: 'bidding_open',
+      minNextBidUsd: 40,
+      activeItemVariants: [
+        {
+          id: 'v1',
+          label: 'Chiefs',
+          priceUsd: 35,
+          quantityRemaining: 1,
+          soldCount: 0,
+          isHot: false,
+          status: 'available',
+          buyerUsername: null,
+        },
+      ],
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.itemTitle).toBe('Chiefs');
+    expect(hud.categoryType).toBe('PYT 1 Box Break');
+    expect(hud.stateLine).toContain('Chiefs auction live');
+    expect(hud.buyerPinnedVariantId).toBe('v1');
+    expect(hud.bottomRightLabel).toBe('Hold to Bid $40.00');
   });
 
   it('shows hybrid auction + shop when one team auctions and others remain buyable', () => {

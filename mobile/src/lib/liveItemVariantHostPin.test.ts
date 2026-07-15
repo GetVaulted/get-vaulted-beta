@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildExclusiveHostPinUpdates,
+  featuredBuyerVariant,
   hostPinnedBuyerVariant,
   pinnedVariantBuyerPrimaryLabel,
   variantClaimPrimaryLabel,
@@ -36,6 +37,28 @@ describe('liveItemVariant host pin helpers', () => {
       'pick',
     );
     expect(pinned?.id).toBe('a');
+  });
+
+  it('resolves auctioned team from auctionVariantId when isHot is false', () => {
+    const featured = featuredBuyerVariant({
+      activeItemVariantAssignmentMode: 'pick',
+      activeSpotCommerceMode: 'auction',
+      auctionVariantId: 'a',
+      activeItemVariants: [
+        {
+          id: 'a',
+          label: 'Chiefs',
+          priceUsd: 40,
+          quantityRemaining: 1,
+          soldCount: 0,
+          isHot: false,
+          status: 'available',
+          buyerUsername: null,
+          sortOrder: 0,
+        },
+      ],
+    });
+    expect(featured?.label).toBe('Chiefs');
   });
 
   it('builds exclusive pin updates', () => {

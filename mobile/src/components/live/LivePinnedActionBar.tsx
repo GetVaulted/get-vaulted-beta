@@ -53,6 +53,7 @@ import { LiveBreakSpotGridSheet } from './LiveBreakSpotGridSheet';
 import type { LiveCustomBidPayload } from '../../lib/liveCustomBid';
 import {
   isActiveVariantBuyerItem,
+  featuredBuyerVariant,
   hostPinnedBuyerVariant,
   lowestAvailableVariantPrice,
   type RefreshVariantsResult,
@@ -981,10 +982,7 @@ export function LivePinnedActionBar({
         openWalletSetup('variant_checkout', walletFromSnap ?? undefined);
         return;
       }
-      setVariantSheetInitialId(m.buyerPinnedVariantId ?? hostPinnedBuyerVariant(
-        roomSnap?.activeItemVariants,
-        roomSnap?.activeItemVariantAssignmentMode,
-      )?.id ?? null);
+      setVariantSheetInitialId(m.buyerPinnedVariantId ?? featuredBuyerVariant(roomSnap)?.id ?? null);
       setVariantSheetOpen(true);
       void refreshRoomSnapshot();
       return;

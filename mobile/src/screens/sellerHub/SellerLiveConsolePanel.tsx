@@ -65,6 +65,8 @@ export function SellerLiveConsolePanel({
           onExtend={c.onExtend}
           clutchTimeEnabled={c.hostClutchTimeEnabled}
           onToggleClutchTime={c.toggleHostClutchTime}
+          auctionDurationSec={c.hostAuctionDurationSec}
+          onAuctionDurationChange={c.setHostAuctionDurationSec}
         />
       )}
     </View>

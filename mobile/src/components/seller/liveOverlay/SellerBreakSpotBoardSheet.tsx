@@ -28,7 +28,8 @@ function teamGridLayout(windowWidth: number, isDivisionBreak: boolean) {
   const sheetPadding = spacing.md * 2;
   const gap = 8;
   const contentWidth = Math.max(280, windowWidth - sheetPadding);
-  const columns = isDivisionBreak ? 2 : windowWidth >= 900 ? 5 : windowWidth >= 680 ? 4 : windowWidth >= 420 ? 3 : 2;
+  // Match pinned-item BreakSpotSetupGrid: 4 team columns on phones (not 2).
+  const columns = isDivisionBreak ? 2 : windowWidth >= 900 ? 5 : 4;
   const maxTileWidth = isDivisionBreak ? 280 : 168;
   const rawWidth = (contentWidth - gap * (columns - 1)) / columns;
   const tileWidth = Math.min(maxTileWidth, rawWidth);
@@ -39,6 +40,7 @@ function SpotTile({
   row,
   isDivisionBreak,
   tileWidth,
+  compact,
   canPin,
   pinBusy,
   onPinTeam,
@@ -46,6 +48,7 @@ function SpotTile({
   row: VariantSpotDisplayRow;
   isDivisionBreak: boolean;
   tileWidth: number;
+  compact: boolean;
   canPin: boolean;
   pinBusy: boolean;
   onPinTeam?: (variantId: string) => void;
@@ -68,6 +71,7 @@ function SpotTile({
     <View
       style={[
         styles.spotTile,
+        compact && styles.spotTileCompact,
         { width: tileWidth, borderLeftColor: sold ? 'rgba(255,255,255,0.12)' : accent },
         sold && styles.spotTileSold,
         pinned && styles.spotTilePinned,
@@ -84,25 +88,24 @@ function SpotTile({
         </View>
       ) : null}
 
-      <View style={styles.spotTileTop}>
+      <View style={[styles.spotTileTop, compact && styles.spotTileTopCompact]}>
         {abbr ? (
-          <LiveRoomText style={[styles.spotAbbr, { color: textPrimary }]}>{abbr}</LiveRoomText>
+          <LiveRoomText style={[styles.spotAbbr, compact && styles.spotAbbrCompact, { color: textPrimary }]}>
+            {abbr}
+          </LiveRoomText>
         ) : null}
-        {!isDivisionBreak ? (
+        {isDivisionBreak || !compact || !abbr ? (
           <LiveRoomText
-            style={[styles.spotLabel, { color: textPrimary }]}
-            numberOfLines={1}
+            style={[
+              styles.spotLabel,
+              isDivisionBreak && styles.spotLabelDivision,
+              { color: isDivisionBreak ? textSecondary : textPrimary },
+            ]}
+            numberOfLines={isDivisionBreak ? 2 : 1}
           >
             {row.label}
           </LiveRoomText>
-        ) : (
-          <LiveRoomText
-            style={[styles.spotLabel, styles.spotLabelDivision, { color: textSecondary }]}
-            numberOfLines={2}
-          >
-            {row.label}
-          </LiveRoomText>
-        )}
+        ) : null}
       </View>
 
       {sold ? (
@@ -193,8 +196,9 @@ export function SellerBreakSpotBoardSheet({
                 <SpotTile
                   key={row.id}
                   row={row}
-                  isDivisionBreak={isDivisionBreak}
+                  isDivisionBreak={Boolean(isDivisionBreak)}
                   tileWidth={grid.tileWidth}
+                  compact={!isDivisionBreak && grid.columns >= 4}
                   canPin={canPin}
                   pinBusy={Boolean(pinningVariantId)}
                   onPinTeam={onPinTeam}
@@ -294,6 +298,17 @@ const styles = StyleSheet.create({
     minHeight: 84,
     justifyContent: 'space-between',
   },
+  spotTileCompact: {
+    borderRadius: radii.md,
+    borderLeftWidth: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    minHeight: 68,
+  },
+  spotAbbrCompact: {
+    fontSize: 14,
+    letterSpacing: 0.4,
+  },
   spotTileSold: {
     opacity: 0.72,
     backgroundColor: 'rgba(255,255,255,0.03)',
@@ -339,6 +354,9 @@ const styles = StyleSheet.create({
   spotTileTop: {
     gap: 2,
     paddingRight: 28,
+  },
+  spotTileTopCompact: {
+    paddingRight: 8,
   },
   pinnedBadge: {
     position: 'absolute',

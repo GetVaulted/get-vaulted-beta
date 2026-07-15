@@ -828,6 +828,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         }
         clutchTimeEnabled={console.hostClutchTimeEnabled}
         onToggleClutchTime={console.toggleHostClutchTime}
+        auctionDurationSec={console.hostAuctionDurationSec}
+        onAuctionDurationChange={console.setHostAuctionDurationSec}
         hostOverlayMinimal
         onLayoutHeight={(h) => {
           if (h > 0 && Math.abs(h - commerceHeight) > 2) setCommerceHeight(h);

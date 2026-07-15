@@ -221,6 +221,27 @@ export function hostPinnedBuyerVariant(
   return pinned[0] ?? null;
 }
 
+/**
+ * Buyer-facing featured spot: prefer the live spot-auction variant id, then the host pin (`isHot`).
+ * Auctioned teams must stay labeled even if `isHot` is cleared mid-auction.
+ */
+export function featuredBuyerVariant(
+  snap: Pick<
+    LiveRoomBuyerSnapshot,
+    'activeItemVariants' | 'activeItemVariantAssignmentMode' | 'auctionVariantId' | 'activeSpotCommerceMode'
+  > | null | undefined,
+): LiveItemVariantSnapshot | null {
+  if (!snap) return null;
+  const variants = snap.activeItemVariants ?? [];
+  if (!variants.length) return null;
+  const auctionId = snap.auctionVariantId?.trim();
+  if (snap.activeSpotCommerceMode === 'auction' && auctionId) {
+    const auctioned = variants.find((v) => v.id === auctionId);
+    if (auctioned) return auctioned;
+  }
+  return hostPinnedBuyerVariant(variants, snap.activeItemVariantAssignmentMode);
+}
+
 export function buildExclusiveHostPinUpdates(
   variants: Array<{ id: string }>,
   pinnedVariantId: string,

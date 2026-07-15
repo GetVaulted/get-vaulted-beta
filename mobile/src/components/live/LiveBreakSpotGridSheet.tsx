@@ -532,6 +532,7 @@ export function LiveBreakSpotGridSheet({
                       key={variant.id}
                       variant={variant}
                       selected={selectedId === variant.id}
+                      wide={isDivisionBreak}
                       onSelect={() => {
                         if (!variantIsAvailable(variant)) return;
                         void Haptics.selectionAsync().catch(() => {});
@@ -631,10 +632,13 @@ function SummaryRow({
 function TeamPill({
   variant,
   selected,
+  wide = false,
   onSelect,
 }: {
   variant: LiveItemVariantSnapshot;
   selected: boolean;
+  /** Divisions use 2 columns; teams use 4. */
+  wide?: boolean;
   onSelect: () => void;
 }) {
   const soldOut = !variantIsAvailable(variant);
@@ -642,6 +646,7 @@ function TeamPill({
     <Pressable
       style={[
         styles.pill,
+        wide ? styles.pillWide : styles.pillTeam,
         soldOut && styles.pillSold,
         selected && !soldOut && styles.pillSelected,
       ]}
@@ -878,16 +883,29 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   pill: {
-    minWidth: 88,
-    maxWidth: '48%',
-    flexGrow: 1,
-    borderRadius: 999,
+    borderRadius: radii.md,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.16)',
     backgroundColor: 'rgba(255,255,255,0.03)',
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 8,
     position: 'relative',
+  },
+  /** 4 columns — matches pinned team board / host Teams sheet. */
+  pillTeam: {
+    minWidth: 72,
+    maxWidth: '23.5%',
+    flexGrow: 1,
+    flexBasis: '22%',
+  },
+  /** 2 columns for longer division names. */
+  pillWide: {
+    minWidth: 88,
+    maxWidth: '48%',
+    flexGrow: 1,
+    flexBasis: '46%',
+    borderRadius: 999,
+    paddingHorizontal: 12,
   },
   pillSelected: {
     borderColor: 'rgba(255,215,80,0.55)',

@@ -30,6 +30,8 @@ export function SellerLivePinnedOverlay({
   onLayoutHeight,
   clutchTimeEnabled,
   onToggleClutchTime,
+  auctionDurationSec,
+  onAuctionDurationChange,
 }: {
   bottom: number;
   left: number;
@@ -51,6 +53,8 @@ export function SellerLivePinnedOverlay({
   onLayoutHeight?: (height: number) => void;
   clutchTimeEnabled?: boolean;
   onToggleClutchTime?: () => void;
+  auctionDurationSec?: number;
+  onAuctionDurationChange?: (sec: number) => void;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const hudScale = liveRoomHudScale(windowWidth);
@@ -94,6 +98,8 @@ export function SellerLivePinnedOverlay({
             onEditLot={onEditLot}
             clutchTimeEnabled={clutchTimeEnabled}
             onToggleClutchTime={onToggleClutchTime}
+            auctionDurationSec={auctionDurationSec}
+            onAuctionDurationChange={onAuctionDurationChange}
           />
         </View>
       </View>

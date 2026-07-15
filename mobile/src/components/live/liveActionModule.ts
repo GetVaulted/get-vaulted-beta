@@ -4,7 +4,7 @@ import { LIVE_AUCTION_BUYER_TIMER_ENDED_COPY } from '../../lib/liveAuctionLotPha
 import { formatAuctionLeaderLine } from '../../lib/liveAuctionWinnerDisplay';
 import {
   availableVariantCount,
-  hostPinnedBuyerVariant,
+  featuredBuyerVariant,
   isActiveVariantBuyerItem,
   isRandomVariantAssignment,
   lowestAvailableVariantPrice,
@@ -104,7 +104,7 @@ function resolveBuyerVariantItemHud(
     };
   }
 
-  const pinned = hostPinnedBuyerVariant(variants, snap.activeItemVariantAssignmentMode);
+  const pinned = featuredBuyerVariant(snap);
   if (pinned && isVariantSpotAuctionLive(snap)) {
     const hasBid = Boolean(snap.lastHighBidderId?.trim() || snap.lastHighBidderUsername?.trim());
     const opening = snap.startingBidUsd ?? pinned.priceUsd ?? 1;
@@ -112,12 +112,14 @@ function resolveBuyerVariantItemHud(
     const next = snap.minNextBidUsd ?? displayAmount;
     const biddingOpen = snap.lotBidPhase === 'bidding_open';
     const shopCount = shopVariantCountDuringSpotAuction(snap);
+    const breakTitle = snap.activeItemTitle?.trim() || itemTitleFallback;
     return {
       ...base,
       format: 'auction',
       hybridFocus: null,
       timerMmSs: biddingOpen && snap.auctionEndsAt ? auctionCountdownMmSs(snap.auctionEndsAt, snap.fetchedAtMs) : '—',
       itemTitle: pinned.label,
+      categoryType: breakTitle,
       currentPrefix: hasBid ? 'Current' : 'Opening',
       currentAmount: formatMoney(displayAmount),
       winningLine: formatAuctionLeaderLine({
@@ -129,8 +131,8 @@ function resolveBuyerVariantItemHud(
       stateLine: biddingOpen
         ? shopCount > 0
           ? `${pinned.label} auction live — ${shopCount} other team${shopCount === 1 ? '' : 's'} still in shop.`
-          : 'Spot auction live — place the next bid.'
-        : 'Spot auction ended — waiting for host.',
+          : `${pinned.label} auction live — place the next bid.`
+        : `${pinned.label} auction ended — waiting for host.`,
       bottomLeftLabel: 'Custom',
       bottomRightLabel: biddingOpen
         ? `Hold to Bid ${formatBidMoney(next)}`
@@ -145,13 +147,17 @@ function resolveBuyerVariantItemHud(
   }
 
   if (pinned) {
-    const otherAvailable = variants.filter((v) => variantIsAvailable(v) && v.id !== pinned.id).length;
+    const otherAvailable = (snap.activeItemVariants ?? []).filter(
+      (v) => variantIsAvailable(v) && v.id !== pinned.id,
+    ).length;
+    const breakTitle = snap.activeItemTitle?.trim() || itemTitleFallback;
     return {
       ...base,
       format: 'shop',
       hybridFocus: null,
       timerMmSs: '—',
       itemTitle: pinned.label,
+      categoryType: breakTitle,
       currentPrefix: 'Price',
       currentAmount: formatMoney(pinned.priceUsd),
       winningLine: '',
