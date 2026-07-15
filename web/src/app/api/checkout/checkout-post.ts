@@ -75,8 +75,8 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
 
   try {
     await Promise.all([
-      ensureMarketplacePlatformFeeCache(),
-      ensureLiveShowFeeCache(),
+      ensureMarketplacePlatformFeeCache(true),
+      ensureLiveShowFeeCache(true),
       ensurePayoutProgramCache(),
     ]);
     await processAuctionPaymentExpiries();

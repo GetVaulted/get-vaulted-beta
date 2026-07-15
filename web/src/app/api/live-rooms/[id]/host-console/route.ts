@@ -63,7 +63,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     }
     const { userId: hostUserId, isAdmin } = hostAuth;
 
-    await ensureLiveShowFeeCache();
+    await ensureLiveShowFeeCache(true);
 
     const url = new URL(req.url);
     const lite = url.searchParams.get("lite") === "1";

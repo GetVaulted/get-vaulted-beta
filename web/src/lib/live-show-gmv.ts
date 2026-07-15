@@ -125,12 +125,12 @@ export async function resolveCheckoutApplicationFeeCents(args: {
   if (sellerOverride != null) {
     return applicationFeeCentsFromSubtotalUsd(platformFeeBaseUsd(args.saleAmountUsd), sellerOverride);
   }
-  // Warm DB-backed fee config on this serverless instance before sync reads.
+  // Always load the latest admin fee config so /admin/fees changes apply on the next sale.
   if (args.liveRoomId) {
-    await ensureLiveShowFeeCache();
+    await ensureLiveShowFeeCache(true);
     const gmv = await getLiveRoomCompletedSalesGmvUsd(args.liveRoomId);
     return liveShowApplicationFeeCents(args.saleAmountUsd, gmv, false);
   }
-  await ensureMarketplacePlatformFeeCache();
+  await ensureMarketplacePlatformFeeCache(true);
   return marketplaceApplicationFeeCents(args.saleAmountUsd, false);
 }

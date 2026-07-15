@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 
 const CONFIG_ID = "default";
-const CACHE_TTL_MS = 30_000;
+/** Short TTL so host consoles pick up /admin/fees edits quickly across serverless instances. */
+const CACHE_TTL_MS = 5_000;
 
 /** Code fallback when DB is unavailable — keep aligned with platform-fee-policy.ts. */
 const DEFAULT_TIER_1_FEE_PERCENT = 8;
