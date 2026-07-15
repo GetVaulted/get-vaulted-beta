@@ -16,17 +16,6 @@ export default function DmcaPolicyPage() {
       <p className="mt-2 text-xs text-zinc-500">Last updated: July 3, 2026</p>
 
       <div className="mt-10 space-y-8 text-sm leading-relaxed text-zinc-300">
-        <section className="rounded-lg border border-amber-400/30 bg-amber-400/[0.06] p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-amber-200">Owner action required before launch</p>
-          <p className="mt-2 text-muted">
-            This page uses placeholder contact details for our DMCA Designated Agent. Before relying on the safe-harbor
-            protections of 17 U.S.C. § 512, Get Vaulted must register a Designated Agent with the U.S. Copyright
-            Office DMCA Designated Agent Directory (a fee applies) and replace the placeholder name/address/email
-            below with that registered agent&apos;s information. This page is provided for policy completeness and is
-            not a substitute for legal review.
-          </p>
-        </section>
-
         <section>
           <p className="text-muted">
             Get Vaulted LLC (&quot;Get Vaulted,&quot; &quot;we,&quot; &quot;us&quot;) respects the intellectual
@@ -61,17 +50,13 @@ export default function DmcaPolicyPage() {
             </li>
           </ul>
           <p className="mt-3 text-muted">
-            <strong className="text-zinc-200">DMCA Designated Agent (placeholder — see notice above):</strong>
-            <br />
-            [Designated Agent Name — to be registered with the U.S. Copyright Office]
+            <strong className="text-zinc-200">DMCA Designated Agent:</strong>
             <br />
             Get Vaulted LLC
             <br />
-            [Registered agent mailing address — to be added]
-            <br />
             Email:{" "}
-            <a href="mailto:copyright@shopgetvaulted.com" className="font-medium text-gold-bright hover:underline">
-              copyright@shopgetvaulted.com
+            <a href="mailto:support@shopgetvaulted.com" className="font-medium text-gold-bright hover:underline">
+              support@shopgetvaulted.com
             </a>
           </p>
           <p className="mt-3 text-muted">
@@ -141,8 +126,8 @@ export default function DmcaPolicyPage() {
               Reporting &amp; Safety
             </Link>{" "}
             page, or email{" "}
-            <a href="mailto:copyright@shopgetvaulted.com" className="font-medium text-gold-bright hover:underline">
-              copyright@shopgetvaulted.com
+            <a href="mailto:support@shopgetvaulted.com" className="font-medium text-gold-bright hover:underline">
+              support@shopgetvaulted.com
             </a>
             . See also our{" "}
             <Link href="/prohibited-items" className="font-medium text-gold-bright hover:underline">
