@@ -63,6 +63,8 @@ export type MarketplaceListing = {
   auctionBidCount?: number;
   /** Buyer-facing: seller ship origin region (state + country), when available. */
   shipsFromRegion?: string;
+  /** Real completed order count for this seller (detail payloads). Absent ⇒ treat as new. */
+  sellerCompletedOrderCount?: number;
   /** Official Get Vaulted / company merch listing (no marketplace platform fee on checkout). */
   isCompanyListing?: boolean;
 };
