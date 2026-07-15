@@ -55,9 +55,9 @@ export function normalizeLiveShowFeeConfig(raw: Partial<LiveShowFeeConfig>): Liv
   };
 }
 
-/** Sync read — returns cached value or code default until cache is warmed. */
+/** Sync read — prefers warmed cache (even if TTL expired); only falls back to code default when never loaded. */
 export function getCachedLiveShowFeeConfig(): LiveShowFeeConfig {
-  if (cachedConfig != null && Date.now() - cachedAt < CACHE_TTL_MS) {
+  if (cachedConfig != null) {
     return cachedConfig;
   }
   return DEFAULT_CONFIG;
@@ -85,7 +85,9 @@ export async function ensureLiveShowFeeCache(force = false): Promise<LiveShowFee
       tier3FeePercent: row?.tier3FeePercent,
     });
   } catch {
-    cachedConfig = DEFAULT_CONFIG;
+    if (cachedConfig == null) {
+      cachedConfig = DEFAULT_CONFIG;
+    }
   }
 
   cachedAt = Date.now();
@@ -124,8 +126,10 @@ export async function setLiveShowFeeConfig(
   raw: Partial<LiveShowFeeConfig>,
   adminUserId?: string | null,
 ): Promise<LiveShowFeeConfig> {
+  // Always merge against the DB-backed config — never against cold code defaults.
+  const current = await ensureLiveShowFeeCache(true);
   const next = normalizeLiveShowFeeConfig({
-    ...getCachedLiveShowFeeConfig(),
+    ...current,
     ...raw,
   });
 

@@ -6,6 +6,8 @@ import {
   platformFeeBaseUsd,
 } from "@/lib/platform-fee-policy";
 import { prisma } from "@/lib/prisma";
+import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
+import { ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
 import { loadSellerPlatformFeePercentOverride } from "@/services/seller-platform-fee-override";
 
 /** Completed item sales GMV for the active live show (excludes shipping/tax). */
@@ -123,9 +125,12 @@ export async function resolveCheckoutApplicationFeeCents(args: {
   if (sellerOverride != null) {
     return applicationFeeCentsFromSubtotalUsd(platformFeeBaseUsd(args.saleAmountUsd), sellerOverride);
   }
+  // Warm DB-backed fee config on this serverless instance before sync reads.
   if (args.liveRoomId) {
+    await ensureLiveShowFeeCache();
     const gmv = await getLiveRoomCompletedSalesGmvUsd(args.liveRoomId);
     return liveShowApplicationFeeCents(args.saleAmountUsd, gmv, false);
   }
+  await ensureMarketplacePlatformFeeCache();
   return marketplaceApplicationFeeCents(args.saleAmountUsd, false);
 }

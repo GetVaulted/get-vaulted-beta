@@ -19,9 +19,9 @@ export function clampMarketplacePlatformFeePercent(raw: number): number {
   return Math.min(25, Math.max(0, Math.round(raw * 100) / 100));
 }
 
-/** Sync read — returns cached value or code default until cache is warmed. */
+/** Sync read — prefers warmed cache (even if TTL expired); only falls back to code default when never loaded. */
 export function getCachedMarketplacePlatformFeePercent(): number {
-  if (cachedPercent != null && Date.now() - cachedAt < CACHE_TTL_MS) {
+  if (cachedPercent != null) {
     return cachedPercent;
   }
   return FALLBACK_MARKETPLACE_FEE_PERCENT;
@@ -46,7 +46,9 @@ export async function ensureMarketplacePlatformFeeCache(force = false): Promise<
       row?.platformFeePercent ?? FALLBACK_MARKETPLACE_FEE_PERCENT,
     );
   } catch {
-    cachedPercent = FALLBACK_MARKETPLACE_FEE_PERCENT;
+    if (cachedPercent == null) {
+      cachedPercent = FALLBACK_MARKETPLACE_FEE_PERCENT;
+    }
   }
 
   cachedAt = Date.now();
