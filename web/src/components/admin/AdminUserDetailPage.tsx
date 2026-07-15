@@ -127,6 +127,10 @@ export function AdminUserDetailPage() {
   const [exposureLimit, setExposureLimit] = useState("");
   const [platformFeePercent, setPlatformFeePercent] = useState("");
   const [platformFeeExpiresAt, setPlatformFeeExpiresAt] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [usernameReason, setUsernameReason] = useState("");
+  const [usernameBusy, setUsernameBusy] = useState(false);
+  const [usernameMessage, setUsernameMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState<ActivityPayload | null>(null);
@@ -180,6 +184,50 @@ export function AdminUserDetailPage() {
       cancelled = true;
     };
   }, [userId]);
+
+  const changeUsername = async () => {
+    if (!newUsername.trim()) {
+      setError("Enter a new username.");
+      return;
+    }
+    if (!usernameReason.trim()) {
+      setError("Reason is required when changing a username.");
+      return;
+    }
+    setUsernameBusy(true);
+    setError(null);
+    setUsernameMessage(null);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set_username",
+          username: newUsername.trim(),
+          reason: usernameReason.trim(),
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        username?: string;
+        previousUsername?: string;
+      };
+      if (!res.ok) {
+        setError(typeof j.error === "string" ? j.error : "Username change failed.");
+        return;
+      }
+      setUsernameMessage(
+        j.previousUsername && j.username && j.previousUsername !== j.username
+          ? `Username updated: @${j.previousUsername} → @${j.username}`
+          : `Username set to @${j.username ?? newUsername.trim()}`,
+      );
+      setNewUsername("");
+      setUsernameReason("");
+      await load();
+    } finally {
+      setUsernameBusy(false);
+    }
+  };
 
   const act = async (action: string, extra?: Record<string, unknown>) => {
     if (action !== "recalculate" && !reason.trim()) {
@@ -259,6 +307,48 @@ export function AdminUserDetailPage() {
       {error ? (
         <p className="mt-4 rounded-lg border border-rose-400/25 bg-rose-950/30 px-3 py-2 text-xs text-rose-100">{error}</p>
       ) : null}
+      {usernameMessage ? (
+        <p className="mt-4 rounded-lg border border-emerald-400/25 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-100">
+          {usernameMessage}
+        </p>
+      ) : null}
+
+      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+        <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Change username</h2>
+        <p className="mt-1 text-[10px] text-zinc-600">
+          Fix typos or mistaken usernames. Bypasses the 60-day self-service lock; still enforces uniqueness and reserved names.
+        </p>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="flex min-w-[10rem] flex-1 flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+            New username
+            <input
+              value={newUsername}
+              onChange={(e) => setNewUsername(e.target.value)}
+              className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+              placeholder={`currently @${data.seller.username}`}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <label className="flex min-w-[14rem] flex-[2] flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+            Reason
+            <input
+              value={usernameReason}
+              onChange={(e) => setUsernameReason(e.target.value)}
+              className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+              placeholder="User typo / support request"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={usernameBusy}
+            onClick={() => void changeUsername()}
+            className="rounded-lg border border-gold/35 bg-gold/10 px-3 py-1.5 text-xs font-semibold text-gold-bright hover:bg-gold/15 disabled:opacity-50"
+          >
+            {usernameBusy ? "Saving…" : "Set username"}
+          </button>
+        </div>
+      </section>
 
       <section className="mt-6 grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">

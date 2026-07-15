@@ -151,3 +151,59 @@ export async function changeUsername(args: {
     usernameChosenAt: updated.usernameChosenAt!.toISOString(),
   };
 }
+
+/**
+ * Admin typo/fix path: same uniqueness + policy as self-service, but skips the
+ * 60-day / open-orders lock so support can correct mistakes.
+ */
+export async function adminChangeUsername(args: {
+  targetUserId: string;
+  username: unknown;
+}): Promise<
+  | { ok: true; username: string; previousUsername: string; usernameChosenAt: string }
+  | { ok: false; status: number; message: string }
+> {
+  const user = await prisma.user.findUnique({
+    where: { id: args.targetUserId },
+    select: { username: true, usernameChosenAt: true, role: true },
+  });
+  if (!user) {
+    return { ok: false, status: 404, message: "Account not found." };
+  }
+
+  const parsed = validateUsernameInput(args.username, { userRole: user.role });
+  if (!parsed.ok) {
+    return { ok: false, status: 400, message: parsed.message };
+  }
+
+  if (parsed.normalized === user.username) {
+    return {
+      ok: true,
+      username: user.username,
+      previousUsername: user.username,
+      usernameChosenAt: (user.usernameChosenAt ?? new Date()).toISOString(),
+    };
+  }
+
+  const taken = await isUsernameTakenByOtherUser(prisma, parsed.normalized, args.targetUserId);
+  if (taken) {
+    return { ok: false, status: 409, message: USERNAME_UNAVAILABLE_MESSAGE };
+  }
+
+  const previousUsername = user.username;
+  const now = new Date();
+  const updated = await prisma.user.update({
+    where: { id: args.targetUserId },
+    data: { username: parsed.normalized, usernameChosenAt: now },
+    select: { username: true, usernameChosenAt: true },
+  });
+
+  await syncSupabaseProfileUsername(args.targetUserId, updated.username);
+
+  return {
+    ok: true,
+    username: updated.username,
+    previousUsername,
+    usernameChosenAt: updated.usernameChosenAt!.toISOString(),
+  };
+}
