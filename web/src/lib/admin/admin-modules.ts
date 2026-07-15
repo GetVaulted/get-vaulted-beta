@@ -174,6 +174,7 @@ export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[]
   { href: "/admin/users-management", label: "Users" },
   { href: "/admin/fulfillment", label: "Fulfillment" },
   { href: "/admin/trust", label: "Trust" },
+  { href: "/admin/trust/linked-accounts", label: "Linked accounts" },
   { href: "/admin/support-tickets", label: "Support" },
   { href: "/admin/notifications", label: "Notifications" },
   { href: "/admin/health", label: "Health" },

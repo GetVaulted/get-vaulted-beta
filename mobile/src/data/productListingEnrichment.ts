@@ -73,12 +73,17 @@ function specsNeutral(p: Product): { label: string; value: string }[] {
 }
 
 function formatShippingLine(p: Product): string | null {
+  if (p.tradeOnly) {
+    return 'Trades: each party buys their own shipping label after acceptance';
+  }
   const parts: string[] = [];
   if (p.handlingTimeLabel && p.handlingTimeLabel !== '—') {
     parts.push(`Handling ${p.handlingTimeLabel}`);
   }
-  if (p.shippingPriceUsd != null && p.shippingPriceUsd >= 0) {
-    parts.push(p.shippingPriceUsd === 0 ? 'Shipping calculated at checkout' : `Shipping from $${p.shippingPriceUsd}`);
+  if (p.shippingPriceUsd != null && p.shippingPriceUsd > 0) {
+    parts.push(`Shipping from $${p.shippingPriceUsd}`);
+  } else {
+    parts.push('Shipping calculated at checkout');
   }
   if (p.signatureRequired) {
     parts.push('Signature required');

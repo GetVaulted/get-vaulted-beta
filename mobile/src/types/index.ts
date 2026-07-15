@@ -199,6 +199,8 @@ export type Product = {
   handlingTimeLabel?: string;
   signatureRequired?: boolean;
   shipsFromRegion?: string;
+  /** Real completed seller order count from listing detail API (absent ⇒ New). */
+  sellerCompletedOrderCount?: number;
   /** Real live show appearances — empty hides the section. */
   liveAppearances?: ListingLiveAppearance[];
   /** Single ask / buy-now price shown on marketplace cards. */

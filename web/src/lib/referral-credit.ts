@@ -3,6 +3,7 @@ import { OrderPaymentMethod, ReferralCreditRole, ReferralCreditStatus } from "@/
 import { prisma } from "@/lib/prisma";
 import { ensureUserReferralCode, resolveReferrerIdFromReferralInput } from "@/lib/referral-code";
 import { ACTIVE_REFUND_REQUEST_STATUSES } from "@/lib/order-refund-eligibility";
+import { normalizeAddressKey, normalizeEmailForComparison } from "@/lib/identity-normalize";
 
 /**
  * Referral credit program (2026-07).
@@ -33,23 +34,6 @@ const HOLD_MS = REFERRAL_CREDIT_HOLD_DAYS * 24 * 60 * 60 * 1000;
 /** Safety net: an in-flight checkout reservation that's sat this long without being committed or
  *  released (crashed process, abandoned tab) is treated as abandoned and returned to the pool. */
 const STALE_RESERVATION_MS = 24 * 60 * 60 * 1000;
-
-function normalizeEmailForComparison(email: string): string {
-  const trimmed = email.trim().toLowerCase();
-  const at = trimmed.indexOf("@");
-  if (at < 0) return trimmed;
-  const local = trimmed.slice(0, at);
-  const domain = trimmed.slice(at + 1);
-  const plusStripped = local.split("+")[0] ?? local;
-  const isGmail = domain === "gmail.com" || domain === "googlemail.com";
-  const dotStripped = isGmail ? plusStripped.replace(/\./g, "") : plusStripped;
-  return `${dotStripped}@${domain}`;
-}
-
-function normalizeAddressKey(line1: string, zip: string): string {
-  const norm = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-  return `${norm(line1)}|${norm(zip)}`;
-}
 
 /**
  * Cheap, DB-only self-referral heuristic — deliberately conservative (false negatives are fine,

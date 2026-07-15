@@ -83,6 +83,28 @@ type Summary = {
   }>;
 };
 
+type ActivityItem = {
+  id: string;
+  kind: string;
+  label: string;
+  detail: string | null;
+  at: string;
+  href: string | null;
+};
+
+type ActivityPayload = { items: ActivityItem[]; lookbackDays: number };
+
+type LinkedPeer = {
+  userId: string;
+  username: string;
+  email: string;
+  suspendedAt: string | null;
+  score: number;
+  signals: Array<{ kind: string; label: string; evidence: string }>;
+};
+
+type LinkedPayload = { peers: LinkedPeer[] };
+
 function pct(n: number) {
   return `${(n * 100).toFixed(2)}%`;
 }
@@ -107,6 +129,10 @@ export function AdminUserDetailPage() {
   const [platformFeeExpiresAt, setPlatformFeeExpiresAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activity, setActivity] = useState<ActivityPayload | null>(null);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [linked, setLinked] = useState<LinkedPayload | null>(null);
+  const [linkedLoading, setLinkedLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -126,6 +152,34 @@ export function AdminUserDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    setActivityLoading(true);
+    setLinkedLoading(true);
+    void (async () => {
+      try {
+        const [actRes, linkRes] = await Promise.all([
+          fetch(`/api/admin/users/${encodeURIComponent(userId)}/activity`, { cache: "no-store" }),
+          fetch(`/api/admin/users/${encodeURIComponent(userId)}/linked-accounts`, { cache: "no-store" }),
+        ]);
+        if (cancelled) return;
+        if (actRes.ok) setActivity((await actRes.json()) as ActivityPayload);
+        else setActivity(null);
+        if (linkRes.ok) setLinked((await linkRes.json()) as LinkedPayload);
+        else setLinked(null);
+      } finally {
+        if (!cancelled) {
+          setActivityLoading(false);
+          setLinkedLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   const act = async (action: string, extra?: Record<string, unknown>) => {
     if (action !== "recalculate" && !reason.trim()) {
@@ -194,16 +248,95 @@ export function AdminUserDetailPage() {
       <Link href="/admin/users" className="text-xs font-semibold text-zinc-500 hover:text-gold-bright">
         ← Users
       </Link>
-      <h1 className="font-display mt-4 text-xl font-black tracking-tight">Seller risk & payout program</h1>
+      <h1 className="font-display mt-4 text-xl font-black tracking-tight">User review</h1>
       <p className="mt-1 text-xs text-zinc-500">
         @{data.seller.username} · {data.seller.email}
+      </p>
+      <p className="mt-1 text-[11px] text-zinc-600">
+        Recent activity and linked-account signals are review-only (first-party product data).
       </p>
 
       {error ? (
         <p className="mt-4 rounded-lg border border-rose-400/25 bg-rose-950/30 px-3 py-2 text-xs text-rose-100">{error}</p>
       ) : null}
 
-      <section className="mt-6 grid gap-4 lg:grid-cols-3">
+      <section className="mt-6 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Recent activity</h2>
+          <p className="mt-1 text-[10px] text-zinc-600">
+            Last {activity?.lookbackDays ?? 90} days · joins/chats/bids/orders (silent lurkers may not appear)
+          </p>
+          {activityLoading ? (
+            <p className="mt-3 text-zinc-500">Loading…</p>
+          ) : !activity?.items.length ? (
+            <p className="mt-3 text-zinc-500">No recorded product activity in this window.</p>
+          ) : (
+            <ul className="mt-3 max-h-80 space-y-2 overflow-y-auto">
+              {activity.items.map((item) => (
+                <li key={item.id} className="border-b border-white/[0.04] pb-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      {item.href ? (
+                        <Link href={item.href} className="font-semibold text-gold-bright hover:underline">
+                          {item.label}
+                        </Link>
+                      ) : (
+                        <span className="font-semibold text-zinc-200">{item.label}</span>
+                      )}
+                      {item.detail ? <p className="mt-0.5 text-zinc-500">{item.detail}</p> : null}
+                    </div>
+                    <time className="shrink-0 text-[10px] tabular-nums text-zinc-600">
+                      {new Date(item.at).toLocaleString()}
+                    </time>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Possible linked accounts</h2>
+            <Link href="/admin/trust/linked-accounts" className="text-[10px] font-semibold text-gold-bright hover:underline">
+              Platform scan →
+            </Link>
+          </div>
+          <p className="mt-1 text-[10px] text-zinc-600">Shared Stripe / payment / device / email / ship-to signals</p>
+          {linkedLoading ? (
+            <p className="mt-3 text-zinc-500">Loading…</p>
+          ) : !linked?.peers.length ? (
+            <p className="mt-3 text-zinc-500">No linked-account signals found for this user.</p>
+          ) : (
+            <ul className="mt-3 max-h-80 space-y-2 overflow-y-auto">
+              {linked.peers.map((peer) => (
+                <li key={peer.userId} className="border-b border-white/[0.04] pb-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <Link
+                        href={`/admin/users/${encodeURIComponent(peer.userId)}`}
+                        className="font-semibold text-gold-bright hover:underline"
+                      >
+                        @{peer.username}
+                      </Link>
+                      <span className="ml-2 text-zinc-500">{peer.email}</span>
+                      {peer.suspendedAt ? <span className="ml-2 text-rose-300">Suspended</span> : null}
+                      <p className="mt-0.5 text-zinc-500">
+                        {peer.signals.map((s) => s.label).join(" · ")}
+                      </p>
+                    </div>
+                    <span className="shrink-0 tabular-nums text-amber-200">score {peer.score}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+
+      <h2 className="font-display mt-10 text-lg font-black tracking-tight text-zinc-100">Seller risk & payout program</h2>
+
+      <section className="mt-4 grid gap-4 lg:grid-cols-3">
         <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs lg:col-span-1">
           <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Seller level</h2>
           <p className="mt-2 text-lg font-black text-gold-bright">{data.seller.sellerLevelLabel}</p>
