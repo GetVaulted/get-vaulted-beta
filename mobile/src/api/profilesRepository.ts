@@ -1,3 +1,4 @@
+import { readAsStringAsync } from 'expo-file-system/legacy';
 import {
   evaluateUsernamePolicy,
   normalizeUsernameForStorage,
@@ -5,7 +6,6 @@ import {
   usernamePolicyUserMessage,
 } from '../lib/username-policy';
 import { prepareProfileAvatarForUpload, avatarUrlWithCacheBust } from '../lib/profileAvatarUpload';
-import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import { getSupabase } from '../lib/supabase';
 import type { ProfileLite } from '../types/tradeOffers';
 
@@ -121,61 +121,89 @@ export async function checkUsernameAvailable(raw: string): Promise<{ available: 
     }
     return {
       available: false,
-      message: __DEV__ ? `Could not verify username: ${rowError.message}` : 'Could not verify username. Try again.',
+      message: __DEV__
+        ? `Could not verify username: ${rowError.message}`
+        : 'Could not verify username. Try again.',
     };
   }
-  if (rows && rows.length > 0) {
-    return { available: false, message: USERNAME_UNAVAILABLE_MESSAGE };
-  }
+  if (rows?.length) return { available: false, message: USERNAME_UNAVAILABLE_MESSAGE };
 
   return { available: true };
 }
 
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = globalThis.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+async function withDeadline<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /**
- * Upload a circle-cropped JPEG via Next.js `/api/uploads/avatar` (service role → `avatars` bucket).
- * Avoids client-side Storage RLS failures during seller onboarding / profile edit.
+ * Upload JPEG straight to Supabase Storage (`avatars/{userId}/avatar.jpg`).
+ * Same pattern as listing media — no Netlify multipart (that hung forever on RN).
  */
 export async function uploadMyAvatar(userId: string, localUri: string, _mimeType?: string): Promise<string> {
   const sb = getSupabase();
   if (!sb) throw new Error('Supabase is not configured');
-  const { data: sessionData } = await sb.auth.getSession();
-  const accessToken = sessionData.session?.access_token?.trim();
-  if (!accessToken) throw new Error('Sign in again to upload a profile photo.');
+  const authId = userId.trim();
+  if (!authId) throw new Error('Sign in again to upload a profile photo.');
 
-  const preparedUri = await prepareProfileAvatarForUpload(localUri);
-  const form = new FormData();
-  form.append('file', {
-    uri: preparedUri,
-    name: 'avatar.jpg',
-    type: 'image/jpeg',
-  } as unknown as Blob);
+  const preparedUri = await withDeadline(prepareProfileAvatarForUpload(localUri), 15_000, 'photo prepare');
+  const base64 = await withDeadline(readAsStringAsync(preparedUri, { encoding: 'base64' }), 10_000, 'read photo');
+  const body = base64ToArrayBuffer(base64);
+  const objectKey = `${authId}/avatar.jpg`;
 
-  // RN multipart aborts are unreliable — race a hard deadline so callers never spin forever.
-  const UPLOAD_DEADLINE_MS = 25_000;
-  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-  const res = await Promise.race([
-    fetchWebApiMobile('/api/uploads/avatar', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: form,
+  const { error: uploadError } = await withDeadline(
+    sb.storage.from('avatars').upload(objectKey, body, {
+      contentType: 'image/jpeg',
+      upsert: true,
+      cacheControl: '3600',
     }),
-    new Promise<never>((_, reject) => {
-      deadlineTimer = setTimeout(
-        () => reject(new Error('Photo upload timed out. Check your connection and try again.')),
-        UPLOAD_DEADLINE_MS,
-      );
-    }),
-  ]).finally(() => {
-    if (deadlineTimer) clearTimeout(deadlineTimer);
-  });
-  const body = (await res.json().catch(() => null)) as { url?: string; error?: string } | null;
-  if (!res.ok) {
-    throw new Error(body?.error?.trim() || `Could not upload photo (${res.status}).`);
+    20_000,
+    'avatar upload',
+  );
+  if (uploadError) {
+    const msg = (uploadError.message || '').toLowerCase();
+    if (msg.includes('row-level security') || msg.includes('permission') || msg.includes('not authorized')) {
+      throw new Error('Photo upload denied — sign in again and retry.');
+    }
+    throw new Error(uploadError.message?.trim() || 'Could not upload photo.');
   }
-  const url = body?.url?.trim();
-  if (!url) throw new Error('Could not resolve avatar URL');
-  void userId;
-  return avatarUrlWithCacheBust(url);
+
+  const { data } = sb.storage.from('avatars').getPublicUrl(objectKey);
+  const publicUrl = data.publicUrl?.trim();
+  if (!publicUrl) throw new Error('Could not resolve avatar URL');
+  const busted = avatarUrlWithCacheBust(publicUrl);
+
+  const { error: profileError } = await withDeadline(
+    sb.from('profiles').update({ avatar_url: busted }).eq('id', authId),
+    8_000,
+    'save avatar url',
+  );
+  if (profileError) {
+    throw new Error(profileError.message?.trim() || 'Photo uploaded but profile did not save.');
+  }
+
+  // Secondary — never block UI.
+  void sb.auth.updateUser({ data: { avatar_url: busted } }).then(({ error }) => {
+    if (error) console.warn('[uploadMyAvatar] auth metadata', error.message);
+  });
+
+  return busted;
 }
 
 export async function fetchProfileIdByUsername(raw: string): Promise<string | null> {

@@ -109,22 +109,19 @@ export function ProfileEditScreen({ navigation }: Props) {
 
   const onCropConfirm = async (preparedUri: string) => {
     if (!user?.id) return;
+    // Close crop immediately — do not trap the user behind a disabled Cancel while uploading.
+    setCropUri(null);
     setUploadingAvatar(true);
     setAvatarUrl(preparedUri);
     try {
       const publicUrl = await uploadMyAvatar(user.id, preparedUri);
       setAvatarUrl(publicUrl);
-      setCropUri(null);
-      // Upload already stored the file; secondary sync must not keep the spinner up.
-      try {
-        await persistProfileAvatarEverywhere({
-          userId: user.id,
-          accessToken: session?.access_token,
-          publicUrl,
-        });
-      } catch (e) {
-        console.warn('[ProfileEditScreen] avatar persist after upload', e);
-      }
+      // Web Prisma sync is secondary; never keep the spinner for it.
+      void persistProfileAvatarEverywhere({
+        userId: user.id,
+        accessToken: session?.access_token,
+        publicUrl,
+      }).catch((e) => console.warn('[ProfileEditScreen] avatar web sync', e));
       Alert.alert('Saved', 'Your profile picture was updated.');
     } catch (e) {
       setAvatarUrl((prev) => (prev === preparedUri ? null : prev));
