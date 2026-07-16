@@ -24,6 +24,7 @@ import { mergeLiveRoomItemsById, reconcileHostActiveItem } from '../lib/mergeLiv
 import { mergeRandomSpotClaimIntoItem, type RandomSpotClaim } from '../lib/liveVariantSpotBoard';
 import { useRealtimeRoomPresence } from './useRealtimeRoomPresence';
 import { buildHostStartAuctionPatch, DEFAULT_AUCTION_SEC } from '../lib/liveAuctionStartPayload';
+import { syncLiveRoomViewerCount } from '../lib/syncLiveRoomViewerCount';
 import type { ChatMessage } from '../types';
 
 export function useSellerLiveConsole({
@@ -62,6 +63,10 @@ export function useSellerLiveConsole({
     trackSelf: false,
   });
   const viewerCount = liveViewerCount ?? 0;
+  useEffect(() => {
+    if (liveViewerCount == null || roomStatus === 'ended') return;
+    void syncLiveRoomViewerCount({ liveRoomId: roomId, viewerCount: liveViewerCount, accessToken });
+  }, [accessToken, liveViewerCount, roomId, roomStatus]);
   const [serverNowMs, setServerNowMs] = useState(Date.now());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);

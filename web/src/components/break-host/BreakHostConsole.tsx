@@ -73,6 +73,7 @@ import { useRealtimeRoomPresence } from "@/hooks/useRealtimeRoomPresence";
 import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
+import { syncLiveRoomViewerCount } from "@/lib/sync-live-room-viewer-count";
 import { logLiveDebugEvent } from "@/lib/live-debug";
 import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from "@/lib/vault-reveal-spin";
 import {
@@ -241,6 +242,10 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     enabled: Boolean(roomId),
     trackSelf: false,
   });
+  useEffect(() => {
+    if (!roomId || liveViewerCount == null) return;
+    void syncLiveRoomViewerCount({ liveRoomId: roomId, viewerCount: liveViewerCount });
+  }, [roomId, liveViewerCount]);
   const [data, setData] = useState<HostPayload | null>(null);
   const hostDataRef = useRef<HostPayload | null>(null);
   hostDataRef.current = data;

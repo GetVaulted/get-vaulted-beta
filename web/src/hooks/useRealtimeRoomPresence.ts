@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { countRoomPresenceViewers } from "@/lib/live-room-presence-count";
+import { buildPresenceChannelKey } from "@/lib/live-room-presence-key";
+import {
+  releaseLiveRoomChannel,
+  retainLiveRoomChannel,
+  subscribeLiveRoomChannel,
+} from "@/lib/live-room-shared-channel";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
-import { roomChannel, RT_EVENT } from "@/lib/realtime-channels";
+import { RT_EVENT } from "@/lib/realtime-channels";
 
 export type ViewerPresenceChatEvent = { kind: "joined"; label: string };
 
@@ -25,16 +31,6 @@ function joinAnnounceId(p: Record<string, unknown>, liveRoomId: string): string 
   if (typeof p.userId === "string" && p.userId.length > 0) return `m:${liveRoomId}:${p.userId}`;
   if (typeof p.presence_ref === "string" && p.presence_ref.length > 0) return `r:${p.presence_ref}`;
   return "";
-}
-
-function stablePresenceKey(liveRoomId: string, userId: string | null): string {
-  const base = userId ? `u:${userId}` : "guest";
-  const key = `gv-presence:${base}`;
-  const existing = window.localStorage.getItem(key);
-  if (existing) return `${liveRoomId}:${existing}`;
-  const created = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  window.localStorage.setItem(key, created);
-  return `${liveRoomId}:${created}`;
 }
 
 export function useRealtimeRoomPresence(opts: {
@@ -61,33 +57,41 @@ export function useRealtimeRoomPresence(opts: {
 
   const onViewerEventRef = useRef(onViewerEvent);
   const onPresenceStateChangeRef = useRef(onPresenceStateChange);
+  const viewerDisplayNameRef = useRef(viewerDisplayName);
   onViewerEventRef.current = onViewerEvent;
   onPresenceStateChangeRef.current = onPresenceStateChange;
+  viewerDisplayNameRef.current = viewerDisplayName;
+
+  const presenceKeyRef = useRef("");
+
+  useLayoutEffect(() => {
+    presenceKeyRef.current =
+      liveRoomId && enabled ? buildPresenceChannelKey(liveRoomId, userId ?? null, trackSelf) : "";
+  }, [enabled, liveRoomId, trackSelf, userId]);
 
   useEffect(() => {
     if (!enabled || !liveRoomId) return;
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
 
-    const presenceSlot = trackSelf ? stablePresenceKey(liveRoomId, userId) : "";
-    const channel = supabase.channel(
-      roomChannel(liveRoomId),
-      trackSelf ? { config: { presence: { key: presenceSlot } } } : undefined,
-    );
+    const presenceKey = presenceKeyRef.current;
+    if (!presenceKey) return;
+
+    const channel = retainLiveRoomChannel(supabase, liveRoomId, presenceKey);
     let reconnectCount = 0;
     let heartbeatId: number | null = null;
     /** Cleared on matching presence `leave` so that viewer can get one join line again later. */
     const joinedChatAnnounced = new Set<string>();
 
     const updateCount = () => {
-      const state = channel.presenceState<Record<string, unknown>[]>();
-      setViewerCount(countRoomPresenceViewers(state));
+      setViewerCount(countRoomPresenceViewers(channel.presenceState()));
     };
 
     const trackPresence = async () => {
-      const username = resolvePresenceChatLabel(viewerDisplayName, userId);
+      if (!trackSelf) return;
+      const username = resolvePresenceChatLabel(viewerDisplayNameRef.current, userId);
       await channel.track({
-        tabKey: presenceSlot,
+        tabKey: presenceKey,
         userId,
         username,
         liveRoomId,
@@ -122,7 +126,7 @@ export function useRealtimeRoomPresence(opts: {
     };
     if (trackSelf) document.addEventListener("visibilitychange", onVisible);
 
-    void channel.subscribe(async (status) => {
+    const unsubscribeStatus = subscribeLiveRoomChannel(liveRoomId, async (status) => {
       onPresenceStateChangeRef.current?.({ status, reconnectCount });
       if (status !== "SUBSCRIBED") return;
       reconnectCount += 1;
@@ -141,11 +145,12 @@ export function useRealtimeRoomPresence(opts: {
     return () => {
       if (trackSelf) document.removeEventListener("visibilitychange", onVisible);
       if (heartbeatId != null) window.clearInterval(heartbeatId);
+      unsubscribeStatus();
       if (trackSelf) {
         void channel.send({ type: "broadcast", event: RT_EVENT.viewerLeft, payload: { liveRoomId } });
         void channel.untrack();
       }
-      void supabase.removeChannel(channel);
+      releaseLiveRoomChannel(supabase, liveRoomId);
     };
   }, [enabled, liveRoomId, trackSelf, userId, viewerDisplayName]);
 

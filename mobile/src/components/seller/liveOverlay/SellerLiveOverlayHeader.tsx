@@ -125,10 +125,17 @@ export function SellerLiveOverlayHeader({
                 {formatViewers(viewerCount)}
               </Animated.Text>
             </View>
-          ) : liveTimerDisplay ? (
-            <Text style={styles.liveTimer}>{liveTimerDisplay}</Text>
           ) : (
-            <Text style={styles.scheduled}>{SELLER_CONSOLE.scheduled}</Text>
+            <View style={styles.liveCluster}>
+              {liveTimerDisplay ? (
+                <Text style={styles.liveTimer}>{liveTimerDisplay}</Text>
+              ) : (
+                <Text style={styles.scheduled}>{SELLER_CONSOLE.scheduled}</Text>
+              )}
+              <Animated.Text style={[styles.viewers, { transform: [{ scale: viewerPop }] }]}>
+                {formatViewers(viewerCount)}
+              </Animated.Text>
+            </View>
           )}
           <Pressable style={styles.iconBtn} onPress={onBroadcastSettings} accessibilityLabel="Broadcast settings">
             <Ionicons name="settings-outline" size={19} color="rgba(255,255,255,0.88)" />

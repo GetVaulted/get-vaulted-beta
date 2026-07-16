@@ -2,8 +2,14 @@
 
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
+import { buildPresenceChannelKey } from "@/lib/live-room-presence-key";
+import {
+  releaseLiveRoomChannel,
+  retainLiveRoomChannel,
+  subscribeLiveRoomChannel,
+} from "@/lib/live-room-shared-channel";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
-import { roomChannel, RT_EVENT, RT_EVENT_ALIASES } from "@/lib/realtime-channels";
+import { RT_EVENT, RT_EVENT_ALIASES } from "@/lib/realtime-channels";
 
 export function useRealtimeRoomSubscription(opts: {
   liveRoomId: string | null;
@@ -213,8 +219,9 @@ export function useRealtimeRoomSubscription(opts: {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
 
-    const name = roomChannel(liveRoomId);
-    const channel = supabase.channel(name);
+    // Share the same presence-enabled channel as viewer-count / moderation hooks.
+    const presenceKey = buildPresenceChannelKey(liveRoomId, null, false);
+    const channel = retainLiveRoomChannel(supabase, liveRoomId, presenceKey);
     const chatEvents = [RT_EVENT.chatMessage, ...(RT_EVENT_ALIASES.chatMessage ?? [])];
     for (const eventName of chatEvents) {
       channel.on("broadcast", { event: eventName }, ({ payload }) => {
@@ -307,7 +314,7 @@ export function useRealtimeRoomSubscription(opts: {
     }
 
     let reconnectCount = 0;
-    void channel.subscribe((status) => {
+    const unsubscribeStatus = subscribeLiveRoomChannel(liveRoomId, (status) => {
       refs.current.onConnectionStateChange?.({ status, reconnectCount });
       if (status === "SUBSCRIBED") {
         void refs.current.onMessagesRefreshMerge?.();
@@ -316,7 +323,8 @@ export function useRealtimeRoomSubscription(opts: {
       }
     });
     return () => {
-      void supabase.removeChannel(channel);
+      unsubscribeStatus();
+      releaseLiveRoomChannel(supabase, liveRoomId);
     };
   }, [liveRoomId, enabled]);
 }
