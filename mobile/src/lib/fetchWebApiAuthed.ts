@@ -5,13 +5,18 @@ export async function fetchWebApiAuthed(
   path: string,
   accessToken: string,
   init?: RequestInit,
+  options?: { timeoutMs?: number },
 ): Promise<Response> {
-  return fetchWebApiMobile(path, {
-    ...init,
-    headers: {
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      Authorization: `Bearer ${accessToken}`,
-      ...init?.headers,
+  return fetchWebApiMobile(
+    path,
+    {
+      ...init,
+      headers: {
+        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+        Authorization: `Bearer ${accessToken}`,
+        ...init?.headers,
+      },
     },
-  });
+    options,
+  );
 }

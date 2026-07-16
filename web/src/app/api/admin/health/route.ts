@@ -6,6 +6,10 @@ import {
 } from "@/lib/admin/admin-platform-health";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
+import {
+  parseDatabaseConnectionInfo,
+  resolveDatabaseUrl,
+} from "@/lib/resolve-database-url";
 
 const FANOUT_WARN = 50;
 const FANOUT_ERROR = 500;
@@ -67,17 +71,37 @@ export async function GET() {
     });
   }
 
-  // --- API / Database ---
+  // --- API / Database (host/port only — never password) ---
+  let dbHostDetail = "DATABASE_URL not readable";
+  let dbPoolerOk: boolean | null = null;
+  try {
+    const info = parseDatabaseConnectionInfo(resolveDatabaseUrl());
+    const hostPort = `${info.host}:${info.port}`;
+    const isPooler = info.host.includes("pooler.supabase.com");
+    const isDirect = info.host.startsWith("db.") && info.host.endsWith(".supabase.co");
+    dbPoolerOk = isPooler && (info.port === "6543" || info.port === "5432");
+    dbHostDetail = isDirect
+      ? `${hostPort} (direct — use transaction pooler :6543 on Netlify)`
+      : isPooler
+        ? `${hostPort} (${info.port === "6543" ? "transaction pooler" : info.port === "5432" ? "session pooler → app rewrites to 6543" : "pooler"})`
+        : hostPort;
+  } catch (e) {
+    dbHostDetail = e instanceof Error ? e.message.slice(0, 120) : "Could not parse DATABASE_URL";
+  }
+
   try {
     await prisma.$queryRaw`SELECT 1`;
     checks.push({
       id: "api",
       label: "API / Database",
-      status: "ok",
-      detail: "Prisma connected",
-      issue: null,
-      solution: null,
-      log: null,
+      status: dbPoolerOk === false ? "degraded" : "ok",
+      detail: `Prisma connected · ${dbHostDetail}`,
+      issue: dbPoolerOk === false ? "DATABASE_URL is not the Supabase transaction pooler." : null,
+      solution:
+        dbPoolerOk === false
+          ? "In Supabase → Database → Connection string → Transaction (port 6543). Paste that URI into Netlify DATABASE_URL (Production) and redeploy."
+          : null,
+      log: dbHostDetail,
       href: null,
     });
   } catch (e) {
@@ -87,10 +111,10 @@ export async function GET() {
       id: "api",
       label: "API / Database",
       status: "error",
-      detail: message.slice(0, 200),
+      detail: `${message.slice(0, 120)} · ${dbHostDetail}`,
       issue: hint.issue,
       solution: hint.solution,
-      log: message.slice(0, 300),
+      log: `${dbHostDetail} | ${message.slice(0, 200)}`,
       href: null,
     });
   }

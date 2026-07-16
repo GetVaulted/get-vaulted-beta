@@ -22,7 +22,7 @@ async function enrichShippingAddressForLabels<T extends { type: string; email: s
 }
 
 export async function GET(req: Request) {
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
   await ensureBuyerShippingFromSellerShipFrom(auth.userId);
   const addresses = await prisma.address.findMany({
@@ -33,7 +33,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
   let body: AddressInput;
   try {

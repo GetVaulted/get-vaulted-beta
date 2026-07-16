@@ -9,7 +9,7 @@ import { isStripeConfigured } from "@/lib/stripe";
 type PatchBody = { action?: string };
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
 
   if (!isStripeConfigured()) {
@@ -47,7 +47,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 }
 
 export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
 
   if (!isStripeConfigured()) {

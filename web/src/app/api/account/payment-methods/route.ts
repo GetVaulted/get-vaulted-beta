@@ -17,7 +17,7 @@ export type PaymentMethodApiRow = {
  * Buyer saved card payment methods (Stripe Customer + PaymentMethod).
  */
 export async function GET(req: Request) {
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
 
   if (!isStripeConfigured()) {

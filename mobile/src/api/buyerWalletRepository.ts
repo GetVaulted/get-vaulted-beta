@@ -148,9 +148,13 @@ export async function createBuyerSetupIntent(
 ): Promise<BuyerSetupIntentPayload> {
   requireApiBase();
   if (!accessToken?.trim()) throw new Error('Sign in to add a payment method.');
-  const res = await fetchWebApiAuthed('/api/account/payment-methods/setup-intent', accessToken, {
-    method: 'POST',
-  });
+  // Stripe customer + SetupIntent can exceed the default 15s mobile timeout on cold API.
+  const res = await fetchWebApiAuthed(
+    '/api/account/payment-methods/setup-intent',
+    accessToken,
+    { method: 'POST' },
+    { timeoutMs: 45_000 },
+  );
   const j = (await res.json().catch(() => ({}))) as {
     clientSecret?: string;
     publishableKey?: string;
@@ -235,22 +239,27 @@ export async function updateBuyerShippingAddress(
 ): Promise<void> {
   requireApiBase();
   if (!accessToken?.trim()) throw new Error('Sign in to save your address.');
-  const res = await fetchWebApiAuthed(`/api/account/addresses/${encodeURIComponent(addressId)}`, accessToken, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      type: 'shipping',
-      name: input.name.trim(),
-      fullName: input.fullName.trim(),
-      line1: input.line1.trim(),
-      line2: input.line2?.trim() ? input.line2.trim() : null,
-      city: input.city.trim(),
-      state: input.state.trim(),
-      postalCode: input.postalCode.trim(),
-      country: input.country.trim().toUpperCase().slice(0, 2) || 'US',
-      phone: input.phone.trim(),
-      isDefault: input.isDefault !== false,
-    }),
-  });
+  const res = await fetchWebApiAuthed(
+    `/api/account/addresses/${encodeURIComponent(addressId)}`,
+    accessToken,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        type: 'shipping',
+        name: input.name.trim(),
+        fullName: input.fullName.trim(),
+        line1: input.line1.trim(),
+        line2: input.line2?.trim() ? input.line2.trim() : null,
+        city: input.city.trim(),
+        state: input.state.trim(),
+        postalCode: input.postalCode.trim(),
+        country: input.country.trim().toUpperCase().slice(0, 2) || 'US',
+        phone: input.phone.trim(),
+        isDefault: input.isDefault !== false,
+      }),
+    },
+    { timeoutMs: 45_000 },
+  );
   const j = (await res.json().catch(() => ({}))) as { error?: string; messages?: string[] };
   if (!res.ok) {
     const primary = typeof j.error === 'string' ? j.error : 'Could not update address.';
@@ -298,10 +307,15 @@ export async function finalizeBuyerPaymentMethodSetup(
     hasClientSecret: Boolean(args.clientSecret),
   });
 
-  const res = await fetchWebApiAuthed('/api/account/payment-methods/finalize', accessToken, {
-    method: 'POST',
-    body: JSON.stringify(args),
-  });
+  const res = await fetchWebApiAuthed(
+    '/api/account/payment-methods/finalize',
+    accessToken,
+    {
+      method: 'POST',
+      body: JSON.stringify(args),
+    },
+    { timeoutMs: 45_000 },
+  );
   const j = (await res.json().catch(() => ({}))) as {
     paymentMethodId?: string;
     expMonth?: number;
@@ -349,23 +363,29 @@ export async function createBuyerShippingAddress(
 ): Promise<void> {
   requireApiBase();
   if (!accessToken?.trim()) throw new Error('Sign in to save your address.');
-  const res = await fetchWebApiAuthed('/api/account/addresses', accessToken, {
-    method: 'POST',
-    body: JSON.stringify({
-      type: 'shipping',
-      name: input.name.trim(),
-      fullName: input.fullName.trim(),
-      line1: input.line1.trim(),
-      line2: input.line2?.trim() ? input.line2.trim() : null,
-      city: input.city.trim(),
-      state: input.state.trim(),
-      postalCode: input.postalCode.trim(),
-      country: input.country.trim().toUpperCase().slice(0, 2) || 'US',
-      phone: input.phone.trim(),
-      isDefault: input.isDefault !== false,
-      isVerified: false,
-    }),
-  });
+  // Address create runs Shippo validation — allow longer than the default 15s.
+  const res = await fetchWebApiAuthed(
+    '/api/account/addresses',
+    accessToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'shipping',
+        name: input.name.trim(),
+        fullName: input.fullName.trim(),
+        line1: input.line1.trim(),
+        line2: input.line2?.trim() ? input.line2.trim() : null,
+        city: input.city.trim(),
+        state: input.state.trim(),
+        postalCode: input.postalCode.trim(),
+        country: input.country.trim().toUpperCase().slice(0, 2) || 'US',
+        phone: input.phone.trim(),
+        isDefault: input.isDefault !== false,
+        isVerified: false,
+      }),
+    },
+    { timeoutMs: 45_000 },
+  );
   const j = (await res.json().catch(() => ({}))) as { error?: string; messages?: string[] };
   if (!res.ok) {
     const primary = typeof j.error === 'string' ? j.error : 'Could not save address.';

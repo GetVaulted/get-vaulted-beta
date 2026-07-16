@@ -8,7 +8,8 @@ import { stripeSetupIntentPaymentOptions } from "@/lib/stripe-payment-method-con
  * Creates a SetupIntent so the buyer can add a card to their Stripe Customer (off-session usage for wins).
  */
 export async function POST(req: Request) {
-  const auth = await resolveAccountUserId(req);
+  // Buyer wallet setup — skip Connect sibling sync (extra DB work on every mobile auth).
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
 
   if (!isStripeConfigured()) {

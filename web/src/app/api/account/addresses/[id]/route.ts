@@ -7,7 +7,7 @@ import { syncBuyerWalletShippingToOpenOrders } from "@/lib/live-buy-now-purchase
 import type { AddressType } from "@/generated/prisma/enums";
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
   const { id } = await ctx.params;
   const existing = await prisma.address.findFirst({
@@ -79,7 +79,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await resolveAccountUserId(_req);
+  const auth = await resolveAccountUserId(_req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
   const { id } = await ctx.params;
   const existing = await prisma.address.findFirst({
