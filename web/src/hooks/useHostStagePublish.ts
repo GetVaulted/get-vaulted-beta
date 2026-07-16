@@ -45,8 +45,8 @@ function friendlyMediaError(err: unknown): string {
 
 /** Max automatic publish rejoin attempts before surfacing an error to the host. */
 const HOST_MAX_REJOIN_ATTEMPTS = 5;
-/** Proactive host token refresh before the 60-minute TTL expires. */
-const HOST_TOKEN_REFRESH_MS = 50 * 60 * 1000;
+/** Proactive host token refresh before the 12-hour server TTL expires. */
+const HOST_TOKEN_REFRESH_MS = 11 * 60 * 60 * 1000;
 
 function mediaConstraints(videoDeviceId?: string, audioDeviceId?: string): MediaStreamConstraints {
   const audio: MediaTrackConstraints = {

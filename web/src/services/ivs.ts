@@ -566,8 +566,11 @@ export async function endHostWebBroadcastSession(roomId: string): Promise<void> 
  * fallback/overflow/replay surface (optionally mirrored from the Stage via StartComposition).
  */
 
-/** Host token TTL (minutes). Long enough for a full show; the host hook can refresh on reconnect. */
-const HOST_STAGE_TOKEN_MINUTES = 60;
+/**
+ * Host token TTL (minutes). AWS default/max-practical is 720 (12h); keep shows alive without
+ * requiring a mobile client refresh. Existing app builds pick this up on the next Go Live (POST).
+ */
+const HOST_STAGE_TOKEN_MINUTES = 720;
 /** Viewer token TTL (minutes). Short-lived, subscribe-only; clients re-fetch on expiry/reconnect. */
 const VIEWER_STAGE_TOKEN_MINUTES = 20;
 
