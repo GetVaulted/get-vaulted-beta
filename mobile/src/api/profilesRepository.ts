@@ -150,10 +150,23 @@ export async function uploadMyAvatar(userId: string, localUri: string, _mimeType
     type: 'image/jpeg',
   } as unknown as Blob);
 
-  const res = await fetchWebApiMobile('/api/uploads/avatar', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
-    body: form,
+  // RN multipart aborts are unreliable — race a hard deadline so callers never spin forever.
+  const UPLOAD_DEADLINE_MS = 25_000;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  const res = await Promise.race([
+    fetchWebApiMobile('/api/uploads/avatar', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: form,
+    }),
+    new Promise<never>((_, reject) => {
+      deadlineTimer = setTimeout(
+        () => reject(new Error('Photo upload timed out. Check your connection and try again.')),
+        UPLOAD_DEADLINE_MS,
+      );
+    }),
+  ]).finally(() => {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
   });
   const body = (await res.json().catch(() => null)) as { url?: string; error?: string } | null;
   if (!res.ok) {

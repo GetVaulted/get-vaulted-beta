@@ -187,6 +187,40 @@ export async function patchLiveItemVariants(
   if (!res.ok) throw new Error(apiErrorMessage(res, j));
 }
 
+/** Host team board: mark a PYT/PYD team sold and attach the buyer's username (no Stripe charge). */
+export async function manualAssignLiveItemVariant(args: {
+  accessToken: string;
+  roomId: string;
+  itemId: string;
+  variantId: string;
+  username: string;
+  priceUsd?: number;
+}): Promise<{ buyerUsername: string; label: string; totalUsd: number }> {
+  const res = await controlFetch(
+    `/api/live-rooms/${encodeURIComponent(args.roomId)}/items/${encodeURIComponent(args.itemId)}/variants/${encodeURIComponent(args.variantId)}/manual-assign`,
+    args.accessToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        username: args.username,
+        ...(typeof args.priceUsd === 'number' ? { priceUsd: args.priceUsd } : {}),
+      }),
+    },
+  );
+  let j: { error?: string; buyerUsername?: string; label?: string; totalUsd?: number } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+  return {
+    buyerUsername: j.buyerUsername?.trim() || args.username.replace(/^@+/, ''),
+    label: j.label?.trim() || 'Team',
+    totalUsd: typeof j.totalUsd === 'number' ? j.totalUsd : 0,
+  };
+}
+
 export async function deleteLiveRoomQueueItem(
   accessToken: string,
   roomId: string,

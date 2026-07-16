@@ -718,7 +718,8 @@ export async function startStageHlsComposition(roomId: string): Promise<string |
   if (room.ivsCompositionArn) return room.ivsCompositionArn;
 
   const encoderConfigurationArn = process.env.LIVE_STAGE_ENCODER_CONFIG_ARN?.trim();
-  const attempts = [0, 1500, 4000];
+  // Extra attempts: composition often needs the host publisher to be present first.
+  const attempts = [0, 1500, 4000, 8000];
   let lastErr: unknown = null;
   for (const delayMs of attempts) {
     if (delayMs > 0) await sleep(delayMs);
@@ -809,11 +810,11 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
   }
   const token = await createHostStageToken(roomId, userId);
   const now = new Date();
-  // Best-effort: start the HLS mirror before buyers fail over from WebRTC (composition takes ~5–15s).
+  // Best-effort: start the HLS mirror before guests hit share links (composition often needs 10–20s).
   await Promise.race([
     startStageHlsComposition(roomId),
     new Promise<void>((resolve) => {
-      setTimeout(resolve, 10_000);
+      setTimeout(resolve, 18_000);
     }),
   ]);
   await prisma.liveRoom.update({

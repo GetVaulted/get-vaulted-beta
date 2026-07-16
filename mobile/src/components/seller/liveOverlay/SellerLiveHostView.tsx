@@ -1120,6 +1120,24 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
                 )
             : undefined
         }
+        canMarkSold={Boolean(
+          displayItem &&
+            displayItem.variantAssignmentMode !== 'random' &&
+            isVariantSalesFormat(displayItem.salesFormat) &&
+            (displayItem.status === 'active' || displayItem.status === 'queued'),
+        )}
+        markSoldBusy={console.markSoldBusy || console.busy}
+        onMarkSold={
+          displayItem
+            ? ({ variantId, username }) =>
+                console.onMarkSoldLiveTeam({
+                  itemId: displayItem.id,
+                  variantId,
+                  username,
+                  label: '',
+                })
+            : undefined
+        }
       />
       <LiveSpotTakenCelebration
         celebration={spotCelebration}

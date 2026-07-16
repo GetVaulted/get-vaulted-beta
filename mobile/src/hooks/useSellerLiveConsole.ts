@@ -6,6 +6,7 @@ import { fetchHostConsole, type HostConsolePayload, type HostPaymentFailureRow, 
 import {
   createLiveRoomQueueItem,
   deleteLiveRoomQueueItem,
+  manualAssignLiveItemVariant,
   patchLiveItemVariants,
   patchLiveRoomItem,
   type LiveRoomItemRow,
@@ -70,6 +71,7 @@ export function useSellerLiveConsole({
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [pricingEditItem, setPricingEditItem] = useState<LiveRoomItemRow | null>(null);
   const [pinningVariantId, setPinningVariantId] = useState<string | null>(null);
+  const [markSoldBusy, setMarkSoldBusy] = useState(false);
   const [consoleError, setConsoleError] = useState<SanitizedLiveError | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const hydratedRef = useRef(false);
@@ -171,13 +173,50 @@ export function useSellerLiveConsole({
     void loadOnce();
   }, [applyConsolePayload, initialConsole, loadOnce, roomId]);
 
+  const biddingUrgent = useMemo(() => {
+    if (!activeItem?.biddingOpen || !activeItem.auctionEndsAt) return false;
+    const end = Date.parse(activeItem.auctionEndsAt);
+    return Number.isFinite(end) && end - serverNowMs < 8000;
+  }, [activeItem, serverNowMs]);
+
+  useEffect(() => {
+    onBiddingUrgentChange?.(biddingUrgent);
+  }, [biddingUrgent, onBiddingUrgentChange]);
+
   useEffect(() => {
     if (roomStatus !== 'live') return;
+    // Poll faster while an auction is about to end so host-console read_sweep can settle promptly.
+    const ms = biddingUrgent ? 3_000 : 25_000;
     const id = setInterval(() => {
       void reload({ soft: true });
-    }, 25_000);
+    }, ms);
     return () => clearInterval(id);
-  }, [reload, roomStatus]);
+  }, [reload, roomStatus, biddingUrgent]);
+
+  const autoCloseNudgedItemRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (roomStatus !== 'live' || !activeItem?.id || !activeItem.biddingOpen || !activeItem.auctionEndsAt) {
+      return;
+    }
+    const endsMs = Date.parse(activeItem.auctionEndsAt);
+    if (!Number.isFinite(endsMs) || serverNowMs < endsMs + 1200) return;
+    if (autoCloseNudgedItemRef.current === activeItem.id) return;
+    autoCloseNudgedItemRef.current = activeItem.id;
+    void import('../api/liveRoomBuyerRepository').then(({ finalizeOverdueLiveRoomAuctions }) =>
+      finalizeOverdueLiveRoomAuctions(roomId, accessToken).finally(() => {
+        void reload({ soft: true });
+      }),
+    );
+  }, [
+    accessToken,
+    activeItem?.auctionEndsAt,
+    activeItem?.biddingOpen,
+    activeItem?.id,
+    reload,
+    roomId,
+    roomStatus,
+    serverNowMs,
+  ]);
 
   const refreshConsole = useCallback(async () => {
     try {
@@ -195,16 +234,6 @@ export function useSellerLiveConsole({
     setItems((prev) => prev.map((item) => apply(item) ?? item));
     setActiveItem((prev) => apply(prev));
   }, []);
-
-  const biddingUrgent = useMemo(() => {
-    if (!activeItem?.biddingOpen || !activeItem.auctionEndsAt) return false;
-    const end = Date.parse(activeItem.auctionEndsAt);
-    return Number.isFinite(end) && end - serverNowMs < 8000;
-  }, [activeItem, serverNowMs]);
-
-  useEffect(() => {
-    onBiddingUrgentChange?.(biddingUrgent);
-  }, [biddingUrgent, onBiddingUrgentChange]);
 
   const run = async (fn: () => Promise<void>) => {
     if (busy || roomStatus === 'ended') return;
@@ -368,6 +397,26 @@ export function useSellerLiveConsole({
     });
   };
 
+  const onMarkSoldLiveTeam = (args: { itemId: string; variantId: string; username: string; label: string }) => {
+    void run(async () => {
+      setMarkSoldBusy(true);
+      try {
+        const result = await manualAssignLiveItemVariant({
+          accessToken,
+          roomId,
+          itemId: args.itemId,
+          variantId: args.variantId,
+          username: args.username,
+        });
+        invalidateHostConsoleCache(roomId);
+        await reload({ force: true });
+        Alert.alert('Marked sold', `${result.label} → @${result.buyerUsername}`);
+      } finally {
+        setMarkSoldBusy(false);
+      }
+    });
+  };
+
   const openPricingEditor = (item: LiveRoomItemRow) => {
     setPricingEditItem(item);
   };
@@ -504,6 +553,8 @@ export function useSellerLiveConsole({
     onSaveBreakSpots,
     onPinLiveTeam,
     pinningVariantId,
+    onMarkSoldLiveTeam,
+    markSoldBusy,
     onQuickAddLot,
     consoleError,
     chatMessages,

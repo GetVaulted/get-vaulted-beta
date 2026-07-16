@@ -1,12 +1,30 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useMemo } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
-import { summarizeVariantSpotBoard, formatSoldSpotBuyerLabel, type VariantSpotDisplayRow } from '../../../lib/liveVariantSpotBoard';
-import { formatDivisionReelAbbr, spotAccentColor, teamAbbrForVariant, isLightSpotAccent } from '../../../lib/liveBreakPresets';
+import {
+  summarizeVariantSpotBoard,
+  formatSoldSpotBuyerLabel,
+  type VariantSpotDisplayRow,
+} from '../../../lib/liveVariantSpotBoard';
+import {
+  formatDivisionReelAbbr,
+  spotAccentColor,
+  teamAbbrForVariant,
+  isLightSpotAccent,
+} from '../../../lib/liveBreakPresets';
 import { colors, radii, spacing } from '../../../theme';
 import { LiveRoomText } from '../../live/LiveRoomText';
 
@@ -18,6 +36,13 @@ type Props = {
   canPinTeams?: boolean;
   pinningVariantId?: string | null;
   onPinTeam?: (variantId: string) => void;
+  /**
+   * Host auction / break board: select a team, enter the buyer's username, mark sold.
+   * (Records the sale to that account — does not charge Stripe.)
+   */
+  canMarkSold?: boolean;
+  markSoldBusy?: boolean;
+  onMarkSold?: (args: { variantId: string; username: string; label: string }) => void | Promise<void>;
 };
 
 function fmtMoney(n: number) {
@@ -28,7 +53,6 @@ function teamGridLayout(windowWidth: number, isDivisionBreak: boolean) {
   const sheetPadding = spacing.md * 2;
   const gap = 8;
   const contentWidth = Math.max(280, windowWidth - sheetPadding);
-  // Match pinned-item BreakSpotSetupGrid: 4 team columns on phones (not 2).
   const columns = isDivisionBreak ? 2 : windowWidth >= 900 ? 5 : 4;
   const maxTileWidth = isDivisionBreak ? 280 : 168;
   const rawWidth = (contentWidth - gap * (columns - 1)) / columns;
@@ -44,6 +68,9 @@ function SpotTile({
   canPin,
   pinBusy,
   onPinTeam,
+  selected,
+  canSelect,
+  onSelect,
 }: {
   row: VariantSpotDisplayRow;
   isDivisionBreak: boolean;
@@ -52,6 +79,9 @@ function SpotTile({
   canPin: boolean;
   pinBusy: boolean;
   onPinTeam?: (variantId: string) => void;
+  selected: boolean;
+  canSelect: boolean;
+  onSelect?: () => void;
 }) {
   const sold = row.sold;
   const pinned = row.isHot && !sold;
@@ -75,6 +105,7 @@ function SpotTile({
         { width: tileWidth, borderLeftColor: sold ? 'rgba(255,255,255,0.12)' : accent },
         sold && styles.spotTileSold,
         pinned && styles.spotTilePinned,
+        selected && !sold && styles.spotTileSelected,
         !sold && { backgroundColor: lightAccent ? `${accent}ee` : `${accent}33` },
       ]}
     >
@@ -132,7 +163,18 @@ function SpotTile({
     </View>
   );
 
-  return body;
+  if (!canSelect || sold || !onSelect) return body;
+
+  return (
+    <Pressable
+      onPress={onSelect}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`Select ${row.label}`}
+    >
+      {body}
+    </Pressable>
+  );
 }
 
 export function SellerBreakSpotBoardSheet({
@@ -142,9 +184,14 @@ export function SellerBreakSpotBoardSheet({
   canPinTeams = false,
   pinningVariantId = null,
   onPinTeam,
+  canMarkSold = false,
+  markSoldBusy = false,
+  onMarkSold,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [username, setUsername] = useState('');
 
   const isDivisionBreak = item?.salesFormat === 'team_break';
   const grid = useMemo(
@@ -152,9 +199,39 @@ export function SellerBreakSpotBoardSheet({
     [windowWidth, isDivisionBreak],
   );
 
-  if (!item || !isVariantSalesFormat(item.salesFormat)) return null;
+  useEffect(() => {
+    if (!visible) {
+      setSelectedVariantId(null);
+      setUsername('');
+    }
+  }, [visible]);
 
-  const { rows, openCount, soldCount } = summarizeVariantSpotBoard(item);
+  useEffect(() => {
+    setSelectedVariantId(null);
+    setUsername('');
+  }, [item?.id]);
+
+  const board = useMemo(() => {
+    if (!item || !isVariantSalesFormat(item.salesFormat)) return null;
+    return summarizeVariantSpotBoard(item);
+  }, [item]);
+
+  useEffect(() => {
+    if (!selectedVariantId || !board) return;
+    if (!board.rows.some((r) => r.variantId === selectedVariantId && !r.sold)) {
+      setSelectedVariantId(null);
+      setUsername('');
+    }
+  }, [board, selectedVariantId]);
+
+  if (!item || !board || !isVariantSalesFormat(item.salesFormat)) return null;
+
+  const { rows, openCount, soldCount } = board;
+  const selectedRow = rows.find((r) => r.variantId === selectedVariantId && !r.sold) ?? null;
+
+  const canSubmit =
+    Boolean(canMarkSold && onMarkSold && selectedRow?.variantId && username.trim().replace(/^@+/, '').length >= 3) &&
+    !markSoldBusy;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -177,7 +254,11 @@ export function SellerBreakSpotBoardSheet({
               </LiveRoomText>
               <LiveRoomText style={styles.spotsMeta}>
                 {openCount} open · {soldCount} sold
-                {canPinTeams ? ' · use Pin on a team to feature it for buyers' : ''}
+                {canMarkSold
+                  ? ' · tap a team, enter buyer username, mark sold'
+                  : canPinTeams
+                    ? ' · use Pin on a team to feature it for buyers'
+                    : ''}
               </LiveRoomText>
             </View>
             <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={10}>
@@ -189,9 +270,11 @@ export function SellerBreakSpotBoardSheet({
             style={styles.gridScroll}
             contentContainerStyle={[styles.gridContent, { gap: grid.gap }]}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           >
             {rows.map((row) => {
               const canPin = Boolean(canPinTeams && onPinTeam && row.variantId && !row.sold);
+              const canSelect = Boolean(canMarkSold && onMarkSold && row.variantId && !row.sold);
               return (
                 <SpotTile
                   key={row.id}
@@ -202,10 +285,54 @@ export function SellerBreakSpotBoardSheet({
                   canPin={canPin}
                   pinBusy={Boolean(pinningVariantId)}
                   onPinTeam={onPinTeam}
+                  selected={selectedVariantId === row.variantId}
+                  canSelect={canSelect}
+                  onSelect={
+                    canSelect
+                      ? () => setSelectedVariantId(row.variantId === selectedVariantId ? null : row.variantId!)
+                      : undefined
+                  }
                 />
               );
             })}
           </ScrollView>
+
+          {canMarkSold && onMarkSold ? (
+            <View style={styles.markSoldPanel}>
+              <LiveRoomText style={styles.markSoldLabel}>
+                {selectedRow ? `Mark sold · ${selectedRow.label}` : 'Select a team above'}
+              </LiveRoomText>
+              <TextInput
+                style={styles.usernameInput}
+                value={username}
+                onChangeText={setUsername}
+                placeholder="@buyer_username"
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={Boolean(selectedRow) && !markSoldBusy}
+                returnKeyType="done"
+              />
+              <Pressable
+                style={[styles.markSoldBtn, !canSubmit && styles.markSoldBtnOff]}
+                disabled={!canSubmit}
+                onPress={() => {
+                  if (!selectedRow?.variantId || !canSubmit) return;
+                  void onMarkSold({
+                    variantId: selectedRow.variantId,
+                    username: username.trim(),
+                    label: selectedRow.label,
+                  });
+                }}
+              >
+                {markSoldBusy ? (
+                  <ActivityIndicator color="#111" />
+                ) : (
+                  <LiveRoomText style={styles.markSoldBtnTxt}>Mark sold</LiveRoomText>
+                )}
+              </Pressable>
+            </View>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -227,20 +354,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0e',
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
-    overflow: 'hidden',
   },
   sheetGlow: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 120,
+    ...StyleSheet.absoluteFillObject,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
   },
   handle: {
     alignSelf: 'center',
     width: 42,
     height: 4,
-    borderRadius: 999,
+    borderRadius: 2,
     backgroundColor: 'rgba(255,255,255,0.18)',
     marginBottom: spacing.sm,
   },
@@ -248,168 +372,154 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: spacing.sm,
+    marginBottom: spacing.sm,
   },
-  headerCopy: { flex: 1 },
+  headerCopy: { flex: 1, gap: 4 },
   sheetTitle: {
     fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 1.4,
+    letterSpacing: 1.2,
     textTransform: 'uppercase',
     color: colors.gold,
   },
   itemTitle: {
-    marginTop: 4,
     fontSize: 17,
     fontWeight: '900',
     color: '#fff',
   },
   spotsMeta: {
-    marginTop: 4,
     fontSize: 12,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.48)',
   },
   closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
-  gridScroll: {
-    flexGrow: 0,
-    marginTop: spacing.md,
-    maxHeight: 520,
-  },
+  gridScroll: { flexGrow: 0, maxHeight: 420 },
   gridContent: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingBottom: spacing.lg,
+    paddingBottom: spacing.sm,
   },
   spotTile: {
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderLeftWidth: 4,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    minHeight: 84,
-    justifyContent: 'space-between',
-  },
-  spotTileCompact: {
     borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
     borderLeftWidth: 3,
     paddingHorizontal: 8,
     paddingVertical: 8,
-    minHeight: 68,
+    minHeight: 64,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    overflow: 'hidden',
   },
-  spotAbbrCompact: {
-    fontSize: 14,
-    letterSpacing: 0.4,
-  },
-  spotTileSold: {
-    opacity: 0.72,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderStyle: 'dashed',
-  },
+  spotTileCompact: { minHeight: 56, paddingVertical: 6 },
+  spotTileSold: { opacity: 0.72 },
   spotTilePinned: {
     borderColor: colors.gold,
-    borderWidth: 1.5,
-    borderLeftWidth: 4,
   },
-  spotTilePressed: {
-    opacity: 0.88,
-    transform: [{ scale: 0.98 }],
-  },
-  spotFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 6,
-  },
-  pinActionBtn: {
-    borderRadius: radii.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  pinActionBtnActive: {
+  spotTileSelected: {
     borderColor: colors.gold,
-    backgroundColor: 'rgba(212,175,55,0.18)',
-  },
-  pinActionBtnText: {
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    color: 'rgba(255,255,255,0.82)',
-  },
-  pinActionBtnTextActive: {
-    color: colors.gold,
-  },
-  spotTileTop: {
-    gap: 2,
-    paddingRight: 28,
-  },
-  spotTileTopCompact: {
-    paddingRight: 8,
+    borderWidth: 2,
+    borderLeftWidth: 3,
   },
   pinnedBadge: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    backgroundColor: colors.gold,
-    borderRadius: radii.pill,
+    top: 4,
+    right: 4,
+    borderRadius: 999,
     paddingHorizontal: 6,
     paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: colors.gold,
+    backgroundColor: 'rgba(212,175,55,0.18)',
   },
   pinnedBadgeText: {
     fontSize: 8,
     fontWeight: '900',
-    color: '#111',
     letterSpacing: 0.4,
+    color: colors.gold,
   },
   hotBadge: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    backgroundColor: 'rgba(220,38,38,0.92)',
-    borderRadius: radii.pill,
+    top: 4,
+    right: 4,
+    borderRadius: 999,
     paddingHorizontal: 6,
     paddingVertical: 2,
+    backgroundColor: 'rgba(220,38,38,0.92)',
   },
   hotBadgeText: {
     fontSize: 8,
     fontWeight: '900',
     color: '#fff',
-    letterSpacing: 0.4,
   },
-  spotAbbr: {
-    fontSize: 18,
-    fontWeight: '900',
-    letterSpacing: 0.6,
+  spotTileTop: { gap: 2, paddingRight: 28 },
+  spotTileTopCompact: { paddingRight: 4 },
+  spotAbbr: { fontSize: 15, fontWeight: '900' },
+  spotAbbrCompact: { fontSize: 13 },
+  spotLabel: { fontSize: 10, fontWeight: '700' },
+  spotLabelDivision: { fontSize: 11, fontWeight: '800', lineHeight: 14 },
+  buyerTag: {
+    marginTop: 6,
+    fontSize: 10,
+    fontWeight: '800',
+    color: 'rgba(52,211,153,0.9)',
   },
-  spotLabel: {
+  spotFooter: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  priceTag: { fontSize: 11, fontWeight: '800' },
+  pinActionBtn: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  pinActionBtnActive: {
+    borderColor: colors.gold,
+    backgroundColor: 'rgba(212,175,55,0.18)',
+  },
+  pinActionBtnText: { fontSize: 9, fontWeight: '800', color: 'rgba(255,255,255,0.7)' },
+  pinActionBtnTextActive: { color: colors.gold },
+  markSoldPanel: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+    paddingTop: spacing.sm,
+    gap: 8,
+  },
+  markSoldLabel: {
     fontSize: 12,
     fontWeight: '700',
-    lineHeight: 16,
+    color: 'rgba(255,255,255,0.72)',
   },
-  spotLabelDivision: {
-    fontSize: 13,
-    lineHeight: 17,
+  usernameInput: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
   },
-  buyerTag: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.gold,
+  markSoldBtn: {
+    borderRadius: radii.md,
+    backgroundColor: colors.gold,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  priceTag: {
-    fontSize: 13,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums'],
-  },
+  markSoldBtnOff: { opacity: 0.45 },
+  markSoldBtnTxt: { fontWeight: '900', color: '#111', fontSize: 15 },
 });

@@ -113,13 +113,18 @@ export function ProfileEditScreen({ navigation }: Props) {
     setAvatarUrl(preparedUri);
     try {
       const publicUrl = await uploadMyAvatar(user.id, preparedUri);
-      await persistProfileAvatarEverywhere({
-        userId: user.id,
-        accessToken: session?.access_token,
-        publicUrl,
-      });
       setAvatarUrl(publicUrl);
       setCropUri(null);
+      // Upload already stored the file; secondary sync must not keep the spinner up.
+      try {
+        await persistProfileAvatarEverywhere({
+          userId: user.id,
+          accessToken: session?.access_token,
+          publicUrl,
+        });
+      } catch (e) {
+        console.warn('[ProfileEditScreen] avatar persist after upload', e);
+      }
       Alert.alert('Saved', 'Your profile picture was updated.');
     } catch (e) {
       setAvatarUrl((prev) => (prev === preparedUri ? null : prev));

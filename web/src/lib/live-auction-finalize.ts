@@ -516,3 +516,66 @@ export async function finalizeOverdueLiveAuctionLotsForRoom(args: {
   }
   return summary;
 }
+
+/**
+ * Global sweep for every live auction/break/sale room with an overdue open timer.
+ * Used by cron so settlement does not depend on a buyer polling or a host screen staying open.
+ */
+export async function finalizeOverdueLiveAuctionLotsAcrossLiveRooms(args?: {
+  nowMs?: number;
+  limitRooms?: number;
+}): Promise<{
+  roomsChecked: number;
+  roomsTouched: number;
+  finalized: number;
+  results: Array<{ liveRoomId: string; summary: OverdueFinalizeSummary }>;
+}> {
+  const nowMs = args?.nowMs ?? Date.now();
+  const cutoff = new Date(nowMs - LIVE_AUCTION_AUTO_CLOSE_GRACE_MS);
+  const limitRooms = Math.min(Math.max(args?.limitRooms ?? 40, 1), 100);
+
+  const overdueItems = await prisma.liveRoomItem.findMany({
+    where: {
+      status: "active",
+      biddingOpen: true,
+      auctionEndsAt: { not: null, lte: cutoff },
+      liveRoom: {
+        status: "live",
+        roomType: { in: ["auction", "break", "sale"] },
+      },
+    },
+    select: { liveRoomId: true },
+    distinct: ["liveRoomId"],
+    take: limitRooms,
+  });
+
+  const roomIds = overdueItems.map((r) => r.liveRoomId);
+  if (roomIds.length === 0) {
+    return { roomsChecked: 0, roomsTouched: 0, finalized: 0, results: [] };
+  }
+
+  const rooms = await prisma.liveRoom.findMany({
+    where: { id: { in: roomIds } },
+    select: { id: true, sellerId: true, roomType: true, roomVersion: true },
+  });
+
+  let finalized = 0;
+  let roomsTouched = 0;
+  const results: Array<{ liveRoomId: string; summary: OverdueFinalizeSummary }> = [];
+
+  for (const room of rooms) {
+    const summary = await finalizeOverdueLiveAuctionLotsForRoom({
+      liveRoomId: room.id,
+      room: { sellerId: room.sellerId, roomType: room.roomType, roomVersion: room.roomVersion },
+      nowMs,
+      trigger: "timer_nudge",
+    });
+    if (summary.finalized > 0 || summary.results.length > 0) {
+      roomsTouched += 1;
+      finalized += summary.finalized;
+      results.push({ liveRoomId: room.id, summary });
+    }
+  }
+
+  return { roomsChecked: rooms.length, roomsTouched, finalized, results };
+}

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import type { BreakSpot, LiveRoomItem, User } from "@/generated/prisma/client";
 import { listLiveGiveawaysForRoom } from "@/lib/live-giveaway";
+import {
+  finalizeOverdueLiveAuctionLotsForRoom,
+  LIVE_AUCTION_AUTO_CLOSE_GRACE_MS,
+} from "@/lib/live-auction-finalize";
 import { parseTeamLabelsJson } from "@/lib/live-room-host-auth";
 import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 import { logLiveLoaderDebug, safeDecodeRouteSegment } from "@/lib/live-loader-debug";
@@ -98,8 +102,58 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const itemsWithPurchases = await attachHostConsoleVariantPurchases(roomRow.items);
-    const room = { ...roomRow, items: itemsWithPurchases };
+    // Host polls this endpoint while on air — finalize overdue timers here so settlement does not
+    // depend only on buyer room GETs (empty room / backgrounded buyers used to stall closes).
+    let consoleRoom = roomRow;
+    if (
+      consoleRoom.status === "live" &&
+      (consoleRoom.roomType === "auction" || consoleRoom.roomType === "break" || consoleRoom.roomType === "sale")
+    ) {
+      const nowMs = Date.now();
+      const hasOverdue = consoleRoom.items.some(
+        (it) =>
+          it.status === "active" &&
+          it.biddingOpen &&
+          it.auctionEndsAt != null &&
+          it.auctionEndsAt.getTime() <= nowMs - LIVE_AUCTION_AUTO_CLOSE_GRACE_MS,
+      );
+      if (hasOverdue) {
+        try {
+          await finalizeOverdueLiveAuctionLotsForRoom({
+            liveRoomId,
+            room: {
+              sellerId: consoleRoom.sellerId,
+              roomType: consoleRoom.roomType,
+              roomVersion: consoleRoom.roomVersion,
+            },
+            nowMs,
+            trigger: "read_sweep",
+          });
+          const reloaded = await prisma.liveRoom.findUnique({
+            where: { id: liveRoomId },
+            include: {
+              items: liveRoomItemsHostConsoleInclude,
+              breakSpots: {
+                include: { user: { select: { id: true, username: true, email: true } } },
+                orderBy: { createdAt: "asc" },
+              },
+              messages: {
+                where: { deletedAt: null },
+                orderBy: { createdAt: "desc" },
+                take: messageTake,
+                include: { sender: { select: { username: true, image: true } } },
+              },
+            },
+          });
+          if (reloaded) consoleRoom = reloaded;
+        } catch (e) {
+          console.error("[host-console] finalizeOverdueLiveAuctionLots", e);
+        }
+      }
+    }
+
+    const itemsWithPurchases = await attachHostConsoleVariantPurchases(consoleRoom.items);
+    const room = { ...consoleRoom, items: itemsWithPurchases };
 
     const userSearch = async (q: string) =>
       prisma.user.findMany({

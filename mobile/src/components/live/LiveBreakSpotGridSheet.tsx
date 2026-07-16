@@ -26,6 +26,10 @@ import { isWalletIncompleteError } from '../../lib/buyerWalletErrors';
 import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
 import { formatSoldSpotBuyerLabel } from '../../lib/liveVariantSpotBoard';
 import {
+  isLightSpotAccent,
+  spotAccentColor,
+} from '../../lib/liveBreakPresets';
+import {
   sortVariantsForBuyerDisplay,
   summarizeVariantSpots,
   variantIsAvailable,
@@ -642,11 +646,27 @@ function TeamPill({
   onSelect: () => void;
 }) {
   const soldOut = !variantIsAvailable(variant);
+  // Same accent pattern as host `SellerBreakSpotBoardSheet` / setup grid — team board colors must match.
+  const accent = spotAccentColor(variant.label ?? '', variant.color, wide);
+  const lightAccent = isLightSpotAccent(accent);
+  const textPrimary = soldOut ? 'rgba(255,255,255,0.42)' : lightAccent ? '#111' : '#fff';
+  const textSecondary = soldOut
+    ? 'rgba(255,255,255,0.28)'
+    : lightAccent
+      ? 'rgba(0,0,0,0.62)'
+      : 'rgba(255,255,255,0.72)';
+
   return (
     <Pressable
       style={[
         styles.pill,
         wide ? styles.pillWide : styles.pillTeam,
+        !soldOut && {
+          backgroundColor: lightAccent ? `${accent}ee` : `${accent}33`,
+          borderLeftWidth: 3,
+          borderLeftColor: accent,
+          borderColor: selected ? 'rgba(255,215,80,0.55)' : 'rgba(255,255,255,0.16)',
+        },
         soldOut && styles.pillSold,
         selected && !soldOut && styles.pillSelected,
       ]}
@@ -663,6 +683,7 @@ function TeamPill({
       <LiveRoomText
         style={[
           styles.pillLabel,
+          { color: textPrimary },
           soldOut && styles.pillLabelSold,
           selected && !soldOut && styles.pillLabelSelected,
         ]}
@@ -671,7 +692,7 @@ function TeamPill({
         {variant.label}
       </LiveRoomText>
       {!soldOut ? (
-        <LiveRoomText style={[styles.pillPrice, selected && styles.pillPriceSelected]}>
+        <LiveRoomText style={[styles.pillPrice, { color: textSecondary }, selected && styles.pillPriceSelected]}>
           {fmtMoney(variant.priceUsd)}
         </LiveRoomText>
       ) : (
@@ -909,32 +930,28 @@ const styles = StyleSheet.create({
   },
   pillSelected: {
     borderColor: 'rgba(255,215,80,0.55)',
-    backgroundColor: 'rgba(255,190,40,0.1)',
   },
   pillSold: {
     borderStyle: 'dashed',
     borderColor: 'rgba(255,255,255,0.12)',
+    borderLeftColor: 'rgba(255,255,255,0.12)',
     backgroundColor: 'rgba(255,255,255,0.015)',
     opacity: 0.72,
   },
   pillLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: 'rgba(255,255,255,0.88)',
   },
   pillLabelSelected: {
     fontWeight: '900',
-    color: '#fff',
   },
   pillLabelSold: {
     textDecorationLine: 'line-through',
-    color: 'rgba(255,255,255,0.38)',
   },
   pillPrice: {
     marginTop: 2,
     fontSize: 10,
     fontWeight: '700',
-    color: 'rgba(255,255,255,0.5)',
     fontVariant: ['tabular-nums'],
   },
   pillPriceSelected: {

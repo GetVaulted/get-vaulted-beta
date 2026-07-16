@@ -141,10 +141,10 @@ describe("stage HLS composition (guest HLS mirror)", () => {
 
     await expect(startStageHlsComposition("room_1")).resolves.toBeNull();
 
-    expect(hoisted.compositionSend).toHaveBeenCalledTimes(3);
+    expect(hoisted.compositionSend).toHaveBeenCalledTimes(4);
     expect(hoisted.liveRoomUpdate).toHaveBeenCalledWith({
       where: { id: "room_1" },
       data: { lastIvsError: "stage_composition_start_failed: AccessDeniedException" },
     });
-  }, 15_000);
+  }, 25_000);
 });
