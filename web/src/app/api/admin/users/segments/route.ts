@@ -47,6 +47,7 @@ export async function GET(req: Request) {
   });
 
   const counts = await Promise.all([
+    prisma.user.count(),
     prisma.user.count({ where: { role: "admin" } }),
     prisma.user.count({ where: { suspendedAt: { not: null } } }),
     prisma.user.count({ where: { sellerSetupWizardCompletedAt: { not: null } } }),
@@ -55,10 +56,11 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     counts: {
-      admins: counts[0],
-      suspended: counts[1],
-      sellers: counts[2],
-      buyers: counts[3],
+      total: counts[0],
+      admins: counts[1],
+      suspended: counts[2],
+      sellers: counts[3],
+      buyers: counts[4],
     },
     users: rows.map((u) => ({
       id: u.id,
