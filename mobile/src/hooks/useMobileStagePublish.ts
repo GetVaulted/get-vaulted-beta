@@ -13,7 +13,11 @@ import {
   setStreamsPublished,
   swapCamera,
 } from 'expo-realtime-ivs-broadcast';
-import { endHostStageSession, requestHostStageToken } from '../api/liveRoomStreamRepository';
+import {
+  endHostStageSession,
+  refreshHostStageToken,
+  requestHostStageToken,
+} from '../api/liveRoomStreamRepository';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import { shouldSuspendLiveStageMedia } from '../lib/livePlaybackAppState';
 import {
@@ -27,6 +31,18 @@ import { ensureStageSdkInitialized } from '../lib/stageSdk';
 
 export type MobileHostBroadcastPhase = 'idle' | 'starting' | 'live' | 'paused' | 'stopping';
 export type SellerCameraPermissionState = 'idle' | 'requesting' | 'granted' | 'denied' | 'unavailable';
+
+/** Refresh before server host TTL expires (720 min). Fallback if expiresInSeconds missing. */
+const HOST_TOKEN_REFRESH_LEAD_MS = 60 * 60 * 1000;
+const HOST_TOKEN_REFRESH_FALLBACK_MS = 11 * 60 * 60 * 1000;
+const HOST_MAX_REJOIN_ATTEMPTS = 5;
+
+function hostTokenRefreshDelayMs(expiresInSeconds: number): number {
+  if (expiresInSeconds > 0) {
+    return Math.max(60_000, expiresInSeconds * 1000 - HOST_TOKEN_REFRESH_LEAD_MS);
+  }
+  return HOST_TOKEN_REFRESH_FALLBACK_MS;
+}
 
 function friendlyPublishError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
@@ -62,6 +78,11 @@ export function useMobileStagePublish(args: {
   const phaseRef = useRef<MobileHostBroadcastPhase>('idle');
   const interruptedPublishRef = useRef(false);
   const mountedRef = useRef(true);
+  const intentionalStopRef = useRef(false);
+  const reconnectInFlightRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const tokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectPublishRef = useRef<(trigger: string) => void>(() => {});
 
   const [phase, setPhase] = useState<MobileHostBroadcastPhase>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +141,25 @@ export function useMobileStagePublish(args: {
     return () => sub.remove();
   }, []);
 
+  const clearTokenRefreshTimer = useCallback(() => {
+    if (tokenRefreshTimerRef.current != null) {
+      clearTimeout(tokenRefreshTimerRef.current);
+      tokenRefreshTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleTokenRefresh = useCallback(
+    (expiresInSeconds: number) => {
+      clearTokenRefreshTimer();
+      const delayMs = hostTokenRefreshDelayMs(expiresInSeconds);
+      tokenRefreshTimerRef.current = setTimeout(() => {
+        if (!wentLiveRef.current || intentionalStopRef.current) return;
+        reconnectPublishRef.current('token_refresh');
+      }, delayMs);
+    },
+    [clearTokenRefreshTimer],
+  );
+
   const clearStageListeners = useCallback(() => {
     for (const sub of listenerSubsRef.current) {
       sub.remove();
@@ -129,6 +169,7 @@ export function useMobileStagePublish(args: {
 
   const teardownStageConnection = useCallback(async () => {
     await withIvsStageSerialized(async () => {
+      clearTokenRefreshTimer();
       clearStageListeners();
       publishingRef.current = false;
       try {
@@ -142,10 +183,12 @@ export function useMobileStagePublish(args: {
         /* ignore */
       }
     });
-  }, [clearStageListeners]);
+  }, [clearStageListeners, clearTokenRefreshTimer]);
 
   const releaseLocalDevices = useCallback(async () => {
+    intentionalStopRef.current = true;
     await withIvsStageSerialized(async () => {
+      clearTokenRefreshTimer();
       clearStageListeners();
       publishingRef.current = false;
       try {
@@ -177,7 +220,7 @@ export function useMobileStagePublish(args: {
         /* ignore */
       }
     });
-  }, [clearStageListeners]);
+  }, [clearStageListeners, clearTokenRefreshTimer]);
 
   const endServerSession = useCallback(async () => {
     if (!cbRef.current.accessToken.trim()) return;
@@ -294,6 +337,152 @@ export function useMobileStagePublish(args: {
     }
   }, [microphoneMuted]);
 
+  const attachPublishListeners = useCallback(
+    (opts: { onFirstLive: () => void; allowReconnect: boolean }) => {
+      clearStageListeners();
+
+      const connSub = addOnStageConnectionStateChangedListener((evt) => {
+        if (evt.state === 'connected' && !evt.error) {
+          opts.onFirstLive();
+        }
+      });
+
+      const pubSub = addOnPublishStateChangedListener((evt) => {
+        if (evt.state === 'published') {
+          opts.onFirstLive();
+          return;
+        }
+        if (evt.state === 'failed') {
+          if (opts.allowReconnect && wentLiveRef.current && !intentionalStopRef.current) {
+            reconnectPublishRef.current('publish_failed');
+            return;
+          }
+          setError(evt.error || 'Publish failed.');
+          setPhase('idle');
+          publishingRef.current = false;
+          void teardownStageConnection();
+          if (!wentLiveRef.current) void endServerSession();
+        }
+      });
+
+      const errSub = addOnStageErrorListener((evt) => {
+        if (!evt.isFatal) return;
+        if (opts.allowReconnect && wentLiveRef.current && !intentionalStopRef.current) {
+          reconnectPublishRef.current(`stage_error_${evt.code}`);
+          return;
+        }
+        if (!publishingRef.current && !wentLiveRef.current) return;
+        setError(evt.description || `stage_error_${evt.code}`);
+        setPhase('idle');
+        publishingRef.current = false;
+        void teardownStageConnection();
+        if (!wentLiveRef.current) void endServerSession();
+      });
+
+      listenerSubsRef.current = [connSub, pubSub, errSub];
+    },
+    [clearStageListeners, endServerSession, teardownStageConnection],
+  );
+
+  const reconnectPublish = useCallback(
+    async (trigger: string) => {
+      if (reconnectInFlightRef.current || intentionalStopRef.current || !wentLiveRef.current) return;
+      if (reconnectAttemptsRef.current >= HOST_MAX_REJOIN_ATTEMPTS) {
+        if (mountedRef.current) {
+          setError('Live connection lost. Stop and go live again to continue the show.');
+          setPhase('paused');
+        }
+        publishingRef.current = false;
+        return;
+      }
+
+      reconnectInFlightRef.current = true;
+      reconnectAttemptsRef.current += 1;
+      clearTokenRefreshTimer();
+
+      try {
+        await withIvsStageSerialized(async () => {
+          clearStageListeners();
+          try {
+            await setStreamsPublished(false);
+          } catch {
+            /* ignore */
+          }
+          try {
+            await leaveStage();
+          } catch {
+            /* ignore */
+          }
+        });
+
+        if (intentionalStopRef.current || !mountedRef.current) return;
+
+        const tokenPayload = await refreshHostStageToken(
+          cbRef.current.roomId,
+          cbRef.current.accessToken,
+        );
+
+        attachPublishListeners({
+          onFirstLive: () => {
+            reconnectAttemptsRef.current = 0;
+            publishingRef.current = true;
+            if (mountedRef.current) {
+              setPhase('live');
+              setError(null);
+            }
+            scheduleTokenRefresh(tokenPayload.expiresInSeconds);
+            cbRef.current.onStreamRefresh?.();
+          },
+          allowReconnect: true,
+        });
+
+        await withIvsStageSerialized(async () => {
+          await joinStage(tokenPayload.token);
+          await setStreamsPublished(true);
+        });
+
+        publishingRef.current = true;
+        if (mountedRef.current) {
+          setPhase('live');
+          setError(null);
+        }
+        scheduleTokenRefresh(tokenPayload.expiresInSeconds);
+        cbRef.current.onStreamRefresh?.();
+      } catch (err) {
+        if (reconnectAttemptsRef.current >= HOST_MAX_REJOIN_ATTEMPTS) {
+          if (mountedRef.current) {
+            setError(
+              friendlyPublishError(err) ||
+                'Live connection lost. Stop and go live again to continue the show.',
+            );
+            setPhase('paused');
+          }
+          publishingRef.current = false;
+        } else if (trigger !== 'token_refresh') {
+          // Brief backoff then retry — token refresh failures still count toward the cap.
+          setTimeout(() => {
+            if (!intentionalStopRef.current && wentLiveRef.current) {
+              reconnectPublishRef.current(`retry_${trigger}`);
+            }
+          }, 1_500);
+        } else {
+          setTimeout(() => {
+            if (!intentionalStopRef.current && wentLiveRef.current) {
+              reconnectPublishRef.current('token_refresh_retry');
+            }
+          }, 1_500);
+        }
+      } finally {
+        reconnectInFlightRef.current = false;
+      }
+    },
+    [attachPublishListeners, clearStageListeners, clearTokenRefreshTimer, scheduleTokenRefresh],
+  );
+
+  reconnectPublishRef.current = (trigger: string) => {
+    void reconnectPublish(trigger);
+  };
+
   const start = useCallback(async () => {
     if (!isStageWebrtcEnabled()) {
       setError('Real-Time streaming is disabled in this build.');
@@ -312,7 +501,9 @@ export function useMobileStagePublish(args: {
     }
 
     startInFlightRef.current = true;
+    intentionalStopRef.current = false;
     wentLiveRef.current = false;
+    reconnectAttemptsRef.current = 0;
     setPhase('starting');
     setError(null);
 
@@ -320,6 +511,7 @@ export function useMobileStagePublish(args: {
       if (wentLiveRef.current) return;
       wentLiveRef.current = true;
       publishingRef.current = true;
+      reconnectAttemptsRef.current = 0;
       setPhase('live');
       void cbRef.current.onBroadcastStarted?.();
       cbRef.current.onStreamRefresh?.();
@@ -328,38 +520,19 @@ export function useMobileStagePublish(args: {
     try {
       const tokenPayload = await requestHostStageToken(cbRef.current.roomId, cbRef.current.accessToken);
 
-      const connSub = addOnStageConnectionStateChangedListener((evt) => {
-        if (evt.state === 'connected' && !evt.error) {
+      attachPublishListeners({
+        onFirstLive: () => {
           markLive();
-        }
+          scheduleTokenRefresh(tokenPayload.expiresInSeconds);
+        },
+        allowReconnect: true,
       });
-
-      const pubSub = addOnPublishStateChangedListener((evt) => {
-        if (evt.state === 'published') markLive();
-        if (evt.state === 'failed') {
-          setError(evt.error || 'Publish failed.');
-          setPhase('idle');
-          publishingRef.current = false;
-          void teardownStageConnection();
-          void endServerSession();
-        }
-      });
-
-      const errSub = addOnStageErrorListener((evt) => {
-        if (!evt.isFatal || !publishingRef.current) return;
-        setError(evt.description || `stage_error_${evt.code}`);
-        setPhase('idle');
-        publishingRef.current = false;
-        void teardownStageConnection();
-        void endServerSession();
-      });
-
-      listenerSubsRef.current = [connSub, pubSub, errSub];
 
       await withIvsStageSerialized(async () => {
         await joinStage(tokenPayload.token);
         await setStreamsPublished(true);
       });
+      scheduleTokenRefresh(tokenPayload.expiresInSeconds);
     } catch (err) {
       await teardownStageConnection();
       await endServerSession();
@@ -368,10 +541,19 @@ export function useMobileStagePublish(args: {
     } finally {
       startInFlightRef.current = false;
     }
-  }, [ensureLocalPreview, endServerSession, permissionError, teardownStageConnection]);
+  }, [
+    attachPublishListeners,
+    ensureLocalPreview,
+    endServerSession,
+    permissionError,
+    scheduleTokenRefresh,
+    teardownStageConnection,
+  ]);
 
   /** Stop publishing to buyers; keep local preview for the seller. */
   const stop = useCallback(async () => {
+    intentionalStopRef.current = true;
+    clearTokenRefreshTimer();
     setPhase((prev) => (prev === 'live' || prev === 'starting' || prev === 'paused' ? 'stopping' : prev));
     if (!publishingRef.current && phase === 'idle') return;
     setError(null);
@@ -384,9 +566,10 @@ export function useMobileStagePublish(args: {
     } finally {
       wentLiveRef.current = false;
       interruptedPublishRef.current = false;
+      reconnectAttemptsRef.current = 0;
       setPhase('idle');
     }
-  }, [endServerSession, phase, teardownStageConnection]);
+  }, [clearTokenRefreshTimer, endServerSession, phase, teardownStageConnection]);
 
   /** Pause video/audio to buyers while keeping the stage session warm. */
   const pause = useCallback(async () => {

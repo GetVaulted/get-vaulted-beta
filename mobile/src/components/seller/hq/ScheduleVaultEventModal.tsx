@@ -117,6 +117,8 @@ export function ScheduleVaultEventModal({
   const [scheduleMode, setScheduleMode] = useState<CreateScheduleMode>('now');
   const [scheduledDate, setScheduledDate] = useState(defaultScheduledDate);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  /** Android cannot use mode="datetime" — open time after date. */
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [thumbUrl, setThumbUrl] = useState('');
@@ -234,6 +236,7 @@ export function ScheduleVaultEventModal({
     setScheduleMode('now');
     setScheduledDate(defaultScheduledDate());
     setShowDatePicker(false);
+    setShowTimePicker(false);
     setThumbUrl('');
     setThumbError(null);
     setBreakPricingMode('auction');
@@ -705,27 +708,68 @@ export function ScheduleVaultEventModal({
           </View>
           {scheduleMode === 'later' ? (
             <>
-              <Pressable style={styles.dateBtn} onPress={() => setShowDatePicker(true)}>
+              <Pressable
+                style={styles.dateBtn}
+                onPress={() => {
+                  setShowTimePicker(false);
+                  setShowDatePicker(true);
+                }}
+              >
                 <Ionicons name="time-outline" size={18} color={colors.gold} />
                 <Text style={styles.dateTxt}>{formatScheduledDate(scheduledDate)}</Text>
               </Pressable>
-              {showDatePicker ? (
+              {Platform.OS === 'ios' && showDatePicker ? (
+                <>
+                  <DateTimePicker
+                    value={scheduledDate}
+                    mode="datetime"
+                    display="spinner"
+                    minimumDate={new Date()}
+                    minuteInterval={15}
+                    onChange={(_, d) => {
+                      if (d) setScheduledDate(alignScheduleToQuarterHour(d));
+                    }}
+                  />
+                  <Pressable
+                    style={styles.donePicker}
+                    onPress={() => {
+                      setShowDatePicker(false);
+                      setShowTimePicker(false);
+                    }}
+                  >
+                    <Text style={styles.donePickerTxt}>Done</Text>
+                  </Pressable>
+                </>
+              ) : null}
+              {Platform.OS === 'android' && showDatePicker ? (
                 <DateTimePicker
                   value={scheduledDate}
-                  mode="datetime"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  mode="date"
+                  display="default"
                   minimumDate={new Date()}
-                  minuteInterval={15}
-                  onChange={(_, d) => {
-                    if (Platform.OS === 'android') setShowDatePicker(false);
-                    if (d) setScheduledDate(alignScheduleToQuarterHour(d));
+                  onChange={(event, d) => {
+                    setShowDatePicker(false);
+                    if (event.type === 'dismissed' || !d) return;
+                    const next = new Date(scheduledDate);
+                    next.setFullYear(d.getFullYear(), d.getMonth(), d.getDate());
+                    setScheduledDate(alignScheduleToQuarterHour(next));
+                    setShowTimePicker(true);
                   }}
                 />
               ) : null}
-              {Platform.OS === 'ios' && showDatePicker ? (
-                <Pressable style={styles.donePicker} onPress={() => setShowDatePicker(false)}>
-                  <Text style={styles.donePickerTxt}>Done</Text>
-                </Pressable>
+              {Platform.OS === 'android' && showTimePicker ? (
+                <DateTimePicker
+                  value={scheduledDate}
+                  mode="time"
+                  display="default"
+                  onChange={(event, d) => {
+                    setShowTimePicker(false);
+                    if (event.type === 'dismissed' || !d) return;
+                    const next = new Date(scheduledDate);
+                    next.setHours(d.getHours(), d.getMinutes(), 0, 0);
+                    setScheduledDate(alignScheduleToQuarterHour(next));
+                  }}
+                />
               ) : null}
               <Text style={styles.helperTxt}>Start times snap to 15-minute increments.</Text>
               <View style={styles.toggleRow}>

@@ -17,7 +17,7 @@
       "supportsTablet": true,
       "usesAppleSignIn": true,
       "bundleIdentifier": "com.getvaulted.app",
-      "buildNumber": "111",
+      "buildNumber": "112",
       "associatedDomains": [
         "applinks:shopgetvaulted.com",
         "applinks:www.shopgetvaulted.com",
@@ -35,7 +35,7 @@
     },
     "android": {
       "package": "com.getvaulted.app",
-      "versionCode": 111,
+      "versionCode": 112,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#050505"
@@ -123,8 +123,8 @@
       [
         "expo-video",
         {
-          "supportsPictureInPicture": true,
-          "supportsBackgroundPlayback": true
+          "supportsPictureInPicture": false,
+          "supportsBackgroundPlayback": false
         }
       ],
       [

@@ -26,16 +26,17 @@ function parseStageTokenPayload(raw: unknown): StageTokenPayload | null {
 async function stageTokenFetch(
   roomId: string,
   accessToken: string,
-  method: 'GET' | 'POST' | 'DELETE',
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
 ): Promise<Response | null> {
   if (!accessToken.trim()) return null;
+  const withBody = method === 'POST' || method === 'PATCH';
   return fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(roomId)}/stream/stage-token`, {
     method,
     headers: {
       Authorization: `Bearer ${accessToken}`,
-      ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+      ...(withBody ? { 'Content-Type': 'application/json' } : {}),
     },
-    ...(method === 'POST' ? { body: '{}' } : {}),
+    ...(withBody ? { body: '{}' } : {}),
   });
 }
 
@@ -93,6 +94,22 @@ export async function requestHostStageToken(
   accessToken: string,
 ): Promise<StageTokenPayload> {
   const res = await stageTokenFetch(roomId, accessToken, 'POST');
+  if (!res) throw new Error('Set EXPO_PUBLIC_SITE_URL to your Next.js API host.');
+  const raw = (await res.json().catch(() => null)) as unknown;
+  const token = parseStageTokenPayload(raw);
+  if (!res.ok || !token) throw new Error(stageTokenErrorMessage(res, raw));
+  return token;
+}
+
+/**
+ * Mint a fresh host publish token for an in-progress show without ending the Stage session.
+ * Used for proactive refresh before the 60-minute participant token TTL.
+ */
+export async function refreshHostStageToken(
+  roomId: string,
+  accessToken: string,
+): Promise<StageTokenPayload> {
+  const res = await stageTokenFetch(roomId, accessToken, 'PATCH');
   if (!res) throw new Error('Set EXPO_PUBLIC_SITE_URL to your Next.js API host.');
   const raw = (await res.json().catch(() => null)) as unknown;
   const token = parseStageTokenPayload(raw);
