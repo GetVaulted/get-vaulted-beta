@@ -5,6 +5,7 @@ import {
   USERNAME_UNAVAILABLE_MESSAGE,
   usernamePolicyUserMessage,
 } from '../lib/username-policy';
+import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import { prepareProfileAvatarForUpload, avatarUrlWithCacheBust } from '../lib/profileAvatarUpload';
 import { getSupabase } from '../lib/supabase';
 import type { ProfileLite } from '../types/tradeOffers';
@@ -131,13 +132,6 @@ export async function checkUsernameAvailable(raw: string): Promise<{ available: 
   return { available: true };
 }
 
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binary = globalThis.atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
-}
-
 async function withDeadline<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -153,8 +147,8 @@ async function withDeadline<T>(promise: Promise<T>, ms: number, label: string): 
 }
 
 /**
- * Upload JPEG straight to Supabase Storage (`avatars/{userId}/avatar.jpg`).
- * Same pattern as listing media — no Netlify multipart (that hung forever on RN).
+ * Upload via JSON base64 → `/api/uploads/avatar` (service role).
+ * Avoids RN multipart hang AND client Storage RLS upsert failures.
  */
 export async function uploadMyAvatar(userId: string, localUri: string, _mimeType?: string): Promise<string> {
   const sb = getSupabase();
@@ -162,43 +156,48 @@ export async function uploadMyAvatar(userId: string, localUri: string, _mimeType
   const authId = userId.trim();
   if (!authId) throw new Error('Sign in again to upload a profile photo.');
 
+  const { data: sessionData } = await withDeadline(sb.auth.getSession(), 8_000, 'session');
+  const accessToken = sessionData.session?.access_token?.trim();
+  if (!accessToken) throw new Error('Sign in again to upload a profile photo.');
+
   const preparedUri = await withDeadline(prepareProfileAvatarForUpload(localUri), 15_000, 'photo prepare');
   const base64 = await withDeadline(readAsStringAsync(preparedUri, { encoding: 'base64' }), 10_000, 'read photo');
-  const body = base64ToArrayBuffer(base64);
-  const objectKey = `${authId}/avatar.jpg`;
+  if (!base64?.trim()) throw new Error('Could not read photo data.');
 
-  const { error: uploadError } = await withDeadline(
-    sb.storage.from('avatars').upload(objectKey, body, {
-      contentType: 'image/jpeg',
-      upsert: true,
-      cacheControl: '3600',
-    }),
-    20_000,
-    'avatar upload',
+  const res = await fetchWebApiMobile(
+    '/api/uploads/avatar',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ base64, contentType: 'image/jpeg' }),
+    },
+    { timeoutMs: 45_000 },
   );
-  if (uploadError) {
-    const msg = (uploadError.message || '').toLowerCase();
-    if (msg.includes('row-level security') || msg.includes('permission') || msg.includes('not authorized')) {
-      throw new Error('Photo upload denied — sign in again and retry.');
-    }
-    throw new Error(uploadError.message?.trim() || 'Could not upload photo.');
-  }
 
-  const { data } = sb.storage.from('avatars').getPublicUrl(objectKey);
-  const publicUrl = data.publicUrl?.trim();
-  if (!publicUrl) throw new Error('Could not resolve avatar URL');
+  let payload: { url?: string; error?: string } | null = null;
+  try {
+    payload = (await res.json()) as { url?: string; error?: string };
+  } catch {
+    payload = null;
+  }
+  if (!res.ok) {
+    throw new Error(payload?.error?.trim() || `Upload failed (${res.status}).`);
+  }
+  const publicUrl = payload?.url?.trim();
+  if (!publicUrl) throw new Error('Upload did not return a photo URL.');
   const busted = avatarUrlWithCacheBust(publicUrl);
 
-  const { error: profileError } = await withDeadline(
-    sb.from('profiles').update({ avatar_url: busted }).eq('id', authId),
-    8_000,
-    'save avatar url',
-  );
-  if (profileError) {
-    throw new Error(profileError.message?.trim() || 'Photo uploaded but profile did not save.');
-  }
-
-  // Secondary — never block UI.
+  // Best-effort local profile row — server already persists; never block return on this.
+  void sb
+    .from('profiles')
+    .update({ avatar_url: busted })
+    .eq('id', authId)
+    .then(({ error }) => {
+      if (error) console.warn('[uploadMyAvatar] profiles update', error.message);
+    });
   void sb.auth.updateUser({ data: { avatar_url: busted } }).then(({ error }) => {
     if (error) console.warn('[uploadMyAvatar] auth metadata', error.message);
   });

@@ -83,7 +83,11 @@ function logHtmlEdge(path: string, url: string, res: Response, preview: string):
 }
 
 /** Mobile → Next.js API fetch with the same headers as POST /api/live-rooms. */
-export async function fetchWebApiMobile(path: string, init: RequestInit = {}): Promise<Response> {
+export async function fetchWebApiMobile(
+  path: string,
+  init: RequestInit = {},
+  options?: { timeoutMs?: number },
+): Promise<Response> {
   const base = getWebApiBaseUrl();
   if (!base) {
     throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
@@ -95,16 +99,17 @@ export async function fetchWebApiMobile(path: string, init: RequestInit = {}): P
     throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
   }
 
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const headers = applyMobileApiHeaders(init);
   const requestInit: RequestInit = { ...init, headers };
 
   try {
-    let res = await fetchOnce(url, requestInit);
+    let res = await fetchOnce(url, requestInit, timeoutMs);
     let preview = await responsePreview(res);
     if (isLikelyHtmlEdgeResponse(res, preview)) {
       logHtmlEdge(path, url, res, preview);
       await new Promise((r) => setTimeout(r, 300));
-      res = await fetchOnce(url, requestInit);
+      res = await fetchOnce(url, requestInit, timeoutMs);
       preview = await responsePreview(res);
       if (isLikelyHtmlEdgeResponse(res, preview)) logHtmlEdge(path, url, res, preview);
     }

@@ -311,8 +311,10 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     const asset = picked.assets[0];
     try {
       const url = await uploadMyAvatar(user.id, asset.uri, asset.mimeType ?? 'image/jpeg');
-      await persistProfileAvatarEverywhere({ userId: user.id, accessToken: token, publicUrl: url });
       setProfileImage(url);
+      void persistProfileAvatarEverywhere({ userId: user.id, accessToken: token, publicUrl: url }).catch((e) =>
+        console.warn('[SellerSetup] avatar sync', e),
+      );
     } catch (e) {
       Alert.alert('Upload failed', e instanceof Error ? e.message : 'Could not upload photo.');
     }

@@ -3,6 +3,7 @@ import { Image } from 'expo-image';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   PanResponder,
   Platform,
@@ -96,9 +97,21 @@ export function ProfileAvatarCropModal({
         offsetX: offset.x,
         offsetY: offset.y,
       });
-      const cropped = await cropAvatarImage(imageUri, crop);
-      const prepared = await prepareProfileAvatarForUpload(cropped);
+      const cropped = await Promise.race([
+        cropAvatarImage(imageUri, crop),
+        new Promise<string>((_, reject) => {
+          setTimeout(() => reject(new Error('Crop timed out. Try another photo.')), 12_000);
+        }),
+      ]);
+      const prepared = await Promise.race([
+        prepareProfileAvatarForUpload(cropped),
+        new Promise<string>((_, reject) => {
+          setTimeout(() => reject(new Error('Photo prepare timed out. Try another photo.')), 12_000);
+        }),
+      ]);
       onConfirm(prepared);
+    } catch (e) {
+      Alert.alert('Could not crop photo', e instanceof Error ? e.message : 'Try another photo.');
     } finally {
       setProcessing(false);
     }
@@ -108,7 +121,7 @@ export function ProfileAvatarCropModal({
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
       <View style={[styles.root, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.md }]}>
         <View style={styles.header}>
-          <Pressable onPress={onClose} hitSlop={12} disabled={busy || processing}>
+          <Pressable onPress={onClose} hitSlop={12}>
             <Text style={styles.cancelTxt}>Cancel</Text>
           </Pressable>
           <Text style={styles.title}>Crop profile photo</Text>

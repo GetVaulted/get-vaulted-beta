@@ -2,9 +2,8 @@
  * Profile avatar uploads → Supabase Storage `avatars/{authUserId}/avatar.jpg` (service role).
  * Prefer this over `/api/uploads/listing-image` so seller/profile photos are not listing media.
  *
- * Mobile profile edit awaits this request with no reliable abort on multipart uploads, so this
- * handler must return (or fail) quickly: JWT-only auth, bounded form parse/upload, and
- * non-blocking profile URL persistence.
+ * Mobile sends JSON `{ base64, contentType }` (preferred). Multipart FormData is still accepted
+ * for web, but RN multipart uploads hang and do not abort reliably.
  */
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
@@ -205,36 +204,75 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Could not verify session. Try again." }, { status: 504 });
   }
 
-  let form: FormData;
-  try {
-    form = await withTimeout(req.formData(), FORM_MS, "avatar formData");
-  } catch (e) {
-    console.error("[uploads/avatar] formData failed", e instanceof Error ? e.message : e);
-    return NextResponse.json(
-      { error: "Upload timed out while reading the photo. Try a smaller image." },
-      { status: 504 },
-    );
+  let buf: Buffer;
+  let mime: string;
+
+  const contentType = req.headers.get("content-type")?.toLowerCase() ?? "";
+  // Prefer JSON base64 from mobile — RN FormData multipart hangs and never aborts reliably.
+  if (contentType.includes("application/json")) {
+    let body: { base64?: string; contentType?: string };
+    try {
+      body = (await withTimeout(req.json(), FORM_MS, "avatar json")) as {
+        base64?: string;
+        contentType?: string;
+      };
+    } catch (e) {
+      console.error("[uploads/avatar] json body failed", e instanceof Error ? e.message : e);
+      return NextResponse.json(
+        { error: "Upload timed out while reading the photo. Try a smaller image." },
+        { status: 504 },
+      );
+    }
+    const rawBase64 = typeof body.base64 === "string" ? body.base64.trim() : "";
+    const payload = rawBase64.includes(",") ? (rawBase64.split(",").pop() ?? "") : rawBase64;
+    if (!payload) {
+      return NextResponse.json({ error: "Missing base64 image payload." }, { status: 400 });
+    }
+    mime = (body.contentType?.trim() || "image/jpeg").toLowerCase();
+    if (!ALLOWED.has(mime)) {
+      return NextResponse.json(
+        { error: "Missing file or invalid type. Use JPG, PNG, or WebP." },
+        { status: 400 },
+      );
+    }
+    try {
+      buf = Buffer.from(payload, "base64");
+    } catch {
+      return NextResponse.json({ error: "Invalid base64 image payload." }, { status: 400 });
+    }
+  } else {
+    let form: FormData;
+    try {
+      form = await withTimeout(req.formData(), FORM_MS, "avatar formData");
+    } catch (e) {
+      console.error("[uploads/avatar] formData failed", e instanceof Error ? e.message : e);
+      return NextResponse.json(
+        { error: "Upload timed out while reading the photo. Try a smaller image." },
+        { status: 504 },
+      );
+    }
+
+    const file = readUploadedImage(form);
+    if (!file) {
+      return NextResponse.json(
+        { error: "Missing file or invalid type. Use JPG, PNG, or WebP." },
+        { status: 400 },
+      );
+    }
+    mime = file.mime;
+    buf = Buffer.from(await file.blob.arrayBuffer());
   }
 
-  const file = readUploadedImage(form);
-  if (!file) {
-    return NextResponse.json(
-      { error: "Missing file or invalid type. Use JPG, PNG, or WebP." },
-      { status: 400 },
-    );
-  }
-
-  if (file.size > MAX_BYTES) {
+  if (buf.length > MAX_BYTES) {
     return NextResponse.json({ error: "File must be 5MB or smaller." }, { status: 400 });
   }
 
-  const buf = Buffer.from(await file.blob.arrayBuffer());
-  if (!magicMatches(buf, file.mime)) {
+  if (!magicMatches(buf, mime)) {
     return NextResponse.json({ error: "File does not match its type." }, { status: 400 });
   }
 
   // Always store as JPEG path for stable public URL; content-type may still be png/webp.
-  const uploaded = await uploadAvatarToSupabase(authUserId, buf, file.mime);
+  const uploaded = await uploadAvatarToSupabase(authUserId, buf, mime);
   if (!uploaded.ok) {
     return NextResponse.json({ error: uploaded.message }, { status: 502 });
   }
