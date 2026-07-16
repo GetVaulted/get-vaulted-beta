@@ -698,7 +698,13 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         viewerCount={console.viewerCount}
         streamOnAir={broadcastOnAir}
         liveStartedAt={roomLive ? host.room?.startedAt ?? null : null}
-        onBack={() => navigation.goBack()}
+        onBack={() => {
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+            return;
+          }
+          navigation.navigate('MainTabs', { screen: 'Live', params: { screen: 'LiveDiscovery' } });
+        }}
         onBroadcastSettings={() => setBroadcastOpen(true)}
         onEndShow={host.stageWebrtcEnabled ? undefined : () => host.onEndShow()}
         canEnd={canEnd && !host.stageWebrtcEnabled}

@@ -22,6 +22,7 @@ import {
   SELLER_DEFAULT_CAMERA_FACING,
   type SellerCameraFacing,
 } from '../lib/sellerHostCamera';
+import { withIvsStageSerialized } from '../lib/ivsStageGate';
 import { ensureStageSdkInitialized } from '../lib/stageSdk';
 
 export type MobileHostBroadcastPhase = 'idle' | 'starting' | 'live' | 'paused' | 'stopping';
@@ -127,41 +128,56 @@ export function useMobileStagePublish(args: {
   }, []);
 
   const teardownStageConnection = useCallback(async () => {
-    clearStageListeners();
-    publishingRef.current = false;
-    try {
-      await setStreamsPublished(false);
-    } catch {
-      /* ignore */
-    }
-    try {
-      await leaveStage();
-    } catch {
-      /* ignore */
-    }
+    await withIvsStageSerialized(async () => {
+      clearStageListeners();
+      publishingRef.current = false;
+      try {
+        await setStreamsPublished(false);
+      } catch {
+        /* ignore */
+      }
+      try {
+        await leaveStage();
+      } catch {
+        /* ignore */
+      }
+    });
   }, [clearStageListeners]);
 
   const releaseLocalDevices = useCallback(async () => {
-    await teardownStageConnection();
-    try {
-      await destroyLocalStreams();
-    } catch {
-      /* ignore */
-    }
-    localStreamsReadyRef.current = false;
-    rearDefaultAppliedRef.current = false;
-    if (mountedRef.current) {
-      setLocalPreviewReady(false);
-      setCameraFacing(SELLER_DEFAULT_CAMERA_FACING);
-      setMicrophoneMutedState(false);
-      setPermissionState('idle');
-    }
-    try {
-      await setMicrophoneMuted(false);
-    } catch {
-      /* ignore */
-    }
-  }, [teardownStageConnection]);
+    await withIvsStageSerialized(async () => {
+      clearStageListeners();
+      publishingRef.current = false;
+      try {
+        await setStreamsPublished(false);
+      } catch {
+        /* ignore */
+      }
+      try {
+        await leaveStage();
+      } catch {
+        /* ignore */
+      }
+      try {
+        await destroyLocalStreams();
+      } catch {
+        /* ignore */
+      }
+      localStreamsReadyRef.current = false;
+      rearDefaultAppliedRef.current = false;
+      if (mountedRef.current) {
+        setLocalPreviewReady(false);
+        setCameraFacing(SELLER_DEFAULT_CAMERA_FACING);
+        setMicrophoneMutedState(false);
+        setPermissionState('idle');
+      }
+      try {
+        await setMicrophoneMuted(false);
+      } catch {
+        /* ignore */
+      }
+    });
+  }, [clearStageListeners]);
 
   const endServerSession = useCallback(async () => {
     if (!cbRef.current.accessToken.trim()) return;
@@ -203,8 +219,10 @@ export function useMobileStagePublish(args: {
         return false;
       }
 
-      await initializeLocalStreams();
-      await applyDefaultRearCamera();
+      await withIvsStageSerialized(async () => {
+        await initializeLocalStreams();
+        await applyDefaultRearCamera();
+      });
 
       localStreamsReadyRef.current = true;
       setLocalPreviewReady(true);
@@ -245,11 +263,13 @@ export function useMobileStagePublish(args: {
     setLocalPreviewReady(false);
     setPermissionState('idle');
     setPermissionError(null);
-    try {
-      await destroyLocalStreams();
-    } catch {
-      /* ignore */
-    }
+    await withIvsStageSerialized(async () => {
+      try {
+        await destroyLocalStreams();
+      } catch {
+        /* ignore */
+      }
+    });
     await ensureLocalPreview();
   }, [ensureLocalPreview]);
 
@@ -336,8 +356,10 @@ export function useMobileStagePublish(args: {
 
       listenerSubsRef.current = [connSub, pubSub, errSub];
 
-      await joinStage(tokenPayload.token);
-      await setStreamsPublished(true);
+      await withIvsStageSerialized(async () => {
+        await joinStage(tokenPayload.token);
+        await setStreamsPublished(true);
+      });
     } catch (err) {
       await teardownStageConnection();
       await endServerSession();

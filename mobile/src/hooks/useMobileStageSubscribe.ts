@@ -6,6 +6,7 @@ import {
   leaveStage,
   useStageParticipants,
 } from 'expo-realtime-ivs-broadcast';
+import { joinStageSerialized, leaveStageSerialized } from '../lib/ivsStageGate';
 import { invalidateViewerStageToken, resolveViewerStageToken } from '../lib/liveStreamPrefetchCache';
 import { ensureStageSdkInitialized } from '../lib/stageSdk';
 
@@ -93,9 +94,7 @@ export function useMobileStageSubscribe(args: {
       connectedRef.current = false;
       setPhase('idle');
       setConnectionState('disconnected');
-      void leaveStage().catch(() => {
-        /* stage may already be left */
-      });
+      void leaveStageSerialized(() => leaveStage());
       return;
     }
 
@@ -130,9 +129,7 @@ export function useMobileStageSubscribe(args: {
       connectedRef.current = false;
       setPhase('failed');
       setConnectionState('disconnected');
-      void leaveStage().catch(() => {
-        /* ignore */
-      });
+      void leaveStageSerialized(() => leaveStage());
       cbRef.current.onFailed(reason);
     };
 
@@ -159,9 +156,7 @@ export function useMobileStageSubscribe(args: {
       clearTimers();
       teardownListeners();
       try {
-        await leaveStage().catch(() => {
-          /* ignore */
-        });
+        await leaveStageSerialized(() => leaveStage());
         if (cancelled) return;
         await joinOnce();
       } finally {
@@ -226,11 +221,9 @@ export function useMobileStageSubscribe(args: {
         }
         if (cancelled) return;
 
-        await joinStage(token);
+        await joinStageSerialized(joinStage, token);
         if (cancelled) {
-          await leaveStage().catch(() => {
-            /* ignore */
-          });
+          await leaveStageSerialized(() => leaveStage());
           return;
         }
 
@@ -256,9 +249,7 @@ export function useMobileStageSubscribe(args: {
       connectedRef.current = false;
       setPhase('idle');
       setConnectionState('disconnected');
-      void leaveStage().catch(() => {
-        /* ignore */
-      });
+      void leaveStageSerialized(() => leaveStage());
     };
   }, [args.active, args.accessToken, args.roomId, args.refreshNonce, args.subscribeEpoch]);
 

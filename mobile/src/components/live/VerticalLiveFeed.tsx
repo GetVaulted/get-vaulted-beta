@@ -18,8 +18,8 @@ import {
   View,
 } from 'react-native';
 import PagerView from 'react-native-pager-view';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { runOnJS } from 'react-native-reanimated';
+import { GestureDetector } from 'react-native-gesture-handler';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../theme';
 import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
@@ -34,6 +34,7 @@ import { rootNavigationRef } from '../../navigation/rootNavigationRef';
 import { openLiveHostProfile, openUserProfile } from '../../navigation/openPlatform';
 import { UserAvatar } from '../ui/UserAvatar';
 import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
+import { LiveImmersiveRestoreHint } from './LiveImmersiveRestoreHint';
 import { LiveSpotTakenCelebration } from './LiveSpotTakenCelebration';
 import { VaultRevealOverlay } from './VaultRevealOverlay';
 import { LiveGiveawaySideTab } from './LiveGiveawaySideTab';
@@ -292,6 +293,8 @@ function LiveSlide({
         stackNav.goBack();
         return;
       }
+      // Never leave buyers stranded on a blank LiveRoom with no tabs / Back.
+      stackNav.navigate('LiveDiscovery');
       onBack?.();
     });
   }, [onBack, onPaymentBlockerChange, onWalletGateHostChange, stackNav]);
@@ -555,14 +558,15 @@ function LiveSlide({
 
   useEffect(() => {
     if (!isActive || liveSession.unresolvedPaymentFailure) return;
-    onPaymentBlockerChange?.(walletParticipationBlocked || walletGateSheetOpen);
+    // Only block feed gestures while a wallet sheet/modal is open — incomplete
+    // wallet readiness must not freeze vertical show-to-show scrolling.
+    onPaymentBlockerChange?.(walletGateSheetOpen);
     return () => onPaymentBlockerChange?.(false);
   }, [
     isActive,
     liveSession.unresolvedPaymentFailure,
     onPaymentBlockerChange,
     walletGateSheetOpen,
-    walletParticipationBlocked,
   ]);
 
   const participationBlockMessage = useMemo(() => {
@@ -1602,6 +1606,22 @@ function LiveSlide({
       </View>
       ) : null}
                 </Animated.View>
+                <LiveImmersiveRestoreHint
+                  visible={isActive && immersiveChrome.immersive}
+                  onPress={immersiveChrome.restore}
+                  topInset={stageInsets.top}
+                />
+                {isActive && immersiveChrome.immersive && onBack ? (
+                  <Pressable
+                    onPress={onBack}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    style={[styles.immersiveBack, { top: stageInsets.top + 6 }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Back"
+                  >
+                    <Ionicons name="chevron-back" size={22} color="rgba(255,255,255,0.92)" />
+                  </Pressable>
+                ) : null}
               </View>
             </GestureDetector>
 
@@ -1871,31 +1891,9 @@ export function VerticalLiveFeed({
     walletGateActionsRef.current?.leaveRoom();
   }, []);
 
-  const feedGesturesEnabled = !walletOverlayActive && !paymentBlockerActive && streams.length > 1;
-
-  const goToRelativePage = useCallback(
-    (delta: number) => {
-      const next = page + delta;
-      if (next < 0 || next >= streams.length) return;
-      pagerRef.current?.setPage(next);
-      setPage(next);
-      setPeekPage(null);
-    },
-    [page, streams.length],
-  );
-
-  const showSwipeGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .enabled(feedGesturesEnabled)
-        .activeOffsetY([-28, 28])
-        .failOffsetX([-22, 22])
-        .onEnd((event) => {
-          if (event.translationY <= -72) runOnJS(goToRelativePage)(1);
-          else if (event.translationY >= 72) runOnJS(goToRelativePage)(-1);
-        }),
-    [feedGesturesEnabled, goToRelativePage],
-  );
+  // Only pause native paging while a wallet sheet is actually open — never for
+  // incomplete wallet readiness (that was freezing show-to-show scroll).
+  const feedGesturesEnabled = streams.length > 1 && !walletOverlayActive && !paymentBlockerActive;
 
   const warmPageIndices = useMemo(() => {
     const indices = new Set<number>([page]);
@@ -2040,64 +2038,62 @@ export function VerticalLiveFeed({
 
   return (
     <>
-      <GestureDetector gesture={showSwipeGesture}>
-        <View
-          style={styles.feedRoot}
-          onLayout={(e) => {
-            const { width, height } = e.nativeEvent.layout;
-            if (width > 0 && height > 0) {
-              setLayoutSize((prev) =>
-                prev?.width === width && prev?.height === height ? prev : { width, height },
-              );
+      <View
+        style={styles.feedRoot}
+        onLayout={(e) => {
+          const { width, height } = e.nativeEvent.layout;
+          if (width > 0 && height > 0) {
+            setLayoutSize((prev) =>
+              prev?.width === width && prev?.height === height ? prev : { width, height },
+            );
+          }
+        }}
+      >
+        <PagerView
+          ref={pagerRef}
+          key={initialStreamId ?? 'default'}
+          style={styles.feedPager}
+          initialPage={startIndex}
+          orientation="vertical"
+          scrollEnabled={feedGesturesEnabled}
+          onPageScroll={(e) => {
+            const { position, offset } = e.nativeEvent;
+            if (offset > 0.06 && position + 1 < streams.length) {
+              setPeekPage(position + 1);
+            } else if (offset < -0.06 && position > 0) {
+              setPeekPage(position - 1);
+            } else {
+              setPeekPage(null);
             }
           }}
+          onPageSelected={(e) => {
+            setPage(e.nativeEvent.position);
+            setPeekPage(null);
+          }}
         >
-          <PagerView
-            ref={pagerRef}
-            key={initialStreamId ?? 'default'}
-            style={styles.feedPager}
-            initialPage={startIndex}
-            orientation="vertical"
-            scrollEnabled={feedGesturesEnabled}
-            onPageScroll={(e) => {
-              const { position, offset } = e.nativeEvent;
-              if (offset > 0.06 && position + 1 < streams.length) {
-                setPeekPage(position + 1);
-              } else if (offset < -0.06 && position > 0) {
-                setPeekPage(position - 1);
-              } else {
-                setPeekPage(null);
-              }
-            }}
-            onPageSelected={(e) => {
-              setPage(e.nativeEvent.position);
-              setPeekPage(null);
-            }}
-          >
-            {streams.map((stream, index) => (
-              <View key={stream.id} style={styles.page} collapsable={false}>
-                <LiveSlide
-                  stream={stream}
-                  isActive={index === page}
-                  playbackMode={resolvePlaybackMode(index)}
-                  stageContainer={stageContainer}
-                  screenHeight={viewportHeight}
-                  onBack={onBack}
-                  signedIn={signedIn}
-                  onRequireAuth={onRequireAuth}
-                  accessToken={accessToken}
-                  userId={userId}
-                  onWalletOverlayChange={setWalletOverlayActive}
-                  onPaymentBlockerChange={setPaymentBlockerActive}
-                  onWalletGateHostChange={handleWalletGateHostChange}
-                  roomVisitNonce={roomVisitNonce}
-                  onSpotCelebrationHostChange={handleSpotCelebrationHostChange}
-                />
-              </View>
-            ))}
-          </PagerView>
-        </View>
-      </GestureDetector>
+          {streams.map((stream, index) => (
+            <View key={stream.id} style={styles.page} collapsable={false}>
+              <LiveSlide
+                stream={stream}
+                isActive={index === page}
+                playbackMode={resolvePlaybackMode(index)}
+                stageContainer={stageContainer}
+                screenHeight={viewportHeight}
+                onBack={onBack}
+                signedIn={signedIn}
+                onRequireAuth={onRequireAuth}
+                accessToken={accessToken}
+                userId={userId}
+                onWalletOverlayChange={setWalletOverlayActive}
+                onPaymentBlockerChange={setPaymentBlockerActive}
+                onWalletGateHostChange={handleWalletGateHostChange}
+                roomVisitNonce={roomVisitNonce}
+                onSpotCelebrationHostChange={handleSpotCelebrationHostChange}
+              />
+            </View>
+          ))}
+        </PagerView>
+      </View>
       {walletGateHost ? (
         <LiveBuyerWalletGateModal
           visible={walletGateHost.showModal}
@@ -2141,6 +2137,17 @@ const styles = StyleSheet.create({
   },
   page: {
     flex: 1,
+  },
+  immersiveBack: {
+    position: 'absolute',
+    left: spacing.md,
+    zIndex: 26,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
   slide: {
     flex: 1,

@@ -17,7 +17,7 @@
       "supportsTablet": true,
       "usesAppleSignIn": true,
       "bundleIdentifier": "com.getvaulted.app",
-      "buildNumber": "110",
+      "buildNumber": "111",
       "associatedDomains": [
         "applinks:shopgetvaulted.com",
         "applinks:www.shopgetvaulted.com",
@@ -35,7 +35,7 @@
     },
     "android": {
       "package": "com.getvaulted.app",
-      "versionCode": 109,
+      "versionCode": 111,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#050505"

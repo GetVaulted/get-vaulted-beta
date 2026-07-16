@@ -39,11 +39,6 @@ import {
   shouldThrottleLiveDiscoveryFetch,
 } from '../lib/liveDiscoveryFetchPolicy';
 import { isSupabaseConfigured } from '../lib/supabase';
-import {
-  formatLiveDiscoveryMetaLine,
-  getLiveDiscoveryMeta,
-  subscribeLiveDiscoveryMeta,
-} from '../lib/liveDiscoveryMeta';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { useAuth } from '../auth/AuthContext';
 import { useLiveEventReminders } from '../hooks/useLiveEventReminders';
@@ -131,7 +126,6 @@ export function LiveDiscoveryScreen() {
   const [liveAll, setLiveAll] = useState<LiveStream[]>(seed.live);
   const [scheduledAll, setScheduledAll] = useState<ScheduledStream[]>(seed.scheduled);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
-  const [discoveryMetaLine, setDiscoveryMetaLine] = useState(() => formatLiveDiscoveryMetaLine());
 
   const load = useCallback(async (opts?: { hadCache?: boolean; bustCache?: boolean; force?: boolean }) => {
     if (!isSupabaseConfigured() && !getWebApiBaseUrl()) {
@@ -147,7 +141,6 @@ export function LiveDiscoveryScreen() {
     if (opts?.bustCache) await clearHomeFeedCache();
     try {
       const pack = await fetchLiveShowsForDiscovery();
-      setDiscoveryMetaLine(formatLiveDiscoveryMetaLine(getLiveDiscoveryMeta()));
       if (!pack.meta.success) {
         setDiscoveryError(pack.meta.error);
         markLiveDiscoveryFetchResult(false, pack.meta.error);
@@ -191,12 +184,6 @@ export function LiveDiscoveryScreen() {
   }, [load]);
 
   useLiveDiscoverySync((opts) => load({ hadCache: opts?.hadCache, bustCache: opts?.bustCache, force: opts?.force }));
-
-  useEffect(() => {
-    return subscribeLiveDiscoveryMeta(() => {
-      setDiscoveryMetaLine(formatLiveDiscoveryMetaLine());
-    });
-  }, []);
 
   const filteredLive = useMemo(() => filterShowsByChip(liveAll, chip), [liveAll, chip]);
   const filteredScheduled = useMemo(
@@ -297,7 +284,6 @@ export function LiveDiscoveryScreen() {
           </Text>
         </View>
       ) : null}
-      <Text style={styles.syncHint}>{discoveryMetaLine}</Text>
       {refreshing && gridTiles.length > 0 ? (
         <Text style={styles.syncHint}>Updating vault events…</Text>
       ) : null}
