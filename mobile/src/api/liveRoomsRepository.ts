@@ -389,11 +389,11 @@ export async function fetchMyLiveRooms(
 }
 
 function hostFromRow(row: LiveRoomApiRow): Host {
+  // Always username — never sellerDisplayName/full legal name from OAuth profile.
   const uname = row.sellerUsername?.trim() || 'host';
-  const display = row.sellerDisplayName?.trim() || uname;
   return {
     id: row.sellerId?.trim() || uname,
-    name: display,
+    name: uname,
     handle: `@${uname}`,
     avatarUrl: resolveLiveRoomMediaUrl(row.sellerAvatarUrl) ?? '',
     verified: false,

@@ -104,7 +104,7 @@ export async function GET(req: Request) {
     const rows = await prisma.liveRoom.findMany({
       where,
       include: {
-        seller: { select: { username: true, name: true, image: true } },
+        seller: { select: { username: true, image: true } },
         tipModerator: { select: { username: true } },
         items: {
           select: {
@@ -169,7 +169,8 @@ export async function GET(req: Request) {
         firstItemImageUrl,
         sellerId: r.sellerId,
         sellerAvatarUrl: resolveLiveRoomMediaUrl(r.seller?.image ?? ""),
-        sellerDisplayName: r.seller?.name?.trim() || r.seller?.username || "seller",
+        // Public show cards must use username only — never legal/full name from User.name.
+        sellerDisplayName: r.seller?.username?.trim() || "seller",
         viewerCount: r.viewerCount,
         scheduledStartAt: r.scheduledStartAt?.toISOString() ?? null,
         startedAt: r.startedAt?.toISOString() ?? null,
