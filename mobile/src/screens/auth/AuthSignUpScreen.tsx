@@ -25,6 +25,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
 import { isValidEmailFormat } from '../../lib/email-validation';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
+import { navigateAfterSignIn } from '../../navigation/navigateAfterSignIn';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
 
@@ -104,7 +105,7 @@ export function AuthSignUpScreen({ navigation, route }: Props) {
         provider === 'google'
           ? await signInWithGoogle({ persistSession: true })
           : await signInWithApple({ persistSession: true });
-      if (result === 'success') finishBuyerHome();
+      if (result === 'success') await navigateAfterSignIn(navigation);
       else if (result === 'error') setSocialErr(AUTH_USER_MESSAGES.socialSignInFailed);
     } catch (e) {
       setSocialErr(socialAuthErrorMessage(e));

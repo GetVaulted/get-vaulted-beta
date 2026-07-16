@@ -47,6 +47,7 @@ import {
 } from '../../lib/rememberMeCredentials';
 import { getKeepMeLoggedInPreference } from '../../lib/authSessionStorage';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
+import { navigateAfterSignIn } from '../../navigation/navigateAfterSignIn';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
 import { shouldAutoAdvanceAfterAuthRecovery } from './launchIntroAuthRecovery';
@@ -734,7 +735,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
     try {
       await signInWithPassword(email, password, { persistSession: rememberMe });
       await persistRememberMeCredentials(rememberMe, email);
-      navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+      await navigateAfterSignIn(navigation);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Sign-in failed');
     } finally {
@@ -752,7 +753,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
           ? await signInWithGoogle({ persistSession: rememberMe })
           : await signInWithApple({ persistSession: rememberMe });
       if (result === 'success') {
-        navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+        await navigateAfterSignIn(navigation);
       } else if (result === 'error') {
         setErr(AUTH_USER_MESSAGES.socialSignInFailed);
       }
