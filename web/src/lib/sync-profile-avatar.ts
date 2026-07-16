@@ -57,13 +57,16 @@ async function findAuthUserIdByEmail(email: string): Promise<string | null> {
     // GoTrue filters by email substring when `email` is provided.
     endpoint.searchParams.set("email", email);
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
     const res = await fetch(endpoint, {
       headers: {
         Authorization: `Bearer ${key}`,
         apikey: key,
       },
       cache: "no-store",
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
     if (!res.ok) return null;
     const body = (await res.json()) as { users?: Array<{ id?: string; email?: string | null }> };
     const match = (body.users ?? []).find((u) => (u.email ?? "").trim().toLowerCase() === email);

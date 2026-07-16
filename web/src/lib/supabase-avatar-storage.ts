@@ -44,20 +44,20 @@ export async function uploadAvatarToSupabase(
   }
 
   const objectKey = `${authId}/avatar.jpg`;
-  const uploadPromise = supabase.storage.from(AVATARS_BUCKET).upload(objectKey, body, {
-    contentType,
-    upsert: true,
-    cacheControl: "3600",
-  });
-
+  // Keep well under typical mobile client timeouts — RN multipart aborts are unreliable.
+  const UPLOAD_MS = 12_000;
   let timedOut = false;
   const { error } = await Promise.race([
-    uploadPromise,
+    supabase.storage.from(AVATARS_BUCKET).upload(objectKey, body, {
+      contentType,
+      upsert: true,
+      cacheControl: "3600",
+    }),
     new Promise<{ error: { message: string } }>((resolve) => {
       setTimeout(() => {
         timedOut = true;
         resolve({ error: { message: "Avatar upload timed out." } });
-      }, 20_000);
+      }, UPLOAD_MS);
     }),
   ]);
 

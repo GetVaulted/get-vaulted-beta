@@ -20,25 +20,9 @@ function trimImageUrl(s: unknown): string | null | undefined {
   return t.slice(0, 2048);
 }
 
-async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T | void> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<void>((resolve) => {
-        timer = setTimeout(() => {
-          console.warn(`[account/profile] ${label} timed out after ${ms}ms`);
-          resolve();
-        }, ms);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
 export async function GET(req: Request) {
-  const auth = await resolveAccountUserId(req);
+  // Hydrate is best-effort; skip Stripe sibling sync (not needed for profile read).
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
 
   let user = await prisma.user.findUnique({
@@ -71,7 +55,8 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const auth = await resolveAccountUserId(req);
+  // Image-only mobile avatar sync — never block on Stripe Connect sibling copies.
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
 
   let body: PatchBody;
@@ -102,7 +87,13 @@ export async function PATCH(req: Request) {
     select: { name: true, image: true, username: true },
   });
 
-  await withTimeout(syncSupabaseProfileAvatar(auth.userId, image), 8_000, "syncSupabaseProfileAvatar");
+  // Fire-and-forget: mobile already wrote Supabase profiles; do not keep the spinner waiting.
+  void syncSupabaseProfileAvatar(auth.userId, image).catch((e) => {
+    console.warn(
+      "[account/profile PATCH] syncSupabaseProfileAvatar failed",
+      e instanceof Error ? e.message : e,
+    );
+  });
 
   return NextResponse.json({
     user: {

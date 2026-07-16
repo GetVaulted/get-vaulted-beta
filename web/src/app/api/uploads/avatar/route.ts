@@ -1,12 +1,16 @@
 /**
  * Profile avatar uploads → Supabase Storage `avatars/{authUserId}/avatar.jpg` (service role).
  * Prefer this over `/api/uploads/listing-image` so seller/profile photos are not listing media.
+ *
+ * Mobile profile edit awaits this request with no reliable abort on multipart uploads, so this
+ * handler must return (or fail) quickly: JWT-only auth, bounded form parse/upload, and
+ * non-blocking profile URL persistence.
  */
+import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { getServerSessionSafe } from "@/lib/auth";
-import { requestHasSupabaseBearer } from "@/lib/mobile-supabase-bearer";
+import { getSupabaseBearerJwt, requestHasSupabaseBearer } from "@/lib/mobile-supabase-bearer";
 import { prisma } from "@/lib/prisma";
-import { requireUserIdFromSupabaseBearer } from "@/lib/require-supabase-bearer";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   isSupabaseAvatarStorageConfigured,
@@ -23,6 +27,9 @@ const ALLOWED = new Map<string, string>([
 ]);
 
 const MAX_BYTES = 5 * 1024 * 1024;
+const AUTH_MS = 8_000;
+const FORM_MS = 12_000;
+const PERSIST_MS = 6_000;
 
 function mimeFromFilename(name: string): string | null {
   const lower = name.toLowerCase();
@@ -65,13 +72,50 @@ function magicMatches(buf: Buffer, mime: string): boolean {
   return false;
 }
 
-async function resolveAvatarAuthUserId(req: Request): Promise<{ authUserId: string } | NextResponse> {
-  if (requestHasSupabaseBearer(req)) {
-    const auth = await requireUserIdFromSupabaseBearer(req);
-    if (auth instanceof NextResponse) return auth;
-    return { authUserId: auth.supabaseAuthUserId };
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** Validate bearer JWT only — do not await Prisma ensure / Stripe sibling sync. */
+async function resolveMobileAuthUserId(req: Request): Promise<string | NextResponse> {
+  const jwt = getSupabaseBearerJwt(req);
+  if (!jwt) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
+  if (!url?.trim() || !anonKey?.trim()) {
+    return NextResponse.json({ error: "Server misconfigured (Supabase URL/key)." }, { status: 500 });
+  }
+
+  const supabase = createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  try {
+    const { data, error } = await withTimeout(supabase.auth.getUser(jwt), AUTH_MS, "avatar auth");
+    if (error || !data.user?.id) {
+      return NextResponse.json({ error: "Invalid or expired session" }, { status: 401 });
+    }
+    return data.user.id;
+  } catch (e) {
+    console.error("[uploads/avatar] auth failed", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "Auth timed out. Try again." }, { status: 504 });
+  }
+}
+
+async function resolveWebSessionAuthUserId(): Promise<{ authUserId: string; prismaUserId: string } | NextResponse> {
   const session = await getServerSessionSafe();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -86,17 +130,54 @@ async function resolveAvatarAuthUserId(req: Request): Promise<{ authUserId: stri
     where: { id: session.user.id },
     select: { email: true, username: true },
   });
-  const authUserId = await resolveSupabaseAuthUserId(admin, session.user.id, {
-    email: row?.email ?? session.user.email,
-    username: row?.username ?? session.user.username,
-  });
+  const authUserId = await withTimeout(
+    resolveSupabaseAuthUserId(admin, session.user.id, {
+      email: row?.email ?? session.user.email,
+      username: row?.username ?? session.user.username,
+    }),
+    AUTH_MS,
+    "avatar resolve auth id",
+  );
   if (!authUserId) {
     return NextResponse.json(
       { error: "Could not resolve your account for avatar upload. Sign out and back in, then try again." },
       { status: 400 },
     );
   }
-  return { authUserId };
+  return { authUserId, prismaUserId: session.user.id };
+}
+
+/** Best-effort: write public URL to profiles + Prisma so follow-up mobile sync is redundant. */
+async function persistAvatarPublicUrl(args: {
+  authUserId: string;
+  prismaUserId?: string;
+  publicUrl: string;
+}): Promise<void> {
+  const admin = getSupabaseAdminClient();
+  if (admin) {
+    const { error } = await admin
+      .from("profiles")
+      .update({ avatar_url: args.publicUrl })
+      .eq("id", args.authUserId);
+    if (error) {
+      console.warn("[uploads/avatar] profiles update failed", error.message);
+    }
+  }
+
+  const prismaIds = [...new Set([args.prismaUserId, args.authUserId].filter(Boolean))] as string[];
+  for (const id of prismaIds) {
+    try {
+      await prisma.user.updateMany({
+        where: { id },
+        data: { image: args.publicUrl },
+      });
+    } catch (e) {
+      console.warn("[uploads/avatar] prisma image update failed", {
+        id,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
 }
 
 export async function POST(req: Request) {
@@ -104,14 +185,35 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Avatar storage is not configured." }, { status: 503 });
   }
 
-  const auth = await resolveAvatarAuthUserId(req);
-  if (auth instanceof NextResponse) return auth;
+  let authUserId: string;
+  let prismaUserId: string | undefined;
+
+  try {
+    if (requestHasSupabaseBearer(req)) {
+      const mobileAuth = await resolveMobileAuthUserId(req);
+      if (mobileAuth instanceof NextResponse) return mobileAuth;
+      authUserId = mobileAuth;
+      prismaUserId = mobileAuth;
+    } else {
+      const webAuth = await resolveWebSessionAuthUserId();
+      if (webAuth instanceof NextResponse) return webAuth;
+      authUserId = webAuth.authUserId;
+      prismaUserId = webAuth.prismaUserId;
+    }
+  } catch (e) {
+    console.error("[uploads/avatar] resolve auth failed", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "Could not verify session. Try again." }, { status: 504 });
+  }
 
   let form: FormData;
   try {
-    form = await req.formData();
-  } catch {
-    return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
+    form = await withTimeout(req.formData(), FORM_MS, "avatar formData");
+  } catch (e) {
+    console.error("[uploads/avatar] formData failed", e instanceof Error ? e.message : e);
+    return NextResponse.json(
+      { error: "Upload timed out while reading the photo. Try a smaller image." },
+      { status: 504 },
+    );
   }
 
   const file = readUploadedImage(form);
@@ -132,9 +234,23 @@ export async function POST(req: Request) {
   }
 
   // Always store as JPEG path for stable public URL; content-type may still be png/webp.
-  const uploaded = await uploadAvatarToSupabase(auth.authUserId, buf, file.mime);
+  const uploaded = await uploadAvatarToSupabase(authUserId, buf, file.mime);
   if (!uploaded.ok) {
     return NextResponse.json({ error: uploaded.message }, { status: 502 });
   }
+
+  // Do not block the mobile spinner on secondary writes / auth metadata.
+  void withTimeout(
+    persistAvatarPublicUrl({
+      authUserId,
+      prismaUserId,
+      publicUrl: uploaded.publicUrl,
+    }),
+    PERSIST_MS,
+    "avatar persist",
+  ).catch((e) => {
+    console.warn("[uploads/avatar] persist skipped", e instanceof Error ? e.message : e);
+  });
+
   return NextResponse.json({ url: uploaded.publicUrl });
 }
