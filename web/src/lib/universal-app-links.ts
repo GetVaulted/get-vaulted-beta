@@ -4,7 +4,7 @@ export const IOS_APP_LINK_APP_ID = "6BJ9R4C598.com.getvaulted.app";
 export const ANDROID_APP_LINK_PACKAGE = "com.getvaulted.app";
 
 /** HTTPS paths that should open in the native app when installed. */
-export const APP_LINK_PATH_PREFIXES = ["/live/", "/listing/", "/marketplace/"] as const;
+export const APP_LINK_PATH_PREFIXES = ["/live/", "/listing/", "/marketplace/", "/join"] as const;
 
 export function liveRoomCustomSchemeUrl(roomId: string): string {
   return `getvaulted://live/${encodeURIComponent(roomId.trim())}`;
@@ -17,7 +17,7 @@ export function appleAppSiteAssociationDocument(): Record<string, unknown> {
       details: [
         {
           appIDs: [IOS_APP_LINK_APP_ID],
-          paths: ["/live/*", "/listing/*", "/marketplace/*"],
+          paths: ["/live/*", "/listing/*", "/marketplace/*", "/join", "/join/*"],
         },
       ],
     },
