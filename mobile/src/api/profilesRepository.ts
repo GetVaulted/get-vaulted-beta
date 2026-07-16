@@ -174,7 +174,11 @@ export async function uploadMyAvatar(userId: string, localUri: string, _mimeType
   const accessToken = sessionData.session?.access_token?.trim();
   if (!accessToken) throw new Error('Sign in again to upload a profile photo.');
 
-  const preparedUri = await withDeadline(prepareProfileAvatarForUpload(localUri), 15_000, 'photo prepare');
+  // Crop modal already prepares; only re-encode raw library URIs (seller setup).
+  const needsPrepare = !/ImageManipulator|ImagePicker/i.test(localUri);
+  const preparedUri = needsPrepare
+    ? await withDeadline(prepareProfileAvatarForUpload(localUri), 15_000, 'photo prepare')
+    : localUri;
   const base64 = await withDeadline(readAsStringAsync(preparedUri, { encoding: 'base64' }), 10_000, 'read photo');
   if (!base64?.trim()) throw new Error('Could not read photo data.');
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image as RNImage,
   Modal,
   PanResponder,
   Platform,
@@ -52,7 +53,26 @@ export function ProfileAvatarCropModal({
       setUserScale(1);
       setOffset({ x: 0, y: 0 });
       setProcessing(false);
+      return;
     }
+    if (!imageUri) return;
+
+    let cancelled = false;
+    // Don't wait on expo-image onLoad alone — resolve dimensions immediately.
+    RNImage.getSize(
+      imageUri,
+      (width, height) => {
+        if (!cancelled && width > 0 && height > 0) {
+          setImageSize({ width, height });
+        }
+      },
+      () => {
+        /* onLoad below is the fallback */
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [visible, imageUri]);
 
   const baseScale = useMemo(() => {
@@ -132,17 +152,21 @@ export function ProfileAvatarCropModal({
 
         <View style={styles.cropHost}>
           <View style={styles.cropCircle} {...panResponder.panHandlers}>
-            {imageUri && displayed ? (
+            {imageUri ? (
               <Image
                 source={{ uri: imageUri }}
-                style={{
-                  position: 'absolute',
-                  width: displayed.width,
-                  height: displayed.height,
-                  left: displayed.left,
-                  top: displayed.top,
-                }}
-                contentFit="fill"
+                style={
+                  displayed
+                    ? {
+                        position: 'absolute',
+                        width: displayed.width,
+                        height: displayed.height,
+                        left: displayed.left,
+                        top: displayed.top,
+                      }
+                    : styles.imageProbe
+                }
+                contentFit={displayed ? 'fill' : 'contain'}
                 onLoad={(e) => {
                   const src = e.source;
                   if (src.width > 0 && src.height > 0) {
@@ -150,9 +174,12 @@ export function ProfileAvatarCropModal({
                   }
                 }}
               />
-            ) : (
-              <ActivityIndicator color={colors.gold} />
-            )}
+            ) : null}
+            {!displayed ? (
+              <View style={styles.loadingOverlay}>
+                <ActivityIndicator color={colors.gold} />
+              </View>
+            ) : null}
           </View>
           <View pointerEvents="none" style={styles.ring} />
         </View>
@@ -161,7 +188,7 @@ export function ProfileAvatarCropModal({
           <Pressable
             style={styles.zoomBtn}
             onPress={() => setUserScale((s) => Math.max(MIN_SCALE, Number((s - 0.15).toFixed(2))))}
-            disabled={busy || processing}
+            disabled={busy || processing || !imageSize}
           >
             <Ionicons name="remove" size={22} color={colors.textPrimary} />
           </Pressable>
@@ -169,14 +196,14 @@ export function ProfileAvatarCropModal({
           <Pressable
             style={styles.zoomBtn}
             onPress={() => setUserScale((s) => Math.min(MAX_SCALE, Number((s + 0.15).toFixed(2))))}
-            disabled={busy || processing}
+            disabled={busy || processing || !imageSize}
           >
             <Ionicons name="add" size={22} color={colors.textPrimary} />
           </Pressable>
         </View>
 
         <Pressable
-          style={[styles.primary, (busy || processing) && styles.primaryOff]}
+          style={[styles.primary, (busy || processing || !imageSize) && styles.primaryOff]}
           onPress={() => void save()}
           disabled={!imageUri || !imageSize || busy || processing}
         >
@@ -229,6 +256,16 @@ const styles = StyleSheet.create({
     borderRadius: CROP_SIZE / 2,
     overflow: 'hidden',
     backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imageProbe: {
+    width: CROP_SIZE,
+    height: CROP_SIZE,
+    opacity: 0.01,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
   },
