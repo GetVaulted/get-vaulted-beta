@@ -170,12 +170,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const trimmed = email.trim();
     if (!trimmed) throw new Error('Enter your email address.');
+    // Must land on the web reset page — without redirectTo, Supabase uses Site URL and the link is useless.
+    const site = (
+      process.env.EXPO_PUBLIC_SITE_URL?.trim() ||
+      process.env.EXPO_PUBLIC_SHARE_SITE_URL?.trim() ||
+      'https://shopgetvaulted.com'
+    ).replace(/\/+$/, '');
+    const redirectTo = `${site}/reset-password`;
     const { error } = await runSupabaseAuthOp(() => {
-      const sb = getSupabase();
-      if (!sb || !isSupabaseConfigured()) {
+      const client = getSupabase();
+      if (!client || !isSupabaseConfigured()) {
         throw new Error('Supabase is not configured (EXPO_PUBLIC_SUPABASE_URL / ANON_KEY).');
       }
-      return sb.auth.resetPasswordForEmail(trimmed);
+      return client.auth.resetPasswordForEmail(trimmed, { redirectTo });
     });
     if (error) throw error;
   }, []);
