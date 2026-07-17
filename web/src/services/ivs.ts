@@ -813,13 +813,8 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
   }
   const token = await createHostStageToken(roomId, userId);
   const now = new Date();
-  // Best-effort: start the HLS mirror before guests hit share links (composition often needs 10–20s).
-  await Promise.race([
-    startStageHlsComposition(roomId),
-    new Promise<void>((resolve) => {
-      setTimeout(resolve, 18_000);
-    }),
-  ]);
+  // Mark live + return token immediately. Do NOT await HLS composition here — retries can take
+  // 15–20s+ and the mobile client aborts at 15s, leaving Go Live stuck on a spinner.
   await prisma.liveRoom.update({
     where: { id: roomId },
     data: {
@@ -833,6 +828,12 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
     },
   });
   logIvsOpsServer("ivs_stage_broadcast_start", { roomId });
+  void startStageHlsComposition(roomId).catch((err) => {
+    console.error("[IVS_OPS] ivs_stage_composition_start_deferred_failure", {
+      roomId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
   return token;
 }
 
