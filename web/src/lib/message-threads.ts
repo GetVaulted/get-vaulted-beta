@@ -214,12 +214,32 @@ export async function resolveThreadContext(
   };
 }
 
-/** Unknown buyers land in requests until seller accepts or prior commerce exists. */
+/**
+ * Two users "mutually follow" when each has a SellerFollow row pointing at the other. This is the
+ * primary trust signal for messaging: if they follow each other, a new DM should land straight in
+ * the inbox instead of the request folder.
+ */
+export async function usersMutuallyFollow(userA: string, userB: string): Promise<boolean> {
+  if (!userA || !userB || userA === userB) return false;
+  const [aFollowsB, bFollowsA] = await Promise.all([
+    prisma.sellerFollow.count({ where: { followerId: userA, sellerId: userB } }),
+    prisma.sellerFollow.count({ where: { followerId: userB, sellerId: userA } }),
+  ]);
+  return aFollowsB > 0 && bFollowsA > 0;
+}
+
+/**
+ * Where a brand-new thread should land:
+ *  - Inbox (`primary`) when the two accounts follow each other, OR there's prior trust between them
+ *    (an accepted thread, any order in either direction, or an offer from buyer to seller).
+ *  - Otherwise the message is a cold contact and lands in `request` until the recipient accepts.
+ */
 export async function resolveInboxForNewThread(
   buyerId: string,
   sellerId: string,
 ): Promise<MessageThreadInbox> {
-  const [priorThread, priorOrder, priorOffer] = await Promise.all([
+  const [mutualFollow, priorThread, priorOrder, priorOffer] = await Promise.all([
+    usersMutuallyFollow(buyerId, sellerId),
     prisma.messageThread.count({
       where: {
         buyerId,
@@ -240,7 +260,7 @@ export async function resolveInboxForNewThread(
     }),
   ]);
 
-  if (priorThread > 0 || priorOrder > 0 || priorOffer > 0) {
+  if (mutualFollow || priorThread > 0 || priorOrder > 0 || priorOffer > 0) {
     return "primary";
   }
   return "request";

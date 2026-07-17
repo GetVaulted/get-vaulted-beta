@@ -132,7 +132,31 @@ describe("POST /api/messages — cross-thread block enforcement", () => {
     expect(res.status).toBe(200);
     expect(hoisted.createNotification).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ userId: "seller_1", type: "message_received" }),
+      expect.objectContaining({
+        userId: "seller_1",
+        type: "message_received",
+        title: "Received a Message",
+      }),
+    );
+  });
+
+  it("notifies with 'Message Requested' when the thread lands in the request folder", async () => {
+    hoisted.isUserBlocked.mockResolvedValue(false);
+    hoisted.participantFindUnique.mockResolvedValue({ muted: false });
+    // A cold contact (no mutual follow / prior trust) upserts a request-folder thread.
+    hoisted.resolveInboxForNewThread.mockResolvedValue("request");
+    hoisted.threadUpsert.mockResolvedValue({ id: "thread_req", inbox: "request" });
+
+    const res = await POST(buildRequest({ listingId: "listing_1", body: "Hi!" }));
+
+    expect(res.status).toBe(200);
+    expect(hoisted.createNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        userId: "seller_1",
+        type: "message_requested",
+        title: "Message Requested",
+      }),
     );
   });
 });

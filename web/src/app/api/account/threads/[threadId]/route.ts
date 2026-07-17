@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createNotification } from "@/lib/notifications";
+import { REPLY_MESSAGE_NOTIFICATION } from "@/lib/message-notification";
 import { loadMentionsForSources } from "@/lib/mentions/load-message-mentions";
 import { processMessageMentions } from "@/lib/mentions/process-message-mentions";
 import {
@@ -243,8 +244,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
     await createNotification(prisma, {
       userId: recipientId,
-      type: "message_received",
-      title: "New message",
+      type: REPLY_MESSAGE_NOTIFICATION.type,
+      title: REPLY_MESSAGE_NOTIFICATION.title,
       body: preview,
       href: `/account/messages/${encodeURIComponent(thread.id)}`,
     });

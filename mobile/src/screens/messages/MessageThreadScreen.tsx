@@ -108,6 +108,10 @@ export function MessageThreadScreen({ navigation, route }: Props) {
   };
 
   const uid = user?.id ?? '';
+  // The initiator of a request-folder thread can send exactly the first message; the server blocks
+  // follow-ups (403) until the recipient accepts. Show a clear waiting state instead of an enabled
+  // composer that fails with a generic "Send failed".
+  const awaitingAcceptance = thread?.inbox === 'request' && !thread.isSeller;
   const viewState = deriveMessageThreadViewState({ loading, hasThread: !!thread, hasError: !!loadError });
 
   if (viewState === 'loading') {
@@ -203,25 +207,34 @@ export function MessageThreadScreen({ navigation, route }: Props) {
         )}
       />
 
-      <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
-        <MentionComposerInput
-          style={styles.input}
-          value={draft}
-          onChangeText={setDraft}
-          accessToken={token}
-          placeholder="Message…"
-          placeholderTextColor={colors.textMuted}
-          multiline
-          maxLength={2000}
-        />
-        <Pressable style={[styles.send, !draft.trim() && styles.sendDim]} onPress={() => void onSend()} disabled={sending}>
-          {sending ? (
-            <ActivityIndicator color="#0a0a0a" size="small" />
-          ) : (
-            <Ionicons name="send" size={18} color="#0a0a0a" />
-          )}
-        </Pressable>
-      </View>
+      {awaitingAcceptance ? (
+        <View style={[styles.pendingBar, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
+          <Ionicons name="paper-plane-outline" size={16} color={colors.textSecondary} />
+          <Text style={styles.pendingTxt}>
+            Message request sent. You can chat once @{thread?.otherUsername ?? 'they'} accepts.
+          </Text>
+        </View>
+      ) : (
+        <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
+          <MentionComposerInput
+            style={styles.input}
+            value={draft}
+            onChangeText={setDraft}
+            accessToken={token}
+            placeholder="Message…"
+            placeholderTextColor={colors.textMuted}
+            multiline
+            maxLength={2000}
+          />
+          <Pressable style={[styles.send, !draft.trim() && styles.sendDim]} onPress={() => void onSend()} disabled={sending}>
+            {sending ? (
+              <ActivityIndicator color="#0a0a0a" size="small" />
+            ) : (
+              <Ionicons name="send" size={18} color="#0a0a0a" />
+            )}
+          </Pressable>
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -283,4 +296,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendDim: { opacity: 0.45 },
+  pendingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    backgroundColor: 'rgba(8,8,10,0.98)',
+  },
+  pendingTxt: { flex: 1, fontSize: 12, color: colors.textSecondary, fontWeight: '600' },
 });

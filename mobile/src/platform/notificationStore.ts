@@ -237,7 +237,7 @@ const LAYAWAY_SERVER_TYPES = new Set([
 function serverTypeToKind(type: string): NotificationKind {
   if (type === 'chat_mention') return 'message';
   if (LAYAWAY_SERVER_TYPES.has(type)) return 'layaway';
-  if (type === 'message_received') return 'message';
+  if (type === 'message_received' || type === 'message_requested') return 'message';
   if (type.includes('counter')) return 'counter';
   if (type.includes('offer')) return 'offer';
   if (type.startsWith('order_') || type === 'item_sold' || type === 'seller_ready_to_ship') return 'order';

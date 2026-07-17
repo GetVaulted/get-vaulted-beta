@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createNotification } from "@/lib/notifications";
+import { firstMessageNotification } from "@/lib/message-notification";
 import { processMessageMentions } from "@/lib/mentions/process-message-mentions";
 import {
   ensureThreadParticipants,
@@ -194,15 +195,17 @@ export async function POST(req: Request) {
       if (!recipientParticipant?.muted) {
         const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
         const lt = listingTitle.length > 60 ? `${listingTitle.slice(0, 57)}…` : listingTitle;
-        const notifyTitle = inbox === "request" ? "Message request" : "New message";
+        // "Message Requested" for a cold contact in the request folder, "Received a Message"
+        // when it lands in the inbox (mutual follow / prior trust).
+        const notify = firstMessageNotification(thread.inbox);
         const notifyBody =
           anchorKey.startsWith("profile:") || lt === "Direct message"
             ? preview
             : `Regarding “${lt}”: ${preview}`;
         await createNotification(tx, {
           userId: sellerId,
-          type: "message_received",
-          title: notifyTitle,
+          type: notify.type,
+          title: notify.title,
           body: notifyBody,
           href: `/account/messages/${encodeURIComponent(thread.id)}`,
         });

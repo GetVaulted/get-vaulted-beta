@@ -2,17 +2,23 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 import { useAuth } from '../auth/AuthContext';
 import {
+  getLiveEventReminderIdsCache,
   loadLiveEventReminderIds,
   setLiveEventReminder,
+  subscribeLiveEventReminders,
   type LiveEventReminderTarget,
 } from '../lib/liveEventReminder';
 
 export function useLiveEventReminders() {
   const { session, guestExploreMode } = useAuth();
-  const [reminderIds, setReminderIds] = useState<Set<string>>(new Set());
+  const [reminderIds, setReminderIds] = useState<Set<string>>(() => getLiveEventReminderIdsCache());
 
   useEffect(() => {
-    void loadLiveEventReminderIds().then(setReminderIds);
+    // Subscribe first so a set/load from any other screen propagates here instantly, then refresh
+    // from storage in case this is the first mount in the app session.
+    const unsubscribe = subscribeLiveEventReminders(setReminderIds);
+    void loadLiveEventReminderIds();
+    return unsubscribe;
   }, []);
 
   const isReminderSet = useCallback((roomId: string) => reminderIds.has(roomId), [reminderIds]);

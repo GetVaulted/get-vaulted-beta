@@ -154,7 +154,7 @@ export function openNotificationHref(
     return true;
   }
 
-  if (ctx?.type === 'message_received') {
+  if (ctx?.type === 'message_received' || ctx?.type === 'message_requested') {
     n.navigate('MessagesInbox');
     return true;
   }
