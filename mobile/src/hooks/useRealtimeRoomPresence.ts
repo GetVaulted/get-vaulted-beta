@@ -120,7 +120,12 @@ export function useRealtimeRoomPresence(opts: {
         releaseLiveRoomChannel(supabase, liveRoomId);
       }
     };
-  }, [enabled, liveRoomId, trackSelf, userId, viewerDisplayName]);
+    // `viewerDisplayName` is intentionally excluded: it's read live via a ref, and the 25s
+    // heartbeat re-tracks it. Including it forced every viewer to untrack/re-track the moment
+    // their profile name loaded (a few seconds after joining), flapping presence and making the
+    // room read low when several distinct accounts joined at once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, liveRoomId, trackSelf, userId]);
 
   return viewerCount;
 }
