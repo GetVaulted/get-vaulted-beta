@@ -765,10 +765,10 @@ export async function startStageHlsComposition(roomId: string): Promise<string |
 }
 
 /**
- * Self-heal: start HLS composition only when none exists.
- * Signed-in buyers use WebRTC Stage; this mirror is for guests / failover only.
- * Never stop/restart an existing composition from buyer polls (that caused black screens).
- * Dead mirrors are replaced on the next host Go Live (prepareHostStageSession).
+ * Self-heal Stage→HLS mirror for guests / buyer failover.
+ * If a composition ARN is stuck but the Low-Latency channel is offline, replace it.
+ * Do not restart while the channel is live/connecting (that thrash blacked out buyers).
+ * Caller is rate-limited (buyer stream poll ~30s).
  */
 export async function ensureStageHlsCompositionActive(roomId: string): Promise<void> {
   if (!stageCompositionEnabled()) return;
@@ -786,7 +786,12 @@ export async function ensureStageHlsCompositionActive(roomId: string): Promise<v
   if (!room.ivsStageArn || !room.ivsChannelArn) return;
   const health = room.streamHealth?.toLowerCase();
   if (health !== "live" && health !== "connecting") return;
-  if (room.ivsCompositionArn) return;
+  if (room.ivsCompositionArn) {
+    const { health: channelHealth } = await getStreamStatus(room.ivsChannelArn);
+    if (channelHealth === "live" || channelHealth === "connecting") return;
+    logIvsOpsServer("ivs_stage_composition_replace_dead", { roomId, channelHealth });
+    await stopStageComposition(roomId);
+  }
   cancelDelayedCompositionStop(roomId);
   await startStageHlsComposition(roomId);
 }

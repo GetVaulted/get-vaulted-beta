@@ -38,9 +38,18 @@ export function shouldWarmLiveHlsPipCompanion(args: {
   );
 }
 
-/** IVS Stage WebRTC subscribe/publish should release the mic when interrupted. */
+/**
+ * Suspend Stage WebRTC only when the app is truly backgrounded.
+ * iOS notification banners / alerts flash `inactive` with sound — treating that as suspend
+ * tore down buyer subscribe (and host publish) → video worked, then instant black.
+ */
 export function shouldSuspendLiveStageMedia(appState: AppStateStatus): boolean {
-  return isLiveAudioInterruptionState(appState);
+  return appState === 'background';
+}
+
+/** Host publish uses the same rule as buyer subscribe (background only). */
+export function shouldSuspendHostStagePublish(appState: AppStateStatus): boolean {
+  return shouldSuspendLiveStageMedia(appState);
 }
 
 /** @deprecated Use shouldWarmLiveHlsPipCompanion — warm player must exist before background. */

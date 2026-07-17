@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   LIVE_PIP_RETRY_DELAYS_MS,
   shouldAttemptLivePictureInPicture,
+  shouldSuspendHostStagePublish,
   shouldSuspendLiveStageMedia,
   shouldWarmLiveHlsPipCompanion,
 } from './livePlaybackAppState';
@@ -17,10 +18,12 @@ describe('livePlaybackAppState', () => {
     expect(shouldAttemptLivePictureInPicture('background', 'background')).toBe(false);
   });
 
-  it('suspends stage media on inactive and background', () => {
-    expect(shouldSuspendLiveStageMedia('inactive')).toBe(true);
+  it('does not suspend Stage media on inactive notification overlays', () => {
+    expect(shouldSuspendLiveStageMedia('inactive')).toBe(false);
     expect(shouldSuspendLiveStageMedia('background')).toBe(true);
     expect(shouldSuspendLiveStageMedia('active')).toBe(false);
+    expect(shouldSuspendHostStagePublish('inactive')).toBe(false);
+    expect(shouldSuspendHostStagePublish('background')).toBe(true);
   });
 
   it('warms HLS PiP companion while actively watching WebRTC with a playback URL', () => {

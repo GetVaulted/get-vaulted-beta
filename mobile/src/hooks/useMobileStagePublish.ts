@@ -19,7 +19,7 @@ import {
   requestHostStageToken,
 } from '../api/liveRoomStreamRepository';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
-import { shouldSuspendLiveStageMedia } from '../lib/livePlaybackAppState';
+import { shouldSuspendHostStagePublish } from '../lib/livePlaybackAppState';
 import {
   cameraPermissionDeniedMessage,
   cameraPermissionUnavailableMessage,
@@ -114,25 +114,38 @@ export function useMobileStagePublish(args: {
         const currentPhase = phaseRef.current;
         if (currentPhase !== 'live' && currentPhase !== 'paused') return;
         void (async () => {
-          try {
-            await setStreamsPublished(true);
-            if (!mountedRef.current) return;
-            publishingRef.current = true;
-            setPhase('live');
-          } catch {
-            /* call or another app may still hold the mic */
+          // Notification banners used to kill publish; when we do background, retry hard.
+          const delays = [0, 400, 1200, 2500];
+          for (const delayMs of delays) {
+            if (delayMs > 0) {
+              await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+            }
+            if (!mountedRef.current || intentionalStopRef.current) return;
+            try {
+              await setStreamsPublished(true);
+              if (!mountedRef.current) return;
+              publishingRef.current = true;
+              setPhase('live');
+              return;
+            } catch {
+              /* mic may still be held — keep trying */
+            }
+          }
+          if (wentLiveRef.current && !intentionalStopRef.current) {
+            reconnectPublishRef.current('app_resume');
           }
         })();
         return;
       }
 
-      if (!shouldSuspendLiveStageMedia(next)) return;
+      // Only true background — NOT iOS `inactive` (banners/alerts with sound).
+      if (!shouldSuspendHostStagePublish(next)) return;
       if (!publishingRef.current && phaseRef.current !== 'live') return;
 
       interruptedPublishRef.current = true;
       publishingRef.current = false;
       void setStreamsPublished(false).catch(() => {
-        /* ignore — releasing the mic avoids native crashes during phone calls */
+        /* ignore — releasing the mic avoids native crashes when fully backgrounded */
       });
       if (phaseRef.current === 'live' && mountedRef.current) {
         setPhase('paused');
@@ -532,6 +545,8 @@ export function useMobileStagePublish(args: {
         await joinStage(tokenPayload.token);
         await setStreamsPublished(true);
       });
+      // Listeners usually mark live; if they miss a race, don't leave the host on a spinner.
+      markLive();
       scheduleTokenRefresh(tokenPayload.expiresInSeconds);
     } catch (err) {
       await teardownStageConnection();
