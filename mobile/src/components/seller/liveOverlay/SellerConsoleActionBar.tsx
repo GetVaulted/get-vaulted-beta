@@ -86,6 +86,11 @@ export function SellerConsoleActionBar({
   onToggleMicMute,
 }: Props) {
   const { width: windowWidth } = useWindowDimensions();
+  // On-air = broadcasting (or mid-stop). The WebRTC broadcast control hides its go-live button
+  // until the camera is ready, so pre-live we must fall back to the plain go-live Play; otherwise
+  // a host whose camera preview/permission hasn't resolved is left with NO way to start the show.
+  const broadcastOnAir =
+    broadcastPhase === 'live' || broadcastPhase === 'paused' || broadcastPhase === 'stopping';
   const scale = sellerConsoleToolbarScale(windowWidth);
   const pillIcon = Math.round(PILL_ICON * scale);
   const pillLabelSize = PILL_LABEL * scale;
@@ -226,7 +231,7 @@ export function SellerConsoleActionBar({
               onPress={onFlipCamera}
             />
           ) : null}
-          {stageEnabled ? (
+          {stageEnabled && (cameraReady || broadcastOnAir) ? (
             <SellerBroadcastControl
               phase={broadcastPhase}
               roomStatus={roomStatus}
