@@ -29,7 +29,7 @@ index 7f05628..efd65c3 100644
              IVSStageManager.instance?.setMicrophoneMuted(muted)
          }
 diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
-index b1047d4..270e047 100644
+index b1047d4..adf0339 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
 +++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
 @@ -94,7 +94,28 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
@@ -61,7 +61,22 @@ index b1047d4..270e047 100644
          // Setup audio configuration
          val audioConfiguration = StageAudioConfiguration()
          val finalAudioConfig = audioConfig ?: audioConfiguration
-@@ -176,6 +197,15 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+@@ -103,9 +124,11 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+         // Setup video configuration
+         val videoConfiguration = StageVideoConfiguration()
+         val finalVideoConfig = videoConfig ?: videoConfiguration
+-        finalVideoConfig.targetFramerate?.let { (it as? Number)?.toInt()?.let { fr -> finalVideoConfig.targetFramerate = fr } }
+-        finalVideoConfig.maxBitrate?.let { (it as? Number)?.toInt()?.let { br -> finalVideoConfig.maxBitrate = br } }
+-        finalVideoConfig.minBitrate?.let { (it as? Number)?.toInt()?.let { br -> finalVideoConfig.minBitrate = br } }
++        // High-quality real-time publish: raise the ceiling above the IVS SDK default so the feed
++        // is sharp and smooth on strong networks. WebRTC still adapts down on weak uplinks to keep
++        // latency sub-second. Real-time is billed per participant-minute, so higher bitrate is free.
++        finalVideoConfig.targetFramerate = 30
++        finalVideoConfig.maxBitrate = 2_500_000
+         finalVideoConfig.setSize(
+             BroadcastConfiguration.Vec2(
+                 720F, 1280F
+@@ -176,6 +199,15 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
          Log.i("ExpoIVSStageManager", "✅ Microphone muted: $muted")
      }
  
@@ -175,7 +190,7 @@ index 8aafd8a..c6b686b 100644
        self.ivsStageManager?.setMicrophoneMuted(muted: muted)
      }
 diff --git a/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift b/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
-index f92f823..d14e03d 100644
+index f92f823..75b0e8a 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
 +++ b/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
 @@ -32,6 +32,12 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
@@ -335,7 +350,33 @@ index f92f823..d14e03d 100644
      }
  
      // MARK: - Public API (to be called from ExpoRealtimeIvsBroadcastModule)
-@@ -972,6 +1080,61 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+@@ -686,8 +794,14 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+                 let config = IVSLocalStageStreamVideoConfiguration()
+                 do {
+                     try config.setSize(CGSize(width: 720, height: 1280)) // 720p Portrait
++                    // High-quality real-time publish: raise the ceiling well above the IVS SDK
++                    // default (~600 kbps / 15 fps) so the feed is sharp and smooth on strong
++                    // networks. WebRTC still adapts down automatically on weak uplinks to hold
++                    // sub-second latency. Real-time bill is per participant-minute, so this is free.
++                    try config.setMaxBitrate(2_500_000)
++                    try config.setTargetFramerate(30)
+                 } catch {
+-                    print("Error setting default video configuration size: \(error). Using IVS defaults for size.")
++                    print("Error setting default video configuration: \(error). Using IVS defaults.")
+                 }
+                 return config
+             }()
+@@ -739,6 +853,9 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+                 let config = IVSLocalStageStreamVideoConfiguration()
+                 do {
+                     try config.setSize(CGSize(width: 720, height: 1280))
++                    // Match the native-camera path: high bitrate + 30 fps for a crystal-clear feed.
++                    try config.setMaxBitrate(2_500_000)
++                    try config.setTargetFramerate(30)
+                 } catch {
+                     print("Error setting video config: \(error)")
+                 }
+@@ -972,6 +1089,61 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
          delegate?.stageManagerDidEmitEvent(eventName: "onCameraSwapped", body: ["newCameraURN": newCamera.descriptor().urn, "newCameraName": newCamera.descriptor().friendlyName])
      }
  
