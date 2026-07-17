@@ -141,10 +141,77 @@ describe("stage HLS composition (guest HLS mirror)", () => {
 
     await expect(startStageHlsComposition("room_1")).resolves.toBeNull();
 
-    expect(hoisted.compositionSend).toHaveBeenCalledTimes(4);
+    // Retry schedule is [0, 2s, 5s, 10s, 15s] → 5 attempts before giving up.
+    expect(hoisted.compositionSend).toHaveBeenCalledTimes(5);
     expect(hoisted.liveRoomUpdate).toHaveBeenCalledWith({
       where: { id: "room_1" },
       data: { lastIvsError: "stage_composition_start_failed: AccessDeniedException" },
     });
-  }, 25_000);
+  }, 45_000);
+});
+
+describe("ignoreChannelHealthDowngradeForActiveStage (Go Live race guard)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("never blocks upgrades (live/connecting)", async () => {
+    const { ignoreChannelHealthDowngradeForActiveStage } = await import("@/services/ivs");
+    expect(
+      await ignoreChannelHealthDowngradeForActiveStage({ liveRoomId: "room_1", newHealth: "live" }),
+    ).toBe(false);
+    expect(hoisted.liveRoomFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("blocks an offline downgrade while a stage room is live (empty HLS channel must not end the show)", async () => {
+    const { ignoreChannelHealthDowngradeForActiveStage } = await import("@/services/ivs");
+    hoisted.liveRoomFindUnique.mockResolvedValueOnce({
+      status: "live",
+      streamMode: "stage_webrtc",
+      ivsStageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
+      streamStartedAt: new Date(Date.now() - 60 * 60 * 1000),
+    });
+    expect(
+      await ignoreChannelHealthDowngradeForActiveStage({ liveRoomId: "room_1", newHealth: "offline" }),
+    ).toBe(true);
+  });
+
+  it("blocks an offline downgrade during the Go-Live grace window before status flips to live", async () => {
+    const { ignoreChannelHealthDowngradeForActiveStage } = await import("@/services/ivs");
+    hoisted.liveRoomFindUnique.mockResolvedValueOnce({
+      status: "scheduled",
+      streamMode: "stage_webrtc",
+      ivsStageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
+      streamStartedAt: new Date(Date.now() - 2_000),
+    });
+    expect(
+      await ignoreChannelHealthDowngradeForActiveStage({ liveRoomId: "room_1", newHealth: "offline" }),
+    ).toBe(true);
+  });
+
+  it("allows the downgrade once the grace window has elapsed and the room is not live", async () => {
+    const { ignoreChannelHealthDowngradeForActiveStage } = await import("@/services/ivs");
+    hoisted.liveRoomFindUnique.mockResolvedValueOnce({
+      status: "ended",
+      streamMode: "stage_webrtc",
+      ivsStageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
+      streamStartedAt: new Date(Date.now() - 5 * 60 * 1000),
+    });
+    expect(
+      await ignoreChannelHealthDowngradeForActiveStage({ liveRoomId: "room_1", newHealth: "offline" }),
+    ).toBe(false);
+  });
+
+  it("never guards non-stage broadcasts", async () => {
+    const { ignoreChannelHealthDowngradeForActiveStage } = await import("@/services/ivs");
+    hoisted.liveRoomFindUnique.mockResolvedValueOnce({
+      status: "live",
+      streamMode: "channel_hls",
+      ivsStageArn: null,
+      streamStartedAt: new Date(),
+    });
+    expect(
+      await ignoreChannelHealthDowngradeForActiveStage({ liveRoomId: "room_1", newHealth: "offline" }),
+    ).toBe(false);
+  });
 });

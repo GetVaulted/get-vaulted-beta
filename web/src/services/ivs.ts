@@ -201,8 +201,18 @@ type StreamHealthCommitResult =
  * Persists IVS-derived stream health, bumps `roomVersion` when health changes, emits buyer-safe realtime.
  * Does **not** change `LiveRoom.status` (auction / go-live remain app-driven).
  */
+/**
+ * Grace window after a stage Go Live during which the still-warming HLS channel must not downgrade
+ * stream health. Covers the ~1s gap where the stream publishes (streamHealth=live) before the room
+ * status flips to "live", plus the ~6s before the HLS mirror composition starts. Without this, a
+ * buyer stream poll in that window reads the empty channel as offline, marks the fresh stage
+ * offline + stamps streamEndedAt, buyers go black, and the deferred mirror never starts — forcing
+ * the host to leave and re-enter to recover.
+ */
+const STAGE_GOLIVE_HEALTH_GRACE_MS = 90_000;
+
 /** Stage WebRTC rides the Real-Time Stage — IVS channel polls must not downgrade live buyers to offline. */
-async function ignoreChannelHealthDowngradeForActiveStage(args: {
+export async function ignoreChannelHealthDowngradeForActiveStage(args: {
   liveRoomId: string;
   newHealth: LiveStreamHealth;
 }): Promise<boolean> {
@@ -215,19 +225,24 @@ async function ignoreChannelHealthDowngradeForActiveStage(args: {
     select: {
       status: true,
       streamMode: true,
-      streamHealth: true,
       ivsStageArn: true,
+      streamStartedAt: true,
     },
   });
-  if (!room || room.streamMode !== "stage_webrtc" || !room.ivsStageArn || room.status !== "live") {
+  if (!room || room.streamMode !== "stage_webrtc" || !room.ivsStageArn) {
     return false;
   }
 
-  const wasLiveish =
-    room.streamHealth === "live" ||
-    room.streamHealth === "connecting" ||
-    room.streamHealth === "error";
-  return wasLiveish;
+  // The Real-Time Stage (WebRTC) is the source of truth for stage rooms; the HLS channel mirror
+  // legitimately lags Go Live by several seconds and is absent during host reconnects. While the
+  // room is live, an empty channel must never mark the stage offline — health is driven by
+  // Go Live / End Show + soft-disconnect, not the channel poll.
+  if (room.status === "live") return true;
+
+  // Go-Live transition: the stream publishes (streamHealth=live) ~1s before room.status flips to
+  // "live", so a buyer poll in that sliver would otherwise mark the fresh stage offline.
+  const startedMs = room.streamStartedAt?.getTime() ?? 0;
+  return startedMs > 0 && Date.now() - startedMs < STAGE_GOLIVE_HEALTH_GRACE_MS;
 }
 
 export async function commitLiveRoomStreamHealthFromIvs(args: {
