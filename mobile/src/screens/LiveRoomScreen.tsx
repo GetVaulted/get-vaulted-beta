@@ -1,4 +1,4 @@
-import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect, useIsFocused, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
@@ -33,6 +33,10 @@ export function LiveRoomScreen() {
   const [streams, setStreams] = useState<LiveStream[]>(seed.streams);
   const [loading, setLoading] = useState(!seed.ready);
   const [roomVisitNonce, setRoomVisitNonce] = useState(0);
+  // Drives full playback teardown when the buyer leaves this screen (back / tab switch / pushed
+  // screen). `useIsFocused` is false whenever any parent navigator is also unfocused, so it covers
+  // the tab-switch case where the screen stays mounted and would otherwise keep playing audio.
+  const isFocused = useIsFocused();
 
   useKeepScreenAwakeWhileFocused('live-room-buyer');
 
@@ -117,6 +121,7 @@ export function LiveRoomScreen() {
           streams={streams}
           initialStreamId={streamId}
           roomVisitNonce={roomVisitNonce}
+          screenFocused={isFocused}
           onBack={() => {
             if (navigation.canGoBack()) {
               navigation.goBack();

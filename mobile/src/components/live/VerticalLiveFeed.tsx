@@ -137,6 +137,12 @@ type Props = {
   onRequireAuth?: () => void;
   accessToken?: string;
   userId?: string;
+  /**
+   * False when the live room screen is not the focused screen (backed out, switched tabs, or a
+   * screen pushed on top). Drives a full playback teardown so a buyer stops hearing/seeing the
+   * show the moment they leave — the show stays live server-side and restores on refocus.
+   */
+  screenFocused?: boolean;
 };
 
 function formatViewers(n: number) {
@@ -1818,6 +1824,7 @@ export function VerticalLiveFeed({
   onRequireAuth,
   accessToken,
   userId,
+  screenFocused = true,
 }: Props) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [layoutSize, setLayoutSize] = useState<{ width: number; height: number } | null>(null);
@@ -1909,11 +1916,15 @@ export function VerticalLiveFeed({
 
   const resolvePlaybackMode = useCallback(
     (index: number): LivePlaybackMode => {
+      // When the screen loses focus (back, tab switch, pushed screen), no page plays — this leaves
+      // the IVS stage and pauses/mutes HLS so the buyer's audio/video cuts immediately. The host
+      // keeps streaming server-side; playback restores when the screen is focused again.
+      if (!screenFocused) return 'off';
       if (index === page) return 'active';
       if (warmPageIndices.has(index)) return 'prefetch';
       return 'off';
     },
-    [page, warmPageIndices],
+    [page, warmPageIndices, screenFocused],
   );
 
   useEffect(() => {
