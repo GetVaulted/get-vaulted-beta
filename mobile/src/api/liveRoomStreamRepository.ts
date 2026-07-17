@@ -27,17 +27,22 @@ async function stageTokenFetch(
   roomId: string,
   accessToken: string,
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  timeoutMs?: number,
 ): Promise<Response | null> {
   if (!accessToken.trim()) return null;
   const withBody = method === 'POST' || method === 'PATCH';
-  return fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(roomId)}/stream/stage-token`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      ...(withBody ? { 'Content-Type': 'application/json' } : {}),
+  return fetchWebApiMobile(
+    `/api/live-rooms/${encodeURIComponent(roomId)}/stream/stage-token`,
+    {
+      method,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(withBody ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(withBody ? { body: '{}' } : {}),
     },
-    ...(withBody ? { body: '{}' } : {}),
-  });
+    timeoutMs != null ? { timeoutMs } : undefined,
+  );
 }
 
 export async function fetchBuyerLiveStream(
@@ -93,7 +98,8 @@ export async function requestHostStageToken(
   roomId: string,
   accessToken: string,
 ): Promise<StageTokenPayload> {
-  const res = await stageTokenFetch(roomId, accessToken, 'POST');
+  // Go Live can cold-start IVS provision; keep above the default 15s mobile abort.
+  const res = await stageTokenFetch(roomId, accessToken, 'POST', 45_000);
   if (!res) throw new Error('Set EXPO_PUBLIC_SITE_URL to your Next.js API host.');
   const raw = (await res.json().catch(() => null)) as unknown;
   const token = parseStageTokenPayload(raw);
