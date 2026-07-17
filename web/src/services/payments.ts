@@ -27,6 +27,7 @@ import {
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { buildOrderTaxPersistFields } from "@/lib/sales-tax-order";
 import { recordTaxDestinationVolumeOnOrderPaid } from "@/lib/sales-tax-reporting";
+import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
 import {
   buildCheckoutTaxSessionFields,
   buildMarketplaceCheckoutTaxBundle,
@@ -1027,6 +1028,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
           destinationAccountId: listing.seller.stripeAccountId!,
           applicationFeeCents: feeCents,
           sellerTransferCents: taxBundle.sellerTransferCents,
+          processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(expectedSubtotalCents) : 0,
           metadata: { orderId: order.id, kind: "buy_now" },
         }),
         line_items: [
@@ -1309,6 +1311,7 @@ export async function createPayOrderCheckoutSession(args: {
         destinationAccountId: order.seller.stripeAccountId,
         applicationFeeCents: feeCents,
         sellerTransferCents: taxBundle.sellerTransferCents,
+        processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(expectedSubtotalCents) : 0,
         metadata: { orderId: order.id, kind: "pay_order" },
       }),
       line_items: [
@@ -1409,7 +1412,10 @@ export async function createBreakSpotCheckoutSession(args: {
         userId: args.userId,
       },
       payment_intent_data: {
-        application_fee_amount: feeCents,
+        // Seller absorbs Stripe processing (2.9% + $0.30). Tax is added by Stripe at checkout
+        // (automatic_tax) so it isn't known here — estimate processing on the spot subtotal.
+        application_fee_amount:
+          feeCents + (feeCents > 0 ? estimateStripeProcessingFeeCents(Math.round(priceUsd * 100)) : 0),
         transfer_data: { destination: seller.stripeAccountId },
         metadata: { breakSpotId: spot.id, kind: "break_spot" },
       },

@@ -113,20 +113,27 @@ export function connectPaymentIntentTransferData(args: {
   destinationAccountId: string;
   applicationFeeCents: number;
   sellerTransferCents: number | null;
+  /**
+   * Stripe processing fee (cents) passed through to the seller so the platform nets its full
+   * application fee. Added to `application_fee_amount` (untaxed) or subtracted from the explicit
+   * seller transfer (taxed). Defaults to 0 (platform absorbs), e.g. tips.
+   */
+  processingFeeCents?: number;
 }): {
   application_fee_amount?: number;
   transfer_data: { destination: string; amount?: number };
 } {
+  const processing = Math.max(0, Math.round(args.processingFeeCents ?? 0));
   if (args.sellerTransferCents != null) {
     return {
       transfer_data: {
         destination: args.destinationAccountId,
-        amount: args.sellerTransferCents,
+        amount: Math.max(0, args.sellerTransferCents - processing),
       },
     };
   }
   return {
-    application_fee_amount: args.applicationFeeCents,
+    application_fee_amount: args.applicationFeeCents + processing,
     transfer_data: { destination: args.destinationAccountId },
   };
 }

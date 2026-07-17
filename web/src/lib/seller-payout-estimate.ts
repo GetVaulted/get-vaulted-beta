@@ -14,6 +14,12 @@ export function estimateSellerOrderPayoutUsd(args: {
   /** Cumulative Get Vaulted label cost already deducted from seller (USD cents). */
   shippingLabelCostCents?: number | null;
   shippingLabelCostReversedCents?: number | null;
+  /**
+   * Stripe processing fee the seller absorbs on this sale (2.9% + $0.30). Passed through to the
+   * seller via the Connect charge, so it must be subtracted from the estimated payout when known.
+   * Omitted callers keep the legacy behavior (no processing deduction).
+   */
+  stripeProcessingFeeUsd?: number;
 }): number {
   const feePct = args.platformFeePercent ?? marketplacePlatformFeePercent();
   const item = Math.max(0, args.itemPriceUsd);
@@ -25,9 +31,13 @@ export function estimateSellerOrderPayoutUsd(args: {
       ? Math.max(0, args.shippingLabelCostReversedCents)
       : Math.max(0, args.shippingLabelCostCents ?? 0);
   const labelCostUsd = reversedCents / 100;
+  const processingUsd = Math.max(0, args.stripeProcessingFeeUsd ?? 0);
   // Platform fee on item only; shipping pass-through; GV label cost deducted when purchased.
-  // Stripe processing deducted separately by Stripe.
-  return Math.max(0, Math.round((item - feeUsd - reserveUsd + shippingUsd - labelCostUsd) * 100) / 100);
+  // Stripe processing is passed to the seller on Connect, so deduct it when the caller supplies it.
+  return Math.max(
+    0,
+    Math.round((item - feeUsd - reserveUsd + shippingUsd - labelCostUsd - processingUsd) * 100) / 100,
+  );
 }
 
 const DEFAULT_STRIPE_PROCESSING_PERCENT = 2.9;
@@ -49,6 +59,18 @@ export function estimateStripeProcessingFeeUsd(chargeAmountUsd: number): number 
   const { percent, fixedUsd } = stripeProcessingFeePolicy();
   const charge = Math.max(0, chargeAmountUsd);
   return Math.max(0, Math.round((charge * (percent / 100) + fixedUsd) * 100) / 100);
+}
+
+/**
+ * Estimated Stripe card processing fee in cents on the buyer charge (2.9% + $0.30 by default).
+ * Used to pass the processing cost through to the seller on Connect destination charges so the
+ * platform nets its full application fee. Same policy/env overrides as the USD variant.
+ */
+export function estimateStripeProcessingFeeCents(chargeAmountCents: number): number {
+  const { percent, fixedUsd } = stripeProcessingFeePolicy();
+  const cents = Math.max(0, Math.round(chargeAmountCents));
+  if (cents <= 0) return 0;
+  return Math.max(0, Math.round(cents * (percent / 100) + fixedUsd * 100));
 }
 
 export function estimatePlatformFeeUsd(args: {

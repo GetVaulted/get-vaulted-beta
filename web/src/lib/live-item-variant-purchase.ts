@@ -3,6 +3,7 @@ import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { stripeCheckoutSessionPaymentOptions } from "@/lib/stripe-payment-method-config";
 import { buildCheckoutTaxSessionFields, STRIPE_TAX_CODE_TANGIBLE, stripeLineItemProductData } from "@/lib/stripe-tax";
 import { recordLiveShowCompletedSaleTx, resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
+import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
 import { assertSellerStripeCollectReadyFromUser, sellerStripeCollectSelect } from "@/lib/seller-stripe-collect-ready";
 
 import {
@@ -494,7 +495,11 @@ export async function createLiveItemVariantCheckoutSession(args: {
         userId: args.userId,
       },
       payment_intent_data: {
-        application_fee_amount: feeCents,
+        // Seller absorbs Stripe processing (2.9% + $0.30). Tax is added by Stripe at checkout
+        // (automatic_tax) so it isn't known here — estimate processing on the spot subtotal.
+        application_fee_amount:
+          feeCents +
+          (feeCents > 0 ? estimateStripeProcessingFeeCents(Math.round(purchase.totalUsd * 100)) : 0),
         transfer_data: { destination: stripeAccountId },
         metadata: { purchaseId: purchase.id, kind: "variant_purchase" },
       },

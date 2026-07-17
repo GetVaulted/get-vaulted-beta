@@ -48,6 +48,7 @@ import {
   connectPaymentIntentTransferData,
   resolveConnectPaymentTaxPlan,
 } from "@/lib/sales-tax-charge";
+import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
 import { orderTaxUpdateData } from "@/lib/sales-tax-order";
 import { stripeOffSessionPaymentIntentOptions } from "@/lib/stripe-payment-method-config";
 
@@ -529,6 +530,7 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
           destinationAccountId: destinationAccount,
           applicationFeeCents: feeCents,
           sellerTransferCents: taxCharge.sellerTransferCents,
+          processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
         }),
       },
       {
@@ -930,6 +932,7 @@ export async function chargeBreakSpotWithSavedCard(args: {
           destinationAccountId: breakDestinationAccount,
           applicationFeeCents: feeCents,
           sellerTransferCents: taxCharge.sellerTransferCents,
+          processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
         }),
       },
       {

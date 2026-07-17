@@ -185,21 +185,28 @@ export function connectCheckoutPaymentIntentData(args: {
   applicationFeeCents: number;
   sellerTransferCents: number | null;
   metadata: Record<string, string>;
+  /**
+   * Stripe processing fee (cents) passed through to the seller so the platform nets its full
+   * application fee. Added to `application_fee_amount` (untaxed) or subtracted from the explicit
+   * seller transfer (taxed). Defaults to 0 (platform absorbs).
+   */
+  processingFeeCents?: number;
 }): Pick<
   Stripe.Checkout.SessionCreateParams.PaymentIntentData,
   "application_fee_amount" | "transfer_data" | "metadata"
 > {
+  const processing = Math.max(0, Math.round(args.processingFeeCents ?? 0));
   if (args.sellerTransferCents != null) {
     return {
       transfer_data: {
         destination: args.destinationAccountId,
-        amount: args.sellerTransferCents,
+        amount: Math.max(0, args.sellerTransferCents - processing),
       },
       metadata: args.metadata,
     };
   }
   return {
-    application_fee_amount: args.applicationFeeCents,
+    application_fee_amount: args.applicationFeeCents + processing,
     transfer_data: { destination: args.destinationAccountId },
     metadata: args.metadata,
   };

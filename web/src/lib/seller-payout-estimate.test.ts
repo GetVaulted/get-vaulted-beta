@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   estimateSellerOrderPayoutUsd,
+  estimateStripeProcessingFeeCents,
   estimateStripeProcessingFeeUsd,
   resolvePlatformFeePercentForSellerOrder,
 } from "@/lib/seller-payout-estimate";
@@ -64,6 +65,27 @@ describe("seller-payout-estimate", () => {
   it("estimates Stripe processing fee on buyer charge total", () => {
     expect(estimateStripeProcessingFeeUsd(100)).toBe(3.2);
     expect(estimateStripeProcessingFeeUsd(0)).toBe(0.3);
+  });
+
+  it("estimates Stripe processing fee in cents (2.9% + $0.30)", () => {
+    expect(estimateStripeProcessingFeeCents(10000)).toBe(320);
+    expect(estimateStripeProcessingFeeCents(0)).toBe(0);
+  });
+
+  it("subtracts the seller-absorbed Stripe processing fee from the payout estimate", () => {
+    const base = estimateSellerOrderPayoutUsd({
+      itemPriceUsd: 100,
+      payoutReserveAmountCents: 0,
+      platformFeePercent: 8,
+    });
+    const withProcessing = estimateSellerOrderPayoutUsd({
+      itemPriceUsd: 100,
+      payoutReserveAmountCents: 0,
+      platformFeePercent: 8,
+      stripeProcessingFeeUsd: 3.2,
+    });
+    expect(base).toBe(92);
+    expect(withProcessing).toBe(88.8);
   });
 
   it("uses live tier percent for live show orders", () => {

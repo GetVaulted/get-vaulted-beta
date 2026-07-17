@@ -156,6 +156,8 @@ export function mapSellerSalesOrderForApi(user: SellerSalesOrderUser, o: SellerS
       platformFeePercent,
       shippingLabelCostCents: o.shippingLabelCostCents,
       shippingLabelCostReversedCents: o.shippingLabelCostReversedCents,
+      // Seller absorbs Stripe processing on Connect, so the shown net payout must subtract it.
+      stripeProcessingFeeUsd: estimateStripeProcessingFeeUsd(o.totalUsd),
     }),
     listing: o.listing,
     buyer: o.buyer,

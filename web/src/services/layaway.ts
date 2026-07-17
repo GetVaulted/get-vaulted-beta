@@ -34,6 +34,7 @@ import { marketplacePlatformFeePercent, applicationFeeCentsFromSubtotalUsd } fro
 import { resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
 import { getStripe } from "@/lib/stripe";
 import { stripeCheckoutSessionPaymentOptions } from "@/lib/stripe-payment-method-config";
+import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
 import {
   connectCheckoutPaymentIntentData,
   estimateSalesTaxCents,
@@ -632,6 +633,7 @@ export async function createLayawayDepositCheckout(args: {
     destinationAccountId: listing.seller.stripeAccountId!,
     applicationFeeCents: feeCents,
     sellerTransferCents: taxAmountCents > 0 ? Math.max(0, depositCents - feeCents) : null,
+    processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(depositCents + taxAmountCents) : 0,
     metadata: piMetadata,
   });
 
@@ -908,7 +910,9 @@ export async function createLayawayBalanceCheckout(args: {
         layawayId: lay.id,
         layawayPaymentId: paymentRow.id,
       },
-      application_fee_amount: feeCents,
+      // Seller absorbs Stripe processing (2.9% + $0.30) on each installment charge.
+      application_fee_amount:
+        feeCents + (feeCents > 0 ? estimateStripeProcessingFeeCents(Math.round(payUsd * 100)) : 0),
       transfer_data: { destination: lay.listing.seller.stripeAccountId! },
     },
   });

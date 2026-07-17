@@ -108,4 +108,27 @@ describe("connectCheckoutPaymentIntentData", () => {
     expect(data.application_fee_amount).toBeUndefined();
     expect(data.transfer_data).toEqual({ destination: "acct_seller", amount: 92_000 });
   });
+
+  it("passes Stripe processing to the seller: adds to application fee (untaxed)", () => {
+    const data = connectCheckoutPaymentIntentData({
+      destinationAccountId: "acct_seller",
+      applicationFeeCents: 800,
+      sellerTransferCents: null,
+      processingFeeCents: 320,
+      metadata: { orderId: "ord_1", kind: "buy_now" },
+    });
+    expect(data.application_fee_amount).toBe(1_120);
+  });
+
+  it("passes Stripe processing to the seller: reduces transfer (taxed)", () => {
+    const data = connectCheckoutPaymentIntentData({
+      destinationAccountId: "acct_seller",
+      applicationFeeCents: 800,
+      sellerTransferCents: 92_000,
+      processingFeeCents: 320,
+      metadata: { orderId: "ord_1", kind: "buy_now" },
+    });
+    expect(data.application_fee_amount).toBeUndefined();
+    expect(data.transfer_data).toEqual({ destination: "acct_seller", amount: 91_680 });
+  });
 });

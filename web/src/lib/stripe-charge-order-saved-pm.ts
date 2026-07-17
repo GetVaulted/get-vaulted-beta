@@ -12,6 +12,7 @@ import {
   resolveConnectPaymentTaxPlan,
 } from "@/lib/sales-tax-charge";
 import { resolveCheckoutApplicationFeeCents, resolveLiveRoomIdForOrder } from "@/lib/live-show-gmv";
+import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
 import {
   finalizeLiveBuyNowPurchaseComplete,
   refreshBuyerShippingOnOrderIfIncomplete,
@@ -395,6 +396,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
           destinationAccountId: row.seller.stripeAccountId,
           applicationFeeCents: feeCents,
           sellerTransferCents: taxPlan.sellerTransferCents,
+          processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
         }),
       },
       // PM is part of the key so a recovery retry with a NEW card creates a fresh PaymentIntent
@@ -775,6 +777,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
           destinationAccountId: row.seller.stripeAccountId,
           applicationFeeCents: feeCents,
           sellerTransferCents: taxPlan.sellerTransferCents,
+          processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
         }),
       },
       // Include the PM so a recovery retry with a new card does not replay the prior intent.
@@ -972,6 +975,7 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
           destinationAccountId: row.seller.stripeAccountId,
           applicationFeeCents: feeCents,
           sellerTransferCents: taxPlan.sellerTransferCents,
+          processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
         }),
       },
       { idempotencyKey: `marketplace_buy_now_${row.id}_${amountCents}_${pmId}` },
