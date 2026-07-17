@@ -475,6 +475,31 @@ export function LiveVideoStagePlayback({
       setLatencyMode(safe.latencyMode ?? null);
       setStreamMode(safe.streamMode);
       setStageAvailable(safe.stageAvailable);
+      // #region agent log
+      fetch("http://127.0.0.1:7674/ingest/20fcfd2c-15bc-4e11-921b-7cb9232e12f6", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "dca6d1" },
+        body: JSON.stringify({
+          sessionId: "dca6d1",
+          hypothesisId: "H2_H3_H5",
+          location: "LiveVideoStagePlayback.tsx:fetchStream",
+          message: "buyer_stream_poll",
+          data: {
+            roomId: liveRoomId,
+            streamHealth: safe.streamHealth,
+            streamPaused: safe.streamPaused,
+            streamMode: safe.streamMode,
+            stageAvailable: safe.stageAvailable,
+            streamStartedAt: safe.streamStartedAt,
+            hasPlaybackUrl: Boolean(safe.playbackUrl),
+            transport: transportRef.current,
+            videoHasData,
+            webrtcFailed: webrtcFailedRef.current,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       if (!loggedLatencyModeRef.current) {
         loggedLatencyModeRef.current = true;
         logIvsWeb("channel latency mode", {
@@ -693,18 +718,61 @@ export function LiveVideoStagePlayback({
       const since = noVideoSinceRef.current;
       if (since == null || Date.now() - since < NO_VIDEO_RECOVER_MS) return;
       noVideoSinceRef.current = Date.now();
-      webrtcFailedRef.current = false;
-      webrtcFailoverCountRef.current = 0;
       lastAttachedKeyRef.current = "";
       setPlayerFatal(false);
       setHlsFatalRetries(0);
-      logIvsWeb("buyer playback health recover", { roomId: liveRoomId, transport: transportRef.current });
+      // #region agent log
+      fetch("http://127.0.0.1:7674/ingest/20fcfd2c-15bc-4e11-921b-7cb9232e12f6", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "dca6d1" },
+        body: JSON.stringify({
+          sessionId: "dca6d1",
+          hypothesisId: "H_FAILOVER",
+          location: "LiveVideoStagePlayback.tsx:noVideoRecover",
+          message: "buyer_no_video_recover_tick",
+          data: {
+            roomId: liveRoomId,
+            transport: transportRef.current,
+            webrtcFailoverCount: webrtcFailoverCountRef.current,
+            webrtcFailed: webrtcFailedRef.current,
+            streamHealth,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      // WebRTC has yielded no host video for the whole recover window. Escalate toward the HLS
+      // mirror instead of resetting the failover counter — the reset was trapping buyers on a
+      // never-playing WebRTC subscribe while the Stage→Channel HLS mirror was live.
       if (transportRef.current === "webrtc") {
+        webrtcFailoverCountRef.current += 1;
+        if (webrtcFailoverCountRef.current >= MAX_WEBRTC_FAILOVERS) {
+          webrtcFailedRef.current = true;
+          transportRef.current = "hls";
+          setTransport("hls");
+          setVideoHasData(false);
+          logIvsWeb("buyer playback error", {
+            roomId: liveRoomId,
+            reason: "webrtc_novideo_failover_hls",
+            fallback: "hls",
+          });
+          void fetchStream();
+          return;
+        }
+        logIvsWeb("buyer playback health recover", {
+          roomId: liveRoomId,
+          transport: "webrtc",
+          failoverAttempt: webrtcFailoverCountRef.current,
+        });
         setWebrtcSubscribeEpoch((n) => n + 1);
-      } else {
-        transportRef.current = "none";
-        setTransport("none");
+        void fetchStream();
+        return;
       }
+      // Already latched to HLS via failover — retry HLS re-attach without flipping back to a
+      // dead WebRTC subscribe.
+      logIvsWeb("buyer playback health recover", { roomId: liveRoomId, transport: transportRef.current });
+      transportRef.current = webrtcFailedRef.current ? "hls" : "none";
+      setTransport(transportRef.current);
       void fetchStream();
     }, LIVE_PLAYBACK_HEALTH_MS);
     return () => window.clearInterval(id);
