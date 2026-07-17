@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import type { LiveStream } from '../types';
-import { isLiveBidCommerceUi, mustUseLiveBidFlow } from './liveCommerceRouting';
+import { isActiveBuyNowBuyerItem, isLiveBidCommerceUi, mustUseLiveBidFlow } from './liveCommerceRouting';
 
 function stream(overrides: Partial<LiveStream> = {}): LiveStream {
   return {
@@ -93,6 +93,60 @@ describe('mustUseLiveBidFlow', () => {
       activeItemVariants: [{ id: 'v1', label: 'AFC East', priceUsd: 35, quantityRemaining: 1, soldCount: 0, isHot: false, sortOrder: 0, status: 'available', buyerUsername: null }],
     } as LiveRoomBuyerSnapshot;
     expect(mustUseLiveBidFlow(stream(), snap)).toBe(false);
+  });
+});
+
+describe('isActiveBuyNowBuyerItem', () => {
+  it('true for an explicit buy_now lot pinned in a break/PYD room', () => {
+    const snap = {
+      roomType: 'break',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemListingId: 'listing-1',
+      activeItemSalesFormat: 'buy_now',
+    } as LiveRoomBuyerSnapshot;
+    expect(isActiveBuyNowBuyerItem(snap)).toBe(true);
+  });
+
+  it('true for an explicit buy_now lot pinned in an auction room', () => {
+    const snap = {
+      roomType: 'auction',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemSalesFormat: 'buy_now',
+    } as LiveRoomBuyerSnapshot;
+    expect(isActiveBuyNowBuyerItem(snap)).toBe(true);
+  });
+
+  it('true for a null-format lot in a sale room (legacy default)', () => {
+    const snap = {
+      roomType: 'sale',
+      status: 'live',
+      activeItemId: 'item-1',
+    } as LiveRoomBuyerSnapshot;
+    expect(isActiveBuyNowBuyerItem(snap)).toBe(true);
+  });
+
+  it('false for a null-format lot in a break room (stays auction, not a buy)', () => {
+    const snap = {
+      roomType: 'break',
+      status: 'live',
+      activeItemId: 'item-1',
+    } as LiveRoomBuyerSnapshot;
+    expect(isActiveBuyNowBuyerItem(snap)).toBe(false);
+  });
+
+  it('false when the active lot is a PYT/PYD variant board', () => {
+    const snap = {
+      roomType: 'break',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemSalesFormat: 'team_break',
+      activeItemVariants: [
+        { id: 'v1', label: 'AFC East', priceUsd: 35, quantityRemaining: 1, soldCount: 0, isHot: false, sortOrder: 0, status: 'available', buyerUsername: null },
+      ],
+    } as LiveRoomBuyerSnapshot;
+    expect(isActiveBuyNowBuyerItem(snap)).toBe(false);
   });
 });
 

@@ -34,9 +34,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
     select: { id: true, sellerId: true, roomType: true, status: true, streamHealth: true, streamPaused: true, streamMode: true, streamStartedAt: true, streamEndedAt: true },
   });
   if (!room) return NextResponse.json({ error: "Room not found." }, { status: 404 });
-  if (room.roomType !== "sale") {
-    return NextResponse.json({ error: "Buy now is only available in sale rooms." }, { status: 400 });
-  }
+  // Buy Now works wherever a fixed-price lot is pinned — sale, auction, or break/PYT/PYD show.
+  // The listing-format guard in `createLiveBuyNowOrder` (buyingFormat === "buy_now") is what keeps
+  // auction lots and variant boards out of this path, so no room-type gate is needed here.
   if (room.status !== "live") {
     return NextResponse.json({ error: "This room is not live." }, { status: 409 });
   }
@@ -50,8 +50,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
     select: { id: true, listingId: true, status: true, title: true },
   });
   if (!item) return NextResponse.json({ error: "Item not found." }, { status: 404 });
-  if (item.status !== "active") {
-    return NextResponse.json({ error: "Only the active item can be purchased." }, { status: 409 });
+  // Buy Now items are shoppable from the lineup at any time, not only when the host has pinned
+  // them on screen (`active`). Queued Buy Now lots are fair game; only truly-unavailable states
+  // (sold, skipped) are blocked. Listing-level guards below still enforce buy-now + availability.
+  if (item.status !== "active" && item.status !== "queued") {
+    return NextResponse.json({ error: "This item is no longer available." }, { status: 409 });
   }
 
   const returnPath = item.listingId

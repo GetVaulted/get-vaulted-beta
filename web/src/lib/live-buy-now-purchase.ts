@@ -362,8 +362,13 @@ export async function createLiveBuyNowOrder(args: {
         where: {
           id: args.liveRoomItemId,
           liveRoomId: args.liveRoomId,
-          status: "active",
-          liveRoom: { sellerId: { not: args.buyerId }, status: "live", roomType: "sale" },
+          // Buy Now lots are purchasable whether the host has pinned them (`active`) or they are
+          // still queued in the lineup. Terminal states (sold/skipped) fall through to not-found.
+          status: { in: ["queued", "active"] },
+          // Any live room type — a host can pin a fixed-price lot during a sale, auction, or
+          // break/PYT/PYD show. The listing `buyingFormat === "buy_now"` check below is the real
+          // guard that keeps auction lots and variant boards out of this buy path.
+          liveRoom: { sellerId: { not: args.buyerId }, status: "live" },
         },
         select: {
           id: true,

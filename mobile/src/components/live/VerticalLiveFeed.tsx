@@ -962,14 +962,9 @@ function LiveSlide({
         return;
       }
       if (item.queueAction === 'buy_now') {
-        if (!item.isPinned || liveSession.roomSnap?.activeItemId !== item.id) {
-          Alert.alert('Not on screen yet', 'Buy now unlocks when the host shows this item live.');
-          return;
-        }
-        if (liveSession.roomSnap?.roomType !== 'sale') {
-          Alert.alert('Not available', 'Buy now is only available in sale rooms.');
-          return;
-        }
+        // Buy Now items are shoppable from the lineup anytime and in any room type — a host can pin
+        // a fixed-price item during a PYT/PYD break or auction show, not just a sale room. Pinning a
+        // lot only spotlights it on screen; it does not gate purchasing other listed Buy Now items.
         if (!item.listingId) {
           Alert.alert('Checkout unavailable', 'This item is not linked to checkout yet.');
           return;

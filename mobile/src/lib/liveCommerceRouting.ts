@@ -17,15 +17,19 @@ export function isSaleRoomAuctionLot(
   return false;
 }
 
-/** Plain fixed-price buy now in a sale room (not PYT/PYD variant checkout, not timed auction). */
+/** Fixed-price buy now lot (not PYT/PYD variant checkout, not timed auction). */
 export function isActiveBuyNowBuyerItem(
   roomSnap: LiveRoomBuyerSnapshot | null | undefined,
 ): boolean {
   if (!roomSnap?.activeItemId || roomSnap.status !== 'live') return false;
   if (isActiveVariantBuyerItem(roomSnap)) return false;
-  if (roomSnap.roomType !== 'sale') return false;
   if (isSaleRoomAuctionLot(roomSnap)) return false;
-  return roomSnap.activeItemSalesFormat === 'buy_now' || roomSnap.activeItemSalesFormat == null;
+  // An explicit fixed-price lot is buyable in ANY room type — a host can pin a Buy Now item during
+  // a PYT/PYD break or an auction show and buyers should get a Buy button, not the bid UI. A
+  // null/unset format only defaults to Buy Now in sale rooms; elsewhere it stays an auction lot so
+  // we never mistake a bid item for a buy.
+  if (roomSnap.activeItemSalesFormat === 'buy_now') return true;
+  return roomSnap.roomType === 'sale' && roomSnap.activeItemSalesFormat == null;
 }
 
 /** True when HUD primary action is auction bid (slide or Bid label). */
