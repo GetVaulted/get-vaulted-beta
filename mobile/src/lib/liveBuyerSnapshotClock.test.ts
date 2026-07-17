@@ -45,4 +45,18 @@ describe('liveBuyerSnapshotClock', () => {
     expect(next.activeItemId).toBe('item-1');
     expect(next.currentBidUsd).toBeNull();
   });
+
+  // Regression: a no-bid round must not advance the lot's unit number on the buyer's screen.
+  // The realtime merge only resets bid state — it must leave `activeItemTitle` (e.g. "Break 1 #15")
+  // exactly as the server last sent it, so the buyer keeps seeing #15 until the unit actually sells.
+  it('keeps the lot unit number (#15) unchanged through a no-bid round', () => {
+    const next = applyBuyerSnapshotPurchaseCompleted(
+      snap({ activeItemTitle: 'Break 1 #15' }),
+      'item-1',
+      Date.now(),
+      { noBids: true, itemSoldOut: false },
+    );
+    expect(next.activeItemTitle).toBe('Break 1 #15');
+    expect(next.activeItemId).toBe('item-1');
+  });
 });

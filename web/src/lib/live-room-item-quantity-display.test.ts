@@ -65,6 +65,65 @@ describe("resolveLiveRoomItemQuantityState", () => {
     expect(state.remainingQuantity).toBe(0);
     expect(state.progressLabel).toBe("3 / 3 sold");
   });
+
+  // Regression: a lot's unit number must NOT advance when a round ends with no sale.
+  // The server no-bid reset (resetLiveAuctionLotAfterNoBids / resetVariantSpotAuctionNoBids)
+  // leaves `quantity`/`soldCount` untouched, so re-serializing the row keeps the same #N.
+  // The number is only allowed to move once a unit actually sells (quantity decrements).
+  it("keeps the same unit number across a no-bid round and only advances on a real sale", () => {
+    // Host is running the 15th unit of a 15-unit lot (14 already sold).
+    const running = resolveLiveRoomItemQuantityState({
+      title: "Break 1",
+      quantity: 1,
+      quantityInitial: 15,
+      status: "active",
+    });
+    expect(running.displayTitle).toBe("Break 1 #15");
+    expect(running.currentUnitNumber).toBe(15);
+
+    // No bids: the reset keeps quantity at 1 and status active → still #15, not #16.
+    const afterNoBids = resolveLiveRoomItemQuantityState({
+      title: "Break 1",
+      quantity: 1,
+      quantityInitial: 15,
+      status: "active",
+    });
+    expect(afterNoBids.displayTitle).toBe("Break 1 #15");
+    expect(afterNoBids.currentUnitNumber).toBe(15);
+
+    // Only a real sale (quantity → 0, status sold) retires the number.
+    const afterSale = resolveLiveRoomItemQuantityState({
+      title: "Break 1",
+      quantity: 0,
+      quantityInitial: 15,
+      status: "sold",
+    });
+    expect(afterSale.soldQuantity).toBe(15);
+    expect(afterSale.currentUnitNumber).toBeNull();
+  });
+
+  // Regression for variant/PYT spot breaks: the unit number is driven by variant soldCount
+  // (passed as `unitsClaimed`). A no-bid spot round leaves soldCount untouched, so #N holds.
+  it("keeps the variant/PYT unit number across a no-bid spot round", () => {
+    const running = resolveLiveRoomItemQuantityState({
+      title: "PYT Break 1",
+      quantity: 20,
+      quantityInitial: 20,
+      status: "active",
+      unitsClaimed: 14, // 14 spots already sold → currently on #15
+    });
+    expect(running.displayTitle).toBe("PYT Break 1 #15");
+
+    // No bids on the spot auction → soldCount (unitsClaimed) unchanged → still #15.
+    const afterNoBids = resolveLiveRoomItemQuantityState({
+      title: "PYT Break 1",
+      quantity: 20,
+      quantityInitial: 20,
+      status: "active",
+      unitsClaimed: 14,
+    });
+    expect(afterNoBids.displayTitle).toBe("PYT Break 1 #15");
+  });
 });
 
 describe("resolveLiveBuyNowUnitSale", () => {

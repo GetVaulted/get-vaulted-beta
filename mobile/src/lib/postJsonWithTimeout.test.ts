@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { postJsonWithTimeout } from '../postJsonWithTimeout';
+import { postJsonWithTimeout } from './postJsonWithTimeout';
 
 describe('postJsonWithTimeout', () => {
   it('exports a function', () => {
