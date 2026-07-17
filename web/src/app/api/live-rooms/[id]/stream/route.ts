@@ -18,8 +18,7 @@ import { getStreamRow, toBuyerSafeStreamPayload, toHostStreamPayload } from "./_
  * rate-limited per room so many concurrent buyer polls only trigger one retry per window.
  */
 function maybeHealStageComposition(roomId: string): void {
-  // Faster heal while a show is live with a dead HLS mirror (404 playlist).
-  const rl = checkRateLimit(`stage-composition-heal:${roomId}`, { limit: 1, windowMs: 8_000 });
+  const rl = checkRateLimit(`stage-composition-heal:${roomId}`, { limit: 1, windowMs: 20_000 });
   if (!rl.ok) return;
   void ensureStageHlsCompositionActive(roomId).catch(() => {});
 }

@@ -765,9 +765,9 @@ export async function startStageHlsComposition(roomId: string): Promise<string |
 }
 
 /**
- * Self-heal: if a live Stage broadcast has no working HLS mirror, (re)start composition.
- * Safe under buyer-poll rate limits. Restarts when a composition ARN exists but the IVS
- * channel is still offline (common when composition started before the host published).
+ * Self-heal: if a live Stage broadcast never got an HLS mirror ARN, start composition.
+ * Do NOT stop/restart an existing composition on a single GetStream offline blip — that
+ * tears down a healthy show (buyers see ~2s of video then black).
  */
 export async function ensureStageHlsCompositionActive(roomId: string): Promise<void> {
   if (!stageCompositionEnabled()) return;
@@ -779,18 +779,7 @@ export async function ensureStageHlsCompositionActive(roomId: string): Promise<v
   if (!room.ivsStageArn || !room.ivsChannelArn) return;
   const health = room.streamHealth?.toLowerCase();
   if (health !== "live" && health !== "connecting") return;
-
-  if (room.ivsCompositionArn) {
-    const { health: channelHealth } = await getStreamStatus(room.ivsChannelArn);
-    if (channelHealth === "live" || channelHealth === "connecting") return;
-    console.warn("[IVS_OPS] ivs_stage_composition_stale_restart", {
-      roomId,
-      channelHealth,
-      compositionArn: room.ivsCompositionArn,
-    });
-    await stopStageComposition(roomId);
-  }
-
+  if (room.ivsCompositionArn) return;
   await startStageHlsComposition(roomId);
 }
 
