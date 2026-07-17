@@ -14,7 +14,7 @@ import { AdminCsvExportButton } from "@/components/admin/AdminCsvExportButton";
 type PayoutStatusBreakdownRow = { status: string; orderCount: number; sellerNetUsd: number };
 
 type Report = {
-  rangeKey: "7d" | "30d" | "90d" | "all";
+  rangeKey: "24h" | "7d" | "30d" | "90d" | "all";
   rangeStart: string | null;
   generatedAt: string;
   paidOrderCount: number;
@@ -82,6 +82,7 @@ export function AdminReconciliationPage() {
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <select value={range} onChange={(e) => setRange(e.target.value as Report["rangeKey"])} className={adminSelectClassName}>
+            <option value="24h">Last 24 hours</option>
             <option value="7d">Last 7 days</option>
             <option value="30d">Last 30 days</option>
             <option value="90d">Last 90 days</option>

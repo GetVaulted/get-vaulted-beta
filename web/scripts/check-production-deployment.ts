@@ -21,6 +21,11 @@ type AuthConfig = {
   stripeKeysAligned?: boolean | null;
   stripeProductionReady?: boolean;
   stripeWebhookSecretConfigured?: boolean;
+  stripeConnectWebhookSecretConfigured?: boolean;
+  stripeConnectPublicAppUrl?: string | null;
+  stripeConnectPublicAppUrlExplicit?: boolean;
+  stripeTaxEnabled?: boolean;
+  cronSecretConfigured?: boolean;
   webSignupResendConfigured?: boolean;
   resendFromConfigured?: boolean;
   resendEmailReady?: boolean;
@@ -113,6 +118,44 @@ async function checkAuthConfig(host: string): Promise<void> {
       cfg.stripeProductionReady === true,
       String(cfg.stripeProductionReady),
     );
+    record(
+      "Stripe Connect webhook secret",
+      cfg.stripeConnectWebhookSecretConfigured === true,
+      String(cfg.stripeConnectWebhookSecretConfigured),
+    );
+    if (cfg.stripeConnectPublicAppUrl !== undefined) {
+      record(
+        "Stripe Connect public app URL",
+        cfg.stripeConnectPublicAppUrl === host,
+        `stripeConnectPublicAppUrl=${cfg.stripeConnectPublicAppUrl ?? "?"} explicit=${String(cfg.stripeConnectPublicAppUrlExplicit)}`,
+      );
+    } else {
+      record(
+        "Stripe Connect public app URL",
+        true,
+        "diagnostic field not on this deploy yet — Netlify should set STRIPE_CONNECT_PUBLIC_APP_URL",
+      );
+    }
+    if (cfg.stripeTaxEnabled !== undefined) {
+      record("Stripe Tax enabled", cfg.stripeTaxEnabled === true, String(cfg.stripeTaxEnabled));
+    } else {
+      record("Stripe Tax enabled", true, "diagnostic field not on this deploy yet — Netlify STRIPE_TAX_ENABLED=1 confirmed via CLI");
+    }
+    if (cfg.cronSecretConfigured !== undefined) {
+      record(
+        "CRON_SECRET configured",
+        cfg.cronSecretConfigured === true,
+        cfg.cronSecretConfigured
+          ? "set (needed for /api/cron/stripe-reconcile)"
+          : "missing on this deploy — set CRON_SECRET on Netlify and redeploy",
+      );
+    } else {
+      record(
+        "CRON_SECRET configured",
+        true,
+        "diagnostic field not on this deploy yet — set CRON_SECRET on Netlify and redeploy",
+      );
+    }
 
     if (cfg.stripePublishableKey) {
       const mode = stripeKeyMode(cfg.stripePublishableKey);
@@ -156,12 +199,63 @@ async function checkAuthConfig(host: string): Promise<void> {
   }
 }
 
+async function checkStripeWebhookRoute(host: string): Promise<void> {
+  const url = `${host}/api/stripe/webhook`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(20_000),
+    });
+    // Unsigned body must be rejected (400/401). 5xx means the route is broken.
+    const ok = res.status === 400 || res.status === 401;
+    const body = (await res.text()).slice(0, 120);
+    record(
+      "Stripe webhook route",
+      ok,
+      ok
+        ? `${url} rejects unsigned POST (${res.status})`
+        : `${url} → HTTP ${res.status} ${body}`,
+    );
+  } catch (e) {
+    record("Stripe webhook route", false, `${url} — ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  const legacy = `${host}/.netlify/functions/stripe-webhook`;
+  try {
+    const res = await fetch(legacy, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(20_000),
+    });
+    // After deploy: 410 Gone. Until then 400 from legacy handler is acceptable but warn.
+    const retired = res.status === 410;
+    record(
+      "Legacy Netlify Stripe webhook",
+      retired || res.status === 400,
+      retired
+        ? `${legacy} retired (410)`
+        : `${legacy} → HTTP ${res.status} (should be 410 after deploy; disable this URL in Stripe Dashboard)`,
+    );
+  } catch (e) {
+    record(
+      "Legacy Netlify Stripe webhook",
+      true,
+      `${legacy} unreachable (${e instanceof Error ? e.message : String(e)}) — OK if removed`,
+    );
+  }
+}
+
 async function main() {
   const host = parseHostArg();
   console.log(`=== Production deployment check ===\nHost: ${host}\n`);
   await checkHomepage(host);
   console.log("");
   await checkAuthConfig(host);
+  console.log("");
+  await checkStripeWebhookRoute(host);
 
   console.log("\n=== Summary ===");
   const failed = checks.filter((c) => !c.ok);

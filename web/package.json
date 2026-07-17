@@ -49,6 +49,7 @@
     "configure:production-auth-urls": "tsx scripts/configure-production-auth-urls.ts",
     "fix:supabase-apple-auth": "tsx scripts/fix-supabase-apple-auth.ts",
     "check:production-deployment": "tsx scripts/check-production-deployment.ts",
+    "check:stripe-setup": "tsx scripts/verify-stripe-setup.ts",
     "qa:verify-beta-clean": "node scripts/verify-beta-marketplace-clean.mjs",
     "qa:purge-beta-catalog-api": "node scripts/purge-beta-catalog-via-api.mjs",
     "qa:purge-beta-integration": "tsx scripts/purge-beta-integration-fixtures.ts",

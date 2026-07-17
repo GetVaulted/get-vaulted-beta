@@ -7,10 +7,11 @@ import {
 } from "@/lib/seller-payout-estimate";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 
-export type ReconciliationRangeKey = "7d" | "30d" | "90d" | "all";
+export type ReconciliationRangeKey = "24h" | "7d" | "30d" | "90d" | "all";
 
 export function resolveReconciliationRangeStart(range: ReconciliationRangeKey): Date | null {
   const now = new Date();
+  if (range === "24h") return new Date(now.getTime() - 24 * 3600000);
   if (range === "7d") return new Date(now.getTime() - 7 * 86400000);
   if (range === "30d") return new Date(now.getTime() - 30 * 86400000);
   if (range === "90d") return new Date(now.getTime() - 90 * 86400000);

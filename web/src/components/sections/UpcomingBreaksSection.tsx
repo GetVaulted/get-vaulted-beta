@@ -30,6 +30,7 @@ function scheduledCardProps(row: LiveRoomListApiRow) {
     price: 0,
     priceLabel: "View room",
     seed: row.id,
+    imageUrl: row.thumbnailUrl?.trim() || undefined,
     href: `/live/${encodeURIComponent(row.id)}`,
   };
 }

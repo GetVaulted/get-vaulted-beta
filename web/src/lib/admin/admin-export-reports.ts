@@ -53,7 +53,7 @@ function parseDateParam(raw: string | undefined): Date | undefined {
 }
 
 function reconciliationRange(raw: string | undefined): ReconciliationRangeKey {
-  if (raw === "7d" || raw === "30d" || raw === "90d" || raw === "all") return raw;
+  if (raw === "24h" || raw === "7d" || raw === "30d" || raw === "90d" || raw === "all") return raw;
   return "30d";
 }
 

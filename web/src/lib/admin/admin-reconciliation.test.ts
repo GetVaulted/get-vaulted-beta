@@ -5,7 +5,7 @@ const prismaMock = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
-import { loadAdminReconciliationReport } from "@/lib/admin/admin-reconciliation";
+import { loadAdminReconciliationReport, resolveReconciliationRangeStart } from "@/lib/admin/admin-reconciliation";
 
 function marketplaceOrder(overrides: Record<string, unknown> = {}) {
   return {
@@ -162,5 +162,15 @@ describe("loadAdminReconciliationReport", () => {
     const paidOut = report.payoutStatusBreakdown.find((b) => b.status === "paid_out");
     expect(held?.orderCount).toBe(2);
     expect(paidOut?.orderCount).toBe(1);
+  });
+
+  it("resolves a rolling 24h window", () => {
+    const before = Date.now();
+    const start = resolveReconciliationRangeStart("24h");
+    const after = Date.now();
+    expect(start).not.toBeNull();
+    const ageMs = before - start!.getTime();
+    expect(ageMs).toBeGreaterThanOrEqual(24 * 3600000 - 50);
+    expect(after - start!.getTime()).toBeLessThanOrEqual(24 * 3600000 + 50);
   });
 });
