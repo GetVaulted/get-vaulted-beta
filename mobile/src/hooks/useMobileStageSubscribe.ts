@@ -55,6 +55,11 @@ export function useMobileStageSubscribe(args: {
   const { participants } = useStageParticipants();
 
   const remoteVideo = useMemo((): MobileStageRemoteTarget => {
+    // The Stage SDK is a process-wide singleton and does not purge the previous room's
+    // participants the instant we leave. Only trust the participant list once the new
+    // stage reports `connected`; otherwise a show→show swap can bind the video surface
+    // to a torn-down participant (audio plays, video stays black).
+    if (connectionState !== 'connected') return null;
     for (const participant of participants) {
       const video = participant.streams.find((s) => s.mediaType === 'video');
       if (video) {
@@ -62,10 +67,10 @@ export function useMobileStageSubscribe(args: {
       }
     }
     return null;
-  }, [participants]);
+  }, [participants, connectionState]);
 
   useEffect(() => {
-    if (!remoteVideo || connectedRef.current || connectionState === 'disconnected') return;
+    if (!remoteVideo || connectedRef.current || connectionState !== 'connected') return;
     connectedRef.current = true;
     setPhase('connected');
     cbRef.current.onConnected();

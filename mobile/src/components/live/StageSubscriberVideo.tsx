@@ -42,6 +42,12 @@ export function StageSubscriberVideo({
   return (
     <View style={styles.root} pointerEvents="none">
       <ExpoIVSRemoteStreamView
+        // Force a brand-new native surface whenever the bound room/participant/device
+        // changes. The Stage SDK is a process-wide singleton; reusing the same view
+        // across a show→show swap leaves the surface bound to the torn-down participant
+        // (audio plays, video stays black until the app is killed). Remounting the view
+        // is the in-app equivalent of that kill.
+        key={`${roomId}:${remoteVideo.participantId}:${remoteVideo.deviceUrn}`}
         style={styles.video}
         participantId={remoteVideo.participantId}
         deviceUrn={remoteVideo.deviceUrn}

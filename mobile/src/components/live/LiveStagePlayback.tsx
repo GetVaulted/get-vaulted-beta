@@ -195,6 +195,22 @@ export function LiveStagePlayback({
     player.muted = muted;
   }, [attachHls, muted, player]);
 
+  // Hard-stop HLS audio whenever this slide is not the active playback surface. Adjacent pager
+  // pages stay mounted (page ± 1 are kept warm), and on Android an expo-video player keeps
+  // decoding audio even after its VideoView unmounts — so a show→show swipe bleeds the previous
+  // room's sound until the old slide finally unmounts. Pausing + muting here is the audio
+  // equivalent of tearing down the surface. When this slide becomes the active HLS surface again,
+  // the muted + safeVideoReplace effects above restore the correct state and resume playback.
+  useEffect(() => {
+    if (attachHls) return;
+    try {
+      player.pause();
+      player.muted = true;
+    } catch {
+      /* player may be released during pager unmount */
+    }
+  }, [attachHls, player]);
+
   useEffect(() => {
     if (!attachHls || !playbackUrl) return;
     safeVideoReplace(player, playbackUrl);
