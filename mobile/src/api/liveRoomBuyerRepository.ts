@@ -88,6 +88,20 @@ export type LiveRoomBuyerSnapshot = {
   lineupItems?: LiveRoomLineupItemSnapshot[];
   /** Checkout totals for active PYT/PYD item (from room GET when wallet ready). */
   variantCheckoutPreview?: LiveVariantCheckoutPreview | null;
+  /** Shipping + tax for the active auction / buy-now pinned lot (pinned-box line). */
+  activeItemShippingTax?: LivePinnedShippingTax | null;
+};
+
+/** Shipping + tax for the active auction / buy-now pinned lot (not PYT/PYD spots). */
+export type LivePinnedShippingTax = {
+  liveRoomItemId: string;
+  /** Auction lot (final price unknown) → show "+ Tax" instead of a computed amount. */
+  isAuction: boolean;
+  shippingUsd: number;
+  shippingDisplay: string;
+  taxApplies: boolean;
+  taxUsd: number;
+  taxDisplay: string;
 };
 
 import { LiveBidError } from '../lib/liveBidUserErrors';
@@ -107,6 +121,21 @@ function parseVariantCheckoutPreview(raw: unknown): LiveVariantCheckoutPreview |
     estimatedTotalUsd: o.estimatedTotalUsd,
     taxNote: typeof o.taxNote === 'string' ? o.taxNote : null,
     liveRoomItemId: typeof o.liveRoomItemId === 'string' ? o.liveRoomItemId : undefined,
+  };
+}
+
+function parsePinnedShippingTax(raw: unknown): LivePinnedShippingTax | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.liveRoomItemId !== 'string') return null;
+  return {
+    liveRoomItemId: o.liveRoomItemId,
+    isAuction: o.isAuction === true,
+    shippingUsd: typeof o.shippingUsd === 'number' ? o.shippingUsd : 0,
+    shippingDisplay: typeof o.shippingDisplay === 'string' ? o.shippingDisplay : '',
+    taxApplies: o.taxApplies === true,
+    taxUsd: typeof o.taxUsd === 'number' ? o.taxUsd : 0,
+    taxDisplay: typeof o.taxDisplay === 'string' ? o.taxDisplay : '',
   };
 }
 
@@ -252,6 +281,7 @@ export async function fetchLiveRoomBuyerSnapshot(
       buyerLiveShippingReady?: boolean;
       buyerUnresolvedPaymentFailure?: unknown;
       variantCheckoutPreview?: unknown;
+      activeItemShippingTax?: unknown;
       activeItem?: {
         id?: string;
         title?: string;
@@ -391,6 +421,10 @@ export async function fetchLiveRoomBuyerSnapshot(
     variantCheckoutPreview:
       detail?.variantCheckoutPreview != null
         ? parseVariantCheckoutPreview(detail.variantCheckoutPreview)
+        : undefined,
+    activeItemShippingTax:
+      detail?.activeItemShippingTax != null
+        ? parsePinnedShippingTax(detail.activeItemShippingTax)
         : undefined,
   };
   logBuyerRoomStateSnapshot('fetch', snapshot);

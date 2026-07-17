@@ -103,6 +103,9 @@ type HostActions = {
   stageWebrtcEnabled: boolean;
   showCameraPreview: boolean;
   cameraFacing: SellerCameraFacing;
+  cameraZoom: number;
+  zoomStops: number[];
+  onSetCameraZoom: (factor: number) => void;
   cameraPermissionState: SellerCameraPermissionState;
   cameraPermissionError: string | null;
   cameraPermissionRetrying: boolean;
@@ -1078,6 +1081,9 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
           host.busy === 'provision' || host.busy === 'rotate' || host.busy === 'refresh' ? host.busy : null
         }
         hasIngest={Boolean(host.serverUrl)}
+        zoomStops={host.zoomStops}
+        cameraZoom={host.cameraZoom}
+        onSetZoom={host.onSetCameraZoom}
       />
 
       <AddInventoryModal

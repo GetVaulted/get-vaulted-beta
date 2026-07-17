@@ -26,7 +26,10 @@ import { emitAuctionEnded, emitAuctionStarted, emitLiveDiscoveryChanged, emitTea
 import { postHostEndingLiveChatMessage } from "@/lib/live-room-show-events";
 import { computeBreakBuyerPhase } from "@/lib/live-room-break-public";
 import { buildLiveTipRoomData } from "@/lib/live-tip-moderator";
-import { resolveLiveVariantCheckoutPreviewForActiveItem } from "@/lib/live-variant-checkout-preview-for-room";
+import {
+  resolveLivePinnedShippingTaxPreview,
+  resolveLiveVariantCheckoutPreviewForActiveItem,
+} from "@/lib/live-variant-checkout-preview-for-room";
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
 import { finalizeLiveStreamReplay } from "@/lib/trust/live-replay-service";
 import { endHostStageSession } from "@/services/ivs";
@@ -196,6 +199,26 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     } catch (e) {
       console.error("[api/live-rooms/[id]] variantCheckoutPreview failed", { liveRoomId: id, viewerId, e });
       enriched.variantCheckoutPreview = null;
+    }
+  }
+  // Shipping + tax for the active auction / buy-now pinned lot (PYT/PYD spots use the variant
+  // preview above). Only needs a saved address (for tax); payment method isn't required to show it.
+  if (
+    viewerId &&
+    !isHost &&
+    enriched.buyerLiveShippingReady &&
+    enriched.activeItem &&
+    !enriched.variantCheckoutPreview
+  ) {
+    try {
+      enriched.activeItemShippingTax = await resolveLivePinnedShippingTaxPreview({
+        buyerId: viewerId,
+        liveRoomId: id,
+        activeItem: enriched.activeItem,
+      });
+    } catch (e) {
+      console.error("[api/live-rooms/[id]] activeItemShippingTax failed", { liveRoomId: id, viewerId, e });
+      enriched.activeItemShippingTax = null;
     }
   }
   logSellerRoomStateSnapshot({

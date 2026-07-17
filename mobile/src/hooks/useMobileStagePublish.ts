@@ -8,7 +8,9 @@ import {
   initializeLocalStreams,
   joinStage,
   leaveStage,
+  getSupportedCameraZoomStops,
   requestPermissions,
+  setCameraZoom as nativeSetCameraZoom,
   setMicrophoneMuted,
   setStreamsPublished,
   swapCamera,
@@ -90,6 +92,8 @@ export function useMobileStagePublish(args: {
   const [permissionState, setPermissionState] = useState<SellerCameraPermissionState>('idle');
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [cameraFacing, setCameraFacing] = useState<SellerCameraFacing>(SELLER_DEFAULT_CAMERA_FACING);
+  const [cameraZoom, setCameraZoomState] = useState<number>(1);
+  const [zoomStops, setZoomStops] = useState<number[]>([1]);
   const [microphoneMuted, setMicrophoneMutedState] = useState(false);
 
   const cbRef = useRef(args);
@@ -329,15 +333,45 @@ export function useMobileStagePublish(args: {
     await ensureLocalPreview();
   }, [ensureLocalPreview]);
 
+  const refreshZoomStops = useCallback(async () => {
+    if (!localStreamsReadyRef.current) return;
+    try {
+      const stops = await getSupportedCameraZoomStops();
+      const clean = Array.isArray(stops)
+        ? stops.filter((s) => typeof s === 'number' && Number.isFinite(s) && s > 0)
+        : [];
+      setZoomStops(clean.length ? Array.from(new Set(clean)).sort((a, b) => a - b) : [1]);
+    } catch {
+      setZoomStops([1]);
+    }
+  }, []);
+
+  const setCameraZoom = useCallback(async (factor: number) => {
+    if (!localStreamsReadyRef.current) return;
+    try {
+      const applied = await nativeSetCameraZoom(factor);
+      if (applied) setCameraZoomState(factor);
+    } catch (err) {
+      setError(friendlyPublishError(err));
+    }
+  }, []);
+
   const flipCamera = useCallback(async () => {
     if (!localStreamsReadyRef.current) return;
     try {
       await swapCamera();
       setCameraFacing((prev) => (prev === 'front' ? 'back' : 'front'));
+      // Zoom resets to 1x on a lens/position swap; refresh the supported stops for the new camera.
+      setCameraZoomState(1);
+      void refreshZoomStops();
     } catch (err) {
       setError(friendlyPublishError(err));
     }
-  }, []);
+  }, [refreshZoomStops]);
+
+  useEffect(() => {
+    if (localPreviewReady) void refreshZoomStops();
+  }, [localPreviewReady, refreshZoomStops]);
 
   const toggleMicrophoneMute = useCallback(async () => {
     if (!localStreamsReadyRef.current) return;
@@ -627,6 +661,9 @@ export function useMobileStagePublish(args: {
     permissionState,
     permissionError,
     cameraFacing,
+    cameraZoom,
+    zoomStops,
+    setCameraZoom,
     start,
     stop,
     pause,

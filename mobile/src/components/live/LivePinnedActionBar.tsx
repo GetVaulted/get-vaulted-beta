@@ -48,6 +48,7 @@ import { HoldToBidButton } from './HoldToBidButton';
 import { LIVE_CLAIM_CTA_GRADIENT } from './liveClaimCtaStyle';
 import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud, formatMoney } from './liveActionModule';
 import { fetchLiveVariantCheckoutPreview, type LiveVariantCheckoutPreview } from '../../api/liveVariantCheckoutPreviewRepository';
+import { formatPinnedShippingTaxLine } from '../../../../shared/live-pinned-shipping-tax-copy';
 import { LiveCustomBidSheet } from './LiveCustomBidSheet';
 import { LiveBreakSpotGridSheet } from './LiveBreakSpotGridSheet';
 import type { LiveCustomBidPayload } from '../../lib/liveCustomBid';
@@ -462,6 +463,20 @@ export function LivePinnedActionBar({
         : null;
   const metaLine =
     variantCheckoutMetaLine ?? [m.winningLine, m.stateLine].filter(Boolean).join(' · ');
+
+  // Shipping + tax line for the active auction / buy-now pinned lot (PYT/PYD spots use the variant
+  // preview above). Server only attaches this for non-variant lots when the buyer has an address.
+  const pinnedShippingTaxLine = useMemo(() => {
+    const p = roomSnap?.activeItemShippingTax;
+    if (!p || !roomSnap?.activeItemId || p.liveRoomItemId !== roomSnap.activeItemId) return null;
+    if (variantCheckoutPreview) return null;
+    return formatPinnedShippingTaxLine({
+      isAuction: p.isAuction,
+      shippingDisplay: p.shippingDisplay,
+      taxApplies: p.taxApplies,
+      taxUsd: p.taxUsd,
+    });
+  }, [roomSnap?.activeItemId, roomSnap?.activeItemShippingTax, variantCheckoutPreview]);
   const hudCurrentPrefix = variantCheckoutPreview ? 'Total' : m.currentPrefix;
   const hudCurrentAmount = variantCheckoutPreview
     ? formatMoney(variantCheckoutPreview.chargeNowUsd)
@@ -1117,6 +1132,11 @@ export function LivePinnedActionBar({
         {metaLine ? (
           <LiveRoomText style={[styles.metaLine, { fontSize: hudFs(10) }]} numberOfLines={1}>
             {metaLine}
+          </LiveRoomText>
+        ) : null}
+        {pinnedShippingTaxLine ? (
+          <LiveRoomText style={[styles.metaLine, { fontSize: hudFs(10), opacity: 0.92 }]} numberOfLines={1}>
+            {pinnedShippingTaxLine}
           </LiveRoomText>
         ) : null}
         {auctionLane && signedIn ? (

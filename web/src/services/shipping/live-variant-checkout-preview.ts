@@ -17,6 +17,8 @@ export type LiveVariantCheckoutPreview = {
   shippingDisplay: string;
   taxUsd: number;
   taxDisplay: string;
+  /** True when the buyer's ship-to jurisdiction actually collects sales tax on this order. */
+  taxApplies: boolean;
   /** Item + shipping + tax charged to the saved card at purchase. */
   chargeNowUsd: number;
   /** Same as chargeNowUsd — full amount due at checkout. */
@@ -123,6 +125,7 @@ export async function getLiveVariantCheckoutPreview(args: {
 
   let taxUsd = 0;
   let taxDisplay = "Not applicable";
+  let taxApplies = false;
   let taxNote: string | null = null;
 
   const buyerShipping = await resolveBuyerDefaultShippingForOrder(args.buyerId);
@@ -149,6 +152,7 @@ export async function getLiveVariantCheckoutPreview(args: {
         sellerShipFrom,
       });
       taxUsd = est.taxAmountCents / 100;
+      taxApplies = est.collectTax;
       if (est.collectTax && est.taxAmountCents > 0) {
         taxDisplay = fmtUsd(taxUsd);
       } else if (est.collectTax) {
@@ -170,6 +174,7 @@ export async function getLiveVariantCheckoutPreview(args: {
     shippingDisplay,
     taxUsd,
     taxDisplay,
+    taxApplies,
     chargeNowUsd,
     estimatedTotalUsd: chargeNowUsd,
     taxNote,

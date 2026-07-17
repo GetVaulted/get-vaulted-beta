@@ -31,6 +31,7 @@ import {
   formatLiveVariantCheckoutHudMeta,
   useLiveVariantCheckoutPreview,
 } from "@/hooks/useLiveVariantCheckoutPreview";
+import { formatPinnedShippingTaxLine } from "../../../../shared/live-pinned-shipping-tax-copy";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { LiveGiveawaySideTab } from "@/components/live-auction/LiveGiveawaySideTab";
 import type { ViewerGiveawayDTO } from "@/lib/live-giveaway";
@@ -601,6 +602,39 @@ export function LiveAuctionRoom({
       : buyerPytCheckoutHudActive && !buyerLiveWalletReady
         ? "Add wallet for total with shipping + tax"
         : null;
+  // Shipping + tax line for the active auction / buy-now pinned lot (parity with mobile).
+  const activeLotIsAuction = Boolean(
+    activeDbItem &&
+      (activeDbItem.salesFormat === "auction" ||
+        activeDbItem.biddingOpen === true ||
+        activeDbItem.currentBidUsd != null),
+  );
+  const nonVariantPreviewPriceUsd = activeDbItem
+    ? activeLotIsAuction
+      ? activeDbItem.currentBidUsd ?? activeDbItem.startingBidUsd ?? activeDbItem.priceUsd ?? 0
+      : activeDbItem.priceUsd ?? activeDbItem.startingBidUsd ?? 0
+    : 0;
+  const { preview: nonVariantCheckoutPreview } = useLiveVariantCheckoutPreview({
+    enabled: Boolean(
+      !activeHasVariants &&
+        !isHost &&
+        status === "authenticated" &&
+        shipReady &&
+        activeDbItem?.id &&
+        nonVariantPreviewPriceUsd > 0,
+    ),
+    liveRoomId,
+    itemId: activeDbItem?.id,
+    itemPriceUsd: nonVariantPreviewPriceUsd,
+  });
+  const pinnedShippingTaxLine = nonVariantCheckoutPreview
+    ? formatPinnedShippingTaxLine({
+        isAuction: activeLotIsAuction,
+        shippingDisplay: nonVariantCheckoutPreview.shippingDisplay,
+        taxApplies: nonVariantCheckoutPreview.taxApplies === true,
+        taxUsd: nonVariantCheckoutPreview.taxUsd,
+      })
+    : null;
   const auctionRemainingMs = useMemo(() => {
     void auctionResolutionTick;
     if (!activeDbItem?.biddingOpen || !activeDbItem.auctionEndsAt) return null;
@@ -1312,7 +1346,9 @@ export function LiveAuctionRoom({
           {!activeHasVariants ? (
             <>
               <p className="line-clamp-1 text-[10px] text-zinc-400/90">{overlayItem?.description ?? "Premium break spot with live reveal."}</p>
-              <p className="mt-0.5 line-clamp-1 text-[9px] text-zinc-500">{overlayItem?.shippingLine ?? "Shipping + taxes calculated at checkout"}</p>
+              <p className="mt-0.5 line-clamp-1 text-[9px] text-zinc-500">
+                {pinnedShippingTaxLine ?? overlayItem?.shippingLine ?? "Shipping + taxes calculated at checkout"}
+              </p>
             </>
           ) : (
             <>
