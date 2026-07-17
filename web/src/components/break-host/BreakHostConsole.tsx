@@ -234,7 +234,10 @@ function formatLiveDurationHms(startedAtIso: string, nowMs: number) {
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-export function BreakHostConsole({ roomId }: { roomId: string }) {
+export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: string; roomType?: string }) {
+  // Break rooms add team-board / team-break tooling. Auction and sale rooms reuse the same host
+  // console for camera streaming, queue, auctions, chat, and go-live, minus the break-only extras.
+  const isBreak = roomType === "break";
   const router = useRouter();
   const { data: session } = useSession();
   const liveViewerCount = useRealtimeRoomPresence({
@@ -2048,8 +2051,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     onGiveawayDelete: (id: string) => void handleDeleteGiveaway(id),
     onGiveawayTimerExpired: () => void load(),
     onGoLive: handleGoLive,
-    onToggleTeamBoard: toggleHostTeamBoardPanel,
-    teamBoardPanelOpen: hostTeamBoardOpen,
+    onToggleTeamBoard: isBreak ? toggleHostTeamBoardPanel : undefined,
+    teamBoardPanelOpen: isBreak ? hostTeamBoardOpen : false,
     onOpenObs: () => {
       setVaultCommandOpen(false);
       setObsSetupModalOpen(true);
@@ -2098,7 +2101,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       hostLiveItemAuctionBusy={hostLiveItemAuctionBusy}
       hostPinLotEnabled={hostPinLotEnabled}
       onStartAuction={() => void handleHostStartLiveItemAuction()}
-      onBeginTeamBreak={() => void handleBeginTeamBreak()}
+      onBeginTeamBreak={isBreak ? () => void handleBeginTeamBreak() : undefined}
       teamBreakBusy={teamBreakBusy}
       onEndAuction={handleHostEndAuction}
       onNextItem={handleHostNextItem}

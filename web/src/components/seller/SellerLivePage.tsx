@@ -674,11 +674,8 @@ export function SellerLivePage() {
       }
 
       const goLater = Boolean(scheduledStartAtIso);
-      // Break rooms stream from the host console; auction/sale rooms are hosted directly from the room page.
-      const sellerConsolePath =
-        roomType === "break"
-          ? `/seller/live/${encodeURIComponent(j.id)}/console`
-          : `/live/${encodeURIComponent(j.id)}`;
+      // Every room type hosts from the seller console (camera stream, queue, auctions, go-live).
+      const sellerConsolePath = `/seller/live/${encodeURIComponent(j.id)}/console`;
       logCreateLiveRoom("created", {
         id: j.id,
         goLater,
@@ -1055,14 +1052,12 @@ export function SellerLivePage() {
                           >
                             Open
                           </Link>
-                          {r.roomType === "break" ? (
-                            <Link
-                              href={`/seller/live/${encodeURIComponent(r.id)}/console`}
-                              className="rounded-lg border border-violet-500/35 bg-violet-950/25 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-violet-200 hover:bg-violet-950/40"
-                            >
-                              Console
-                            </Link>
-                          ) : null}
+                          <Link
+                            href={`/seller/live/${encodeURIComponent(r.id)}/console`}
+                            className="rounded-lg border border-violet-500/35 bg-violet-950/25 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-violet-200 hover:bg-violet-950/40"
+                          >
+                            Console
+                          </Link>
                         </div>
                       </div>
                     </li>
@@ -1778,14 +1773,12 @@ export function SellerLivePage() {
                 >
                   Open room
                 </Link>
-                {selected.roomType === "break" ? (
-                  <Link
-                    href={`/seller/live/${encodeURIComponent(selected.id)}/console`}
-                    className="inline-flex min-h-11 w-full items-center justify-center rounded-[var(--live-radius-chrome)] border border-violet-500/35 bg-violet-950/25 px-4 py-2.5 text-xs font-bold text-violet-200 transition-[transform,background-color,opacity] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] hover:bg-violet-950/40 active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40 sm:w-auto sm:min-h-10 sm:py-2"
-                  >
-                    Host console
-                  </Link>
-                ) : null}
+                <Link
+                  href={`/seller/live/${encodeURIComponent(selected.id)}/console`}
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-[var(--live-radius-chrome)] border border-violet-500/35 bg-violet-950/25 px-4 py-2.5 text-xs font-bold text-violet-200 transition-[transform,background-color,opacity] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] hover:bg-violet-950/40 active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40 sm:w-auto sm:min-h-10 sm:py-2"
+                >
+                  Host console
+                </Link>
               </div>
             </div>
 
@@ -1795,28 +1788,19 @@ export function SellerLivePage() {
               </p>
             ) : null}
 
-            {selected.roomType === "break" ? (
-              <div className="rounded-xl border border-violet-500/20 bg-violet-950/15 p-4">
-                <p className="text-sm leading-relaxed text-zinc-300">
-                  Camera and OBS streaming live in the{" "}
-                  <span className="font-semibold text-violet-200">Host console</span> — open it when you are ready to go
-                  live, then use <span className="font-semibold text-gold-bright">Start Stream</span>.
-                </p>
-                <Link
-                  href={`/seller/live/${encodeURIComponent(selected.id)}/console`}
-                  className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl border border-violet-500/35 bg-violet-950/30 px-4 text-xs font-bold text-violet-100 hover:bg-violet-950/45"
-                >
-                  Open host console
-                </Link>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-white/[0.06] bg-zinc-950/40 p-4">
-                <p className="text-sm leading-relaxed text-zinc-400">
-                  Use <span className="font-semibold text-zinc-200">Start live show</span> above when you are ready for
-                  buyers. Break shows use the host console for webcam and OBS streaming.
-                </p>
-              </div>
-            )}
+            <div className="rounded-xl border border-violet-500/20 bg-violet-950/15 p-4">
+              <p className="text-sm leading-relaxed text-zinc-300">
+                Camera and OBS streaming live in the{" "}
+                <span className="font-semibold text-violet-200">Host console</span> — open it when you are ready to go
+                live, then use <span className="font-semibold text-gold-bright">Start Stream</span>.
+              </p>
+              <Link
+                href={`/seller/live/${encodeURIComponent(selected.id)}/console`}
+                className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl border border-violet-500/35 bg-violet-950/30 px-4 text-xs font-bold text-violet-100 hover:bg-violet-950/45"
+              >
+                Open host console
+              </Link>
+            </div>
 
             {selected.status !== "ended" ? (
               <section className="space-y-4 rounded-xl border border-white/[0.06] p-4">
