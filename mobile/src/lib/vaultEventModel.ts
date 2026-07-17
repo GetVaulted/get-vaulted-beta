@@ -78,6 +78,14 @@ export function canCancelVaultEvent(room: LiveRoomApiRow): boolean {
   return room.status === 'scheduled' || room.status === 'live';
 }
 
+/**
+ * A seller can edit title / description / cover / start time on shows that haven't started yet.
+ * Live and ended shows are excluded — once on air the schedule metadata is fixed.
+ */
+export function canEditVaultEvent(room: LiveRoomApiRow): boolean {
+  return room.status === 'scheduled';
+}
+
 export function primaryCta(status: VaultEventDisplayStatus): { label: string; action: 'console' | 'setup' | 'recap' } {
   switch (status) {
     case 'draft':

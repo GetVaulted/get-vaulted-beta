@@ -232,6 +232,41 @@ export async function patchLiveRoomAction(
   }
 }
 
+/**
+ * Edit a scheduled show's public metadata (title, discovery description, cover image, start time).
+ * Only includes keys the caller provides so untouched fields are left alone server-side.
+ * `scheduledStartAt: null` clears the scheduled time; `thumbnailUrl: ''` clears the cover.
+ */
+export async function patchLiveRoomMetadata(
+  accessToken: string,
+  roomId: string,
+  fields: {
+    title?: string;
+    description?: string;
+    thumbnailUrl?: string;
+    scheduledStartAt?: string | null;
+  },
+): Promise<void> {
+  const body: Record<string, unknown> = {};
+  if (typeof fields.title === 'string') body.title = fields.title;
+  if (typeof fields.description === 'string') body.description = fields.description;
+  if (typeof fields.thumbnailUrl === 'string') body.thumbnailUrl = fields.thumbnailUrl;
+  if ('scheduledStartAt' in fields) body.scheduledStartAt = fields.scheduledStartAt;
+  if (Object.keys(body).length === 0) return;
+
+  const res = await hostFetch(`/api/live-rooms/${encodeURIComponent(roomId)}`, accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+  let j: { error?: string } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+}
+
 /** Seller in-room show notes (stored as live room `showNotes`, max 4000). */
 export async function patchLiveRoomShowNotes(
   accessToken: string,
