@@ -103,7 +103,6 @@ import {
   type LiveStageContainer,
 } from '../../lib/liveRoomViewport';
 import { isCompactLiveRoomLayout, liveRoomOverlayScale } from '../../lib/liveRoomUiScale';
-import { scaledComposerBarHeight } from '../../lib/liveRoomBottomLayout';
 import { LiveRoomShareSheet } from './LiveRoomShareSheet';
 import { prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
 import type { LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
@@ -722,6 +721,7 @@ function LiveSlide({
     keyboardOffset: keyboardOffset / Math.max(0.001, stageContainer.uniformScale),
     compact,
     pinnedModeratorActive: Boolean(pinnedModerator),
+    slowModeActive: slowMode.slowModeActive,
     overlayScale,
   });
   const chatMaxHeight = computeChatStackMaxHeight({
@@ -732,8 +732,7 @@ function LiveSlide({
     expanded: chatExpanded,
   });
   const giveawayTabTop = computeGiveawaySideTabTop(stageInsets.top, layoutWidth);
-  const composerBarHeight = scaledComposerBarHeight(overlayScale);
-  const slowModeTimerBottom = bottomStack.composerBottom + composerBarHeight + 8;
+  const slowModeTimerBottom = bottomStack.slowModeBottom;
 
   const immersiveGestureEnabled =
     isActive &&

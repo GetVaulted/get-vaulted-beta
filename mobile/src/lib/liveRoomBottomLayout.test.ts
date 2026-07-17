@@ -7,6 +7,8 @@ import {
   GIVEAWAY_ABOVE_CHAT_GAP,
   PINNED_ABOVE_COMPOSER_GAP,
   PINNED_MODERATOR_ROW_HEIGHT,
+  SLOW_MODE_ROW_GAP,
+  SLOW_MODE_ROW_HEIGHT,
 } from './liveRoomBottomLayout';
 
 describe('computeLiveRoomBottomStack', () => {
@@ -49,6 +51,31 @@ describe('computeLiveRoomBottomStack', () => {
     expect(pinned.chatBottom - plain.chatBottom).toBe(
       PINNED_MODERATOR_ROW_HEIGHT + PINNED_ABOVE_COMPOSER_GAP,
     );
+  });
+
+  it('places the slow-mode chip in its own row above the pinned bar (no overlap)', () => {
+    const both = computeLiveRoomBottomStack({
+      dockPaddingBottom: 20,
+      commerceHeight: 140,
+      pinnedModeratorActive: true,
+      slowModeActive: true,
+    });
+    // Slow-mode chip must clear the full pinned row, not sit on top of it.
+    expect(both.slowModeBottom).toBeGreaterThanOrEqual(
+      both.pinnedBarBottom + PINNED_MODERATOR_ROW_HEIGHT,
+    );
+    // Chat must reserve the slow-mode row too, so it never overlaps the chip.
+    expect(both.chatBottom).toBeGreaterThanOrEqual(both.slowModeBottom + SLOW_MODE_ROW_HEIGHT);
+  });
+
+  it('reserves a slow-mode row when slow mode is active without a pinned announcement', () => {
+    const plain = computeLiveRoomBottomStack({ dockPaddingBottom: 20, commerceHeight: 140 });
+    const slow = computeLiveRoomBottomStack({
+      dockPaddingBottom: 20,
+      commerceHeight: 140,
+      slowModeActive: true,
+    });
+    expect(slow.chatBottom - plain.chatBottom).toBe(SLOW_MODE_ROW_HEIGHT + SLOW_MODE_ROW_GAP);
   });
 });
 

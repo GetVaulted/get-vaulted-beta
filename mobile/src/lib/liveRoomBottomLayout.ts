@@ -16,6 +16,10 @@ export const COMPACT_CHAT_ABOVE_COMPOSER_GAP = 12;
 export const PINNED_MODERATOR_ROW_HEIGHT = 62;
 export const PINNED_ABOVE_COMPOSER_GAP = 6;
 
+/** Slow-mode countdown chip rendered above the pinned row (or composer when no pin). */
+export const SLOW_MODE_ROW_HEIGHT = 28;
+export const SLOW_MODE_ROW_GAP = 6;
+
 /** Estimated collapsed giveaway rail height (mobile side tab). */
 export const GIVEAWAY_TAB_HEIGHT_ESTIMATE = 96;
 
@@ -27,17 +31,24 @@ export type LiveRoomBottomStack = {
   composerBottom: number;
   /** Bottom offset for the pinned mod announcement bar (when active). */
   pinnedBarBottom: number;
+  /** Bottom offset for the slow-mode countdown chip (sits above the pinned bar). */
+  slowModeBottom: number;
   chatBottom: number;
   commerceTop: number;
 };
 
-/** Bottom-anchored stack: safe area → commerce → composer → pinned bar → chat feed. */
+/**
+ * Bottom-anchored stack: safe area → commerce → composer → pinned bar → slow-mode chip → chat.
+ * The pinned bar and slow-mode chip each get their own row so they never overlap, and the chat
+ * feed reserves whatever rows are active so it never sits on top of them.
+ */
 export function computeLiveRoomBottomStack(args: {
   dockPaddingBottom: number;
   commerceHeight: number;
   keyboardOffset?: number;
   compact?: boolean;
   pinnedModeratorActive?: boolean;
+  slowModeActive?: boolean;
   /** iPad overlay scale — enlarges composer + spacing only on tablet. */
   overlayScale?: number;
 }): LiveRoomBottomStack {
@@ -52,15 +63,28 @@ export function computeLiveRoomBottomStack(args: {
   );
   const pinnedRowHeight = Math.round(PINNED_MODERATOR_ROW_HEIGHT * overlayScale);
   const pinnedGap = Math.round(PINNED_ABOVE_COMPOSER_GAP * overlayScale);
+  const slowRowHeight = Math.round(SLOW_MODE_ROW_HEIGHT * overlayScale);
+  const slowGap = Math.round(SLOW_MODE_ROW_GAP * overlayScale);
   const commerceBottom = args.dockPaddingBottom + keyboardOffset;
   const composerBottom = commerceBottom + args.commerceHeight + composerGap;
-  const pinnedBarBottom = composerBottom + composerHeight + pinnedGap;
-  const pinnedReserve = args.pinnedModeratorActive ? pinnedRowHeight + pinnedGap : 0;
-  const chatBottom = composerBottom + composerHeight + chatGap + pinnedReserve;
+  const composerTop = composerBottom + composerHeight;
+
+  // Walk up the stack, tracking the top edge of the highest row placed so far.
+  const pinnedBarBottom = composerTop + pinnedGap;
+  const stackTopAfterPinned = args.pinnedModeratorActive
+    ? pinnedBarBottom + pinnedRowHeight
+    : composerTop;
+  const slowModeBottom = stackTopAfterPinned + slowGap;
+  const stackTopAfterSlowMode = args.slowModeActive
+    ? slowModeBottom + slowRowHeight
+    : stackTopAfterPinned;
+  const chatBottom = stackTopAfterSlowMode + chatGap;
+
   return {
     commerceBottom,
     composerBottom,
     pinnedBarBottom,
+    slowModeBottom,
     chatBottom,
     commerceTop: commerceBottom + args.commerceHeight,
   };
