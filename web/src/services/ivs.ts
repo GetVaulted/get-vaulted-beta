@@ -786,6 +786,7 @@ export async function ensureStageHlsCompositionActive(roomId: string): Promise<v
   const health = room.streamHealth?.toLowerCase();
   if (health !== "live" && health !== "connecting") return;
   if (room.ivsCompositionArn) return;
+  cancelDelayedCompositionStop(roomId);
   await startStageHlsComposition(roomId);
 }
 
@@ -806,11 +807,22 @@ export async function stopStageComposition(roomId: string): Promise<void> {
   logIvsOpsServer("ivs_stage_composition_stop", { roomId });
 }
 
+/** Delayed HLS teardown so a host phone fatal/retry doesn't black out buyers instantly. */
+const delayedCompositionStops = new Map<string, ReturnType<typeof setTimeout>>();
+
+function cancelDelayedCompositionStop(roomId: string): void {
+  const timer = delayedCompositionStops.get(roomId);
+  if (!timer) return;
+  clearTimeout(timer);
+  delayedCompositionStops.delete(roomId);
+}
+
 /**
  * Begin a host WebRTC Stage broadcast: provision the stage, mint a publish token, mark the room
  * live (stage mode), and kick off the optional HLS mirror. Returns the host's publish token.
  */
 export async function prepareHostStageSession(roomId: string, userId: string): Promise<StageToken> {
+  cancelDelayedCompositionStop(roomId);
   const existing = await prisma.liveRoom.findUnique({
     where: { id: roomId },
     select: { ivsChannelArn: true, ivsPlaybackUrl: true },
@@ -838,6 +850,7 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
   // Host must publish first; then start (or replace a dead) HLS mirror for guests.
   void (async () => {
     await sleep(6_000);
+    cancelDelayedCompositionStop(roomId);
     const room = await prisma.liveRoom.findUnique({
       where: { id: roomId },
       select: { ivsCompositionArn: true, ivsChannelArn: true, streamHealth: true, status: true },
@@ -860,29 +873,37 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
 }
 
 /**
- * Tear down Stage broadcast resources.
- *
- * Soft disconnect: if the live *room* is still `live`, a host client DROP/DELETE must NOT
- * mark the stream ended or kill HLS — that was ending shows on phone glitches. Host can tap
- * play again to republish. Hard teardown runs only after End Show sets status to `ended`.
+ * End a host WebRTC Stage broadcast.
+ * Marks the DB stream ended immediately, but delays stopping the HLS composition so a flaky
+ * host client (fatal → DELETE → Go Live again) does not black out buyers for ~1 minute.
  */
 export async function endHostStageSession(roomId: string): Promise<void> {
-  const room = await prisma.liveRoom.findUnique({
-    where: { id: roomId },
-    select: { status: true },
-  });
-  if (room?.status === "live") {
-    logIvsOpsServer("ivs_stage_broadcast_soft_disconnect", { roomId });
-    return;
-  }
-
-  await stopStageComposition(roomId);
   const now = new Date();
   await prisma.liveRoom.update({
     where: { id: roomId },
     data: { streamHealth: "ended", streamEndedAt: now, streamPaused: false, lastIvsStatusSyncAt: now },
   });
   logIvsOpsServer("ivs_stage_broadcast_stop", { roomId });
+  cancelDelayedCompositionStop(roomId);
+  const timer = setTimeout(() => {
+    delayedCompositionStops.delete(roomId);
+    void (async () => {
+      const current = await prisma.liveRoom.findUnique({
+        where: { id: roomId },
+        select: { status: true, streamHealth: true },
+      });
+      // Host already went live again — do not kill the new mirror.
+      if (
+        current?.status === "live" &&
+        (current.streamHealth === "live" || current.streamHealth === "connecting")
+      ) {
+        logIvsOpsServer("ivs_stage_composition_stop_skipped_room_live", { roomId });
+        return;
+      }
+      await stopStageComposition(roomId);
+    })();
+  }, 60_000);
+  delayedCompositionStops.set(roomId, timer);
 }
 
 /** Tear down a room's stage entirely (e.g. room deletion). Best-effort; never throws. */
