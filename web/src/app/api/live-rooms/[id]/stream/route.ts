@@ -18,15 +18,9 @@ import { getStreamRow, toBuyerSafeStreamPayload, toHostStreamPayload } from "./_
  * rate-limited per room so many concurrent buyer polls only trigger one retry per window.
  */
 function maybeHealStageComposition(roomId: string): void {
-  // Allow a forced restart attempt about every 12s while playlist is 404.
-  const rl = checkRateLimit(`stage-composition-heal:${roomId}`, { limit: 1, windowMs: 12_000 });
+  const rl = checkRateLimit(`stage-composition-heal:${roomId}`, { limit: 1, windowMs: 30_000 });
   if (!rl.ok) return;
-  void ensureStageHlsCompositionActive(roomId).catch((err) => {
-    console.error("[IVS_OPS] stage_composition_heal_error", {
-      roomId,
-      message: err instanceof Error ? err.message : String(err),
-    });
-  });
+  void ensureStageHlsCompositionActive(roomId).catch(() => {});
 }
 
 function clientKey(req: Request): string {

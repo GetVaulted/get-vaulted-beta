@@ -764,24 +764,10 @@ export async function startStageHlsComposition(roomId: string): Promise<string |
   return null;
 }
 
-async function playbackUrlIsReachable(playbackUrl: string | null | undefined): Promise<boolean> {
-  if (!playbackUrl?.trim()) return false;
-  try {
-    const res = await fetch(playbackUrl, {
-      method: "GET",
-      signal: AbortSignal.timeout(5_000),
-      cache: "no-store",
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 /**
- * Self-heal buyer HLS for a live Stage show.
- * - If the playlist is reachable / channel is live → leave composition alone.
- * - If playlist 404s and channel is offline → clear stale ARN and StartComposition again.
+ * Self-heal: start HLS composition only when none exists.
+ * Signed-in buyers use WebRTC Stage; this mirror is for guests / failover only.
+ * Never stop an existing composition from buyer polls (that caused black screens).
  */
 export async function ensureStageHlsCompositionActive(roomId: string): Promise<void> {
   if (!stageCompositionEnabled()) return;
@@ -793,28 +779,14 @@ export async function ensureStageHlsCompositionActive(roomId: string): Promise<v
       ivsCompositionArn: true,
       ivsStageArn: true,
       ivsChannelArn: true,
-      ivsPlaybackUrl: true,
     },
   });
   if (!room || room.streamMode !== "stage_webrtc") return;
   if (!room.ivsStageArn || !room.ivsChannelArn) return;
   const health = room.streamHealth?.toLowerCase();
   if (health !== "live" && health !== "connecting") return;
-
-  if (await playbackUrlIsReachable(room.ivsPlaybackUrl)) return;
-
-  const { health: channelHealth } = await getStreamStatus(room.ivsChannelArn);
-  if (channelHealth === "live" || channelHealth === "connecting") return;
-
+  if (room.ivsCompositionArn) return;
   cancelDelayedCompositionStop(roomId);
-  console.warn("[IVS_OPS] ivs_stage_composition_force_restart", {
-    roomId,
-    channelHealth,
-    hadComposition: Boolean(room.ivsCompositionArn),
-  });
-  if (room.ivsCompositionArn) {
-    await stopStageComposition(roomId);
-  }
   await startStageHlsComposition(roomId);
 }
 
@@ -875,19 +847,19 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
     },
   });
   logIvsOpsServer("ivs_stage_broadcast_start", { roomId });
-  // Wait for the host client to join/publish, then ensure the HLS mirror is actually live.
+  // Host must publish first; then start (or replace a dead) HLS mirror for guests.
   void (async () => {
-    await sleep(5_000);
+    await sleep(6_000);
+    cancelDelayedCompositionStop(roomId);
     const room = await prisma.liveRoom.findUnique({
       where: { id: roomId },
-      select: { ivsCompositionArn: true, ivsChannelArn: true },
+      select: { ivsCompositionArn: true, ivsChannelArn: true, streamHealth: true, status: true },
     });
-    if (room?.ivsCompositionArn && room.ivsChannelArn) {
+    if (!room || room.status !== "live") return;
+    if (room.streamHealth !== "live" && room.streamHealth !== "connecting") return;
+    if (room.ivsCompositionArn && room.ivsChannelArn) {
       const { health: channelHealth } = await getStreamStatus(room.ivsChannelArn);
-      if (channelHealth === "live" || channelHealth === "connecting") {
-        return;
-      }
-      // Stale ARN from a previous attempt blocks StartComposition — clear it.
+      if (channelHealth === "live" || channelHealth === "connecting") return;
       await stopStageComposition(roomId);
     }
     await startStageHlsComposition(roomId);

@@ -55,26 +55,15 @@ export function toIso(d: Date | null) {
   return d ? d.toISOString() : null;
 }
 
-/**
- * When false (default), buyer clients are told `stageAvailable: false` so they play HLS
- * instead of WebRTC. Use when Stage subscribe is flaky but the channel mirror is healthy.
- * Set LIVE_STAGE_BUYER_WEBRTC=1 to restore buyer WebRTC.
- */
-function buyerStageWebrtcEnabled(): boolean {
-  return process.env.LIVE_STAGE_BUYER_WEBRTC?.trim() === "1";
-}
-
 export function toBuyerSafeStreamPayload(row: StreamRow) {
-  const stageExists = Boolean(row.ivsStageArn);
   return {
     roomId: row.id,
     streamProvider: row.streamProvider,
     // Delivery mode: `stage_webrtc` (sub-second WebRTC) vs `channel_hls` (HLS/OBS path).
-    // Prefer channel_hls for buyers while WebRTC subscribe is gated off (see stageAvailable).
-    streamMode: buyerStageWebrtcEnabled() && stageExists ? row.streamMode : "channel_hls",
+    streamMode: row.streamMode,
     // Whether a Real-Time Stage exists for this room (gates the client's WebRTC subscribe attempt).
     // No ARN is exposed — buyers fetch a subscribe-only token from the stage-token endpoint.
-    stageAvailable: buyerStageWebrtcEnabled() && stageExists,
+    stageAvailable: Boolean(row.ivsStageArn),
     streamHealth: row.streamHealth,
     streamPaused: row.streamPaused,
     playbackUrl: row.ivsPlaybackUrl,
@@ -87,12 +76,8 @@ export function toBuyerSafeStreamPayload(row: StreamRow) {
 }
 
 export function toHostStreamPayload(row: StreamRow) {
-  const buyer = toBuyerSafeStreamPayload(row);
   return {
-    ...buyer,
-    // Host console still needs the real Stage flags for publish / diagnostics.
-    streamMode: row.streamMode,
-    stageAvailable: Boolean(row.ivsStageArn),
+    ...toBuyerSafeStreamPayload(row),
     ingestEndpoint: row.ivsIngestEndpoint,
     channelArn: row.ivsChannelArn,
     channelName: row.ivsChannelName,
