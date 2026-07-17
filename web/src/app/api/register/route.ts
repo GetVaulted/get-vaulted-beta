@@ -104,7 +104,14 @@ export async function POST(req: Request) {
         referralCode: referralCode || undefined,
       });
       if (!supa.ok) {
-        const status = supa.code === "ACCOUNT_EXISTS" ? 409 : 503;
+        const status =
+          supa.code === "ACCOUNT_EXISTS"
+            ? 409
+            : supa.code === "WEAK_PASSWORD"
+              ? 400
+              : supa.code === "SIGNUP_RATE_LIMITED"
+                ? 429
+                : 503;
         return NextResponse.json({ error: supa.message, code: supa.code }, { status });
       }
       return NextResponse.json({

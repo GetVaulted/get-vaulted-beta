@@ -3,13 +3,21 @@ import { ensurePrismaUserForSupabaseAuth } from "@/lib/ensure-prisma-user-from-s
 import { normalizeReferralCodeInput } from "@/lib/referral-code";
 import { prisma } from "@/lib/prisma";
 
+export type SupabaseRegisterFailureCode =
+  | "ACCOUNT_EXISTS"
+  | "SUPABASE_NOT_CONFIGURED"
+  | "SUPABASE_SIGNUP_FAILED"
+  | "WEAK_PASSWORD"
+  | "SIGNUP_RATE_LIMITED"
+  | "SIGNUP_DISABLED";
+
 export type SupabaseRegisterResult =
   | {
       ok: true;
       needsEmailConfirmation: boolean;
       verificationMethod: "supabase_link" | "immediate";
     }
-  | { ok: false; code: "ACCOUNT_EXISTS" | "SUPABASE_NOT_CONFIGURED" | "SUPABASE_SIGNUP_FAILED"; message: string };
+  | { ok: false; code: SupabaseRegisterFailureCode; message: string };
 
 function signupRedirectUrl(): string {
   const base =
@@ -63,14 +71,49 @@ export async function registerAccountViaSupabaseAuth(params: {
   });
 
   if (error) {
-    if (/already registered|already exists|user already registered/i.test(error.message)) {
+    const raw = (error.message ?? "").trim();
+    const errCode = (error as { code?: string }).code ?? "";
+    const errStatus = (error as { status?: number }).status;
+
+    if (/already registered|already exists|user already registered/i.test(raw)) {
       return {
         ok: false,
         code: "ACCOUNT_EXISTS",
         message: "An account with this email already exists. Please sign in.",
       };
     }
-    console.error("[registerAccountViaSupabaseAuth]", error.message);
+    // Supabase enforces its OWN password policy server-side (min length, required character
+    // classes, and optional leaked-password protection) for both web and mobile signups. When it
+    // rejects a password our client accepted, surface Supabase's own guidance so the user knows
+    // exactly what to change instead of a generic failure. NOTE: the real fix is aligning the
+    // Supabase Auth password policy with the app copy ("8+ chars, a letter, a number").
+    if (errCode === "weak_password" || /password/i.test(raw)) {
+      return {
+        ok: false,
+        code: "WEAK_PASSWORD",
+        message: raw || "Choose a stronger password and try again.",
+      };
+    }
+    if (
+      errStatus === 429 ||
+      errCode === "over_email_send_rate_limit" ||
+      errCode === "over_request_rate_limit" ||
+      /rate limit/i.test(raw)
+    ) {
+      return {
+        ok: false,
+        code: "SIGNUP_RATE_LIMITED",
+        message: "Too many sign-up attempts right now. Please wait a minute and try again.",
+      };
+    }
+    if (errCode === "signup_disabled" || /signups?\b.*(not allowed|disabled|closed)/i.test(raw)) {
+      return {
+        ok: false,
+        code: "SIGNUP_DISABLED",
+        message: "Sign-ups are temporarily closed. Please try again later.",
+      };
+    }
+    console.error("[registerAccountViaSupabaseAuth]", { status: errStatus, code: errCode, message: raw });
     return {
       ok: false,
       code: "SUPABASE_SIGNUP_FAILED",
