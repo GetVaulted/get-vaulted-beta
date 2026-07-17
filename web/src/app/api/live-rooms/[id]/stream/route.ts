@@ -18,7 +18,8 @@ import { getStreamRow, toBuyerSafeStreamPayload, toHostStreamPayload } from "./_
  * rate-limited per room so many concurrent buyer polls only trigger one retry per window.
  */
 function maybeHealStageComposition(roomId: string): void {
-  const rl = checkRateLimit(`stage-composition-heal:${roomId}`, { limit: 1, windowMs: 20_000 });
+  // Faster heal while a show is live with a dead HLS mirror (404 playlist).
+  const rl = checkRateLimit(`stage-composition-heal:${roomId}`, { limit: 1, windowMs: 8_000 });
   if (!rl.ok) return;
   void ensureStageHlsCompositionActive(roomId).catch(() => {});
 }
@@ -51,6 +52,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     try {
       const syncResult = await syncLiveRoomStreamFromIvs(id);
       const reconcileResult = await reconcileStaleLiveStreamWithRoomStatus(id);
+      await ensureStageHlsCompositionActive(id);
       logIvsOpsServer("ivs_stream_sync_pull", {
         roomId: id,
         syncUpdated: syncResult?.kind === "updated",

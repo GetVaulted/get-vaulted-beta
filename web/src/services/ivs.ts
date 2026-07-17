@@ -721,8 +721,8 @@ export async function startStageHlsComposition(roomId: string): Promise<string |
   if (room.ivsCompositionArn) return room.ivsCompositionArn;
 
   const encoderConfigurationArn = process.env.LIVE_STAGE_ENCODER_CONFIG_ARN?.trim();
-  // Extra attempts: composition often needs the host publisher to be present first.
-  const attempts = [0, 1500, 4000, 8000];
+  // Extra attempts: composition needs the host publisher on the Stage first.
+  const attempts = [0, 2_000, 5_000, 10_000, 15_000];
   let lastErr: unknown = null;
   for (const delayMs of attempts) {
     if (delayMs > 0) await sleep(delayMs);
@@ -765,9 +765,9 @@ export async function startStageHlsComposition(roomId: string): Promise<string |
 }
 
 /**
- * Throttled self-heal: if a live Stage broadcast never got its HLS mirror running (or it died),
- * retry starting it. Safe to call on every buyer poll — callers should rate-limit invocation
- * frequency; this function itself is a cheap no-op once a composition is already active.
+ * Self-heal: if a live Stage broadcast has no working HLS mirror, (re)start composition.
+ * Safe under buyer-poll rate limits. Restarts when a composition ARN exists but the IVS
+ * channel is still offline (common when composition started before the host published).
  */
 export async function ensureStageHlsCompositionActive(roomId: string): Promise<void> {
   if (!stageCompositionEnabled()) return;
@@ -775,10 +775,22 @@ export async function ensureStageHlsCompositionActive(roomId: string): Promise<v
     where: { id: roomId },
     select: { streamMode: true, streamHealth: true, ivsCompositionArn: true, ivsStageArn: true, ivsChannelArn: true },
   });
-  if (!room || room.streamMode !== "stage_webrtc" || room.ivsCompositionArn) return;
+  if (!room || room.streamMode !== "stage_webrtc") return;
   if (!room.ivsStageArn || !room.ivsChannelArn) return;
   const health = room.streamHealth?.toLowerCase();
   if (health !== "live" && health !== "connecting") return;
+
+  if (room.ivsCompositionArn) {
+    const { health: channelHealth } = await getStreamStatus(room.ivsChannelArn);
+    if (channelHealth === "live" || channelHealth === "connecting") return;
+    console.warn("[IVS_OPS] ivs_stage_composition_stale_restart", {
+      roomId,
+      channelHealth,
+      compositionArn: room.ivsCompositionArn,
+    });
+    await stopStageComposition(roomId);
+  }
+
   await startStageHlsComposition(roomId);
 }
 
@@ -828,7 +840,11 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
     },
   });
   logIvsOpsServer("ivs_stage_broadcast_start", { roomId });
-  void startStageHlsComposition(roomId).catch((err) => {
+  // Wait for the host client to join/publish, then start the HLS mirror (needs a publisher).
+  void (async () => {
+    await sleep(8_000);
+    await startStageHlsComposition(roomId);
+  })().catch((err) => {
     console.error("[IVS_OPS] ivs_stage_composition_start_deferred_failure", {
       roomId,
       message: err instanceof Error ? err.message : String(err),
