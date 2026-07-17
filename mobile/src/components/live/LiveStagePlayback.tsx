@@ -109,6 +109,12 @@ export function LiveStagePlayback({
   const mode: LivePlaybackMode = playbackMode ?? (enabled ? 'active' : 'off');
   const isForeground = mode === 'active';
   const [appState, setAppState] = useState<AppStateStatus>(() => AppState.currentState);
+  // Bumped each time the app returns to the foreground. iOS can detach the native Stage video
+  // surface while we're `inactive`/`background` (tapping a notification, Control Center, etc.);
+  // the WebRTC connection survives so audio keeps playing, but the surface comes back black with
+  // no recovery signal. Folding this into the remote-view key forces a fresh surface on return.
+  const [surfaceResumeNonce, setSurfaceResumeNonce] = useState(0);
+  const prevAppStateRef = useRef<AppStateStatus>(AppState.currentState);
   const mainVideoRef = useRef<VideoView>(null);
   const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce });
 
@@ -218,7 +224,12 @@ export function LiveStagePlayback({
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
+      const prev = prevAppStateRef.current;
+      prevAppStateRef.current = next;
       setAppState(next);
+      if (next === 'active' && prev !== 'active') {
+        setSurfaceResumeNonce((n) => n + 1);
+      }
     });
     return () => sub.remove();
   }, []);
@@ -369,6 +380,7 @@ export function LiveStagePlayback({
           active={useWebrtc && !stageMediaSuspended}
           refreshNonce={refreshNonce}
           subscribeEpoch={playback.webrtcSubscribeEpoch}
+          foregroundResumeNonce={surfaceResumeNonce}
           contentFit={contentFit}
           onConnected={playback.onVideoReady}
           onFailed={playback.onWebrtcFailed}
