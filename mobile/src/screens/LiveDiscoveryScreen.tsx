@@ -32,7 +32,7 @@ import {
   loadHomeFeedCache,
   saveHomeFeedCache,
 } from '../lib/homeFeedCache';
-import { orderLiveDiscoveryRooms } from '../lib/liveDiscoveryOrder';
+import { orderLiveDiscoveryRooms, orderScheduledStreamsByStartTime } from '../lib/liveDiscoveryOrder';
 import {
   markLiveDiscoveryFetchAttempt,
   markLiveDiscoveryFetchResult,
@@ -192,7 +192,10 @@ export function LiveDiscoveryScreen() {
   );
   const orderedRooms = useMemo(() => orderLiveDiscoveryRooms(filteredLive), [filteredLive]);
   const scheduledTiles = useMemo(
-    () => filteredScheduled.map((event) => scheduledStreamToLiveStream(event)),
+    () =>
+      orderScheduledStreamsByStartTime(filteredScheduled).map((event) =>
+        scheduledStreamToLiveStream(event),
+      ),
     [filteredScheduled],
   );
   const gridTiles = useMemo(

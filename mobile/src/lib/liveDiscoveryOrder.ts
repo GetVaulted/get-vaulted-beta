@@ -2,6 +2,30 @@ import type { LiveStream } from '../types';
 
 export type LivePromoBadge = 'FEATURED' | 'TRENDING' | 'PROMOTED';
 
+/** Epoch ms for a scheduled start; unknown/invalid times sort to the very end. */
+function scheduledStartMs(iso: string | null | undefined): number {
+  if (!iso) return Number.POSITIVE_INFINITY;
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
+}
+
+/**
+ * Upcoming shows ordered by scheduled start — soonest first (today on top, then later shows in
+ * chronological order down the list). Shows with no/invalid start time fall to the bottom. Stable
+ * (equal times keep their incoming order).
+ */
+export function orderScheduledStreamsByStartTime<T extends { scheduledStartAtIso?: string | null }>(
+  streams: T[],
+): T[] {
+  return streams
+    .map((stream, index) => ({ stream, index }))
+    .sort((a, b) => {
+      const delta = scheduledStartMs(a.stream.scheduledStartAtIso) - scheduledStartMs(b.stream.scheduledStartAtIso);
+      return delta !== 0 ? delta : a.index - b.index;
+    })
+    .map((entry) => entry.stream);
+}
+
 export type OrderedLiveRoom = {
   stream: LiveStream;
   promoBadge?: LivePromoBadge;
