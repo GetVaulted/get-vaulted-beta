@@ -38,8 +38,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ threadId: str
   }
 
   if (action === "accept_request") {
+    // `sellerId` is the request recipient (not always a marketplace seller — profile DMs use the same fields).
     if (thread.sellerId !== uid) {
-      return NextResponse.json({ error: "Only the seller can accept requests." }, { status: 403 });
+      return NextResponse.json({ error: "Only the recipient can accept this request." }, { status: 403 });
     }
     await prisma.messageThread.update({
       where: { id: threadId },

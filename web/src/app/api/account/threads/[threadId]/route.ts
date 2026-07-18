@@ -47,6 +47,23 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
     return NextResponse.json({ error: "Conversation unavailable." }, { status: 403 });
   }
 
+  // Heal stuck request threads: recipient replied without tapping Accept → promote to primary
+  // so the initiator's composer unlocks on open (not only on their next send attempt).
+  let inbox = thread.inbox;
+  if (inbox === "request") {
+    const recipientReplied = await prisma.message.findFirst({
+      where: { threadId, senderId: thread.sellerId, kind: "user" },
+      select: { id: true },
+    });
+    if (recipientReplied) {
+      await prisma.messageThread.update({
+        where: { id: threadId },
+        data: { inbox: "primary" },
+      });
+      inbox = "primary";
+    }
+  }
+
   await prisma.message.updateMany({
     where: { threadId, recipientId: uid, readAt: null },
     data: { readAt: new Date() },
@@ -113,7 +130,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
   return NextResponse.json({
     thread: {
       id: thread.id,
-      inbox: thread.inbox,
+      inbox,
       conversationKind: thread.conversationKind,
       conversationLabel: conversationKindLabel(thread.conversationKind),
       listingId: thread.listingId,
@@ -187,11 +204,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  // Request-folder threads: only the recipient (`sellerId`) may speak until accepted.
+  // If they already replied earlier without tapping Accept, treat that as acceptance and heal.
   if (thread.inbox === "request" && thread.sellerId !== uid) {
-    return NextResponse.json(
-      { error: "Waiting for the seller to accept your message request." },
-      { status: 403 },
-    );
+    const recipientAlreadyReplied = await prisma.message.findFirst({
+      where: { threadId, senderId: thread.sellerId, kind: "user" },
+      select: { id: true },
+    });
+    if (recipientAlreadyReplied) {
+      await prisma.messageThread.update({
+        where: { id: threadId },
+        data: { inbox: "primary" },
+      });
+      thread.inbox = "primary";
+    } else {
+      return NextResponse.json(
+        { error: "Waiting for them to accept your message request." },
+        { status: 403 },
+      );
+    }
   }
 
   const recipientId = thread.buyerId === uid ? thread.sellerId : thread.buyerId;
@@ -207,6 +238,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     select: { muted: true },
   });
 
+  // Replying as the request recipient implicitly accepts the request (no separate Accept tap).
+  const acceptOnSend = thread.inbox === "request" && thread.sellerId === uid;
+
   const msg = await prisma.$transaction(async (tx) => {
     const m = await tx.message.create({
       data: {
@@ -221,7 +255,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     });
     await tx.messageThread.update({
       where: { id: thread.id },
-      data: { updatedAt: new Date() },
+      data: {
+        updatedAt: new Date(),
+        ...(acceptOnSend ? { inbox: "primary" as const } : {}),
+      },
     });
 
     return m;

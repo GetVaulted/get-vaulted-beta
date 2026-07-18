@@ -14,6 +14,7 @@ const hoisted = vi.hoisted(() => ({
   threadFindFirst: vi.fn(),
   messageUpdateMany: vi.fn().mockResolvedValue({ count: 0 }),
   messageFindMany: vi.fn(),
+  messageFindFirst: vi.fn().mockResolvedValue(null),
   messageCreate: vi.fn(),
   threadUpdate: vi.fn().mockResolvedValue({}),
   participantFindUnique: vi.fn(),
@@ -54,6 +55,7 @@ const prismaMock = vi.hoisted(() => ({
   message: {
     updateMany: hoisted.messageUpdateMany,
     findMany: hoisted.messageFindMany,
+    findFirst: hoisted.messageFindFirst,
     create: hoisted.messageCreate,
   },
   messageThreadParticipant: { findUnique: hoisted.participantFindUnique },
@@ -228,6 +230,89 @@ describe("POST /api/account/threads/[threadId] — block + mute enforcement", ()
     expect(hoisted.createNotification).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ userId: "seller_1", type: "message_received" }),
+    );
+  });
+});
+
+describe("POST /api/account/threads/[threadId] — message request accept", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hoisted.isUserBlocked.mockResolvedValue(false);
+    hoisted.messageCreate.mockResolvedValue({ id: "msg_new", createdAt: new Date() });
+    hoisted.participantFindUnique.mockResolvedValue(null);
+    hoisted.messageFindFirst.mockResolvedValue(null);
+  });
+
+  function replyRequest(body: unknown) {
+    return new Request("http://localhost/api/account/threads/thread_1", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("blocks the initiator from sending while the request is still pending", async () => {
+    hoisted.resolveAccountUserId.mockResolvedValue({ userId: "buyer_1" });
+    hoisted.threadFindFirst.mockResolvedValue(baseThread({ inbox: "request", participants: [] }));
+
+    const res = await POST(replyRequest({ body: "follow up" }), ctx());
+    const json = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(json.error).toMatch(/accept/i);
+    expect(hoisted.messageCreate).not.toHaveBeenCalled();
+  });
+
+  it("implicitly accepts when the recipient replies on a request thread", async () => {
+    hoisted.resolveAccountUserId.mockResolvedValue({ userId: "seller_1" });
+    hoisted.threadFindFirst.mockResolvedValue(baseThread({ inbox: "request", participants: [] }));
+
+    const res = await POST(replyRequest({ body: "sure, what's up?" }), ctx());
+
+    expect(res.status).toBe(200);
+    expect(hoisted.threadUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "thread_1" },
+        data: expect.objectContaining({ inbox: "primary" }),
+      }),
+    );
+  });
+
+  it("heals a stuck request thread when the recipient already replied, then lets the initiator send", async () => {
+    hoisted.resolveAccountUserId.mockResolvedValue({ userId: "buyer_1" });
+    hoisted.threadFindFirst.mockResolvedValue(baseThread({ inbox: "request", participants: [] }));
+    hoisted.messageFindFirst.mockResolvedValue({ id: "seller_msg_1" });
+
+    const res = await POST(replyRequest({ body: "thanks for getting back" }), ctx());
+
+    expect(res.status).toBe(200);
+    expect(hoisted.threadUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "thread_1" },
+        data: { inbox: "primary" },
+      }),
+    );
+    expect(hoisted.messageCreate).toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/account/threads/[threadId] — request heal", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hoisted.resolveAccountUserId.mockResolvedValue({ userId: "buyer_1" });
+    hoisted.messageFindMany.mockResolvedValue([]);
+  });
+
+  it("promotes a request thread to primary when the recipient already sent a user message", async () => {
+    hoisted.threadFindFirst.mockResolvedValue(baseThread({ inbox: "request" }));
+    hoisted.messageFindFirst.mockResolvedValue({ id: "seller_msg_1" });
+
+    const res = await GET(new Request("http://localhost/api/account/threads/thread_1"), ctx());
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.thread.inbox).toBe("primary");
+    expect(hoisted.threadUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { inbox: "primary" } }),
     );
   });
 });

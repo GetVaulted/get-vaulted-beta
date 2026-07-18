@@ -173,7 +173,7 @@ export function MessageThreadScreen({ navigation, route }: Props) {
 
       {thread?.inbox === 'request' && thread.isSeller ? (
         <Pressable style={styles.acceptBar} onPress={() => void onAcceptRequest()}>
-          <Text style={styles.acceptTxt}>Accept message request</Text>
+          <Text style={styles.acceptTxt}>Accept request (or just reply)</Text>
         </Pressable>
       ) : null}
 
@@ -211,7 +211,7 @@ export function MessageThreadScreen({ navigation, route }: Props) {
         <View style={[styles.pendingBar, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
           <Ionicons name="paper-plane-outline" size={16} color={colors.textSecondary} />
           <Text style={styles.pendingTxt}>
-            Message request sent. You can chat once @{thread?.otherUsername ?? 'they'} accepts.
+            Message request sent. You can reply once @{thread?.otherUsername ?? 'they'} accepts — or after they message you back.
           </Text>
         </View>
       ) : (
