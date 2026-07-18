@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const hoisted = vi.hoisted(() => ({
   sellerFollowCount: vi.fn(),
   messageThreadCount: vi.fn(),
+  messageThreadFindMany: vi.fn(),
+  messageThreadUpdateMany: vi.fn(),
+  messageFindMany: vi.fn(),
   orderCount: vi.fn(),
   offerCount: vi.fn(),
 }));
@@ -10,13 +13,22 @@ const hoisted = vi.hoisted(() => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     sellerFollow: { count: hoisted.sellerFollowCount },
-    messageThread: { count: hoisted.messageThreadCount },
+    messageThread: {
+      count: hoisted.messageThreadCount,
+      findMany: hoisted.messageThreadFindMany,
+      updateMany: hoisted.messageThreadUpdateMany,
+    },
+    message: { findMany: hoisted.messageFindMany },
     order: { count: hoisted.orderCount },
     offer: { count: hoisted.offerCount },
   },
 }));
 
-import { resolveInboxForNewThread, usersMutuallyFollow } from "./message-threads";
+import {
+  healRequestThreadsAcceptedByReply,
+  resolveInboxForNewThread,
+  usersMutuallyFollow,
+} from "./message-threads";
 
 /** Follow graph helper: `follows` is a set of "follower>seller" edges. */
 function mockFollows(edges: string[]) {
@@ -72,5 +84,34 @@ describe("resolveInboxForNewThread", () => {
     mockFollows([]);
     hoisted.orderCount.mockResolvedValue(1);
     expect(await resolveInboxForNewThread("buyer", "seller")).toBe("primary");
+  });
+});
+
+describe("healRequestThreadsAcceptedByReply", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hoisted.messageThreadFindMany.mockResolvedValue([]);
+    hoisted.messageFindMany.mockResolvedValue([]);
+    hoisted.messageThreadUpdateMany.mockResolvedValue({ count: 0 });
+  });
+
+  it("promotes request threads where the recipient already replied", async () => {
+    hoisted.messageThreadFindMany.mockResolvedValue([
+      { id: "t1", sellerId: "seller_1" },
+      { id: "t2", sellerId: "seller_2" },
+    ]);
+    hoisted.messageFindMany.mockResolvedValue([{ threadId: "t1" }]);
+    hoisted.messageThreadUpdateMany.mockResolvedValue({ count: 1 });
+
+    await expect(healRequestThreadsAcceptedByReply("buyer_1")).resolves.toBe(1);
+    expect(hoisted.messageThreadUpdateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["t1"] }, inbox: "request" },
+      data: { inbox: "primary" },
+    });
+  });
+
+  it("no-ops when there are no request threads", async () => {
+    await expect(healRequestThreadsAcceptedByReply("buyer_1")).resolves.toBe(0);
+    expect(hoisted.messageFindMany).not.toHaveBeenCalled();
   });
 });

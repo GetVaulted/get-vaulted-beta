@@ -268,6 +268,45 @@ export async function resolveInboxForNewThread(
   return "request";
 }
 
+/**
+ * Promote request-folder threads to Inbox when the recipient (`sellerId`) already sent a user
+ * message — reply is an implicit accept. Runs on inbox list loads so chats leave Requests without
+ * requiring an explicit Accept tap or opening the thread first.
+ */
+export async function healRequestThreadsAcceptedByReply(userId: string): Promise<number> {
+  if (!userId) return 0;
+
+  const requestThreads = await prisma.messageThread.findMany({
+    where: {
+      OR: [{ buyerId: userId }, { sellerId: userId }],
+      inbox: "request",
+    },
+    select: { id: true, sellerId: true },
+    take: 300,
+  });
+  if (requestThreads.length === 0) return 0;
+
+  const replied = await prisma.message.findMany({
+    where: {
+      kind: "user",
+      OR: requestThreads.map((t) => ({
+        threadId: t.id,
+        senderId: t.sellerId,
+      })),
+    },
+    select: { threadId: true },
+    distinct: ["threadId"],
+  });
+  if (replied.length === 0) return 0;
+
+  const ids = replied.map((m) => m.threadId);
+  const result = await prisma.messageThread.updateMany({
+    where: { id: { in: ids }, inbox: "request" },
+    data: { inbox: "primary" },
+  });
+  return result.count;
+}
+
 export async function ensureThreadParticipants(
   tx: Prisma.TransactionClient,
   threadId: string,

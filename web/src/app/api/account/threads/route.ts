@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import {
   conversationKindLabel,
+  healRequestThreadsAcceptedByReply,
   offerStatusChip,
   orderStatusChip,
   resolveThreadContext,
@@ -15,6 +16,10 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const inbox = url.searchParams.get("inbox") === "request" ? "request" : "primary";
+
+  // Move answered request threads into Inbox before listing so the folder switch is visible
+  // on refresh (not only after opening an individual chat).
+  await healRequestThreadsAcceptedByReply(uid);
 
   const threads = await prisma.messageThread.findMany({
     where: {
