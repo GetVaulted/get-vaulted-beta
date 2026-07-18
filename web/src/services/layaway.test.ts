@@ -47,6 +47,7 @@ const fetchCheckoutSessionTax = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ taxAmountCents: 0, taxUsd: 0, stripeTaxCalculationId: null, totalAmountCents: null }),
 );
 const recordStripeTaxTransaction = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const reverseStripeTaxTransaction = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 vi.mock("@/lib/stripe-tax", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/stripe-tax")>();
   return {
@@ -56,10 +57,14 @@ vi.mock("@/lib/stripe-tax", async (importOriginal) => {
     loadSellerShipFromForTax,
     fetchCheckoutSessionTax,
     recordStripeTaxTransaction,
+    reverseStripeTaxTransaction,
     STRIPE_TAX_CODE_TANGIBLE: "tangible",
     TAX_PROVIDER_STRIPE: "stripe",
   };
 });
+vi.mock("@/lib/stripe-charge-ledger", () => ({
+  persistOrderStripeChargeLedger: vi.fn().mockResolvedValue(null),
+}));
 vi.mock("@/services/payments", () => ({
   PAYMENT_PAID: "paid",
   PAYMENT_PENDING: "pending_payment",
@@ -74,6 +79,7 @@ vi.mock("@/lib/stripe", () => ({
     refunds: { create: stripeRefundsCreate },
     checkout: { sessions: { create: stripeCheckoutSessionsCreate } },
   }),
+  isStripeConfigured: () => true,
 }));
 
 const prismaMock = vi.hoisted(() => ({
@@ -747,6 +753,7 @@ describe("finalizeLayawayDepositPaid persists tax onto the Order", () => {
     expect(recordStripeTaxTransaction).toHaveBeenCalledWith({
       taxCalculationId: "taxcalc_1",
       reference: "ord_1",
+      persistToOrderId: "ord_1",
     });
   });
 

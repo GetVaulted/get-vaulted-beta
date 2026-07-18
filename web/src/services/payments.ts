@@ -36,11 +36,14 @@ import {
   fetchCheckoutSessionTax,
   fetchPaymentIntentTax,
   recordStripeTaxTransaction,
+  reverseStripeTaxTransaction,
   STRIPE_TAX_CODE_SHIPPING,
   STRIPE_TAX_CODE_TANGIBLE,
   stripeLineItemProductData,
   TAX_PROVIDER_STRIPE,
 } from "@/lib/stripe-tax";
+import { persistOrderStripeChargeLedger } from "@/lib/stripe-charge-ledger";
+import { moneyFlowLog } from "@/lib/money-flow-log";
 import {
   resolveBuyNowCheckoutLane,
   resolveOrderCheckoutLane,
@@ -981,6 +984,19 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
 
   const stripe = getStripe();
 
+  // Prefer reusing an open session when this order already has a persisted tax calculation —
+  // avoids a billable Stripe Tax Calculation API call on every "Pay" click.
+  const priorTaxCents = Math.max(0, order.taxAmountCents ?? 0);
+  if (order.stripeCheckoutSessionId && order.stripeTaxCalculationId) {
+    const earlyReuse = await reuseOpenCheckoutSessionIfMatching({
+      sessionId: order.stripeCheckoutSessionId,
+      expectedSubtotalCents: buyNowCheckoutSubtotalCents(order) + priorTaxCents,
+      expectedTaxCents: priorTaxCents,
+      collectTax: true,
+    });
+    if (earlyReuse) return { url: earlyReuse };
+  }
+
   const taxBundle = await buildMarketplaceCheckoutTaxBundle({
     buyerId: args.buyerId,
     shipTo: {
@@ -1263,6 +1279,18 @@ export async function createPayOrderCheckoutSession(args: {
     liveRoomId: order.liveShippingSession?.liveShowId ?? null,
     sellerId: order.sellerId,
   });
+
+  const priorPayOrderTaxCents = Math.max(0, order.taxAmountCents ?? 0);
+  if (order.stripeCheckoutSessionId && order.stripeTaxCalculationId) {
+    const earlyReuse = await reuseOpenCheckoutSessionIfMatching({
+      sessionId: order.stripeCheckoutSessionId,
+      expectedSubtotalCents:
+        Math.round(order.itemPriceUsd * 100) + Math.round(shippingPriceUsd * 100) + priorPayOrderTaxCents,
+      expectedTaxCents: priorPayOrderTaxCents,
+      collectTax: true,
+    });
+    if (earlyReuse) return { url: earlyReuse };
+  }
 
   const taxBundle = await buildMarketplaceCheckoutTaxBundle({
     buyerId: args.buyerId,
@@ -1775,6 +1803,19 @@ export async function finalizeStripeMarketplaceOrderPaid(
   void recordStripeTaxTransaction({
     taxCalculationId: taxFields.stripeTaxCalculationId,
     reference: orderId,
+    persistToOrderId: orderId,
+  });
+
+  void persistOrderStripeChargeLedger({
+    orderId,
+    paymentIntentId,
+  }).catch((e) => console.warn("[money-flow] charge ledger persist failed", orderId, e));
+
+  moneyFlowLog("payment_intent_created", {
+    orderId,
+    paymentIntentId,
+    sessionId,
+    kind: "finalize_marketplace_paid",
   });
 
   void initializeOrderPayoutOnPayment(orderId);
@@ -2475,6 +2516,13 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
             where: { orderId: o.id, status: OrderRefundRequestStatus.refund_processing },
             data: { status: OrderRefundRequestStatus.refunded, refundedAt: new Date(), stripeRefundId },
           });
+        });
+
+        moneyFlowLog("refund_created", { orderId: o.id, stripeRefundId, source: "charge.refunded" });
+        void reverseStripeTaxTransaction({
+          orderId: o.id,
+          reverseAmountCents: o.taxAmountCents ?? 0,
+          reason: "charge_refunded_webhook",
         });
 
         const title = o.listing?.title ?? "your order";

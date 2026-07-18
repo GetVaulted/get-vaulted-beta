@@ -41,9 +41,11 @@ import {
   fetchCheckoutSessionTax,
   loadSellerShipFromForTax,
   recordStripeTaxTransaction,
+  reverseStripeTaxTransaction,
   stripeLineItemProductData,
   STRIPE_TAX_CODE_TANGIBLE,
 } from "@/lib/stripe-tax";
+import { persistOrderStripeChargeLedger } from "@/lib/stripe-charge-ledger";
 import { buildOrderTaxPersistFields, orderTaxUpdateData } from "@/lib/sales-tax-order";
 import { prisma } from "@/lib/prisma";
 import { grantReferralCreditsForQualifyingOrder } from "@/lib/referral-credit";
@@ -781,7 +783,12 @@ export async function finalizeLayawayDepositPaid(args: {
   void recordStripeTaxTransaction({
     taxCalculationId: taxInfo?.stripeTaxCalculationId ?? null,
     reference: args.orderId,
+    persistToOrderId: args.orderId,
   });
+  void persistOrderStripeChargeLedger({
+    orderId: args.orderId,
+    paymentIntentId: args.paymentIntentId,
+  }).catch((e) => console.warn("[layaway] charge ledger persist failed", args.orderId, e));
 
   const lay = await prisma.layaway.findUnique({
     where: { id: args.layawayId },
@@ -1234,6 +1241,11 @@ export async function defaultLayawayPlan(layawayId: string): Promise<void> {
         await prisma.order.update({
           where: { id: lay.orderId },
           data: { taxRefundedCents: { increment: taxRefundCents } },
+        });
+        void reverseStripeTaxTransaction({
+          orderId: lay.orderId,
+          reverseAmountCents: taxRefundCents,
+          reason: "layaway_default_tax_refund",
         });
       } catch (e) {
         console.error("[layaway] tax refund failed", lay.id, e);

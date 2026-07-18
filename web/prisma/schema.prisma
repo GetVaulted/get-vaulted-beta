@@ -1613,6 +1613,10 @@ model Order {
   taxAmountCents             Int                        @default(0)
   taxProvider                String?
   stripeTaxCalculationId     String?
+  /// Stripe Tax Transaction id (`tax_…`) created after payment via createFromCalculation.
+  stripeTaxTransactionId     String?
+  /// Stripe Tax Transaction reversal id after a refund that reverses the tax transaction.
+  stripeTaxTransactionReversalId String?
   /// US state code where tax was collected (buyer ship-to jurisdiction).
   taxJurisdictionState       String?
   /// Item subtotal included in tax calculation (cents).
@@ -1660,6 +1664,16 @@ model Order {
   escrowReleaseInFlight      Boolean                    @default(false)
   stripeCheckoutSessionId    String?
   stripePaymentIntentId      String?
+  /// Platform Charge id (`ch_…`) for the buyer payment.
+  stripeChargeId             String?
+  /// Charge BalanceTransaction id (`txn_…`) — source of truth for card processing fee.
+  stripeBalanceTransactionId String?
+  /// Actual Stripe card processing fee from balance_transaction.fee (cents).
+  stripeProcessingFeeCents   Int?
+  /// Application fee amount kept by the platform (cents), from Charge/ApplicationFee when available.
+  stripeApplicationFeeCents  Int?
+  /// Net to platform balance from the charge BT (cents). Does not include later Tax API usage bills.
+  stripeNetCents             Int?
   /// Payment processor abstraction — Stripe default; PayPal/Venmo when enabled separately.
   paymentProcessor           PaymentProcessor           @default(STRIPE)
   walletPaymentMethodType    WalletPaymentMethodType    @default(card)

@@ -65,6 +65,8 @@ export async function resolveLiveVariantCheckoutPreviewForActiveItem(args: {
     liveRoomId: args.liveRoomId,
     liveRoomItemId: item.id,
     itemPriceUsd,
+    // Room GET enrichment — do not create Stripe Tax calculations on every refetch.
+    includeTaxEstimate: false,
   });
   if (!preview) return null;
   return { ...preview, liveRoomItemId: item.id };
@@ -98,6 +100,7 @@ export async function resolveLivePinnedShippingTaxPreview(args: {
     liveRoomId: args.liveRoomId,
     liveRoomItemId: item.id,
     itemPriceUsd,
+    includeTaxEstimate: false,
   });
   if (!preview) return null;
 

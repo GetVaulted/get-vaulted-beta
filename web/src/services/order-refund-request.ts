@@ -740,6 +740,15 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
         },
       });
     });
+
+    const { reverseStripeTaxTransaction } = await import("@/lib/stripe-tax");
+    const { moneyFlowLog } = await import("@/lib/money-flow-log");
+    moneyFlowLog("refund_created", { orderId, stripeRefundId, refundAmountCents });
+    void reverseStripeTaxTransaction({
+      orderId,
+      reverseAmountCents: order.taxAmountCents ?? 0,
+      reason: "live_order_refund",
+    });
   } catch (e) {
     // CRITICAL: Stripe has ALREADY refunded the buyer at this point (`stripeRefundId` is set).
     // Do NOT retry the Stripe call here (that would just re-hit the same idempotency key) and do
