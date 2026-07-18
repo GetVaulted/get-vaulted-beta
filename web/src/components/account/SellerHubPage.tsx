@@ -556,6 +556,12 @@ export function SellerHubPage() {
                 >
                   {busy ? "Opening…" : ps === "ready" ? "Stripe dashboard" : "Connect payouts"}
                 </button>
+                <Link
+                  href="/account/seller/financials"
+                  className="inline-flex h-9 items-center justify-center rounded-lg bg-gold/15 px-4 text-xs font-semibold text-gold-bright ring-1 ring-gold/25 transition hover:bg-gold/25"
+                >
+                  View financials
+                </Link>
                 {ps !== "ready" ? (
                   <Link
                     href={SELLER_SETUP_PATH}

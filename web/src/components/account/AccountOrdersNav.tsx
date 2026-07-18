@@ -9,6 +9,7 @@ export type AccountNavActive =
   | "orders"
   | "layaways"
   | "payments"
+  | "financials"
   | "sales"
   | "seller"
   | "offers"
@@ -21,6 +22,7 @@ export type AccountNavMode = "buyer" | "seller";
 
 const BUYER_LINKS = [
   { href: "/account/orders", label: "Orders", key: "orders" as const },
+  { href: "/account/financials", label: "Financials", key: "financials" as const },
   { href: "/account/layaways", label: "Layaways", key: "layaways" as const },
   { href: "/account/payment-methods", label: "Wallet", key: "payments" as const },
   { href: "/account/watchlist", label: "Watchlist", key: "watchlist" as const },
@@ -29,6 +31,7 @@ const BUYER_LINKS = [
 
 const SELLER_LINKS = [
   { href: "/account/sales", label: "Sales", key: "sales" as const },
+  { href: "/account/seller/financials", label: "Financials", key: "financials" as const },
   { href: "/account/listings", label: "Listings", key: "listings" as const },
   { href: SELLER_HQ_PATH, label: "Seller HQ", key: "seller" as const },
   { href: "/account/offers", label: "Offers", key: "offers" as const },

@@ -139,6 +139,11 @@ export function MyAccountPage() {
                   description: "Orders to fulfill and recent sales.",
                 },
                 {
+                  href: "/account/seller/financials",
+                  title: "Financials",
+                  description: "Earnings, fees, payout status, and Stripe balance.",
+                },
+                {
                   href: "/account/offers",
                   title: "Offers",
                   description: "Incoming and outgoing offers.",
@@ -174,6 +179,11 @@ export function MyAccountPage() {
         ? buyerWalletStatusLabel(walletSnapshot)
         : "Saved cards and shipping for live + checkout.",
       accent: walletSnapshot ? !walletSnapshot.paymentReady || !walletSnapshot.shippingReady : false,
+    },
+    {
+      href: "/account/financials",
+      title: "Financials",
+      description: "Lifetime spend, this month, open balances, and recent charges.",
     },
     {
       href: "/account/referrals",
