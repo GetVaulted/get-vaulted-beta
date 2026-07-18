@@ -46,17 +46,16 @@ vi.mock("@/lib/message-threads", () => ({
 }));
 
 const txMock = {
-  liveRoom: { findUnique: vi.fn() },
-  user: { findUnique: hoisted.userFindUnique },
-  listing: { findUnique: hoisted.listingFindUnique },
   messageThread: { upsert: hoisted.threadUpsert, update: hoisted.threadUpdate },
   message: { create: hoisted.messageCreate },
-  messageThreadParticipant: { findUnique: hoisted.participantFindUnique },
 };
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findUnique: hoisted.userFindUnique },
+    listing: { findUnique: hoisted.listingFindUnique },
+    liveRoom: { findUnique: vi.fn() },
+    messageThreadParticipant: { findUnique: hoisted.participantFindUnique },
     $transaction: async (fn: (tx: unknown) => unknown) => fn(txMock),
   },
 }));

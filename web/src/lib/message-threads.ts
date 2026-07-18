@@ -16,9 +16,11 @@ export function profileMessagingAnchorWorkspaceKey(userId: string): string {
   return `profile-dm:${userId}`;
 }
 
+type MessageDb = Prisma.TransactionClient | typeof prisma;
+
 /** Hidden listing anchor so profile DMs work without an active marketplace listing. */
 export async function resolveProfileMessagingListingAnchor(
-  tx: Prisma.TransactionClient,
+  tx: MessageDb,
   args: { profileUserId: string; profileLabel?: string },
 ): Promise<{ listingId: string; listingTitle: string }> {
   const sellerListing = await tx.listing.findFirst({
@@ -63,7 +65,7 @@ export function liveMessagingAnchorWorkspaceKey(liveRoomId: string): string {
 
 /** Listing row required by MessageThread FK — attach show inventory or create a hidden anchor. */
 export async function resolveLiveNetworkingListingAnchor(
-  tx: Prisma.TransactionClient,
+  tx: MessageDb,
   args: { liveRoomId: string; sellerId: string; roomTitle: string },
 ): Promise<{ listingId: string; listingTitle: string }> {
   const itemRows = await tx.liveRoomItem.findMany({
