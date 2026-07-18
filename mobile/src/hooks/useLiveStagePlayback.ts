@@ -8,9 +8,10 @@ import {
   MAX_PLAYER_RETRIES,
   PLAYER_BACKOFF_BASE_MS,
   STREAM_POLL_MS,
-  shouldAttachHlsPlayback,
-  shouldUseStageWebrtcPlayback,
+  WEBRTC_UPGRADE_DWELL_MS,
+  isHybridLiveEnabled,
   isLiveStreamSignal,
+  resolveSurfaceTransportPlan,
   type BuyerSafeStreamFields,
   type LivePlaybackTransport,
 } from '../lib/liveStreamPlayback';
@@ -28,44 +29,51 @@ function applyStreamToTransport(args: {
   accessToken?: string;
   webrtcFailed: boolean;
   playbackMode: LivePlaybackMode;
+  hybridEnabled: boolean;
+  alreadyUpgraded: boolean;
   lastAttachKeyRef: React.MutableRefObject<string>;
   applyTransport: (next: LivePlaybackTransport) => void;
   setPlayerFatal: (v: boolean) => void;
   setVideoHasData: (v: boolean) => void;
+  armWebrtcUpgrade: () => void;
+  cancelWebrtcUpgrade: () => void;
 }) {
-  const stageWebrtcEligible = shouldUseStageWebrtcPlayback(
-    args.safe,
-    args.webrtcFailed,
-    args.accessToken,
-  );
-  const wantWebrtc = args.playbackMode === 'active' && stageWebrtcEligible;
-  if (wantWebrtc) {
+  const plan = resolveSurfaceTransportPlan({
+    stream: args.safe,
+    isActive: args.playbackMode === 'active',
+    webrtcFailed: args.webrtcFailed,
+    accessToken: args.accessToken,
+    hybridEnabled: args.hybridEnabled,
+    alreadyUpgraded: args.alreadyUpgraded,
+  });
+
+  if (plan.armUpgrade) {
+    args.armWebrtcUpgrade();
+  } else {
+    args.cancelWebrtcUpgrade();
+  }
+
+  if (plan.transport === 'webrtc') {
     args.applyTransport('webrtc');
     args.lastAttachKeyRef.current = '';
     args.setPlayerFatal(false);
     return;
   }
 
-  if (args.playbackMode !== 'active' && stageWebrtcEligible) {
-    args.applyTransport('waiting');
-    args.lastAttachKeyRef.current = '';
-    args.setVideoHasData(false);
-    return;
-  }
-
-  const attachKey = `${args.safe.playbackUrl ?? ''}|${args.safe.streamHealth}`;
-  if (shouldAttachHlsPlayback(args.safe.streamHealth, args.safe.playbackUrl)) {
+  if (plan.transport === 'hls') {
+    const attachKey = `${args.safe.playbackUrl ?? ''}|${args.safe.streamHealth}`;
     args.applyTransport('hls');
     if (args.lastAttachKeyRef.current !== attachKey) {
       args.lastAttachKeyRef.current = attachKey;
       args.setVideoHasData(false);
       args.setPlayerFatal(false);
     }
-  } else {
-    args.applyTransport(isLiveStreamSignal(args.safe.streamHealth) ? 'waiting' : 'none');
-    args.lastAttachKeyRef.current = '';
-    args.setVideoHasData(false);
+    return;
   }
+
+  args.applyTransport(plan.transport);
+  args.lastAttachKeyRef.current = '';
+  args.setVideoHasData(false);
 }
 
 export function useLiveStagePlayback(args: {
@@ -96,6 +104,12 @@ export function useLiveStagePlayback(args: {
   const playbackModeRef = useRef(args.playbackMode);
   const [webrtcSubscribeEpoch, setWebrtcSubscribeEpoch] = useState(0);
   const reconnectUiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hybridEnabled = isHybridLiveEnabled();
+  // Dwell-upgrade: the active show previews HLS instantly, then flips to sub-second WebRTC after a
+  // short dwell. `webrtcUpgradedRef` latches so the 2.5s stream poll doesn't drop back to HLS once
+  // upgraded; it resets whenever the page stops being active (swipe away / off / unmount).
+  const webrtcUpgradeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const webrtcUpgradedRef = useRef(false);
 
   const clearReconnectUiTimer = useCallback(() => {
     if (reconnectUiTimerRef.current != null) {
@@ -133,6 +147,28 @@ export function useLiveStagePlayback(args: {
     }
   }, []);
 
+  const cancelWebrtcUpgrade = useCallback(() => {
+    if (webrtcUpgradeTimerRef.current != null) {
+      clearTimeout(webrtcUpgradeTimerRef.current);
+      webrtcUpgradeTimerRef.current = null;
+    }
+  }, []);
+
+  const armWebrtcUpgrade = useCallback(() => {
+    if (webrtcUpgradedRef.current || webrtcUpgradeTimerRef.current != null) return;
+    webrtcUpgradeTimerRef.current = setTimeout(() => {
+      webrtcUpgradeTimerRef.current = null;
+      // Only upgrade the still-settled foreground show. If the user swiped away (mode !== active)
+      // the mode effect already reset the latch and this is a no-op.
+      if (playbackModeRef.current !== 'active') return;
+      webrtcUpgradedRef.current = true;
+      lastAttachKeyRef.current = '';
+      setPlayerFatal(false);
+      applyTransport('webrtc');
+      setWebrtcSubscribeEpoch((n) => n + 1);
+    }, WEBRTC_UPGRADE_DWELL_MS);
+  }, [applyTransport]);
+
   const fetchStream = useCallback(async () => {
     if (args.playbackMode === 'off' || !args.roomId) return;
 
@@ -160,21 +196,40 @@ export function useLiveStagePlayback(args: {
         accessToken: args.accessToken,
         webrtcFailed: webrtcFailedRef.current,
         playbackMode: args.playbackMode,
+        hybridEnabled,
+        alreadyUpgraded: webrtcUpgradedRef.current,
         lastAttachKeyRef,
         applyTransport,
         setPlayerFatal,
         setVideoHasData,
+        armWebrtcUpgrade,
+        cancelWebrtcUpgrade,
       });
     } catch {
       setFetchFailed(true);
       setLoading(false);
       applyTransport('none');
     }
-  }, [applyTransport, args.accessToken, args.playbackMode, args.roomId]);
+  }, [
+    applyTransport,
+    args.accessToken,
+    args.playbackMode,
+    args.roomId,
+    armWebrtcUpgrade,
+    cancelWebrtcUpgrade,
+    hybridEnabled,
+  ]);
 
   useEffect(() => {
     const prevMode = playbackModeRef.current;
     playbackModeRef.current = args.playbackMode;
+
+    // Only the settled (active) show keeps its WebRTC upgrade. Leaving active (swipe away / off)
+    // resets the latch and cancels any pending dwell so re-entry previews HLS again first.
+    if (args.playbackMode !== 'active') {
+      webrtcUpgradedRef.current = false;
+      cancelWebrtcUpgrade();
+    }
 
     if (args.playbackMode === 'off') {
       if (prevMode !== 'off') {
@@ -196,10 +251,14 @@ export function useLiveStagePlayback(args: {
           accessToken: args.accessToken,
           webrtcFailed: webrtcFailedRef.current,
           playbackMode: args.playbackMode,
+          hybridEnabled,
+          alreadyUpgraded: webrtcUpgradedRef.current,
           lastAttachKeyRef,
           applyTransport,
           setPlayerFatal,
           setVideoHasData,
+          armWebrtcUpgrade,
+          cancelWebrtcUpgrade,
         });
       }
     }
@@ -208,7 +267,16 @@ export function useLiveStagePlayback(args: {
     const pollMs = args.playbackMode === 'prefetch' ? PREFETCH_POLL_MS : STREAM_POLL_MS;
     const id = setInterval(() => void fetchStream(), pollMs);
     return () => clearInterval(id);
-  }, [applyTransport, args.accessToken, args.playbackMode, args.roomId, fetchStream]);
+  }, [
+    applyTransport,
+    args.accessToken,
+    args.playbackMode,
+    args.roomId,
+    fetchStream,
+    armWebrtcUpgrade,
+    cancelWebrtcUpgrade,
+    hybridEnabled,
+  ]);
 
   useEffect(() => {
     if (args.playbackMode === 'off' || args.refreshNonce == null || args.refreshNonce < 1) return;
@@ -234,6 +302,7 @@ export function useLiveStagePlayback(args: {
     const onAppState = (next: AppStateStatus) => {
       if (next !== 'active') {
         clearBackoff();
+        cancelWebrtcUpgrade();
         return;
       }
       lastAttachKeyRef.current = '';
@@ -256,7 +325,7 @@ export function useLiveStagePlayback(args: {
       cancelled = true;
       sub.remove();
     };
-  }, [applyTransport, args.playbackMode, clearBackoff, fetchStream, hideReconnectingUi, showReconnectingUi]);
+  }, [applyTransport, args.playbackMode, clearBackoff, cancelWebrtcUpgrade, fetchStream, hideReconnectingUi, showReconnectingUi]);
 
   useEffect(() => {
     if (args.playbackMode !== 'active') {
@@ -354,7 +423,8 @@ export function useLiveStagePlayback(args: {
   useEffect(() => () => {
     clearBackoff();
     clearReconnectUiTimer();
-  }, [clearBackoff, clearReconnectUiTimer]);
+    cancelWebrtcUpgrade();
+  }, [clearBackoff, clearReconnectUiTimer, cancelWebrtcUpgrade]);
 
   return {
     loading,

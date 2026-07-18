@@ -108,6 +108,11 @@ export function LiveStagePlayback({
 }: Props) {
   const mode: LivePlaybackMode = playbackMode ?? (enabled ? 'active' : 'off');
   const isForeground = mode === 'active';
+  // Neighbors (prefetch) keep their HLS mirror warm so switching to them is instant.
+  const hlsWarm = mode === 'active' || mode === 'prefetch';
+  // Set true once the WebRTC surface actually paints; drives the seamless HLS->WebRTC swap on the
+  // settled show. Reset whenever this surface stops using WebRTC.
+  const [webrtcReady, setWebrtcReady] = useState(false);
   const [appState, setAppState] = useState<AppStateStatus>(() => AppState.currentState);
   // Bumped each time the app returns to the foreground. iOS can detach the native Stage video
   // surface while we're `inactive`/`background` (tapping a notification, Control Center, etc.);
@@ -147,18 +152,29 @@ export function LiveStagePlayback({
 
   const playbackActive = isForeground;
   const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
-  const attachHls =
-    transport === 'hls' &&
-    playbackActive &&
-    Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
+  const hlsAttachable = Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
+  // Hold the HLS mirror on the settled show through the WebRTC upgrade until WebRTC paints, so the
+  // swap has no black "connecting" gap. Neighbors buffer HLS muted+hidden for instant switching.
+  const webrtcUpgradeHold = useWebrtc && !webrtcReady;
+  const attachHls = hlsAttachable && ((transport === 'hls' && hlsWarm) || webrtcUpgradeHold);
   const stageMediaSuspended = shouldSuspendLiveStageMedia(appState);
+
+  useEffect(() => {
+    if (!useWebrtc) setWebrtcReady(false);
+  }, [useWebrtc]);
+
+  const handleWebrtcConnected = useCallback(() => {
+    setWebrtcReady(true);
+    playback.onVideoReady();
+  }, [playback.onVideoReady]);
 
   const hlsPlayerSetup = (p: VideoPlayer) => {
     p.loop = false;
     p.muted = muted;
     p.volume = 1;
-    // Take exclusive audio focus so live HLS isn't ducked by other system audio.
-    p.audioMixingMode = 'doNotMix';
+    // Foreground surface takes exclusive audio focus so live HLS isn't ducked; warm neighbor
+    // buffers mix so they don't steal the audio session from the active show.
+    p.audioMixingMode = isForeground ? 'doNotMix' : 'mixWithOthers';
     p.staysActiveInBackground = LIVE_PICTURE_IN_PICTURE_ENABLED;
     p.bufferOptions = {
       preferredForwardBufferDuration: 3,
@@ -199,7 +215,10 @@ export function LiveStagePlayback({
   useEffect(() => {
     if (!attachHls) return;
     player.muted = muted;
-  }, [attachHls, muted, player]);
+    // Only the foreground surface takes exclusive audio focus. Warm neighbor buffers must not grab
+    // `doNotMix`, or several muted background players fight the active player for the audio session.
+    player.audioMixingMode = isForeground ? 'doNotMix' : 'mixWithOthers';
+  }, [attachHls, muted, isForeground, player]);
 
   // Hard-stop HLS audio whenever this slide is not the active playback surface. Adjacent pager
   // pages stay mounted (page ± 1 are kept warm), and on Android an expo-video player keeps
@@ -284,7 +303,9 @@ export function LiveStagePlayback({
   }, [roomLifecycleLive, scheduledStartMs, tick]);
 
   const showWebrtcLayer = useWebrtc && surface !== 'error';
-  const showHlsLayer = attachHls && surface !== 'error';
+  // Render the HLS VideoView only when it's the visible surface: on the foreground show, and only
+  // until WebRTC actually paints. Neighbors keep `attachHls` (buffering) but never render a view.
+  const showHlsLayer = attachHls && isForeground && !webrtcReady && surface !== 'error';
   const showVideoLayer = showWebrtcLayer || showHlsLayer;
   const showThumbnail =
     Boolean(thumbnailUrl) &&
@@ -382,7 +403,7 @@ export function LiveStagePlayback({
           subscribeEpoch={playback.webrtcSubscribeEpoch}
           foregroundResumeNonce={surfaceResumeNonce}
           contentFit={contentFit}
-          onConnected={playback.onVideoReady}
+          onConnected={handleWebrtcConnected}
           onFailed={playback.onWebrtcFailed}
           onDisconnected={playback.onWebrtcDisconnected}
         />

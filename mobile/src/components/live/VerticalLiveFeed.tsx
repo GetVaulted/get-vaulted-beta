@@ -105,6 +105,7 @@ import {
 import { isCompactLiveRoomLayout, liveRoomOverlayScale } from '../../lib/liveRoomUiScale';
 import { LiveRoomShareSheet } from './LiveRoomShareSheet';
 import { prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
+import { WARM_NEIGHBOR_RADIUS } from '../../lib/liveStreamPlayback';
 import type { LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import type { LiveRoomLineupItemSnapshot } from '../../lib/liveBuyerQueueProjection';
 import { liveAuctionMinBidUsd } from '../../lib/liveAuctionPricing';
@@ -1898,8 +1899,12 @@ export function VerticalLiveFeed({
 
   const warmPageIndices = useMemo(() => {
     const indices = new Set<number>([page]);
-    if (page > 0) indices.add(page - 1);
-    if (page < streams.length - 1) indices.add(page + 1);
+    // Pre-buffer WARM_NEIGHBOR_RADIUS shows on each side over HLS so switching between them is
+    // instant (their LiveStagePlayback runs in 'prefetch' mode: muted, hidden, buffering).
+    for (let offset = 1; offset <= WARM_NEIGHBOR_RADIUS; offset += 1) {
+      if (page - offset >= 0) indices.add(page - offset);
+      if (page + offset < streams.length) indices.add(page + offset);
+    }
     if (peekPage != null && peekPage >= 0 && peekPage < streams.length) {
       indices.add(peekPage);
     }
@@ -2060,6 +2065,7 @@ export function VerticalLiveFeed({
           style={styles.feedPager}
           initialPage={startIndex}
           orientation="vertical"
+          offscreenPageLimit={WARM_NEIGHBOR_RADIUS}
           scrollEnabled={feedGesturesEnabled}
           onPageScroll={(e) => {
             const { position, offset } = e.nativeEvent;
