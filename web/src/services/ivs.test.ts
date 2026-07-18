@@ -79,7 +79,7 @@ describe("stage HLS composition (guest HLS mirror)", () => {
     hoisted.liveRoomUpdate.mockResolvedValue({});
   });
 
-  it("ensureStageHlsCompositionActive no-ops when a mirror is already active", async () => {
+  it("ensureStageHlsCompositionActive leaves an ACTIVE mirror alone (anti-thrash)", async () => {
     const { ensureStageHlsCompositionActive } = await import("@/services/ivs");
     hoisted.liveRoomFindUnique.mockResolvedValueOnce({
       streamMode: "stage_webrtc",
@@ -87,9 +87,15 @@ describe("stage HLS composition (guest HLS mirror)", () => {
       ivsCompositionArn: "arn:aws:ivs:us-east-1:123:composition/existing",
       ivsStageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
       ivsChannelArn: "arn:aws:ivs:us-east-1:123:channel/abc",
+      streamStartedAt: new Date(Date.now() - 60_000),
+    });
+    // GetComposition probe reports the mirror still ACTIVE → it must not be stopped/restarted.
+    hoisted.compositionSend.mockResolvedValueOnce({
+      composition: { state: "ACTIVE", destinations: [{ state: "ACTIVE" }] },
     });
     await ensureStageHlsCompositionActive("room_1");
-    expect(hoisted.compositionSend).not.toHaveBeenCalled();
+    // Only the single GetComposition probe ran — no StopComposition/StartComposition thrash.
+    expect(hoisted.compositionSend).toHaveBeenCalledTimes(1);
   });
 
   it("ensureStageHlsCompositionActive no-ops for non-stage broadcasts", async () => {

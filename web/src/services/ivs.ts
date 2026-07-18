@@ -14,11 +14,15 @@ import {
   CreateParticipantTokenCommand,
   CreateStageCommand,
   DeleteStageCommand,
+  GetCompositionCommand,
   IVSRealTimeClient,
+  ListParticipantsCommand,
+  ListStageSessionsCommand,
   ParticipantTokenCapability,
   StartCompositionCommand,
   StopCompositionCommand,
 } from "@aws-sdk/client-ivs-realtime";
+import { decideCompositionHealAction } from "@/lib/live-composition-heal";
 import type { LiveStreamHealth } from "@/generated/prisma/client";
 import { logIvsOpsServer, type IvsStreamHealthOpSource } from "@/lib/ivs-ops-log";
 import { prisma } from "@/lib/prisma";
@@ -780,10 +784,53 @@ export async function startStageHlsComposition(roomId: string): Promise<string |
 }
 
 /**
+ * Read the live AWS state of a composition: its overall state plus the state of its channel
+ * destination. Returns nulls (never throws) when the composition is gone or AWS is unreachable.
+ */
+export async function getCompositionStatus(
+  compositionArn: string,
+): Promise<{ compositionState: string | null; destinationState: string | null }> {
+  try {
+    const client = makeRealTimeClient();
+    const out = await client.send(new GetCompositionCommand({ arn: compositionArn }));
+    const compositionState = out.composition?.state ?? null;
+    const destinationState = out.composition?.destinations?.[0]?.state ?? null;
+    return { compositionState, destinationState };
+  } catch {
+    /** Composition expired/not found or AWS unreachable — treat as unknown. */
+    return { compositionState: null, destinationState: null };
+  }
+}
+
+/**
+ * Count participants currently PUBLISHING (host camera/mic) on a Stage's active session.
+ * Returns `null` when the state can't be determined (no session yet or AWS error) so callers can
+ * treat "unknown" differently from a confirmed zero. Never throws.
+ */
+export async function countStagePublishers(stageArn: string): Promise<number | null> {
+  try {
+    const client = makeRealTimeClient();
+    const sessions = await client.send(new ListStageSessionsCommand({ stageArn }));
+    const active = (sessions.stageSessions ?? []).find((s) => !s.endTime) ?? (sessions.stageSessions ?? [])[0];
+    const sessionId = active?.sessionId;
+    if (!sessionId) return null;
+    const participants = await client.send(
+      new ListParticipantsCommand({ stageArn, sessionId, filterByPublished: true }),
+    );
+    return (participants.participants ?? []).length;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Self-heal Stage→HLS mirror for guests / buyer failover.
- * If a composition ARN is stuck but the Low-Latency channel is offline, replace it.
- * Do not restart while the channel is live/connecting (that thrash blacked out buyers).
- * Caller is rate-limited (buyer stream poll ~30s).
+ *
+ * Anti-thrash: a freshly started composition needs ~15–30s before its channel destination reports
+ * LIVE. We therefore consult the composition's *actual* AWS state and only recycle a composition
+ * that is confirmed dead (see `decideCompositionHealAction`). Restarting a still-warming composition
+ * (the old behavior) meant the HLS mirror could never come up. Do not restart while the channel is
+ * live/connecting (that thrash blacked out buyers). Caller is rate-limited (buyer stream poll ~30s).
  */
 export async function ensureStageHlsCompositionActive(roomId: string): Promise<void> {
   if (!stageCompositionEnabled()) return;
@@ -795,16 +842,46 @@ export async function ensureStageHlsCompositionActive(roomId: string): Promise<v
       ivsCompositionArn: true,
       ivsStageArn: true,
       ivsChannelArn: true,
+      streamStartedAt: true,
     },
   });
   if (!room || room.streamMode !== "stage_webrtc") return;
   if (!room.ivsStageArn || !room.ivsChannelArn) return;
   const health = room.streamHealth?.toLowerCase();
   if (health !== "live" && health !== "connecting") return;
+
+  let compositionState: string | null = null;
+  let destinationState: string | null = null;
+  let channelHealth: string | null = null;
   if (room.ivsCompositionArn) {
-    const { health: channelHealth } = await getStreamStatus(room.ivsChannelArn);
-    if (channelHealth === "live" || channelHealth === "connecting") return;
-    logIvsOpsServer("ivs_stage_composition_replace_dead", { roomId, channelHealth });
+    ({ health: channelHealth } = await getStreamStatus(room.ivsChannelArn));
+    // Only probe the composition's AWS state when the channel isn't already flowing — this avoids
+    // an extra GetComposition call on the common healthy path and only inspects state when we might
+    // actually need to recycle a dead mirror.
+    if (channelHealth !== "live" && channelHealth !== "connecting") {
+      ({ compositionState, destinationState } = await getCompositionStatus(room.ivsCompositionArn));
+    }
+  }
+
+  const action = decideCompositionHealAction({
+    hasComposition: Boolean(room.ivsCompositionArn),
+    compositionState,
+    destinationState,
+    channelHealth,
+    msSinceStreamStart: room.streamStartedAt
+      ? Date.now() - room.streamStartedAt.getTime()
+      : Number.POSITIVE_INFINITY,
+  });
+
+  if (action === "skip") return;
+
+  if (action === "replace") {
+    logIvsOpsServer("ivs_stage_composition_replace_dead", {
+      roomId,
+      channelHealth,
+      compositionState,
+      destinationState,
+    });
     await stopStageComposition(roomId);
   }
   cancelDelayedCompositionStop(roomId);

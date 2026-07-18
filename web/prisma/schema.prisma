@@ -1058,6 +1058,9 @@ model LiveRoom {
   streamEndedAt           DateTime?
   lastIvsStatusSyncAt     DateTime?
   lastIvsError            String?
+  /// When the host's WebRTC publisher was first detected absent while the room is still `live`.
+  /// Cleared when a publisher returns; drives zombie-room auto-recovery. Null when host is present.
+  hostAbsentSince         DateTime?
   /// SHA-256 hash of OBS browser-source widget token (plain token shown once on rotate).
   obsWidgetTokenHash      String?
   obsWidgetTokenRotatedAt DateTime?
