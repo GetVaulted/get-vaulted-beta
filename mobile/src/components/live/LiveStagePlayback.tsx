@@ -150,12 +150,27 @@ export function LiveStagePlayback({
   const streamSignalLive = streamHealth.toLowerCase() === 'live' || streamHealth.toLowerCase() === 'connecting';
   const roomLifecycleLive = roomStatus === 'live' || streamSignalLive;
 
+  // WebRTC reports "connected" (audio + participant stream) before the native video surface is
+  // guaranteed to be painting — especially on a re-subscribe, where StageSubscriberVideo forces a
+  // one-shot fresh-surface re-attach ~320ms after connect to defeat the stale-black-surface bug.
+  // Keep the HLS mirror on top across that settle window so the buyer never sees the black gap.
+  const [webrtcSettled, setWebrtcSettled] = useState(false);
+  useEffect(() => {
+    if (!webrtcReady) {
+      setWebrtcSettled(false);
+      return undefined;
+    }
+    const id = setTimeout(() => setWebrtcSettled(true), 700);
+    return () => clearTimeout(id);
+  }, [webrtcReady]);
+
   const playbackActive = isForeground;
   const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
   const hlsAttachable = Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
-  // Hold the HLS mirror on the settled show through the WebRTC upgrade until WebRTC paints, so the
-  // swap has no black "connecting" gap. Neighbors buffer HLS muted+hidden for instant switching.
-  const webrtcUpgradeHold = useWebrtc && !webrtcReady;
+  // Hold the HLS mirror on the settled show through the WebRTC upgrade until WebRTC has painted for
+  // a beat (past the re-attach), so the swap has no black "connecting" gap. Neighbors buffer HLS
+  // muted+hidden for instant switching.
+  const webrtcUpgradeHold = useWebrtc && !webrtcSettled;
   const attachHls = hlsAttachable && ((transport === 'hls' && hlsWarm) || webrtcUpgradeHold);
   const stageMediaSuspended = shouldSuspendLiveStageMedia(appState);
 
@@ -304,8 +319,9 @@ export function LiveStagePlayback({
 
   const showWebrtcLayer = useWebrtc && surface !== 'error';
   // Render the HLS VideoView only when it's the visible surface: on the foreground show, and only
-  // until WebRTC actually paints. Neighbors keep `attachHls` (buffering) but never render a view.
-  const showHlsLayer = attachHls && isForeground && !webrtcReady && surface !== 'error';
+  // until WebRTC has painted for a beat (past the fresh-surface re-attach). Neighbors keep
+  // `attachHls` (buffering) but never render a view.
+  const showHlsLayer = attachHls && isForeground && !webrtcSettled && surface !== 'error';
   const showVideoLayer = showWebrtcLayer || showHlsLayer;
   const showThumbnail =
     Boolean(thumbnailUrl) &&
