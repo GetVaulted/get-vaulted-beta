@@ -988,7 +988,10 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       ? LIVE_STREAM_PAUSED_COMMERCE_ERROR
       : LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR
     : null;
-  const viewerCount = presenceCount ?? 0;
+  // Sticky last known count — avoid flashing 0 while presence/broadcast reconnects.
+  const stickyViewerCountRef = useRef<number | null>(null);
+  if (presenceCount != null) stickyViewerCountRef.current = presenceCount;
+  const viewerCount = presenceCount ?? stickyViewerCountRef.current ?? 0;
   const paymentFailure = detail.buyerUnresolvedPaymentFailure ?? null;
   const isHostViewer = session?.user?.id === detail.sellerId;
   const buyerPaymentRecoveryPending = Boolean(paymentFailure && session?.user?.id && !isHostViewer);
@@ -1028,6 +1031,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
           scheduledStartAt={detail.scheduledStartAt}
           thumbnailUrl={detail.thumbnailUrl}
+          teaserVideoUrl={detail.teaserVideoUrl}
           clockSkewMs={clockSkewMs}
           buyerLiveBidPaymentReady={detail.buyerLiveBidPaymentReady}
           buyerLiveShippingReady={detail.buyerLiveShippingReady}
@@ -1084,6 +1088,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
       scheduledStartAt={detail.scheduledStartAt}
       thumbnailUrl={detail.thumbnailUrl}
+      teaserVideoUrl={detail.teaserVideoUrl}
       clockSkewMs={clockSkewMs}
       buyerLiveBidPaymentReady={detail.buyerLiveBidPaymentReady}
       buyerLiveShippingReady={detail.buyerLiveShippingReady}

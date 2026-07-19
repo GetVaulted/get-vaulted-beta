@@ -19,6 +19,23 @@ describe('buildCreateLiveRoomPayload', () => {
     });
   });
 
+  it('includes teaser video when url and duration are set', () => {
+    expect(
+      buildCreateLiveRoomPayload({
+        title: 'Preview show',
+        roomType: 'auction',
+        scheduleMode: 'later',
+        scheduledStartAt: '2026-07-20T20:00:00.000Z',
+        teaserVideoUrl: 'https://cdn.example/teaser.mp4',
+        teaserVideoDurationMs: 12_000,
+      }),
+    ).toMatchObject({
+      teaserVideoUrl: 'https://cdn.example/teaser.mp4',
+      teaserVideoDurationMs: 12_000,
+      scheduledStartAt: '2026-07-20T20:00:00.000Z',
+    });
+  });
+
   it('matches web break payload with auction spots', () => {
     expect(
       buildCreateLiveRoomPayload({

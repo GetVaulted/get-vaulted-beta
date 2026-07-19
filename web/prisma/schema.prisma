@@ -1040,6 +1040,10 @@ model LiveRoom {
   /// `public` = listed on Live Shows; `private` = reachable only via shared link.
   discoveryVisibility     LiveRoomDiscoveryVisibility @default(public)
   thumbnailUrl            String                      @default("")
+  /// Short looping promo video (seller-uploaded) shown in scheduled rooms before go-live.
+  teaserVideoUrl          String?
+  /// Teaser length in milliseconds (validated on upload; max 15s).
+  teaserVideoDurationMs   Int?
   viewerCount             Int                         @default(0)
   streamProvider          LiveStreamProvider          @default(none)
   streamMode              LiveStreamMode              @default(stage_webrtc)

@@ -210,6 +210,8 @@ export type LiveSaleRoomProps = {
   scheduledStartAt?: string | null;
   /** Host-uploaded room thumbnail; rendered as the video stage placeholder until the stream is live. */
   thumbnailUrl?: string | null;
+  /** Short looping promo for scheduled rooms. */
+  teaserVideoUrl?: string | null;
   clockSkewMs?: number;
   buyerLiveBidPaymentReady?: boolean;
   buyerLiveShippingReady?: boolean;
@@ -241,6 +243,7 @@ export function LiveSaleRoom({
   streamPlaybackRefreshNonce,
   scheduledStartAt = null,
   thumbnailUrl = null,
+  teaserVideoUrl = null,
   clockSkewMs: clockSkewProp = 0,
   buyerLiveBidPaymentReady,
   buyerLiveShippingReady,
@@ -1489,6 +1492,7 @@ export function LiveSaleRoom({
     viewerAuthenticated: status === "authenticated",
     scheduledStartAt,
     thumbnailUrl,
+    teaserVideoUrl,
     buyerShellMode: isBuyerDesktop,
     showRightActions: !isHost,
     shopHref,

@@ -36,6 +36,7 @@ import { endHostStageSession } from "@/services/ivs";
 import { logSellerRoomStateSnapshot } from "@/lib/log-room-state-snapshot";
 import { liveShowEndGmvFields } from "@/lib/live-show-gmv";
 import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
+import { parseLiveTeaserFieldsFromBody } from "@/lib/live-room-teaser";
 
 const includeDetail = {
   seller: { select: { id: true, username: true } as const },
@@ -255,6 +256,8 @@ type PatchBody = {
   showNotes?: string;
   scheduledStartAt?: string | null;
   thumbnailUrl?: string;
+  teaserVideoUrl?: string | null;
+  teaserVideoDurationMs?: number | null;
   action?: string;
   tipModeratorId?: string | null;
   tipRecipientMode?: string;
@@ -437,6 +440,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     description?: string;
     showNotes?: string;
     thumbnailUrl?: string;
+    teaserVideoUrl?: string | null;
+    teaserVideoDurationMs?: number | null;
     scheduledStartAt?: Date | null;
     tipModeratorId?: string | null;
     tipRecipientMode?: "host" | "moderator";
@@ -446,6 +451,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (typeof body.description === "string") data.description = body.description.trim().slice(0, 4000);
   if (typeof body.showNotes === "string") data.showNotes = body.showNotes.trim().slice(0, 4000);
   if (typeof body.thumbnailUrl === "string") data.thumbnailUrl = body.thumbnailUrl.trim().slice(0, 2000);
+  if ("teaserVideoUrl" in body) {
+    const teaserParsed = parseLiveTeaserFieldsFromBody(body);
+    if (!teaserParsed.ok) {
+      return NextResponse.json({ error: teaserParsed.error }, { status: 400 });
+    }
+    if ("teaserVideoUrl" in teaserParsed.data) data.teaserVideoUrl = teaserParsed.data.teaserVideoUrl;
+    if ("teaserVideoDurationMs" in teaserParsed.data) {
+      data.teaserVideoDurationMs = teaserParsed.data.teaserVideoDurationMs;
+    }
+  }
   if ("scheduledStartAt" in body) {
     if (body.scheduledStartAt == null || body.scheduledStartAt === "") {
       data.scheduledStartAt = null;

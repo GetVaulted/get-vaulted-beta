@@ -36,6 +36,8 @@ type LiveVideoStagePlaybackProps = {
   scheduledStartAt?: string | null;
   /** Host-uploaded thumbnail. Shown as background placeholder until live video starts playing. */
   thumbnailUrl?: string | null;
+  /** Short looping promo for scheduled rooms. */
+  teaserVideoUrl?: string | null;
   onNotifyMe?: () => void;
   /** Fill the stage edge-to-edge instead of nested 9:16 letterbox plate. */
   fillPortraitFrame?: boolean;
@@ -189,10 +191,12 @@ export function LiveVideoStagePlayback({
   streamPlaybackRefreshNonce,
   scheduledStartAt = null,
   thumbnailUrl = null,
+  teaserVideoUrl = null,
   onNotifyMe,
   fillPortraitFrame = false,
 }: LiveVideoStagePlaybackProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const teaserVideoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const mutedRef = useRef(false);
   const pollRef = useRef<number | null>(null);
@@ -224,6 +228,8 @@ export function LiveVideoStagePlayback({
   const [playerFatal, setPlayerFatal] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [muted, setMuted] = useState(false);
+  /** Teaser starts muted for browser autoplay; tap Unmute for sound. */
+  const [teaserMuted, setTeaserMuted] = useState(true);
   const [debugEngine, setDebugEngine] = useState<"none" | "hls" | "native">("none");
   const [hlsFatalRetries, setHlsFatalRetries] = useState(0);
   const [hydrated, setHydrated] = useState(false);
@@ -868,7 +874,27 @@ export function LiveVideoStagePlayback({
    */
   const streamAttaching =
     roomLifecycleLive && showVideoLayer && (transport === "hls" || transport === "webrtc");
-  const showThumbnailLayer = isUsableThumbnail(thumbnailUrl) && !videoHasData && !streamAttaching;
+  const teaserUrl = typeof teaserVideoUrl === "string" ? teaserVideoUrl.trim() : "";
+  const showTeaserLayer =
+    Boolean(teaserUrl) &&
+    !roomLifecycleLive &&
+    roomStatus !== "ended" &&
+    !videoHasData &&
+    !streamAttaching;
+  const showThumbnailLayer =
+    isUsableThumbnail(thumbnailUrl) && !videoHasData && !streamAttaching && !showTeaserLayer;
+
+  useEffect(() => {
+    if (!showTeaserLayer) return;
+    const el = teaserVideoRef.current;
+    if (!el) return;
+    el.loop = true;
+    el.muted = teaserMuted;
+    el.playsInline = true;
+    void el.play().catch(() => {
+      /* autoplay may still require mute — already muted by default */
+    });
+  }, [showTeaserLayer, teaserUrl, teaserMuted]);
 
   const scheduledPhase = useMemo(() => {
     if (roomLifecycleLive || !hydrated) return null;
@@ -906,6 +932,60 @@ export function LiveVideoStagePlayback({
               </div>
             </div>
           )}
+        </div>
+      ) : null}
+
+      {showTeaserLayer && teaserUrl ? (
+        <div className="absolute inset-0 z-[1] bg-black">
+          {fillPortraitFrame ? (
+            <video
+              ref={teaserVideoRef}
+              key={teaserUrl}
+              src={teaserUrl}
+              className="absolute inset-0 h-full w-full object-cover object-center"
+              muted={teaserMuted}
+              playsInline
+              loop
+              autoPlay
+              controls={false}
+              preload="auto"
+              aria-label="Show preview video"
+            />
+          ) : (
+            <div className="flex min-h-0 min-w-0 size-full items-center justify-center">
+              <div className={PORTRAIT_LIVE_PLATE}>
+                <video
+                  ref={teaserVideoRef}
+                  key={teaserUrl}
+                  src={teaserUrl}
+                  className="absolute inset-0 h-full w-full object-cover object-center"
+                  muted={teaserMuted}
+                  playsInline
+                  loop
+                  autoPlay
+                  controls={false}
+                  preload="auto"
+                  aria-label="Show preview video"
+                />
+              </div>
+            </div>
+          )}
+          {teaserMuted ? (
+            <button
+              type="button"
+              onClick={() => {
+                setTeaserMuted(false);
+                const el = teaserVideoRef.current;
+                if (el) {
+                  el.muted = false;
+                  void el.play().catch(() => {});
+                }
+              }}
+              className="pointer-events-auto absolute bottom-20 left-1/2 z-[4] -translate-x-1/2 rounded-full border border-white/25 bg-black/70 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white backdrop-blur-md hover:bg-black/85"
+            >
+              Unmute preview
+            </button>
+          ) : null}
         </div>
       ) : null}
 

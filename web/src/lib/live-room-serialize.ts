@@ -123,6 +123,9 @@ export type LiveRoomDetailDTO = {
   roomType: LiveRoomType;
   status: LiveRoomStatus;
   thumbnailUrl: string;
+  /** Short looping promo for scheduled rooms; null when unset. */
+  teaserVideoUrl: string | null;
+  teaserVideoDurationMs: number | null;
   viewerCount: number;
   roomVersion: number;
   /** Monotonic canonical auction event sequence for this room (bid stream ordering). */
@@ -341,6 +344,11 @@ export function buildLiveRoomDetail(room: LiveRoomDetailPayload): LiveRoomDetail
     roomType: room.roomType,
     status: room.status,
     thumbnailUrl: room.thumbnailUrl,
+    teaserVideoUrl: room.teaserVideoUrl?.trim() || null,
+    teaserVideoDurationMs:
+      typeof room.teaserVideoDurationMs === "number" && Number.isFinite(room.teaserVideoDurationMs)
+        ? Math.round(room.teaserVideoDurationMs)
+        : null,
     viewerCount: room.viewerCount,
     roomVersion: room.roomVersion,
     auctionEventSeq: room.auctionEventSeq ?? 0,

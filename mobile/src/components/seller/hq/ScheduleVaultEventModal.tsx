@@ -25,7 +25,12 @@ import { createLiveRoom, streamFormatToRoomType } from '../../../api/liveRoomsRe
 import { fetchSellerLiveReadiness, type SellerLiveReadiness } from '../../../api/liveHostRepository';
 import { logVaultCommandCenter, supabaseJwtSub } from '../../../lib/logVaultCommandCenterFlow';
 import { resolveSellerAccessToken } from '../../../lib/resolveSellerAccessToken';
-import { uploadListingImageViaWeb } from '../../../api/webListingsRepository';
+import { uploadListingImageViaWeb, uploadLiveTeaserViaWeb } from '../../../api/webListingsRepository';
+import {
+  LIVE_TEASER_MAX_BYTES,
+  LIVE_TEASER_MAX_DURATION_MS,
+  LIVE_TEASER_MIN_DURATION_MS,
+} from '../../../lib/liveTeaserLimits';
 import {
   alignScheduleToQuarterHour,
   isQuarterHourSchedule,
@@ -122,6 +127,10 @@ export function ScheduleVaultEventModal({
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [thumbUrl, setThumbUrl] = useState('');
+  const [teaserUrl, setTeaserUrl] = useState('');
+  const [teaserDurationMs, setTeaserDurationMs] = useState<number | null>(null);
+  const [teaserUploading, setTeaserUploading] = useState(false);
+  const [teaserError, setTeaserError] = useState<string | null>(null);
   const [thumbUploading, setThumbUploading] = useState(false);
   const [thumbError, setThumbError] = useState<string | null>(null);
   const [breakPricingMode, setBreakPricingMode] = useState<BreakPricingMode>('auction');
@@ -230,6 +239,52 @@ export function ScheduleVaultEventModal({
     }
   }, [accessToken]);
 
+  const pickTeaser = useCallback(async () => {
+    if (!accessToken) {
+      Alert.alert('Sign in required', 'Sign in to upload a preview video.');
+      return;
+    }
+    setTeaserError(null);
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Photos access needed', 'Allow photo library access to upload a preview video.');
+      return;
+    }
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['videos'],
+      allowsEditing: false,
+      videoMaxDuration: Math.ceil(LIVE_TEASER_MAX_DURATION_MS / 1000),
+      quality: 1,
+    });
+    if (picked.canceled || !picked.assets[0]?.uri) return;
+    const asset = picked.assets[0];
+    const rawDuration = typeof asset.duration === 'number' && Number.isFinite(asset.duration) ? asset.duration : null;
+    if (rawDuration == null || rawDuration <= 0) {
+      setTeaserError('Could not read video length. Try another clip.');
+      return;
+    }
+    // expo-image-picker usually reports seconds; treat values ≤120 as seconds, otherwise ms.
+    const normalizedMs = Math.round(rawDuration <= 120 ? rawDuration * 1000 : rawDuration);
+    if (normalizedMs < LIVE_TEASER_MIN_DURATION_MS || normalizedMs > LIVE_TEASER_MAX_DURATION_MS) {
+      setTeaserError('Preview video must be between 1 and 15 seconds.');
+      return;
+    }
+    if (asset.fileSize && asset.fileSize > LIVE_TEASER_MAX_BYTES) {
+      setTeaserError('Preview video must be 40MB or smaller.');
+      return;
+    }
+    setTeaserUploading(true);
+    try {
+      const uploaded = await uploadLiveTeaserViaWeb(accessToken, asset.uri, normalizedMs);
+      setTeaserUrl(uploaded.url);
+      setTeaserDurationMs(uploaded.durationMs);
+    } catch (e) {
+      setTeaserError(e instanceof Error ? e.message : 'Could not upload preview video.');
+    } finally {
+      setTeaserUploading(false);
+    }
+  }, [accessToken]);
+
   const resetForm = useCallback(() => {
     setScheduleTitle('');
     setTagline('');
@@ -239,6 +294,9 @@ export function ScheduleVaultEventModal({
     setShowTimePicker(false);
     setThumbUrl('');
     setThumbError(null);
+    setTeaserUrl('');
+    setTeaserDurationMs(null);
+    setTeaserError(null);
     setBreakPricingMode('auction');
     setBreakSpotPrice('');
     setTeamBoardEnabled(true);
@@ -339,6 +397,9 @@ export function ScheduleVaultEventModal({
           scheduleMode,
           scheduledStartAt,
           thumbnailUrl: thumbUrl.trim() || undefined,
+          ...(teaserUrl.trim() && teaserDurationMs != null
+            ? { teaserVideoUrl: teaserUrl.trim(), teaserVideoDurationMs: teaserDurationMs }
+            : {}),
           teamBoardLeague: isBreak ? 'nfl' : undefined,
           breakPricingMode: isBreak ? breakPricingMode : undefined,
           breakSpotPrice: isBreak ? breakSpotPrice : undefined,
@@ -425,6 +486,8 @@ export function ScheduleVaultEventModal({
     tagline,
     teamBoardEnabled,
     thumbUploading,
+    teaserDurationMs,
+    teaserUrl,
     thumbUrl,
     tipModeratorId,
     tipsToModerator,
@@ -541,6 +604,41 @@ export function ScheduleVaultEventModal({
             </View>
             {thumbError ? <Text style={styles.fieldError}>{thumbError}</Text> : null}
           </View>
+
+          <Text style={styles.label}>Preview video (optional)</Text>
+          <Text style={styles.thumbHint}>
+            Short clip with sound · max 15 seconds. Loops in the room before you go live.
+          </Text>
+          <View style={styles.thumbActions}>
+            <Pressable
+              style={[styles.thumbBtn, teaserUploading && styles.thumbBtnOff]}
+              onPress={() => void pickTeaser()}
+              disabled={teaserUploading || busy}
+            >
+              {teaserUploading ? (
+                <ActivityIndicator color={colors.gold} size="small" />
+              ) : (
+                <Text style={styles.thumbBtnTxt}>{teaserUrl ? 'Replace video' : 'Upload video'}</Text>
+              )}
+            </Pressable>
+            {teaserUrl ? (
+              <Pressable
+                style={styles.thumbBtnGhost}
+                onPress={() => {
+                  setTeaserUrl('');
+                  setTeaserDurationMs(null);
+                  setTeaserError(null);
+                }}
+                disabled={teaserUploading || busy}
+              >
+                <Text style={styles.thumbBtnGhostTxt}>Remove</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          {teaserUrl && teaserDurationMs != null ? (
+            <Text style={styles.thumbHint}>Uploaded · {(teaserDurationMs / 1000).toFixed(1)}s</Text>
+          ) : null}
+          {teaserError ? <Text style={styles.fieldError}>{teaserError}</Text> : null}
 
           <Text style={styles.label}>Format</Text>
           <View style={styles.chips}>
