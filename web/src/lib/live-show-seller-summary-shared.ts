@@ -1,12 +1,21 @@
 /**
- * Client-safe show-sales helpers/types (no Prisma / Node builtins).
- * Server aggregation lives in `live-show-seller-summary.ts`.
+ * Client-safe show-sales types/helpers only (no Prisma, no fee-settings services).
+ * Server aggregation + DTO building lives in `live-show-seller-summary.ts`.
+ *
+ * Intentionally does not import `@/lib/platform-fee-policy` (even as types) so the client
+ * bundle cannot pull Prisma via fee-settings caches.
  */
-import {
-  buildLiveShowFeeTierSnapshot,
-  type LiveShowFeeTierSnapshot,
-} from "@/lib/platform-fee-policy";
 import { roundUsd } from "@/lib/round-usd";
+
+/** Mirrors `LiveShowFeeTierSnapshot` without importing fee-policy modules on the client. */
+export type LiveShowSellerFeeTierDTO = {
+  completedGmvUsd: number;
+  currentFeePercent: number;
+  currentTierLabel: string;
+  nextTierFeePercent: number | null;
+  nextTierThresholdUsd: number | null;
+  usdToNextTier: number | null;
+};
 
 /** One unique merchandise sale that counts toward show GMV (item subtotal only). */
 export type LiveShowSaleContribution = {
@@ -34,7 +43,7 @@ export type LiveShowSellerSummaryDTO = {
   nextTierThresholdCents: number | null;
   amountUntilNextTierCents: number | null;
   tierProgressPercent: number;
-  feeTier: LiveShowFeeTierSnapshot;
+  feeTier: LiveShowSellerFeeTierDTO;
   calculatedAt: string;
 };
 
@@ -114,37 +123,6 @@ export function aggregateShowSaleContributions(rows: LiveShowSaleContribution[])
 export function tierProgressPercent(completedGmvUsd: number, nextTierThresholdUsd: number | null): number {
   if (nextTierThresholdUsd == null || nextTierThresholdUsd <= 0) return 100;
   return Math.min(100, Math.max(0, (Math.max(0, completedGmvUsd) / nextTierThresholdUsd) * 100));
-}
-
-export function buildLiveShowSellerSummaryDTO(args: {
-  showId: string;
-  status: string;
-  contributions: LiveShowSaleContribution[];
-  /** Authoritative fee-tier GMV (LiveRoom completed/final); do not change fee business rule. */
-  feeTierGmvUsd: number;
-  calculatedAt?: Date;
-}): LiveShowSellerSummaryDTO {
-  const totals = aggregateShowSaleContributions(args.contributions);
-  const feeTier = buildLiveShowFeeTierSnapshot(Math.max(0, args.feeTierGmvUsd));
-  const amountUntilNextTierCents =
-    feeTier.usdToNextTier != null ? usdToCents(feeTier.usdToNextTier) : null;
-
-  return {
-    showId: args.showId,
-    status: args.status,
-    currency: "usd",
-    ...totals,
-    feeTierGmvCents: usdToCents(args.feeTierGmvUsd),
-    currentFeeRateBps: feePercentToBps(feeTier.currentFeePercent),
-    currentFeeRatePercent: feeTier.currentFeePercent,
-    nextTierRateBps: feeTier.nextTierFeePercent != null ? feePercentToBps(feeTier.nextTierFeePercent) : null,
-    nextTierThresholdCents:
-      feeTier.nextTierThresholdUsd != null ? usdToCents(feeTier.nextTierThresholdUsd) : null,
-    amountUntilNextTierCents,
-    tierProgressPercent: tierProgressPercent(feeTier.completedGmvUsd, feeTier.nextTierThresholdUsd),
-    feeTier,
-    calculatedAt: (args.calculatedAt ?? new Date()).toISOString(),
-  };
 }
 
 export function logSellerShowSummaryEvent(

@@ -25,6 +25,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       headers: { "Cache-Control": "no-store" },
     });
   } catch (e) {
-    return apiErrorResponseFromUnknown(e, { route: "live-rooms/[id]/seller-summary" });
+    return apiErrorResponseFromUnknown(e, {
+      error: "Could not load seller show summary.",
+      code: "SELLER_SHOW_SUMMARY_FAILED",
+    });
   }
 }
