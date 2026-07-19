@@ -28,6 +28,7 @@ import {
 } from "@/services/shipping/platform-shipping-profiles";
 import { isPublicDiscoveryLiveRoom, parseLiveRoomDiscoveryVisibility } from "@/lib/live-room-public-discovery";
 import { buildWeeklyRecurringScheduleDates } from "@/lib/live-room-recurring-schedule";
+import { parseLiveTeaserFieldsFromBody } from "@/lib/live-room-teaser";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
 
@@ -165,6 +166,11 @@ export async function GET(req: Request) {
         roomType: r.roomType,
         status: r.status,
         thumbnailUrl: r.thumbnailUrl ?? "",
+        teaserVideoUrl: r.teaserVideoUrl?.trim() || null,
+        teaserVideoDurationMs:
+          typeof r.teaserVideoDurationMs === "number" && Number.isFinite(r.teaserVideoDurationMs)
+            ? Math.round(r.teaserVideoDurationMs)
+            : null,
         previewImageUrl,
         firstItemImageUrl,
         sellerId: r.sellerId,
@@ -211,6 +217,8 @@ type PostBody = {
   category?: string;
   roomType?: string;
   thumbnailUrl?: string;
+  teaserVideoUrl?: string | null;
+  teaserVideoDurationMs?: number | null;
   scheduledStartAt?: string | null;
   /** Required when roomType is `break`: nfl | nba | mlb */
   teamBoardLeague?: string;
@@ -326,6 +334,10 @@ export async function POST(req: Request) {
   const description = typeof body.description === "string" ? body.description.trim().slice(0, 4000) : "";
   const category = typeof body.category === "string" ? body.category.trim().slice(0, 64) : "Other";
   const thumbnailUrl = typeof body.thumbnailUrl === "string" ? body.thumbnailUrl.trim().slice(0, 50000) : "";
+  const teaserParsed = parseLiveTeaserFieldsFromBody(body);
+  if (!teaserParsed.ok) {
+    return NextResponse.json({ error: teaserParsed.error }, { status: 400 });
+  }
 
   let scheduledStartAt: Date | null = null;
   if (body.scheduledStartAt) {
@@ -453,6 +465,8 @@ export async function POST(req: Request) {
     status: "scheduled" as const,
     discoveryVisibility,
     thumbnailUrl,
+    teaserVideoUrl: teaserParsed.data.teaserVideoUrl ?? null,
+    teaserVideoDurationMs: teaserParsed.data.teaserVideoDurationMs ?? null,
     scheduledStartAt,
     teamBoardLeague,
     tipModeratorId: tipBuilt.data.tipModeratorId,

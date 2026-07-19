@@ -23,6 +23,8 @@ export type LiveRoomApiRow = {
   roomType: 'auction' | 'sale' | 'break';
   status: 'scheduled' | 'live' | 'ended';
   thumbnailUrl: string;
+  teaserVideoUrl?: string | null;
+  teaserVideoDurationMs?: number | null;
   /** Server-resolved cover art for discovery tiles (optional — client falls back). */
   previewImageUrl?: string;
   firstItemImageUrl?: string;
@@ -130,6 +132,8 @@ export type CreateLiveRoomInput = {
   scheduleMode: CreateScheduleMode;
   scheduledStartAt?: string | null;
   thumbnailUrl?: string | null;
+  teaserVideoUrl?: string | null;
+  teaserVideoDurationMs?: number | null;
   teamBoardLeague?: TeamBoardLeague;
   breakTotalSpots?: string | number;
   breakPricingMode?: BreakPricingMode;
@@ -445,6 +449,7 @@ export function liveRoomRowToLiveStream(row: LiveRoomApiRow): LiveStream {
     roomStatus: row.status,
     scheduledStartAtIso: row.scheduledStartAt,
     previewImageUrl: previewImageForRow(row, cat),
+    teaserVideoUrl: row.teaserVideoUrl?.trim() || null,
     thumbnailGradient: ['#05070a', '#0c1018'] as [string, string],
     host: hostFromRow(row),
     currentItem: row.activeItemTitle?.trim() || 'Live',

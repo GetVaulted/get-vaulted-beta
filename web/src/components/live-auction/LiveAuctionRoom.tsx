@@ -208,6 +208,8 @@ export type LiveAuctionRoomProps = {
   scheduledStartAt?: string | null;
   /** Host-uploaded room thumbnail; rendered as the video stage placeholder until the stream is live. */
   thumbnailUrl?: string | null;
+  /** Short looping promo for scheduled rooms. */
+  teaserVideoUrl?: string | null;
   /** Estimated server − client clock skew (ms); keeps countdown aligned with server auction end. */
   clockSkewMs?: number;
   /** When `false`, non-host buyers cannot bid until they add a saved card (server also enforces on POST). */
@@ -290,6 +292,7 @@ export function LiveAuctionRoom({
   streamPlaybackRefreshNonce,
   scheduledStartAt = null,
   thumbnailUrl = null,
+  teaserVideoUrl = null,
   clockSkewMs: clockSkewProp = 0,
   buyerLiveBidPaymentReady,
   buyerLiveShippingReady,
@@ -1790,6 +1793,7 @@ export function LiveAuctionRoom({
     viewerAuthenticated: status === "authenticated",
     scheduledStartAt,
     thumbnailUrl,
+    teaserVideoUrl,
     buyerShellMode: isBuyerDesktop,
     showRightActions: !isHost,
     shopHref,

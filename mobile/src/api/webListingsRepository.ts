@@ -150,6 +150,47 @@ export async function uploadListingImageViaWeb(accessToken: string, localUri: st
   return url;
 }
 
+function teaserMimeFromUri(uri: string): string {
+  const lower = uri.toLowerCase();
+  if (lower.endsWith('.mov')) return 'video/quicktime';
+  return 'video/mp4';
+}
+
+/** Upload a short scheduled-room teaser (MP4/MOV ≤15s). `durationMs` required for server validation. */
+export async function uploadLiveTeaserViaWeb(
+  accessToken: string,
+  localUri: string,
+  durationMs: number,
+): Promise<{ url: string; durationMs: number }> {
+  const mime = teaserMimeFromUri(localUri);
+  const ext = mime.includes('quicktime') ? 'mov' : 'mp4';
+  const form = new FormData();
+  form.append('file', {
+    uri: localUri,
+    name: `live-teaser-${Date.now()}.${ext}`,
+    type: mime,
+  } as unknown as Blob);
+  form.append('durationMs', String(Math.round(durationMs)));
+
+  const res = await fetchWebApi('/api/uploads/live-teaser', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  });
+  const body = (await res.json().catch(() => null)) as {
+    url?: string;
+    durationMs?: number;
+    error?: string;
+  } | null;
+  if (!res.ok) throw new Error(publishApiErrorMessage(res, body));
+  const url = body?.url?.trim();
+  if (!url) throw new Error('Teaser upload did not return a URL.');
+  return {
+    url,
+    durationMs: typeof body?.durationMs === 'number' ? body.durationMs : Math.round(durationMs),
+  };
+}
+
 export type CreateListingViaWebBody = Record<string, unknown>;
 
 export type WebStoredListing = {

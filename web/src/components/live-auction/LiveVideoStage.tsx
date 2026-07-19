@@ -82,6 +82,8 @@ type LiveVideoStageProps = {
   scheduledStartAt?: string | null;
   /** Host-uploaded room thumbnail; rendered behind standby/countdown UI until the live video paints. */
   thumbnailUrl?: string | null;
+  /** Short looping promo for scheduled rooms (with sound after unmute on web). */
+  teaserVideoUrl?: string | null;
   /** When true, video/thumbnail fill the stage edge-to-edge (host 9:16 console frame). */
   fillPortraitFrame?: boolean;
   /** DB room status — bottom playback pill uses this (Live / Upcoming / Ended). */
@@ -141,6 +143,7 @@ export function LiveVideoStage({
   viewerAuthenticated = false,
   scheduledStartAt = null,
   thumbnailUrl = null,
+  teaserVideoUrl = null,
   fillPortraitFrame: _fillPortraitFrameProp,
   roomStatus,
   vaultMode = "auction_night",
@@ -312,6 +315,7 @@ export function LiveVideoStage({
               streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
               scheduledStartAt={scheduledStartAt}
               thumbnailUrl={thumbnailUrl}
+              teaserVideoUrl={teaserVideoUrl}
               onNotifyMe={onNotifyMe}
               fillPortraitFrame
             />

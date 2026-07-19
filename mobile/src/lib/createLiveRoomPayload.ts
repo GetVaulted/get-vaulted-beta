@@ -11,6 +11,8 @@ export type BuildCreateLiveRoomPayloadInput = {
   scheduleMode: CreateScheduleMode;
   scheduledStartAt?: string | null;
   thumbnailUrl?: string | null;
+  teaserVideoUrl?: string | null;
+  teaserVideoDurationMs?: number | null;
   teamBoardLeague?: TeamBoardLeague;
   breakTotalSpots?: string | number;
   breakPricingMode?: BreakPricingMode;
@@ -46,6 +48,14 @@ export function buildCreateLiveRoomPayload(
     description: (input.description ?? '').trim(),
     roomType: input.roomType,
     thumbnailUrl: input.thumbnailUrl?.trim() || undefined,
+    ...(input.teaserVideoUrl?.trim() &&
+    typeof input.teaserVideoDurationMs === 'number' &&
+    Number.isFinite(input.teaserVideoDurationMs)
+      ? {
+          teaserVideoUrl: input.teaserVideoUrl.trim(),
+          teaserVideoDurationMs: Math.round(input.teaserVideoDurationMs),
+        }
+      : {}),
     ...(scheduledStartAtIso ? { scheduledStartAt: scheduledStartAtIso } : {}),
   };
 

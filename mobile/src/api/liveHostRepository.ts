@@ -244,6 +244,8 @@ export async function patchLiveRoomMetadata(
     title?: string;
     description?: string;
     thumbnailUrl?: string;
+    teaserVideoUrl?: string | null;
+    teaserVideoDurationMs?: number | null;
     scheduledStartAt?: string | null;
   },
 ): Promise<void> {
@@ -251,6 +253,10 @@ export async function patchLiveRoomMetadata(
   if (typeof fields.title === 'string') body.title = fields.title;
   if (typeof fields.description === 'string') body.description = fields.description;
   if (typeof fields.thumbnailUrl === 'string') body.thumbnailUrl = fields.thumbnailUrl;
+  if ('teaserVideoUrl' in fields) {
+    body.teaserVideoUrl = fields.teaserVideoUrl;
+    body.teaserVideoDurationMs = fields.teaserVideoDurationMs ?? null;
+  }
   if ('scheduledStartAt' in fields) body.scheduledStartAt = fields.scheduledStartAt;
   if (Object.keys(body).length === 0) return;
 

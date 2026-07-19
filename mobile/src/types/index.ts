@@ -83,6 +83,8 @@ export type LiveStream = {
   scheduledStartAtIso: string | null;
   /** Rich preview art — collectibles, desk breaks, host energy (shown under gradients). */
   previewImageUrl: string;
+  /** Short looping promo for scheduled rooms (null/undefined when unset). */
+  teaserVideoUrl?: string | null;
   thumbnailGradient: [string, string];
   host: Host;
   /** Legacy / pinned line in room UI */

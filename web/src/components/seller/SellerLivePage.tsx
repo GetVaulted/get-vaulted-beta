@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { compressImageFileToBlob } from "@/lib/listing-image-compress";
 import { uploadListingImageBlob } from "@/lib/upload-listing-image-client";
+import { uploadLiveTeaserFile } from "@/lib/upload-live-teaser-client";
 import { logLiveDebugEvent } from "@/lib/live-debug";
 import { notifyLiveDiscoveryChanged } from "@/lib/notify-live-discovery-changed";
 import type { LiveRoomListApiRow } from "@/lib/live-room-directory-mapper";
@@ -180,6 +181,11 @@ export function SellerLivePage() {
   const [vaultCategory, setVaultCategory] = useState<"Cards" | "Helmets">("Cards");
   const [roomType, setRoomType] = useState<RoomTypeChoice>("break");
   const [thumb, setThumb] = useState("");
+  const [teaserUrl, setTeaserUrl] = useState("");
+  const [teaserDurationMs, setTeaserDurationMs] = useState<number | null>(null);
+  const [teaserUploading, setTeaserUploading] = useState(false);
+  const [teaserFileName, setTeaserFileName] = useState("");
+  const teaserFileRef = useRef<HTMLInputElement>(null);
   const [breakPricingMode, setBreakPricingMode] = useState<BreakPricingMode>("auction");
   const [breakSpotPrice, setBreakSpotPrice] = useState("");
   const [teamBoardEnabled, setTeamBoardEnabled] = useState(true);
@@ -538,6 +544,22 @@ export function SellerLivePage() {
     void uploadLiveThumbnailFile(f);
   };
 
+  const uploadLiveTeaserVideoFile = async (file: File) => {
+    setCreateError(null);
+    setTeaserUploading(true);
+    try {
+      const uploaded = await uploadLiveTeaserFile(file);
+      setTeaserUrl(uploaded.url);
+      setTeaserDurationMs(uploaded.durationMs);
+      setTeaserFileName(file.name);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      setCreateError(msg || "Could not upload teaser video.");
+    } finally {
+      setTeaserUploading(false);
+    }
+  };
+
   const createRoom = async () => {
     logCreateLiveRoom("submit clicked", { scheduleMode, roomType, titleLen: title.trim().length });
     if (createSubmittingRef.current || busy) return;
@@ -576,6 +598,9 @@ export function SellerLivePage() {
         description: description.trim(),
         roomType,
         thumbnailUrl: thumb.trim() || undefined,
+        ...(teaserUrl.trim() && teaserDurationMs != null
+          ? { teaserVideoUrl: teaserUrl.trim(), teaserVideoDurationMs: teaserDurationMs }
+          : {}),
         ...(scheduledStartAtIso ? { scheduledStartAt: scheduledStartAtIso } : {}),
       };
       if (roomType === "break") {
@@ -1268,6 +1293,65 @@ export function SellerLivePage() {
                 </div>
 
                 <div className="rounded-2xl border border-white/[0.08] bg-black/30 p-5">
+                  <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">Preview video (optional)</span>
+                  <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+                    Short clip with sound (max 15 seconds). Plays on loop when buyers open your scheduled room before you
+                    go live. Browse tiles still use your thumbnail image.
+                  </p>
+                  <input
+                    ref={teaserFileRef}
+                    type="file"
+                    accept="video/mp4,video/quicktime,.mp4,.mov"
+                    className="sr-only"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (f) void uploadLiveTeaserVideoFile(f);
+                    }}
+                  />
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={teaserUploading}
+                      onClick={() => teaserFileRef.current?.click()}
+                      className="inline-flex min-h-9 items-center rounded-full border border-gold/35 bg-gold/10 px-4 py-2 text-xs font-bold text-gold-bright transition hover:border-gold/55 disabled:opacity-50"
+                    >
+                      {teaserUploading ? "Uploading…" : teaserUrl.trim() ? "Replace video" : "Upload video"}
+                    </button>
+                    {teaserUrl.trim() ? (
+                      <button
+                        type="button"
+                        disabled={teaserUploading}
+                        onClick={() => {
+                          setTeaserUrl("");
+                          setTeaserDurationMs(null);
+                          setTeaserFileName("");
+                        }}
+                        className="inline-flex min-h-9 items-center rounded-full border border-white/12 px-4 py-2 text-xs font-semibold text-zinc-300 transition hover:border-white/25 disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                  {teaserUrl.trim() ? (
+                    <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-black">
+                      <video
+                        src={teaserUrl}
+                        className="mx-auto max-h-48 w-full object-contain"
+                        controls
+                        playsInline
+                        muted
+                        loop
+                      />
+                      <p className="px-3 py-2 text-[11px] text-zinc-500">
+                        {teaserFileName ? `${teaserFileName} · ` : ""}
+                        {teaserDurationMs != null ? `${(teaserDurationMs / 1000).toFixed(1)}s` : ""}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="rounded-2xl border border-white/[0.08] bg-black/30 p-5">
                   <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">Show visibility</span>
                   <div className="mt-3 flex flex-wrap gap-2 rounded-xl border border-white/10 bg-zinc-950/60 p-1">
                     <button
@@ -1603,7 +1687,7 @@ export function SellerLivePage() {
 
             <button
               type="button"
-              disabled={busy || thumbUploading || !title.trim()}
+              disabled={busy || thumbUploading || teaserUploading || !title.trim()}
               title={!title.trim() ? "Enter a show title to enable this button" : undefined}
               onClick={() => void createRoom()}
               className="w-full rounded-2xl bg-gradient-to-r from-gold/90 via-amber-300 to-gold/85 py-4 text-center font-display text-base font-black uppercase tracking-wide text-zinc-950 shadow-[0_12px_40px_-12px_rgba(250,204,21,0.55)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
