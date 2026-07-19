@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { LiveShowSellerSummaryDTO } from "@/lib/live-show-seller-summary";
-import { centsToUsd } from "@/lib/live-show-seller-summary";
+import { centsToUsd, type LiveShowSellerSummaryDTO } from "@/lib/live-show-seller-summary-shared";
 
 function fmtUsdExact(usd: number) {
   return usd.toLocaleString("en-US", {

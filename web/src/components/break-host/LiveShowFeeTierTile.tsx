@@ -1,8 +1,7 @@
 "use client";
 
 import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
-import type { LiveShowSellerSummaryDTO } from "@/lib/live-show-seller-summary";
-import { centsToUsd } from "@/lib/live-show-seller-summary";
+import { centsToUsd, type LiveShowSellerSummaryDTO } from "@/lib/live-show-seller-summary-shared";
 
 function fmtUsdExact(n: number) {
   return n.toLocaleString("en-US", {

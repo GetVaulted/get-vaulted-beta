@@ -98,7 +98,7 @@ import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import {
   logSellerShowSummaryEvent,
   type LiveShowSellerSummaryDTO,
-} from "@/lib/live-show-seller-summary";
+} from "@/lib/live-show-seller-summary-shared";
 import {
   mergeLiveRoomItemsForActiveItemEvent,
   mergeLiveRoomItemsForBidPlaced,

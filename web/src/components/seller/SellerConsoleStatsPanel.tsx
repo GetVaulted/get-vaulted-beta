@@ -7,7 +7,7 @@ import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter
 import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
 import type { HostRecentSaleRowDTO } from "@/lib/live-room-recent-sales";
 import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
-import type { LiveShowSellerSummaryDTO } from "@/lib/live-show-seller-summary";
+import type { LiveShowSellerSummaryDTO } from "@/lib/live-show-seller-summary-shared";
 import type { LiveRoomEnergyLevel } from "@/lib/live-room-energy";
 
 type SellerConsoleStatsPanelProps = {
