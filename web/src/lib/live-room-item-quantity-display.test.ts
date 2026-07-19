@@ -2,9 +2,46 @@ import { describe, expect, it } from "vitest";
 import {
   formatLiveQueueItemUnitTitle,
   resolveClosingUnitNumber,
+  resolveHostConsoleUnitsClaimedOverride,
   resolveLiveBuyNowUnitSale,
   resolveLiveRoomItemQuantityState,
 } from "@/lib/live-room-item-quantity-display";
+
+describe("resolveHostConsoleUnitsClaimedOverride", () => {
+  it("returns null when there are no BreakSpot rows so multi-qty auctions use remaining quantity", () => {
+    expect(resolveHostConsoleUnitsClaimedOverride(0)).toBeNull();
+    expect(resolveHostConsoleUnitsClaimedOverride(-1)).toBeNull();
+    expect(resolveHostConsoleUnitsClaimedOverride(Number.NaN)).toBeNull();
+  });
+
+  it("passes through positive claim counts for classic break-spot lots", () => {
+    expect(resolveHostConsoleUnitsClaimedOverride(1)).toBe(1);
+    expect(resolveHostConsoleUnitsClaimedOverride(14)).toBe(14);
+  });
+
+  it("avoids the host stuck-on-#1 bug when quantity has already advanced", () => {
+    // Host used to always pass unitsClaimed=0 → forces #1 even after sales.
+    const stuck = resolveLiveRoomItemQuantityState({
+      title: "PYT Break Mania 1",
+      quantity: 8,
+      quantityInitial: 10,
+      status: "active",
+      unitsClaimed: 0,
+    });
+    expect(stuck.displayTitle).toBe("PYT Break Mania 1 #1");
+
+    const override = resolveHostConsoleUnitsClaimedOverride(0);
+    const fixed = resolveLiveRoomItemQuantityState({
+      title: "PYT Break Mania 1",
+      quantity: 8,
+      quantityInitial: 10,
+      status: "active",
+      unitsClaimed: override,
+    });
+    expect(fixed.displayTitle).toBe("PYT Break Mania 1 #3");
+    expect(fixed.soldQuantity).toBe(2);
+  });
+});
 
 describe("resolveLiveRoomItemQuantityState", () => {
   it("shows plain title when quantity is 1", () => {
