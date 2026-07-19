@@ -1,5 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { assertBidExceedsCurrentHigh, currentHighUsdFromLockedItem } from "@/lib/live-room-bid-lock";
+import {
+  assertBidExceedsCurrentHigh,
+  currentHighUsdFromLockedItem,
+  isAuctionWindowEndedAt,
+} from "@/lib/live-room-bid-lock";
+
+describe("isAuctionWindowEndedAt", () => {
+  it("keeps a snipe open when receipt was before end even if commit clock is after", () => {
+    const endsAt = new Date("2026-01-01T00:00:02.000Z");
+    const receivedAt = new Date("2026-01-01T00:00:01.500Z");
+    const nowAfterPreflight = new Date("2026-01-01T00:00:02.400Z");
+    expect(isAuctionWindowEndedAt(endsAt, receivedAt)).toBe(false);
+    expect(isAuctionWindowEndedAt(endsAt, nowAfterPreflight)).toBe(true);
+  });
+
+  it("rejects when receipt is at or after end", () => {
+    const endsAt = new Date("2026-01-01T00:00:02.000Z");
+    expect(isAuctionWindowEndedAt(endsAt, endsAt)).toBe(true);
+    expect(isAuctionWindowEndedAt(endsAt, new Date("2026-01-01T00:00:02.001Z"))).toBe(true);
+  });
+
+  it("never ends untimed lots", () => {
+    expect(isAuctionWindowEndedAt(null, new Date())).toBe(false);
+  });
+});
 
 describe("live-room-bid-lock helpers", () => {
   it("currentHighUsdFromLockedItem prefers current bid over starting", () => {

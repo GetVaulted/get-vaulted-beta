@@ -913,10 +913,7 @@ export function LiveAuctionRoom({
         }
         toast("Bid placed.");
         setCustomBidOpen(false);
-        window.setTimeout(() => {
-          void onRefetch?.();
-          router.refresh();
-        }, 750);
+        // ACK + realtime already updated local state — no delayed full refresh on the hot path.
       } catch {
         toast("We couldn't place that bid. Try again in a moment.");
         // Network error / timeout: the request may or may not have gone through server-side —
