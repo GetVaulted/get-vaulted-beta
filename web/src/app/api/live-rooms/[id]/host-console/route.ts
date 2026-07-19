@@ -12,11 +12,11 @@ import { prisma } from "@/lib/prisma";
 import { fetchHostRecentSales } from "@/lib/live-room-recent-sales";
 import { buildLiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import { fetchLiveShowSellerSummary } from "@/lib/live-show-seller-summary";
 import {
-  fetchLiveShowSellerSummary,
   logSellerShowSummaryEvent,
   type LiveShowSellerSummaryDTO,
-} from "@/lib/live-show-seller-summary";
+} from "@/lib/live-show-seller-summary-shared";
 import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
 import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { listUnresolvedPaymentFailuresForRoom } from "@/lib/live-room-payment-failure";

@@ -15,7 +15,7 @@ import {
   tierProgressPercent,
   usdToCents,
   type LiveShowSaleContribution,
-} from "@/lib/live-show-seller-summary";
+} from "@/lib/live-show-seller-summary-shared";
 
 describe("usd/cents helpers", () => {
   it("converts exact cents without floating drift", () => {

@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { HostRecentSalesTile } from "@/components/break-host/HostRecentSalesTile";
 import { LiveShowFeeTierTile } from "@/components/break-host/LiveShowFeeTierTile";
 import { LiveShowSalesTile } from "@/components/break-host/LiveShowSalesTile";
-import type { LiveShowSellerSummaryDTO } from "@/lib/live-show-seller-summary";
+import type { LiveShowSellerSummaryDTO } from "@/lib/live-show-seller-summary-shared";
 import { VaultQueueCarousel, type VaultQueueRow } from "@/components/break-host/vault/VaultQueueCarousel";
 import { LiveHostRoomGovernance } from "@/components/trust/LiveHostRoomGovernance";
 import type { HostRecentSaleRowDTO } from "@/lib/live-room-recent-sales";
