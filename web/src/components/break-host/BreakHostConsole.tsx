@@ -323,6 +323,9 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const loadGenerationRef = useRef(0);
   const queueSnapshotDebounceRef = useRef<number | null>(null);
   const goLivePatchRequestedRef = useRef(false);
+  /** Sticky last known viewer count — avoid flashing 0 while presence/broadcast reconnects. */
+  const stickyViewerCountRef = useRef<number | null>(null);
+  const prevActiveVariantItemRef = useRef<string | null>(null);
 
   const publicUrl = useMemo(() => canonicalLiveRoomUrl(roomId), [roomId]);
 
@@ -453,6 +456,33 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     if (!rows?.length) return null;
     return rows.find((q) => q.item.status.toLowerCase() === "active") ?? null;
   }, [data?.queueItems]);
+
+  const selectedQueueRow = useMemo(() => {
+    const rows = data?.queueItems;
+    if (!rows?.length) return null;
+    return rows.find((q) => q.item.id === selectedQueueItemId) ?? rows[0] ?? null;
+  }, [data?.queueItems, selectedQueueItemId]);
+
+  const previewQueueRow = selectedQueueRow;
+
+  const variantSpotEditItem = useMemo(
+    () => variantItemForSpotEditor({ activeBoardRow, previewQueueRow }),
+    [activeBoardRow, previewQueueRow],
+  );
+
+  useEffect(() => {
+    const item = activeBoardRow?.item;
+    if (
+      item?.id &&
+      item.id !== prevActiveVariantItemRef.current &&
+      isVariantSalesFormat(item.salesFormat) &&
+      (item.variants?.length ?? 0) > 0 &&
+      item.variantAssignmentMode !== "random"
+    ) {
+      setHostCommerceMinimized(false);
+    }
+    prevActiveVariantItemRef.current = item?.id ?? null;
+  }, [activeBoardRow?.item]);
 
   useEffect(() => {
     const row = activeBoardRow;
@@ -1687,6 +1717,31 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     });
   }, [overlayDiffersFromActive, roomId, data, selectedQueueItemId]);
 
+  const hostPinnedVariant = useMemo(() => {
+    const item = activeBoardRow?.item;
+    if (!item?.variants?.length) return null;
+    return hostPinnedBuyerVariant(item.variants, item.variantAssignmentMode);
+  }, [activeBoardRow?.item]);
+
+  const hostBroadcastOnAir = useMemo(() => {
+    const room = data?.room;
+    if (!room || room.status !== "live") return false;
+    if (
+      isLiveRoomBroadcastOnAir({
+        status: room.status,
+        streamHealth: room.streamHealth ?? "offline",
+        streamPaused: room.streamPaused,
+      })
+    ) {
+      return true;
+    }
+    return (
+      webcamBroadcast.phase === "live" ||
+      webcamBroadcast.phase === "paused" ||
+      webcamBroadcast.phase === "starting"
+    );
+  }, [data?.room, webcamBroadcast.phase]);
+
   if (loadError && !data) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-[#050508] px-4 text-center text-sm text-rose-300">
@@ -1719,8 +1774,6 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   }
 
   const { room } = data;
-  // Sticky last known count — avoid flashing 0 while presence/broadcast reconnects.
-  const stickyViewerCountRef = useRef<number | null>(null);
   if (liveViewerCount != null) stickyViewerCountRef.current = liveViewerCount;
   const viewerCount = liveViewerCount ?? stickyViewerCountRef.current ?? 0;
   const roomStatusKey = room.status.toLowerCase();
@@ -1780,32 +1833,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       <p className="px-1 py-2 text-center text-xs text-zinc-500">Team list is loading…</p>
     );
 
-  const selectedQueueRow =
-    data.queueItems.find((q) => q.item.id === selectedQueueItemId) ?? data.queueItems[0] ?? null;
-
   /** Purchasable / on-air commerce — DB-active item only (must match buyer GET). */
   const overlayQueueRow = activeBoardRow;
-  const previewQueueRow = selectedQueueRow;
-
-  const variantSpotEditItem = useMemo(
-    () => variantItemForSpotEditor({ activeBoardRow, previewQueueRow }),
-    [activeBoardRow, previewQueueRow],
-  );
-
-  const prevActiveVariantItemRef = useRef<string | null>(null);
-  useEffect(() => {
-    const item = activeBoardRow?.item;
-    if (
-      item?.id &&
-      item.id !== prevActiveVariantItemRef.current &&
-      isVariantSalesFormat(item.salesFormat) &&
-      (item.variants?.length ?? 0) > 0 &&
-      item.variantAssignmentMode !== "random"
-    ) {
-      setHostCommerceMinimized(false);
-    }
-    prevActiveVariantItemRef.current = item?.id ?? null;
-  }, [activeBoardRow?.item]);
 
   const biddingWindowStillRunningHost = Boolean(
     activeBoardRow?.item.biddingOpen &&
@@ -1829,28 +1858,6 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     activeBoardRow?.item ?? null,
     syncedWallTimeMs(hostClockSkewMs),
   );
-  const hostPinnedVariant = useMemo(() => {
-    const item = activeBoardRow?.item;
-    if (!item?.variants?.length) return null;
-    return hostPinnedBuyerVariant(item.variants, item.variantAssignmentMode);
-  }, [activeBoardRow?.item]);
-  const hostBroadcastOnAir = useMemo(() => {
-    if (room.status !== "live") return false;
-    if (
-      isLiveRoomBroadcastOnAir({
-        status: room.status,
-        streamHealth: room.streamHealth ?? "offline",
-        streamPaused: room.streamPaused,
-      })
-    ) {
-      return true;
-    }
-    return (
-      webcamBroadcast.phase === "live" ||
-      webcamBroadcast.phase === "paused" ||
-      webcamBroadcast.phase === "starting"
-    );
-  }, [room.status, room.streamHealth, room.streamPaused, webcamBroadcast.phase]);
 
   const hostLocalPublishing =
     webcamBroadcast.phase === "live" ||
