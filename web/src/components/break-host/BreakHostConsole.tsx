@@ -1523,16 +1523,18 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     void patchRoom("start");
   }, [data?.room.status, patchRoom]);
 
+  // Never auto-grab the PC camera — when the seller is already live on phone, preview would
+  // fail or fight the phone publisher and show a false "Stream didn't start" error.
   const webcamBroadcast = useHostStagePublish({
     roomId,
     onBroadcastStarted: handleWebcamBroadcastStarted,
     onStreamRefresh: refreshHostStreamSurfaces,
+    autoPreview: false,
   });
 
   /**
-   * Go Live: the single primary action. Starts the default WebRTC Stage broadcast on this user
-   * gesture (so the camera/mic permission prompt fires) AND patches the room live so buyers
-   * immediately see the stage. No Tools → Start Stream required for normal webcam streaming.
+   * Go Live / Use PC camera: starts WebRTC Stage publish on this browser AND ensures the room
+   * is live. When the phone is already on air, this is an explicit camera take-over.
    */
   const handleGoLive = useCallback(() => {
     setVaultCommandOpen(false);
@@ -1540,6 +1542,37 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     void webcamBroadcast.start();
     void patchRoom("start");
   }, [patchRoom, webcamBroadcast]);
+
+  // Preview only when this PC will be the camera. If the show is already on air from the phone,
+  // stay in companion mode (no getUserMedia) so the console loads without a stream error.
+  useEffect(() => {
+    if (!data?.room) return;
+    const onAir = isLiveRoomBroadcastOnAir({
+      status: data.room.status,
+      streamHealth: data.room.streamHealth ?? "offline",
+      streamPaused: data.room.streamPaused,
+    });
+    const local =
+      webcamBroadcast.phase === "live" ||
+      webcamBroadcast.phase === "paused" ||
+      webcamBroadcast.phase === "starting" ||
+      webcamBroadcast.phase === "stopping";
+    if (onAir && !local) {
+      webcamBroadcast.releasePreview();
+      return;
+    }
+    if (!onAir && webcamBroadcast.phase === "idle") {
+      void webcamBroadcast.startPreview();
+    }
+  }, [
+    data?.room,
+    data?.room?.status,
+    data?.room?.streamHealth,
+    data?.room?.streamPaused,
+    webcamBroadcast.phase,
+    webcamBroadcast.releasePreview,
+    webcamBroadcast.startPreview,
+  ]);
 
   const handlePauseStream = useCallback(() => {
     void (async () => {
@@ -1686,7 +1719,10 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   }
 
   const { room } = data;
-  const viewerCount = liveViewerCount ?? 0;
+  // Sticky last known count — avoid flashing 0 while presence/broadcast reconnects.
+  const stickyViewerCountRef = useRef<number | null>(null);
+  if (liveViewerCount != null) stickyViewerCountRef.current = liveViewerCount;
+  const viewerCount = liveViewerCount ?? stickyViewerCountRef.current ?? 0;
   const roomStatusKey = room.status.toLowerCase();
 
   const hostUsername =
@@ -1815,6 +1851,20 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       webcamBroadcast.phase === "starting"
     );
   }, [room.status, room.streamHealth, room.streamPaused, webcamBroadcast.phase]);
+
+  const hostLocalPublishing =
+    webcamBroadcast.phase === "live" ||
+    webcamBroadcast.phase === "paused" ||
+    webcamBroadcast.phase === "starting" ||
+    webcamBroadcast.phase === "stopping";
+
+  /** Phone (or another device) owns the camera; this PC is queue/pricing/chat only. */
+  const hostCompanionMode =
+    isLiveRoomBroadcastOnAir({
+      status: room.status,
+      streamHealth: room.streamHealth ?? "offline",
+      streamPaused: room.streamPaused,
+    }) && !hostLocalPublishing;
   const hostStartLiveAuctionEnabled = canHostStartLiveAuction(activeBoardRow?.item ?? null, {
     broadcastOnAir: hostBroadcastOnAir,
     lotBidPhase: hostActiveLotBidPhase,
@@ -2149,6 +2199,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       <VaultBroadcastControl
         phase={webcamBroadcast.phase}
         roomLive={room.status === "live"}
+        companionMode={hostCompanionMode}
         onStart={handleGoLive}
         onStop={() => void webcamBroadcast.stop()}
         onPause={handlePauseStream}
@@ -2349,7 +2400,20 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         </div>
       ) : null}
 
-      {webcamBroadcast.error && webcamBroadcast.phase === "idle" ? (
+      {hostCompanionMode ? (
+        <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[63] w-[min(92vw,30rem)] -translate-x-1/2 px-2">
+          <div className="pointer-events-auto rounded-2xl border border-emerald-500/30 bg-emerald-950/70 px-3 py-2.5 text-[12px] leading-snug text-emerald-50 shadow-[0_16px_50px_-24px_rgba(0,0,0,0.9)] backdrop-blur-xl ring-1 ring-emerald-400/20">
+            <p className="font-bold uppercase tracking-wide text-emerald-200">Phone is the camera</p>
+            <p className="mt-1 text-emerald-50/90">
+              You&apos;re live from another device. Use this console for queue, pricing, and chat — buyers keep the phone
+              stream. Tap <span className="font-semibold">Use PC camera</span> only if you want this computer to take over
+              publishing.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {webcamBroadcast.error && !hostCompanionMode && webcamBroadcast.phase === "idle" ? (
         <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[63] w-[min(92vw,30rem)] -translate-x-1/2 px-2">
           <div className="pointer-events-auto rounded-2xl border border-rose-500/35 bg-rose-950/75 px-3 py-2.5 text-[12px] leading-snug text-rose-50 shadow-[0_16px_50px_-24px_rgba(0,0,0,0.9)] backdrop-blur-xl ring-1 ring-rose-400/25">
             <p className="font-bold uppercase tracking-wide text-rose-200">Stream didn’t start</p>
@@ -2374,6 +2438,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             onObs={() => setObsSetupModalOpen(true)}
             broadcastPhase={webcamBroadcast.phase}
             roomLive={room.status === "live"}
+            companionMode={hostCompanionMode}
             onGoLive={handleGoLive}
             onStopStream={() => void webcamBroadcast.stop()}
             onPauseStream={handlePauseStream}
@@ -2404,9 +2469,14 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             <div className="relative flex min-h-0 min-w-0 flex-col bg-black">
               <LiveVideoStage {...hostStageProps} />
               <SellerGoLiveSetupPanel
-                visible={room.status !== "live" && webcamBroadcast.phase !== "live" && webcamBroadcast.phase !== "starting"}
+                visible={
+                  !hostCompanionMode &&
+                  room.status !== "live" &&
+                  webcamBroadcast.phase !== "live" &&
+                  webcamBroadcast.phase !== "starting"
+                }
                 phase={webcamBroadcast.phase}
-                error={webcamBroadcast.error}
+                error={webcamBroadcast.previewError ?? webcamBroadcast.error}
                 previewStream={webcamBroadcast.previewStream}
                 devices={webcamBroadcast.devices}
                 selectedVideoDeviceId={webcamBroadcast.selectedVideoDeviceId}
@@ -2446,6 +2516,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             onObs={() => setObsSetupModalOpen(true)}
             broadcastPhase={webcamBroadcast.phase}
             roomLive={room.status === "live"}
+            companionMode={hostCompanionMode}
             onGoLive={handleGoLive}
             onStopStream={() => void webcamBroadcast.stop()}
             onPauseStream={handlePauseStream}
@@ -2457,9 +2528,14 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
           <div className="relative min-h-0 flex-1">
             <LiveVideoStage {...hostStagePropsMobile} />
             <SellerGoLiveSetupPanel
-              visible={room.status !== "live" && webcamBroadcast.phase !== "live" && webcamBroadcast.phase !== "starting"}
+              visible={
+                !hostCompanionMode &&
+                room.status !== "live" &&
+                webcamBroadcast.phase !== "live" &&
+                webcamBroadcast.phase !== "starting"
+              }
               phase={webcamBroadcast.phase}
-              error={webcamBroadcast.error}
+              error={webcamBroadcast.previewError ?? webcamBroadcast.error}
               previewStream={webcamBroadcast.previewStream}
               devices={webcamBroadcast.devices}
               selectedVideoDeviceId={webcamBroadcast.selectedVideoDeviceId}
