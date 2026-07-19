@@ -97,7 +97,9 @@ export function useHostStagePublish({
   const ivsModuleRef = useRef<Awaited<typeof import("amazon-ivs-web-broadcast")> | null>(null);
   const reconnectPublishRef = useRef<(trigger: string) => void>(() => {});
   const [phase, setPhase] = useState<HostBroadcastPhase>("idle");
+  /** Publish / reconnect failures only — never set by preview so companion consoles stay clean. */
   const [error, setError] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [devices, setDevices] = useState<HostMediaDevices>({ video: [], audio: [] });
   const [selectedVideoDeviceId, setSelectedVideoDeviceId] = useState("");
@@ -173,13 +175,13 @@ export function useHostStagePublish({
 
   const startPreview = useCallback(async () => {
     if (stageRef.current) return;
-    setError(null);
+    setPreviewError(null);
     try {
       await acquireMedia({ previewOnly: true });
       setPhase("preview");
     } catch (err) {
       setPhase("idle");
-      setError(friendlyMediaError(err));
+      setPreviewError(friendlyMediaError(err));
     }
   }, [acquireMedia]);
 
@@ -188,16 +190,23 @@ export function useHostStagePublish({
       if (stageRef.current) return;
       setSelectedVideoDeviceId(videoDeviceId);
       setSelectedAudioDeviceId(audioDeviceId);
-      setError(null);
+      setPreviewError(null);
       try {
         await acquireMedia({ videoDeviceId, audioDeviceId, previewOnly: true });
         setPhase("preview");
       } catch (err) {
-        setError(friendlyMediaError(err));
+        setPreviewError(friendlyMediaError(err));
       }
     },
     [acquireMedia],
   );
+
+  const releasePreview = useCallback(() => {
+    if (stageRef.current || wentLiveRef.current) return;
+    stopMediaTracks();
+    setPreviewError(null);
+    setPhase("idle");
+  }, [stopMediaTracks]);
 
   useEffect(() => {
     if (!autoPreview) return;
@@ -427,6 +436,7 @@ export function useHostStagePublish({
   return {
     phase,
     error,
+    previewError,
     previewStream,
     devices,
     selectedVideoDeviceId,
@@ -436,6 +446,7 @@ export function useHostStagePublish({
     refreshDevices,
     startPreview,
     restartPreviewWithDevices,
+    releasePreview,
     start,
     stop,
     pause,
