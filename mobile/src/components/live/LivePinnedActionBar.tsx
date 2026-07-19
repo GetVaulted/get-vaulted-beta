@@ -842,10 +842,6 @@ export function LivePinnedActionBar({
         Alert.alert('Nothing to buy', 'No item is live right now.');
         return;
       }
-      if (snap.roomType !== 'sale') {
-        Alert.alert('Not available', 'Buy now is only available in sale rooms.');
-        return;
-      }
       if (snap.status !== 'live') {
         Alert.alert('Not live', 'This show is not live yet.');
         return;
