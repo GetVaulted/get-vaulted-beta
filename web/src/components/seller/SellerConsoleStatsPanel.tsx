@@ -2,10 +2,12 @@
 
 import { HostRecentSalesTile } from "@/components/break-host/HostRecentSalesTile";
 import { LiveShowFeeTierTile } from "@/components/break-host/LiveShowFeeTierTile";
+import { LiveShowSalesTile } from "@/components/break-host/LiveShowSalesTile";
 import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter";
 import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
 import type { HostRecentSaleRowDTO } from "@/lib/live-room-recent-sales";
 import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
+import type { LiveShowSellerSummaryDTO } from "@/lib/live-show-seller-summary";
 import type { LiveRoomEnergyLevel } from "@/lib/live-room-energy";
 
 type SellerConsoleStatsPanelProps = {
@@ -17,6 +19,9 @@ type SellerConsoleStatsPanelProps = {
   roomEnergyLevel: LiveRoomEnergyLevel;
   recentSales: HostRecentSaleRowDTO[];
   feeTier?: LiveShowFeeTierSnapshot | null;
+  sellerSummary?: LiveShowSellerSummaryDTO | null;
+  sellerSummaryLoading?: boolean;
+  sellerSummaryRefreshError?: boolean;
 };
 
 export function SellerConsoleStatsPanel({
@@ -28,6 +33,9 @@ export function SellerConsoleStatsPanel({
   roomEnergyLevel,
   recentSales,
   feeTier,
+  sellerSummary,
+  sellerSummaryLoading,
+  sellerSummaryRefreshError,
 }: SellerConsoleStatsPanelProps) {
   return (
     <div className="shrink-0 space-y-3 border-b border-white/[0.08] p-3">
@@ -48,7 +56,12 @@ export function SellerConsoleStatsPanel({
       </div>
       <LiveRoomEnergyMeter score={roomEnergyScore} level={roomEnergyLevel} />
       <HostRecentSalesTile rows={recentSales} />
-      {feeTier ? <LiveShowFeeTierTile tier={feeTier} /> : null}
+      <LiveShowSalesTile
+        summary={sellerSummary}
+        loading={sellerSummaryLoading}
+        refreshError={sellerSummaryRefreshError}
+      />
+      {feeTier || sellerSummary ? <LiveShowFeeTierTile tier={feeTier} summary={sellerSummary} /> : null}
     </div>
   );
 }

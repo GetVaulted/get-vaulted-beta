@@ -96,6 +96,10 @@ import type { LiveRoomStatus } from "@/generated/prisma/client";
 import type { HostRecentSaleRowDTO } from "@/lib/live-room-recent-sales";
 import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import {
+  logSellerShowSummaryEvent,
+  type LiveShowSellerSummaryDTO,
+} from "@/lib/live-show-seller-summary";
+import {
   mergeLiveRoomItemsForActiveItemEvent,
   mergeLiveRoomItemsForBidPlaced,
 } from "@/lib/live-room-realtime-merge";
@@ -177,6 +181,7 @@ type HostPayload = {
   isAdmin: boolean;
   recentSales?: HostRecentSaleRowDTO[];
   feeTier?: LiveShowFeeTierSnapshot | null;
+  sellerSummary?: LiveShowSellerSummaryDTO | null;
   sellerUnresolvedPaymentFailures?: SellerPaymentFailureDTO[];
   externalFulfillmentPaidCount?: number;
   variantExternalFulfillmentCount?: number;
@@ -299,6 +304,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const lotTransitionTimerRef = useRef<number | null>(null);
   const lotTransitionTimersRef = useRef<number[]>([]);
   const [realtimeConnectionStatus, setRealtimeConnectionStatus] = useState("Connecting…");
+  const [sellerSummaryRefreshError, setSellerSummaryRefreshError] = useState(false);
+  const prevSellerSummaryRef = useRef<LiveShowSellerSummaryDTO | null>(null);
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
   const [spotCelebration, setSpotCelebration] = useState<LiveSpotTakenCelebrationPayload | null>(null);
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
@@ -391,12 +398,19 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         return;
       }
       if (generation !== loadGenerationRef.current) return;
+      if (j.sellerSummary) {
+        setSellerSummaryRefreshError(false);
+      } else if (hostConsoleHydratedRef.current) {
+        setSellerSummaryRefreshError(true);
+      }
       setData((prev) => {
+        const nextSummary = j.sellerSummary ?? prev?.sellerSummary ?? null;
         if (!prev) {
           return {
             ...j,
             recentSales: j.recentSales ?? [],
-            feeTier: j.feeTier ?? null,
+            feeTier: j.feeTier ?? j.sellerSummary?.feeTier ?? null,
+            sellerSummary: nextSummary,
             sellerUnresolvedPaymentFailures: j.sellerUnresolvedPaymentFailures ?? [],
           };
         }
@@ -406,7 +420,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             j.syncScope === "lite"
               ? (prev.recentSales ?? [])
               : (j.recentSales ?? prev.recentSales ?? []),
-          feeTier: j.feeTier ?? prev.feeTier ?? null,
+          feeTier: j.feeTier ?? j.sellerSummary?.feeTier ?? prev.feeTier ?? null,
+          sellerSummary: nextSummary,
           sellerUnresolvedPaymentFailures:
             j.syncScope === "lite"
               ? (prev.sellerUnresolvedPaymentFailures ?? [])
@@ -1166,6 +1181,15 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         lastRefreshAtMs: lastRefreshAtRef.current,
         extra: { type: "purchase_completed", surface: "host_console" },
       });
+      logSellerShowSummaryEvent("seller_show_paid_order_event", {
+        showId: roomId,
+        orderId: typeof payload.orderId === "string" ? payload.orderId : null,
+        event: "purchase_completed",
+        previousSalesCents: prevSellerSummaryRef.current?.grossShowSalesCents ?? null,
+        paidOrderCount: prevSellerSummaryRef.current?.paidOrderCount ?? null,
+        currentTier: prevSellerSummaryRef.current?.currentFeeRatePercent ?? null,
+        nextTier: prevSellerSummaryRef.current?.feeTier.nextTierFeePercent ?? null,
+      });
       if (!shouldProcessRealtimePayload("purchase_completed", payload)) return;
       const celebration = parsePurchaseCompletedCelebration(payload);
       const spotTaken =
@@ -1233,9 +1257,17 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         lastRefreshAtMs: lastRefreshAtRef.current,
         extra: { reconnectCount: reconnectCountRef.current, surface: "host_console" },
       });
+      logSellerShowSummaryEvent("seller_show_summary_reconnect_refresh", {
+        showId: roomId,
+        previousSalesCents: prevSellerSummaryRef.current?.grossShowSalesCents ?? null,
+        paidOrderCount: prevSellerSummaryRef.current?.paidOrderCount ?? null,
+        currentTier: prevSellerSummaryRef.current?.currentFeeRatePercent ?? null,
+        nextTier: prevSellerSummaryRef.current?.feeTier.nextTierFeePercent ?? null,
+      });
       setStreamPlaybackRefreshNonce((n) => n + 1);
       setHostStreamCardRefreshNonce((n) => n + 1);
       scheduleFallbackRefresh("reconnect", 40);
+      void load();
     },
     onConnectionStateChange: ({ status, reconnectCount }) => {
       if (status === "SUBSCRIBED") setRealtimeConnectionStatus("Connected");
@@ -1717,6 +1749,36 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     });
   }, [overlayDiffersFromActive, roomId, data, selectedQueueItemId]);
 
+  useEffect(() => {
+    const next = data?.sellerSummary ?? null;
+    const prev = prevSellerSummaryRef.current;
+    if (!next) return;
+    if (
+      prev &&
+      (prev.grossShowSalesCents !== next.grossShowSalesCents || prev.paidOrderCount !== next.paidOrderCount)
+    ) {
+      logSellerShowSummaryEvent("seller_show_sales_changed", {
+        showId: roomId,
+        previousSalesCents: prev.grossShowSalesCents,
+        newSalesCents: next.grossShowSalesCents,
+        paidOrderCount: next.paidOrderCount,
+        currentTier: next.currentFeeRatePercent,
+        nextTier: next.feeTier.nextTierFeePercent,
+      });
+    }
+    if (prev && prev.currentFeeRatePercent !== next.currentFeeRatePercent) {
+      logSellerShowSummaryEvent("seller_show_fee_tier_changed", {
+        showId: roomId,
+        previousSalesCents: prev.grossShowSalesCents,
+        newSalesCents: next.grossShowSalesCents,
+        paidOrderCount: next.paidOrderCount,
+        currentTier: next.currentFeeRatePercent,
+        nextTier: next.feeTier.nextTierFeePercent,
+      });
+    }
+    prevSellerSummaryRef.current = next;
+  }, [data?.sellerSummary, roomId]);
+
   const hostPinnedVariant = useMemo(() => {
     const item = activeBoardRow?.item;
     if (!item?.variants?.length) return null;
@@ -2117,6 +2179,9 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     onCopyPublic: () => void copyPublic(),
     recentSales: data.recentSales ?? [],
     feeTier: data.feeTier ?? null,
+    sellerSummary: data.sellerSummary ?? null,
+    sellerSummaryLoading: !data.sellerSummary && !sellerSummaryRefreshError,
+    sellerSummaryRefreshError,
     vaultMode,
     onVaultModeChange: setVaultMode,
     roomEnergyScore: roomEnergy.score,
@@ -2506,6 +2571,9 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
                 roomEnergyLevel={roomEnergy.level}
                 recentSales={data.recentSales ?? []}
                 feeTier={data.feeTier ?? null}
+                sellerSummary={data.sellerSummary ?? null}
+                sellerSummaryLoading={!data.sellerSummary && !sellerSummaryRefreshError}
+                sellerSummaryRefreshError={sellerSummaryRefreshError}
               />
               <div className="min-h-0 flex-1 overflow-hidden">{hostLiveChatPanel}</div>
             </aside>
