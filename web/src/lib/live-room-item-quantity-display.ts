@@ -35,6 +35,16 @@ export function formatLiveQueueItemUnitTitle(title: string, unitNumber: number):
 }
 
 /**
+ * Host-console only: BreakSpot claim counts may override remaining-quantity unit numbers
+ * for classic break claim rows. Multi-qty auctions normally have zero BreakSpot rows — return
+ * null so `#N` follows `quantityInitial - quantity` like buyer/sales paths.
+ */
+export function resolveHostConsoleUnitsClaimedOverride(breakSpotCount: number): number | null {
+  if (!Number.isFinite(breakSpotCount) || breakSpotCount <= 0) return null;
+  return Math.floor(breakSpotCount);
+}
+
+/**
  * Derive numbered-unit display for a queue row.
  * `quantity` is remaining units after timed-auction sales; `quantityInitial` is the original total.
  * Pass `unitsClaimed` for break PYT rows where quantity may not decrement until all spots are taken.

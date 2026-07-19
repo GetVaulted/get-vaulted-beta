@@ -16,6 +16,7 @@ import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
 import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { listUnresolvedPaymentFailuresForRoom } from "@/lib/live-room-payment-failure";
 import { serializeLiveRoomItem, serializeLiveRoomMessage } from "@/lib/live-room-serialize";
+import { resolveHostConsoleUnitsClaimedOverride } from "@/lib/live-room-item-quantity-display";
 import { liveRoomItemsHostConsoleInclude } from "@/lib/live-item-variant-include";
 import { attachHostConsoleVariantPurchases } from "@/lib/live-item-variant-host-console-enrich";
 import { enrichLiveRoomItemsRandomClaims } from "@/lib/live-variant-random-claims";
@@ -42,9 +43,12 @@ function mapClaim(claim: SpotWithUser) {
   };
 }
 
-function safeSerializeItem(it: LiveRoomItem, unitsClaimed?: number) {
+function safeSerializeItem(it: LiveRoomItem, unitsClaimed?: number | null) {
   try {
-    return serializeLiveRoomItem(it, { unitsClaimed });
+    return serializeLiveRoomItem(
+      it,
+      typeof unitsClaimed === "number" ? { unitsClaimed } : undefined,
+    );
   } catch (e) {
     console.error("[host-console] serializeLiveRoomItem failed", { itemId: it.id, e });
     throw e;
@@ -210,8 +214,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const queueItemsRaw = itemsSorted.map((it) => {
       const rawSpots = spotsByItemId.get(it.id) ?? [];
       const claims = rawSpots.map(mapClaim);
+      // Do not pass unitsClaimed=0 for multi-qty auctions with no BreakSpots — that overrides
+      // remaining-quantity math and sticks the seller UI on #1 while buyers/sales advance.
       return {
-        item: safeSerializeItem(it, claims.length),
+        item: safeSerializeItem(it, resolveHostConsoleUnitsClaimedOverride(claims.length)),
         claim: claims[0] ?? null,
         claims,
       };
