@@ -1,7 +1,10 @@
 "use client";
 
-import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
-import { centsToUsd, type LiveShowSellerSummaryDTO } from "@/lib/live-show-seller-summary-shared";
+import {
+  centsToUsd,
+  type LiveShowSellerFeeTierDTO,
+  type LiveShowSellerSummaryDTO,
+} from "@/lib/live-show-seller-summary-shared";
 
 function fmtUsdExact(n: number) {
   return n.toLocaleString("en-US", {
@@ -17,7 +20,7 @@ function fmtFeePercent(pct: number) {
 }
 
 type Props = {
-  tier?: LiveShowFeeTierSnapshot | null;
+  tier?: LiveShowSellerFeeTierDTO | null;
   summary?: LiveShowSellerSummaryDTO | null;
 };
 

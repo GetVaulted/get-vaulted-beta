@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { OrderPayoutStatus } from "@/generated/prisma/enums";
 import { buildOrderShippingReconciliation, buyerShippingCentsFromOrder } from "@/lib/admin/shipping-reconciliation";
 
 function order(overrides: Record<string, unknown> = {}) {
@@ -6,7 +7,7 @@ function order(overrides: Record<string, unknown> = {}) {
     id: "ord_1",
     sellerId: "seller_1",
     paymentStatus: "paid",
-    payoutStatus: "held",
+    payoutStatus: OrderPayoutStatus.held,
     fulfillmentStatus: "pending",
     shippingStatus: null as string | null,
     shippingPriceUsd: 1,

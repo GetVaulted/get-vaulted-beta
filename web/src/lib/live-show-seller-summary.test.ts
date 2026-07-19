@@ -6,9 +6,9 @@ import {
   LIVE_SHOW_TIER_2_FEE_PERCENT,
   LIVE_SHOW_TIER_3_FEE_PERCENT,
 } from "@/lib/platform-fee-policy";
+import { buildLiveShowSellerSummaryDTO } from "@/lib/live-show-seller-summary";
 import {
   aggregateShowSaleContributions,
-  buildLiveShowSellerSummaryDTO,
   centsToUsd,
   feePercentToBps,
   isGrossCountablePaymentStatus,

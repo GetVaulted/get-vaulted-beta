@@ -1183,7 +1183,11 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       });
       logSellerShowSummaryEvent("seller_show_paid_order_event", {
         showId: roomId,
-        orderId: typeof payload.orderId === "string" ? payload.orderId : null,
+        orderId:
+          typeof (payload as { orderId?: unknown }).orderId === "string"
+            ? (payload as { orderId?: string }).orderId
+            : null,
+        eventId: typeof payload.eventId === "string" ? payload.eventId : null,
         event: "purchase_completed",
         previousSalesCents: prevSellerSummaryRef.current?.grossShowSalesCents ?? null,
         paidOrderCount: prevSellerSummaryRef.current?.paidOrderCount ?? null,

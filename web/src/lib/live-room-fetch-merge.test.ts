@@ -78,6 +78,8 @@ function room(partial: Partial<LiveRoomDetailDTO> & Pick<LiveRoomDetailDTO, "ite
     tipModeratorId: null,
     tipModeratorUsername: null,
     tipsToModerator: false,
+    teaserVideoUrl: null,
+    teaserVideoDurationMs: null,
   };
 
   const merged: LiveRoomDetailDTO = {

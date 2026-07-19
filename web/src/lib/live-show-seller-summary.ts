@@ -1,16 +1,18 @@
 import { prisma } from "@/lib/prisma";
 import { liveShowFulfillmentOrderIds } from "@/lib/live-show-fulfillment-order-ids";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import { buildLiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import { roundUsd } from "@/lib/round-usd";
 import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
 import {
   aggregateShowSaleContributions,
-  buildLiveShowSellerSummaryDTO,
+  feePercentToBps,
   grossCountablePaymentStatuses,
   isGrossCountablePaymentStatus,
   isRefundedPaymentStatus,
   logSellerShowSummaryEvent,
   SHOW_SALE_PAYMENT_PAID,
+  tierProgressPercent,
   usdToCents,
   type LiveShowSaleContribution,
   type LiveShowSellerSummaryDTO,
@@ -19,7 +21,6 @@ import {
 export type { LiveShowSaleContribution, LiveShowSellerSummaryDTO };
 export {
   aggregateShowSaleContributions,
-  buildLiveShowSellerSummaryDTO,
   centsToUsd,
   feePercentToBps,
   isGrossCountablePaymentStatus,
@@ -28,6 +29,37 @@ export {
   tierProgressPercent,
   usdToCents,
 } from "@/lib/live-show-seller-summary-shared";
+
+export function buildLiveShowSellerSummaryDTO(args: {
+  showId: string;
+  status: string;
+  contributions: LiveShowSaleContribution[];
+  /** Authoritative fee-tier GMV (LiveRoom completed/final); do not change fee business rule. */
+  feeTierGmvUsd: number;
+  calculatedAt?: Date;
+}): LiveShowSellerSummaryDTO {
+  const totals = aggregateShowSaleContributions(args.contributions);
+  const feeTier = buildLiveShowFeeTierSnapshot(Math.max(0, args.feeTierGmvUsd));
+  const amountUntilNextTierCents =
+    feeTier.usdToNextTier != null ? usdToCents(feeTier.usdToNextTier) : null;
+
+  return {
+    showId: args.showId,
+    status: args.status,
+    currency: "usd",
+    ...totals,
+    feeTierGmvCents: usdToCents(args.feeTierGmvUsd),
+    currentFeeRateBps: feePercentToBps(feeTier.currentFeePercent),
+    currentFeeRatePercent: feeTier.currentFeePercent,
+    nextTierRateBps: feeTier.nextTierFeePercent != null ? feePercentToBps(feeTier.nextTierFeePercent) : null,
+    nextTierThresholdCents:
+      feeTier.nextTierThresholdUsd != null ? usdToCents(feeTier.nextTierThresholdUsd) : null,
+    amountUntilNextTierCents,
+    tierProgressPercent: tierProgressPercent(feeTier.completedGmvUsd, feeTier.nextTierThresholdUsd),
+    feeTier,
+    calculatedAt: (args.calculatedAt ?? new Date()).toISOString(),
+  };
+}
 
 type OrderSaleRow = {
   id: string;
