@@ -12,6 +12,11 @@ import { prisma } from "@/lib/prisma";
 import { fetchHostRecentSales } from "@/lib/live-room-recent-sales";
 import { buildLiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import {
+  fetchLiveShowSellerSummary,
+  logSellerShowSummaryEvent,
+  type LiveShowSellerSummaryDTO,
+} from "@/lib/live-show-seller-summary";
 import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
 import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { listUnresolvedPaymentFailuresForRoom } from "@/lib/live-room-payment-failure";
@@ -169,7 +174,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         select: { id: true, username: true, email: true },
       });
 
-    const [hits, buyerMatches, pickerMatches, recentSales, sellerUnresolvedPaymentFailures, giveaways] =
+    const [hits, buyerMatches, pickerMatches, recentSales, sellerUnresolvedPaymentFailures, giveaways, sellerSummary] =
       await Promise.all([
         lite
           ? Promise.resolve([])
@@ -195,7 +200,31 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
           console.error("[host-console] listLiveGiveawaysForRoom failed", { liveRoomId, e });
           return [] as Awaited<ReturnType<typeof listLiveGiveawaysForRoom>>;
         }),
+        fetchLiveShowSellerSummary(liveRoomId).catch((e) => {
+          console.error("[host-console] fetchLiveShowSellerSummary failed", { liveRoomId, e });
+          return null as LiveShowSellerSummaryDTO | null;
+        }),
       ]);
+
+    const feeTierGmv = liveShowGmvForFeeTierReconstruction(room) ?? 0;
+    const feeTier =
+      sellerSummary?.feeTier ?? buildLiveShowFeeTierSnapshot(feeTierGmv);
+
+    if (
+      !lite &&
+      sellerSummary &&
+      sellerSummary.grossShowSalesCents > 0 &&
+      recentSales.filter((r) => r.paymentTone === "paid" && r.amountUsd > 0).length === 0
+    ) {
+      logSellerShowSummaryEvent("seller_show_summary_inconsistent", {
+        showId: liveRoomId,
+        reason: "recent_sales_empty_but_show_sales_positive",
+        newSalesCents: sellerSummary.grossShowSalesCents,
+        paidOrderCount: sellerSummary.paidOrderCount,
+        currentTier: sellerSummary.currentFeeRatePercent,
+        nextTier: sellerSummary.feeTier.nextTierFeePercent,
+      });
+    }
 
     const itemsSorted = [...room.items].sort(
       (a, b) => a.sortOrder - b.sortOrder || a.createdAt.getTime() - b.createdAt.getTime(),
@@ -302,7 +331,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       // Once the show has ended, `completedSalesGmvUsd` has already been reset to 0 — use the
       // persisted `finalSalesGmvUsd` snapshot instead so the host's own post-show fee-tier display
       // doesn't drift to $0/tier-0 (see `liveShowGmvForFeeTierReconstruction`).
-      feeTier: buildLiveShowFeeTierSnapshot(liveShowGmvForFeeTierReconstruction(room) ?? 0),
+      feeTier,
+      sellerSummary,
       queueItems,
       orphanSpots,
       messages: messagesAsc,

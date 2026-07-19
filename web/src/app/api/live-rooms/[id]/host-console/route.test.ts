@@ -35,6 +35,10 @@ vi.mock("@/lib/live-loader-debug", () => ({
   safeDecodeRouteSegment: (s: string) => s,
 }));
 vi.mock("@/lib/live-room-recent-sales", () => ({ fetchHostRecentSales: vi.fn().mockResolvedValue([]) }));
+vi.mock("@/lib/live-show-seller-summary", () => ({
+  fetchLiveShowSellerSummary: vi.fn().mockResolvedValue(null),
+  logSellerShowSummaryEvent: vi.fn(),
+}));
 vi.mock("@/services/live-show-fee-settings", () => ({ ensureLiveShowFeeCache: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/live-auction-finalize", () => ({
   finalizeOverdueLiveAuctionLotsForRoom: vi.fn().mockResolvedValue(undefined),
