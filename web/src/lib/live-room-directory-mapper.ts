@@ -71,6 +71,7 @@ export function mapApiRowToLiveNowRoom(row: LiveRoomListApiRow): LiveNowRoom {
     row.status === "scheduled" && row.scheduledStartAt
       ? formatSchedule(row.scheduledStartAt) ?? "Upcoming"
       : undefined;
+  const scheduledStartAtIso = row.scheduledStartAt?.trim() || null;
   const imageSeed = row.thumbnailUrl?.trim() ? `live-thumb-${row.id}` : `live-db-${row.id}`;
 
   if (roomKind === "break_room") {
@@ -83,6 +84,7 @@ export function mapApiRowToLiveNowRoom(row: LiveRoomListApiRow): LiveNowRoom {
       breakVaultCategory,
       status: showStatus,
       scheduledFor,
+      scheduledStartAtIso,
       viewers: row.viewerCount,
       imageSeed,
       thumbnailUrl: row.thumbnailUrl?.trim() || undefined,
@@ -112,6 +114,7 @@ export function mapApiRowToLiveNowRoom(row: LiveRoomListApiRow): LiveNowRoom {
     category,
     status: showStatus,
     scheduledFor,
+    scheduledStartAtIso,
     viewers: row.viewerCount,
     imageSeed,
     thumbnailUrl: row.thumbnailUrl?.trim() || undefined,

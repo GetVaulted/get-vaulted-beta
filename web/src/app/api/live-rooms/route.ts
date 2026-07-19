@@ -127,11 +127,22 @@ export async function GET(req: Request) {
       take: limit,
     });
 
+    // Match mobile discovery: live first (viewers desc), then scheduled soonest-first.
     const sorted = [...rows].sort((a, b) => {
-      if (a.status === b.status) return 0;
-      if (a.status === "live") return -1;
-      if (b.status === "live") return 1;
-      return 0;
+      const aLive = a.status === "live" ? 1 : 0;
+      const bLive = b.status === "live" ? 1 : 0;
+      if (bLive !== aLive) return bLive - aLive;
+      if (aLive && bLive) {
+        const viewerDelta = (b.viewerCount ?? 0) - (a.viewerCount ?? 0);
+        if (viewerDelta !== 0) return viewerDelta;
+        return b.updatedAt.getTime() - a.updatedAt.getTime();
+      }
+      const aStart = a.scheduledStartAt?.getTime() ?? Number.POSITIVE_INFINITY;
+      const bStart = b.scheduledStartAt?.getTime() ?? Number.POSITIVE_INFINITY;
+      const aMs = Number.isFinite(aStart) ? aStart : Number.POSITIVE_INFINITY;
+      const bMs = Number.isFinite(bStart) ? bStart : Number.POSITIVE_INFINITY;
+      if (aMs !== bMs) return aMs - bMs;
+      return b.updatedAt.getTime() - a.updatedAt.getTime();
     });
 
     const visibleRows = viewingOwnSellerRooms
