@@ -418,10 +418,10 @@ function SessionCard({
           </p>
         </div>
         <div className="text-right text-xs">
-          <p className="font-mono font-semibold text-emerald-200/95">{formatMoneyCents(s.shippingChargedCents)} charged</p>
-          <p className="mt-0.5 font-mono text-zinc-400">{formatMoneyCents(s.shippingLabelCostCents)} label cost</p>
+          <p className="font-mono font-semibold text-emerald-200/95">{formatMoneyCents(s.shippingChargedCents)} buyer shipping</p>
+          <p className="mt-0.5 font-mono text-zinc-400">{formatMoneyCents(s.shippingLabelCostCents)} actual label cost</p>
           <p className={`mt-0.5 font-mono font-semibold ${s.marginNegative ? "text-rose-300" : "text-gold-bright/90"}`}>
-            {formatMoneyCents(s.marginCents)} margin
+            {formatMoneyCents(s.netShippingImpactCents ?? s.marginCents)} net shipping
           </p>
           <p className="mt-1 text-[10px] uppercase tracking-wide text-zinc-500">{labelStatusLabel(s.labelStatus)}</p>
         </div>
@@ -569,16 +569,24 @@ function SessionCard({
                 <p className="font-mono text-zinc-300">{formatMoneyUsd(o.itemPriceUsd)}</p>
               </div>
               <p className="mt-1 text-[10px] text-zinc-500">
-                Ship charged:{" "}
+                Buyer shipping:{" "}
                 {o.shippingChargedPortionCents != null ? (
                   <span className="font-mono text-zinc-300">{formatMoneyCents(o.shippingChargedPortionCents)}</span>
                 ) : (
                   "—"
                 )}
-                {o.shippingLabelCostCents != null ? (
+                {" · Actual label: "}
+                <span className="font-mono text-zinc-300">
+                  {o.actualLabelCostCents != null
+                    ? formatMoneyCents(o.actualLabelCostCents)
+                    : o.labelStatus === "failed"
+                      ? formatMoneyCents(0)
+                      : "Pending"}
+                </span>
+                {o.netShippingImpactCents != null ? (
                   <>
-                    {" "}
-                    · Label: <span className="font-mono text-zinc-300">{formatMoneyCents(o.shippingLabelCostCents)}</span>
+                    {" · Net: "}
+                    <span className="font-mono text-zinc-300">{formatMoneyCents(o.netShippingImpactCents)}</span>
                   </>
                 ) : null}
               </p>
@@ -678,23 +686,23 @@ export function AccountLiveShipmentsSection({
         </div>
         <dl className="mt-4 grid gap-3 border-t border-white/[0.06] pt-4 sm:grid-cols-3">
           <div>
-            <dt className="text-[10px] font-bold uppercase text-zinc-500">Shipping collected</dt>
+            <dt className="text-[10px] font-bold uppercase text-zinc-500">Buyer shipping collected</dt>
             <dd className="mt-0.5 font-mono text-base font-semibold text-emerald-200/95">
               {formatMoneyCents(data.totals.shippingChargedCents)}
             </dd>
           </div>
           <div>
-            <dt className="text-[10px] font-bold uppercase text-zinc-500">Label cost (Shippo)</dt>
+            <dt className="text-[10px] font-bold uppercase text-zinc-500">Actual label cost</dt>
             <dd className="mt-0.5 font-mono text-base font-semibold text-zinc-200">
               {formatMoneyCents(data.totals.shippingLabelCostCents)}
             </dd>
           </div>
           <div>
-            <dt className="text-[10px] font-bold uppercase text-zinc-500">Est. margin</dt>
+            <dt className="text-[10px] font-bold uppercase text-zinc-500">Net shipping impact</dt>
             <dd
               className={`mt-0.5 font-mono text-base font-semibold ${data.totals.marginNegative ? "text-rose-300" : "text-gold-bright/90"}`}
             >
-              {formatMoneyCents(data.totals.marginCents)}
+              {formatMoneyCents(data.totals.netShippingImpactCents ?? data.totals.marginCents)}
             </dd>
           </div>
         </dl>

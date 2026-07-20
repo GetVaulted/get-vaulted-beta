@@ -49,7 +49,20 @@ export type PushRegistrationResult =
   | { ok: true; token: string }
   | { ok: false; reason: string };
 
-export async function registerForPushNotifications(): Promise<PushRegistrationResult> {
+export type RegisterForPushOptions = {
+  /**
+   * When true (default), show the OS permission dialog if not already granted.
+   * Silent auto-register paths should pass false so signup/login can present a
+   * contextual in-app gate first — iOS only shows the system prompt once.
+   */
+  requestPermission?: boolean;
+};
+
+export async function registerForPushNotifications(
+  options?: RegisterForPushOptions,
+): Promise<PushRegistrationResult> {
+  const requestPermission = options?.requestPermission !== false;
+
   if (!isPushNotificationsAvailable()) {
     if (Constants.appOwnership === 'expo') {
       logExpoGoSkipOnce();
@@ -64,6 +77,9 @@ export async function registerForPushNotifications(): Promise<PushRegistrationRe
   const { status: existing } = await Notifications.getPermissionsAsync();
   let finalStatus = existing;
   if (existing !== 'granted') {
+    if (!requestPermission) {
+      return { ok: false, reason: 'Notification permission not granted yet.' };
+    }
     const { status } = await Notifications.requestPermissionsAsync();
     finalStatus = status;
   }
@@ -124,7 +140,7 @@ export function alertPushRegistrationResult(res: PushRegistrationResult): void {
   if (res.ok) {
     Alert.alert(
       'Notifications enabled',
-      'You will get alerts when something sells, you receive a message, someone tags you in live chat, or an offer comes in.',
+      'You will get alerts for your orders, messages, live chat tags, offers, and — if you sell — when your own items sell.',
     );
     return;
   }
@@ -157,6 +173,24 @@ export async function persistPushToken(
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const platform = Platform.OS;
   const deviceName = Device.modelName ?? Device.deviceName ?? null;
+  /** Prefer server reassignment so this device stops receiving another account's pushes. */
+  const requireWebSync = options?.requireWebSync !== false;
+
+  if (accessToken) {
+    const webOk = await registerPushTokenWithWebApi(accessToken, { token, platform, deviceName });
+    if (!webOk) {
+      if (requireWebSync) {
+        return {
+          ok: false,
+          reason: 'Could not save push token to the server. Check your connection and try again.',
+        };
+      }
+      console.warn('[push] server sync failed; skipping local token save until retry');
+      return { ok: false, reason: 'Could not save push token to the server.' };
+    }
+  } else if (requireWebSync) {
+    return { ok: false, reason: 'Sign in again to enable push notifications.' };
+  }
 
   const sb = getSupabase();
   if (sb) {
@@ -172,20 +206,8 @@ export async function persistPushToken(
     );
     if (error) {
       console.warn('[push] persistPushToken supabase', error.message);
-      return { ok: false, reason: 'Could not save push token locally.' };
-    }
-  }
-
-  if (accessToken) {
-    const webOk = await registerPushTokenWithWebApi(accessToken, { token, platform, deviceName });
-    if (!webOk) {
-      if (options?.requireWebSync) {
-        return {
-          ok: false,
-          reason: 'Could not save push token to the server. Check your connection and try again.',
-        };
-      }
-      console.warn('[push] server sync failed; local token saved — will retry on next launch');
+      // Server already owns the token; local mirror failure should not fail registration.
+      return { ok: true };
     }
   }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import {
   mergeBuyerSnapshotForActiveItemChanged,
+  mergeBuyerSnapshotForOptimisticBid,
   reconcileBuyerSnapshotMonotonic,
 } from './liveRoomBuyerSnapshotMerge';
 
@@ -284,5 +285,20 @@ describe('mergeBuyerSnapshotForActiveItemChanged', () => {
     expect(merged?.lastHighBidderId).toBeNull();
     expect(merged?.minNextBidUsd).toBe(1);
     expect(merged?.biddingOpen).toBe(true);
+  });
+});
+
+describe('mergeBuyerSnapshotForOptimisticBid', () => {
+  it('advances the high bid immediately for Hold-to-Bid', () => {
+    const prev = snap({ currentBidUsd: 4, minNextBidUsd: 5 });
+    const merged = mergeBuyerSnapshotForOptimisticBid(prev, {
+      itemId: 'item-1',
+      amountUsd: 5,
+      wallNowMs: 2_000,
+    });
+
+    expect(merged?.currentBidUsd).toBe(5);
+    expect(merged?.minNextBidUsd).toBeGreaterThan(5);
+    expect(merged?.lotBidPhase).toBe('bidding_open');
   });
 });

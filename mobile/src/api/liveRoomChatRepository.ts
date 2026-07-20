@@ -1,6 +1,6 @@
 import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 
-export type LiveRoomChatMessageType = 'chat' | 'bid' | 'purchase' | 'system' | 'tip';
+export type LiveRoomChatMessageType = 'chat' | 'bid' | 'purchase' | 'system' | 'tip' | 'staff';
 
 export type LiveRoomChatMessageRow = {
   id: string;
@@ -21,8 +21,17 @@ function apiErrorMessage(res: Response, body: unknown): string {
   return `Request failed (${res.status})`;
 }
 
-export async function fetchLiveRoomChatMessages(roomId: string): Promise<LiveRoomChatMessageRow[]> {
-  const res = await fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(roomId)}/messages`);
+export async function fetchLiveRoomChatMessages(
+  roomId: string,
+  accessToken?: string,
+): Promise<LiveRoomChatMessageRow[]> {
+  const res = await fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(roomId)}/messages`, {
+    headers: accessToken
+      ? {
+          Authorization: `Bearer ${accessToken}`,
+        }
+      : undefined,
+  });
   let j: { messages?: LiveRoomChatMessageRow[]; error?: string } = {};
   try {
     j = (await res.json()) as typeof j;
@@ -38,9 +47,14 @@ export async function sendLiveRoomChatMessage(args: {
   roomId: string;
   body: string;
   clientMessageId?: string;
+  /** Host/mod only — hidden from buyers. */
+  staffOnly?: boolean;
 }): Promise<LiveRoomChatMessageRow> {
-  const payload: { body: string; clientMessageId?: string } = { body: args.body.trim() };
+  const payload: { body: string; clientMessageId?: string; staffOnly?: boolean } = {
+    body: args.body.trim(),
+  };
   if (args.clientMessageId?.trim()) payload.clientMessageId = args.clientMessageId.trim();
+  if (args.staffOnly) payload.staffOnly = true;
   const res = await fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(args.roomId)}/messages`, {
     method: 'POST',
     headers: {

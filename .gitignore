@@ -23,6 +23,7 @@ web/out/
 web/.netlify/
 web/test-results/
 web/playwright-report/
+web/reports/
 web/.vercel
 web/src/generated/prisma
 web/public/uploads/listings/*

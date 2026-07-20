@@ -1,8 +1,8 @@
 import { NextResponse, after } from "next/server";
 import type { Prisma } from "@/generated/prisma/client";
-import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
+import { getUnresolvedPaymentFailureForBuyer } from "@/lib/live-room-payment-failure";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
-import { liveAuctionMinBidUsd, minNextBidUsd } from "@/lib/auction";
+import { liveAuctionMinBidUsd } from "@/lib/auction";
 import { placeListingBid } from "@/lib/place-listing-bid";
 import { notifyAuctionOutbid } from "@/lib/notify-auction-outbid";
 import { prisma } from "@/lib/prisma";
@@ -11,7 +11,7 @@ import { LIVE_AUCTION_EVENT_PAYLOAD_VERSION, type LiveAuctionBidPlacedPayloadV1 
 import { flushPendingLiveAuctionFanout } from "@/lib/live-auction-fanout-flush";
 import { logLiveAuctionRtDebug } from "@/lib/live-auction-rt-debug";
 import { runLiveAuctionSpan } from "@/lib/live-auction-otel";
-import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server";
+import { buildLiveBidAckItem } from "@/lib/live-bid-http-ack";
 import { resolveLiveProxyBidChain, upsertLiveAuctionProxyBid } from "@/services/live-auction/resolve-live-proxy-bid-chain";
 import { isStripeConfigured } from "@/lib/stripe";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
@@ -48,6 +48,29 @@ function scheduleAuctionFanout(liveRoomId: string) {
 
 type Body = { amountUsd?: unknown; maxProxyUsd?: unknown };
 
+function persistBidIdempotency(args: {
+  userId: string;
+  liveRoomId: string;
+  itemId: string;
+  key: string;
+  statusCode: number;
+  body: Record<string, unknown>;
+}) {
+  // Never block the bidder ACK on idempotency persistence.
+  void prisma.liveBidIdempotency
+    .create({
+      data: {
+        userId: args.userId,
+        liveRoomId: args.liveRoomId,
+        itemId: args.itemId,
+        key: args.key,
+        statusCode: args.statusCode,
+        body: args.body as unknown as Prisma.InputJsonValue,
+      },
+    })
+    .catch(() => {});
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ id: string; itemId: string }> }) {
   /** Stamp before any await so snipes aren't killed by preflight latency. */
   const receivedAt = new Date();
@@ -55,8 +78,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   if (auth instanceof NextResponse) return auth;
   const { id: rawRoom, itemId: rawItem } = await ctx.params;
   const liveRoomId = decodeURIComponent(rawRoom);
-  const paymentBlock = await liveRoomPaymentBlockResponse(liveRoomId, auth.userId);
-  if (paymentBlock) return paymentBlock;
   const itemId = decodeURIComponent(rawItem);
   const returnPath = `/live/${encodeURIComponent(liveRoomId)}`;
   const idempotencyKey = req.headers.get("idempotency-key")?.trim() ?? "";
@@ -69,7 +90,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   }
 
   const bidderId = auth.userId;
-  const [room, item, commerceBlock, modRestrictions, wallet, cachedIdem] = await Promise.all([
+  const [room, item, commerceBlock, modRestrictions, wallet, cachedIdem, paymentFailure] = await Promise.all([
     prisma.liveRoom.findUnique({
       where: { id: liveRoomId },
       select: { id: true, sellerId: true, roomType: true, status: true, streamHealth: true, streamPaused: true, streamMode: true, streamStartedAt: true, streamEndedAt: true },
@@ -100,7 +121,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
           where: { userId: bidderId, liveRoomId, itemId, key: idempotencyKey },
         })
       : Promise.resolve(null),
+    getUnresolvedPaymentFailureForBuyer(liveRoomId, bidderId),
   ]);
+  if (paymentFailure) {
+    return NextResponse.json(
+      {
+        error: "Fix your failed payment before bidding, buying, or tipping in this show.",
+        code: "LIVE_PAYMENT_BLOCKED",
+        paymentFailure,
+      },
+      { status: 403 },
+    );
+  }
   if (!room) return NextResponse.json({ error: "Room not found." }, { status: 404 });
   if (!item) return NextResponse.json({ error: "Item not found." }, { status: 404 });
   const variantSpotAuction = Boolean(item.auctionVariantId?.trim());
@@ -258,9 +290,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
           ...r,
           roomVersion: roomWrite.roomVersion,
           auctionSeq: roomWrite.auctionEventSeq,
-          itemVersion: itemState?.itemVersion,
+          itemVersion: itemState?.itemVersion ?? 0,
           auctionEndsAt: endsIso,
+          leaderId,
           leaderUsername: leaderUserRow?.username ?? null,
+          startingBidUsd: locked.startingBidUsd,
+          clutchTimeEnabled: locked.clutchTimeEnabled,
         };
       });
 
@@ -283,7 +318,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
         bidderId,
       });
       scheduleAuctionFanout(liveRoomId);
-      const itemDto = await getLiveRoomItemSnapshotDto(itemId);
+      const itemDto = buildLiveBidAckItem({
+        itemId,
+        itemVersion: result.itemVersion,
+        currentBidUsd: result.amountUsd,
+        startingBidUsd: result.startingBidUsd,
+        lastHighBidderId: result.leaderId,
+        lastHighBidderUsername: result.leaderUsername,
+        auctionEndsAt: result.auctionEndsAt,
+        clutchTimeEnabled: result.clutchTimeEnabled,
+      });
 
       const serverNowMs = Date.now();
       const jsonBody = {
@@ -294,18 +338,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
         item: itemDto,
       };
       if (idempotencyKey) {
-        await prisma.liveBidIdempotency
-          .create({
-            data: {
-              userId: bidderId,
-              liveRoomId,
-              itemId,
-              key: idempotencyKey,
-              statusCode: 200,
-              body: jsonBody as unknown as Prisma.InputJsonValue,
-            },
-          })
-          .catch(() => {});
+        persistBidIdempotency({
+          userId: bidderId,
+          liveRoomId,
+          itemId,
+          key: idempotencyKey,
+          statusCode: 200,
+          body: jsonBody,
+        });
       }
       return NextResponse.json(jsonBody);
     }
@@ -421,9 +461,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       return {
         roomVersion: roomFinal.roomVersion,
         auctionSeq: roomFinal.auctionEventSeq,
-        itemVersion: itemFinal?.itemVersion ?? null,
+        itemVersion: itemFinal?.itemVersion ?? 0,
         auctionEndsAt: endsIsoFinal,
+        leaderId: leaderIdFinal,
         leaderUsername: leaderUserFinal?.username ?? null,
+        startingBidUsd: locked.startingBidUsd,
+        clutchTimeEnabled: locked.clutchTimeEnabled,
         proxyOutbids,
         finalHighUsd: itemFinal?.currentBidUsd ?? amountUsd,
       };
@@ -456,7 +499,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       bidderId,
     });
     scheduleAuctionFanout(liveRoomId);
-    const itemDto = await getLiveRoomItemSnapshotDto(itemId);
+    const itemDto = buildLiveBidAckItem({
+      itemId,
+      itemVersion: state.itemVersion,
+      currentBidUsd: state.finalHighUsd,
+      startingBidUsd: state.startingBidUsd,
+      lastHighBidderId: state.leaderId,
+      lastHighBidderUsername: state.leaderUsername,
+      auctionEndsAt: state.auctionEndsAt,
+      clutchTimeEnabled: state.clutchTimeEnabled,
+    });
 
     const serverNowMs = Date.now();
     const jsonBody = {
@@ -467,18 +519,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       item: itemDto,
     };
     if (idempotencyKey) {
-      await prisma.liveBidIdempotency
-        .create({
-          data: {
-            userId: bidderId,
-            liveRoomId,
-            itemId,
-            key: idempotencyKey,
-            statusCode: 200,
-            body: jsonBody as unknown as Prisma.InputJsonValue,
-          },
-        })
-        .catch(() => {});
+      persistBidIdempotency({
+        userId: bidderId,
+        liveRoomId,
+        itemId,
+        key: idempotencyKey,
+        statusCode: 200,
+        body: jsonBody,
+      });
     }
     return NextResponse.json(jsonBody);
       },

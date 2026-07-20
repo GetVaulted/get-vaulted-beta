@@ -330,7 +330,7 @@ export function AccountSellerFinancialsPage() {
                                 <span className="font-mono text-zinc-200">{formatMoney(row.taxUsd)}</span>
                               </p>
                               <p>
-                                Platform fee ({row.platformFeePercent}%){" "}
+                                Get Vaulted fee ({row.platformFeePercent}%){" "}
                                 <span className="font-mono text-zinc-200">{formatMoney(row.platformFeeUsd)}</span>
                               </p>
                               <p>
@@ -340,7 +340,7 @@ export function AccountSellerFinancialsPage() {
                                 </span>
                               </p>
                               <p>
-                                Label cost{" "}
+                                Actual label cost{" "}
                                 <span className="font-mono text-zinc-200">{formatMoney(row.labelCostUsd)}</span>
                               </p>
                               <p>

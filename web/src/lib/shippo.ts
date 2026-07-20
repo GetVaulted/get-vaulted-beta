@@ -42,7 +42,7 @@ function token(): string {
   return t;
 }
 
-async function shippoFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function shippoFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const timeoutMs = shippoTimeoutMs();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);

@@ -1,5 +1,6 @@
 import { fetchProfileSetupStatus } from '../api/profileSetupRepository';
 import { getSupabase } from '../lib/supabase';
+import { shouldPromptNotificationPermission } from '../push/notificationPermissionGate';
 import type { RootStackParamList } from './types';
 
 type AfterSignInNavigation = {
@@ -11,14 +12,42 @@ type AfterSignInNavigation = {
   goBack?: () => void;
 };
 
+type NavigateAfterSignInOpts = {
+  preferGoBack?: boolean;
+  /** Signup / first-time account paths use stronger copy on the permission screen. */
+  notificationSource?: 'signup' | 'login';
+};
+
+function goHome(navigation: AfterSignInNavigation) {
+  navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+}
+
+async function goHomeOrNotificationPermission(
+  navigation: AfterSignInNavigation,
+  source: 'signup' | 'login',
+): Promise<void> {
+  if (await shouldPromptNotificationPermission()) {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'NotificationPermission', params: { source } }],
+    });
+    return;
+  }
+  goHome(navigation);
+}
+
 /**
  * Route after a successful sign-in. Google/Apple users often still need the
  * username confirmation screen — never send them straight to Home in that case.
+ * When push permission is not granted, send them through NotificationPermission
+ * (signup + next login) before Home.
  */
 export async function navigateAfterSignIn(
   navigation: AfterSignInNavigation,
-  opts?: { preferGoBack?: boolean },
+  opts?: NavigateAfterSignInOpts,
 ): Promise<void> {
+  const notificationSource = opts?.notificationSource ?? 'login';
+
   let needsSetup = false;
   try {
     const sb = getSupabase();
@@ -37,10 +66,28 @@ export async function navigateAfterSignIn(
     return;
   }
 
+  // Prefer notification prompt over goBack — existing users who never enabled
+  // should see the ask again on this login.
+  if (await shouldPromptNotificationPermission()) {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'NotificationPermission', params: { source: notificationSource } }],
+    });
+    return;
+  }
+
   if (opts?.preferGoBack && navigation.canGoBack?.()) {
     navigation.goBack?.();
     return;
   }
 
-  navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+  goHome(navigation);
+}
+
+/** After password signup (or profile setup) when setup is already complete. */
+export async function navigateAfterAccountReady(
+  navigation: AfterSignInNavigation,
+  source: 'signup' | 'login' = 'signup',
+): Promise<void> {
+  await goHomeOrNotificationPermission(navigation, source);
 }

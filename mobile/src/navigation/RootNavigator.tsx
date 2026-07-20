@@ -6,6 +6,7 @@ import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { AuthLoginScreen } from '../screens/auth/AuthLoginScreen';
 import { AuthSignUpScreen } from '../screens/auth/AuthSignUpScreen';
 import { CompleteProfileSetupScreen } from '../screens/auth/CompleteProfileSetupScreen';
+import { NotificationPermissionScreen } from '../screens/auth/NotificationPermissionScreen';
 import { ProfileEditScreen } from '../screens/auth/ProfileEditScreen';
 import { LaunchIntroScreen } from '../screens/onboarding/LaunchIntroScreen';
 import { AuthWelcomeScreen } from '../screens/onboarding/AuthWelcomeScreen';
@@ -190,6 +191,11 @@ export function RootNavigator() {
           <Stack.Screen
             name="CompleteProfileSetup"
             component={CompleteProfileSetupScreen}
+            options={{ animation: 'fade', gestureEnabled: false }}
+          />
+          <Stack.Screen
+            name="NotificationPermission"
+            component={NotificationPermissionScreen}
             options={{ animation: 'fade', gestureEnabled: false }}
           />
           <Stack.Screen name="ProfileEdit" component={ProfileEditScreen} />

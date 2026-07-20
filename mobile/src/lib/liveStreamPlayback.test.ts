@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   isLiveStreamSignal,
+  markBuyerStageSubscribeTornDown,
   parseBuyerSafeStreamPayload,
   preferHlsOverWebrtcOnClient,
+  resetBuyerStageSubscribeTornDownForTests,
   resolveLivePlaybackSurfaceState,
   resolveSurfaceTransportPlan,
   shouldAttachHlsPlayback,
@@ -17,6 +19,10 @@ const liveStageStream = {
 };
 
 describe('liveStreamPlayback', () => {
+  beforeEach(() => {
+    resetBuyerStageSubscribeTornDownForTests();
+  });
+
   it('parseBuyerSafeStreamPayload reads streamMode and stageAvailable', () => {
     const parsed = parseBuyerSafeStreamPayload({
       stream: {
@@ -47,7 +53,7 @@ describe('liveStreamPlayback', () => {
     expect(parsed?.stageAvailable).toBe(false);
   });
 
-  it('preferHlsOverWebrtcOnClient is false (WebRTC primary for stage sellers)', () => {
+  it('preferHlsOverWebrtcOnClient is false (buyers use Stage when available)', () => {
     expect(preferHlsOverWebrtcOnClient()).toBe(false);
   });
 
@@ -107,8 +113,9 @@ describe('liveStreamPlayback', () => {
 
   it('shouldAttachHlsPlayback is true only for live/connecting with URL', () => {
     expect(shouldAttachHlsPlayback('live', 'https://x.m3u8')).toBe(true);
-    expect(shouldAttachHlsPlayback('offline', 'https://x.m3u8')).toBe(false);
+    expect(shouldAttachHlsPlayback('connecting', 'https://x.m3u8')).toBe(true);
     expect(shouldAttachHlsPlayback('live', null)).toBe(false);
+    expect(shouldAttachHlsPlayback('offline', 'https://x.m3u8')).toBe(false);
   });
 
   describe('resolveSurfaceTransportPlan (hybrid transport)', () => {
@@ -216,30 +223,98 @@ describe('liveStreamPlayback', () => {
       ).toEqual({ transport: 'hls', armUpgrade: false });
     });
 
-    it('offline show with no URL resolves to none', () => {
+    it('after Stage leave, active show stays on HLS and does not re-arm WebRTC upgrade', () => {
+      markBuyerStageSubscribeTornDown();
       expect(
         resolveSurfaceTransportPlan({
-          stream: { streamMode: 'stage_webrtc', stageAvailable: true, streamHealth: 'offline', playbackUrl: null },
+          stream: liveStageStream,
           isActive: true,
           webrtcFailed: false,
           accessToken: 'jwt',
           hybridEnabled: true,
           alreadyUpgraded: false,
         }),
-      ).toEqual({ transport: 'none', armUpgrade: false });
+      ).toEqual({ transport: 'hls', armUpgrade: false });
+      // Even if a previous visit had already upgraded, do not go back to WebRTC when HLS exists.
+      expect(
+        resolveSurfaceTransportPlan({
+          stream: liveStageStream,
+          isActive: true,
+          webrtcFailed: false,
+          accessToken: 'jwt',
+          hybridEnabled: true,
+          alreadyUpgraded: true,
+        }),
+      ).toEqual({ transport: 'hls', armUpgrade: false });
+    });
+
+    it('after Stage leave with no HLS mirror, WebRTC is still allowed', () => {
+      markBuyerStageSubscribeTornDown();
+      expect(
+        resolveSurfaceTransportPlan({
+          stream: { ...liveStageStream, playbackUrl: null },
+          isActive: true,
+          webrtcFailed: false,
+          accessToken: 'jwt',
+          hybridEnabled: true,
+          alreadyUpgraded: false,
+        }),
+      ).toEqual({ transport: 'webrtc', armUpgrade: false });
+    });
+
+    it('forces WebRTC when a stalled HLS attempt never reached first frame — even post-leave', () => {
+      markBuyerStageSubscribeTornDown();
+      // Without hlsStalled, the post-leave plan prefers the HLS mirror...
+      expect(
+        resolveSurfaceTransportPlan({
+          stream: liveStageStream,
+          isActive: true,
+          webrtcFailed: false,
+          accessToken: 'jwt',
+          hybridEnabled: true,
+          alreadyUpgraded: false,
+        }),
+      ).toEqual({ transport: 'hls', armUpgrade: false });
+      // ...but once that HLS attempt is proven unplayable, fall over to a fresh WebRTC surface.
+      expect(
+        resolveSurfaceTransportPlan({
+          stream: liveStageStream,
+          isActive: true,
+          webrtcFailed: false,
+          accessToken: 'jwt',
+          hybridEnabled: true,
+          alreadyUpgraded: false,
+          hlsStalled: true,
+        }),
+      ).toEqual({ transport: 'webrtc', armUpgrade: false });
+    });
+
+    it('stalled HLS on the first visit (no leave) also forces WebRTC instead of an HLS preview', () => {
+      expect(
+        resolveSurfaceTransportPlan({
+          stream: liveStageStream,
+          isActive: true,
+          webrtcFailed: false,
+          accessToken: 'jwt',
+          hybridEnabled: true,
+          alreadyUpgraded: false,
+          hlsStalled: true,
+        }),
+      ).toEqual({ transport: 'webrtc', armUpgrade: false });
     });
   });
 
-  it('resolveLivePlaybackSurfaceState prefers live over reconnecting when frames are ready', () => {
+  it('resolveLivePlaybackSurfaceState maps health to surface', () => {
     expect(
       resolveLivePlaybackSurfaceState({
         loading: false,
         fetchFailed: false,
-        reconnecting: true,
+        reconnecting: false,
         streamHealth: 'live',
         playbackUrl: 'https://x.m3u8',
         videoHasRenderableData: true,
         playerFatal: false,
+        roomLifecycleLive: true,
       }),
     ).toBe('live');
   });

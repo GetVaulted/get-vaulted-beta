@@ -15,6 +15,7 @@ import type { LiveStackParamList } from '../navigation/types';
 import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
 import { navigateAuthLogin, navigateAuthSignUp } from '../navigation/rootNavigationRef';
 import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
+import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
 import { colors } from '../theme';
 import type { LiveStream } from '../types';
 
@@ -81,9 +82,13 @@ export function LiveRoomScreen() {
     useCallback(() => {
       // Soft visit bump (wallet/session resets) — do NOT remount the whole feed via React key;
       // remount racing IVS leave/join blanks video until app kill.
+      viewerLifecycleLog('screen_focused', { streamId, layer: 'LiveRoomScreen' });
       setRoomVisitNonce((n) => n + 1);
       void reloadStreams();
-    }, [reloadStreams]),
+      return () => {
+        viewerLifecycleLog('screen_blurred', { streamId, layer: 'LiveRoomScreen' });
+      };
+    }, [reloadStreams, streamId]),
   );
 
   const blockGuestLive = guestExploreMode && !user;

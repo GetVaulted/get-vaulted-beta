@@ -50,9 +50,21 @@ type OrderDetail = {
   payoutStatus: string;
   payoutEstimateUsd: number;
   platformFeeEstimateUsd: number;
+  platformFeePercent?: number;
   stripeProcessingFeeEstimateUsd: number;
   shippingLabelCostCents?: number | null;
   shippingLabelCostReversedCents?: number | null;
+  shippingBreakdown?: {
+    buyerShippingCollectedCents: number;
+    actualLabelCostCents: number | null;
+    labelRefundOrCreditCents: number;
+    netShippingImpactCents: number;
+    labelStatus: string;
+    carrier: string | null;
+    service: string | null;
+    trackingNumber: string | null;
+    purchasedAt: string | null;
+  } | null;
   liveShowId?: string | null;
   listing: { id: string; title: string; status?: string; images: { url: string }[] };
   buyer: { username: string | null };
@@ -367,10 +379,12 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
               taxUsd={order.taxUsd}
               totalUsd={order.totalUsd}
               platformFeeEstimateUsd={order.platformFeeEstimateUsd}
+              platformFeePercent={order.platformFeePercent}
               stripeProcessingFeeEstimateUsd={order.stripeProcessingFeeEstimateUsd}
               payoutEstimateUsd={order.payoutEstimateUsd}
               payoutStatus={order.payoutStatus}
               shippingAddressIncomplete={shippingAddressIncomplete}
+              shippingBreakdown={order.shippingBreakdown ?? null}
               shippingLabelCostCents={order.shippingLabelCostCents}
               shippingLabelCostReversedCents={order.shippingLabelCostReversedCents}
             />

@@ -144,7 +144,7 @@ export function NotificationInboxScreen({ navigation }: Props) {
         </ScrollView>
       ) : (
         <Text style={styles.empty}>
-          No notifications yet. When something sells, you get a message, or an offer comes in, it shows up here.
+          No notifications yet. Orders, messages, offers, and — if you sell — your own sales show up here.
         </Text>
       )}
     </View>

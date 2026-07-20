@@ -304,6 +304,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         category: room.category,
         roomType: room.roomType,
         status: room.status,
+        discoveryVisibility: room.discoveryVisibility === "private" ? "private" : "public",
         streamHealth: room.streamHealth,
         streamPaused: room.streamPaused,
         roomVersion: room.roomVersion,

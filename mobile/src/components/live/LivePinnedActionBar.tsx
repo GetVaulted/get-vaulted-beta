@@ -38,6 +38,7 @@ import {
 import { logLiveBidButtonPress, mustUseLiveBidFlow, isActiveBuyNowBuyerItem } from '../../lib/liveCommerceRouting';
 import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
 import { logBidControl } from '../../lib/bidControlLog';
+import { mergeBuyerSnapshotForOptimisticBid } from '../../lib/liveRoomBuyerSnapshotMerge';
 import { openWebCommerceUrl, webLiveRoomUrl } from '../../lib/openWebCommerce';
 import { logLiveBidBlocked, logWalletSheet } from '../wallet/walletSheetKeyboard';
 import { WalletSheet } from '../wallet/WalletSheet';
@@ -91,11 +92,15 @@ type Props = {
   /** Realtime-managed buyer snapshot (from `useLiveRoomRealtimeSession`). */
   roomSnap?: LiveRoomBuyerSnapshot | null;
   syncRefreshing?: boolean;
-  onRefreshSnapshot?: () => Promise<LiveRoomBuyerSnapshot | null>;
+  onRefreshSnapshot?: (opts?: { authoritative?: boolean }) => Promise<LiveRoomBuyerSnapshot | null>;
   /** Server clock skew for auction timer sync. */
   clockSkewMs?: number;
   /** Merge bid HTTP ACK into live snapshot (timer + high bid). */
   mergeBidAck?: (ack: import('../../api/liveRoomBuyerRepository').LiveBidHttpAck) => void;
+  /** Instant HUD advance when Hold-to-Bid commits (before HTTP returns). */
+  applyOptimisticBid?: (args: { itemId: string; amountUsd: number }) => void;
+  /** Roll back optimistic HUD if the bid request fails. */
+  replaceRoomSnap?: (snap: LiveRoomBuyerSnapshot | null) => void;
   onBidPlaced?: (amountUsd: number) => void;
   /** Premium in-room toast for outbid / bid failures (replaces harsh system alerts). */
   onBidNotice?: (notice: LiveBidFailureDisplay) => void;
@@ -132,6 +137,8 @@ export function LivePinnedActionBar({
   onRefreshSnapshot,
   clockSkewMs = 0,
   mergeBidAck,
+  applyOptimisticBid,
+  replaceRoomSnap,
   onBidPlaced,
   onBidNotice,
   participationBlocked = false,
@@ -484,29 +491,33 @@ export function LivePinnedActionBar({
       ? '…'
       : m.currentAmount;
 
-  const refreshRoomSnapshot = useCallback(async (): Promise<LiveRoomBuyerSnapshot | null> => {
-    if (onRefreshSnapshot) return onRefreshSnapshot();
-    setLocalSyncRefreshing(true);
-    try {
-      const snap = await fetchLiveRoomBuyerSnapshot(accessToken, stream.id);
-      setLocalRoomSnap((prev) => {
-        const { snap: reconciled, staleIgnored } = reconcileBuyerSnapshotMonotonic(prev, snap);
-        if (staleIgnored) {
-          console.info('[bid] stale snapshot ignored', {
-            keptHighBidUsd: prev?.currentBidUsd ?? null,
-            incomingHighBidUsd: snap.currentBidUsd,
-            activeItemId: snap.activeItemId,
-          });
-        }
-        return reconciled;
-      });
-      return snap;
-    } catch {
-      return null;
-    } finally {
-      setLocalSyncRefreshing(false);
-    }
-  }, [accessToken, onRefreshSnapshot, stream.id]);
+  const refreshRoomSnapshot = useCallback(
+    async (opts?: { authoritative?: boolean }): Promise<LiveRoomBuyerSnapshot | null> => {
+      if (onRefreshSnapshot) return onRefreshSnapshot(opts);
+      setLocalSyncRefreshing(true);
+      try {
+        const snap = await fetchLiveRoomBuyerSnapshot(accessToken, stream.id);
+        setLocalRoomSnap((prev) => {
+          if (opts?.authoritative) return snap;
+          const { snap: reconciled, staleIgnored } = reconcileBuyerSnapshotMonotonic(prev, snap);
+          if (staleIgnored) {
+            console.info('[bid] stale snapshot ignored', {
+              keptHighBidUsd: prev?.currentBidUsd ?? null,
+              incomingHighBidUsd: snap.currentBidUsd,
+              activeItemId: snap.activeItemId,
+            });
+          }
+          return reconciled;
+        });
+        return snap;
+      } catch {
+        return null;
+      } finally {
+        setLocalSyncRefreshing(false);
+      }
+    },
+    [accessToken, onRefreshSnapshot, stream.id],
+  );
 
   useEffect(() => {
     if (usingExternalSync) return undefined;
@@ -605,13 +616,20 @@ export function LivePinnedActionBar({
       console.info('[bid] pending cleared', { reason: 'safety_timeout', roomId: stream.id });
     }, BID_PENDING_SAFETY_MS);
     let openedWallet = false;
+    let rollbackSnap: LiveRoomBuyerSnapshot | null = null;
+    let didOptimistic = false;
     try {
       const holdOnly = opts?.holdOnly === true;
-      // Hold-to-bid always pulls a fresh snapshot so the amount matches the CTA label.
-      const snap =
-        holdOnly || bid == null
-          ? (await refreshRoomSnapshot()) ?? roomSnap
-          : roomSnap ?? (await refreshRoomSnapshot());
+      // Prefer the live in-memory snapshot so Hold-to-Bid does not wait on a full GET first.
+      const localUsable =
+        roomSnap != null &&
+        roomSnap.status === 'live' &&
+        Boolean(roomSnap.activeItemId) &&
+        roomSnap.lotBidPhase === 'bidding_open' &&
+        typeof roomSnap.minNextBidUsd === 'number' &&
+        Number.isFinite(roomSnap.minNextBidUsd) &&
+        roomSnap.minNextBidUsd > 0;
+      const snap = localUsable ? roomSnap : (await refreshRoomSnapshot()) ?? roomSnap;
       if (!snap) {
         logBidControl('blocked', { reason: 'snapshot unavailable' });
         Alert.alert('Could not load room', 'Try again or open the live room in your browser.', [
@@ -683,7 +701,27 @@ export function LivePinnedActionBar({
         itemId: snap.activeItemId,
         amountUsd,
         maxProxyUsd: maxProxyUsd ?? null,
+        holdOnly,
+        usedLocalSnapshot: localUsable,
       });
+      rollbackSnap = roomSnap;
+      if (holdOnly || bid == null) {
+        if (applyOptimisticBid) {
+          applyOptimisticBid({ itemId: snap.activeItemId, amountUsd });
+        } else {
+          setLocalRoomSnap((prev) => {
+            if (!prev) return prev;
+            return (
+              mergeBuyerSnapshotForOptimisticBid(prev, {
+                itemId: snap.activeItemId!,
+                amountUsd,
+                wallNowMs: Date.now(),
+              }) ?? prev
+            );
+          });
+        }
+        didOptimistic = true;
+      }
       const ack = await placeLiveRoomBid({
         accessToken,
         roomId: stream.id,
@@ -693,6 +731,8 @@ export function LivePinnedActionBar({
         idempotencyKey: createLiveBidIdempotencyKey(),
       });
       mergeBidAck?.(ack);
+      didOptimistic = false;
+      rollbackSnap = null;
       resetBidControl('bid_ack');
       console.info('[bid] submit success', {
         roomId: stream.id,
@@ -717,6 +757,13 @@ export function LivePinnedActionBar({
         message: e instanceof Error ? e.message : 'unknown',
         code: e instanceof Error ? (e as Error & { code?: string }).code : undefined,
       });
+      if (didOptimistic) {
+        if (rollbackSnap) {
+          replaceRoomSnap?.(rollbackSnap);
+          if (!replaceRoomSnap) setLocalRoomSnap(rollbackSnap);
+        }
+        void refreshRoomSnapshot({ authoritative: true }).catch(() => {});
+      }
       if (isWalletIncompleteError(e)) {
         logBidControl('blocked', { reason: 'wallet incomplete api 402' });
         if (!walletOverlayOpenRef.current && !walletSheetOpen) {
@@ -731,10 +778,10 @@ export function LivePinnedActionBar({
       }
       if (e instanceof Error && (e as Error & { code?: string }).code === 'LIVE_PAYMENT_BLOCKED') {
         logBidControl('blocked', { reason: 'payment failure lockout' });
-        await refreshRoomSnapshot();
+        await refreshRoomSnapshot({ authoritative: true });
         return;
       }
-      await refreshRoomSnapshot();
+      await refreshRoomSnapshot({ authoritative: true });
       const display = resolveLiveBidFailureDisplay(e);
       logBidControl('blocked', { reason: 'bid failed', kind: display.kind, message: display.message });
       if (display.kind === 'outbid') {
@@ -769,6 +816,8 @@ export function LivePinnedActionBar({
     walletSheetOpen,
     resetBidControl,
     mergeBidAck,
+    applyOptimisticBid,
+    replaceRoomSnap,
     commerceActive,
   ]);
 

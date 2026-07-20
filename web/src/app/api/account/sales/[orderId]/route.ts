@@ -9,6 +9,8 @@ import {
 import { sellerFulfillmentOrdersWhere } from "@/lib/seller-fulfillment-orders";
 import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
 import { prisma } from "@/lib/prisma";
+import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
+import { ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
 
 export const runtime = "nodejs";
 
@@ -53,6 +55,29 @@ const orderSelect = {
   shippingChargedCents: true,
   shippingLabelCostCents: true,
   shippingLabelCostReversedCents: true,
+  platformFeeCents: true,
+  platformFeePercentApplied: true,
+  platformFeeBasisCents: true,
+  platformFeePriorShowGmvUsd: true,
+  platformFeeSellerOverrideApplied: true,
+  labelFinances: {
+    select: {
+      id: true,
+      orderId: true,
+      shippoTransactionId: true,
+      shippoShipmentId: true,
+      labelCostCents: true,
+      purpose: true,
+      replacesShippoTransactionId: true,
+      status: true,
+      sellerClawbackCents: true,
+      sellerClawbackReversalId: true,
+      sellerCreditCents: true,
+      sellerCreditTransferId: true,
+      clawbackIdempotencyKey: true,
+      creditIdempotencyKey: true,
+    },
+  },
   liveShippingSession: {
     select: {
       liveShowId: true,
@@ -99,6 +124,8 @@ export async function GET(req: Request, ctx: RouteCtx) {
   if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const sellerUser = sellerUserWithEffectivePlatformFeeOverride(user);
+
+  await Promise.all([ensureLiveShowFeeCache(true), ensureMarketplacePlatformFeeCache(true)]);
 
   const order = await prisma.order.findFirst({
     where: { id: orderId, ...sellerFulfillmentOrdersWhere(auth.userId) },

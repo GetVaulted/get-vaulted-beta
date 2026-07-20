@@ -448,7 +448,7 @@ export function AccountSalesPage() {
             {salesView === "live"
               ? "Live sales by show — item, buyer, time, and amount as you sell."
               : salesView === "ship"
-                ? "Create label → print → mark shipped. That’s the whole flow."
+                ? "Needs label → Pending shipment → Shipped → Complete."
                 : "Sales history and payouts. Use the shipping queue to fulfill orders."}
           </p>
           <AccountSalesViewTabs active={salesView} />

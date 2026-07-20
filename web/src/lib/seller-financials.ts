@@ -10,12 +10,14 @@ import {
   sellerPlatformFeeOverrideSelect,
   sellerUserWithEffectivePlatformFeeOverride,
 } from "@/lib/seller-platform-fee-override-user";
+import { resolveSellerPlatformFeeDisplay } from "@/lib/seller-platform-fee-display";
+import { resolveSellerShippingBreakdown } from "@/lib/seller-shipping-breakdown";
 import {
-  estimatePlatformFeeUsd,
   estimateSellerOrderPayoutUsd,
   estimateStripeProcessingFeeUsd,
-  resolvePlatformFeePercentForSellerOrder,
 } from "@/lib/seller-payout-estimate";
+import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
+import { ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
 
 export type SellerFinancialActivityRow = {
   id: string;
@@ -181,6 +183,9 @@ export async function buildSellerFinancialsSummary(
   });
   const sellerUser = user ? sellerUserWithEffectivePlatformFeeOverride(user) : null;
 
+  // Warm admin fee caches so reconstruction fallback matches charge-time config (not cold 8%/7.25% defaults).
+  await Promise.all([ensureLiveShowFeeCache(true), ensureMarketplacePlatformFeeCache(true)]);
+
   const orders = await prisma.order.findMany({
     where: {
       sellerId,
@@ -201,13 +206,40 @@ export async function buildSellerFinancialsSummary(
       paymentStatus: true,
       payoutStatus: true,
       payoutReserveAmountCents: true,
+      shippingChargedCents: true,
       shippingLabelCostCents: true,
       shippingLabelCostReversedCents: true,
-      stripeApplicationFeeCents: true,
+      platformFeeCents: true,
+      platformFeePercentApplied: true,
+      platformFeeBasisCents: true,
       stripeProcessingFeeCents: true,
+      carrier: true,
+      service: true,
+      trackingNumber: true,
+      labelUrl: true,
+      shippoTransactionId: true,
+      labelCreatedAt: true,
       createdAt: true,
       listing: { select: { title: true, isCompanyListing: true } },
       buyer: { select: { username: true } },
+      labelFinances: {
+        select: {
+          id: true,
+          orderId: true,
+          shippoTransactionId: true,
+          shippoShipmentId: true,
+          labelCostCents: true,
+          purpose: true,
+          replacesShippoTransactionId: true,
+          status: true,
+          sellerClawbackCents: true,
+          sellerClawbackReversalId: true,
+          sellerCreditCents: true,
+          sellerCreditTransferId: true,
+          clawbackIdempotencyKey: true,
+          creditIdempotencyKey: true,
+        },
+      },
       liveShippingSession: {
         select: {
           liveShowId: true,
@@ -235,47 +267,49 @@ export async function buildSellerFinancialsSummary(
     const shippingUsd = money(o.shippingPriceUsd);
     const taxUsd = money(Math.max(o.taxUsd ?? 0, (o.taxAmountCents ?? 0) / 100));
 
-    const platformFeePercent = resolvePlatformFeePercentForSellerOrder({
+    // Get Vaulted fee = persisted platform fee only. Never stripeApplicationFeeCents (may include processing).
+    const fee = resolveSellerPlatformFeeDisplay({
+      itemPriceUsd: o.itemPriceUsd,
       isCompanyListing: Boolean(o.listing.isCompanyListing),
+      platformFeeCents: o.platformFeeCents,
+      platformFeePercentApplied: o.platformFeePercentApplied,
+      platformFeeBasisCents: o.platformFeeBasisCents,
       liveShowId,
       liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
-      orderItemPriceUsd: o.itemPriceUsd,
       orderPaymentStatus: o.paymentStatus,
       sellerPlatformFeePercentOverride: sellerUser?.sellerPlatformFeePercentOverride,
     });
+    const platformFeeUsd = money(fee.platformFeeUsd);
+    const platformFeePercent = money(fee.platformFeePercent);
 
-    const platformFeeActual = centsToUsd(o.stripeApplicationFeeCents);
     const processingFeeActual = centsToUsd(o.stripeProcessingFeeCents);
-    const platformFeeEstimate = o.listing.isCompanyListing
-      ? 0
-      : estimatePlatformFeeUsd({ itemPriceUsd: o.itemPriceUsd, platformFeePercent });
     const processingFeeEstimate = estimateStripeProcessingFeeUsd(o.totalUsd);
-
-    const platformFeeUsd = platformFeeActual ?? platformFeeEstimate;
     const processingFeeUsd = processingFeeActual ?? processingFeeEstimate;
-    const feesAreEstimates = platformFeeActual == null || processingFeeActual == null;
+    const feesAreEstimates = fee.source === "reconstructed" || processingFeeActual == null;
     if (feesAreEstimates) estimateFeeCount += 1;
 
-    const labelCostUsd = money(
-      o.shippingLabelCostReversedCents != null && o.shippingLabelCostReversedCents > 0
-        ? o.shippingLabelCostReversedCents / 100
-        : Math.max(0, o.shippingLabelCostCents ?? 0) / 100,
-    );
+    const shippingBreakdown = resolveSellerShippingBreakdown({
+      shippingChargedCents: o.shippingChargedCents,
+      shippingPriceUsd: o.shippingPriceUsd,
+      shippingLabelCostCents: o.shippingLabelCostCents,
+      shippingLabelCostReversedCents: o.shippingLabelCostReversedCents,
+      carrier: o.carrier,
+      service: o.service,
+      trackingNumber: o.trackingNumber,
+      labelCreatedAt: o.labelCreatedAt,
+      labelUrl: o.labelUrl,
+      shippoTransactionId: o.shippoTransactionId,
+      labelFinances: o.labelFinances,
+    });
+    const labelCostUsd = money((shippingBreakdown.actualLabelCostCents ?? 0) / 100);
     const reserveUsd = money(Math.max(0, o.payoutReserveAmountCents) / 100);
 
-    // When actual platform fee is known, still use estimateSellerOrderPayoutUsd with that fee
-    // percent reconstructed; prefer computing net from components for consistency with Sales UI
-    // when using estimates, and from components when actuals exist.
     const netUsd = money(
       estimateSellerOrderPayoutUsd({
         itemPriceUsd: o.itemPriceUsd,
         shippingPriceUsd: o.shippingPriceUsd,
         payoutReserveAmountCents: o.payoutReserveAmountCents,
-        platformFeePercent: o.listing.isCompanyListing
-          ? 0
-          : platformFeeActual != null && gmvUsd > 0
-            ? (platformFeeUsd / gmvUsd) * 100
-            : platformFeePercent,
+        platformFeePercent,
         shippingLabelCostCents: o.shippingLabelCostCents,
         shippingLabelCostReversedCents: o.shippingLabelCostReversedCents,
         stripeProcessingFeeUsd: processingFeeUsd,
@@ -303,7 +337,7 @@ export async function buildSellerFinancialsSummary(
         shippingPriceUsd: shippingUsd,
         taxUsd,
         platformFeeUsd,
-        platformFeePercent: money(platformFeePercent),
+        platformFeePercent,
         stripeProcessingFeeUsd: processingFeeUsd,
         labelCostUsd,
         reserveUsd,

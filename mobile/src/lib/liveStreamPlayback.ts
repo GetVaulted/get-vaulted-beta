@@ -24,6 +24,31 @@ export type LivePlaybackSurfaceState =
 /** Active delivery transport surfaced in the player (and dev debug overlay). */
 export type LivePlaybackTransport = 'none' | 'waiting' | 'webrtc' | 'hls';
 
+/**
+ * Explicit viewer playback state machine used to gate the "Waiting for host video" overlay and
+ * the re-entry watchdog. Unlike `LivePlaybackTransport` (which only says which surface is
+ * *attached*), this reflects whether a transport is actually *producing video*:
+ * - `hls-loading` / `webrtc-joining`: attached but no first frame yet.
+ * - `hls-playing` / `webrtc-video-ready`: real playable video is on screen.
+ * The waiting overlay may ONLY stay up while neither `*-playing`/`*-video-ready` is reached and a
+ * reconnect attempt is still active. Presence of a `playbackUrl` or a `connected` WebRTC socket is
+ * never treated as proof of playable video.
+ */
+export type ViewerTransportState =
+  | 'idle'
+  | 'hls-loading'
+  | 'hls-playing'
+  | 'webrtc-joining'
+  | 'webrtc-video-ready'
+  | 'failed';
+
+/** Re-entry watchdog: log that the first frame is slow. */
+export const PLAYBACK_RECONNECT_SLOW_MS = 3_000;
+/** Re-entry watchdog: abandon the current HLS attempt and force the WebRTC fallback surface. */
+export const HLS_FIRST_FRAME_TIMEOUT_MS = 6_000;
+/** Re-entry watchdog: neither transport produced video — surface a retry action. */
+export const PLAYBACK_RECONNECT_FAILED_MS = 10_000;
+
 export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamFields | null {
   if (!data || typeof data !== 'object') return null;
   const root = data as Record<string, unknown>;
@@ -70,6 +95,36 @@ export function isStageWebrtcEnabled(): boolean {
 }
 
 /**
+ * Process-wide latch: after a buyer tears down an IVS Stage subscribe once, never rejoin WebRTC
+ * for the rest of the app session — stay on HLS instead.
+ *
+ * Why: the Stage SDK is a process-wide singleton. Leave → rejoin reconnects audio and reports a
+ * remote video stream to JS, but the native video preview often stays permanently black (late
+ * `.disconnected` / view clear races wipe the new session’s binding). JS then treats
+ * “stream in list” as painted and hides the working HLS mirror forever. App kill is the only
+ * recovery today because it destroys that singleton.
+ *
+ * First settle of the session can still upgrade to WebRTC. After any leave (back out, swipe away
+ * from the Stage surface), subsequent visits use the HLS mirror only — which actually paints.
+ */
+let buyerStageSubscribeTornDown = false;
+
+/** Call when a buyer Stage subscribe is torn down (`leaveStage`). Idempotent. */
+export function markBuyerStageSubscribeTornDown(): void {
+  buyerStageSubscribeTornDown = true;
+}
+
+/** True after the first buyer Stage leave in this process — WebRTC rejoin is blocked. */
+export function isBuyerStageWebrtcRejoinBlocked(): boolean {
+  return buyerStageSubscribeTornDown;
+}
+
+/** Test-only reset. */
+export function resetBuyerStageSubscribeTornDownForTests(): void {
+  buyerStageSubscribeTornDown = false;
+}
+
+/**
  * Hybrid transport kill-switch. When on (default), the buyer feed shows the pre-buffered HLS
  * mirror instantly on the active show and neighbors, then upgrades the settled show to sub-second
  * WebRTC after a short dwell. Set EXPO_PUBLIC_LIVE_HYBRID_ENABLED="false" to fall back to the
@@ -100,6 +155,9 @@ export type ActiveTransportPlan =
  * - Active + WebRTC-eligible: preview HLS instantly and arm the dwell upgrade — unless already
  *   upgraded this visit, hybrid is off, or there is no HLS mirror to preview (then go straight to
  *   WebRTC, matching the legacy behavior).
+ * - After a buyer `leaveStage` in this process: prefer the HLS mirror and do **not** re-arm the
+ *   WebRTC upgrade (native leave→rejoin often reconnects audio with a black video surface). If
+ *   there is no HLS URL, WebRTC is still allowed — black is better than no attempt.
  * - Neighbor (prefetch) + WebRTC-eligible: buffer the HLS mirror when hybrid is on (so switching to
  *   it is instant); otherwise stay 'waiting' (no media) like before. Neighbors never join WebRTC —
  *   the IVS Real-Time Stage SDK is a process-wide singleton, so only the settled show subscribes.
@@ -112,11 +170,28 @@ export function resolveSurfaceTransportPlan(input: {
   accessToken?: string;
   hybridEnabled: boolean;
   alreadyUpgraded: boolean;
+  /**
+   * True once the current re-entry attempt tried HLS and it never reached first-frame within the
+   * watchdog window. When set, the planner stops preferring the (proven-unplayable) HLS mirror and
+   * forces the WebRTC surface instead — even after a Stage leave. Presence of a `playbackUrl` is
+   * NOT proof HLS is playable.
+   */
+  hlsStalled?: boolean;
 }): ActiveTransportPlan {
+  const rejoinBlocked = isBuyerStageWebrtcRejoinBlocked();
   const eligible = shouldUseStageWebrtcPlayback(input.stream, input.webrtcFailed, input.accessToken);
   const hlsAttachable = shouldAttachHlsPlayback(input.stream.streamHealth, input.stream.playbackUrl);
 
   if (input.isActive && eligible) {
+    // HLS was tried this attempt and never painted — do not keep preferring a dead mirror. Fall
+    // over to a fresh WebRTC surface (the caller remounts the native view for a clean binding).
+    if (input.hlsStalled) {
+      return { transport: 'webrtc', armUpgrade: false };
+    }
+    // Post-leave: stay on HLS when the mirror exists — do not upgrade back to poisoned WebRTC.
+    if (rejoinBlocked && hlsAttachable) {
+      return { transport: 'hls', armUpgrade: false };
+    }
     if (input.hybridEnabled && hlsAttachable && !input.alreadyUpgraded) {
       return { transport: 'hls', armUpgrade: true };
     }
@@ -134,7 +209,7 @@ export function resolveSurfaceTransportPlan(input: {
   return { transport: isLiveStreamSignal(input.stream.streamHealth) ? 'waiting' : 'none', armUpgrade: false };
 }
 
-/** Stage sellers publish WebRTC — buyers subscribe to the same Stage for sub-second video; HLS is failover for guests/OBS. */
+/** Stage sellers publish WebRTC — buyers subscribe for sub-second video; HLS is failover / mirror. */
 export function preferHlsOverWebrtcOnClient(): boolean {
   return false;
 }
@@ -145,6 +220,9 @@ export function shouldUseStageWebrtcPlayback(
   webrtcFailed: boolean,
   accessToken?: string,
 ): boolean {
+  // Note: `isBuyerStageWebrtcRejoinBlocked` is applied in `resolveSurfaceTransportPlan` so that
+  // post-leave visits prefer HLS when a mirror URL exists, but can still attempt WebRTC when it
+  // does not (hard-blocking WebRTC with no HLS left stage shows with no video at all).
   return (
     Boolean(accessToken?.trim()) &&
     isStageWebrtcEnabled() &&

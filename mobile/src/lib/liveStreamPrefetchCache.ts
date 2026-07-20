@@ -23,6 +23,13 @@ export function peekCachedBuyerLiveStream(roomId: string): BuyerSafeStreamFields
   return hit.value;
 }
 
+/** Age (ms) of the cached stream metadata for `roomId`, or null when nothing is cached. */
+export function peekBuyerLiveStreamCacheAgeMs(roomId: string): number | null {
+  const hit = streamCache.get(roomId);
+  if (!hit) return null;
+  return Date.now() - hit.fetchedAt;
+}
+
 export function peekPrefetchedViewerStageToken(roomId: string): string | null {
   const hit = tokenCache.get(roomId);
   if (!hit) return null;
@@ -120,6 +127,12 @@ export async function getBuyerLiveStreamCached(
 export function invalidateViewerStageToken(roomId: string): void {
   tokenCache.delete(roomId);
   tokenInflight.delete(roomId);
+}
+
+/** Drop cached stream metadata so re-entry always refetches playbackUrl / health. */
+export function invalidateBuyerLiveStreamCache(roomId: string): void {
+  streamCache.delete(roomId);
+  streamInflight.delete(roomId);
 }
 
 /** Stage subscribe hook — returns a prefetched token when still valid. */

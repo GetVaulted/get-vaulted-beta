@@ -142,6 +142,7 @@ export function AuthLoginScreen({ navigation }: Props) {
           placeholder="Email"
           placeholderTextColor={colors.textMuted}
           autoCapitalize="none"
+          autoCorrect={false}
           keyboardType="email-address"
           autoComplete="email"
           value={email}
@@ -217,6 +218,7 @@ export function AuthLoginScreen({ navigation }: Props) {
               placeholder="Your account email"
               placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
+              autoCorrect={false}
               keyboardType="email-address"
               value={forgotEmail}
               onChangeText={setForgotEmail}

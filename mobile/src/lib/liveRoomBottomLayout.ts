@@ -6,15 +6,15 @@ export const COMPOSER_BAR_HEIGHT = 44;
 /** Space between commerce HUD top edge and composer bottom edge. */
 export const COMPOSER_ABOVE_HUD_GAP = 8;
 
-/** Space between composer top edge and chat stack bottom edge. */
-export const CHAT_ABOVE_COMPOSER_GAP = 18;
+/** Space between composer top edge and chat stack bottom edge (flush stack). */
+export const CHAT_ABOVE_COMPOSER_GAP = 4;
 
 export const COMPACT_COMPOSER_ABOVE_HUD_GAP = 6;
-export const COMPACT_CHAT_ABOVE_COMPOSER_GAP = 12;
+export const COMPACT_CHAT_ABOVE_COMPOSER_GAP = 3;
 
-/** Whatnot-style pinned mod row rendered above the composer. */
+/** Whatnot-style pinned mod row rendered above the composer (pushes chat up). */
 export const PINNED_MODERATOR_ROW_HEIGHT = 62;
-export const PINNED_ABOVE_COMPOSER_GAP = 6;
+export const PINNED_ABOVE_COMPOSER_GAP = 4;
 
 /** Slow-mode countdown chip rendered above the pinned row (or composer when no pin). */
 export const SLOW_MODE_ROW_HEIGHT = 28;
@@ -38,9 +38,11 @@ export type LiveRoomBottomStack = {
 };
 
 /**
- * Bottom-anchored stack: safe area → commerce → composer → pinned bar → slow-mode chip → chat.
- * The pinned bar and slow-mode chip each get their own row so they never overlap, and the chat
- * feed reserves whatever rows are active so it never sits on top of them.
+ * Bottom-anchored stack (bottom → top):
+ * safe area → commerce → composer → pinned mod (when active) → slow-mode chip → chat.
+ *
+ * Chat sits flush on the composer; a pinned mod announcement inserts between them and
+ * pushes the chat up. Slow-mode sits above the pin (or composer) without overlapping.
  */
 export function computeLiveRoomBottomStack(args: {
   dockPaddingBottom: number;
@@ -69,15 +71,16 @@ export function computeLiveRoomBottomStack(args: {
   const composerBottom = commerceBottom + args.commerceHeight + composerGap;
   const composerTop = composerBottom + composerHeight;
 
-  // Walk up the stack, tracking the top edge of the highest row placed so far.
+  // Pin sits directly above the composer and pushes everything above it up.
   const pinnedBarBottom = composerTop + pinnedGap;
   const stackTopAfterPinned = args.pinnedModeratorActive
     ? pinnedBarBottom + pinnedRowHeight
     : composerTop;
-  const slowModeBottom = stackTopAfterPinned + slowGap;
+  const slowModeBottom = stackTopAfterPinned + (args.slowModeActive ? slowGap : 0);
   const stackTopAfterSlowMode = args.slowModeActive
     ? slowModeBottom + slowRowHeight
     : stackTopAfterPinned;
+  // Chat flush on whatever is immediately below it (slow chip, pin, or composer).
   const chatBottom = stackTopAfterSlowMode + chatGap;
 
   return {

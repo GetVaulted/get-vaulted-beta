@@ -14,6 +14,8 @@ import { RT_EVENT, RT_EVENT_ALIASES } from "@/lib/realtime-channels";
 export function useRealtimeRoomSubscription(opts: {
   liveRoomId: string | null;
   enabled?: boolean;
+  /** When true, also receive host/mod staff chat (never enable for buyers). */
+  includeStaffChat?: boolean;
   onLiveRoomMessage: (message: LiveRoomMessageDTO) => void;
   onMessagesRefreshMerge: () => void | Promise<void>;
   /** Queue rows added/removed — refetch room detail / host console. */
@@ -116,6 +118,7 @@ export function useRealtimeRoomSubscription(opts: {
   const {
     liveRoomId,
     enabled = true,
+    includeStaffChat = false,
     onLiveRoomMessage,
     onMessagesRefreshMerge,
     onQueueItemsChange,
@@ -226,7 +229,17 @@ export function useRealtimeRoomSubscription(opts: {
     for (const eventName of chatEvents) {
       channel.on("broadcast", { event: eventName }, ({ payload }) => {
         const m = (payload as { message?: LiveRoomMessageDTO } | null)?.message;
-        if (m && typeof m.id === "string") refs.current.onLiveRoomMessage(m);
+        if (m && typeof m.id === "string" && m.messageType !== "staff") {
+          refs.current.onLiveRoomMessage(m);
+        }
+      });
+    }
+    if (includeStaffChat) {
+      channel.on("broadcast", { event: RT_EVENT.staffChatMessage }, ({ payload }) => {
+        const m = (payload as { message?: LiveRoomMessageDTO } | null)?.message;
+        if (m && typeof m.id === "string" && m.messageType === "staff") {
+          refs.current.onLiveRoomMessage(m);
+        }
       });
     }
     channel
@@ -326,5 +339,5 @@ export function useRealtimeRoomSubscription(opts: {
       unsubscribeStatus();
       releaseLiveRoomChannel(supabase, liveRoomId);
     };
-  }, [liveRoomId, enabled]);
+  }, [liveRoomId, enabled, includeStaffChat]);
 }

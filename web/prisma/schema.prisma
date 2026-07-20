@@ -151,6 +151,8 @@ enum LiveRoomMessageType {
   purchase
   system
   tip
+  /** Host/mod only — never returned or broadcast to buyers. */
+  staff
 }
 
 enum TipRecipientMode {
@@ -1675,7 +1677,19 @@ model Order {
   /// Actual Stripe card processing fee from balance_transaction.fee (cents).
   stripeProcessingFeeCents   Int?
   /// Application fee amount kept by the platform (cents), from Charge/ApplicationFee when available.
+  /// NOTE: On untaxed Connect charges this may equal platform fee + seller-paid Stripe processing —
+  /// do NOT use as the seller-facing "Get Vaulted fee". Prefer `platformFeeCents` below.
   stripeApplicationFeeCents  Int?
+  /// Immutable Get Vaulted platform fee (cents) snapshot at charge time — item subtotal only.
+  platformFeeCents           Int?
+  /// Fee percent applied at charge time (e.g. 6.75). Never recompute from today's admin config.
+  platformFeePercentApplied  Float?
+  /// Fee basis in cents at charge time (item subtotal; excludes shipping/tax/tips).
+  platformFeeBasisCents      Int?
+  /// Prior completed live-show GMV (USD) used for tier at charge time. Null for marketplace.
+  platformFeePriorShowGmvUsd Float?
+  /// True when a seller-specific platform fee override was applied at charge time.
+  platformFeeSellerOverrideApplied Boolean @default(false)
   /// Net to platform balance from the charge BT (cents). Does not include later Tax API usage bills.
   stripeNetCents             Int?
   /// Payment processor abstraction — Stripe default; PayPal/Venmo when enabled separately.
@@ -1743,6 +1757,7 @@ model Order {
   carrierAcceptedAt          DateTime?
   refundRequests             OrderRefundRequest[]
   shipmentPackages           ShipmentPackage[]
+  labelFinances              ShipmentLabelFinance[]
   referralCredits            ReferralCredit[]           @relation("ReferralCreditSourceOrder")
   /// Referral credit applied to this order's charge (USD) — buyer-facing order summary + audit.
   /// Informational only; ledger truth is `ReferralCredit` rows with `spentOrderId` = this order.
@@ -2516,9 +2531,73 @@ model ShipmentPackage {
   status                ShipmentPackageStatus @default(estimated)
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
+  labelFinance          ShipmentLabelFinance?
 
   @@index([liveShippingSessionId, packageIndex])
   @@index([orderId])
+}
+
+enum ShipmentLabelFinancePurpose {
+  initial
+  replacement
+  additional_package
+}
+
+enum ShipmentLabelFinanceStatus {
+  active
+  replaced
+  void_pending
+  voided
+  refund_pending
+  refunded
+  /// Shippo purchase failed (ERROR/INVALID); not a chargeable label cost.
+  failed_purchase
+}
+
+/// Per-Shippo-transaction label clawback/credit ledger (source of truth for seller label money).
+/// Order.shippingLabelCost* fields are recalculated summaries; do not treat them as full history.
+model ShipmentLabelFinance {
+  id                            String                       @id @default(cuid())
+  orderId                       String
+  order                         Order                        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  liveShippingSessionId         String?
+  shipmentPackageId             String?                      @unique
+  shipmentPackage               ShipmentPackage?             @relation(fields: [shipmentPackageId], references: [id], onDelete: SetNull)
+  shippoTransactionId           String
+  shippoShipmentId              String?
+  /// Chargeable purchased label cost (0 for failed_purchase).
+  labelCostCents                Int
+  /// Selected rate quote before purchase; not proof of Shippo billing.
+  quotedLabelCostCents          Int?
+  purpose                       ShipmentLabelFinancePurpose  @default(initial)
+  replacesShippoTransactionId   String?
+  status                        ShipmentLabelFinanceStatus   @default(active)
+  sellerClawbackCents           Int                          @default(0)
+  sellerClawbackReversalId      String?
+  sellerCreditCents             Int                          @default(0)
+  sellerCreditTransferId        String?
+  clawbackIdempotencyKey        String?
+  creditIdempotencyKey          String?
+  /// Shared repair-level idempotency key when one Stripe transfer covers multiple failed labels.
+  repairCreditIdempotencyKey    String?
+  shippoStatus                  String?
+  shippoObjectState             String?
+  shippoMessagesJson            Json?
+  clawbackFailedAt              DateTime?
+  clawbackFailureDetail         String?
+  creditFailedAt                DateTime?
+  creditFailureDetail           String?
+  createdAt                     DateTime                     @default(now())
+  updatedAt                     DateTime                     @updatedAt
+
+  @@unique([orderId, shippoTransactionId])
+  @@index([orderId])
+  @@index([orderId, status])
+  @@index([shippoTransactionId])
+  @@index([replacesShippoTransactionId])
+  @@index([sellerClawbackReversalId])
+  @@index([sellerCreditTransferId])
+  @@index([repairCreditIdempotencyKey])
 }
 
 /// Admin-editable marketplace platform fee (single-row config).

@@ -2,12 +2,18 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { countRoomPresenceViewers } from '../lib/liveRoomPresenceCount';
 import { buildPresenceChannelKey } from '../lib/liveRoomPresenceKey';
+import {
+  parseViewerCountBroadcast,
+  shouldPublishViewerCountBroadcast,
+} from '../lib/liveRoomViewerCountBroadcast';
+import { RT_EVENT } from '../lib/realtimeChannels';
 import { releaseLiveRoomChannel, retainLiveRoomChannel, subscribeLiveRoomChannel } from '../lib/liveRoomSharedChannel';
 import { ensureSupabaseReady, getSupabase } from '../lib/supabase';
 
 /**
  * Supabase Realtime presence for live rooms — same channel as web (`gv-room-{id}`).
- * Buyers track themselves; host consoles pass `trackSelf: false` to observe only.
+ * Buyers track themselves; host consoles pass `trackSelf: false` to observe only and
+ * broadcast the room-wide viewer count so every client shows the same number.
  */
 export function useRealtimeRoomPresence(opts: {
   liveRoomId: string | null;
@@ -23,11 +29,13 @@ export function useRealtimeRoomPresence(opts: {
     viewerDisplayName = null,
     trackSelf = true,
   } = opts;
-  const [viewerCount, setViewerCount] = useState<number | null>(null);
+  const [localCount, setLocalCount] = useState<number | null>(null);
+  const [broadcastCount, setBroadcastCount] = useState<number | null>(null);
   const viewerDisplayNameRef = useRef(viewerDisplayName);
   viewerDisplayNameRef.current = viewerDisplayName;
 
   const presenceKeyRef = useRef<string>('');
+  const lastBroadcastRef = useRef<{ count: number | null; at: number }>({ count: null, at: 0 });
 
   useLayoutEffect(() => {
     presenceKeyRef.current =
@@ -57,9 +65,33 @@ export function useRealtimeRoomPresence(opts: {
       if (cancelled || !supabase) return;
       channel = retainLiveRoomChannel(supabase, liveRoomId, presenceKey);
 
+      const publishHostCount = (count: number) => {
+        if (trackSelf || !channel) return;
+        const now = Date.now();
+        const prev = lastBroadcastRef.current;
+        if (
+          !shouldPublishViewerCountBroadcast({
+            nextCount: count,
+            lastCount: prev.count,
+            lastPublishedAtMs: prev.at,
+            nowMs: now,
+          })
+        ) {
+          return;
+        }
+        lastBroadcastRef.current = { count, at: now };
+        void channel.send({
+          type: 'broadcast',
+          event: RT_EVENT.viewerCount,
+          payload: { liveRoomId, viewerCount: count, at: now },
+        });
+      };
+
       const updateCount = () => {
         if (!channel) return;
-        setViewerCount(countRoomPresenceViewers(channel.presenceState()));
+        const next = countRoomPresenceViewers(channel.presenceState());
+        setLocalCount(next);
+        publishHostCount(next);
       };
 
       const trackPresence = async () => {
@@ -83,7 +115,11 @@ export function useRealtimeRoomPresence(opts: {
       channel
         .on('presence', { event: 'sync' }, updateCount)
         .on('presence', { event: 'join' }, updateCount)
-        .on('presence', { event: 'leave' }, updateCount);
+        .on('presence', { event: 'leave' }, updateCount)
+        .on('broadcast', { event: RT_EVENT.viewerCount }, ({ payload }) => {
+          const n = parseViewerCountBroadcast(payload);
+          if (n != null) setBroadcastCount(n);
+        });
 
       if (trackSelf) {
         appStateSub = AppState.addEventListener('change', (next: AppStateStatus) => {
@@ -127,5 +163,6 @@ export function useRealtimeRoomPresence(opts: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, liveRoomId, trackSelf, userId]);
 
-  return viewerCount;
+  // Prefer the host-broadcast room count so every device shows the same number.
+  return broadcastCount ?? localCount;
 }

@@ -1,8 +1,9 @@
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, ActivityIndicator, StyleSheet, View, type AppStateStatus } from 'react-native';
+import { AppState, ActivityIndicator, Pressable, StyleSheet, Text, View, type AppStateStatus } from 'react-native';
 import { useVideoPlayer, VideoView, type VideoPlayer } from 'expo-video';
+import { setStageAudioOutputEnabled } from 'expo-realtime-ivs-broadcast';
 import { useLiveStagePlayback, type LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import { useHlsLiveEdgeSeek } from '../../hooks/useHlsLiveEdgeSeek';
 import {
@@ -19,6 +20,7 @@ import {
 } from '../../lib/liveStreamScheduled';
 import { shouldSuspendLiveStageMedia } from '../../lib/livePlaybackAppState';
 import { LIVE_STAGE_CONTENT_FIT } from '../../lib/liveRoomViewport';
+import { viewerLifecycleLog } from '../../lib/viewerLifecycleLog';
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
 import { StageSubscriberVideo } from './StageSubscriberVideo';
@@ -31,11 +33,15 @@ type Props = {
   roomStatus: 'scheduled' | 'live' | 'ended';
   scheduledStartAtIso?: string | null;
   thumbnailUrl: string;
+  /** Short looping promo while the room is still scheduled. */
+  teaserVideoUrl?: string | null;
   /** When omitted, falls back to legacy `enabled` boolean. */
   playbackMode?: LivePlaybackMode;
   enabled?: boolean;
   accessToken?: string;
   refreshNonce?: number;
+  /** Bumps on each new focus visit — surfaced in the __DEV__ diagnostic label + plan log. */
+  roomVisitNonce?: number;
   muted: boolean;
   onMutedChange: (muted: boolean) => void;
   contentFit?: 'cover' | 'contain';
@@ -97,10 +103,12 @@ export function LiveStagePlayback({
   roomStatus,
   scheduledStartAtIso,
   thumbnailUrl,
+  teaserVideoUrl = null,
   playbackMode,
   enabled = true,
   accessToken,
   refreshNonce,
+  roomVisitNonce = 0,
   muted,
   onMutedChange,
   contentFit = 'cover',
@@ -121,12 +129,14 @@ export function LiveStagePlayback({
   const [surfaceResumeNonce, setSurfaceResumeNonce] = useState(0);
   const prevAppStateRef = useRef<AppStateStatus>(AppState.currentState);
   const mainVideoRef = useRef<VideoView>(null);
-  const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce });
+  const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce, roomVisitNonce });
 
   const playbackUrl = playback.stream?.playbackUrl ?? null;
   const streamHealth = playback.stream?.streamHealth ?? 'offline';
   const streamPaused = playback.stream?.streamPaused === true;
   const transport = playback.transport;
+  const viewerTransport = playback.viewerTransport;
+  const reconnectFailed = playback.reconnectFailed;
 
   useEffect(() => {
     onBroadcastGateChange?.({
@@ -150,33 +160,26 @@ export function LiveStagePlayback({
   const streamSignalLive = streamHealth.toLowerCase() === 'live' || streamHealth.toLowerCase() === 'connecting';
   const roomLifecycleLive = roomStatus === 'live' || streamSignalLive;
 
-  // WebRTC reports "connected" (audio + participant stream) before the native video surface is
-  // guaranteed to be painting — especially on a re-subscribe, where StageSubscriberVideo forces a
-  // one-shot fresh-surface re-attach ~320ms after connect to defeat the stale-black-surface bug.
-  // Keep the HLS mirror on top across that settle window so the buyer never sees the black gap.
-  const [webrtcSettled, setWebrtcSettled] = useState(false);
-  useEffect(() => {
-    if (!webrtcReady) {
-      setWebrtcSettled(false);
-      return undefined;
-    }
-    const id = setTimeout(() => setWebrtcSettled(true), 700);
-    return () => clearTimeout(id);
-  }, [webrtcReady]);
-
   const playbackActive = isForeground;
   const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
   const hlsAttachable = Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
-  // Hold the HLS mirror on the settled show through the WebRTC upgrade until WebRTC has painted for
-  // a beat (past the re-attach), so the swap has no black "connecting" gap. Neighbors buffer HLS
-  // muted+hidden for instant switching.
-  const webrtcUpgradeHold = useWebrtc && !webrtcSettled;
+  // Hold the HLS mirror on the settled show through the WebRTC upgrade until WebRTC paints, so the
+  // swap has no black "connecting" gap. Neighbors buffer HLS muted+hidden for instant switching.
+  const webrtcUpgradeHold = useWebrtc && !webrtcReady;
   const attachHls = hlsAttachable && ((transport === 'hls' && hlsWarm) || webrtcUpgradeHold);
   const stageMediaSuspended = shouldSuspendLiveStageMedia(appState);
 
   useEffect(() => {
-    if (!useWebrtc) setWebrtcReady(false);
-  }, [useWebrtc]);
+    if (!useWebrtc || !isForeground) setWebrtcReady(false);
+  }, [useWebrtc, isForeground]);
+
+  useEffect(() => {
+    viewerLifecycleLog(isForeground ? 'screen_focused' : 'screen_blurred', {
+      roomId,
+      mode,
+      transport,
+    });
+  }, [isForeground, mode, roomId, transport]);
 
   const handleWebrtcConnected = useCallback(() => {
     setWebrtcReady(true);
@@ -206,21 +209,23 @@ export function LiveStagePlayback({
   const safeVideoPlay = useCallback((target: VideoPlayer) => {
     try {
       target.play();
+      viewerLifecycleLog('play_called', { roomId, transport: 'hls' });
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [roomId]);
 
   const safeVideoReplace = useCallback(
     (target: VideoPlayer, url: string) => {
       try {
         target.replace(url);
+        viewerLifecycleLog('source_loaded', { roomId, transport: 'hls', playbackUrl: url });
         safeVideoPlay(target);
       } catch {
         /* ignore */
       }
     },
-    [safeVideoPlay],
+    [roomId, safeVideoPlay],
   );
 
   const player = useVideoPlayer(attachHls ? playbackUrl : null, hlsPlayerSetup);
@@ -230,10 +235,28 @@ export function LiveStagePlayback({
   useEffect(() => {
     if (!attachHls) return;
     player.muted = muted;
+    player.volume = muted ? 0 : 1;
     // Only the foreground surface takes exclusive audio focus. Warm neighbor buffers must not grab
     // `doNotMix`, or several muted background players fight the active player for the audio session.
     player.audioMixingMode = isForeground ? 'doNotMix' : 'mixWithOthers';
   }, [attachHls, muted, isForeground, player]);
+
+  // WebRTC Stage audio ignores expo-video `muted` — apply the buyer mute toggle via the patched
+  // Stage audio-output gate. Only the active WebRTC surface owns this; restore on teardown so a
+  // muted show cannot leave the device/session silent after swipe-away.
+  useEffect(() => {
+    const stageLive = useWebrtc && !stageMediaSuspended;
+    if (!stageLive) {
+      if (isForeground) {
+        void setStageAudioOutputEnabled(true).catch(() => {});
+      }
+      return;
+    }
+    void setStageAudioOutputEnabled(!muted).catch(() => {});
+    return () => {
+      void setStageAudioOutputEnabled(true).catch(() => {});
+    };
+  }, [useWebrtc, stageMediaSuspended, muted, isForeground]);
 
   // Hard-stop HLS audio whenever this slide is not the active playback surface. Adjacent pager
   // pages stay mounted (page ± 1 are kept warm), and on Android an expo-video player keeps
@@ -251,10 +274,12 @@ export function LiveStagePlayback({
     }
   }, [attachHls, player]);
 
+  // Load + play whenever HLS is attachable (includes re-entry after playbackMode off→active).
   useEffect(() => {
     if (!attachHls || !playbackUrl) return;
+    viewerLifecycleLog('player_created', { roomId, transport: 'hls', foreground: isForeground });
     safeVideoReplace(player, playbackUrl);
-  }, [attachHls, playbackUrl, player, safeVideoReplace]);
+  }, [attachHls, isForeground, playbackUrl, player, roomId, safeVideoReplace]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
@@ -272,12 +297,40 @@ export function LiveStagePlayback({
     if (!attachHls) return;
     const markReady = () => playback.onVideoReady();
     const sub = player.addListener('statusChange', (evt) => {
+      viewerLifecycleLog('player_state_changed', {
+        roomId,
+        transport: 'hls',
+        status: evt.status,
+        attemptId: playback.playbackAttemptId,
+        playbackUrl,
+      });
       if (evt.status === 'readyToPlay') markReady();
-      if (evt.status === 'error') playback.onVideoError();
+      if (evt.status === 'error') {
+        viewerLifecycleLog('player_error', {
+          roomId,
+          transport: 'hls',
+          attemptId: playback.playbackAttemptId,
+          message: evt.error?.message ?? null,
+        });
+        playback.onVideoError();
+      }
+    });
+    // Buffering breadcrumb — helps distinguish "URL present but no segments" from a real player error.
+    const playingSub = player.addListener('playingChange', (evt) => {
+      viewerLifecycleLog('player_playing_change', {
+        roomId,
+        transport: 'hls',
+        isPlaying: evt.isPlaying,
+        status: player.status,
+        attemptId: playback.playbackAttemptId,
+      });
     });
     if (player.status === 'readyToPlay') markReady();
-    return () => sub.remove();
-  }, [attachHls, player, playback.onVideoReady, playback.onVideoError]);
+    return () => {
+      sub.remove();
+      playingSub.remove();
+    };
+  }, [attachHls, player, playback.onVideoReady, playback.onVideoError, playback.playbackAttemptId, playbackUrl, roomId]);
 
   const hlsSurface = resolveLivePlaybackSurfaceState({
     loading: playback.loading,
@@ -319,12 +372,49 @@ export function LiveStagePlayback({
 
   const showWebrtcLayer = useWebrtc && surface !== 'error';
   // Render the HLS VideoView only when it's the visible surface: on the foreground show, and only
-  // until WebRTC has painted for a beat (past the fresh-surface re-attach). Neighbors keep
-  // `attachHls` (buffering) but never render a view.
-  const showHlsLayer = attachHls && isForeground && !webrtcSettled && surface !== 'error';
+  // until WebRTC actually paints. Neighbors keep `attachHls` (buffering) but never render a view.
+  const showHlsLayer = attachHls && isForeground && !webrtcReady && surface !== 'error';
   const showVideoLayer = showWebrtcLayer || showHlsLayer;
+  const teaserUrl = typeof teaserVideoUrl === 'string' ? teaserVideoUrl.trim() : '';
+  const showTeaserLayer =
+    Boolean(teaserUrl) &&
+    isForeground &&
+    !roomLifecycleLive &&
+    roomStatus === 'scheduled' &&
+    !showVideoLayer;
+  const teaserPlayer = useVideoPlayer(showTeaserLayer ? teaserUrl : null, (p) => {
+    p.loop = true;
+    p.muted = muted;
+    p.volume = muted ? 0 : 1;
+    p.audioMixingMode = 'doNotMix';
+    try {
+      p.play();
+    } catch {
+      /* ignore */
+    }
+  });
+  useEffect(() => {
+    if (!showTeaserLayer) {
+      try {
+        teaserPlayer.pause();
+        teaserPlayer.muted = true;
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    try {
+      teaserPlayer.loop = true;
+      teaserPlayer.muted = muted;
+      teaserPlayer.volume = muted ? 0 : 1;
+      teaserPlayer.play();
+    } catch {
+      /* ignore */
+    }
+  }, [showTeaserLayer, muted, teaserPlayer, teaserUrl]);
   const showThumbnail =
     Boolean(thumbnailUrl) &&
+    !showTeaserLayer &&
     (!showVideoLayer || !playback.videoHasData || surface === 'offline');
   const showStandby =
     isForeground &&
@@ -344,6 +434,15 @@ export function LiveStagePlayback({
         <StandbyOverlay
           title="Host paused"
           body="The host stepped away briefly. Hang tight — we'll be back soon."
+        />
+      );
+    }
+    // Watchdog gave up (neither HLS nor WebRTC produced video) — the retry action renders on top.
+    if (reconnectFailed && roomLifecycleLive && roomStatus !== 'ended') {
+      return (
+        <StandbyOverlay
+          title="Can't load the video"
+          body="We couldn't start this stream. Tap retry to try again."
         />
       );
     }
@@ -410,6 +509,18 @@ export function LiveStagePlayback({
         />
       ) : null}
 
+      {showTeaserLayer ? (
+        <VideoView
+          player={teaserPlayer}
+          style={styles.video}
+          contentFit={contentFit}
+          nativeControls={false}
+          allowsPictureInPicture={false}
+          startsPictureInPictureAutomatically={false}
+          collapsable={false}
+        />
+      ) : null}
+
       {showWebrtcLayer ? (
         <StageSubscriberVideo
           roomId={roomId}
@@ -447,10 +558,53 @@ export function LiveStagePlayback({
 
       {showStandby ? (
         <View style={styles.standbyWrap} pointerEvents="none">
-          {(surface === 'loading' || surface === 'connecting') && roomLifecycleLive ? (
+          {(surface === 'loading' || surface === 'connecting') && roomLifecycleLive && !reconnectFailed ? (
             <ActivityIndicator color={colors.gold} style={styles.loader} />
           ) : null}
           {standbyContent}
+        </View>
+      ) : null}
+
+      {isForeground && reconnectFailed && roomLifecycleLive && roomStatus !== 'ended' ? (
+        <View style={styles.retryWrap} pointerEvents="box-none">
+          <Pressable
+            onPress={() => playback.retry()}
+            style={styles.retryBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading the live stream"
+          >
+            <Text style={styles.retryBtnTxt}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {__DEV__ && isForeground ? (
+        <View style={styles.diagBadge} pointerEvents="none">
+          <Text style={styles.diagText}>
+            {`transport: ${transport}`}
+            {`\nviewer: ${viewerTransport}`}
+            {`\nurl: ${playbackUrl ? 'yes' : 'no'}`}
+            {`\nstage: ${
+              !useWebrtc
+                ? 'off'
+                : viewerTransport === 'failed'
+                  ? 'failed'
+                  : webrtcReady
+                    ? 'joined'
+                    : 'joining'
+            }`}
+            {`\nvideoTrack: ${playback.videoHasData ? 'yes' : 'no'}`}
+            {`\nhlsState: ${
+              playback.playerFatal
+                ? 'error'
+                : !attachHls
+                  ? 'idle'
+                  : transport === 'hls' && playback.videoHasData
+                    ? 'playing'
+                    : 'loading'
+            }`}
+            {`\nvisit: ${roomVisitNonce}  attempt: ${playback.playbackAttemptId}`}
+          </Text>
         </View>
       ) : null}
     </View>
@@ -474,6 +628,43 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
   loader: { marginBottom: spacing.md },
+  retryWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingBottom: '32%',
+  },
+  retryBtn: {
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.sm,
+    borderRadius: 999,
+    backgroundColor: colors.gold,
+  },
+  retryBtnTxt: {
+    color: '#0a0a0a',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  diagBadge: {
+    position: 'absolute',
+    top: 96,
+    left: 8,
+    zIndex: 99,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,215,80,0.5)',
+  },
+  diagText: {
+    color: '#ffe66b',
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 14,
+    fontVariant: ['tabular-nums'],
+  },
   standbyCenter: { alignItems: 'center', maxWidth: 320 },
   standbyKicker: {
     color: colors.gold,

@@ -9,6 +9,7 @@ import {
 import {
   mergeBuyerSnapshotForBidPlaced,
   mergeBuyerSnapshotForBidAck,
+  mergeBuyerSnapshotForOptimisticBid,
   mergeBuyerSnapshotForActiveItemChanged,
   reconcileBuyerSnapshotMonotonic,
 } from '../lib/liveRoomBuyerSnapshotMerge';
@@ -35,6 +36,7 @@ import type { RoomBroadcastPayload } from '../lib/realtimeChannels';
 import { estimateClockSkewMs, syncedWallTimeMs } from '../lib/serverClockSync';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { parseVaultRevealSpinPayload, VAULT_REVEAL_TOTAL_DISPLAY_MS, vaultRevealDisplayMs, type VaultRevealSpinPayload } from '../lib/vaultRevealSpin';
+import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
 import { useRealtimeRoomSubscription, type LiveRoomChatBroadcastMessage } from './useRealtimeRoomSubscription';
 import { useRealtimeRoomPresence } from './useRealtimeRoomPresence';
 
@@ -53,6 +55,8 @@ export function useLiveRoomRealtimeSession(args: {
   hostUsername: string;
   onChatBroadcast?: (message: LiveRoomChatBroadcastMessage) => void;
   viewerDisplayName?: string | null;
+  /** Host/mod only — subscribe to staff chat broadcasts. */
+  includeStaffChat?: boolean;
   /** Hard playback reset (WebRTC rejoin). Use only for go-live / ended transitions. */
   onStreamHardRefresh?: () => void;
   /** @deprecated Prefer onStreamHardRefresh — kept for callers that only need metadata. */
@@ -159,57 +163,72 @@ export function useLiveRoomRealtimeSession(args: {
     setClockSkewMs(skew);
   }, []);
 
-  const fetchSnapshot = useCallback(async (): Promise<LiveRoomBuyerSnapshot | null> => {
-    fetchStartRef.current = Date.now();
-    setSyncRefreshing(true);
-    try {
-      const snap = await fetchLiveRoomBuyerSnapshot(args.accessToken, args.roomId);
-      refreshSkewFromServer(snap.serverNowMs, fetchStartRef.current);
-      setRoomSnap((prev) => {
-        const { snap: reconciled, lotChanged, staleIgnored, advanced } = reconcileBuyerSnapshotMonotonic(
-          prev,
-          snap,
-        );
-        if (staleIgnored) {
-          console.info('[bid] stale snapshot ignored', {
-            keptHighBidUsd: prev?.currentBidUsd ?? null,
-            incomingHighBidUsd: snap.currentBidUsd,
-            activeItemId: snap.activeItemId,
+  const fetchSnapshot = useCallback(
+    async (opts?: { authoritative?: boolean }): Promise<LiveRoomBuyerSnapshot | null> => {
+      fetchStartRef.current = Date.now();
+      setSyncRefreshing(true);
+      try {
+        const snap = await fetchLiveRoomBuyerSnapshot(args.accessToken, args.roomId);
+        refreshSkewFromServer(snap.serverNowMs, fetchStartRef.current);
+        setRoomSnap((prev) => {
+          if (opts?.authoritative) {
+            logBuyerRoomStateSnapshot('reconcile', snap, {
+              lotChanged: false,
+              staleIgnored: false,
+              advanced: false,
+              authoritative: true,
+            });
+            if (typeof snap.auctionEventSeq === 'number') {
+              syncAuctionSeqGuard(guardRef.current, snap.auctionEventSeq);
+            }
+            return snap;
+          }
+          const { snap: reconciled, lotChanged, staleIgnored, advanced } = reconcileBuyerSnapshotMonotonic(
+            prev,
+            snap,
+          );
+          if (staleIgnored) {
+            console.info('[bid] stale snapshot ignored', {
+              keptHighBidUsd: prev?.currentBidUsd ?? null,
+              incomingHighBidUsd: snap.currentBidUsd,
+              activeItemId: snap.activeItemId,
+            });
+          } else if (lotChanged) {
+            console.info('[bid] active lot changed, bid state reset', {
+              fromItemId: prev?.activeItemId ?? null,
+              toItemId: snap.activeItemId,
+              highBidUsd: snap.currentBidUsd,
+            });
+          } else if (advanced) {
+            console.info('[bid] high bid advanced', {
+              highBidUsd: reconciled.currentBidUsd,
+              minNextBidUsd: reconciled.minNextBidUsd,
+              activeItemId: reconciled.activeItemId,
+            });
+          }
+          console.info('[bid] snapshot merge result', {
+            lotChanged,
+            staleIgnored,
+            advanced,
+            prevActiveItemId: prev?.activeItemId ?? null,
+            nextActiveItemId: snap.activeItemId,
+            reconciledActiveItemId: reconciled.activeItemId,
           });
-        } else if (lotChanged) {
-          console.info('[bid] active lot changed, bid state reset', {
-            fromItemId: prev?.activeItemId ?? null,
-            toItemId: snap.activeItemId,
-            highBidUsd: snap.currentBidUsd,
-          });
-        } else if (advanced) {
-          console.info('[bid] high bid advanced', {
-            highBidUsd: reconciled.currentBidUsd,
-            minNextBidUsd: reconciled.minNextBidUsd,
-            activeItemId: reconciled.activeItemId,
-          });
-        }
-        console.info('[bid] snapshot merge result', {
-          lotChanged,
-          staleIgnored,
-          advanced,
-          prevActiveItemId: prev?.activeItemId ?? null,
-          nextActiveItemId: snap.activeItemId,
-          reconciledActiveItemId: reconciled.activeItemId,
+          logBuyerRoomStateSnapshot('reconcile', reconciled, { lotChanged, staleIgnored, advanced });
+          if (typeof snap.auctionEventSeq === 'number') {
+            syncAuctionSeqGuard(guardRef.current, snap.auctionEventSeq);
+          }
+          return reconciled;
         });
-        logBuyerRoomStateSnapshot('reconcile', reconciled, { lotChanged, staleIgnored, advanced });
-        if (typeof snap.auctionEventSeq === 'number') {
-          syncAuctionSeqGuard(guardRef.current, snap.auctionEventSeq);
-        }
-        return reconciled;
-      });
-      return snap;
-    } catch {
-      return null;
-    } finally {
-      setSyncRefreshing(false);
-    }
-  }, [args.accessToken, args.roomId, refreshSkewFromServer]);
+        return snap;
+      } catch {
+        return null;
+      } finally {
+        setSyncRefreshing(false);
+      }
+    },
+    [args.accessToken, args.roomId, refreshSkewFromServer],
+  );
 
   const scheduleReconcile = useCallback(
     (delayMs = RECONCILE_DEBOUNCE_MS) => {
@@ -344,7 +363,9 @@ export function useLiveRoomRealtimeSession(args: {
   useRealtimeRoomSubscription({
     liveRoomId: args.enabled ? args.roomId : null,
     enabled: args.enabled && isSupabaseConfigured(),
+    includeStaffChat: args.includeStaffChat === true,
     onLiveRoomMessage: (message) => {
+      if (message.messageType === 'staff' && !args.includeStaffChat) return;
       args.onChatBroadcast?.(message);
     },
     onMessagesRefreshMerge: () => args.onChatBroadcast?.({ id: '', body: '', messageType: '__refresh__' }),
@@ -457,6 +478,11 @@ export function useLiveRoomRealtimeSession(args: {
       if (status === 'SUBSCRIBED') {
         realtimeConnectedRef.current = true;
         setConnectionState('connected');
+        viewerLifecycleLog('subscription_connected', {
+          roomId: args.roomId,
+          layer: 'realtime',
+          reconnectCount,
+        });
         if (reconnectBannerTimerRef.current) {
           clearTimeout(reconnectBannerTimerRef.current);
           reconnectBannerTimerRef.current = null;
@@ -549,6 +575,29 @@ export function useLiveRoomRealtimeSession(args: {
     unresolvedPaymentFailure,
     fetchSnapshot,
     syncedNowMs: () => syncedWallTimeMs(clockSkewMs),
+    applyOptimisticBid: (args: { itemId: string; amountUsd: number }) => {
+      const wallNow = syncedWallTimeMs(clockSkewMs);
+      setRoomSnap((prev) => {
+        if (!prev) return prev;
+        const merged = mergeBuyerSnapshotForOptimisticBid(prev, {
+          itemId: args.itemId,
+          amountUsd: args.amountUsd,
+          wallNowMs: wallNow,
+        });
+        if (merged && (merged.currentBidUsd ?? 0) > (prev.currentBidUsd ?? 0)) {
+          console.info('[bid] high bid advanced', {
+            source: 'optimistic_hold',
+            highBidUsd: merged.currentBidUsd,
+            minNextBidUsd: merged.minNextBidUsd,
+            activeItemId: merged.activeItemId,
+          });
+        }
+        return merged ?? prev;
+      });
+    },
+    replaceRoomSnap: (snap: LiveRoomBuyerSnapshot | null) => {
+      setRoomSnap(snap);
+    },
     mergeBidAck: (ack: LiveBidHttpAck) => {
       refreshSkewFromRealtime(ack.serverNowMs);
       syncAuctionSeqGuard(guardRef.current, ack.auctionSeq);

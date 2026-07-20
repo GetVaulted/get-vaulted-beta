@@ -62,6 +62,8 @@ export type LiveRoomHostDetail = {
   description?: string | null;
   /** In-room show notes (not discovery description). */
   showNotes?: string | null;
+  /** Unlisted private shows cannot blast followers from share. */
+  discoveryVisibility?: 'public' | 'private';
   scheduledStartAt?: string | null;
   startedAt?: string | null;
   endedAt?: string | null;
@@ -352,6 +354,7 @@ export function hostConsoleRoomToDetail(room: HostConsoleRoom): LiveRoomHostDeta
     roomType: room.roomType,
     description: room.description ?? null,
     showNotes: room.showNotes ?? null,
+    discoveryVisibility: room.discoveryVisibility === 'private' ? 'private' : 'public',
     scheduledStartAt: room.scheduledStartAt ?? null,
     startedAt: room.startedAt ?? null,
     endedAt: room.endedAt ?? null,
@@ -427,6 +430,19 @@ function parsePaymentFailureRow(raw: unknown): HostPaymentFailureRow | null {
   };
 }
 
+export type HostSellerShowSummary = {
+  showId: string;
+  status: string;
+  grossShowSalesCents: number;
+  refundedShowSalesCents: number;
+  netShowSalesCents: number;
+  paidOrderCount: number;
+  currentFeeRatePercent: number;
+  nextTierFeePercent: number | null;
+  amountUntilNextTierCents: number | null;
+  tierProgressPercent: number;
+};
+
 export type HostConsolePayload = {
   serverNowMs: number;
   syncScope?: 'lite' | 'full';
@@ -435,10 +451,54 @@ export type HostConsolePayload = {
   activeItem: LiveRoomItemRow | null;
   recentSalesTotalUsd: number;
   recentSales: HostRecentSaleRow[];
+  sellerSummary: HostSellerShowSummary | null;
   paymentFailures: HostPaymentFailureRow[];
   messages: HostConsoleMessage[];
   giveaways: LiveGiveawayRow[];
 };
+
+function parseSellerSummary(raw: unknown): HostSellerShowSummary | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const showId = typeof o.showId === 'string' ? o.showId : '';
+  if (!showId) return null;
+  const feeTier =
+    o.feeTier && typeof o.feeTier === 'object' ? (o.feeTier as Record<string, unknown>) : null;
+  return {
+    showId,
+    status: typeof o.status === 'string' ? o.status : 'unknown',
+    grossShowSalesCents:
+      typeof o.grossShowSalesCents === 'number' && Number.isFinite(o.grossShowSalesCents)
+        ? o.grossShowSalesCents
+        : 0,
+    refundedShowSalesCents:
+      typeof o.refundedShowSalesCents === 'number' && Number.isFinite(o.refundedShowSalesCents)
+        ? o.refundedShowSalesCents
+        : 0,
+    netShowSalesCents:
+      typeof o.netShowSalesCents === 'number' && Number.isFinite(o.netShowSalesCents)
+        ? o.netShowSalesCents
+        : 0,
+    paidOrderCount:
+      typeof o.paidOrderCount === 'number' && Number.isFinite(o.paidOrderCount) ? o.paidOrderCount : 0,
+    currentFeeRatePercent:
+      typeof o.currentFeeRatePercent === 'number' && Number.isFinite(o.currentFeeRatePercent)
+        ? o.currentFeeRatePercent
+        : 8,
+    nextTierFeePercent:
+      typeof feeTier?.nextTierFeePercent === 'number' && Number.isFinite(feeTier.nextTierFeePercent)
+        ? feeTier.nextTierFeePercent
+        : null,
+    amountUntilNextTierCents:
+      typeof o.amountUntilNextTierCents === 'number' && Number.isFinite(o.amountUntilNextTierCents)
+        ? o.amountUntilNextTierCents
+        : null,
+    tierProgressPercent:
+      typeof o.tierProgressPercent === 'number' && Number.isFinite(o.tierProgressPercent)
+        ? o.tierProgressPercent
+        : 0,
+  };
+}
 
 export async function fetchHostConsole(
   accessToken: string,
@@ -470,6 +530,7 @@ async function fetchHostConsoleFromApi(
     queueItems?: { item: LiveRoomItemRow }[];
     messages?: HostConsoleMessage[];
     recentSales?: unknown[];
+    sellerSummary?: unknown;
     sellerUnresolvedPaymentFailures?: unknown[];
     giveaways?: LiveGiveawayRow[];
     error?: string;
@@ -489,6 +550,7 @@ async function fetchHostConsoleFromApi(
     .map(parseRecentSaleRow)
     .filter((r): r is HostRecentSaleRow => r != null);
   const recentSalesTotalUsd = recentSales.reduce((sum, s) => sum + s.amountUsd, 0);
+  const sellerSummary = parseSellerSummary(j.sellerSummary);
   const paymentFailures = (j.sellerUnresolvedPaymentFailures ?? [])
     .map(parsePaymentFailureRow)
     .filter((r): r is HostPaymentFailureRow => r != null);
@@ -502,6 +564,7 @@ async function fetchHostConsoleFromApi(
     activeItem,
     recentSalesTotalUsd,
     recentSales,
+    sellerSummary,
     paymentFailures,
     messages,
     giveaways,

@@ -78,6 +78,25 @@ const orderLedgerSelect = {
     },
   },
   shipmentPackages: { select: { labelCostCents: true } },
+  labelFinances: {
+    select: {
+      id: true,
+      orderId: true,
+      shippoTransactionId: true,
+      shippoShipmentId: true,
+      labelCostCents: true,
+      purpose: true,
+      replacesShippoTransactionId: true,
+      status: true,
+      sellerClawbackCents: true,
+      sellerClawbackReversalId: true,
+      sellerCreditCents: true,
+      sellerCreditTransferId: true,
+      clawbackIdempotencyKey: true,
+      creditIdempotencyKey: true,
+    },
+    orderBy: { createdAt: "asc" },
+  },
 } satisfies Prisma.OrderSelect;
 
 type OrderRow = Prisma.OrderGetPayload<{ select: typeof orderLedgerSelect }>;
@@ -137,6 +156,7 @@ function toLedgerInput(o: OrderRow): OrderLedgerInput {
     sellerUsername: o.seller.username,
     listingTitle: o.listing.title,
     packageLabelCostCents: packageLabel,
+    labelFinances: o.labelFinances,
   };
 }
 
@@ -562,21 +582,33 @@ export async function loadFinancialExceptions(filters: FinancialLedgerFilters = 
       });
     }
     if (
-      r.actualLabelCostCents.cents != null &&
-      r.actualLabelCostCents.cents > 0 &&
-      r.sellerLabelDeductionCents !== r.actualLabelCostCents.cents
+      r.labelFinanceActionStatus === "seller_charge_required" ||
+      r.labelFinanceActionStatus === "seller_credit_required" ||
+      r.labelFinanceActionStatus === "overcharge" ||
+      r.labelFinanceActionStatus === "waiting_for_shippo_refund"
     ) {
-      const gap = r.actualLabelCostCents.cents - r.sellerLabelDeductionCents;
+      const gap = (r.chargeableLabelCostCents ?? 0) - r.sellerLabelDeductionCents;
+      const action =
+        r.labelFinanceActionStatus === "waiting_for_shippo_refund"
+          ? "Waiting for Shippo refund — do not mark reconciled"
+          : r.labelFinanceActionStatus === "seller_charge_required"
+            ? "Retry label-cost reversal for the missing chargeable label"
+            : "Issue/record seller label credit for refunded replaced label";
       exceptions.push({
         id: `${r.orderId}:label_unrecovered`,
-        severity: gap > 0 ? "critical" : "warning",
-        type: gap > 0 ? "label_purchased_seller_not_charged" : "shipping_deduction_mismatch",
+        severity: r.labelFinanceActionStatus === "waiting_for_shippo_refund" ? "warning" : gap > 0 ? "critical" : "warning",
+        type:
+          r.labelFinanceActionStatus === "waiting_for_shippo_refund"
+            ? "shipping_deduction_mismatch"
+            : gap > 0
+              ? "label_purchased_seller_not_charged"
+              : "shipping_deduction_mismatch",
         orderId: r.orderId,
         sellerUsername: r.sellerUsername,
         amountAtRiskUsd: Math.abs(centsToUsd(gap)),
-        reason: r.varianceReasons.join("; ") || "Label cost ≠ seller deduction",
+        reason: r.varianceReasons.join("; ") || r.labelFinanceActionStatus,
         createdAt: r.createdAt,
-        recommendedAction: gap > 0 ? "Retry label-cost reversal (explicit admin action)" : "Inspect duplicate/partial reversal",
+        recommendedAction: action,
         resolutionStatus: "open",
       });
     }

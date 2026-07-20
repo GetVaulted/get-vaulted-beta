@@ -24,6 +24,9 @@ export async function fulfillOrderShippingAfterPayment(
   options?: {
     labelFormat?: SellerLabelPrintFormat;
     manualParcel?: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
+    /** Prior Shippo transaction this purchase replaces (regenerate / replacement workflow). */
+    replacesShippoTransactionId?: string | null;
+    purpose?: "initial" | "replacement" | "additional_package";
   },
 ): Promise<void> {
   if (!isShippoConfigured()) {
@@ -227,13 +230,18 @@ export async function fulfillOrderShippingAfterPayment(
       },
     });
 
+    // resolveShippoPurchaseLabel above throws on ERROR — clawback only runs after SUCCESS.
     const { chargeSellerForLabelCost, markOrderLabelCostReversalFailed } = await import(
       "@/services/shipping/charge-seller-label-cost"
     );
+    const replacesShippoTransactionId = options?.replacesShippoTransactionId?.trim() || null;
     const debit = await chargeSellerForLabelCost({
       orderId,
       labelCostCents: shippingLabelCostCents,
       shippoTransactionId: txId,
+      shippoShipmentId: sid,
+      purpose: options?.purpose ?? (replacesShippoTransactionId ? "replacement" : undefined),
+      replacesShippoTransactionId,
     });
     if (!debit.ok) {
       await markOrderLabelCostReversalFailed(orderId);

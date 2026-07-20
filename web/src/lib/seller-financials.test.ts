@@ -43,6 +43,14 @@ vi.mock("@/lib/seller-payout-estimate", () => ({
   },
 }));
 
+vi.mock("@/services/live-show-fee-settings", () => ({
+  ensureLiveShowFeeCache: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/services/platform-fee-settings", () => ({
+  ensureMarketplacePlatformFeeCache: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { buildSellerFinancialsSummary, payoutStatusLabel } from "./seller-financials";
 
 describe("payoutStatusLabel", () => {
@@ -93,10 +101,23 @@ describe("buildSellerFinancialsSummary", () => {
         paymentStatus: "paid",
         payoutStatus: "pending",
         payoutReserveAmountCents: 0,
+        shippingChargedCents: 500,
         shippingLabelCostCents: null,
         shippingLabelCostReversedCents: null,
-        stripeApplicationFeeCents: 500,
+        // Inflated Stripe application fee (platform + processing) — must NOT drive Get Vaulted fee.
+        stripeApplicationFeeCents: 690,
+        // Persisted platform fee snapshot at charge time (10% of $50).
+        platformFeeCents: 500,
+        platformFeePercentApplied: 10,
+        platformFeeBasisCents: 5000,
         stripeProcessingFeeCents: 190,
+        carrier: null,
+        service: null,
+        trackingNumber: null,
+        labelUrl: null,
+        shippoTransactionId: null,
+        labelCreatedAt: null,
+        labelFinances: [],
         createdAt: new Date("2026-07-18T16:00:00.000Z"),
         listing: { title: "Live spot", isCompanyListing: false },
         buyer: { username: "buyer_b" },
@@ -149,9 +170,10 @@ describe("buildSellerFinancialsSummary", () => {
     expect(summary.payoutStatusBreakdown.some((b) => b.status === "paid_out")).toBe(true);
     expect(summary.activity.find((a) => a.id === "l1")?.channel).toBe("live");
     expect(summary.metricsLifetimeGmvUsd).toBe(999);
-    // Live row used actual Stripe fee cents
+    // Live row uses persisted platform fee — ignores inflated stripeApplicationFeeCents (690).
     const live = summary.activity.find((a) => a.id === "l1");
     expect(live?.platformFeeUsd).toBe(5);
+    expect(live?.platformFeePercent).toBe(10);
     expect(live?.stripeProcessingFeeUsd).toBe(1.9);
     expect(live?.feesAreEstimates).toBe(false);
   });

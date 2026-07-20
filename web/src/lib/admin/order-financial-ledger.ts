@@ -10,6 +10,15 @@ import {
 } from "@/lib/platform-fee-policy";
 import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
 import { buyerShippingCentsFromOrder } from "@/lib/admin/shipping-reconciliation";
+import {
+  isLabelCostChargeable,
+  labelHasSuccessfulClawback,
+  labelNetSellerCents,
+  resolveLabelFinanceActionStatus,
+  summarizeLabelFinanceRows,
+  type LabelFinanceActionStatus,
+  type LabelFinanceRow,
+} from "@/services/shipping/label-finance";
 
 export type MoneySource = "actual" | "estimated" | "derived" | "unavailable";
 
@@ -67,6 +76,24 @@ export type OrderLedgerInput = {
   stripeTransferAmountCents?: number | null;
   /** Package label cost when order-level shippingLabelCostCents is null (bundled). */
   packageLabelCostCents?: number | null;
+  /** Per-Shippo-transaction label finance rows (preferred over Order summary alone). */
+  labelFinances?: LabelFinanceRow[] | null;
+};
+
+export type OrderLedgerLabelRow = {
+  shippoTransactionId: string;
+  shippoShipmentId: string | null;
+  labelCostCents: number;
+  purpose: string;
+  status: string;
+  sellerClawbackCents: number;
+  sellerCreditCents: number;
+  netSellerCents: number;
+  sellerClawbackReversalId: string | null;
+  sellerCreditTransferId: string | null;
+  replacesShippoTransactionId: string | null;
+  chargeable: boolean;
+  clawbackMissing: boolean;
 };
 
 export type OrderFinancialLedger = {
@@ -99,12 +126,23 @@ export type OrderFinancialLedger = {
   // Shipping label
   estimatedLabelCostCents: number | null;
   actualLabelCostCents: LabeledCents;
+  /** Chargeable label cost (active + still-chargeable replaced labels). */
+  chargeableLabelCostCents: number;
+  /** Sum of successful seller clawbacks (gross). */
+  grossSellerClawbackCents: number;
+  /** Sum of successful seller label credits. */
+  sellerLabelCreditCents: number;
+  /** Net seller deduction = gross clawbacks − credits. */
   sellerLabelDeductionCents: number;
   shippingLabelCostReversalId: string | null;
   shippoTransactionId: string | null;
   shippoShipmentId: string | null;
   trackingNumber: string | null;
   platformShippingVarianceCents: number;
+  labelFinanceRows: OrderLedgerLabelRow[];
+  labelFinanceActionStatus: LabelFinanceActionStatus;
+  /** True only when a specific chargeable label is missing a successful clawback. */
+  needsLabelCostRetry: boolean;
 
   // Derived nets
   sellerFinalNetCents: LabeledCents;
@@ -243,13 +281,26 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
           formula: "item + buyerShipping − platformFee − sellerPaidProcessing",
         };
 
-  const actualLabel = resolveActualLabelCostCents(input);
+  const labelFinances = input.labelFinances ?? [];
+  const labelSummary =
+    labelFinances.length > 0
+      ? summarizeLabelFinanceRows(labelFinances)
+      : null;
+
+  const chargeableFromRows = labelSummary?.chargeableLabelCostCents ?? null;
+  const actualLabel =
+    chargeableFromRows != null && chargeableFromRows > 0
+      ? chargeableFromRows
+      : resolveActualLabelCostCents(input);
   const actualLabelCostCents: LabeledCents =
     actualLabel != null
       ? {
           cents: actualLabel,
           source: "actual",
-          formula: "Order.shippingLabelCostCents or ShipmentPackage.labelCostCents",
+          formula:
+            labelFinances.length > 0
+              ? "sum(chargeable ShipmentLabelFinance.labelCostCents)"
+              : "Order.shippingLabelCostCents or ShipmentPackage.labelCostCents",
         }
       : {
           cents: null,
@@ -257,8 +308,49 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
           formula: "No purchased Shippo label recorded (session estimates are ignored)",
         };
 
-  const sellerLabelDeductionCents = Math.max(0, input.shippingLabelCostReversedCents ?? 0);
-  const platformShippingVarianceCents = sellerLabelDeductionCents - (actualLabel ?? 0);
+  const grossSellerClawbackCents =
+    labelSummary?.grossSellerClawbackCents ?? Math.max(0, input.shippingLabelCostReversedCents ?? 0);
+  const sellerLabelCreditCents = labelSummary?.sellerCreditCents ?? 0;
+  const sellerLabelDeductionCents =
+    labelSummary?.netSellerDeductionCents ?? Math.max(0, input.shippingLabelCostReversedCents ?? 0);
+  const chargeableLabelCostCents = actualLabel ?? 0;
+  const platformShippingVarianceCents = sellerLabelDeductionCents - chargeableLabelCostCents;
+
+  const labelFinanceRows: OrderLedgerLabelRow[] = labelFinances.map((row) => ({
+    shippoTransactionId: row.shippoTransactionId,
+    shippoShipmentId: row.shippoShipmentId,
+    labelCostCents: row.labelCostCents,
+    purpose: row.purpose,
+    status: row.status,
+    sellerClawbackCents: row.sellerClawbackCents,
+    sellerCreditCents: row.sellerCreditCents,
+    netSellerCents: labelNetSellerCents(row),
+    sellerClawbackReversalId: row.sellerClawbackReversalId,
+    sellerCreditTransferId: row.sellerCreditTransferId,
+    replacesShippoTransactionId: row.replacesShippoTransactionId,
+    chargeable: isLabelCostChargeable(row.status),
+    clawbackMissing: isLabelCostChargeable(row.status) && !labelHasSuccessfulClawback(row),
+  }));
+
+  const labelFinanceActionStatus = resolveLabelFinanceActionStatus({
+    chargeableLabelCostCents,
+    grossSellerClawbackCents,
+    sellerCreditCents: sellerLabelCreditCents,
+    netSellerDeductionCents: sellerLabelDeductionCents,
+    latestClawbackReversalId: input.shippingLabelCostReversalId,
+    latestChargedShippoTransactionId: labelSummary?.latestChargedShippoTransactionId ?? null,
+    hasRefundPending: labelSummary?.hasRefundPending ?? false,
+    labelsMissingClawback: labelSummary?.labelsMissingClawback ?? [],
+    labelsNeedingCredit: labelSummary?.labelsNeedingCredit ?? [],
+    labelCount: Math.max(labelFinances.length, actualLabel != null && actualLabel > 0 ? 1 : 0),
+  });
+
+  // Legacy path (no label finance rows): only retry when net deduction ≠ chargeable cost and deduction is short.
+  const needsLabelCostRetry =
+    labelFinances.length > 0
+      ? labelFinanceRows.some((r) => r.clawbackMissing)
+      : chargeableLabelCostCents > 0 &&
+        sellerLabelDeductionCents < chargeableLabelCostCents;
 
   const transferCents = sellerTransferCents.cents ?? 0;
   const sellerFinalNetCents: LabeledCents = {
@@ -296,10 +388,21 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
   if (stripeProcessingFeeCents.source === "estimated") {
     varianceReasons.push("Stripe processing fee missing — value marked Estimated (run fee backfill)");
   }
-  if (actualLabel != null && actualLabel > 0 && sellerLabelDeductionCents !== actualLabel) {
+  if (labelFinanceActionStatus === "waiting_for_shippo_refund") {
+    varianceReasons.push("Waiting for Shippo label refund/void on a replaced label");
+  }
+  if (labelFinanceActionStatus === "seller_credit_required" || labelFinanceActionStatus === "overcharge") {
     varianceReasons.push(
-      `Label cost ${actualLabel}¢ ≠ seller deduction ${sellerLabelDeductionCents}¢`,
+      `Seller credit required — net deduction ${sellerLabelDeductionCents}¢ > chargeable label ${chargeableLabelCostCents}¢`,
     );
+  }
+  if (labelFinanceActionStatus === "seller_charge_required") {
+    varianceReasons.push(
+      `Seller charge required — net deduction ${sellerLabelDeductionCents}¢ < chargeable label ${chargeableLabelCostCents}¢`,
+    );
+  }
+  if (labelFinanceActionStatus === "reconciled_multiple_labels") {
+    // Informational — not an exception; both chargeable labels are expected.
   }
   if (actualLabel != null && actualLabel > 0 && sellerLabelDeductionCents === 0) {
     varianceReasons.push("Get Vaulted paid a label but no seller reimbursement exists");
@@ -332,17 +435,20 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
   let reconciliationStatus: OrderFinancialLedger["reconciliationStatus"] = "reconciled";
   if (isChargeback) reconciliationStatus = "chargeback";
   else if (isRefunded) reconciliationStatus = "refunded";
-  else if (
-    actualLabel != null &&
-    actualLabel > 0 &&
-    (sellerLabelDeductionCents !== actualLabel || input.shippingStatus === "label_cost_reversal_failed")
+  else if (labelFinanceActionStatus === "waiting_for_shippo_refund") {
+    reconciliationStatus = "exception";
+  } else if (
+    labelFinanceActionStatus === "seller_charge_required" ||
+    labelFinanceActionStatus === "seller_credit_required" ||
+    labelFinanceActionStatus === "overcharge" ||
+    input.shippingStatus === "label_cost_reversal_failed"
   ) {
     reconciliationStatus = "exception";
   } else if (stripeProcessingFeeCents.source === "estimated") {
     reconciliationStatus = "estimated";
   } else if (!input.shippoTransactionId && input.fulfillmentStatus === "pending") {
     reconciliationStatus = "pending_label";
-  } else if (varianceReasons.some((r) => r.includes("≠") || r.includes("failed") || r.includes("missing"))) {
+  } else if (varianceReasons.some((r) => r.includes("failed") || r.includes("missing"))) {
     reconciliationStatus = "exception";
   }
 
@@ -380,12 +486,18 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
 
     estimatedLabelCostCents: input.estimatedLabelCostCents,
     actualLabelCostCents,
+    chargeableLabelCostCents,
+    grossSellerClawbackCents,
+    sellerLabelCreditCents,
     sellerLabelDeductionCents,
     shippingLabelCostReversalId: input.shippingLabelCostReversalId,
     shippoTransactionId: input.shippoTransactionId,
     shippoShipmentId: input.shippoShipmentId,
     trackingNumber: input.trackingNumber,
     platformShippingVarianceCents,
+    labelFinanceRows,
+    labelFinanceActionStatus,
+    needsLabelCostRetry,
 
     sellerFinalNetCents,
     platformEarnedRevenueCents,

@@ -47,6 +47,10 @@ export function emitLiveRoomMessageDto(liveRoomId: string, dto: LiveRoomMessageD
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.chatMessage, { message: dto });
 }
 
+export function emitLiveRoomStaffMessageDto(liveRoomId: string, dto: LiveRoomMessageDTO): void {
+  emitRoomEventWithAliases(liveRoomId, RT_EVENT.staffChatMessage, { message: dto });
+}
+
 export async function emitLiveRoomMessageById(messageId: string): Promise<void> {
   const row = await prisma.liveRoomMessage.findUnique({
     where: { id: messageId },
@@ -54,7 +58,12 @@ export async function emitLiveRoomMessageById(messageId: string): Promise<void> 
   });
   if (!row) return;
   const mentions = await loadMentionsForSource("live_room_message", row.id);
-  emitLiveRoomMessageDto(row.liveRoomId, serializeLiveRoomMessage(row, mentions));
+  const dto = serializeLiveRoomMessage(row, mentions);
+  if (row.messageType === "staff") {
+    emitLiveRoomStaffMessageDto(row.liveRoomId, dto);
+    return;
+  }
+  emitLiveRoomMessageDto(row.liveRoomId, dto);
 }
 
 export function emitLiveRoomMessagesRefetch(liveRoomId: string): void {

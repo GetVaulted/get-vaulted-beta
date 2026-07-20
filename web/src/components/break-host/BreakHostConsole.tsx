@@ -118,6 +118,7 @@ type RoomPayload = {
   sellerId: string;
   title: string;
   status: string;
+  discoveryVisibility?: "public" | "private";
   roomVersion: number;
   viewerCount: number;
   breakFormat: string;
@@ -943,6 +944,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   useRealtimeRoomSubscription({
     liveRoomId: roomId,
     enabled: Boolean(roomId),
+    includeStaffChat: true,
     onLiveRoomMessage: (m) => {
       logLiveDebugEvent({
         event: "event_received",
@@ -2304,6 +2306,13 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       busy={busy}
       viewerCount={viewerCount}
       onMessagesRefresh={() => void mergeHostMessagesFromApi()}
+      onMessagesChange={(next) => {
+        setData((prev) => {
+          if (!prev) return prev;
+          const messages = typeof next === "function" ? next(prev.messages) : next;
+          return { ...prev, messages };
+        });
+      }}
       variant="sidebar"
       uiDimmed={false}
     />
@@ -2319,6 +2328,13 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       onSendSystem={() => void sendSystem()}
       busy={busy}
       onMessagesRefresh={() => void mergeHostMessagesFromApi()}
+      onMessagesChange={(next) => {
+        setData((prev) => {
+          if (!prev) return prev;
+          const messages = typeof next === "function" ? next(prev.messages) : next;
+          return { ...prev, messages };
+        });
+      }}
       variant="overlay"
     />
   );
@@ -2787,7 +2803,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
           "Host"
         }
         isLive={data?.room?.status === "live"}
-        canNotifyFollowers
+        canNotifyFollowers={data?.room?.discoveryVisibility !== "private"}
         onToast={(msg) => setToast(msg)}
       />
     </div>

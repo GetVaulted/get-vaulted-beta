@@ -7,8 +7,10 @@ import {
   useStageParticipants,
 } from 'expo-realtime-ivs-broadcast';
 import { joinStageSerialized, leaveStageSerialized } from '../lib/ivsStageGate';
+import { markBuyerStageSubscribeTornDown } from '../lib/liveStreamPlayback';
 import { invalidateViewerStageToken, resolveViewerStageToken } from '../lib/liveStreamPrefetchCache';
 import { ensureStageSdkInitialized } from '../lib/stageSdk';
+import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
 
 /** If no remote media arrives within this window, retry before failing over to HLS. */
 const CONNECT_TIMEOUT_MS = 12_000;
@@ -29,10 +31,19 @@ export type MobileStageRemoteTarget = {
 
 export type MobileStageSubscribePhase = 'idle' | 'connecting' | 'connected' | 'failed';
 
+async function teardownBuyerStage(reason: string): Promise<void> {
+  markBuyerStageSubscribeTornDown();
+  viewerLifecycleLog('stage_teardown', { reason });
+  await leaveStageSerialized(() => leaveStage());
+  viewerLifecycleLog('cleanup_completed', { reason });
+}
+
 /**
- * Buyer-side native IVS Real-Time Stage subscriber (Expo iOS/Android).
- * Fetches a subscribe-only token, joins the stage without publishing, and surfaces the
- * first remote participant's video stream for `ExpoIVSRemoteStreamView`.
+ * Buyer-side native IVS Real-Time Stage subscriber.
+ *
+ * On leave (`active=false` / unmount): fully leaveStage and reset local join state so the next
+ * focus can start clean. Process-wide `markBuyerStageSubscribeTornDown` tells the transport
+ * planner to prefer HLS on re-entry (WebRTC leave→rejoin poisons the native video surface).
  */
 export function useMobileStageSubscribe(args: {
   roomId: string;
@@ -49,16 +60,13 @@ export function useMobileStageSubscribe(args: {
     'disconnected',
   );
   const connectedRef = useRef(false);
+  const hasJoinedStageRef = useRef(false);
   const rejoinRef = useRef<(trigger: string) => void>(() => {});
   const cbRef = useRef(args);
   cbRef.current = args;
   const { participants } = useStageParticipants();
 
   const remoteVideo = useMemo((): MobileStageRemoteTarget => {
-    // The Stage SDK is a process-wide singleton and does not purge the previous room's
-    // participants the instant we leave. Only trust the participant list once the new
-    // stage reports `connected`; otherwise a show→show swap can bind the video surface
-    // to a torn-down participant (audio plays, video stays black).
     if (connectionState !== 'connected') return null;
     for (const participant of participants) {
       const video = participant.streams.find((s) => s.mediaType === 'video');
@@ -69,12 +77,38 @@ export function useMobileStageSubscribe(args: {
     return null;
   }, [participants, connectionState]);
 
+  // Trace what the Stage SDK reports about remote media — used to tell "participant joined but no
+  // video stream" apart from "video stream present but native surface never painted".
+  useEffect(() => {
+    if (!args.active) return;
+    let videoStreams = 0;
+    let audioStreams = 0;
+    for (const p of participants) {
+      for (const s of p.streams) {
+        if (s.mediaType === 'video') videoStreams += 1;
+        else if (s.mediaType === 'audio') audioStreams += 1;
+      }
+    }
+    viewerLifecycleLog('stage_participants_changed', {
+      roomId: args.roomId,
+      participantCount: participants.length,
+      videoStreamPresent: videoStreams > 0,
+      audioStreamPresent: audioStreams > 0,
+      remoteVideoPresent: Boolean(remoteVideo),
+      connectionState,
+    });
+  }, [participants, remoteVideo, connectionState, args.active, args.roomId]);
+
   useEffect(() => {
     if (!remoteVideo || connectedRef.current || connectionState !== 'connected') return;
     connectedRef.current = true;
     setPhase('connected');
+    viewerLifecycleLog('subscription_connected', {
+      roomId: args.roomId,
+      participantId: remoteVideo.participantId,
+    });
     cbRef.current.onConnected();
-  }, [remoteVideo, connectionState]);
+  }, [remoteVideo, connectionState, args.roomId]);
 
   useEffect(() => {
     if (!args.active || !connectedRef.current) return undefined;
@@ -96,12 +130,23 @@ export function useMobileStageSubscribe(args: {
 
   useEffect(() => {
     if (!args.active) {
+      viewerLifecycleLog('screen_blurred_or_inactive', { roomId: args.roomId });
+      const hadJoin = hasJoinedStageRef.current;
       connectedRef.current = false;
+      hasJoinedStageRef.current = false;
       setPhase('idle');
       setConnectionState('disconnected');
-      void leaveStageSerialized(() => leaveStage());
+      if (hadJoin) {
+        void teardownBuyerStage('active_false');
+      }
       return;
     }
+
+    viewerLifecycleLog('viewer_initialization_started', {
+      roomId: args.roomId,
+      subscribeEpoch: args.subscribeEpoch ?? 0,
+      refreshNonce: args.refreshNonce ?? 0,
+    });
 
     let cancelled = false;
     let connectTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -132,9 +177,11 @@ export function useMobileStageSubscribe(args: {
     const fail = (reason: string) => {
       if (cancelled) return;
       connectedRef.current = false;
+      hasJoinedStageRef.current = false;
       setPhase('failed');
       setConnectionState('disconnected');
-      void leaveStageSerialized(() => leaveStage());
+      viewerLifecycleLog('player_error', { roomId: args.roomId, reason });
+      void teardownBuyerStage(`fail_${reason}`);
       cbRef.current.onFailed(reason);
     };
 
@@ -156,12 +203,13 @@ export function useMobileStageSubscribe(args: {
       rejoinInFlight = true;
       invalidateViewerStageToken(args.roomId);
       connectedRef.current = false;
+      hasJoinedStageRef.current = false;
       setPhase('connecting');
       setConnectionState('connecting');
       clearTimers();
       teardownListeners();
       try {
-        await leaveStageSerialized(() => leaveStage());
+        await teardownBuyerStage(`rejoin_${trigger}`);
         if (cancelled) return;
         await joinOnce();
       } finally {
@@ -188,6 +236,7 @@ export function useMobileStageSubscribe(args: {
       connSub = addOnStageConnectionStateChangedListener((evt) => {
         if (cancelled) return;
         setConnectionState(evt.state);
+        viewerLifecycleLog('player_state_changed', { roomId: args.roomId, state: evt.state });
         if (evt.state === 'connected' && !evt.error) {
           rejoinAttempts = 0;
           scheduleTokenRefresh();
@@ -195,6 +244,7 @@ export function useMobileStageSubscribe(args: {
         }
         if (evt.state === 'disconnected' && connectedRef.current) {
           connectedRef.current = false;
+          hasJoinedStageRef.current = false;
           setPhase('connecting');
           cbRef.current.onDisconnected();
           void attemptRejoin('connection_disconnected');
@@ -208,6 +258,11 @@ export function useMobileStageSubscribe(args: {
       errSub = addOnStageErrorListener((evt) => {
         if (cancelled) return;
         if (!evt.isFatal) return;
+        viewerLifecycleLog('player_error', {
+          roomId: args.roomId,
+          code: evt.code,
+          description: evt.description,
+        });
         if (connectedRef.current) {
           void attemptRejoin(evt.description || `stage_error_${evt.code}`);
         } else {
@@ -226,9 +281,16 @@ export function useMobileStageSubscribe(args: {
         }
         if (cancelled) return;
 
+        viewerLifecycleLog('player_created', { roomId: args.roomId, transport: 'webrtc' });
+        viewerLifecycleLog('stage_join_serialized_start', {
+          roomId: args.roomId,
+          subscribeEpoch: args.subscribeEpoch ?? 0,
+        });
         await joinStageSerialized(joinStage, token);
+        viewerLifecycleLog('stage_join_serialized_end', { roomId: args.roomId });
+        hasJoinedStageRef.current = true;
         if (cancelled) {
-          await leaveStageSerialized(() => leaveStage());
+          await teardownBuyerStage('cancelled_after_join');
           return;
         }
 
@@ -251,10 +313,14 @@ export function useMobileStageSubscribe(args: {
       rejoinRef.current = () => {};
       clearTimers();
       teardownListeners();
+      const hadJoin = hasJoinedStageRef.current;
       connectedRef.current = false;
+      hasJoinedStageRef.current = false;
       setPhase('idle');
       setConnectionState('disconnected');
-      void leaveStageSerialized(() => leaveStage());
+      if (hadJoin) {
+        void teardownBuyerStage('effect_cleanup');
+      }
     };
   }, [args.active, args.accessToken, args.roomId, args.refreshNonce, args.subscribeEpoch]);
 

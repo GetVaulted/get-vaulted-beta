@@ -72,6 +72,13 @@ export async function resolveShippoTransactionLabel(
       );
     }
 
+    const objectState = String((tx as { object_state?: unknown }).object_state ?? "").toUpperCase();
+    if (objectState === "INVALID") {
+      throw new Error(
+        shippoFailureMessage(tx, "Shippo returned an INVALID transaction. Label was not purchased."),
+      );
+    }
+
     const resolved = resolvedFromTransaction(tx, txId);
     if (resolved && isSuccessShippoStatus(tx.status)) return resolved;
     if (resolved && !isPendingShippoStatus(tx.status)) return resolved;
@@ -114,6 +121,18 @@ export async function resolveShippoPurchaseLabel(
       shippoFailureMessage(
         purchase,
         "Shippo rejected the label purchase. Confirm ship-from, buyer address, and parcel size.",
+      ),
+    );
+  }
+
+  const purchaseObjectState = String(
+    (purchase as { object_state?: unknown }).object_state ?? "",
+  ).toUpperCase();
+  if (purchaseObjectState === "INVALID") {
+    throw new Error(
+      shippoFailureMessage(
+        purchase,
+        "Shippo returned an INVALID transaction. Label was not purchased.",
       ),
     );
   }

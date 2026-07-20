@@ -16,9 +16,10 @@ import {
   Text,
   useWindowDimensions,
   View,
+  type LayoutChangeEvent,
 } from 'react-native';
 import PagerView from 'react-native-pager-view';
-import { GestureDetector } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, Pressable as GHPressable } from 'react-native-gesture-handler';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../theme';
@@ -39,6 +40,7 @@ import { LiveSpotTakenCelebration } from './LiveSpotTakenCelebration';
 import { VaultRevealOverlay } from './VaultRevealOverlay';
 import { LiveGiveawaySideTab } from './LiveGiveawaySideTab';
 import { useLiveImmersiveChrome } from '../../hooks/useLiveImmersiveChrome';
+import { useLiveStageInspectZoom } from '../../hooks/useLiveStageInspectZoom';
 import {
   CHAT_ABOVE_COMPOSER_GAP,
   COMPOSER_BAR_HEIGHT,
@@ -192,6 +194,7 @@ function LiveSlide({
   stream,
   isActive,
   playbackMode,
+  screenFocused = true,
   stageContainer,
   screenHeight,
   onBack,
@@ -202,12 +205,14 @@ function LiveSlide({
   onWalletOverlayChange,
   onPaymentBlockerChange,
   onWalletGateHostChange,
+  onInspectZoomChange,
   roomVisitNonce = 0,
   onSpotCelebrationHostChange,
 }: {
   stream: LiveStream;
   isActive: boolean;
   playbackMode: LivePlaybackMode;
+  screenFocused?: boolean;
   stageContainer: LiveStageContainer;
   screenHeight: number;
   onBack?: () => void;
@@ -221,6 +226,7 @@ function LiveSlide({
     snapshot: WalletGateHostSnapshot | null,
     actions: WalletGateHostActions | null,
   ) => void;
+  onInspectZoomChange?: (active: boolean) => void;
   roomVisitNonce?: number;
   onSpotCelebrationHostChange?: (host: LiveSpotCelebrationHost | null) => void;
 }) {
@@ -247,6 +253,7 @@ function LiveSlide({
   const [reportOpen, setReportOpen] = useState(false);
   const [reportChatMessage, setReportChatMessage] = useState<ChatMessage | null>(null);
   const [chatDraft, setChatDraft] = useState('');
+  const [staffChatOnly, setStaffChatOnly] = useState(false);
   const [streamMuted, setStreamMuted] = useState(false);
   const [streamRefreshNonce, setStreamRefreshNonce] = useState(0);
   const [roomStatus, setRoomStatus] = useState(stream.roomStatus);
@@ -416,19 +423,23 @@ function LiveSlide({
     exempt: modActor.canModerate,
   });
 
+  // Realtime must follow screen focus — `isActive` stays true for the pager page even when the
+  // LiveRoom screen is blurred/covered, which previously left channels open without a clean resubscribe.
   const liveSession = useLiveRoomRealtimeSession({
     roomId: stream.id,
     accessToken,
     userId,
-    enabled: isActive,
+    enabled: isActive && screenFocused,
     hostUsername: stream.host.handle.replace(/^@/, '') || stream.host.name,
     viewerDisplayName: myChatSender.username ?? null,
+    includeStaffChat: modActor.canModerate,
     onModerationChanged: () => void moderation.reload(),
     onChatBroadcast: (message) => {
       if (!message.id) {
         void liveChat.reload();
         return;
       }
+      if (message.messageType === 'staff' && !modActor.canModerate) return;
       liveChat.appendBroadcast(message);
     },
     onStreamRefresh: () => {
@@ -684,7 +695,13 @@ function LiveSlide({
     };
   }, [signedIn, accessToken, liveChat.announceLeave]);
 
-  const chatPool = liveChat.messages;
+  const chatPool = useMemo(
+    () =>
+      modActor.canModerate
+        ? liveChat.messages
+        : liveChat.messages.filter((m) => m.messageType !== 'staff'),
+    [liveChat.messages, modActor.canModerate],
+  );
 
   const pinnedModerator = useMemo(() => {
     if (!moderation.pinnedMessageActive) return null;
@@ -741,8 +758,19 @@ function LiveSlide({
   const giveawayTabTop = computeGiveawaySideTabTop(stageInsets.top, layoutWidth);
   const slowModeTimerBottom = bottomStack.slowModeBottom;
 
+  const [inspectZoomActive, setInspectZoomActive] = useState(false);
+
+  const handleInspectZoomActiveChange = useCallback(
+    (active: boolean) => {
+      setInspectZoomActive(active);
+      onInspectZoomChange?.(active);
+    },
+    [onInspectZoomChange],
+  );
+
   const immersiveGestureEnabled =
     isActive &&
+    !inspectZoomActive &&
     !shopOpen &&
     !tipOpen &&
     !modDrawerOpen &&
@@ -755,14 +783,47 @@ function LiveSlide({
     !walletParticipationBlocked &&
     !(liveSession.unresolvedPaymentFailure && signedIn && accessToken);
 
+  const inspectZoomEnabled =
+    isActive &&
+    !shopOpen &&
+    !tipOpen &&
+    !modDrawerOpen &&
+    !reportOpen &&
+    !modActionMessage &&
+    !preBidItem &&
+    !chatExpanded &&
+    keyboardOffset <= 0 &&
+    breakDisclaimerAccepted;
+
   const immersiveChrome = useLiveImmersiveChrome({
     stageWidth: layoutWidth,
     enabled: immersiveGestureEnabled,
   });
 
+  const inspectZoom = useLiveStageInspectZoom({
+    enabled: inspectZoomEnabled,
+    onActiveChange: handleInspectZoomActiveChange,
+  });
+
+  const stageGestures = useMemo(
+    () => Gesture.Simultaneous(immersiveChrome.pan, inspectZoom.gesture),
+    [immersiveChrome.pan, inspectZoom.gesture],
+  );
+
+  const onStageVideoLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { width, height } = event.nativeEvent.layout;
+      inspectZoom.onLayout(width, height);
+    },
+    [inspectZoom],
+  );
+
   useEffect(() => {
-    if (!isActive) immersiveChrome.restore();
-  }, [isActive, immersiveChrome.restore]);
+    if (!isActive) {
+      immersiveChrome.restore();
+      inspectZoom.reset();
+    }
+  }, [isActive, immersiveChrome.restore, inspectZoom.reset]);
 
   useEffect(() => {
     setChatExpanded(false);
@@ -905,9 +966,13 @@ function LiveSlide({
     chatComposerRef.current?.dismissSuggestions();
     setChatDraft('');
     try {
-      const ok = await liveChat.send(t);
+      const ok = await liveChat.send(t, {
+        staffOnly: staffChatOnly && modActor.canModerate,
+      });
       if (ok) {
-        slowMode.recordSuccessfulSend();
+        if (!(staffChatOnly && modActor.canModerate)) {
+          slowMode.recordSuccessfulSend();
+        }
         chatComposerRef.current?.blur();
         Keyboard.dismiss();
       }
@@ -929,6 +994,8 @@ function LiveSlide({
     liveChat.sending,
     liveChat.send,
     moderation.handleRestrictionError,
+    staffChatOnly,
+    modActor.canModerate,
   ]);
 
   const openHostProfile = useCallback(() => {
@@ -1072,21 +1139,30 @@ function LiveSlide({
         <KeyboardDismissStageShield active={keyboardOffset > 0} />
         <View style={computeLiveStageHostStyle(stageContainer)}>
           <View style={[styles.stageRoot, computeLiveStageRootStyle(stageContainer)]}>
-            <GestureDetector gesture={immersiveChrome.pan}>
+            <GestureDetector gesture={stageGestures}>
               <View style={styles.stageGestureRoot}>
-            <View style={styles.stageVideoFrame} pointerEvents="box-none">
-              <LiveStagePlayback
-                roomId={stream.id}
-                roomStatus={roomStatus}
-                scheduledStartAtIso={stream.scheduledStartAtIso}
-                thumbnailUrl={stream.previewImageUrl}
-                playbackMode={playbackMode}
-                accessToken={accessToken}
-                refreshNonce={streamRefreshNonce}
-                muted={isActive ? streamMuted : true}
-                onMutedChange={setStreamMuted}
-                onBroadcastGateChange={handleBroadcastGateChange}
-              />
+            <View
+              style={styles.stageVideoFrame}
+              pointerEvents="box-none"
+              onLayout={onStageVideoLayout}
+            >
+              <Animated.View style={[StyleSheet.absoluteFill, inspectZoom.videoStyle]}>
+                <LiveStagePlayback
+                  roomId={stream.id}
+                  roomStatus={roomStatus}
+                  scheduledStartAtIso={stream.scheduledStartAtIso}
+                  thumbnailUrl={stream.previewImageUrl}
+                  teaserVideoUrl={stream.teaserVideoUrl}
+                  playbackMode={playbackMode}
+                  accessToken={accessToken}
+                  // roomVisitNonce: focus re-entry must refetch/reload even when showId is unchanged.
+                  refreshNonce={streamRefreshNonce + roomVisitNonce}
+                  roomVisitNonce={roomVisitNonce}
+                  muted={isActive ? streamMuted : true}
+                  onMutedChange={setStreamMuted}
+                  onBroadcastGateChange={handleBroadcastGateChange}
+                />
+              </Animated.View>
               <LinearGradient
                 colors={stream.thumbnailGradient}
                 start={{ x: 0.1, y: 0 }}
@@ -1163,20 +1239,21 @@ function LiveSlide({
                 <LiveRoomText style={styles.endedBadge}>ENDED</LiveRoomText>
               )}
               <LiveRoomText style={[styles.viewersTopRight, compact && styles.viewersTopRightCompact]}>
-                {formatViewers(liveSession.viewerCount ?? 0)}
+                {liveSession.viewerCount == null ? '—' : formatViewers(liveSession.viewerCount)}
               </LiveRoomText>
             </View>
-            <Pressable
+            <GHPressable
               style={styles.iconTopBare}
               onPress={() => setStreamMuted((m) => !m)}
               accessibilityLabel={streamMuted ? 'Unmute stream' : 'Mute stream'}
+              hitSlop={10}
             >
               <Ionicons
                 name={streamMuted ? 'volume-mute-outline' : 'volume-high-outline'}
                 size={20}
                 color="rgba(255,255,255,0.88)"
               />
-            </Pressable>
+            </GHPressable>
             <Pressable
               style={styles.iconTopBare}
               onPress={openProfileSettings}
@@ -1508,16 +1585,25 @@ function LiveSlide({
         value={chatDraft}
         onChangeText={setChatDraft}
         onSend={sendFloatingChat}
-        placeholder={chatComposerPlaceholder}
+        placeholder={
+          staffChatOnly && modActor.canModerate ? 'Staff only…' : chatComposerPlaceholder
+        }
         inputDisabled={
-          slowMode.chatBlocked ||
+          (slowMode.chatBlocked && !(staffChatOnly && modActor.canModerate)) ||
           Boolean(moderation.myRestrictions?.muted || liveChat.error?.includes('muted'))
         }
-        sendDisabled={liveChat.sending || breakParticipationBlocked || slowMode.chatBlocked}
+        sendDisabled={
+          liveChat.sending ||
+          breakParticipationBlocked ||
+          (slowMode.chatBlocked && !(staffChatOnly && modActor.canModerate))
+        }
         accessToken={accessToken}
         liveRoomId={stream.id}
         inputRef={chatComposerRef}
         overlayScale={overlayScale}
+        canUseStaffChat={modActor.canModerate}
+        staffOnly={staffChatOnly}
+        onStaffOnlyChange={setStaffChatOnly}
         leadingAccessory={
           showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) ? (
             <ModeratorToolsButton onPress={() => setModDrawerOpen(true)} />
@@ -1576,6 +1662,8 @@ function LiveSlide({
           onRefreshSnapshot={liveSession.fetchSnapshot}
           clockSkewMs={liveSession.clockSkewMs}
           mergeBidAck={liveSession.mergeBidAck}
+          applyOptimisticBid={liveSession.applyOptimisticBid}
+          replaceRoomSnap={liveSession.replaceRoomSnap}
           onBidPlaced={(amount) => liveSession.setMyHighBidUsd(amount)}
           onBidNotice={showBidNotice}
           participationBlocked={
@@ -1860,6 +1948,7 @@ export function VerticalLiveFeed({
   const [page, setPage] = useState(startIndex);
   const [peekPage, setPeekPage] = useState<number | null>(null);
   const [walletOverlayActive, setWalletOverlayActive] = useState(false);
+  const [inspectZoomActive, setInspectZoomActive] = useState(false);
   const [paymentBlockerActive, setPaymentBlockerActive] = useState(false);
   const [walletGateHost, setWalletGateHost] = useState<WalletGateHostSnapshot | null>(null);
   const [spotCelebrationHost, setSpotCelebrationHost] = useState<LiveSpotCelebrationHost | null>(null);
@@ -1893,9 +1982,10 @@ export function VerticalLiveFeed({
     walletGateActionsRef.current?.leaveRoom();
   }, []);
 
-  // Only pause native paging while a wallet sheet is actually open — never for
-  // incomplete wallet readiness (that was freezing show-to-show scroll).
-  const feedGesturesEnabled = streams.length > 1 && !walletOverlayActive && !paymentBlockerActive;
+  // Only pause native paging while a wallet sheet is open or the buyer is pinch-inspecting
+  // the stage — never for incomplete wallet readiness (that was freezing show-to-show scroll).
+  const feedGesturesEnabled =
+    streams.length > 1 && !walletOverlayActive && !paymentBlockerActive && !inspectZoomActive;
 
   const warmPageIndices = useMemo(() => {
     const indices = new Set<number>([page]);
@@ -2088,6 +2178,7 @@ export function VerticalLiveFeed({
                 stream={stream}
                 isActive={index === page}
                 playbackMode={resolvePlaybackMode(index)}
+                screenFocused={screenFocused}
                 stageContainer={stageContainer}
                 screenHeight={viewportHeight}
                 onBack={onBack}
@@ -2098,6 +2189,7 @@ export function VerticalLiveFeed({
                 onWalletOverlayChange={setWalletOverlayActive}
                 onPaymentBlockerChange={setPaymentBlockerActive}
                 onWalletGateHostChange={handleWalletGateHostChange}
+                onInspectZoomChange={setInspectZoomActive}
                 roomVisitNonce={roomVisitNonce}
                 onSpotCelebrationHostChange={handleSpotCelebrationHostChange}
               />

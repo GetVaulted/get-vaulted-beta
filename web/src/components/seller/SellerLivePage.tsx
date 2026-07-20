@@ -1376,7 +1376,7 @@ export function SellerLivePage() {
                   <p className="mt-3 text-sm leading-relaxed text-zinc-500">
                     {discoveryVisibility === "public"
                       ? "Public shows appear on the Live Shows tab for all buyers."
-                      : "Private shows are hidden from Live Shows. Share your link so invited viewers can join."}
+                      : "Private shows are hidden from Live Shows and do not notify your followers when you go live. Share your link to invite viewers."}
                   </p>
                 </div>
 

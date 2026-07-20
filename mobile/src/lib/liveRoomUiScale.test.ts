@@ -4,6 +4,8 @@ import {
   computeLiveRoomUiMetrics,
   liveRoomCanvasInsets,
   liveRoomHudScale,
+  liveRoomOverlayScale,
+  LIVE_ROOM_PHONE_OVERLAY_SCALE,
   LIVE_ROOM_REF_WIDTH,
 } from './liveRoomUiScale';
 
@@ -44,6 +46,14 @@ describe('liveRoomHudScale', () => {
     expect(liveRoomHudScale(390)).toBeLessThanOrEqual(1);
     expect(liveRoomHudScale(768)).toBeGreaterThan(1.6);
     expect(liveRoomHudScale(1024)).toBeGreaterThan(1.7);
+  });
+});
+
+describe('liveRoomOverlayScale', () => {
+  it('applies a modest phone bump and keeps iPad on the larger HUD scale', () => {
+    expect(liveRoomOverlayScale(390)).toBe(LIVE_ROOM_PHONE_OVERLAY_SCALE);
+    expect(liveRoomOverlayScale(430)).toBe(LIVE_ROOM_PHONE_OVERLAY_SCALE);
+    expect(liveRoomOverlayScale(768)).toBe(liveRoomHudScale(768));
   });
 });
 

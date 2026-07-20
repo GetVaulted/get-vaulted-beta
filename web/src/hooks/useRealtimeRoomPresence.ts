@@ -4,6 +4,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { countRoomPresenceViewers } from "@/lib/live-room-presence-count";
 import { buildPresenceChannelKey } from "@/lib/live-room-presence-key";
 import {
+  parseViewerCountBroadcast,
+  shouldPublishViewerCountBroadcast,
+} from "@/lib/live-room-viewer-count-broadcast";
+import {
   releaseLiveRoomChannel,
   retainLiveRoomChannel,
   subscribeLiveRoomChannel,
@@ -53,7 +57,8 @@ export function useRealtimeRoomPresence(opts: {
     onViewerEvent,
     onPresenceStateChange,
   } = opts;
-  const [viewerCount, setViewerCount] = useState<number | null>(null);
+  const [localCount, setLocalCount] = useState<number | null>(null);
+  const [broadcastCount, setBroadcastCount] = useState<number | null>(null);
 
   const onViewerEventRef = useRef(onViewerEvent);
   const onPresenceStateChangeRef = useRef(onPresenceStateChange);
@@ -63,6 +68,7 @@ export function useRealtimeRoomPresence(opts: {
   viewerDisplayNameRef.current = viewerDisplayName;
 
   const presenceKeyRef = useRef("");
+  const lastBroadcastRef = useRef<{ count: number | null; at: number }>({ count: null, at: 0 });
 
   useLayoutEffect(() => {
     presenceKeyRef.current =
@@ -83,8 +89,32 @@ export function useRealtimeRoomPresence(opts: {
     /** Cleared on matching presence `leave` so that viewer can get one join line again later. */
     const joinedChatAnnounced = new Set<string>();
 
+    const publishHostCount = (count: number) => {
+      if (trackSelf) return;
+      const now = Date.now();
+      const prev = lastBroadcastRef.current;
+      if (
+        !shouldPublishViewerCountBroadcast({
+          nextCount: count,
+          lastCount: prev.count,
+          lastPublishedAtMs: prev.at,
+          nowMs: now,
+        })
+      ) {
+        return;
+      }
+      lastBroadcastRef.current = { count, at: now };
+      void channel.send({
+        type: "broadcast",
+        event: RT_EVENT.viewerCount,
+        payload: { liveRoomId, viewerCount: count, at: now },
+      });
+    };
+
     const updateCount = () => {
-      setViewerCount(countRoomPresenceViewers(channel.presenceState()));
+      const next = countRoomPresenceViewers(channel.presenceState());
+      setLocalCount(next);
+      publishHostCount(next);
     };
 
     const trackPresence = async () => {
@@ -118,6 +148,10 @@ export function useRealtimeRoomPresence(opts: {
           if (id) joinedChatAnnounced.delete(id);
         }
         updateCount();
+      })
+      .on("broadcast", { event: RT_EVENT.viewerCount }, ({ payload }) => {
+        const n = parseViewerCountBroadcast(payload);
+        if (n != null) setBroadcastCount(n);
       });
 
     const onVisible = () => {
@@ -159,5 +193,6 @@ export function useRealtimeRoomPresence(opts: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, liveRoomId, trackSelf, userId]);
 
-  return viewerCount;
+  // Prefer the host-broadcast room count so every device shows the same number.
+  return broadcastCount ?? localCount;
 }

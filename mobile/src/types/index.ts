@@ -25,7 +25,7 @@ export type Host = {
   followers: string;
 };
 
-export type ChatMessageKind = 'chat' | 'system' | 'purchase' | 'bid' | 'tip';
+export type ChatMessageKind = 'chat' | 'system' | 'purchase' | 'bid' | 'tip' | 'staff';
 
 export type ChatMessage = {
   id: string;

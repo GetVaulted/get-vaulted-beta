@@ -251,6 +251,7 @@ export function ProfileEditScreen({ navigation }: Props) {
             placeholder="username"
             placeholderTextColor={colors.textMuted}
             autoCapitalize="none"
+            autoCorrect={false}
             value={username}
             onChangeText={setUsername}
             editable={!usernameLocked}

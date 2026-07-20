@@ -245,7 +245,12 @@ function FloatingChatRow({
             {name}
           </LiveRoomText>
           {message.isHost ? <LiveRoomText style={styles.hostBadgeInline}> HOST</LiveRoomText> : null}
-          {isModSender ? <LiveRoomText style={styles.modBadgeInline}> MOD</LiveRoomText> : null}
+          {isModSender && !message.isHost ? (
+            <LiveRoomText style={styles.modBadgeInline}> MOD</LiveRoomText>
+          ) : null}
+          {message.messageType === 'staff' ? (
+            <LiveRoomText style={styles.staffBadgeInline}> STAFF</LiveRoomText>
+          ) : null}
           {isEvent ? (
             <LiveRoomText style={styles.messageBody}> {message.text}</LiveRoomText>
           ) : (
@@ -442,6 +447,22 @@ export function FloatingLiveChat({
       style={[styles.floatChatColumn, { bottom, left, right: rightEdge }]}
       pointerEvents="box-none"
     >
+      {/* Expand control above the feed so chat messages sit flush on the composer / pin. */}
+      {onToggleExpanded ? (
+        <Pressable
+          style={[styles.chatExpandToggle, scale > 1 && { paddingHorizontal: Math.round(10 * scale) }]}
+          onPress={onToggleExpanded}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={expanded ? 'Collapse chat' : 'Expand chat'}
+        >
+          <Ionicons
+            name={expanded ? 'chevron-down' : 'chevron-up'}
+            size={Math.round(16 * scale)}
+            color="rgba(255,255,255,0.92)"
+          />
+        </Pressable>
+      ) : null}
       <ScrollView
         ref={scrollRef}
         style={[styles.scrollViewport, { height: scrollMaxHeight }]}
@@ -483,21 +504,6 @@ export function FloatingLiveChat({
           />
         ))}
       </ScrollView>
-      {onToggleExpanded ? (
-        <Pressable
-          style={[styles.chatExpandToggle, scale > 1 && { paddingHorizontal: Math.round(10 * scale) }]}
-          onPress={onToggleExpanded}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={expanded ? 'Collapse chat' : 'Expand chat'}
-        >
-          <Ionicons
-            name={expanded ? 'chevron-down' : 'chevron-up'}
-            size={Math.round(16 * scale)}
-            color="rgba(255,255,255,0.92)"
-          />
-        </Pressable>
-      ) : null}
     </View>
   );
 }
@@ -517,6 +523,9 @@ export function FloatingChatComposer({
   placeholder = COMPOSER_PLACEHOLDER,
   inputRef,
   overlayScale = 1,
+  canUseStaffChat = false,
+  staffOnly = false,
+  onStaffOnlyChange,
 }: {
   bottom: number;
   left: number;
@@ -533,6 +542,9 @@ export function FloatingChatComposer({
   placeholder?: string;
   inputRef?: RefObject<MentionComposerInputHandle | null>;
   overlayScale?: number;
+  canUseStaffChat?: boolean;
+  staffOnly?: boolean;
+  onStaffOnlyChange?: (staffOnly: boolean) => void;
 }) {
   const scale = overlayScale > 1 ? overlayScale : 1;
   const barHeight = scaledComposerBarHeight(scale);
@@ -563,6 +575,28 @@ export function FloatingChatComposer({
       {mentionSuggestions?.open ? (
         <MentionSuggestionStrip users={mentionSuggestions.results} onPick={mentionSuggestions.pick} />
       ) : null}
+      {canUseStaffChat && onStaffOnlyChange ? (
+        <View style={styles.staffToggleRow}>
+          <Pressable
+            onPress={() => onStaffOnlyChange(false)}
+            style={[styles.staffToggleBtn, !staffOnly && styles.staffToggleBtnOn]}
+            hitSlop={6}
+          >
+            <LiveRoomText style={[styles.staffToggleText, !staffOnly && styles.staffToggleTextOn]}>
+              Everyone
+            </LiveRoomText>
+          </Pressable>
+          <Pressable
+            onPress={() => onStaffOnlyChange(true)}
+            style={[styles.staffToggleBtn, staffOnly && styles.staffToggleBtnStaff]}
+            hitSlop={6}
+          >
+            <LiveRoomText style={[styles.staffToggleText, staffOnly && styles.staffToggleTextStaff]}>
+              Staff
+            </LiveRoomText>
+          </Pressable>
+        </View>
+      ) : null}
       <View style={[styles.composerRow, { minHeight: barHeight }]}>
         {leadingAccessory}
         <ScrollView
@@ -576,6 +610,7 @@ export function FloatingChatComposer({
             style={[
               styles.composerPill,
               leadingAccessory ? styles.composerPillWithLeading : null,
+              staffOnly && canUseStaffChat ? styles.composerPillStaff : null,
               scale > 1 && { minHeight: barHeight - 4, paddingLeft: Math.round(spacing.md * scale) },
             ]}
           >
@@ -702,7 +737,7 @@ const styles = StyleSheet.create({
   },
   chatExpandToggle: {
     alignSelf: 'flex-end',
-    marginBottom: 6,
+    marginBottom: 4,
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 999,
@@ -718,7 +753,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'flex-end',
     alignItems: 'flex-start',
-    paddingBottom: 4,
+    paddingBottom: 0,
   },
   chatRow: {
     flexDirection: 'row',
@@ -787,6 +822,50 @@ const styles = StyleSheet.create({
   },
   usernameMod: {
     color: colors.mod,
+  },
+  staffToggleRow: {
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    gap: 6,
+    marginBottom: 6,
+  },
+  staffToggleBtn: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.16)',
+  },
+  staffToggleBtnOn: {
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  staffToggleBtnStaff: {
+    backgroundColor: 'rgba(56,189,248,0.28)',
+    borderColor: 'rgba(125,211,252,0.45)',
+  },
+  staffToggleText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    color: 'rgba(255,255,255,0.45)',
+    textTransform: 'uppercase',
+  },
+  staffToggleTextOn: {
+    color: 'rgba(255,255,255,0.92)',
+  },
+  staffToggleTextStaff: {
+    color: '#bae6fd',
+  },
+  staffBadgeInline: {
+    color: '#7dd3fc',
+    fontWeight: '900',
+    fontSize: 10,
+    letterSpacing: 0.3,
+  },
+  composerPillStaff: {
+    borderColor: 'rgba(125,211,252,0.45)',
+    backgroundColor: 'rgba(8,47,73,0.55)',
   },
   hostBadgeInline: {
     fontWeight: '900',

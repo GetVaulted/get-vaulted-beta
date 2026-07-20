@@ -25,7 +25,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
 import { isValidEmailFormat } from '../../lib/email-validation';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
-import { navigateAfterSignIn } from '../../navigation/navigateAfterSignIn';
+import { navigateAfterAccountReady, navigateAfterSignIn } from '../../navigation/navigateAfterSignIn';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
 
@@ -92,8 +92,8 @@ export function AuthSignUpScreen({ navigation, route }: Props) {
     else navigation.replace('LaunchIntro', { instantAuth: true });
   };
 
-  const finishBuyerHome = () => {
-    navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+  const finishBuyerHome = async () => {
+    await navigateAfterAccountReady(navigation, 'signup');
   };
 
   const onSocial = async (provider: 'google' | 'apple') => {
@@ -105,7 +105,7 @@ export function AuthSignUpScreen({ navigation, route }: Props) {
         provider === 'google'
           ? await signInWithGoogle({ persistSession: true })
           : await signInWithApple({ persistSession: true });
-      if (result === 'success') await navigateAfterSignIn(navigation);
+      if (result === 'success') await navigateAfterSignIn(navigation, { notificationSource: 'signup' });
       else if (result === 'error') setSocialErr(AUTH_USER_MESSAGES.socialSignInFailed);
     } catch (e) {
       setSocialErr(socialAuthErrorMessage(e));
@@ -166,8 +166,8 @@ export function AuthSignUpScreen({ navigation, route }: Props) {
         );
         return;
       }
-      if (__DEV__) console.log('[auth:signup] success → Home');
-      finishBuyerHome();
+      if (__DEV__) console.log('[auth:signup] success → notification gate / Home');
+      await finishBuyerHome();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Sign-up failed';
       setErr(
@@ -229,6 +229,7 @@ export function AuthSignUpScreen({ navigation, route }: Props) {
           placeholder="Email"
           placeholderTextColor={colors.textMuted}
           autoCapitalize="none"
+          autoCorrect={false}
           keyboardType="email-address"
           autoComplete="email"
           value={email}

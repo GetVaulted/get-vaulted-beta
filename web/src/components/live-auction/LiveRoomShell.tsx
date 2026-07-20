@@ -7,6 +7,7 @@ import { LiveAuctionRoom } from "@/components/live-auction/LiveAuctionRoom";
 import { LiveSaleRoom } from "@/components/live-auction/LiveSaleRoom";
 import { useRealtimeRoomPresence } from "@/hooks/useRealtimeRoomPresence";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
+import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { logLiveDebugEvent } from "@/lib/live-debug";
 import { announceLiveRoomJoin, announceLiveRoomLeave, buildOptimisticViewerJoinMessage } from "@/lib/live-room-viewer-event-client";
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
@@ -50,6 +51,7 @@ type LiveRoomShellProps = {
 
 export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const { data: session, status } = useSession();
+  const moderation = useLiveRoomModerationState(roomId, Boolean(roomId));
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<LiveRoomDetailDTO | null>(null);
   /** Set when the room snapshot API returns an error (404, 503, etc.) so viewers see a real message instead of a bare “not found”. */
@@ -240,7 +242,32 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           typeof ack.auctionSeq === "number" && Number.isFinite(ack.auctionSeq)
             ? Math.max(prev.auctionEventSeq ?? 0, Math.floor(ack.auctionSeq))
             : prev.auctionEventSeq;
-        const items = prev.items.map((it) => (it.id === item.id ? item : it));
+        // Lean bid ACK only carries auction fields — patch onto the existing row so variants/title stay intact.
+        const items = prev.items.map((it) => {
+          if (it.id !== item.id) return it;
+          return {
+            ...it,
+            currentBidUsd:
+              typeof item.currentBidUsd === "number" && Number.isFinite(item.currentBidUsd)
+                ? item.currentBidUsd
+                : it.currentBidUsd,
+            startingBidUsd: item.startingBidUsd !== undefined ? item.startingBidUsd : it.startingBidUsd,
+            lastHighBidderId:
+              item.lastHighBidderId !== undefined ? item.lastHighBidderId : it.lastHighBidderId,
+            lastHighBidderUsername:
+              item.lastHighBidderUsername !== undefined
+                ? item.lastHighBidderUsername
+                : it.lastHighBidderUsername,
+            auctionEndsAt: item.auctionEndsAt !== undefined ? item.auctionEndsAt : it.auctionEndsAt,
+            biddingOpen: typeof item.biddingOpen === "boolean" ? item.biddingOpen : it.biddingOpen,
+            clutchTimeEnabled:
+              typeof item.clutchTimeEnabled === "boolean" ? item.clutchTimeEnabled : it.clutchTimeEnabled,
+            itemVersion:
+              typeof item.itemVersion === "number" && Number.isFinite(item.itemVersion)
+                ? Math.max(it.itemVersion, Math.floor(item.itemVersion))
+                : it.itemVersion,
+          };
+        });
         const activeItem = items.find((it) => it.status === "active") ?? null;
         return { ...prev, roomVersion, auctionEventSeq, items, activeItem };
       });
@@ -575,12 +602,14 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     /** Subscribe as soon as the route is known so broadcasts are not missed while the first room payload loads. */
     liveRoomId: roomId,
     enabled: Boolean(roomId),
+    includeStaffChat: moderation.canModerate,
     onLiveRoomMessage: (m) => {
+      if (m.messageType === "staff" && !moderation.canModerate) return;
       logLiveDebugEvent({
         event: "event_received",
         roomId,
         lastRefreshAtMs: lastRefreshAtRef.current,
-        extra: { type: "chat_message" },
+        extra: { type: m.messageType === "staff" ? "staff_chat_message" : "chat_message" },
       });
       const now = Date.now();
       const lastRefresh = lastRefreshAtRef.current;
@@ -1014,6 +1043,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           breakId={detail.id}
           roomTitle={detail.title}
           roomCategory={detail.category}
+          discoveryVisibility={detail.discoveryVisibility}
           sellerId={detail.sellerId}
           sellerShopUsername={detail.sellerUsername}
           hostDisplayName={host}
@@ -1072,6 +1102,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       roomId={detail.id}
       roomTitle={detail.title}
       roomCategory={detail.category}
+      discoveryVisibility={detail.discoveryVisibility}
       sellerId={detail.sellerId}
       sellerShopUsername={detail.sellerUsername}
       hostDisplayName={host}

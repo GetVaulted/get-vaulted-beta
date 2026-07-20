@@ -55,6 +55,7 @@ import {
 } from "@/lib/stripe-checkout-session";
 import { fetchCheckoutSessionChargeBreakdown } from "@/lib/stripe-checkout-breakdown";
 import {
+  ensureOrderPlatformFeeSnapshotPersisted,
   getLiveRoomCompletedSalesGmvUsd,
   recordLiveShowCompletedSaleTx,
   resolveCheckoutApplicationFeeCents,
@@ -907,6 +908,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
     isCompanyListing: Boolean(listing.isCompanyListing),
     liveRoomId: liveRoomIdForFee,
     sellerId: listing.sellerId,
+    orderId: order.id,
   });
 
   if (rowEscrow) {
@@ -1278,6 +1280,7 @@ export async function createPayOrderCheckoutSession(args: {
     isCompanyListing: Boolean(order.listing.isCompanyListing),
     liveRoomId: order.liveShippingSession?.liveShowId ?? null,
     sellerId: order.sellerId,
+    orderId: order.id,
   });
 
   const priorPayOrderTaxCents = Math.max(0, order.taxAmountCents ?? 0);
@@ -1810,6 +1813,10 @@ export async function finalizeStripeMarketplaceOrderPaid(
     orderId,
     paymentIntentId,
   }).catch((e) => console.warn("[money-flow] charge ledger persist failed", orderId, e));
+
+  void ensureOrderPlatformFeeSnapshotPersisted(orderId).catch((e) =>
+    console.warn("[money-flow] platform fee snapshot persist failed", orderId, e),
+  );
 
   moneyFlowLog("payment_intent_created", {
     orderId,

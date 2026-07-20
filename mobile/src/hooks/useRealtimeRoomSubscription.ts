@@ -18,6 +18,8 @@ export type LiveRoomChatBroadcastMessage = {
 export function useRealtimeRoomSubscription(opts: {
   liveRoomId: string | null;
   enabled?: boolean;
+  /** When true, also receive host/mod staff chat (never enable for buyers). */
+  includeStaffChat?: boolean;
   onLiveRoomMessage: (message: LiveRoomChatBroadcastMessage) => void;
   onMessagesRefreshMerge: () => void | Promise<void>;
   onQueueItemsChange?: () => void | Promise<void>;
@@ -65,7 +67,17 @@ export function useRealtimeRoomSubscription(opts: {
       for (const eventName of chatEvents) {
         channel.on('broadcast', { event: eventName }, ({ payload }) => {
           const m = (payload as { message?: LiveRoomChatBroadcastMessage } | null)?.message;
-          if (m && typeof m.id === 'string') refs.current.onLiveRoomMessage(m);
+          if (m && typeof m.id === 'string' && m.messageType !== 'staff') {
+            refs.current.onLiveRoomMessage(m);
+          }
+        });
+      }
+      if (opts.includeStaffChat) {
+        channel.on('broadcast', { event: RT_EVENT.staffChatMessage }, ({ payload }) => {
+          const m = (payload as { message?: LiveRoomChatBroadcastMessage } | null)?.message;
+          if (m && typeof m.id === 'string' && m.messageType === 'staff') {
+            refs.current.onLiveRoomMessage(m);
+          }
         });
       }
 
@@ -162,5 +174,5 @@ export function useRealtimeRoomSubscription(opts: {
         releaseLiveRoomChannel(supabase, liveRoomId);
       }
     };
-  }, [opts.enabled, opts.liveRoomId]);
+  }, [opts.enabled, opts.liveRoomId, opts.includeStaffChat]);
 }

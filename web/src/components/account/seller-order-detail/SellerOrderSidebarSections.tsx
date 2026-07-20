@@ -4,12 +4,28 @@ function formatMoney(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 }
 
+function formatMoneyCents(cents: number) {
+  return formatMoney(cents / 100);
+}
+
 function formatPayoutStatus(status: string) {
   const key = status.trim().toLowerCase();
   if (key === "held" || key === "pending") return "Hold";
   if (key === "paid_out") return "Paid out";
   return status.replace(/_/g, " ");
 }
+
+export type SellerOrderShippingBreakdownProps = {
+  buyerShippingCollectedCents: number;
+  actualLabelCostCents: number | null;
+  labelRefundOrCreditCents: number;
+  netShippingImpactCents: number;
+  labelStatus: string;
+  carrier: string | null;
+  service: string | null;
+  trackingNumber: string | null;
+  purchasedAt: string | null;
+};
 
 export type SellerOrderSidebarProps = {
   shipRecipientName: string;
@@ -24,10 +40,13 @@ export type SellerOrderSidebarProps = {
   taxUsd: number;
   totalUsd: number;
   platformFeeEstimateUsd: number;
+  platformFeePercent?: number;
   stripeProcessingFeeEstimateUsd: number;
   payoutEstimateUsd: number;
   payoutStatus: string;
   shippingAddressIncomplete?: boolean;
+  shippingBreakdown?: SellerOrderShippingBreakdownProps | null;
+  /** @deprecated use shippingBreakdown — kept for callers mid-migration */
   shippingLabelCostCents?: number | null;
   shippingLabelCostReversedCents?: number | null;
 };
@@ -54,7 +73,39 @@ function MoneyRow({ label, value, strong, accent }: { label: string; value: stri
   );
 }
 
+function formatLabelStatus(status: string): string {
+  switch (status) {
+    case "purchased":
+      return "Purchased";
+    case "failed":
+      return "Label purchase failed";
+    case "refunded":
+      return "Refunded";
+    case "voided":
+      return "Voided";
+    case "quoted":
+      return "Quoted";
+    default:
+      return "Pending";
+  }
+}
+
+function actualLabelCostDisplay(breakdown: SellerOrderShippingBreakdownProps): string {
+  if (breakdown.labelStatus === "failed") return formatMoney(0);
+  if (breakdown.actualLabelCostCents == null) return "Pending";
+  return `−${formatMoneyCents(breakdown.actualLabelCostCents)}`;
+}
+
 export function SellerOrderSidebarSections(props: SellerOrderSidebarProps) {
+  const feePct =
+    props.platformFeePercent != null && Number.isFinite(props.platformFeePercent)
+      ? ` (${props.platformFeePercent}%)`
+      : "";
+
+  const breakdown = props.shippingBreakdown ?? null;
+  const legacyLabelCents =
+    props.shippingLabelCostReversedCents ?? props.shippingLabelCostCents ?? 0;
+
   return (
     <div className="space-y-3">
       <Panel title="Ship to">
@@ -91,23 +142,58 @@ export function SellerOrderSidebarSections(props: SellerOrderSidebarProps) {
         </div>
       </Panel>
 
+      <Panel title="Shipping">
+        <div className="space-y-2">
+          {breakdown ? (
+            <>
+              <MoneyRow
+                label="Buyer shipping collected"
+                value={formatMoneyCents(breakdown.buyerShippingCollectedCents)}
+              />
+              <MoneyRow label="Actual label cost" value={actualLabelCostDisplay(breakdown)} />
+              {breakdown.labelRefundOrCreditCents > 0 ? (
+                <MoneyRow
+                  label="Label refund or credit"
+                  value={formatMoneyCents(breakdown.labelRefundOrCreditCents)}
+                />
+              ) : null}
+              <div className="my-2 border-t border-white/[0.06]" />
+              <MoneyRow
+                label="Net shipping impact"
+                value={formatMoneyCents(breakdown.netShippingImpactCents)}
+                strong
+              />
+              <p className="pt-1 text-xs text-zinc-500">
+                Status: <span className="font-semibold text-zinc-300">{formatLabelStatus(breakdown.labelStatus)}</span>
+                {breakdown.carrier || breakdown.service
+                  ? ` · ${[breakdown.carrier, breakdown.service].filter(Boolean).join(" ")}`
+                  : ""}
+                {breakdown.trackingNumber ? ` · ${breakdown.trackingNumber}` : ""}
+              </p>
+            </>
+          ) : (
+            <>
+              <MoneyRow label="Buyer shipping collected" value={formatMoney(props.shippingPriceUsd)} />
+              <MoneyRow
+                label="Actual label cost"
+                value={legacyLabelCents > 0 ? `−${formatMoney(legacyLabelCents / 100)}` : "Pending"}
+              />
+            </>
+          )}
+        </div>
+      </Panel>
+
       <Panel title="Your payout">
         <div className="space-y-2">
-          <MoneyRow label="Get Vaulted fee" value={`−${formatMoney(props.platformFeeEstimateUsd)}`} />
+          <MoneyRow label={`Get Vaulted fee${feePct}`} value={`−${formatMoney(props.platformFeeEstimateUsd)}`} />
           <MoneyRow label="Stripe fee" value={`−${formatMoney(props.stripeProcessingFeeEstimateUsd)}`} />
-          {(props.shippingLabelCostReversedCents ?? props.shippingLabelCostCents ?? 0) > 0 ? (
-            <MoneyRow
-              label="Shipping label"
-              value={`−${formatMoney((props.shippingLabelCostReversedCents ?? props.shippingLabelCostCents ?? 0) / 100)}`}
-            />
-          ) : null}
           <div className="my-2 border-t border-white/[0.06]" />
           <MoneyRow label="Est. payout" value={formatMoney(props.payoutEstimateUsd)} strong accent />
           <p className="pt-1 text-xs text-zinc-500">
             Status: <span className="font-semibold text-zinc-300">{formatPayoutStatus(props.payoutStatus)}</span>
             {" · "}
-            Shipping collected at checkout is yours. Creating a Get Vaulted label deducts the carrier cost from
-            payout. 3-day hold after delivery.
+            Get Vaulted fee is the platform fee on item price only. Shipping label cost is shown under Shipping and is
+            not part of the Get Vaulted fee. 3-day hold after delivery.
           </p>
         </div>
       </Panel>

@@ -2,7 +2,13 @@ import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import type { LiveGiveawayRow } from '../api/liveGiveawayRepository';
-import { fetchHostConsole, type HostConsolePayload, type HostPaymentFailureRow, type HostRecentSaleRow } from '../api/liveHostRepository';
+import {
+  fetchHostConsole,
+  type HostConsolePayload,
+  type HostPaymentFailureRow,
+  type HostRecentSaleRow,
+  type HostSellerShowSummary,
+} from '../api/liveHostRepository';
 import {
   createLiveRoomQueueItem,
   deleteLiveRoomQueueItem,
@@ -55,6 +61,7 @@ export function useSellerLiveConsole({
   const [items, setItems] = useState<LiveRoomItemRow[]>([]);
   const [giveaways, setGiveaways] = useState<LiveGiveawayRow[]>([]);
   const [recentSales, setRecentSales] = useState<HostRecentSaleRow[]>([]);
+  const [sellerSummary, setSellerSummary] = useState<HostSellerShowSummary | null>(null);
   const [paymentFailures, setPaymentFailures] = useState<HostPaymentFailureRow[]>([]);
   const [activeItem, setActiveItem] = useState<LiveRoomItemRow | null>(null);
   const liveViewerCount = useRealtimeRoomPresence({
@@ -62,7 +69,10 @@ export function useSellerLiveConsole({
     enabled: roomStatus !== 'ended',
     trackSelf: false,
   });
-  const viewerCount = liveViewerCount ?? 0;
+  // Sticky last known count — avoid flashing 0 while presence/broadcast reconnects.
+  const stickyViewerCountRef = useRef<number | null>(null);
+  if (liveViewerCount != null) stickyViewerCountRef.current = liveViewerCount;
+  const viewerCount = liveViewerCount ?? stickyViewerCountRef.current ?? 0;
   useEffect(() => {
     if (liveViewerCount == null || roomStatus === 'ended') return;
     void syncLiveRoomViewerCount({ liveRoomId: roomId, viewerCount: liveViewerCount, accessToken });
@@ -91,6 +101,7 @@ export function useSellerLiveConsole({
         setRecentSales(data.recentSales);
         setPaymentFailures(data.paymentFailures);
       }
+      if (data.sellerSummary) setSellerSummary(data.sellerSummary);
       setActiveItem((prev) => reconcileHostActiveItem(prev, data.activeItem ?? null));
       logSellerQueue('queue_length', {
         total: data.items.length,
@@ -573,6 +584,7 @@ export function useSellerLiveConsole({
     },
     syncSales: () => reload({ soft: true, force: true }),
     recentSales,
+    sellerSummary,
     paymentFailures,
     recordRandomSpotClaim,
     onReorder,

@@ -76,9 +76,7 @@ export function AdminOrderLedgerDrawer({
   if (!open || !order) return null;
 
   const r = order;
-  const needsLabelRetry =
-    (r.actualLabelCostCents?.cents ?? 0) > 0 &&
-    r.sellerLabelDeductionCents !== r.actualLabelCostCents?.cents;
+  const needsLabelRetry = Boolean(r.needsLabelCostRetry);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -206,16 +204,51 @@ export function AdminOrderLedgerDrawer({
             <Row label="Buyer shipping collected" value={moneyCents(r.buyerShippingCents)} />
             <Row label="Estimated label cost" value={moneyCents(r.estimatedLabelCostCents)} />
             <Row
-              label="Actual Shippo label cost"
-              value={moneyCents(r.actualLabelCostCents?.cents)}
+              label="Active / chargeable label cost"
+              value={moneyCents(r.chargeableLabelCostCents ?? r.actualLabelCostCents?.cents)}
               source={r.actualLabelCostCents?.source}
             />
-            <Row label="Shippo transaction" value={r.shippoTransactionId ?? "—"} />
+            <Row label="Gross seller clawbacks" value={moneyCents(r.grossSellerClawbackCents)} />
+            <Row label="Seller label credits" value={moneyCents(r.sellerLabelCreditCents)} />
+            <Row label="Net seller deduction" value={moneyCents(r.sellerLabelDeductionCents)} />
+            <Row
+              label="Reconciliation difference"
+              value={moneyCents(r.platformShippingVarianceCents)}
+            />
+            <Row label="Label finance status" value={r.labelFinanceActionStatus ?? "—"} mono={false} />
+            <Row label="Shippo transaction (latest)" value={r.shippoTransactionId ?? "—"} />
             <Row label="Shippo shipment" value={r.shippoShipmentId ?? "—"} />
             <Row label="Tracking" value={r.trackingNumber ?? "—"} />
-            <Row label="Seller deduction" value={moneyCents(r.sellerLabelDeductionCents)} />
-            <Row label="Reversal ID" value={r.shippingLabelCostReversalId ?? "—"} />
+            <Row label="Latest reversal ID" value={r.shippingLabelCostReversalId ?? "—"} />
             <Row label="Fulfillment" value={r.fulfillmentStatus} mono={false} />
+            {Array.isArray(r.labelFinanceRows) && r.labelFinanceRows.length > 0 ? (
+              <div className="mt-3 space-y-2 border-t border-white/[0.06] pt-2">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+                  Label transactions
+                </p>
+                {r.labelFinanceRows.map((row: any) => (
+                  <div
+                    key={row.shippoTransactionId}
+                    className="rounded border border-white/[0.06] bg-white/[0.02] p-2 font-mono text-[10px] text-zinc-400"
+                  >
+                    <div>tx: {row.shippoTransactionId}</div>
+                    <div>
+                      {moneyCents(row.labelCostCents)} · {row.purpose} · {row.status}
+                      {row.chargeable ? " · chargeable" : " · not chargeable"}
+                    </div>
+                    <div>
+                      clawback {moneyCents(row.sellerClawbackCents)} · credit{" "}
+                      {moneyCents(row.sellerCreditCents)} · net {moneyCents(row.netSellerCents)}
+                    </div>
+                    <div>reversal: {row.sellerClawbackReversalId ?? "—"}</div>
+                    <div>credit transfer: {row.sellerCreditTransferId ?? "—"}</div>
+                    {row.replacesShippoTransactionId ? (
+                      <div>replaces: {row.replacesShippoTransactionId}</div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {needsLabelRetry && onRetryLabelCost ? (
               <button
                 type="button"

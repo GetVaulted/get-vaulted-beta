@@ -22,6 +22,9 @@ export function SellerLiveComposer({
   placeholder,
   inputRef,
   overlayScale = 1,
+  canUseStaffChat = false,
+  staffOnly = false,
+  onStaffOnlyChange,
 }: {
   bottom: number;
   left: number;
@@ -37,10 +40,14 @@ export function SellerLiveComposer({
   placeholder?: string;
   inputRef?: RefObject<MentionComposerInputHandle | null>;
   overlayScale?: number;
+  canUseStaffChat?: boolean;
+  staffOnly?: boolean;
+  onStaffOnlyChange?: (staffOnly: boolean) => void;
 }) {
   const glow = useRef(new Animated.Value(0)).current;
   const active = value.trim().length > 0;
   const barHeight = scaledComposerBarHeight(overlayScale ?? 1);
+  const staffToggleExtra = canUseStaffChat ? 34 : 0;
 
   return (
     <Animated.View
@@ -50,7 +57,7 @@ export function SellerLiveComposer({
           bottom,
           left,
           right: rightEdge,
-          height: barHeight,
+          minHeight: barHeight + staffToggleExtra,
           shadowOpacity: active ? 0.55 : 0.28,
         },
       ]}
@@ -61,6 +68,7 @@ export function SellerLiveComposer({
           style={[
             styles.glowRing,
             {
+              top: staffToggleExtra,
               opacity: glow.interpolate({
                 inputRange: [0, 1],
                 outputRange: [active ? 0.45 : 0.15, 0.9],
@@ -89,6 +97,9 @@ export function SellerLiveComposer({
           leadingAccessory={leadingAccessory}
           inputRef={inputRef}
           overlayScale={overlayScale}
+          canUseStaffChat={canUseStaffChat}
+          staffOnly={staffOnly}
+          onStaffOnlyChange={onStaffOnlyChange}
         />
       </View>
     </Animated.View>

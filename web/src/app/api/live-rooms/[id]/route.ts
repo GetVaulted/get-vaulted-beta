@@ -37,6 +37,10 @@ import { logSellerRoomStateSnapshot } from "@/lib/log-room-state-snapshot";
 import { liveShowEndGmvFields } from "@/lib/live-show-gmv";
 import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
 import { parseLiveTeaserFieldsFromBody } from "@/lib/live-room-teaser";
+import {
+  filterStaffMessagesForViewer,
+  viewerCanAccessStaffChat,
+} from "@/lib/live-room-staff-chat";
 
 const includeDetail = {
   seller: { select: { id: true, username: true } as const },
@@ -240,6 +244,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     serverNowMs,
     extra: { viewerId: viewerId ?? null, isHost },
   });
+  const canSeeStaffChat = await viewerCanAccessStaffChat({ liveRoomId: id, userId: viewerId });
+  enriched.messages = filterStaffMessagesForViewer(enriched.messages, canSeeStaffChat);
+
   return NextResponse.json({ room: enriched, serverNowMs });
   } catch (e) {
     console.error("[api GET /api/live-rooms/[id]] failed", { liveRoomId: id, viewerId, e });
@@ -280,6 +287,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       roomType: true,
       teamBoardLeague: true,
       completedSalesGmvUsd: true,
+      discoveryVisibility: true,
     },
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -361,17 +369,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       void emitTeamBoardChanged(id);
     }
     emitAuctionStarted(id, roomNow?.roomVersion);
-    const seller = await prisma.user.findUnique({
-      where: { id: existing.sellerId },
-      select: { username: true },
-    });
-    if (seller) {
-      // Fire-and-forget: a seller with a large follower list previously blocked the "Go Live"
-      // response on a bulk notification insert (performance audit 2026-07). Going live should
-      // feel instant to the host regardless of follower count.
-      void notifyFollowersSellerWentLive(existing.sellerId, seller.username, id).catch((e) =>
-        console.error("[live-rooms] notifyFollowersSellerWentLive failed", existing.sellerId, e),
-      );
+    // Private shows must not auto-blast followers — only intentional share invites.
+    if (existing.discoveryVisibility !== "private") {
+      const seller = await prisma.user.findUnique({
+        where: { id: existing.sellerId },
+        select: { username: true },
+      });
+      if (seller) {
+        // Fire-and-forget: a seller with a large follower list previously blocked the "Go Live"
+        // response on a bulk notification insert (performance audit 2026-07). Going live should
+        // feel instant to the host regardless of follower count.
+        void notifyFollowersSellerWentLive(existing.sellerId, seller.username, id).catch((e) =>
+          console.error("[live-rooms] notifyFollowersSellerWentLive failed", existing.sellerId, e),
+        );
+      }
     }
     emitLiveDiscoveryChanged({ roomId: id, status: "live", reason: "started" });
     return NextResponse.json({ ok: true });

@@ -32,6 +32,8 @@ export function AuthPasswordField({
         placeholderTextColor={colors.textMuted}
         secureTextEntry={!visible}
         autoCapitalize="none"
+        autoCorrect={false}
+        spellCheck={false}
         autoComplete={autoComplete}
         textContentType={autoComplete === 'new-password' ? 'newPassword' : 'password'}
         value={value}

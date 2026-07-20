@@ -1,14 +1,124 @@
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import {
   applicationFeeCentsFromSubtotalUsd,
-  liveShowApplicationFeeCents,
-  marketplaceApplicationFeeCents,
+  completedLiveShowGmvBeforeSale,
+  liveShowPlatformFeePercent,
+  marketplacePlatformFeePercent,
   platformFeeBaseUsd,
+  resolvePlatformFeePercentForCheckout,
 } from "@/lib/platform-fee-policy";
 import { prisma } from "@/lib/prisma";
 import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
 import { ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
 import { loadSellerPlatformFeePercentOverride } from "@/services/seller-platform-fee-override";
+
+/** Immutable platform-fee snapshot written on Order at charge time. */
+export type PlatformFeeChargeSnapshot = {
+  platformFeeBasisCents: number;
+  platformFeePercentApplied: number;
+  platformFeeCents: number;
+  platformFeePriorShowGmvUsd: number | null;
+  platformFeeSellerOverrideApplied: boolean;
+};
+
+export async function resolveCheckoutPlatformFeeSnapshot(args: {
+  /** Item/sale price only — excludes shipping, tax, and tips. */
+  saleAmountUsd: number;
+  isCompanyListing: boolean;
+  liveRoomId?: string | null;
+  sellerId?: string | null;
+}): Promise<PlatformFeeChargeSnapshot> {
+  const basisUsd = platformFeeBaseUsd(args.saleAmountUsd);
+  const platformFeeBasisCents = Math.max(0, Math.round(basisUsd * 100));
+
+  if (args.isCompanyListing) {
+    return {
+      platformFeeBasisCents,
+      platformFeePercentApplied: 0,
+      platformFeeCents: 0,
+      platformFeePriorShowGmvUsd: args.liveRoomId ? 0 : null,
+      platformFeeSellerOverrideApplied: false,
+    };
+  }
+
+  const sellerOverride = args.sellerId ? await loadSellerPlatformFeePercentOverride(args.sellerId) : null;
+  if (sellerOverride != null) {
+    return {
+      platformFeeBasisCents,
+      platformFeePercentApplied: sellerOverride,
+      platformFeeCents: applicationFeeCentsFromSubtotalUsd(basisUsd, sellerOverride),
+      platformFeePriorShowGmvUsd: args.liveRoomId ? await getLiveRoomCompletedSalesGmvUsd(args.liveRoomId) : null,
+      platformFeeSellerOverrideApplied: true,
+    };
+  }
+
+  if (args.liveRoomId) {
+    await ensureLiveShowFeeCache(true);
+    const priorGmv = await getLiveRoomCompletedSalesGmvUsd(args.liveRoomId);
+    const pct = liveShowPlatformFeePercent(priorGmv);
+    return {
+      platformFeeBasisCents,
+      platformFeePercentApplied: pct,
+      platformFeeCents: applicationFeeCentsFromSubtotalUsd(basisUsd, pct),
+      platformFeePriorShowGmvUsd: priorGmv,
+      platformFeeSellerOverrideApplied: false,
+    };
+  }
+
+  await ensureMarketplacePlatformFeeCache(true);
+  const pct = marketplacePlatformFeePercent();
+  return {
+    platformFeeBasisCents,
+    platformFeePercentApplied: pct,
+    platformFeeCents: applicationFeeCentsFromSubtotalUsd(basisUsd, pct),
+    platformFeePriorShowGmvUsd: null,
+    platformFeeSellerOverrideApplied: false,
+  };
+}
+
+/**
+ * Persist charge-time platform fee on the order. Only fills null columns unless `force`.
+ * Never overwrites a prior snapshot (historical charges stay immutable).
+ */
+export async function persistOrderPlatformFeeSnapshot(args: {
+  orderId: string;
+  snapshot: PlatformFeeChargeSnapshot;
+  force?: boolean;
+}): Promise<void> {
+  const orderId = args.orderId?.trim();
+  if (!orderId) return;
+
+  const existing = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      platformFeeCents: true,
+      platformFeePercentApplied: true,
+      platformFeeBasisCents: true,
+    },
+  });
+  if (!existing) return;
+
+  const force = args.force === true;
+  if (
+    !force &&
+    existing.platformFeeCents != null &&
+    existing.platformFeePercentApplied != null &&
+    existing.platformFeeBasisCents != null
+  ) {
+    return;
+  }
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      platformFeeCents: args.snapshot.platformFeeCents,
+      platformFeePercentApplied: args.snapshot.platformFeePercentApplied,
+      platformFeeBasisCents: args.snapshot.platformFeeBasisCents,
+      platformFeePriorShowGmvUsd: args.snapshot.platformFeePriorShowGmvUsd,
+      platformFeeSellerOverrideApplied: args.snapshot.platformFeeSellerOverrideApplied,
+    },
+  });
+}
 
 /** Completed item sales GMV for the active live show (excludes shipping/tax). */
 export async function getLiveRoomCompletedSalesGmvUsd(liveRoomId: string): Promise<number> {
@@ -119,18 +229,86 @@ export async function resolveCheckoutApplicationFeeCents(args: {
   isCompanyListing: boolean;
   liveRoomId?: string | null;
   sellerId?: string | null;
+  /** When set, persists the charge-time platform fee snapshot on the order (null-safe). */
+  orderId?: string | null;
 }): Promise<number> {
-  if (args.isCompanyListing) return 0;
-  const sellerOverride = args.sellerId ? await loadSellerPlatformFeePercentOverride(args.sellerId) : null;
-  if (sellerOverride != null) {
-    return applicationFeeCentsFromSubtotalUsd(platformFeeBaseUsd(args.saleAmountUsd), sellerOverride);
+  const snapshot = await resolveCheckoutPlatformFeeSnapshot(args);
+  if (args.orderId) {
+    await persistOrderPlatformFeeSnapshot({ orderId: args.orderId, snapshot });
   }
-  // Always load the latest admin fee config so /admin/fees changes apply on the next sale.
-  if (args.liveRoomId) {
-    await ensureLiveShowFeeCache(true);
-    const gmv = await getLiveRoomCompletedSalesGmvUsd(args.liveRoomId);
-    return liveShowApplicationFeeCents(args.saleAmountUsd, gmv, false);
+  return snapshot.platformFeeCents;
+}
+
+/**
+ * Backfill platform fee snapshot when checkout created the PaymentIntent before the Order existed
+ * (or for historical orders). Uses show GMV *before* this sale so tier matches charge-time.
+ * Never overwrites an existing snapshot.
+ */
+export async function ensureOrderPlatformFeeSnapshotPersisted(orderId: string): Promise<void> {
+  const id = orderId?.trim();
+  if (!id) return;
+
+  const order = await prisma.order.findUnique({
+    where: { id },
+    select: {
+      platformFeeCents: true,
+      platformFeePercentApplied: true,
+      platformFeeBasisCents: true,
+      itemPriceUsd: true,
+      paymentStatus: true,
+      sellerId: true,
+      listing: { select: { isCompanyListing: true } },
+      liveShippingSession: {
+        select: {
+          liveShowId: true,
+          liveShow: {
+            select: { completedSalesGmvUsd: true, finalSalesGmvUsd: true, status: true },
+          },
+        },
+      },
+    },
+  });
+  if (!order) return;
+  if (
+    order.platformFeeCents != null &&
+    order.platformFeePercentApplied != null &&
+    order.platformFeeBasisCents != null
+  ) {
+    return;
   }
-  await ensureMarketplacePlatformFeeCache(true);
-  return marketplaceApplicationFeeCents(args.saleAmountUsd, false);
+
+  const liveShowId = order.liveShippingSession?.liveShowId ?? null;
+  const liveShow = order.liveShippingSession?.liveShow ?? null;
+  const reconstructedGmv = liveShowGmvForFeeTierReconstruction(liveShow);
+  const priorGmv =
+    liveShowId && order.paymentStatus === "paid"
+      ? completedLiveShowGmvBeforeSale(reconstructedGmv ?? 0, order.itemPriceUsd)
+      : (reconstructedGmv ?? 0);
+
+  if (liveShowId) await ensureLiveShowFeeCache(true);
+  else await ensureMarketplacePlatformFeeCache(true);
+
+  const sellerOverride = await loadSellerPlatformFeePercentOverride(order.sellerId);
+  const basisUsd = platformFeeBaseUsd(order.itemPriceUsd);
+  const pct =
+    sellerOverride != null
+      ? sellerOverride
+      : resolvePlatformFeePercentForCheckout({
+          isCompanyListing: Boolean(order.listing.isCompanyListing),
+          liveRoomId: liveShowId,
+          completedLiveShowGmvUsd: priorGmv,
+        });
+
+  await persistOrderPlatformFeeSnapshot({
+    orderId: id,
+    snapshot: {
+      platformFeeBasisCents: Math.max(0, Math.round(basisUsd * 100)),
+      platformFeePercentApplied: order.listing.isCompanyListing ? 0 : pct,
+      platformFeeCents: order.listing.isCompanyListing
+        ? 0
+        : applicationFeeCentsFromSubtotalUsd(basisUsd, pct),
+      platformFeePriorShowGmvUsd: liveShowId ? priorGmv : null,
+      platformFeeSellerOverrideApplied: sellerOverride != null,
+    },
+  });
 }

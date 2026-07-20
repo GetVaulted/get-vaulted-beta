@@ -183,6 +183,31 @@ export function mergeBuyerSnapshotForBidPlaced(
   };
 }
 
+/** Optimistic HUD advance as soon as Hold-to-Bid commits (before HTTP returns). */
+export function mergeBuyerSnapshotForOptimisticBid(
+  snap: LiveRoomBuyerSnapshot,
+  args: { itemId: string; amountUsd: number; wallNowMs: number },
+): LiveRoomBuyerSnapshot | null {
+  if (!args.itemId || !Number.isFinite(args.amountUsd) || args.amountUsd <= 0) return null;
+  if (snap.activeItemId && snap.activeItemId !== args.itemId) return null;
+  return mergeBuyerSnapshotForBidAck(
+    snap,
+    {
+      serverNowMs: args.wallNowMs,
+      item: {
+        id: args.itemId,
+        currentBidUsd: args.amountUsd,
+        biddingOpen: true,
+        auctionEndsAt: snap.auctionEndsAt,
+        startingBidUsd: snap.startingBidUsd,
+        lastHighBidderId: snap.lastHighBidderId,
+        lastHighBidderUsername: snap.lastHighBidderUsername,
+      },
+    },
+    args.wallNowMs,
+  );
+}
+
 /** Merge bid HTTP ACK (server authoritative timer + high bid). */
 export function mergeBuyerSnapshotForBidAck(
   snap: LiveRoomBuyerSnapshot,

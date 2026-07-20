@@ -209,4 +209,179 @@ describe("buildOrderFinancialLedger", () => {
     expect(ledger.actualLabelCostCents.cents).toBeNull();
     expect(ledger.actualLabelCostCents.source).toBe("unavailable");
   });
+
+  it("valid multiple chargeable labels show reconciled without retry", () => {
+    const ledger = buildOrderFinancialLedger(
+      base({
+        shippingLabelCostCents: 3502,
+        shippingLabelCostReversedCents: 3502,
+        labelFinances: [
+          {
+            id: "lf_1",
+            orderId: "ord_1",
+            shippoTransactionId: "tx_1",
+            shippoShipmentId: "sh_1",
+            labelCostCents: 1751,
+            purpose: "initial",
+            replacesShippoTransactionId: null,
+            status: "replaced",
+            sellerClawbackCents: 1751,
+            sellerClawbackReversalId: "trr_1",
+            sellerCreditCents: 0,
+            sellerCreditTransferId: null,
+            clawbackIdempotencyKey: "k1",
+            creditIdempotencyKey: null,
+          },
+          {
+            id: "lf_2",
+            orderId: "ord_1",
+            shippoTransactionId: "tx_2",
+            shippoShipmentId: "sh_2",
+            labelCostCents: 1751,
+            purpose: "replacement",
+            replacesShippoTransactionId: "tx_1",
+            status: "active",
+            sellerClawbackCents: 1751,
+            sellerClawbackReversalId: "trr_2",
+            sellerCreditCents: 0,
+            sellerCreditTransferId: null,
+            clawbackIdempotencyKey: "k2",
+            creditIdempotencyKey: null,
+          },
+        ],
+      }),
+    );
+    expect(ledger.chargeableLabelCostCents).toBe(3502);
+    expect(ledger.sellerLabelDeductionCents).toBe(3502);
+    expect(ledger.labelFinanceActionStatus).toBe("reconciled_multiple_labels");
+    expect(ledger.needsLabelCostRetry).toBe(false);
+    expect(ledger.reconciliationStatus).toBe("reconciled");
+    expect(ledger.labelFinanceRows).toHaveLength(2);
+  });
+
+  it("retry only when a chargeable label is missing clawback", () => {
+    const ledger = buildOrderFinancialLedger(
+      base({
+        shippingLabelCostCents: 1751,
+        shippingLabelCostReversedCents: 0,
+        labelFinances: [
+          {
+            id: "lf_1",
+            orderId: "ord_1",
+            shippoTransactionId: "tx_1",
+            shippoShipmentId: "sh_1",
+            labelCostCents: 1751,
+            purpose: "initial",
+            replacesShippoTransactionId: null,
+            status: "active",
+            sellerClawbackCents: 0,
+            sellerClawbackReversalId: null,
+            sellerCreditCents: 0,
+            sellerCreditTransferId: null,
+            clawbackIdempotencyKey: null,
+            creditIdempotencyKey: null,
+          },
+        ],
+      }),
+    );
+    expect(ledger.needsLabelCostRetry).toBe(true);
+    expect(ledger.labelFinanceActionStatus).toBe("seller_charge_required");
+  });
+
+  it("overcharge shows seller credit required and no retry", () => {
+    const ledger = buildOrderFinancialLedger(
+      base({
+        shippingLabelCostCents: 1751,
+        shippingLabelCostReversedCents: 3502,
+        labelFinances: [
+          {
+            id: "lf_1",
+            orderId: "ord_1",
+            shippoTransactionId: "tx_1",
+            shippoShipmentId: "sh_1",
+            labelCostCents: 1751,
+            purpose: "initial",
+            replacesShippoTransactionId: null,
+            status: "refunded",
+            sellerClawbackCents: 1751,
+            sellerClawbackReversalId: "trr_1",
+            sellerCreditCents: 0,
+            sellerCreditTransferId: null,
+            clawbackIdempotencyKey: "k1",
+            creditIdempotencyKey: null,
+          },
+          {
+            id: "lf_2",
+            orderId: "ord_1",
+            shippoTransactionId: "tx_2",
+            shippoShipmentId: "sh_2",
+            labelCostCents: 1751,
+            purpose: "replacement",
+            replacesShippoTransactionId: "tx_1",
+            status: "active",
+            sellerClawbackCents: 1751,
+            sellerClawbackReversalId: "trr_2",
+            sellerCreditCents: 0,
+            sellerCreditTransferId: null,
+            clawbackIdempotencyKey: "k2",
+            creditIdempotencyKey: null,
+          },
+        ],
+      }),
+    );
+    expect(ledger.chargeableLabelCostCents).toBe(1751);
+    expect(ledger.sellerLabelDeductionCents).toBe(3502);
+    expect(ledger.labelFinanceActionStatus).toBe("seller_credit_required");
+    expect(ledger.needsLabelCostRetry).toBe(false);
+    expect(ledger.reconciliationStatus).toBe("exception");
+  });
+
+  it("order summary fields match label-level records", () => {
+    const ledger = buildOrderFinancialLedger(
+      base({
+        // Stale order summary should be overridden by label finance rows.
+        shippingLabelCostCents: 1751,
+        shippingLabelCostReversedCents: 3502,
+        labelFinances: [
+          {
+            id: "lf_1",
+            orderId: "ord_1",
+            shippoTransactionId: "tx_1",
+            shippoShipmentId: null,
+            labelCostCents: 1751,
+            purpose: "initial",
+            replacesShippoTransactionId: null,
+            status: "refunded",
+            sellerClawbackCents: 1751,
+            sellerClawbackReversalId: "trr_1",
+            sellerCreditCents: 1751,
+            sellerCreditTransferId: "tr_credit",
+            clawbackIdempotencyKey: "k1",
+            creditIdempotencyKey: "c1",
+          },
+          {
+            id: "lf_2",
+            orderId: "ord_1",
+            shippoTransactionId: "tx_2",
+            shippoShipmentId: null,
+            labelCostCents: 1751,
+            purpose: "replacement",
+            replacesShippoTransactionId: "tx_1",
+            status: "active",
+            sellerClawbackCents: 1751,
+            sellerClawbackReversalId: "trr_2",
+            sellerCreditCents: 0,
+            sellerCreditTransferId: null,
+            clawbackIdempotencyKey: "k2",
+            creditIdempotencyKey: null,
+          },
+        ],
+      }),
+    );
+    expect(ledger.chargeableLabelCostCents).toBe(1751);
+    expect(ledger.grossSellerClawbackCents).toBe(3502);
+    expect(ledger.sellerLabelCreditCents).toBe(1751);
+    expect(ledger.sellerLabelDeductionCents).toBe(1751);
+    expect(ledger.platformShippingVarianceCents).toBe(0);
+  });
 });

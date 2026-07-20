@@ -47,6 +47,11 @@ export type RootStackParamList = {
   AuthSignUp: { ref?: string } | undefined;
   /** OAuth / first-time members must confirm username (+ optional referral) before MainTabs. */
   CompleteProfileSetup: { ref?: string } | undefined;
+  /**
+   * Post-auth push permission gate. Shown after signup and again on login when
+   * notifications are not yet granted on this device.
+   */
+  NotificationPermission: { source?: 'signup' | 'login' } | undefined;
   ProfileEdit: undefined;
   ProductDetail: { productId: string };
   MarketplaceCheckout: { listingId: string; mode: 'buy_now' | 'layaway'; walletSetupFirst?: boolean };

@@ -1,5 +1,5 @@
 diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
-index 7f05628..efd65c3 100644
+index 7f05628..528b71c 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
 +++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
 @@ -73,6 +73,10 @@ class ExpoRealtimeIvsBroadcastModule : Module(), IVSStageManagerDelegate, Pictur
@@ -13,7 +13,18 @@ index 7f05628..efd65c3 100644
          AsyncFunction("initializeLocalStreams") { audioConfig: Map<String, Any>?, videoConfig: Map<String, Any>? ->
              // TODO: Add audioConfig and videoConfig
              IVSStageManager.instance?.initializeLocalStreams()
-@@ -99,6 +103,14 @@ class ExpoRealtimeIvsBroadcastModule : Module(), IVSStageManagerDelegate, Pictur
+@@ -91,6 +95,10 @@ class ExpoRealtimeIvsBroadcastModule : Module(), IVSStageManagerDelegate, Pictur
+             IVSStageManager.instance?.leaveStage()
+         }
+ 
++        AsyncFunction("setStageAudioOutputEnabled") { enabled: Boolean ->
++            IVSStageManager.instance?.setStageAudioOutputEnabled(enabled)
++        }
++
+         AsyncFunction("setStreamsPublished") { published: Boolean ->
+             IVSStageManager.instance?.setStreamsPublished(published)
+         }
+@@ -99,6 +107,14 @@ class ExpoRealtimeIvsBroadcastModule : Module(), IVSStageManagerDelegate, Pictur
              IVSStageManager.instance?.swapCamera()
          }
  
@@ -29,10 +40,18 @@ index 7f05628..efd65c3 100644
              IVSStageManager.instance?.setMicrophoneMuted(muted)
          }
 diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
-index b1047d4..adf0339 100644
+index b1047d4..fb89e4e 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
 +++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
-@@ -94,7 +94,28 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+@@ -1,6 +1,7 @@
+ package expo.modules.realtimeivsbroadcast
+ 
+ import android.content.Context
++import android.media.AudioManager
+ import android.os.Build
+ import android.os.Handler
+ import android.os.Looper
+@@ -94,7 +95,28 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
          Log.i("ExpoIVSStageManager", "✅ IVSStageManager: Local streams initialized.")
      }
  
@@ -61,7 +80,7 @@ index b1047d4..adf0339 100644
          // Setup audio configuration
          val audioConfiguration = StageAudioConfiguration()
          val finalAudioConfig = audioConfig ?: audioConfiguration
-@@ -103,9 +124,11 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+@@ -103,9 +125,11 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
          // Setup video configuration
          val videoConfiguration = StageVideoConfiguration()
          val finalVideoConfig = videoConfig ?: videoConfiguration
@@ -76,7 +95,49 @@ index b1047d4..adf0339 100644
          finalVideoConfig.setSize(
              BroadcastConfiguration.Vec2(
                  720F, 1280F
-@@ -176,6 +199,15 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+@@ -139,6 +163,41 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+         setStreamsPublished(false)
+         stage?.leave()
+         stage = null
++
++        // Clear stale participant + stream state on leave. The Stage SDK is a process-wide
++        // singleton and `leave()` only fires DISCONNECTED (which clears `participants`)
++        // asynchronously — if ever — after we've already nulled the stage. Without this, when a
++        // buyer backs out of a show and re-enters, the previous session's dead video stream is
++        // still first in `participants`, so `assignStreamsToAvailableViews()` binds the fresh
++        // remote view to it: audio returns but video stays black until the app is killed.
++        //
++        // Clear `participants` (plain data) synchronously; run the view teardown on the main
++        // thread since `clearStream()` touches the Android view hierarchy.
++        participants.clear()
++        val viewsToClear = remoteViews.mapNotNull { it.get() }
++        mainHandler.post { viewsToClear.forEach { it.clearStream() } }
++    }
++
++    /** Mute/unmute Stage media output without leaving (buyer park across screen blur). */
++    fun setStageAudioOutputEnabled(enabled: Boolean) {
++        mainHandler.post {
++            try {
++                val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
++                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
++                    am.adjustStreamVolume(
++                        AudioManager.STREAM_MUSIC,
++                        if (enabled) AudioManager.ADJUST_UNMUTE else AudioManager.ADJUST_MUTE,
++                        0,
++                    )
++                } else {
++                    @Suppress("DEPRECATION")
++                    am.setStreamMute(AudioManager.STREAM_MUSIC, !enabled)
++                }
++                Log.i("ExpoIVSStageManager", "Stage audio output enabled=$enabled")
++            } catch (e: Exception) {
++                Log.w("ExpoIVSStageManager", "setStageAudioOutputEnabled($enabled) failed", e)
++            }
++        }
+     }
+ 
+     /// Fully releases camera and microphone hardware resources.
+@@ -176,6 +235,15 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
          Log.i("ExpoIVSStageManager", "✅ Microphone muted: $muted")
      }
  
@@ -93,7 +154,7 @@ index b1047d4..adf0339 100644
          if (cameraStream == null) {
              Log.e("ExpoIVSStageManager", "❌ Cannot swap camera, stream not initialized.")
 diff --git a/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts b/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts
-index 7173e36..a6ad365 100644
+index 7173e36..9da7603 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts
 +++ b/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts
 @@ -5,6 +5,7 @@ export { ExpoIVSStagePreviewView } from './ExpoIVSStagePreviewView';
@@ -104,8 +165,11 @@ index 7173e36..a6ad365 100644
  export declare function initializeLocalStreams(audioConfig?: LocalAudioConfig, videoConfig?: LocalVideoConfig): Promise<void>;
  /**
   * Destroy local camera and microphone streams, fully releasing hardware resources.
-@@ -27,6 +28,15 @@ export declare function joinStage(token: string, options?: {
+@@ -25,8 +26,18 @@ export declare function joinStage(token: string, options?: {
+     targetParticipantId?: string;
+ }): Promise<void>;
  export declare function leaveStage(): Promise<void>;
++export declare function setStageAudioOutputEnabled(enabled: boolean): Promise<void>;
  export declare function setStreamsPublished(published: boolean): Promise<void>;
  export declare function swapCamera(): Promise<void>;
 +/**
@@ -121,7 +185,7 @@ index 7173e36..a6ad365 100644
  /**
   * Mute or unmute the camera.
 diff --git a/node_modules/expo-realtime-ivs-broadcast/build/index.js b/node_modules/expo-realtime-ivs-broadcast/build/index.js
-index eda6386..4c8aa9a 100644
+index eda6386..8b60883 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/build/index.js
 +++ b/node_modules/expo-realtime-ivs-broadcast/build/index.js
 @@ -10,6 +10,9 @@ export { useStageParticipants } from './useStageParticipants';
@@ -134,7 +198,16 @@ index eda6386..4c8aa9a 100644
  export async function initializeLocalStreams(audioConfig, videoConfig) {
      return await ExpoRealtimeIvsBroadcastModule.initializeLocalStreams(audioConfig, videoConfig);
  }
-@@ -42,6 +45,20 @@ export async function setStreamsPublished(published) {
+@@ -36,12 +39,29 @@ export async function joinStage(token, options) {
+ export async function leaveStage() {
+     return await ExpoRealtimeIvsBroadcastModule.leaveStage();
+ }
++export async function setStageAudioOutputEnabled(enabled) {
++    return await ExpoRealtimeIvsBroadcastModule.setStageAudioOutputEnabled(enabled);
++}
+ export async function setStreamsPublished(published) {
+     return await ExpoRealtimeIvsBroadcastModule.setStreamsPublished(published);
+ }
  export async function swapCamera() {
      return await ExpoRealtimeIvsBroadcastModule.swapCamera();
  }
@@ -156,7 +229,7 @@ index eda6386..4c8aa9a 100644
      return await ExpoRealtimeIvsBroadcastModule.setMicrophoneMuted(muted);
  }
 diff --git a/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift b/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift
-index 8aafd8a..c6b686b 100644
+index 8aafd8a..78dd9a2 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift
 +++ b/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift
 @@ -32,6 +32,10 @@ public class ExpoRealtimeIvsBroadcastModule: Module, IVSStageManagerDelegate {
@@ -170,7 +243,19 @@ index 8aafd8a..c6b686b 100644
      AsyncFunction("initializeLocalStreams") { (audioConfigMap: [String: Any]?, videoConfigMap: [String: Any]?) -> Void in
          // For now, using nil, which will use default configurations in IVSStageManager
          self.ivsStageManager?.initializeLocalStreams(audioConfig: nil, videoConfig: nil)
-@@ -58,6 +62,18 @@ public class ExpoRealtimeIvsBroadcastModule: Module, IVSStageManagerDelegate {
+@@ -50,6 +54,11 @@ public class ExpoRealtimeIvsBroadcastModule: Module, IVSStageManagerDelegate {
+       self.ivsStageManager?.leaveStage()
+     }
+ 
++    // Buyer park: mute/unmute Stage audio output without leaveStage (rejoin poisons video).
++    AsyncFunction("setStageAudioOutputEnabled") { (enabled: Bool) in
++      self.ivsStageManager?.setStageAudioOutputEnabled(enabled)
++    }
++
+     AsyncFunction("setStreamsPublished") { (published: Bool) in
+       self.ivsStageManager?.setStreamsPublished(published: published)
+     }
+@@ -58,6 +67,18 @@ public class ExpoRealtimeIvsBroadcastModule: Module, IVSStageManagerDelegate {
        self.ivsStageManager?.swapCamera()
      }
  
@@ -190,22 +275,22 @@ index 8aafd8a..c6b686b 100644
        self.ivsStageManager?.setMicrophoneMuted(muted: muted)
      }
 diff --git a/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift b/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
-index f92f823..75b0e8a 100644
+index f92f823..6922058 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
 +++ b/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
-@@ -32,6 +32,12 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
-     
+@@ -33,6 +33,12 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
      // Available cameras discovered via AVFoundation
      private(set) var availableCameras: [AVCaptureDevice] = []
-+
+ 
 +    // Ultra-wide (0.5x) cameras, tracked separately so the front/back swap logic keeps using the
 +    // standard wide lens while zoom-out can opt into the ultra-wide lens.
 +    private var ultraWideCameras: [AVCaptureDevice] = []
 +    private(set) var currentZoomFactor: Double = 1.0
 +    private var usingUltraWide: Bool = false
-     
++    
      // Camera mute state (sends placeholder frames when muted)
      private(set) var isCameraMuted: Bool = false
+     private var placeholderTimer: Timer?
 @@ -44,6 +50,17 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
      override init() {
          super.init()
@@ -233,11 +318,10 @@ index f92f823..75b0e8a 100644
                  print("📸 [CustomCameraCapture] ✅ Added camera input: \(camera.localizedName)")
              } else {
                  print("📸 [CustomCameraCapture] ❌ Cannot add camera input")
-@@ -229,6 +248,85 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
-         
+@@ -230,6 +249,85 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
          return success
      }
-+
+ 
 +    // MARK: - Zoom / lens control
 +
 +    /// Zoom stops the current position supports, e.g. [0.5, 1, 2, 3]. 0.5 is offered only when an
@@ -316,9 +400,10 @@ index f92f823..75b0e8a 100644
 +        print("📸 [CustomCameraCapture] ✅ Zoom set to \(factor) (ultraWide=\(wantUltraWide))")
 +        return true
 +    }
-     
++    
      // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
      
+     private var captureFrameCount: Int = 0
 @@ -624,13 +722,23 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
      }
  
@@ -376,7 +461,52 @@ index f92f823..75b0e8a 100644
                  } catch {
                      print("Error setting video config: \(error)")
                  }
-@@ -972,6 +1089,61 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+@@ -808,6 +925,44 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+         } else {
+             print("IVSStageManager: Attempted to leave stage, but stage is already nil.")
+         }
++
++        // Clear stale participant + stream state on leave. The Stage SDK is a process-wide
++        // singleton and `leave()` only fires `.disconnected` (which clears `participants`)
++        // asynchronously — if ever — after we've already nil'd the stage. Without this, when a
++        // buyer backs out of a show and re-enters, the previous session's dead video stream is
++        // still first in `participants`, so `assignStreamsToAvailableViews()` binds the fresh
++        // remote view to it: audio returns but video stays black until the app is killed.
++        //
++        // `participants` is plain data — clear it synchronously so the next join sees an empty
++        // list. `clearStream()` touches UIKit (removeFromSuperview); `leaveStage()` runs off the
++        // main thread (Expo AsyncFunction queue), so hop to the main thread for the view teardown
++        // to avoid a UIKit-off-main crash.
++        self.participants.removeAll()
++        let viewsToClear = self.remoteViews
++        DispatchQueue.main.async {
++            for viewWrapper in viewsToClear {
++                viewWrapper.value?.clearStream()
++            }
++        }
++    }
++
++    /// Mute/unmute Stage audio output without leaving. Used when parking a buyer subscribe across
++    /// screen blur so we never rejoin (rejoin leaves video permanently black).
++    func setStageAudioOutputEnabled(_ enabled: Bool) {
++        DispatchQueue.main.async {
++            let session = AVAudioSession.sharedInstance()
++            do {
++                if enabled {
++                    try session.setActive(true)
++                    print("IVSStageManager: Stage audio output enabled")
++                } else {
++                    try session.setActive(false, options: .notifyOthersOnDeactivation)
++                    print("IVSStageManager: Stage audio output muted (session deactivated)")
++                }
++            } catch {
++                print("IVSStageManager: setStageAudioOutputEnabled(\(enabled)) failed: \(error)")
++            }
++        }
+     }
+ 
+     // MARK: - Teardown Local Streams
+@@ -972,6 +1127,61 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
          delegate?.stageManagerDidEmitEvent(eventName: "onCameraSwapped", body: ["newCameraURN": newCamera.descriptor().urn, "newCameraName": newCamera.descriptor().friendlyName])
      }
  
@@ -439,10 +569,10 @@ index f92f823..75b0e8a 100644
      func registerRemoteView(_ view: ExpoIVSRemoteStreamView) {
          // Add a weak reference to the view to avoid memory leaks.
 diff --git a/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts b/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
-index b5f4c71..06869d6 100644
+index b5f4c71..69dca24 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
 +++ b/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
-@@ -6,12 +6,15 @@ import { LocalAudioConfig, LocalVideoConfig, PermissionStatusMap, ExpoRealtimeIv
+@@ -6,12 +6,16 @@ import { LocalAudioConfig, LocalVideoConfig, PermissionStatusMap, ExpoRealtimeIv
  // for our event names and payloads, resolving the 'never' type error.
  export type ExpoRealtimeIvsBroadcastModuleType = {
    initializeStage(audioConfig?: LocalAudioConfig, videoConfig?: LocalVideoConfig): Promise<void>;
@@ -451,6 +581,7 @@ index b5f4c71..06869d6 100644
    destroyLocalStreams(): Promise<void>;
    joinStage(token: string, options?: { targetParticipantId?: string }): Promise<void>;
    leaveStage(): Promise<void>;
++  setStageAudioOutputEnabled(enabled: boolean): Promise<void>;
    setStreamsPublished(published: boolean): Promise<void>;
    swapCamera(): Promise<void>;
 +  setCameraZoom(factor: number): Promise<boolean>;
@@ -459,7 +590,7 @@ index b5f4c71..06869d6 100644
    setCameraMuted(muted: boolean, placeholderText?: string | null): Promise<void>;
    isCameraMuted(): Promise<boolean>;
 diff --git a/node_modules/expo-realtime-ivs-broadcast/src/index.ts b/node_modules/expo-realtime-ivs-broadcast/src/index.ts
-index a6c36ed..bd7105f 100644
+index a6c36ed..ff9f729 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/src/index.ts
 +++ b/node_modules/expo-realtime-ivs-broadcast/src/index.ts
 @@ -32,6 +32,15 @@ export async function initializeStage(audioConfig?: LocalAudioConfig, videoConfi
@@ -478,7 +609,19 @@ index a6c36ed..bd7105f 100644
  export async function initializeLocalStreams(audioConfig?: LocalAudioConfig, videoConfig?: LocalVideoConfig): Promise<void> {
    return await ExpoRealtimeIvsBroadcastModule.initializeLocalStreams(audioConfig, videoConfig);
  }
-@@ -70,6 +79,22 @@ export async function swapCamera(): Promise<void> {
+@@ -62,6 +71,11 @@ export async function leaveStage(): Promise<void> {
+   return await ExpoRealtimeIvsBroadcastModule.leaveStage();
+ }
+ 
++/** Mute/unmute Stage audio without leaveStage — used to park a buyer subscribe across back-out. */
++export async function setStageAudioOutputEnabled(enabled: boolean): Promise<void> {
++  return await ExpoRealtimeIvsBroadcastModule.setStageAudioOutputEnabled(enabled);
++}
++
+ export async function setStreamsPublished(published: boolean): Promise<void> {
+   return await ExpoRealtimeIvsBroadcastModule.setStreamsPublished(published);
+ }
+@@ -70,6 +84,22 @@ export async function swapCamera(): Promise<void> {
    return await ExpoRealtimeIvsBroadcastModule.swapCamera();
  }
  

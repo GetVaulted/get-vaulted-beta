@@ -122,6 +122,8 @@ export type LiveRoomDetailDTO = {
   category: string;
   roomType: LiveRoomType;
   status: LiveRoomStatus;
+  /** `private` = unlisted from Live Shows (link/share invite only). */
+  discoveryVisibility: "public" | "private";
   thumbnailUrl: string;
   /** Short looping promo for scheduled rooms; null when unset. */
   teaserVideoUrl: string | null;
@@ -343,6 +345,7 @@ export function buildLiveRoomDetail(room: LiveRoomDetailPayload): LiveRoomDetail
     category: room.category,
     roomType: room.roomType,
     status: room.status,
+    discoveryVisibility: room.discoveryVisibility === "private" ? "private" : "public",
     thumbnailUrl: room.thumbnailUrl,
     teaserVideoUrl: room.teaserVideoUrl?.trim() || null,
     teaserVideoDurationMs:

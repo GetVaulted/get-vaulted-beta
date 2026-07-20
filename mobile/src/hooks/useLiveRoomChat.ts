@@ -95,7 +95,7 @@ export function useLiveRoomChat(args: {
     if (reloadLockRef.current) return;
     reloadLockRef.current = true;
     try {
-      const rows = await fetchLiveRoomChatMessages(args.roomId);
+      const rows = await fetchLiveRoomChatMessages(args.roomId, args.accessToken);
       const mapped = mapRows(rows, args.hostUsername, args.hostUserId);
       setMessages((prev) => mergeChatMessagesById(prev, mapped));
       setError(null);
@@ -106,7 +106,7 @@ export function useLiveRoomChat(args: {
     } finally {
       reloadLockRef.current = false;
     }
-  }, [args.hostUserId, args.hostUsername, args.roomId]);
+  }, [args.accessToken, args.hostUserId, args.hostUsername, args.roomId]);
 
   const appendBroadcast = useCallback(
     (message: LiveRoomChatBroadcastMessage) => {
@@ -236,7 +236,7 @@ export function useLiveRoomChat(args: {
   }, [appendRows, args.accessToken, args.roomId]);
 
   const send = useCallback(
-    async (text: string): Promise<boolean> => {
+    async (text: string, opts?: { staffOnly?: boolean }): Promise<boolean> => {
       const body = text.trim();
       if (!body) return false;
       if (!args.accessToken) throw new Error('Sign in to chat.');
@@ -244,6 +244,7 @@ export function useLiveRoomChat(args: {
 
       sendLockRef.current = true;
       setSending(true);
+      const staffOnly = opts?.staffOnly === true;
       const clientMessageId = `cm-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
       const pendingId = `pending:${clientMessageId}`;
       const optimistic: ChatMessage = {
@@ -253,7 +254,7 @@ export function useLiveRoomChat(args: {
         senderId: args.senderUserId,
         senderAvatarUrl: args.senderAvatarUrl ?? null,
         isHost: Boolean(args.hostUserId && args.senderUserId && args.senderUserId === args.hostUserId),
-        messageType: 'chat',
+        messageType: staffOnly ? 'staff' : 'chat',
         createdAt: new Date().toISOString(),
       };
       setMessages((prev) => mergeChatMessagesById(prev, [optimistic]));
@@ -264,6 +265,7 @@ export function useLiveRoomChat(args: {
           roomId: args.roomId,
           body,
           clientMessageId,
+          staffOnly,
         });
         const next = mapRow(row, args.hostUsername, args.hostUserId);
         setMessages((prev) => {

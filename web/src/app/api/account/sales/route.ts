@@ -12,6 +12,8 @@ import { sellerInstantPayoutBannerMessage } from "@/lib/seller-payout-estimate";
 import { prisma } from "@/lib/prisma";
 import { processAuctionPaymentExpiries } from "@/services/payments";
 import { repairListingCommerceConflicts } from "@/services/layaway";
+import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
+import { ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
 
 export async function GET(req: Request) {
   const auth = await resolveAccountSellerUserId(req);
@@ -47,6 +49,9 @@ export async function GET(req: Request) {
   if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const sellerUser = sellerUserWithEffectivePlatformFeeOverride(user);
+
+  // Warm admin fee caches so any reconstruction fallback uses DB tiers (not cold 8%/7.25% defaults).
+  await Promise.all([ensureLiveShowFeeCache(true), ensureMarketplacePlatformFeeCache(true)]);
 
   const url = new URL(req.url);
   const liveShowId = url.searchParams.get("liveShowId")?.trim() || null;
@@ -104,6 +109,29 @@ export async function GET(req: Request) {
       shippingChargedCents: true,
       shippingLabelCostCents: true,
       shippingLabelCostReversedCents: true,
+      platformFeeCents: true,
+      platformFeePercentApplied: true,
+      platformFeeBasisCents: true,
+      platformFeePriorShowGmvUsd: true,
+      platformFeeSellerOverrideApplied: true,
+      labelFinances: {
+        select: {
+          id: true,
+          orderId: true,
+          shippoTransactionId: true,
+          shippoShipmentId: true,
+          labelCostCents: true,
+          purpose: true,
+          replacesShippoTransactionId: true,
+          status: true,
+          sellerClawbackCents: true,
+          sellerClawbackReversalId: true,
+          sellerCreditCents: true,
+          sellerCreditTransferId: true,
+          clawbackIdempotencyKey: true,
+          creditIdempotencyKey: true,
+        },
+      },
       liveShippingSession: {
         select: {
           liveShowId: true,

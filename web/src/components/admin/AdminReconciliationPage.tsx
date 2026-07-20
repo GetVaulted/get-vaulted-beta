@@ -1107,7 +1107,8 @@ export function AdminReconciliationPage() {
                         Ledger
                       </button>
                       {row.paidByPlatform &&
-                      row.sellerDeductionCents !== row.actualLabelCostCents ? (
+                      row.actualLabelCostCents != null &&
+                      row.sellerDeductionCents < row.actualLabelCostCents ? (
                         <button
                           type="button"
                           disabled={retryBusy === row.orderId}

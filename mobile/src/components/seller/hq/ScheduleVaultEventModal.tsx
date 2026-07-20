@@ -783,7 +783,7 @@ export function ScheduleVaultEventModal({
           <Text style={styles.helperTxt}>
             {discoveryVisibility === 'public'
               ? 'Public shows appear on the Live Shows tab for all buyers.'
-              : 'Private shows are hidden from Live Shows. Share your link so invited viewers can join.'}
+              : 'Private shows are hidden from Live Shows and do not notify your followers when you go live. Share your link to invite viewers.'}
           </Text>
 
           <Text style={styles.label}>When to go live</Text>

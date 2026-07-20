@@ -117,6 +117,7 @@ export async function buildLiveRoomSitemapEntries(): Promise<MetadataRoute.Sitem
     const liveRooms = await db.liveRoom.findMany({
       where: {
         status: { in: ["live", "scheduled"] },
+        discoveryVisibility: "public",
         seller: prismaSellerVisibleOnPublicMarketplace(),
       },
       select: { id: true, updatedAt: true, seller: { select: { email: true } } },

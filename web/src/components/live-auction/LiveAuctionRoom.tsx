@@ -180,6 +180,8 @@ export type LiveAuctionRoomProps = {
   breakId: string;
   roomTitle?: string;
   roomCategory?: string;
+  /** Unlisted private shows cannot blast followers from the share sheet. */
+  discoveryVisibility?: "public" | "private";
   sellerId: string;
   sellerShopUsername?: string;
   hostDisplayName: string;
@@ -264,8 +266,7 @@ function parseAuctionHttpAckPayload(raw: unknown): {
   const item =
     itemCandidate &&
     typeof itemCandidate === "object" &&
-    typeof (itemCandidate as LiveRoomItemDTO).id === "string" &&
-    typeof (itemCandidate as LiveRoomItemDTO).itemVersion === "number"
+    typeof (itemCandidate as { id?: unknown }).id === "string"
       ? (itemCandidate as LiveRoomItemDTO)
       : undefined;
   return { serverNowMs, roomVersion, auctionSeq, item };
@@ -275,6 +276,7 @@ export function LiveAuctionRoom({
   breakId: _breakId,
   roomTitle,
   roomCategory,
+  discoveryVisibility = "public",
   sellerId,
   sellerShopUsername,
   hostDisplayName,
@@ -2014,7 +2016,7 @@ export function LiveAuctionRoom({
         hostUsername={sellerShopUsername ?? hostDisplayName.replace(/^@+/, "")}
         isLive={isLive}
         category={roomCategory}
-        canNotifyFollowers={isHost}
+        canNotifyFollowers={isHost && discoveryVisibility !== "private"}
         onToast={toast}
       />
     </div>

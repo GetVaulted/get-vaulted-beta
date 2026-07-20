@@ -160,6 +160,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const [showNotesOpen, setShowNotesOpen] = useState(false);
   const [showNotes, setShowNotes] = useState(() => normalizeLiveShowNotes(host.room?.showNotes));
   const [chatDraft, setChatDraft] = useState('');
+  const [staffChatOnly, setStaffChatOnly] = useState(false);
   const chatComposerRef = useRef<MentionComposerInputHandle>(null);
   const [modDrawerOpen, setModDrawerOpen] = useState(false);
   const [modAssignOpen, setModAssignOpen] = useState(false);
@@ -416,6 +417,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   useRealtimeRoomSubscription({
     liveRoomId: roomId,
     enabled: true,
+    includeStaffChat: true,
     onLiveRoomMessage: (message) => {
       liveChat.appendBroadcast(message);
     },
@@ -636,7 +638,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     chatComposerRef.current?.dismissSuggestions();
     setChatDraft('');
     try {
-      const ok = await liveChat.send(text);
+      const ok = await liveChat.send(text, { staffOnly: staffChatOnly });
       if (ok) {
         chatComposerRef.current?.blur();
         Keyboard.dismiss();
@@ -646,7 +648,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       const msg = e instanceof Error ? e.message : String(e);
       Alert.alert('Chat', msg);
     }
-  }, [chatDraft, liveChat, canHostChat]);
+  }, [chatDraft, liveChat, canHostChat, staffChatOnly]);
 
   const onGoLive = () => {
     if (host.readinessBlocked?.length) {
@@ -870,11 +872,16 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         onSend={sendHostChat}
         sendDisabled={liveChat.sending || !canHostChat}
         inputDisabled={host.room?.status === 'ended'}
-        placeholder={canHostChat ? 'Say something' : 'Chat unavailable'}
+        placeholder={
+          staffChatOnly ? 'Staff only…' : canHostChat ? 'Say something' : 'Chat unavailable'
+        }
         accessToken={accessToken}
         liveRoomId={roomId}
         inputRef={chatComposerRef}
         overlayScale={overlayScale}
+        canUseStaffChat={modActor.canModerate}
+        staffOnly={staffChatOnly}
+        onStaffOnlyChange={setStaffChatOnly}
         leadingAccessory={
           <>
             {showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) ? (
@@ -991,7 +998,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         hostAvatarUrl={hostAvatarUrl}
         isLive={roomLive}
         accessToken={accessToken}
-        canNotifyFollowers
+        canNotifyFollowers={host.room?.discoveryVisibility !== 'private'}
         onToast={(msg) => showGiveawayToast(msg)}
       />
 
@@ -1056,6 +1063,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         accessToken={accessToken}
         roomId={roomId}
         recentSales={console.recentSales}
+        sellerSummary={console.sellerSummary}
         paymentFailures={console.paymentFailures}
         onRefresh={async () => {
           await console.syncSales();
