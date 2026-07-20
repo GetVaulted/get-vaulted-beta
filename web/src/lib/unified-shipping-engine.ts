@@ -238,13 +238,11 @@ export type PackageGroup = {
   heightIn: number;
 };
 
-/** Split line items into package groups (helmets etc. ship alone; bundle-eligible items merge by bundle group). */
-export function groupItemsIntoPackages(
-  items: Array<{ itemId: string; profile: ResolvedShippingProfile; quantity?: number }>,
-  opts?: { bundleEligiblePurchases?: boolean },
-): PackageGroup[] {
+type PackageUnit = { itemId: string; profile: ResolvedShippingProfile };
+
+function packageGroupsFromBundleOnly(units: PackageUnit[]): PackageGroup[] {
   const groups: PackageGroup[] = [];
-  const bundleBuckets = new Map<string, typeof items>();
+  const bundleBuckets = new Map<string, PackageUnit[]>();
 
   const flushBundleGroup = (groupKey: string) => {
     const bucket = bundleBuckets.get(groupKey);
@@ -257,8 +255,7 @@ export function groupItemsIntoPackages(
     const limited = maxUnits != null && maxUnits > 0 ? bucket.slice(0, maxUnits) : bucket;
     const overflow = maxUnits != null && maxUnits > 0 ? bucket.slice(maxUnits) : [];
     for (const row of limited) {
-      const qty = Math.max(1, row.quantity ?? 1);
-      weightOz += row.profile.weightOz * qty;
+      weightOz += row.profile.weightOz;
       maxL = Math.max(maxL, row.profile.lengthIn);
       maxW = Math.max(maxW, row.profile.widthIn);
       maxH = Math.max(maxH, row.profile.heightIn);
@@ -272,55 +269,84 @@ export function groupItemsIntoPackages(
       heightIn: maxH || 4,
     });
     bundleBuckets.delete(groupKey);
-    if (overflow.length > 0) {
-      for (const row of overflow) {
-        groups.push({
-          packageIndex: groups.length,
-          items: [{ itemId: row.itemId, profile: row.profile }],
-          weightOz: row.profile.weightOz,
-          lengthIn: row.profile.lengthIn,
-          widthIn: row.profile.widthIn,
-          heightIn: row.profile.heightIn,
-        });
-      }
+    for (const row of overflow) {
+      groups.push({
+        packageIndex: groups.length,
+        items: [{ itemId: row.itemId, profile: row.profile }],
+        weightOz: row.profile.weightOz,
+        lengthIn: row.profile.lengthIn,
+        widthIn: row.profile.widthIn,
+        heightIn: row.profile.heightIn,
+      });
     }
   };
 
-  const flushAllBundles = () => {
-    for (const key of [...bundleBuckets.keys()]) flushBundleGroup(key);
-  };
+  for (const unit of units) {
+    const groupKey = unit.profile.bundleGroup || "general";
+    const bucket = bundleBuckets.get(groupKey) ?? [];
+    bucket.push(unit);
+    bundleBuckets.set(groupKey, bucket);
+  }
+  for (const key of [...bundleBuckets.keys()]) flushBundleGroup(key);
+  return groups;
+}
 
+/**
+ * Split line items into package groups.
+ * - Helmets/sneakers/etc. (`requiresSeparatePackage`) each get their own host package.
+ * - Bundle-eligible items (cards, jerseys, …) nest into the largest host when one exists
+ *   so sellers can pack small items inside a helmet box and buy one label.
+ * - With no host, nestables still merge by `bundleGroup` as before.
+ */
+export function groupItemsIntoPackages(
+  items: Array<{ itemId: string; profile: ResolvedShippingProfile; quantity?: number }>,
+  opts?: { bundleEligiblePurchases?: boolean },
+): PackageGroup[] {
   const bundlingEnabled = opts?.bundleEligiblePurchases !== false;
+  const hosts: PackageUnit[] = [];
+  const nestable: PackageUnit[] = [];
 
   for (const row of items) {
     const qty = Math.max(1, row.quantity ?? 1);
-    if (
+    const isHost =
       !bundlingEnabled ||
       row.profile.requiresSeparatePackage ||
-      !row.profile.bundleAllowed
-    ) {
-      flushAllBundles();
-      for (let i = 0; i < qty; i++) {
-        groups.push({
-          packageIndex: groups.length,
-          items: [{ itemId: row.itemId, profile: row.profile }],
-          weightOz: row.profile.weightOz,
-          lengthIn: row.profile.lengthIn,
-          widthIn: row.profile.widthIn,
-          heightIn: row.profile.heightIn,
-        });
-      }
-    } else {
-      const groupKey = row.profile.bundleGroup || "general";
-      const bucket = bundleBuckets.get(groupKey) ?? [];
-      for (let i = 0; i < qty; i++) {
-        bucket.push({ itemId: row.itemId, profile: row.profile, quantity: 1 });
-      }
-      bundleBuckets.set(groupKey, bucket);
+      !row.profile.bundleAllowed;
+    for (let i = 0; i < qty; i++) {
+      const unit = { itemId: row.itemId, profile: row.profile };
+      if (isHost) hosts.push(unit);
+      else nestable.push(unit);
     }
   }
-  flushAllBundles();
-  return groups;
+
+  if (hosts.length === 0) {
+    return packageGroupsFromBundleOnly(nestable);
+  }
+
+  let nestTargetIndex = 0;
+  let bestVolume = -1;
+  for (let i = 0; i < hosts.length; i++) {
+    const p = hosts[i]!.profile;
+    const volume = p.lengthIn * p.widthIn * p.heightIn;
+    if (volume > bestVolume) {
+      bestVolume = volume;
+      nestTargetIndex = i;
+    }
+  }
+
+  return hosts.map((host, index) => {
+    const nested = index === nestTargetIndex ? nestable : [];
+    const packageItems = [host, ...nested];
+    const weightOz = packageItems.reduce((sum, unit) => sum + unit.profile.weightOz, 0);
+    return {
+      packageIndex: index,
+      items: packageItems,
+      weightOz: Math.max(1, weightOz),
+      lengthIn: host.profile.lengthIn,
+      widthIn: host.profile.widthIn,
+      heightIn: host.profile.heightIn,
+    };
+  });
 }
 
 export type LiveShowShippingConfig = {

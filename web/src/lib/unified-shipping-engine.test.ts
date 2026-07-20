@@ -47,17 +47,39 @@ describe("unified-shipping-engine", () => {
     expect(resolved.lengthIn).toBe(6);
   });
 
-  it("bundles card lots and splits helmets into separate packages", () => {
+  it("bundles card lots alone when no host package is present", () => {
+    const groups = groupItemsIntoPackages([
+      { itemId: "a", profile: resolveShippingProfileDimensions(cardProfile) },
+      { itemId: "b", profile: resolveShippingProfileDimensions(cardProfile) },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.items.map((i) => i.itemId)).toEqual(["a", "b"]);
+    expect(groups[0]!.weightOz).toBe(8);
+  });
+
+  it("nests cards into the largest helmet host so one label covers the mix", () => {
     const groups = groupItemsIntoPackages([
       { itemId: "a", profile: resolveShippingProfileDimensions(cardProfile) },
       { itemId: "b", profile: resolveShippingProfileDimensions(cardProfile) },
       { itemId: "h1", profile: resolveShippingProfileDimensions(helmetProfile) },
       { itemId: "h2", profile: resolveShippingProfileDimensions(helmetProfile) },
     ]);
-    expect(groups).toHaveLength(3);
-    expect(groups[0]!.items).toHaveLength(2);
-    expect(groups[1]!.items).toHaveLength(1);
-    expect(groups[2]!.items).toHaveLength(1);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.items.map((i) => i.itemId)).toEqual(["h1", "a", "b"]);
+    expect(groups[1]!.items.map((i) => i.itemId)).toEqual(["h2"]);
+    expect(groups[0]!.weightOz).toBe(88);
+    expect(groups[0]!.lengthIn).toBe(16);
+    expect(groups[0]!.widthIn).toBe(14);
+    expect(groups[0]!.heightIn).toBe(12);
+  });
+
+  it("keeps two full-size helmets as two packages with no nestables", () => {
+    const groups = groupItemsIntoPackages([
+      { itemId: "h1", profile: resolveShippingProfileDimensions(helmetProfile) },
+      { itemId: "h2", profile: resolveShippingProfileDimensions(helmetProfile) },
+    ]);
+    expect(groups).toHaveLength(2);
+    expect(groups.every((g) => g.items.length === 1)).toBe(true);
   });
 
   it("applies buyer shipping cap with seller subsidy", () => {
