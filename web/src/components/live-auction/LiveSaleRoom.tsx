@@ -61,7 +61,7 @@ import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { LiveRoomShareSheet } from "@/components/live-auction/LiveRoomShareSheet";
 import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 import type { VariantPurchasedMergePayload } from "@/lib/live-room-variant-merge";
-import { isVariantSalesFormat, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
+import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
 import {
   isVariantSpotAuctionLive,
   pinnedVariantAuctionPrimaryLabel,
@@ -255,7 +255,7 @@ export function LiveSaleRoom({
   broadcastCommerceHint = null,
 }: LiveSaleRoomProps) {
   const { data: session, status } = useSession();
-  const shopHref =
+  const sellerStoreHref =
     sellerShopUsername && sellerShopUsername.trim().length > 0 ? sellerProfilePath(sellerShopUsername.trim()) : null;
   const router = useRouter();
 
@@ -293,6 +293,7 @@ export function LiveSaleRoom({
   const [busy, setBusy] = useState(false);
   const [pinVariantBusy, setPinVariantBusy] = useState(false);
   const [variantSheetOpen, setVariantSheetOpen] = useState(false);
+  const [variantSheetItemId, setVariantSheetItemId] = useState<string | null>(null);
   const [variantSheetInitialVariantId, setVariantSheetInitialVariantId] = useState<string | null>(null);
   /** Auction bid POST in flight — disables button. */
   const [bidFlight, setBidFlight] = useState(false);
@@ -309,6 +310,7 @@ export function LiveSaleRoom({
 
   const [buyerWideRail, setBuyerWideRail] = useState(false);
   const [buyerLineupOpen, setBuyerLineupOpen] = useState(false);
+  const openBuyerShop = useCallback(() => setBuyerLineupOpen(true), []);
   const isBuyerDesktop = useBuyerLiveDesktop();
   const [tipOpen, setTipOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -497,6 +499,25 @@ export function LiveSaleRoom({
       }),
     [dbItems, isLive, clockSkewMs, liveAuctionResolutionTick, clockTick],
   );
+  const handleBuyerShopSelect = useCallback(
+    (id: string) => {
+      setSelectedId(id);
+      setBuyerLineupOpen(false);
+      const row = buyerQueueRows.find((r) => r.id === id);
+      if (row?.queueAction === "variant_shop") {
+        setVariantSheetItemId(id);
+        setVariantSheetInitialVariantId(null);
+        setVariantSheetOpen(true);
+      }
+    },
+    [buyerQueueRows],
+  );
+  const variantSheetItem = useMemo(() => {
+    if (variantSheetItemId) {
+      return dbItems.find((i) => i.id === variantSheetItemId) ?? null;
+    }
+    return activeDb;
+  }, [variantSheetItemId, dbItems, activeDb]);
   const buyerNextUpItem = useMemo(() => {
     const active = queue.find((i) => i.status === "live" || i.id === selectedId);
     return queue.find((i) => i.id !== active?.id) ?? queue[0] ?? null;
@@ -780,6 +801,7 @@ export function LiveSaleRoom({
 
   const handleOpenVariantShop = useCallback(() => {
     if (!activeDb || !pytCommerceLive) return;
+    setVariantSheetItemId(activeDb.id);
     setVariantSheetInitialVariantId(null);
     setVariantSheetOpen(true);
   }, [activeDb, pytCommerceLive]);
@@ -790,6 +812,7 @@ export function LiveSaleRoom({
       await handlePlaceBid();
       return;
     }
+    setVariantSheetItemId(activeDb.id);
     setVariantSheetInitialVariantId(buyerPinnedVariant?.id ?? null);
     setVariantSheetOpen(true);
   }, [activeDb, buyerPinnedVariant?.id, handlePlaceBid, pytCommerceLive]);
@@ -1495,7 +1518,7 @@ export function LiveSaleRoom({
     teaserVideoUrl,
     buyerShellMode: isBuyerDesktop,
     showRightActions: !isHost,
-    shopHref,
+    onShop: isHost ? undefined : openBuyerShop,
     onShare: handleShare,
     onWallet: handleWallet,
     onTip: isLive && !isHost && !buyerPaymentRecoveryPending ? handleTip : undefined,
@@ -1551,8 +1574,7 @@ export function LiveSaleRoom({
                     selectable: buyerQueueRowSelectable(item),
                   }))}
                   selectedId={selectedId}
-                  shopHref={shopHref}
-                  onSelect={setSelectedId}
+                  onSelect={handleBuyerShopSelect}
                   actions={buyerVariantClaimActions}
                 />
               ) : undefined
@@ -1585,13 +1607,12 @@ export function LiveSaleRoom({
                         buyerQueueRows.find((r) => !r.isPinned) ??
                         buyerQueueRows[0];
                       return row
-                        ? `${row.metaLine} · ${buyerQueueRows.length} in lineup`
-                        : `${buyerQueueRows.length} in lineup`;
+                        ? `${row.metaLine} · ${buyerQueueRows.length} in shop`
+                        : `${buyerQueueRows.length} in shop`;
                     })()
                   }
                   queueCount={buyerQueueRows.length}
-                  shopHref={shopHref}
-                  onOpenQueue={() => setBuyerLineupOpen(true)}
+                  onOpenQueue={openBuyerShop}
                 />
               ) : null}
 
@@ -1613,9 +1634,9 @@ export function LiveSaleRoom({
       <BuyerLiveQueueSheet
         open={buyerLineupOpen && !isHost}
         onClose={() => setBuyerLineupOpen(false)}
-        title="Lineup"
-        subtitle={`${buyerQueueRows.length} item${buyerQueueRows.length === 1 ? "" : "s"} in queue`}
-        shopHref={shopHref}
+        title="Shop"
+        subtitle={`${buyerQueueRows.length} item${buyerQueueRows.length === 1 ? "" : "s"} in this room`}
+        sellerStoreHref={sellerStoreHref}
         footer={
           !isHost && (roomType === "auction" || roomType === "sale") && !activeHasVariants ? (
             <LiveShippingIndicator
@@ -1635,27 +1656,25 @@ export function LiveSaleRoom({
             metaLine: item.metaLine,
           }))}
           selectedId={selectedId}
-          onSelect={(id) => {
-            setSelectedId(id);
-            setBuyerLineupOpen(false);
-          }}
-          emptyHint="Items added by the host will appear here."
+          onSelect={handleBuyerShopSelect}
+          emptyHint="Items the host adds to this show will appear here."
         />
       </BuyerLiveQueueSheet>
-      {activeDb && activeHasVariants ? (
+      {variantSheetItem && isVariantPurchaseItem(variantSheetItem) ? (
         <LiveVariantSelectionSheet
           open={variantSheetOpen}
           onClose={() => {
             setVariantSheetOpen(false);
+            setVariantSheetItemId(null);
             setVariantSheetInitialVariantId(null);
           }}
-          item={activeDb}
+          item={variantSheetItem}
           liveRoomId={liveRoomId}
           walletReady={buyerLiveWalletReady}
           initialVariantId={variantSheetInitialVariantId}
           excludeVariantIds={
-            spotAuctionLive && activeDb.auctionVariantId
-              ? [activeDb.auctionVariantId]
+            spotAuctionLive && variantSheetItem.auctionVariantId
+              ? [variantSheetItem.auctionVariantId]
               : undefined
           }
           onWalletRequired={() => {

@@ -58,7 +58,9 @@ type LiveVideoStageProps = {
   topChromeTrailing?: ReactNode;
   /** Buyer-only right-side quick actions. */
   showRightActions?: boolean;
-  /** Seller shop link for the video-stage Shop action. */
+  /** Opens the in-room shop / lineup sheet. */
+  onShop?: () => void;
+  /** Optional fallback when `onShop` is not provided. */
   shopHref?: string | null;
   onShare?: () => void;
   onWallet?: () => void;
@@ -130,6 +132,7 @@ export function LiveVideoStage({
   centeredActionOverlay = false,
   topChromeTrailing,
   showRightActions = false,
+  onShop,
   shopHref = null,
   onShare,
   onWallet,
@@ -248,7 +251,12 @@ export function LiveVideoStage({
       {onTip ? <ActionPill label="Tip" icon={<TipIcon />} onClick={onTip} /> : null}
       <ActionPill label="Share" icon={<ShareIcon />} onClick={onShare} />
       <ActionPill label="Wallet" icon={<WalletIcon />} onClick={onWallet} />
-      <ActionPill label="Shop" icon={<ShopIcon />} href={shopHref ?? "/marketplace"} />
+      <ActionPill
+        label="Shop"
+        icon={<ShopIcon />}
+        onClick={onShop}
+        href={onShop ? undefined : shopHref ?? undefined}
+      />
       {liveRoomId ? (
         <ReportTrigger
           targetType="live_room"

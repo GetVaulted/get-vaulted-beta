@@ -8,18 +8,19 @@ export type BuyerLiveQueueSheetProps = {
   onClose: () => void;
   title?: string;
   subtitle?: string;
-  shopHref?: string | null;
+  /** Optional marketplace profile link (separate from this room's shop lineup). */
+  sellerStoreHref?: string | null;
   children: ReactNode;
   footer?: ReactNode;
 };
 
-/** Buyer-only full lineup drawer (not used on seller console). */
+/** Buyer-only in-room shop / lineup drawer (not used on seller console). */
 export function BuyerLiveQueueSheet({
   open,
   onClose,
-  title = "Lineup",
+  title = "Shop",
   subtitle,
-  shopHref,
+  sellerStoreHref,
   children,
   footer,
 }: BuyerLiveQueueSheetProps) {
@@ -27,7 +28,7 @@ export function BuyerLiveQueueSheet({
 
   return (
     <div className="fixed inset-0 z-[80] flex flex-col justify-end bg-black/55 backdrop-blur-[2px]" role="dialog" aria-modal>
-      <button type="button" className="absolute inset-0" aria-label="Close lineup" onClick={onClose} />
+      <button type="button" className="absolute inset-0" aria-label="Close shop" onClick={onClose} />
       <div className="relative mx-auto flex max-h-[min(78vh,720px)] w-full max-w-[1920px] flex-col overflow-hidden rounded-t-2xl border border-zinc-800 bg-zinc-950 shadow-2xl">
         <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
           <div className="min-w-0">
@@ -35,9 +36,12 @@ export function BuyerLiveQueueSheet({
             {subtitle ? <p className="text-xs text-zinc-500">{subtitle}</p> : null}
           </div>
           <div className="flex shrink-0 items-center gap-3">
-            {shopHref ? (
-              <Link href={shopHref} className="text-[10px] font-semibold uppercase tracking-wide text-gold-bright hover:underline">
-                Host shop →
+            {sellerStoreHref ? (
+              <Link
+                href={sellerStoreHref}
+                className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400 hover:text-gold-bright hover:underline"
+              >
+                Seller store
               </Link>
             ) : null}
             <button
