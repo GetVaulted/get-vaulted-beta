@@ -5,10 +5,11 @@ import {
 } from "@/lib/seller-shipping-breakdown";
 import type { LabelFinanceRow } from "@/services/shipping/label-finance";
 
-function financeRow(overrides: Partial<LabelFinanceRow> & Pick<LabelFinanceRow, "shippoTransactionId">): LabelFinanceRow {
+function financeRow(overrides: Partial<LabelFinanceRow> = {}): LabelFinanceRow {
   return {
     id: "lf_1",
     orderId: "ord_1",
+    shippoTransactionId: "txn_1",
     shippoShipmentId: "shp_1",
     labelCostCents: 725,
     purpose: "initial",

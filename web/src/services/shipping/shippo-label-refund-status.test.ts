@@ -14,7 +14,7 @@ const purchased = extractShippoPurchaseProof({
 });
 const errorNoLabel = extractShippoPurchaseProof({
   status: "ERROR",
-  label_url: null,
+  label_url: undefined,
   tracking_number: "",
 });
 

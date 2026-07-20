@@ -112,7 +112,7 @@ describe("NEITHER_LABEL_CHARGED classification + finance invariants", () => {
     const tx = {
       status: "ERROR",
       object_state: "INVALID",
-      label_url: null,
+      label_url: undefined,
       tracking_number: "",
       billing: { payments: [] },
     };
@@ -195,7 +195,7 @@ describe("NEITHER_LABEL_CHARGED classification + finance invariants", () => {
     const proof = extractShippoPurchaseProof({
       status: "ERROR",
       object_state: "INVALID",
-      label_url: null,
+      label_url: undefined,
       tracking_number: "",
       rate: "rate_quoted_1751",
     });

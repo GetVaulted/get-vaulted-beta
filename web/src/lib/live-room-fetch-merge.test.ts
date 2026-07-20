@@ -60,6 +60,7 @@ function room(partial: Partial<LiveRoomDetailDTO> & Pick<LiveRoomDetailDTO, "ite
     category: "Other",
     roomType: "break",
     status: "live",
+    discoveryVisibility: "public",
     thumbnailUrl: "",
     viewerCount: 0,
     roomVersion: 1,
