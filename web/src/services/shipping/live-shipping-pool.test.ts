@@ -31,7 +31,7 @@ describe("live-shipping-pool", () => {
     sellerPaysOverCap: true,
   };
 
-  it("cards-only pool stays in one package with lower total than cards + helmet", () => {
+  it("cards-only pool stays in one package; cards nest into a helmet host as one package", () => {
     const cardsOnly = packageGroupsFromProfileRows([
       { itemId: "a", profile: seedToProfileInput(card) },
       { itemId: "b", profile: seedToProfileInput(card) },
@@ -43,13 +43,15 @@ describe("live-shipping-pool", () => {
     ]);
 
     expect(cardsOnly).toHaveLength(1);
-    expect(withHelmet.length).toBeGreaterThanOrEqual(2);
+    // Helmet hosts nest bundleable cards — one package, not cards + separate helmet.
+    expect(withHelmet).toHaveLength(1);
 
     const cardsTotal = computePoolTotalsFromGroups(cardsOnly, showCap);
     const mixedTotal = computePoolTotalsFromGroups(withHelmet, showCap);
 
-    expect(mixedTotal.buyerTotalCents).toBeGreaterThan(cardsTotal.buyerTotalCents);
-    expect(mixedTotal.packageCount).toBeGreaterThan(cardsTotal.packageCount);
+    // Mixed pool is heavier (helmet dims/weight) so buyer total should be higher or equal under cap.
+    expect(mixedTotal.buyerTotalCents).toBeGreaterThanOrEqual(cardsTotal.buyerTotalCents);
+    expect(mixedTotal.packageCount).toBe(1);
   });
 
   it("buyer total never exceeds show cap", () => {

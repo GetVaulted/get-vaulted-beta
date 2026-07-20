@@ -44,6 +44,7 @@ vi.mock("@/lib/live-show-gmv", () => ({
   resolveCheckoutApplicationFeeCents: vi.fn(),
   resolveLiveRoomIdForLiveRoomItem: vi.fn(),
   resolveLiveRoomIdForOrder: vi.fn(),
+  ensureOrderPlatformFeeSnapshotPersisted: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@/services/payout/process-delivery-payout", () => ({
   initializeOrderPayoutOnPayment,
