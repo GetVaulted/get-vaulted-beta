@@ -168,6 +168,78 @@ export function AccountSellerFinancialsPage() {
                     </Link>
                   </div>
                 </div>
+
+                {wallet.hasStripeAccount && (wallet.recentPayouts?.length ?? 0) > 0 ? (
+                  <div className="mt-4 border-t border-white/10 pt-4">
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">
+                      Recent payouts
+                    </p>
+                    <ul className="mt-2 space-y-2">
+                      {wallet.recentPayouts.map((p) => (
+                        <li
+                          key={p.id}
+                          className="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-white/8 bg-black/20 px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-zinc-100">{p.amountFormatted}</p>
+                            <p className="mt-0.5 text-xs text-zinc-400">{p.destinationLabel}</p>
+                            {p.arrivalDate ? (
+                              <p className="mt-0.5 text-[11px] text-zinc-600">
+                                Arrives{" "}
+                                {new Date(p.arrivalDate).toLocaleDateString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })}
+                              </p>
+                            ) : null}
+                          </div>
+                          <span className="rounded-full border border-gold/30 bg-gold/10 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide text-gold-bright">
+                            {p.statusLabel}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {wallet.hasStripeAccount && (wallet.recentActivity?.length ?? 0) > 0 ? (
+                  <div className="mt-4 border-t border-white/10 pt-4">
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">
+                      Where your balance went
+                    </p>
+                    <ul className="mt-2 space-y-2">
+                      {wallet.recentActivity.map((row) => {
+                        const outbound = row.amountCents < 0;
+                        return (
+                          <li
+                            key={row.id}
+                            className="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-white/8 bg-black/20 px-3 py-2.5"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-bold text-zinc-100">{row.title}</p>
+                              <p className="mt-0.5 text-xs leading-relaxed text-zinc-400">{row.description}</p>
+                              <p className="mt-0.5 text-[11px] text-zinc-600">
+                                {new Date(row.createdAt).toLocaleDateString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })}
+                              </p>
+                            </div>
+                            <p
+                              className={`shrink-0 text-sm font-bold ${
+                                outbound ? "text-rose-300/90" : "text-emerald-300/90"
+                              }`}
+                            >
+                              {row.amountFormatted}
+                            </p>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
               </section>
             ) : null}
 

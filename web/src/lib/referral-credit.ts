@@ -11,9 +11,8 @@ import { normalizeAddressKey, normalizeEmailForComparison } from "@/lib/identity
  * Rules (product decision, see chat 2026-07-05):
  * - Trigger: the referred friend's FIRST completed paid order, $25+ subtotal.
  * - Reward: flat $10 to the referrer, flat $10 to the referee (both sides), on that one order.
- * - Funding: pure marketing expense. Never reduces the seller's proceeds or the platform fee —
- *   it is applied purely as a buyer-side discount on top of whatever the buyer would have paid,
- *   and is never subtracted from what gets transferred to the seller.
+ * - Funding: platform marketing expense. Buyer pays less; seller transfer and fee basis use the
+ *   full item price. The credit is absorbed from the platform cut (never from the seller).
  * - Scope: Stripe-processed marketplace flows only (Buy Now, Offers, live auctions/Vault Drop,
  *   layaway deposits). Escrow (Trustap) orders are excluded from both earning and spending —
  *   that's a separate payment rail this program doesn't reconcile against.

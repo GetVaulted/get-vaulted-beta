@@ -10,7 +10,11 @@ import {
   View,
 } from 'react-native';
 import type { SellerAnalyticsSnapshot } from '../../../api/sellerAnalyticsRepository';
-import type { SellerWalletSummary } from '../../../api/stripeConnectRepository';
+import type {
+  SellerWalletActivityRow,
+  SellerWalletPayoutRow,
+  SellerWalletSummary,
+} from '../../../api/stripeConnectRepository';
 import { walletSnapshot } from '../../../data/sellerHubMock';
 import type { SellerReloadOptions } from '../../../hooks/sellerReloadOptions';
 import { openStripeConnectDashboard } from '../../../lib/openStripeConnectDashboard';
@@ -22,6 +26,13 @@ import {
   StudioSecondaryButton,
   StudioSection,
 } from './SellerStudioUI';
+
+function formatShortDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
 type SellerWalletState = {
   wallet: SellerWalletSummary | null;
@@ -92,6 +103,8 @@ export function SellerRevenuePanel({
   const scheduleLine = w?.payoutScheduleSummary ?? w?.message ?? null;
   const completedSales = analytics?.completedSales ?? 0;
   const completedTrades = analytics?.completedTrades ?? 0;
+  const recentPayouts: SellerWalletPayoutRow[] = w?.recentPayouts ?? [];
+  const recentActivity: SellerWalletActivityRow[] = w?.recentActivity ?? [];
 
   const onRefresh = async () => {
     if (walletRefreshBusy) return;
@@ -197,6 +210,62 @@ export function SellerRevenuePanel({
           <StudioSecondaryButton label="Refresh balance" icon="refresh-outline" onPress={() => void onRefresh()} disabled={walletRefreshBusy} />
         </View>
       )}
+
+      {hasStripeAccount && recentPayouts.length > 0 ? (
+        <StudioSection title="Recent payouts" subtitle="Money sent (or scheduled) to your bank">
+          <View style={styles.listCard}>
+            {recentPayouts.map((p, idx) => (
+              <View
+                key={p.id}
+                style={[styles.listRow, idx < recentPayouts.length - 1 && styles.listRowBorder]}
+              >
+                <View style={styles.listMain}>
+                  <Text style={styles.listTitle}>{p.amountFormatted}</Text>
+                  <Text style={styles.listBody} numberOfLines={2}>
+                    {p.destinationLabel}
+                  </Text>
+                  {p.arrivalDate ? (
+                    <Text style={styles.listMeta}>Arrives {formatShortDate(p.arrivalDate)}</Text>
+                  ) : null}
+                </View>
+                <View style={styles.listBadge}>
+                  <Text style={styles.listBadgeTxt}>{p.statusLabel}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </StudioSection>
+      ) : null}
+
+      {hasStripeAccount && recentActivity.length > 0 ? (
+        <StudioSection
+          title="Where your balance went"
+          subtitle="Payouts, refunds, and label costs that changed your Stripe balance"
+        >
+          <View style={styles.listCard}>
+            {recentActivity.map((row, idx) => {
+              const outbound = row.amountCents < 0;
+              return (
+                <View
+                  key={row.id}
+                  style={[styles.listRow, idx < recentActivity.length - 1 && styles.listRowBorder]}
+                >
+                  <View style={styles.listMain}>
+                    <Text style={styles.listTitle}>{row.title}</Text>
+                    <Text style={styles.listBody} numberOfLines={3}>
+                      {row.description}
+                    </Text>
+                    <Text style={styles.listMeta}>{formatShortDate(row.createdAt)}</Text>
+                  </View>
+                  <Text style={[styles.listAmount, outbound ? styles.listAmountOut : styles.listAmountIn]}>
+                    {row.amountFormatted}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        </StudioSection>
+      ) : null}
 
       <StudioSection title="How payouts work" subtitle="What happens after a buyer checks out">
         <PayoutStep
@@ -333,6 +402,40 @@ const styles = StyleSheet.create({
   setupTitle: { color: colors.textPrimary, fontSize: 16, fontWeight: '800' },
   setupBody: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
   actionRow: { gap: spacing.sm },
+  listCard: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(0,0,0,0.22)',
+    overflow: 'hidden',
+  },
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  listRowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  listMain: { flex: 1, minWidth: 0, gap: 3 },
+  listTitle: { color: colors.textPrimary, fontSize: 14, fontWeight: '800' },
+  listBody: { color: colors.textSecondary, fontSize: 12, lineHeight: 17 },
+  listMeta: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  listBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.28)',
+    backgroundColor: 'rgba(212,175,55,0.1)',
+  },
+  listBadgeTxt: { color: colors.gold, fontSize: 10, fontWeight: '800' },
+  listAmount: { fontSize: 14, fontWeight: '800', marginTop: 2 },
+  listAmountOut: { color: '#F5A89A' },
+  listAmountIn: { color: colors.success },
   stepRow: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' },
   stepIcon: {
     width: 32,

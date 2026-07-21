@@ -231,6 +231,9 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
   const salesTaxCents =
     input.taxAmountCents > 0 ? Math.max(0, input.taxAmountCents) : usdToCents(input.taxUsd);
   const discountCents = usdToCents(input.referralCreditAppliedUsd);
+  /** Full item sale basis for fee + seller transfer (referral is platform-funded). */
+  const saleBasisCents = itemSubtotalCents + discountCents;
+  const saleBasisUsd = saleBasisCents / 100;
   const customerTotalCents = usdToCents(input.totalUsd);
   const taxRefundedCents = Math.max(0, input.taxRefundedCents);
   const isRefunded = input.paymentStatus === "refunded";
@@ -238,17 +241,20 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
   const amountRefundedCents = isRefunded || isChargeback ? customerTotalCents : 0;
   const finalBuyerPaidCents = Math.max(0, customerTotalCents - amountRefundedCents);
 
-  const platformFeePercent = resolveOrderPlatformFeePercent(input);
-  // Platform fee is always the order fee on item subtotal — never Stripe application_fee_amount.
+  const platformFeePercent = resolveOrderPlatformFeePercent({
+    ...input,
+    itemPriceUsd: saleBasisUsd,
+  });
+  // Platform fee on full sale basis — never Stripe application_fee_amount.
   // Taxed reduced-transfer charges omit application_fee_amount entirely; untaxed charges often set
-  // application_fee_amount = platformFee + seller-paid processing, so stripeApplicationFeeCents
-  // is not the platform fee.
-  const platformFeeAmountCents = applicationFeeCentsFromSubtotalUsd(input.itemPriceUsd, platformFeePercent);
+  // application_fee_amount = platformFee + seller-paid processing − referralCredit, so
+  // stripeApplicationFeeCents is not the platform fee.
+  const platformFeeAmountCents = applicationFeeCentsFromSubtotalUsd(saleBasisUsd, platformFeePercent);
   const platformFeeCents: LabeledCents = {
     cents: platformFeeAmountCents,
     source: "actual",
     formula:
-      "order platform fee = round(itemSubtotal × feeRate) — not stripeApplicationFeeCents (taxed path has no app fee; untaxed app fee may include processing)",
+      "order platform fee = round((itemSubtotal + referralCredit) × feeRate) — not stripeApplicationFeeCents (taxed path has no app fee; untaxed app fee may include processing − referral)",
   };
 
   const processingEstimated = estimateStripeProcessingFeeCents(customerTotalCents);
@@ -267,7 +273,10 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
 
   const feeForTransfer = platformFeeCents.cents ?? 0;
   const procForTransfer = stripeProcessingFeeCents.cents ?? 0;
-  const derivedTransfer = Math.max(0, itemSubtotalCents + buyerShippingCents - feeForTransfer - procForTransfer);
+  // Seller transfer on full sale; when credit exceeds fee+processing, clamp to buyer merchandise+shipping.
+  const desiredTransfer = Math.max(0, saleBasisCents + buyerShippingCents - feeForTransfer - procForTransfer);
+  const maxTransferFromCharge = itemSubtotalCents + buyerShippingCents;
+  const derivedTransfer = Math.min(desiredTransfer, maxTransferFromCharge);
   const sellerTransferCents: LabeledCents =
     input.stripeTransferAmountCents != null
       ? {
@@ -278,7 +287,10 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
       : {
           cents: derivedTransfer,
           source: "derived",
-          formula: "item + buyerShipping − platformFee − sellerPaidProcessing",
+          formula:
+            discountCents > 0
+              ? "fullItem + buyerShipping − platformFee − sellerPaidProcessing (platform-funded referral; capped at buyer merchandise+shipping)"
+              : "item + buyerShipping − platformFee − sellerPaidProcessing",
         };
 
   const labelFinances = input.labelFinances ?? [];
@@ -359,14 +371,17 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
     formula: "sellerTransfer − labelDeduction − payoutReserve (reserve is bookkeeping-only)",
   };
 
-  // Platform earned revenue = platform fee only (NOT tax, NOT buyer shipping)
-  const platformEarnedRevenueCents = platformFeeCents.cents ?? 0;
+  // Platform earned revenue = platform fee minus platform-funded referral credit (marketing).
+  const platformEarnedRevenueCents = Math.max(0, (platformFeeCents.cents ?? 0) - discountCents);
   const platformHeldTaxCents = Math.max(0, salesTaxCents - taxRefundedCents);
 
   const platformCashBeforeProcessingCents: LabeledCents = {
     cents: Math.max(0, customerTotalCents - transferCents),
     source: sellerTransferCents.source === "actual" ? "derived" : "estimated",
-    formula: "customerCharge − sellerTransfer (= platformFee + processing + tax on taxed path)",
+    formula:
+      discountCents > 0
+        ? "customerCharge − sellerTransfer (= platformFee − referralCredit + processing + tax on taxed path)"
+        : "customerCharge − sellerTransfer (= platformFee + processing + tax on taxed path)",
   };
 
   const platformCashAfterProcessingCents: LabeledCents = {
@@ -423,12 +438,16 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
   // Final variance: platform shipping variance + missing fee actuals treated as soft warn
   let finalVarianceCents = platformShippingVarianceCents;
   if (sellerTransferCents.source === "actual" && platformFeeCents.source === "actual") {
-    const expectedKeep = (platformFeeCents.cents ?? 0) + (stripeProcessingFeeCents.cents ?? 0) + salesTaxCents;
+    const expectedKeep =
+      (platformFeeCents.cents ?? 0) +
+      (stripeProcessingFeeCents.cents ?? 0) +
+      salesTaxCents -
+      discountCents;
     const actualKeep = customerTotalCents - (sellerTransferCents.cents ?? 0);
     const keepDelta = actualKeep - expectedKeep;
     if (Math.abs(keepDelta) >= 1) {
       finalVarianceCents += keepDelta;
-      varianceReasons.push(`Platform keep delta ${keepDelta}¢ vs fee+processing+tax`);
+      varianceReasons.push(`Platform keep delta ${keepDelta}¢ vs fee+processing+tax−referral`);
     }
   }
 

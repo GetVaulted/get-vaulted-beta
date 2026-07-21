@@ -384,4 +384,32 @@ describe("buildOrderFinancialLedger", () => {
     expect(ledger.sellerLabelDeductionCents).toBe(1751);
     expect(ledger.platformShippingVarianceCents).toBe(0);
   });
+
+  it("platform-funded referral: fee and seller transfer use full item; platform nets fee − credit", () => {
+    // Buyer paid $90 item after $10 credit; full sale $100. Fee 10% → $10. Processing $3.
+    const ledger = buildOrderFinancialLedger(
+      base({
+        itemPriceUsd: 90,
+        shippingPriceUsd: 5,
+        shippingChargedCents: 500,
+        taxUsd: 0,
+        taxAmountCents: 0,
+        totalUsd: 95,
+        referralCreditAppliedUsd: 10,
+        sellerPlatformFeePercentOverride: 10,
+        stripeProcessingFeeCents: 300,
+        stripeTransferAmountCents: null,
+        stripeTaxTransactionId: null,
+        liveShowId: null,
+        shippingLabelCostCents: 0,
+        shippingLabelCostReversedCents: 0,
+      }),
+    );
+    expect(ledger.discountCents).toBe(1000);
+    expect(ledger.platformFeeCents.cents).toBe(1000); // 10% of $100
+    expect(ledger.platformEarnedRevenueCents).toBe(0); // fee − credit
+    // full $100 + $5 − $10 fee − $3 processing = $92
+    expect(ledger.sellerTransferCents.cents).toBe(9200);
+    expect(ledger.sellerTransferCents.formula).toContain("platform-funded referral");
+  });
 });

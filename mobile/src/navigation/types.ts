@@ -59,6 +59,8 @@ export type RootStackParamList = {
   SellerHostRoom: { roomId: string };
   MessagesInbox: undefined;
   MessageThread: { threadId: string };
+  /** Pick a recipient by username, then opens MessageCompose. */
+  MessageNew: undefined;
   MessageCompose: {
     listingId?: string;
     liveRoomId?: string;

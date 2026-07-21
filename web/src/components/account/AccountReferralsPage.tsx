@@ -72,10 +72,11 @@ export function AccountReferralsPage() {
   }, [referralUrl]);
 
   const shareLink = useCallback(async () => {
-    if (!referralUrl) return;
+    if (!referralUrl || !wallet?.referralCode) return;
+    const code = wallet.referralCode.trim().toUpperCase();
     const shareData = {
       title: "Join me on Get Vaulted",
-      text: "Sign up with my link and we'll both get $10 in credit after your first order.",
+      text: `Download the Get Vaulted app, then sign up with my invite code ${code}. We'll both get $10 in credit after your first order.`,
       url: referralUrl,
     };
     try {
@@ -87,7 +88,7 @@ export function AccountReferralsPage() {
     } catch {
       /* user dismissed the native share sheet */
     }
-  }, [referralUrl, copyLink]);
+  }, [referralUrl, copyLink, wallet?.referralCode]);
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
@@ -119,7 +120,7 @@ export function AccountReferralsPage() {
               <div className="rounded-2xl border border-white/[0.08] bg-zinc-950/60 p-4">
                 <p className="text-[10px] font-black uppercase tracking-[0.15em] text-zinc-500">Available credit</p>
                 <p className="mt-1 text-2xl font-black text-emerald-400">{formatUsd(wallet.referralCreditUsd)}</p>
-                <p className="mt-1 text-xs text-zinc-500">Applied automatically on your next eligible purchase.</p>
+                <p className="mt-1 text-xs text-zinc-500">Choose to apply it at checkout on eligible purchases.</p>
               </div>
               <div className="rounded-2xl border border-white/[0.08] bg-zinc-950/60 p-4">
                 <p className="text-[10px] font-black uppercase tracking-[0.15em] text-zinc-500">Pending credit</p>
@@ -167,7 +168,7 @@ export function AccountReferralsPage() {
                 <li>Share your link with a friend who hasn&apos;t used Get Vaulted before.</li>
                 <li>They sign up and complete a paid order of $25 or more.</li>
                 <li>You both get $10 in credit once that order&apos;s return window closes.</li>
-                <li>Credit applies automatically to your next eligible Buy Now, offer, live auction, or layaway purchase.</li>
+                <li>At checkout, choose whether to apply your credit to eligible Buy Now, offer, or auction payments.</li>
               </ul>
             </section>
           </>

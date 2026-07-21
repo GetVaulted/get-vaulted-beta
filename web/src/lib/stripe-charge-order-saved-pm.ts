@@ -29,6 +29,7 @@ import {
   PAYMENT_REQUIRES_ACTION,
 } from "@/services/payments";
 import { releaseReferralCreditReservation, reserveReferralCreditForCheckout } from "@/lib/referral-credit";
+import { orderItemSaleBasisUsd, referralCreditAppliedCents } from "@/lib/referral-credit-payout";
 
 /** Stripe's minimum chargeable amount — never let a referral-credit discount push a charge below this. */
 const MIN_STRIPE_CHARGE_USD = 0.5;
@@ -45,22 +46,37 @@ async function applyReferralCreditForSavedCardOrder(
   buyerId: string,
   itemPriceUsd: number,
   referralCreditAppliedUsd: number,
-): Promise<{ itemPriceUsd: number }> {
-  if (referralCreditAppliedUsd > 0) return { itemPriceUsd };
+  applyReferralCredit: boolean,
+): Promise<{ itemPriceUsd: number; referralCreditAppliedUsd: number }> {
+  if (!applyReferralCredit) {
+    if (referralCreditAppliedUsd > 0) {
+      const restored = itemPriceUsd + referralCreditAppliedUsd;
+      await releaseReferralCreditReservation(orderId);
+      await prisma.order.update({
+        where: { id: orderId },
+        data: { itemPriceUsd: restored, referralCreditAppliedUsd: 0 },
+      });
+      return { itemPriceUsd: restored, referralCreditAppliedUsd: 0 };
+    }
+    return { itemPriceUsd, referralCreditAppliedUsd: 0 };
+  }
+  if (referralCreditAppliedUsd > 0) {
+    return { itemPriceUsd, referralCreditAppliedUsd };
+  }
   try {
     const maxApplyUsd = Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD);
-    if (maxApplyUsd <= 0) return { itemPriceUsd };
+    if (maxApplyUsd <= 0) return { itemPriceUsd, referralCreditAppliedUsd: 0 };
     const reserved = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, orderId);
-    if (reserved <= 0) return { itemPriceUsd };
+    if (reserved <= 0) return { itemPriceUsd, referralCreditAppliedUsd: 0 };
     const discountedItemPriceUsd = itemPriceUsd - reserved;
     await prisma.order.update({
       where: { id: orderId },
       data: { itemPriceUsd: discountedItemPriceUsd, referralCreditAppliedUsd: reserved },
     });
-    return { itemPriceUsd: discountedItemPriceUsd };
+    return { itemPriceUsd: discountedItemPriceUsd, referralCreditAppliedUsd: reserved };
   } catch (e) {
     console.error("[referral-credit] reserve failed (saved-card checkout)", { orderId, error: e });
-    return { itemPriceUsd };
+    return { itemPriceUsd, referralCreditAppliedUsd: 0 };
   }
 }
 
@@ -224,6 +240,8 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
   orderId: string;
   /** Force this PM (recovery retry). Overrides Order.paymentLabel so a stale card is never reused. */
   paymentMethodId?: string | null;
+  /** Buyer opt-in — referral credit is never auto-applied. */
+  applyReferralCredit?: boolean;
 }): Promise<ChargeOrderSavedPmOutcome> {
   await processAuctionPaymentExpiries();
 
@@ -332,12 +350,13 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     args.buyerId,
     orderFresh.itemPriceUsd,
     orderFresh.referralCreditAppliedUsd,
+    args.applyReferralCredit === true,
   );
 
   const liveRoomId =
     row.liveShippingSession?.liveShowId ?? (await resolveLiveRoomIdForOrder(row.id));
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: credit.itemPriceUsd,
+    saleAmountUsd: orderItemSaleBasisUsd(credit),
     isCompanyListing: Boolean(row.listing.isCompanyListing),
     liveRoomId,
     sellerId: row.sellerId,
@@ -356,6 +375,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     itemPriceUsd: credit.itemPriceUsd,
     shippingPriceUsd: orderFresh.shippingPriceUsd,
     applicationFeeCents: feeCents,
+    referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
     sellerId: row.sellerId,
   });
 
@@ -398,6 +418,9 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
           applicationFeeCents: feeCents,
           sellerTransferCents: taxPlan.sellerTransferCents,
           processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
+          referralCreditAppliedCents: referralCreditAppliedCents(credit),
+          maxSellerTransferCents:
+            Math.round(credit.itemPriceUsd * 100) + Math.round(orderFresh.shippingPriceUsd * 100),
         }),
       },
       // PM is part of the key so a recovery retry with a NEW card creates a fresh PaymentIntent
@@ -494,6 +517,7 @@ export async function chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard(args: {
     buyerId: args.buyerId,
     orderId: args.orderId,
     paymentMethodId: pmId,
+    applyReferralCredit: false,
   });
 }
 
@@ -646,6 +670,8 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
   liveRoomId: string;
   liveRoomItemId: string;
   paymentMethodId?: string | null;
+  /** Buyer opt-in — referral credit is never auto-applied. */
+  applyReferralCredit?: boolean;
 }): Promise<ChargeOrderSavedPmOutcome> {
   if (!isStripeConfigured()) return { outcome: "error", code: "STRIPE_NOT_CONFIGURED" };
 
@@ -702,11 +728,12 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
     args.buyerId,
     orderFresh.itemPriceUsd,
     orderFresh.referralCreditAppliedUsd,
+    args.applyReferralCredit === true,
   );
 
   const liveRoomId = args.liveRoomId || row.liveShippingSession?.liveShowId || (await resolveLiveRoomIdForOrder(row.id));
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: credit.itemPriceUsd,
+    saleAmountUsd: orderItemSaleBasisUsd(credit),
     isCompanyListing: Boolean(row.listing.isCompanyListing),
     liveRoomId,
     sellerId: row.sellerId,
@@ -725,6 +752,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
     itemPriceUsd: credit.itemPriceUsd,
     shippingPriceUsd: orderFresh.shippingPriceUsd,
     applicationFeeCents: feeCents,
+    referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
     sellerId: row.sellerId,
   });
 
@@ -780,6 +808,9 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
           applicationFeeCents: feeCents,
           sellerTransferCents: taxPlan.sellerTransferCents,
           processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
+          referralCreditAppliedCents: referralCreditAppliedCents(credit),
+          maxSellerTransferCents:
+            Math.round(credit.itemPriceUsd * 100) + Math.round(orderFresh.shippingPriceUsd * 100),
         }),
       },
       // Include the PM so a recovery retry with a new card does not replay the prior intent.
@@ -843,6 +874,8 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
   orderId: string;
   paymentMethodId?: string | null;
   liveRoomItemId?: string | null;
+  /** Buyer opt-in — referral credit is never auto-applied. */
+  applyReferralCredit?: boolean;
 }): Promise<ChargeOrderSavedPmOutcome> {
   if (!isStripeConfigured()) return { outcome: "error", code: "STRIPE_NOT_CONFIGURED" };
 
@@ -908,11 +941,12 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
     args.buyerId,
     orderFresh.itemPriceUsd,
     orderFresh.referralCreditAppliedUsd,
+    args.applyReferralCredit === true,
   );
 
   const liveRoomId = row.liveShippingSession?.liveShowId ?? (await resolveLiveRoomIdForOrder(row.id));
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: credit.itemPriceUsd,
+    saleAmountUsd: orderItemSaleBasisUsd(credit),
     isCompanyListing: Boolean(row.listing.isCompanyListing),
     liveRoomId,
     sellerId: row.sellerId,
@@ -931,6 +965,7 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
     itemPriceUsd: credit.itemPriceUsd,
     shippingPriceUsd: orderFresh.shippingPriceUsd,
     applicationFeeCents: feeCents,
+    referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
     sellerId: row.sellerId,
   });
 
@@ -979,6 +1014,9 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
           applicationFeeCents: feeCents,
           sellerTransferCents: taxPlan.sellerTransferCents,
           processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
+          referralCreditAppliedCents: referralCreditAppliedCents(credit),
+          maxSellerTransferCents:
+            Math.round(credit.itemPriceUsd * 100) + Math.round(orderFresh.shippingPriceUsd * 100),
         }),
       },
       { idempotencyKey: `marketplace_buy_now_${row.id}_${amountCents}_${pmId}` },

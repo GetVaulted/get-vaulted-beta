@@ -26,14 +26,22 @@ export type ConnectPaymentTaxPlan = {
 /** Resolve buyer charge and seller transfer for Connect destination charges with sales tax. */
 export async function resolveConnectPaymentTaxPlan(args: {
   shipTo: ShipToAddress;
+  /** Buyer-paid item (after optional referral discount). Tax is based on this amount. */
   itemPriceUsd: number;
   shippingPriceUsd: number;
   applicationFeeCents: number;
+  /**
+   * Platform-funded referral credit already subtracted from `itemPriceUsd`. Seller transfer uses
+   * full item (`itemPriceUsd + referralCreditAppliedUsd`) so the seller is not cut.
+   */
+  referralCreditAppliedUsd?: number | null;
   sellerId?: string;
   sellerShipFrom?: ShipFromAddress | null;
 }): Promise<ConnectPaymentTaxPlan> {
   const feeCents = Math.max(0, Math.round(args.applicationFeeCents));
   const itemCents = Math.round(Math.max(0, args.itemPriceUsd) * 100);
+  const creditCents = Math.round(Math.max(0, args.referralCreditAppliedUsd ?? 0) * 100);
+  const fullItemCents = itemCents + creditCents;
   const shippingCents = Math.round(Math.max(0, args.shippingPriceUsd) * 100);
   const subtotalCents = itemCents + shippingCents;
 
@@ -76,7 +84,8 @@ export async function resolveConnectPaymentTaxPlan(args: {
   });
 
   const taxAmountCents = Math.max(0, est.taxAmountCents);
-  const sellerTransferCents = Math.max(0, subtotalCents - feeCents);
+  // Seller transfer on full sale basis; processing is subtracted later in connect helpers.
+  const sellerTransferCents = Math.max(0, fullItemCents + shippingCents - feeCents);
   const amountCents = subtotalCents + taxAmountCents;
 
   const orderTax = buildOrderTaxPersistFields({
@@ -119,21 +128,33 @@ export function connectPaymentIntentTransferData(args: {
    * seller transfer (taxed). Defaults to 0 (platform absorbs), e.g. tips.
    */
   processingFeeCents?: number;
+  /**
+   * Platform-funded referral credit (cents). Untaxed path: reduces `application_fee_amount`.
+   * Taxed path: transfer is clamped to `maxSellerTransferCents` when set.
+   */
+  referralCreditAppliedCents?: number;
+  /** Max transfer ex-tax (buyer item + shipping). Caps transfer when credit exceeds fee + processing. */
+  maxSellerTransferCents?: number;
 }): {
   application_fee_amount?: number;
   transfer_data: { destination: string; amount?: number };
 } {
   const processing = Math.max(0, Math.round(args.processingFeeCents ?? 0));
+  const credit = Math.max(0, Math.round(args.referralCreditAppliedCents ?? 0));
   if (args.sellerTransferCents != null) {
+    let amount = Math.max(0, args.sellerTransferCents - processing);
+    if (args.maxSellerTransferCents != null) {
+      amount = Math.min(amount, Math.max(0, Math.round(args.maxSellerTransferCents)));
+    }
     return {
       transfer_data: {
         destination: args.destinationAccountId,
-        amount: Math.max(0, args.sellerTransferCents - processing),
+        amount,
       },
     };
   }
   return {
-    application_fee_amount: args.applicationFeeCents + processing,
+    application_fee_amount: Math.max(0, args.applicationFeeCents + processing - credit),
     transfer_data: { destination: args.destinationAccountId },
   };
 }

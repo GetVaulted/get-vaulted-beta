@@ -42,6 +42,8 @@ type Body = {
   selectedShippingRateId?: string;
   embedded?: boolean;
   paymentMethodId?: string;
+  /** Buyer opt-in to spend available referral credit on this checkout. */
+  applyReferralCredit?: boolean;
 };
 
 function trim(s: unknown, max = 500): string {
@@ -147,6 +149,7 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
         shipping: { ...resolvedShipping, buyerAddressId, selectedShippingRateId },
         successPath: body.successPath,
         cancelPath: body.cancelPath,
+        applyReferralCredit: body.applyReferralCredit === true,
       };
       if (body.embedded === true) {
         const embeddedResult = await createBuyNowCheckoutSession({
@@ -229,6 +232,7 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
         orderId,
         successPath: body.successPath,
         cancelPath: body.cancelPath,
+        applyReferralCredit: body.applyReferralCredit === true,
       });
       return NextResponse.json({ url });
     }

@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   fetchBuyerPaymentMethods,
   fetchBuyerShippingAddresses,
+  fetchBuyerWalletSummary,
   type BuyerPaymentMethodRow,
   type BuyerShippingAddressRow,
 } from '../../api/buyerWalletRepository';
@@ -126,6 +127,8 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
   const [ratesPickerExpanded, setRatesPickerExpanded] = useState(false);
   const [shipFromLabel, setShipFromLabel] = useState<string | null>(null);
   const [walletSetupPrompted, setWalletSetupPrompted] = useState(false);
+  const [referralCreditUsd, setReferralCreditUsd] = useState(0);
+  const [applyReferralCredit, setApplyReferralCredit] = useState(false);
 
   const selectedAddress = addresses.find((a) => a.id === selectedAddressId) ?? null;
   const selectedPaymentMethod =
@@ -156,9 +159,10 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
 
   const reloadWallet = useCallback(async () => {
     if (!token) return;
-    const [pm, addrs] = await Promise.all([
+    const [pm, addrs, wallet] = await Promise.all([
       fetchBuyerPaymentMethods(token),
       fetchBuyerShippingAddresses(token),
+      fetchBuyerWalletSummary(token).catch(() => null),
     ]);
     const methods = pm.paymentMethods;
     setPaymentMethods(methods);
@@ -173,6 +177,8 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
       const preferred = pickDefaultShippingAddress(addrs);
       return preferred?.id ?? addrs[0]?.id ?? null;
     });
+    const bal = Number(wallet?.referralCreditUsd ?? 0);
+    setReferralCreditUsd(Number.isFinite(bal) && bal > 0 ? bal : 0);
   }, [token]);
 
   useEffect(() => {
@@ -343,7 +349,14 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
   const shippingReady = usesFlatShipping || Boolean(selectedRateId);
   const summaryReady = Boolean(shippingPayload) && shippingReady;
   const subtotal = useMemo(() => itemPriceUsd + shippingPriceUsd, [itemPriceUsd, shippingPriceUsd]);
-  const total = useMemo(() => subtotal + (taxCollect ? taxUsd : 0), [subtotal, taxCollect, taxUsd]);
+  const referralDiscountUsd = useMemo(() => {
+    if (!applyReferralCredit || referralCreditUsd <= 0 || mode === 'layaway') return 0;
+    return Math.min(referralCreditUsd, Math.max(0, itemPriceUsd - 0.5));
+  }, [applyReferralCredit, referralCreditUsd, itemPriceUsd, mode]);
+  const total = useMemo(
+    () => Math.max(0, subtotal - referralDiscountUsd) + (taxCollect ? taxUsd : 0),
+    [subtotal, referralDiscountUsd, taxCollect, taxUsd],
+  );
   const depositUsd = useMemo(
     () => Math.round(itemPriceUsd * LAYAWAY_DEPOSIT_FRACTION * 100) / 100,
     [itemPriceUsd],
@@ -402,6 +415,7 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
         listingId,
         shipping: payload,
         paymentMethodId: selectedPaymentMethod?.id,
+        applyReferralCredit: applyReferralCredit === true,
       });
       if (!result.ok) {
         if (result.escrowRedirectUrl) {
@@ -818,6 +832,11 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
             <Text style={styles.summaryLine} {...MARKETPLACE_TEXT_PROPS}>
               Shipping {fmtMoney(shippingPriceUsd)}
             </Text>
+            {referralDiscountUsd > 0 ? (
+              <Text style={styles.summaryLine} {...MARKETPLACE_TEXT_PROPS}>
+                Referral credit −{fmtMoney(referralDiscountUsd)}
+              </Text>
+            ) : null}
             {summaryReady && (taxLoading || taxCollect) ? (
               <Text style={styles.summaryLine} {...MARKETPLACE_TEXT_PROPS}>
                 {taxLoading
@@ -830,6 +849,21 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
             <Text style={styles.totalLine} {...MARKETPLACE_TEXT_PROPS}>
               Total {fmtMoney(summaryReady ? total : itemPriceUsd)}
             </Text>
+            {mode === 'buy_now' && referralCreditUsd > 0 ? (
+              <Pressable
+                onPress={() => setApplyReferralCredit((v) => !v)}
+                style={styles.termsRow}
+              >
+                <Ionicons
+                  name={applyReferralCredit ? 'checkbox' : 'square-outline'}
+                  size={20}
+                  color={colors.gold}
+                />
+                <Text style={styles.termsTxt} {...MARKETPLACE_TEXT_PROPS}>
+                  Apply referral credit ({fmtMoney(referralCreditUsd)} available)
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         )}
 

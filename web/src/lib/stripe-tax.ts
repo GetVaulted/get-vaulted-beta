@@ -231,22 +231,31 @@ export function connectCheckoutPaymentIntentData(args: {
    * seller transfer (taxed). Defaults to 0 (platform absorbs).
    */
   processingFeeCents?: number;
+  /** Platform-funded referral credit (cents). Untaxed: reduces application fee. */
+  referralCreditAppliedCents?: number;
+  /** Max transfer ex-tax (buyer item + shipping). Caps transfer when credit exceeds fee + processing. */
+  maxSellerTransferCents?: number;
 }): Pick<
   Stripe.Checkout.SessionCreateParams.PaymentIntentData,
   "application_fee_amount" | "transfer_data" | "metadata"
 > {
   const processing = Math.max(0, Math.round(args.processingFeeCents ?? 0));
+  const credit = Math.max(0, Math.round(args.referralCreditAppliedCents ?? 0));
   if (args.sellerTransferCents != null) {
+    let amount = Math.max(0, args.sellerTransferCents - processing);
+    if (args.maxSellerTransferCents != null) {
+      amount = Math.min(amount, Math.max(0, Math.round(args.maxSellerTransferCents)));
+    }
     return {
       transfer_data: {
         destination: args.destinationAccountId,
-        amount: Math.max(0, args.sellerTransferCents - processing),
+        amount,
       },
       metadata: args.metadata,
     };
   }
   return {
-    application_fee_amount: args.applicationFeeCents + processing,
+    application_fee_amount: Math.max(0, args.applicationFeeCents + processing - credit),
     transfer_data: { destination: args.destinationAccountId },
     metadata: args.metadata,
   };
@@ -299,14 +308,22 @@ export async function buildCheckoutTaxSessionFields(args: {
 export async function buildMarketplaceCheckoutTaxBundle(args: {
   buyerId: string;
   shipTo: ShipToAddress;
+  /** Buyer-paid item (after optional referral discount). Tax is based on this amount. */
   itemPriceUsd: number;
   shippingPriceUsd: number;
   applicationFeeCents: number;
+  /**
+   * Platform-funded referral credit already subtracted from `itemPriceUsd`. Seller transfer uses
+   * the full item so the seller is not cut.
+   */
+  referralCreditAppliedUsd?: number | null;
   sellerShipFrom?: ShipFromAddress | null;
 }): Promise<MarketplaceCheckoutTaxBundle> {
   const shipTo = normalizeShipToAddress(args.shipTo);
   const sellerShipFrom = args.sellerShipFrom ? normalizeShipFromAddress(args.sellerShipFrom) : null;
   const itemCents = Math.round(Math.max(0, args.itemPriceUsd) * 100);
+  const creditCents = Math.round(Math.max(0, args.referralCreditAppliedUsd ?? 0) * 100);
+  const fullItemCents = itemCents + creditCents;
   const shippingCents = Math.round(Math.max(0, args.shippingPriceUsd) * 100);
   const feeCents = Math.max(0, Math.round(args.applicationFeeCents));
 
@@ -332,7 +349,7 @@ export async function buildMarketplaceCheckoutTaxBundle(args: {
     });
 
     if (est.taxAmountCents > 0) {
-      const sellerTransferCents = Math.max(0, itemCents + shippingCents - feeCents);
+      const sellerTransferCents = Math.max(0, fullItemCents + shippingCents - feeCents);
       return {
         // Explicit tax line item — no automatic_tax or customer on Connect destination checkout.
         sessionFields: {},

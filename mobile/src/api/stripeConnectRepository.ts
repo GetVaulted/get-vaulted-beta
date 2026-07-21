@@ -299,6 +299,29 @@ export async function createSellerOnboardingLink(accessToken?: string | null): P
   return { url };
 }
 
+export type SellerWalletPayoutRow = {
+  id: string;
+  amountCents: number;
+  amountFormatted: string;
+  currency: string;
+  status: string;
+  statusLabel: string;
+  destinationLabel: string;
+  arrivalDate: string | null;
+  createdAt: string;
+};
+
+export type SellerWalletActivityRow = {
+  id: string;
+  amountCents: number;
+  amountFormatted: string;
+  currency: string;
+  type: string;
+  title: string;
+  description: string;
+  createdAt: string;
+};
+
 export type SellerWalletSummary = {
   stripeConfigured: boolean;
   hasStripeAccount: boolean;
@@ -311,6 +334,8 @@ export type SellerWalletSummary = {
   nextPayoutLabel: string | null;
   payoutScheduleSummary: string | null;
   message: string | null;
+  recentPayouts?: SellerWalletPayoutRow[];
+  recentActivity?: SellerWalletActivityRow[];
 };
 
 export async function fetchSellerWalletSummary(

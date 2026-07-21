@@ -10,6 +10,10 @@ import {
   releaseReferralCreditReservation,
   reserveReferralCreditForCheckout,
 } from "@/lib/referral-credit";
+import {
+  orderItemSaleBasisUsd,
+  referralCreditAppliedCents,
+} from "@/lib/referral-credit-payout";
 import { estimateEscrowFeeCents, isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
 import { prisma } from "@/lib/prisma";
 import {
@@ -205,6 +209,8 @@ type ReferralCreditCheckoutFields = {
  * non-transactional contract). So any previously-reserved credit for this exact order (tracked in
  * `referralCreditAppliedUsd`, untouched by the transaction) must be re-subtracted here on every call
  * rather than re-reserved — re-reserving would double-spend the buyer's credit.
+ *
+ * Credit applies only when `applyReferralCredit` is true (buyer opt-in at checkout).
  */
 async function applyReferralCreditForBuyNowOrder(
   order: {
@@ -215,19 +221,31 @@ async function applyReferralCreditForBuyNowOrder(
     referralCreditAppliedUsd: number;
   },
   buyerId: string,
+  applyReferralCredit: boolean,
 ): Promise<ReferralCreditCheckoutFields> {
   const unchanged = {
     itemPriceUsd: order.itemPriceUsd,
     totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
-    referralCreditAppliedUsd: order.referralCreditAppliedUsd,
+    referralCreditAppliedUsd: 0,
   };
+
+  if (!applyReferralCredit) {
+    if (order.referralCreditAppliedUsd > 0) {
+      await releaseReferralCreditReservation(order.id);
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { referralCreditAppliedUsd: 0 },
+      });
+    }
+    return unchanged;
+  }
 
   if (order.referralCreditAppliedUsd > 0) {
     const reapply = Math.min(
       order.referralCreditAppliedUsd,
       Math.max(0, order.itemPriceUsd - MIN_STRIPE_CHARGE_USD),
     );
-    if (reapply <= 0) return unchanged;
+    if (reapply <= 0) return { ...unchanged, referralCreditAppliedUsd: order.referralCreditAppliedUsd };
     const itemPriceUsd = order.itemPriceUsd - reapply;
     const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
     await prisma.order.update({ where: { id: order.id }, data: { itemPriceUsd, totalUsd } });
@@ -257,6 +275,8 @@ async function applyReferralCreditForBuyNowOrder(
  * `createPayOrderCheckoutSession`): unlike Buy Now, this order's `itemPriceUsd` is set once at
  * order creation and never reset by this function — so once credit has been reserved and applied
  * for this order, `itemPriceUsd` already reflects the discount and must not be discounted again.
+ *
+ * Credit applies only when `applyReferralCredit` is true (buyer opt-in at checkout).
  */
 async function applyReferralCreditForPayOrder(
   order: {
@@ -267,19 +287,35 @@ async function applyReferralCreditForPayOrder(
     referralCreditAppliedUsd: number;
   },
   buyerId: string,
+  applyReferralCredit: boolean,
 ): Promise<ReferralCreditCheckoutFields> {
-  const unchanged = {
+  const baseUnchanged = {
     itemPriceUsd: order.itemPriceUsd,
     totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
     referralCreditAppliedUsd: order.referralCreditAppliedUsd,
   };
-  if (order.referralCreditAppliedUsd > 0) return unchanged;
+
+  if (!applyReferralCredit) {
+    if (order.referralCreditAppliedUsd > 0) {
+      const restoredItem = order.itemPriceUsd + order.referralCreditAppliedUsd;
+      const totalUsd = restoredItem + order.shippingPriceUsd + order.taxUsd;
+      await releaseReferralCreditReservation(order.id);
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { itemPriceUsd: restoredItem, totalUsd, referralCreditAppliedUsd: 0 },
+      });
+      return { itemPriceUsd: restoredItem, totalUsd, referralCreditAppliedUsd: 0 };
+    }
+    return { ...baseUnchanged, referralCreditAppliedUsd: 0 };
+  }
+
+  if (order.referralCreditAppliedUsd > 0) return baseUnchanged;
 
   try {
     const maxApplyUsd = Math.max(0, order.itemPriceUsd - MIN_STRIPE_CHARGE_USD);
-    if (maxApplyUsd <= 0) return unchanged;
+    if (maxApplyUsd <= 0) return baseUnchanged;
     const reserved = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, order.id);
-    if (reserved <= 0) return unchanged;
+    if (reserved <= 0) return baseUnchanged;
     const itemPriceUsd = order.itemPriceUsd - reserved;
     const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
     await prisma.order.update({
@@ -289,7 +325,7 @@ async function applyReferralCreditForPayOrder(
     return { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reserved };
   } catch (e) {
     console.error("[referral-credit] reserve failed (pay order checkout)", { orderId: order.id, error: e });
-    return unchanged;
+    return baseUnchanged;
   }
 }
 
@@ -530,6 +566,8 @@ type BuyNowCheckoutSessionArgs = {
   successPath?: string;
   cancelPath?: string;
   paymentMethodId?: string | null;
+  /** Buyer opt-in — referral credit is never auto-applied. */
+  applyReferralCredit?: boolean;
 };
 
 export async function createBuyNowCheckoutSession(
@@ -897,14 +935,20 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
   const rowEscrow = order.paymentMethod === OrderPaymentMethod.escrow;
 
   if (!rowEscrow) {
-    const credit = await applyReferralCreditForBuyNowOrder(order, args.buyerId);
+    const credit = await applyReferralCreditForBuyNowOrder(
+      order,
+      args.buyerId,
+      args.applyReferralCredit === true,
+    );
     order.itemPriceUsd = credit.itemPriceUsd;
     order.totalUsd = credit.totalUsd;
+    order.referralCreditAppliedUsd = credit.referralCreditAppliedUsd;
   }
 
   const liveRoomIdForFee = await resolveLiveRoomIdForLiveRoomItem(liveRoomItemId);
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: order.itemPriceUsd,
+    // Fee on full item; referral credit is platform-funded and does not shrink seller basis.
+    saleAmountUsd: orderItemSaleBasisUsd(order),
     isCompanyListing: Boolean(listing.isCompanyListing),
     liveRoomId: liveRoomIdForFee,
     sellerId: listing.sellerId,
@@ -965,6 +1009,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
       orderId: order.id,
       paymentMethodId: args.paymentMethodId,
       liveRoomItemId,
+      applyReferralCredit: args.applyReferralCredit === true,
     });
     if (charge.outcome === "paid") {
       return { embedded: true, paid: true, orderId: order.id };
@@ -1012,6 +1057,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
     itemPriceUsd: order.itemPriceUsd,
     shippingPriceUsd: order.shippingPriceUsd,
     applicationFeeCents: feeCents,
+    referralCreditAppliedUsd: order.referralCreditAppliedUsd,
     sellerShipFrom: await loadSellerShipFromForTax(listing.sellerId),
   });
 
@@ -1047,6 +1093,8 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
           applicationFeeCents: feeCents,
           sellerTransferCents: taxBundle.sellerTransferCents,
           processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(expectedSubtotalCents) : 0,
+          referralCreditAppliedCents: referralCreditAppliedCents(order),
+          maxSellerTransferCents: buyNowCheckoutSubtotalCents(order),
           metadata: { orderId: order.id, kind: "buy_now" },
         }),
         line_items: [
@@ -1134,6 +1182,8 @@ export async function createPayOrderCheckoutSession(args: {
   orderId: string;
   successPath?: string;
   cancelPath?: string;
+  /** Buyer opt-in — referral credit is never auto-applied. */
+  applyReferralCredit?: boolean;
 }): Promise<{ url: string }> {
   await processAuctionPaymentExpiries();
   const base = siteUrl();
@@ -1271,12 +1321,18 @@ export async function createPayOrderCheckoutSession(args: {
   const stripe = getStripe();
   if (!order.seller.stripeAccountId || !order.seller.stripeOnboardingComplete) throw new Error("SELLER_NOT_READY");
 
-  const payOrderCredit = await applyReferralCreditForPayOrder(order, args.buyerId);
+  const payOrderCredit = await applyReferralCreditForPayOrder(
+    order,
+    args.buyerId,
+    args.applyReferralCredit === true,
+  );
   order.itemPriceUsd = payOrderCredit.itemPriceUsd;
   order.totalUsd = payOrderCredit.totalUsd;
+  order.referralCreditAppliedUsd = payOrderCredit.referralCreditAppliedUsd;
 
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: order.itemPriceUsd,
+    // Fee on full item; referral credit is platform-funded and does not shrink seller basis.
+    saleAmountUsd: orderItemSaleBasisUsd(order),
     isCompanyListing: Boolean(order.listing.isCompanyListing),
     liveRoomId: order.liveShippingSession?.liveShowId ?? null,
     sellerId: order.sellerId,
@@ -1308,11 +1364,13 @@ export async function createPayOrderCheckoutSession(args: {
     itemPriceUsd: order.itemPriceUsd,
     shippingPriceUsd,
     applicationFeeCents: feeCents,
+    referralCreditAppliedUsd: order.referralCreditAppliedUsd,
     sellerShipFrom: await loadSellerShipFromForTax(order.sellerId),
   });
 
-  const expectedSubtotalCents =
-    Math.round(order.itemPriceUsd * 100) + Math.round(shippingPriceUsd * 100) + taxBundle.taxAmountCents;
+  const payOrderMerchandiseCents =
+    Math.round(order.itemPriceUsd * 100) + Math.round(shippingPriceUsd * 100);
+  const expectedSubtotalCents = payOrderMerchandiseCents + taxBundle.taxAmountCents;
   const reusedUrl = await reuseOpenCheckoutSessionIfMatching({
     sessionId: order.stripeCheckoutSessionId,
     expectedSubtotalCents,
@@ -1343,6 +1401,8 @@ export async function createPayOrderCheckoutSession(args: {
         applicationFeeCents: feeCents,
         sellerTransferCents: taxBundle.sellerTransferCents,
         processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(expectedSubtotalCents) : 0,
+        referralCreditAppliedCents: referralCreditAppliedCents(order),
+        maxSellerTransferCents: payOrderMerchandiseCents,
         metadata: { orderId: order.id, kind: "pay_order" },
       }),
       line_items: [

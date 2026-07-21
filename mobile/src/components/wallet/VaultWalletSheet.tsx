@@ -939,7 +939,7 @@ export function VaultWalletSheet({
     if (!referralUrl) return;
     try {
       await Share.share({
-        message: `Join me on Get Vaulted — sign up with my link and we'll both get $10 in credit after your first order.\n${referralUrl}`,
+        message: `Join me on Get Vaulted — download the app, then sign up with my invite code ${referralCode} (or open my link). We'll both get $10 in credit after your first order.\n${referralUrl}`,
       });
     } catch {
       /* dismissed */
@@ -954,7 +954,7 @@ export function VaultWalletSheet({
           <LiveRoomText style={t.detailTitle}>Available referral credit</LiveRoomText>
           <LiveRoomText style={[t.sectionAmount, { fontSize: 28, marginTop: 4 }]}>{formatUsd(referralUsd)}</LiveRoomText>
           <LiveRoomText style={t.detailBody}>
-            Applied automatically on your next eligible purchase — Buy Now, offers, live auctions, or layaway.
+            Applied when you choose it at checkout — Buy Now, offers, and auction pay.
           </LiveRoomText>
           {referralPendingUsd > 0 ? (
             <LiveRoomText style={[t.detailBody, { marginTop: 6 }]}>

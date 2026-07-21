@@ -62,6 +62,10 @@ const MessageComposeScreen = lazyScreen(
   () => import('../screens/messages/MessageComposeScreen'),
   (m) => m.MessageComposeScreen,
 );
+const MessageNewScreen = lazyScreen(
+  () => import('../screens/messages/MessageNewScreen'),
+  (m) => m.MessageNewScreen,
+);
 const UserProfileScreen = lazyScreen(
   () => import('../screens/profile/UserProfileScreen'),
   (m) => m.UserProfileScreen,
@@ -227,6 +231,14 @@ export function RootNavigator() {
           />
           <Stack.Screen name="MessagesInbox" component={MessagesInboxScreen} />
           <Stack.Screen name="MessageThread" component={MessageThreadScreen} />
+          <Stack.Screen
+            name="MessageNew"
+            component={MessageNewScreen}
+            options={{
+              presentation: 'modal',
+              animation: 'slide_from_bottom',
+            }}
+          />
           <Stack.Screen
             name="MessageCompose"
             component={MessageComposeScreen}

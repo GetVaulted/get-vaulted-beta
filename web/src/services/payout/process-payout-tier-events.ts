@@ -25,6 +25,7 @@ import {
 import { loadSellerPayoutTierDashboard } from "@/services/payout/recalculate-seller-payout-tier";
 import { recalculateSellerPayoutTier } from "@/services/payout/recalculate-seller-payout-tier";
 import { estimateSellerOrderPayoutUsd, resolvePlatformFeePercentForSellerOrder } from "@/lib/seller-payout-estimate";
+import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 
 const orderSelect = {
@@ -44,6 +45,7 @@ const orderSelect = {
   labelUrl: true,
   itemPriceUsd: true,
   shippingPriceUsd: true,
+  referralCreditAppliedUsd: true,
   totalUsd: true,
   shippingLabelCostCents: true,
   shippingLabelCostReversedCents: true,
@@ -74,6 +76,7 @@ const orderSelect = {
 function resolveOrderSellerNetUsd(order: {
   itemPriceUsd: number;
   shippingPriceUsd: number;
+  referralCreditAppliedUsd?: number | null;
   shippingLabelCostCents?: number | null;
   shippingLabelCostReversedCents?: number | null;
   paymentStatus: string;
@@ -85,15 +88,16 @@ function resolveOrderSellerNetUsd(order: {
 }): number {
   const liveShowId = order.liveShippingSession?.liveShowId ?? null;
   const liveShow = order.liveShippingSession?.liveShow ?? null;
+  const saleBasisUsd = orderItemSaleBasisUsd(order);
   const feePct = resolvePlatformFeePercentForSellerOrder({
     isCompanyListing: order.listing.isCompanyListing,
     liveShowId,
     liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
-    orderItemPriceUsd: order.itemPriceUsd,
+    orderItemPriceUsd: saleBasisUsd,
     orderPaymentStatus: order.paymentStatus,
   });
   return estimateSellerOrderPayoutUsd({
-    itemPriceUsd: order.itemPriceUsd,
+    itemPriceUsd: saleBasisUsd,
     shippingPriceUsd: order.shippingPriceUsd,
     platformFeePercent: feePct,
     payoutReserveAmountCents: 0,

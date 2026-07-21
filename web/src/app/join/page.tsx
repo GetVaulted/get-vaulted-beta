@@ -1,5 +1,12 @@
-import { redirect } from "next/navigation";
+import type { Metadata } from "next";
+import { JoinReferralLanding } from "@/components/auth/JoinReferralLanding";
 import { safeReturnTo } from "@/lib/safe-return-to";
+
+export const metadata: Metadata = {
+  title: "Join Get Vaulted",
+  description: "Download the Get Vaulted app and claim your referral invite.",
+  robots: { index: false, follow: false },
+};
 
 export default async function JoinPage({
   searchParams,
@@ -7,13 +14,8 @@ export default async function JoinPage({
   searchParams?: Promise<{ returnTo?: string; ref?: string }>;
 }) {
   const sp = (await searchParams) ?? {};
-  const normalized = safeReturnTo(typeof sp.returnTo === "string" ? sp.returnTo : null);
-  const params = new URLSearchParams();
-  if (normalized !== "/marketplace") params.set("returnTo", normalized);
-  // Referral link (`/join?ref=<code>`) — forwarded so `SignupForm` can attribute the new
-  // account to the referrer. Mobile handles the same `/join?ref=...` URL as a universal link
-  // straight into `AuthSignUp` (see `linkingConfig.ts`) without ever hitting this redirect.
-  if (typeof sp.ref === "string" && sp.ref.trim()) params.set("ref", sp.ref.trim().slice(0, 32));
-  const qs = params.toString();
-  redirect(`/signup${qs ? `?${qs}` : ""}`);
+  const returnTo = safeReturnTo(typeof sp.returnTo === "string" ? sp.returnTo : null);
+  const referralCode = typeof sp.ref === "string" ? sp.ref.trim().slice(0, 32) : "";
+
+  return <JoinReferralLanding referralCode={referralCode} returnTo={returnTo} />;
 }

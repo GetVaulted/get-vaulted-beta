@@ -1,6 +1,7 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import * as Clipboard from 'expo-clipboard';
 import { useCallback, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,6 +26,7 @@ import {
   type BuyerShippingAddressRow,
   type BuyerWalletSummary,
 } from '../../api/buyerWalletRepository';
+import { referralJoinUrl, shareReferralLinkNative } from '../../lib/referralLink';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 
@@ -73,6 +75,7 @@ export function BuyerWalletScreen({ navigation }: Props) {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetStep, setSheetStep] = useState<'credits' | 'promo' | 'referral' | null>(null);
+  const [referralLinkCopied, setReferralLinkCopied] = useState(false);
 
   const reloadDetails = useCallback(async () => {
     if (!token) return;
@@ -97,6 +100,26 @@ export function BuyerWalletScreen({ navigation }: Props) {
   const statusDetail = buyerWalletStatusDetail(readiness);
   const creditsUsd = summary?.vaultCreditsUsd ?? 0;
   const referralUsd = summary?.referralCreditUsd ?? 0;
+  const referralPendingUsd = summary?.referralCreditPendingUsd ?? 0;
+  const referralCode = summary?.referralCode?.trim() ?? '';
+  const referralCount = summary?.referralSuccessfulReferrals ?? 0;
+  const referralUrl = referralCode ? referralJoinUrl(referralCode) : '';
+
+  const copyReferralLink = async () => {
+    if (!referralUrl) return;
+    try {
+      await Clipboard.setStringAsync(referralUrl);
+      setReferralLinkCopied(true);
+      setTimeout(() => setReferralLinkCopied(false), 2000);
+    } catch {
+      Alert.alert('Could not copy link', 'Try again in a moment.');
+    }
+  };
+
+  const shareReferralLink = async () => {
+    if (!referralCode) return;
+    await shareReferralLinkNative(referralCode);
+  };
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -166,10 +189,17 @@ export function BuyerWalletScreen({ navigation }: Props) {
         <SectionCard
           icon="people-outline"
           title="Referral Credit"
-          subtitle={referralUsd > 0 ? 'Eligible to apply' : 'Invite friends to earn'}
+          subtitle={
+            referralUsd > 0
+              ? 'Eligible to apply'
+              : referralUrl
+                ? 'Tap to copy & share your link'
+                : 'Invite friends to earn'
+          }
           trailing={formatUsd(referralUsd)}
           onPress={() => {
             setSheetStep('referral');
+            setReferralLinkCopied(false);
             setSheetOpen(true);
           }}
         />
@@ -201,13 +231,59 @@ export function BuyerWalletScreen({ navigation }: Props) {
             <Text style={styles.sheetTitle}>
               {sheetStep === 'credits' ? 'Vault Credits' : sheetStep === 'promo' ? 'Promo Code' : 'Referral Credit'}
             </Text>
-            <Text style={styles.sheetBody}>
-              {sheetStep === 'credits'
-                ? `Available balance: ${formatUsd(creditsUsd)}. Credits apply at checkout when eligible.`
-                : sheetStep === 'promo'
-                  ? 'Promo codes are not available in Vault Wallet yet. Checkout promo support is coming in a future update.'
-                  : `Referral credit: ${formatUsd(referralUsd)}. Invite friends to earn more.`}
-            </Text>
+            {sheetStep === 'referral' ? (
+              <ScrollView
+                style={styles.referralScroll}
+                contentContainerStyle={styles.referralScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                <Text style={styles.sheetBody}>
+                  Available: {formatUsd(referralUsd)}. Choose to apply it at checkout on eligible purchases.
+                </Text>
+                {referralPendingUsd > 0 ? (
+                  <Text style={[styles.sheetBody, { marginTop: -spacing.sm }]}>
+                    +{formatUsd(referralPendingUsd)} pending — becomes spendable after the 14-day hold.
+                  </Text>
+                ) : null}
+                <Text style={styles.referralSectionTitle}>Your referral link</Text>
+                <Text style={styles.sheetBody}>
+                  You and your friend each get $10 after their first order of $25 or more.
+                </Text>
+                {referralUrl ? (
+                  <>
+                    <Pressable style={styles.linkBox} onPress={() => void copyReferralLink()}>
+                      <Text style={styles.linkText} numberOfLines={2}>
+                        {referralUrl.replace(/^https?:\/\//, '')}
+                      </Text>
+                      <Ionicons
+                        name={referralLinkCopied ? 'checkmark' : 'copy-outline'}
+                        size={16}
+                        color={colors.gold}
+                      />
+                    </Pressable>
+                    <Pressable style={styles.shareBtn} onPress={() => void shareReferralLink()}>
+                      <Ionicons name="share-outline" size={16} color="#0a0908" />
+                      <Text style={styles.shareBtnText}>Share your link</Text>
+                    </Pressable>
+                    <Text style={styles.referralMeta}>
+                      {referralCount > 0
+                        ? `${referralCount} friend${referralCount === 1 ? '' : 's'} referred so far.`
+                        : 'No referrals yet — share your link to get started.'}
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={styles.sheetBody}>
+                    Your referral link is still loading. Close this sheet and open Referral Credit again in a moment.
+                  </Text>
+                )}
+              </ScrollView>
+            ) : (
+              <Text style={styles.sheetBody}>
+                {sheetStep === 'credits'
+                  ? `Available balance: ${formatUsd(creditsUsd)}. Credits apply at checkout when eligible.`
+                  : 'Promo codes are not available in Vault Wallet yet. Checkout promo support is coming in a future update.'}
+              </Text>
+            )}
             <Pressable style={t.primaryBtn} onPress={() => setSheetOpen(false)}>
               <Text style={t.primaryBtnText}>Done</Text>
             </Pressable>
@@ -269,5 +345,40 @@ const styles = StyleSheet.create({
   cardSubWarn: { color: '#fbbf24', fontWeight: '700' },
   trailing: { fontSize: 13, fontWeight: '800', color: colors.gold, marginRight: 4 },
   sheetTitle: { fontSize: 18, fontWeight: '900', color: '#fff', marginBottom: spacing.sm, textAlign: 'center' },
-  sheetBody: { fontSize: 13, lineHeight: 19, color: 'rgba(255,255,255,0.62)', marginBottom: spacing.lg },
+  sheetBody: { fontSize: 13, lineHeight: 19, color: 'rgba(255,255,255,0.62)', marginBottom: spacing.md },
+  referralScroll: { maxHeight: 360 },
+  referralScrollContent: { paddingBottom: spacing.sm },
+  referralSectionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.45)',
+    marginBottom: spacing.xs,
+  },
+  linkBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(201,162,39,0.35)',
+    backgroundColor: 'rgba(201,162,39,0.08)',
+    marginBottom: spacing.sm,
+  },
+  linkText: { flex: 1, fontSize: 13, fontWeight: '700', color: '#f4f2ec', lineHeight: 18 },
+  shareBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: 12,
+    borderRadius: radii.md,
+    backgroundColor: colors.gold,
+    marginBottom: spacing.sm,
+  },
+  shareBtnText: { fontSize: 14, fontWeight: '900', color: '#0a0908' },
+  referralMeta: { fontSize: 12, lineHeight: 17, color: 'rgba(255,255,255,0.5)', marginBottom: spacing.md },
 });

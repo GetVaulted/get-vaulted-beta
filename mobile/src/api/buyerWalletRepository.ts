@@ -33,7 +33,7 @@ export type BuyerWalletSummary = {
   referralCreditUsd: number;
   /** Earned but still inside the hold window — not yet spendable. */
   referralCreditPendingUsd?: number;
-  /** Referrer's own username — the referral code, and the `?ref=` value for their join link. */
+  /** Secret referral code used in `?ref=` on the join link (not the username). */
   referralCode?: string;
   /** Count of distinct friends who have earned this user a referrer credit (excludes voided). */
   referralSuccessfulReferrals?: number;

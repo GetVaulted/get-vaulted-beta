@@ -6,6 +6,12 @@ export const ANDROID_APP_LINK_PACKAGE = "com.getvaulted.app";
 /** HTTPS paths that should open in the native app when installed. */
 export const APP_LINK_PATH_PREFIXES = ["/live/", "/listing/", "/marketplace/", "/join"] as const;
 
+export function joinReferralCustomSchemeUrl(referralCode: string): string {
+  const code = referralCode.trim();
+  if (!code) return "getvaulted://join";
+  return `getvaulted://join?ref=${encodeURIComponent(code)}`;
+}
+
 export function liveRoomCustomSchemeUrl(roomId: string): string {
   return `getvaulted://live/${encodeURIComponent(roomId.trim())}`;
 }
