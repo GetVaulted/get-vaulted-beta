@@ -1,7 +1,18 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { ImageResponse } from "next/og";
+
+export const runtime = "nodejs";
+
+async function loadBrandLogoDataUrl(): Promise<string> {
+  const bytes = await readFile(join(process.cwd(), "public/brand/white-logo-og.png"));
+  return `data:image/png;base64,${bytes.toString("base64")}`;
+}
 
 /** Branded 1200×630 share card for site-wide / referral Open Graph previews. */
 export async function GET() {
+  const logoSrc = await loadBrandLogoDataUrl();
+
   return new ImageResponse(
     (
       <div
@@ -30,7 +41,7 @@ export async function GET() {
             width: 560,
             height: 560,
             borderRadius: "50%",
-            background: "rgba(212,175,55,0.16)",
+            background: "rgba(212,175,55,0.14)",
           }}
         />
         <div
@@ -53,51 +64,21 @@ export async function GET() {
             padding: "56px 72px",
           }}
         >
-          <div
+          {/* eslint-disable-next-line @next/next/no-img-element -- OG renderer requires img */}
+          <img
+            src={logoSrc}
+            alt="Get Vaulted"
+            width={820}
+            height={231}
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 88,
-              height: 88,
-              borderRadius: 44,
-              border: "3px solid rgba(212,175,55,0.75)",
-              background: "rgba(212,175,55,0.12)",
-              marginBottom: 28,
-              fontSize: 42,
-              fontWeight: 800,
-              color: "#d4af37",
+              width: 820,
+              height: 231,
+              objectFit: "contain",
             }}
-          >
-            V
-          </div>
+          />
           <div
             style={{
-              fontSize: 78,
-              fontWeight: 800,
-              color: "#f0d78c",
-              letterSpacing: -1.5,
-              lineHeight: 1,
-              marginBottom: 20,
-            }}
-          >
-            Get Vaulted
-          </div>
-          <div
-            style={{
-              fontSize: 28,
-              fontWeight: 600,
-              color: "rgba(255,255,255,0.78)",
-              textAlign: "center",
-              maxWidth: 780,
-              lineHeight: 1.3,
-            }}
-          >
-            Live auctions, breaks, and collectibles
-          </div>
-          <div
-            style={{
-              marginTop: 28,
+              marginTop: 36,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
