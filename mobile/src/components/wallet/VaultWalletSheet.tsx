@@ -9,7 +9,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Switch,
   TextInput,
@@ -54,7 +53,7 @@ import {
   normalizePmType,
 } from './walletPaymentMethodDisplay';
 import { WalletNativePayButton } from './WalletNativePayButton';
-import { referralJoinUrl } from '../../lib/referralLink';
+import { referralJoinUrl, shareReferralLinkNative } from '../../lib/referralLink';
 import {
   LIVE_PREMIUM_WALLET_TITLE,
   catalogEntryIcon,
@@ -936,14 +935,8 @@ export function VaultWalletSheet({
   };
 
   const shareReferralLink = async () => {
-    if (!referralUrl) return;
-    try {
-      await Share.share({
-        message: `Join me on Get Vaulted — download the app, then sign up with my invite code ${referralCode} (or open my link). We'll both get $10 in credit after your first order.\n${referralUrl}`,
-      });
-    } catch {
-      /* dismissed */
-    }
+    if (!referralCode) return;
+    await shareReferralLinkNative(referralCode);
   };
 
   const renderReferral = () => (

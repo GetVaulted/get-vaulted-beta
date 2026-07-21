@@ -75,8 +75,8 @@ export function AccountReferralsPage() {
     if (!referralUrl || !wallet?.referralCode) return;
     const code = wallet.referralCode.trim().toUpperCase();
     const shareData = {
-      title: "Join me on Get Vaulted",
-      text: `Download the Get Vaulted app, then sign up with my invite code ${code}. We'll both get $10 in credit after your first order.`,
+      title: "Get Vaulted",
+      text: `Use my Get Vaulted code ${code} — we both get $10 after your first order.`,
       url: referralUrl,
     };
     try {

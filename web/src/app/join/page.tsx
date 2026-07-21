@@ -3,8 +3,8 @@ import { JoinReferralLanding } from "@/components/auth/JoinReferralLanding";
 import { DEFAULT_SITE_OG_IMAGE, SITE_NAME } from "@/lib/site-seo";
 import { safeReturnTo } from "@/lib/safe-return-to";
 
-const JOIN_TITLE = "Join Get Vaulted";
-const JOIN_DESCRIPTION = "Download the Get Vaulted app and claim your referral invite.";
+const JOIN_TITLE = "Get Vaulted";
+const JOIN_DESCRIPTION = "Join with a friend invite — you both get $10 after the first order.";
 
 export const metadata: Metadata = {
   title: JOIN_TITLE,
