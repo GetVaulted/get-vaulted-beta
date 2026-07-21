@@ -1,7 +1,5 @@
 import { ImageResponse } from "next/og";
 
-export const runtime = "edge";
-
 /** Branded 1200×630 share card for site-wide / referral Open Graph previews. */
 export async function GET() {
   return new ImageResponse(
@@ -26,23 +24,12 @@ export async function GET() {
         <div
           style={{
             position: "absolute",
-            top: -100,
-            right: -60,
-            width: 480,
-            height: 480,
-            borderRadius: "50%",
-            background: "rgba(212,175,55,0.14)",
-          }}
-        />
-        <div
-          style={{
-            position: "absolute",
-            bottom: -120,
-            left: -80,
+            top: -80,
+            right: -40,
             width: 420,
             height: 420,
             borderRadius: "50%",
-            background: "rgba(212,175,55,0.08)",
+            background: "rgba(212,175,55,0.12)",
           }}
         />
         <div
@@ -51,23 +38,21 @@ export async function GET() {
             display: "flex",
             flexDirection: "column",
             justifyContent: "center",
-            alignItems: "flex-start",
             width: "100%",
             height: "100%",
             padding: "64px 72px",
-            gap: 22,
           }}
         >
           <div
             style={{
-              fontSize: 18,
+              fontSize: 22,
               fontWeight: 700,
-              letterSpacing: 4,
-              textTransform: "uppercase",
+              letterSpacing: 3,
               color: "rgba(212,175,55,0.85)",
+              marginBottom: 18,
             }}
           >
-            Premium collectibles
+            PREMIUM COLLECTIBLES
           </div>
           <div
             style={{
@@ -76,6 +61,7 @@ export async function GET() {
               color: "#d4af37",
               letterSpacing: -1.5,
               lineHeight: 1.05,
+              marginBottom: 22,
             }}
           >
             Get Vaulted
@@ -89,7 +75,7 @@ export async function GET() {
               lineHeight: 1.35,
             }}
           >
-            Marketplace, live auctions & breaks — join with a friend{"'"}s invite.
+            Marketplace, live auctions and breaks. Join with a friend invite.
           </div>
         </div>
       </div>
