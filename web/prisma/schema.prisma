@@ -461,6 +461,23 @@ enum DisputeEvidenceStatus {
   failed
 }
 
+/// IVS auto-recording lifecycle for a finished live show.
+enum LiveStreamRecordingStatus {
+  pending
+  recording
+  ready
+  failed
+  expired
+}
+
+/// Admin ZIP archive of an S3 HLS recording package.
+enum LiveStreamArchiveStatus {
+  none
+  preparing
+  ready
+  failed
+}
+
 enum ShippingCategory {
   raw_card
   slab
@@ -2381,22 +2398,32 @@ model SellerStreamBan {
 
 /// Post-show stream replay metadata (IVS recording URL or manifest).
 model LiveStreamReplay {
-  id               String    @id @default(cuid())
+  id               String                    @id @default(cuid())
   liveRoomId       String
-  liveRoom         LiveRoom  @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  liveRoom         LiveRoom                  @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
   sellerId         String
-  seller           User      @relation("LiveStreamReplaySeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  seller           User                      @relation("LiveStreamReplaySeller", fields: [sellerId], references: [id], onDelete: Cascade)
   streamSessionId  String?
   replayUrl        String
   durationSeconds  Int?
   startedAt        DateTime
   endedAt          DateTime
+  recordingStatus  LiveStreamRecordingStatus @default(pending)
+  s3Bucket         String?
+  s3KeyPrefix      String?
+  hlsMasterKey     String?
+  archiveS3Key     String?
+  archiveStatus    LiveStreamArchiveStatus   @default(none)
+  recordingError   String?
   deletedAt        DateTime?
   deletedByAdminId String?
-  createdAt        DateTime  @default(now())
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
 
   @@index([liveRoomId, createdAt])
   @@index([sellerId, createdAt])
+  @@index([recordingStatus, createdAt])
+  @@index([archiveStatus, updatedAt])
 }
 
 /// Admin-generated dispute / moderation evidence package (JSON summary + links).

@@ -7,16 +7,19 @@
       "Action": [
         "ivs:CreateChannel",
         "ivs:GetChannel",
+        "ivs:UpdateChannel",
         "ivs:ListChannels",
         "ivs:CreateStreamKey",
         "ivs:DeleteStreamKey",
         "ivs:GetStream",
         "ivs:StopStream",
-        "ivs:TagResource"
+        "ivs:TagResource",
+        "ivs:GetRecordingConfiguration"
       ],
       "Resource": [
         "arn:aws:ivs:us-east-1:758530011537:channel/*",
-        "arn:aws:ivs:us-east-1:758530011537:stream-key/*"
+        "arn:aws:ivs:us-east-1:758530011537:stream-key/*",
+        "arn:aws:ivs:us-east-1:758530011537:recording-configuration/*"
       ]
     },
     {
@@ -36,6 +39,23 @@
         "arn:aws:ivs:us-east-1:758530011537:stage/*",
         "arn:aws:ivs:us-east-1:758530011537:participant-token/*",
         "arn:aws:ivs:us-east-1:758530011537:composition/*"
+      ]
+    },
+    {
+      "Sid": "VaultedBetaLiveRecordingsS3",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket",
+        "s3:AbortMultipartUpload",
+        "s3:ListBucketMultipartUploads",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": [
+        "arn:aws:s3:::vaulted-live-recordings-beta",
+        "arn:aws:s3:::vaulted-live-recordings-beta/*"
       ]
     }
   ]

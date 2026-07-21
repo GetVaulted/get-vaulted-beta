@@ -1,5 +1,6 @@
 export type AdminModuleId =
   | "live-shows"
+  | "live-recordings"
   | "finance"
   | "fees"
   | "shipping-profiles"
@@ -33,6 +34,13 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
     description: "Active, scheduled, and ended shows — stream health, auctions, viewer counts, admin controls.",
     href: "/admin/live-shows",
     accent: "rose",
+  },
+  {
+    id: "live-recordings",
+    title: "Live Recordings",
+    description: "IVS show recordings (30-day retention) — prepare ZIP and download for external archive.",
+    href: "/admin/live-recordings",
+    accent: "sky",
   },
   {
     id: "finance",
@@ -148,6 +156,7 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
 export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
   [
     "live-shows",
+    "live-recordings",
     "finance",
     "fees",
     "shipping-profiles",
@@ -165,6 +174,7 @@ export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
 export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[] = [
   { href: "/admin", label: "Command Center", exact: true },
   { href: "/admin/live-shows", label: "Live" },
+  { href: "/admin/live-recordings", label: "Recordings" },
   { href: "/admin/finance", label: "Finance" },
   { href: "/admin/reconciliation", label: "Reconciliation" },
   { href: "/admin/fees", label: "Fees" },

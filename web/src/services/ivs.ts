@@ -5,6 +5,7 @@ import {
   GetChannelCommand,
   GetStreamCommand,
   StopStreamCommand,
+  UpdateChannelCommand,
   IvsClient,
   type ChannelLatencyMode,
   type ChannelType,
@@ -103,15 +104,57 @@ function createChannelName(roomId: string): string {
   return `vaulted-live-${sanitized}-${Date.now()}`;
 }
 
+/** IVS Recording configuration ARN for auto-VOD to S3 (optional in local/dev). */
+export function getIvsRecordingConfigurationArn(): string | null {
+  const arn = process.env.AWS_IVS_RECORDING_CONFIGURATION_ARN?.trim() || "";
+  return arn || null;
+}
+
+/**
+ * Attach the env Recording configuration to an existing channel when missing.
+ * Safe no-op when ARN unset or channel already points at the same config.
+ */
+export async function ensureChannelRecordingConfiguration(channelArn: string): Promise<boolean> {
+  const recordingConfigurationArn = getIvsRecordingConfigurationArn();
+  if (!recordingConfigurationArn) return false;
+
+  const client = makeClient();
+  try {
+    const current = await client.send(new GetChannelCommand({ arn: channelArn }));
+    const existing = current.channel?.recordingConfigurationArn?.trim() || "";
+    if (existing === recordingConfigurationArn) return false;
+
+    await client.send(
+      new UpdateChannelCommand({
+        arn: channelArn,
+        recordingConfigurationArn,
+      }),
+    );
+    logIvsOpsServer("ivs_channel_recording_attached", {
+      channelArnLen: channelArn.length,
+      hadPriorConfig: Boolean(existing),
+    });
+    return true;
+  } catch (e) {
+    logIvsOpsServer("ivs_channel_recording_attach_failed", {
+      channelArnLen: channelArn.length,
+      error: e instanceof Error ? e.message.slice(0, 200) : "unknown",
+    });
+    return false;
+  }
+}
+
 export async function createChannel(roomId: string) {
   const env = getEnv();
   const client = makeClient();
   const inputName = createChannelName(roomId);
+  const recordingConfigurationArn = getIvsRecordingConfigurationArn();
   const out = await client.send(
     new CreateChannelCommand({
       name: inputName,
       type: env.channelType,
       latencyMode: env.latencyMode,
+      ...(recordingConfigurationArn ? { recordingConfigurationArn } : {}),
       tags: {
         app: "vaulted-live",
         roomId,
@@ -130,6 +173,7 @@ export async function createChannel(roomId: string) {
     configuredLatencyMode: env.latencyMode,
     // Actual mode echoed back by AWS on the freshly created channel — confirms LOW vs NORMAL.
     actualLatencyMode: out.channel.latencyMode ?? "unknown",
+    recordingConfigured: Boolean(recordingConfigurationArn),
   });
   return {
     arn: out.channel.arn,
@@ -439,6 +483,7 @@ export async function provisionRoomStream(roomId: string): Promise<IvsProvisionR
     room.ivsIngestEndpoint &&
     room.ivsStreamKeyArn
   ) {
+    await ensureChannelRecordingConfiguration(room.ivsChannelArn);
     const rotated = await rotateStreamKey(roomId, room.ivsChannelArn, room.ivsStreamKeyArn);
     return {
       roomId,
