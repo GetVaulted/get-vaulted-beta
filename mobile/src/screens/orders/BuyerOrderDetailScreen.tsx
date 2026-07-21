@@ -25,7 +25,6 @@ import {
   openContactSupport,
   openDispute,
   openUserProfile,
-  openVaultComms,
   openWriteReview,
 } from '../../navigation/openPlatform';
 import { hasReviewedReference } from '../../platform/platformStore';
@@ -160,7 +159,18 @@ export function BuyerOrderDetailScreen({ navigation, route }: Props) {
               disabled={!order.trackingUrl}
               onPress={() => order.trackingUrl && void Linking.openURL(order.trackingUrl)}
             />
-            <ActionBtn icon="chatbubble-ellipses-outline" label="Contact seller" onPress={() => openVaultComms(navigation)} />
+            <ActionBtn
+              icon="chatbubble-ellipses-outline"
+              label="Contact seller"
+              onPress={() =>
+                navigation.navigate('MessageCompose', {
+                  listingId: order.listingId,
+                  sellerUserId: order.sellerId,
+                  sellerUsername: order.sellerUsername ?? undefined,
+                  initialDraft: `Hi — about my order for ${order.listingTitle}`,
+                })
+              }
+            />
             <View style={styles.reportRow}>
               <ReportButton
                 targetType="order"
