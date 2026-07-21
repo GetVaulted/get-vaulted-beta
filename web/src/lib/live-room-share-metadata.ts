@@ -4,11 +4,16 @@ import { iosAppStoreId } from "@/lib/app-store-links";
 export const LIVE_SHARE_DESCRIPTION = "Join the live auction now";
 export const UPCOMING_LIVE_SHARE_DESCRIPTION = "Join when we go live";
 
-/** Branded fallback when a show has no uploaded thumbnail (absolute HTTPS). */
-export const DEFAULT_LIVE_SHARE_OG_IMAGE =
-  "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&h=630&q=80&auto=format&fit=crop";
-
 export const CANONICAL_SHARE_SITE_FALLBACK = "https://shopgetvaulted.com";
+
+/** Path for the branded site-wide OG card (`/api/og/site`). */
+export const SITE_OG_IMAGE_PATH = "/api/og/site";
+
+/**
+ * Branded fallback when a show/page has no uploaded thumbnail (absolute HTTPS).
+ * Uses the canonical share host so iMessage / social previews stay on production.
+ */
+export const DEFAULT_LIVE_SHARE_OG_IMAGE = `${CANONICAL_SHARE_SITE_FALLBACK}${SITE_OG_IMAGE_PATH}`;
 
 const CATEGORY_LABEL_ALIASES: Record<string, string> = {
   cards: "Sports Cards",
@@ -81,6 +86,11 @@ export function ogImageSiteUrl(): string {
     return withProto.replace(/\/$/, "");
   }
   return canonicalShareSiteUrl();
+}
+
+/** Absolute branded OG card URL. */
+export function siteOgImageUrl(siteBase = ogImageSiteUrl()): string {
+  return `${siteBase.replace(/\/$/, "")}${SITE_OG_IMAGE_PATH}`;
 }
 
 export function canonicalLiveRoomUrl(roomId: string, siteBase = canonicalShareSiteUrl()): string {

@@ -109,7 +109,7 @@ describe("live-room-share-metadata", () => {
 
   it("share background falls back to the branded banner when nothing else is available", () => {
     expect(resolveLiveRoomShareBackgroundUrl(null, "https://shopgetvaulted.com", null)).toBe(
-      "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&h=630&q=80&auto=format&fit=crop",
+      "https://shopgetvaulted.com/api/og/site",
     );
   });
 

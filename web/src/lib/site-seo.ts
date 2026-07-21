@@ -3,6 +3,7 @@ import {
   canonicalShareSiteUrl,
   DEFAULT_LIVE_SHARE_OG_IMAGE,
   resolveLiveRoomShareImageUrl,
+  SITE_OG_IMAGE_PATH,
 } from "@/lib/live-room-share-metadata";
 import { publicListingHref } from "@/lib/listing-routes";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
@@ -12,8 +13,14 @@ export const SITE_NAME = "Get Vaulted";
 export const DEFAULT_SITE_DESCRIPTION =
   "Premium collectibles marketplace for graded cards, live breaks, auctions, and trusted seller shops.";
 
-/** Branded fallback OG image (absolute HTTPS). */
-export const DEFAULT_SITE_OG_IMAGE = DEFAULT_LIVE_SHARE_OG_IMAGE;
+/**
+ * Branded fallback OG image.
+ * Relative path resolves via `metadataBase` in the root layout (works on beta + prod).
+ */
+export const DEFAULT_SITE_OG_IMAGE = SITE_OG_IMAGE_PATH;
+
+/** Absolute branded OG image for non-Next consumers. */
+export const DEFAULT_SITE_OG_IMAGE_ABSOLUTE = DEFAULT_LIVE_SHARE_OG_IMAGE;
 
 export function absoluteCanonicalUrl(path: string): string {
   const base = canonicalShareSiteUrl();
