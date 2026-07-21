@@ -10,6 +10,10 @@ import { assertSellerCanPublishListing } from "@/lib/seller-publish-readiness";
 const listingInclude = listingWithSellerFulfillmentInclude;
 
 const STATUSES: ListingStatus[] = ["draft", "active", "sold", "auction_live"];
+const PAGE_SIZE_DEFAULT = 25;
+const PAGE_SIZE_MAX = 50;
+const CHANNELS = ["marketplace", "live"] as const;
+type ListingChannel = (typeof CHANNELS)[number];
 
 export async function GET(req: Request) {
   const gate = await requireAdmin();
@@ -19,6 +23,17 @@ export async function GET(req: Request) {
   const statusParam = (searchParams.get("status") ?? "all").trim();
   const category = (searchParams.get("category") ?? "all").trim();
   const seller = (searchParams.get("seller") ?? "").trim();
+  const channelRaw = (searchParams.get("channel") ?? "marketplace").trim().toLowerCase();
+  const channel: ListingChannel = CHANNELS.includes(channelRaw as ListingChannel)
+    ? (channelRaw as ListingChannel)
+    : "marketplace";
+  const pageRaw = Number.parseInt(searchParams.get("page") ?? "1", 10);
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+  const pageSizeRaw = Number.parseInt(searchParams.get("pageSize") ?? String(PAGE_SIZE_DEFAULT), 10);
+  const pageSize =
+    Number.isFinite(pageSizeRaw) && pageSizeRaw > 0
+      ? Math.min(PAGE_SIZE_MAX, Math.floor(pageSizeRaw))
+      : PAGE_SIZE_DEFAULT;
 
   const where: Prisma.ListingWhereInput = {};
 
@@ -43,21 +58,37 @@ export async function GET(req: Request) {
     }
   }
 
-  const rows = await prisma.listing.findMany({
-    where,
-    include: {
-      seller: { select: { id: true, username: true, email: true } },
-    },
-    orderBy: { updatedAt: "desc" },
-    take: 200,
-  });
+  // Live = tied to a show lot; Marketplace = never queued/sold through live rooms.
+  if (channel === "live") {
+    where.liveRoomItems = { some: {} };
+  } else {
+    where.liveRoomItems = { none: {} };
+  }
 
-  const categories = await prisma.listing.findMany({
-    select: { category: true },
-    distinct: ["category"],
-    orderBy: { category: "asc" },
-    take: 80,
-  });
+  const orderBy: Prisma.ListingOrderByWithRelationInput =
+    statusParam === "removed" ? { moderationRemovedAt: "desc" } : { updatedAt: "desc" };
+
+  const [total, rows, categories] = await Promise.all([
+    prisma.listing.count({ where }),
+    prisma.listing.findMany({
+      where,
+      include: {
+        seller: { select: { id: true, username: true, email: true } },
+        _count: { select: { liveRoomItems: true } },
+      },
+      orderBy,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.listing.findMany({
+      select: { category: true },
+      distinct: ["category"],
+      orderBy: { category: "asc" },
+      take: 80,
+    }),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return NextResponse.json({
     listings: rows.map((r) => ({
@@ -71,12 +102,18 @@ export async function GET(req: Request) {
       sellerUsername: r.seller.username,
       sellerEmail: r.seller.email,
       isCompanyListing: r.isCompanyListing,
+      channel: r._count.liveRoomItems > 0 ? "live" : "marketplace",
       moderationRemovedAt: r.moderationRemovedAt?.toISOString() ?? null,
       adminReviewedAt: r.adminReviewedAt?.toISOString() ?? null,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
     })),
     categories: categories.map((c) => c.category),
+    page,
+    pageSize,
+    total,
+    totalPages,
+    channel,
   });
 }
 

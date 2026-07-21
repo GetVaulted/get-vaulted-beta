@@ -51,7 +51,11 @@ export function AdminModerationHubPage() {
           <AdminMetricStrip
             metrics={[
               { label: "Pending review", value: data?.pendingReview ?? 0, href: "/admin/listings", tone: "warn" },
-              { label: "Removed / flagged", value: data?.flaggedRemoved ?? 0, href: "/admin/listings?status=removed" },
+              {
+                label: "Removed / flagged",
+                value: data?.flaggedRemoved ?? 0,
+                href: "/admin/listings?status=removed&channel=marketplace",
+              },
               { label: "Vault Verified", value: data?.vaultVerified ?? 0, tone: "gold" },
               { label: "Draft listings", value: data?.draftListings ?? 0 },
               { label: "Reviewed active", value: data?.reviewedActive ?? 0 },

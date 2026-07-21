@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 type Row = {
@@ -15,44 +15,101 @@ type Row = {
   sellerUsername: string;
   sellerEmail: string;
   isCompanyListing: boolean;
+  channel: "marketplace" | "live";
   moderationRemovedAt: string | null;
   adminReviewedAt: string | null;
   createdAt: string;
 };
 
 const STATUS_OPTIONS = ["all", "draft", "active", "auction_live", "sold", "removed"] as const;
+const CHANNEL_OPTIONS = [
+  { id: "marketplace", label: "Marketplace" },
+  { id: "live", label: "Live" },
+] as const;
+type Channel = (typeof CHANNEL_OPTIONS)[number]["id"];
+
+function parseStatus(raw: string | null): (typeof STATUS_OPTIONS)[number] {
+  if (raw && (STATUS_OPTIONS as readonly string[]).includes(raw)) {
+    return raw as (typeof STATUS_OPTIONS)[number];
+  }
+  return "all";
+}
+
+function parseChannel(raw: string | null): Channel {
+  return raw === "live" ? "live" : "marketplace";
+}
+
+function parsePage(raw: string | null): number {
+  const n = Number.parseInt(raw ?? "1", 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
 
 export function AdminListingsPage() {
   const router = useRouter();
-  const [status, setStatus] = useState<(typeof STATUS_OPTIONS)[number]>("all");
+  const searchParams = useSearchParams();
+  const [status, setStatus] = useState<(typeof STATUS_OPTIONS)[number]>(() =>
+    parseStatus(searchParams.get("status")),
+  );
+  const [channel, setChannel] = useState<Channel>(() => parseChannel(searchParams.get("channel")));
   const [category, setCategory] = useState("all");
   const [seller, setSeller] = useState("");
+  const [page, setPage] = useState(() => parsePage(searchParams.get("page")));
   const [categories, setCategories] = useState<string[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const syncUrl = useCallback(
+    (next: { status: string; channel: Channel; page: number }) => {
+      const sp = new URLSearchParams();
+      if (next.status !== "all") sp.set("status", next.status);
+      sp.set("channel", next.channel);
+      if (next.page > 1) sp.set("page", String(next.page));
+      const qs = sp.toString();
+      router.replace(qs ? `/admin/listings?${qs}` : "/admin/listings", { scroll: false });
+    },
+    [router],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const sp = new URLSearchParams();
       sp.set("status", status);
+      sp.set("channel", channel);
       sp.set("category", category);
+      sp.set("page", String(page));
+      sp.set("pageSize", "25");
       if (seller.trim()) sp.set("seller", seller.trim());
       const res = await fetch(`/api/admin/listings?${sp.toString()}`, { cache: "no-store" });
       if (!res.ok) return;
-      const j = (await res.json()) as { listings?: Row[]; categories?: string[] };
+      const j = (await res.json()) as {
+        listings?: Row[];
+        categories?: string[];
+        total?: number;
+        totalPages?: number;
+        page?: number;
+      };
       setRows(Array.isArray(j.listings) ? j.listings : []);
       setCategories(Array.isArray(j.categories) ? j.categories : []);
+      setTotal(typeof j.total === "number" ? j.total : 0);
+      setTotalPages(typeof j.totalPages === "number" ? Math.max(1, j.totalPages) : 1);
+      if (typeof j.page === "number" && j.page !== page) setPage(j.page);
     } finally {
       setLoading(false);
     }
-  }, [status, category, seller]);
+  }, [status, channel, category, seller, page]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    syncUrl({ status, channel, page });
+  }, [status, channel, page, syncUrl]);
 
   const setCompany = async (id: string, next: boolean) => {
     setBusyId(id);
@@ -96,12 +153,17 @@ export function AdminListingsPage() {
     }
   };
 
+  const rangeStart = total === 0 ? 0 : (page - 1) * 25 + 1;
+  const rangeEnd = Math.min(page * 25, total);
+
   return (
     <main className="mx-auto w-full max-w-[1920px] px-3 py-8 sm:px-4 lg:px-10">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-xl font-black tracking-tight">Listings</h1>
-          <p className="mt-1 text-xs text-zinc-500">Filter and moderate listings. Create normal or company merch listings.</p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Filter and moderate listings. Marketplace and Live are separate queues — 25 per page.
+          </p>
         </div>
         <Link
           href="/admin/listings/new"
@@ -114,12 +176,38 @@ export function AdminListingsPage() {
         <p className="mt-4 rounded-lg border border-rose-400/25 bg-rose-950/30 px-3 py-2 text-xs text-rose-100">{actionError}</p>
       ) : null}
 
-      <div className="mt-6 flex flex-wrap items-end gap-3 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4">
+      <div className="mt-6 flex flex-wrap gap-2">
+        {CHANNEL_OPTIONS.map((opt) => {
+          const active = channel === opt.id;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => {
+                setChannel(opt.id);
+                setPage(1);
+              }}
+              className={
+                active
+                  ? "rounded-full border border-gold/40 bg-gold/15 px-4 py-1.5 text-xs font-bold text-gold-bright"
+                  : "rounded-full border border-white/10 bg-[#0a0a0d] px-4 py-1.5 text-xs font-semibold text-zinc-400 hover:border-white/20 hover:text-zinc-200"
+              }
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4">
         <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
           Status
           <select
             value={status}
-            onChange={(e) => setStatus(e.target.value as (typeof STATUS_OPTIONS)[number])}
+            onChange={(e) => {
+              setStatus(e.target.value as (typeof STATUS_OPTIONS)[number]);
+              setPage(1);
+            }}
             className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
           >
             {STATUS_OPTIONS.map((s) => (
@@ -133,7 +221,10 @@ export function AdminListingsPage() {
           Category
           <select
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
+            onChange={(e) => {
+              setCategory(e.target.value);
+              setPage(1);
+            }}
             className="min-w-[8rem] rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
           >
             <option value="all">All</option>
@@ -154,14 +245,44 @@ export function AdminListingsPage() {
         </label>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => {
+            setPage(1);
+            void load();
+          }}
           className="rounded-lg border border-gold/35 bg-gold/10 px-3 py-1.5 text-xs font-semibold text-gold-bright hover:bg-gold/15"
         >
           Apply
         </button>
       </div>
 
-      <div className="mt-6 overflow-x-auto rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-500">
+        <p>
+          {channel === "live" ? "Live" : "Marketplace"} · showing {rangeStart}–{rangeEnd} of {total}
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={loading || page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            className="rounded border border-white/15 px-2.5 py-1 text-[10px] font-semibold text-zinc-200 disabled:opacity-40"
+          >
+            Previous
+          </button>
+          <span>
+            Page {page} / {totalPages}
+          </span>
+          <button
+            type="button"
+            disabled={loading || page >= totalPages}
+            onClick={() => setPage((p) => p + 1)}
+            className="rounded border border-white/15 px-2.5 py-1 text-[10px] font-semibold text-zinc-200 disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 overflow-x-auto rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80">
         <table className="w-full min-w-[880px] border-collapse text-left text-xs">
           <thead>
             <tr className="border-b border-white/[0.08] text-[10px] font-bold uppercase tracking-wide text-zinc-500">
@@ -183,14 +304,17 @@ export function AdminListingsPage() {
             ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-3 py-10 text-center text-zinc-500">
-                  No listings match.
+                  No {channel === "live" ? "live" : "marketplace"} listings match.
                 </td>
               </tr>
             ) : (
               rows.map((r) => (
                 <tr key={r.id} className="border-b border-white/[0.05] text-zinc-300">
                   <td className="max-w-[220px] px-3 py-2 align-top">
-                    <Link href={`/marketplace/${encodeURIComponent(r.id)}`} className="font-medium text-zinc-100 hover:text-gold-bright hover:underline">
+                    <Link
+                      href={`/marketplace/${encodeURIComponent(r.id)}`}
+                      className="font-medium text-zinc-100 hover:text-gold-bright hover:underline"
+                    >
                       {r.title}
                     </Link>
                     <p className="mt-0.5 font-mono text-[10px] text-zinc-600">{r.id}</p>
@@ -205,9 +329,20 @@ export function AdminListingsPage() {
                     <span className="mt-0.5 block text-[10px] text-zinc-600">{r.buyingFormat}</span>
                   </td>
                   <td className="px-3 py-2 align-top text-[10px] text-zinc-500">
-                    {r.moderationRemovedAt ? <span className="text-rose-400">Removed</span> : <span>Live</span>}
+                    {r.moderationRemovedAt ? (
+                      <span className="text-rose-400">Removed</span>
+                    ) : (
+                      <span>Visible</span>
+                    )}
+                    {r.channel === "live" ? (
+                      <span className="mt-1 block font-semibold text-fuchsia-300/90">Live show</span>
+                    ) : (
+                      <span className="mt-1 block text-zinc-600">Marketplace</span>
+                    )}
                     {r.adminReviewedAt ? <span className="mt-1 block text-emerald-500/90">Reviewed</span> : null}
-                    {r.isCompanyListing ? <span className="mt-1 block font-semibold text-sky-300/90">Merch</span> : null}
+                    {r.isCompanyListing ? (
+                      <span className="mt-1 block font-semibold text-sky-300/90">Merch</span>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2 align-top text-right">
                     <div className="flex flex-wrap justify-end gap-1">
@@ -254,6 +389,30 @@ export function AdminListingsPage() {
           </tbody>
         </table>
       </div>
+
+      {totalPages > 1 ? (
+        <div className="mt-4 flex items-center justify-end gap-2 text-[11px] text-zinc-500">
+          <button
+            type="button"
+            disabled={loading || page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            className="rounded border border-white/15 px-2.5 py-1 text-[10px] font-semibold text-zinc-200 disabled:opacity-40"
+          >
+            Previous
+          </button>
+          <span>
+            Page {page} / {totalPages}
+          </span>
+          <button
+            type="button"
+            disabled={loading || page >= totalPages}
+            onClick={() => setPage((p) => p + 1)}
+            className="rounded border border-white/15 px-2.5 py-1 text-[10px] font-semibold text-zinc-200 disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
     </main>
   );
 }
