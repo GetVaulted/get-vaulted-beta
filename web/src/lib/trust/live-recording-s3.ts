@@ -6,7 +6,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import archiver from "archiver";
+import { ZipArchive } from "archiver";
 import { PassThrough, Readable } from "node:stream";
 import { prisma } from "@/lib/prisma";
 
@@ -136,7 +136,8 @@ export async function packReplayArchiveToS3(replayId: string): Promise<void> {
     }
 
     const pass = new PassThrough();
-    const archive = archiver("zip", { zlib: { level: 1 } });
+    // archiver v8 is ESM-named exports only (`ZipArchive`); no default `archiver("zip")` factory.
+    const archive = new ZipArchive({ zlib: { level: 1 } });
     archive.on("error", (err) => {
       pass.destroy(err);
     });
