@@ -133,6 +133,19 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       }
     },
     onStreamRefresh: () => void reloadStream(true),
+    onBackgroundAutoPause: () => {
+      // Same signal as the Pause button so buyers see "Host paused" immediately.
+      setStream((prev) => (prev ? { ...prev, streamPaused: true } : prev));
+      if (!token) return;
+      void (async () => {
+        try {
+          await patchLiveRoomStreamPaused(token, roomId, true);
+          await reloadStream(false);
+        } catch {
+          /* best-effort — local publish already stopped */
+        }
+      })();
+    },
   });
 
   useEffect(() => {
@@ -271,6 +284,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   };
 
   // If the host re-opens the console while the show is still live (force-quit recovery), resume publish.
+  // Skip when streamPaused — background/Pause already parked the show on Host Paused until Resume.
   // Do not fight a failed Go Live (broadcastError) or a start already in flight.
   const autoResumeRef = useRef(false);
   useEffect(() => {

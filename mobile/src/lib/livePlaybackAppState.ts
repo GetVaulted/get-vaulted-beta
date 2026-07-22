@@ -48,13 +48,13 @@ export function shouldSuspendLiveStageMedia(appState: AppStateStatus): boolean {
 }
 
 /**
- * Host publish must stay up while the show is live — never mute the feed for Control Center,
- * notification shade, brief app switches, or true background. Only intentional Pause / End Show /
- * process death should stop publishing. (Buyers still suspend subscribe via
- * `shouldSuspendLiveStageMedia` to save battery.)
+ * Host publish: pause only on true background (home / app switcher), not on iOS `inactive`
+ * (Control Center, notification banners, brief overlays). Background pause mirrors the Pause
+ * button so buyers see Host Paused and the host avoids native Stage crashes on return.
+ * Buyers still suspend subscribe via `shouldSuspendLiveStageMedia` to save battery.
  */
-export function shouldSuspendHostStagePublish(_appState: AppStateStatus): boolean {
-  return false;
+export function shouldSuspendHostStagePublish(appState: AppStateStatus): boolean {
+  return appState === 'background';
 }
 
 /** @deprecated Use shouldWarmLiveHlsPipCompanion — warm player must exist before background. */

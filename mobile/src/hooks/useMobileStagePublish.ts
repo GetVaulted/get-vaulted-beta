@@ -20,6 +20,7 @@ import {
   requestHostStageToken,
 } from '../api/liveRoomStreamRepository';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
+import { shouldSuspendHostStagePublish } from '../lib/livePlaybackAppState';
 import {
   cameraPermissionDeniedMessage,
   cameraPermissionUnavailableMessage,
@@ -69,6 +70,11 @@ export function useMobileStagePublish(args: {
   previewEnabled: boolean;
   onBroadcastStarted?: () => void;
   onStreamRefresh?: () => void;
+  /**
+   * Fired when the host app backgrounds while live — host should PATCH streamPaused=true
+   * so buyers see "Host paused" (same as the Pause button).
+   */
+  onBackgroundAutoPause?: () => void;
 }) {
   const startInFlightRef = useRef(false);
   const wentLiveRef = useRef(false);
@@ -85,6 +91,8 @@ export function useMobileStagePublish(args: {
   const interruptedPublishRef = useRef(false);
   const mountedRef = useRef(true);
   const intentionalStopRef = useRef(false);
+  /** Pause button or app-background pause — stay paused until host taps Resume. */
+  const intentionalPauseRef = useRef(false);
   const reconnectInFlightRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
   /** Bumped to cancel stale reconnect/AppState timers after stop / failed start / Retry. */
@@ -98,6 +106,7 @@ export function useMobileStagePublish(args: {
 
   const canAutoRecoverPublish = useCallback(() => {
     if (!mountedRef.current || intentionalStopRef.current || !wentLiveRef.current) return false;
+    if (intentionalPauseRef.current) return false;
     if (startInFlightRef.current || startPromiseRef.current || reconnectInFlightRef.current) return false;
     const p = phaseRef.current;
     return p === 'live' || p === 'paused';
@@ -129,12 +138,36 @@ export function useMobileStagePublish(args: {
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      // Never unpublish on background/inactive — keep the feed up. On resume, only nudge a
-      // confirmed live session (never race Go Live / Retry / half-failed start).
+      // True background (home / app switcher): pause like the Pause button. Do NOT pause on
+      // iOS `inactive` alone — that is Control Center / banners and used to black out buyers.
+      if (shouldSuspendHostStagePublish(next)) {
+        if (!wentLiveRef.current || intentionalStopRef.current) return;
+        if (phaseRef.current !== 'live' || !publishingRef.current) return;
+
+        intentionalPauseRef.current = true;
+        interruptedPublishRef.current = true;
+        bumpReconnectEpoch();
+        publishingRef.current = false;
+        if (mountedRef.current) setPhase('paused');
+        void withIvsStageSerialized(async () => {
+          await setStreamsPublished(false);
+        }).catch(() => {
+          /* releasing publish avoids native Stage crashes when backgrounded */
+        });
+        try {
+          cbRef.current.onBackgroundAutoPause?.();
+        } catch {
+          /* best-effort buyer Host Paused signal */
+        }
+        return;
+      }
+
       if (next !== 'active') return;
+      // Intentional Pause (button or background) stays paused until the host taps Resume.
+      if (intentionalPauseRef.current || (phaseRef.current === 'paused' && !publishingRef.current)) {
+        return;
+      }
       if (!canAutoRecoverPublish()) return;
-      // Intentional Pause stays paused until the host taps Resume.
-      if (phaseRef.current === 'paused' && !publishingRef.current) return;
 
       const epoch = reconnectEpochRef.current;
       void (async () => {
@@ -144,6 +177,7 @@ export function useMobileStagePublish(args: {
             await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
           }
           if (epoch !== reconnectEpochRef.current || !canAutoRecoverPublish()) return;
+          if (intentionalPauseRef.current) return;
           if (phaseRef.current === 'paused' && !publishingRef.current) return;
           try {
             await withIvsStageSerialized(async () => {
@@ -162,13 +196,13 @@ export function useMobileStagePublish(args: {
             /* OS may have torn Stage down — fall through to full rejoin */
           }
         }
-        if (epoch === reconnectEpochRef.current && canAutoRecoverPublish()) {
+        if (epoch === reconnectEpochRef.current && canAutoRecoverPublish() && !intentionalPauseRef.current) {
           reconnectPublishRef.current('app_resume');
         }
       })();
     });
     return () => sub.remove();
-  }, [canAutoRecoverPublish]);
+  }, [bumpReconnectEpoch, canAutoRecoverPublish]);
 
   const clearTokenRefreshTimer = useCallback(() => {
     if (tokenRefreshTimerRef.current != null) {
@@ -216,6 +250,7 @@ export function useMobileStagePublish(args: {
 
   const releaseLocalDevices = useCallback(async () => {
     intentionalStopRef.current = true;
+    intentionalPauseRef.current = false;
     await withIvsStageSerialized(async () => {
       clearTokenRefreshTimer();
       clearStageListeners();
@@ -434,7 +469,7 @@ export function useMobileStagePublish(args: {
             }
             return;
           }
-          if (opts.allowReconnect && !intentionalStopRef.current) {
+          if (opts.allowReconnect && !intentionalStopRef.current && !intentionalPauseRef.current) {
             reconnectPublishRef.current('publish_failed');
             return;
           }
@@ -462,7 +497,7 @@ export function useMobileStagePublish(args: {
           }
           return;
         }
-        if (opts.allowReconnect && !intentionalStopRef.current) {
+        if (opts.allowReconnect && !intentionalStopRef.current && !intentionalPauseRef.current) {
           reconnectPublishRef.current(`stage_error_${evt.code}`);
           return;
         }
@@ -485,6 +520,7 @@ export function useMobileStagePublish(args: {
       if (
         reconnectInFlightRef.current ||
         intentionalStopRef.current ||
+        intentionalPauseRef.current ||
         !wentLiveRef.current ||
         startInFlightRef.current ||
         startPromiseRef.current
@@ -492,6 +528,10 @@ export function useMobileStagePublish(args: {
         return;
       }
       if (phaseRef.current !== 'live' && phaseRef.current !== 'paused' && phaseRef.current !== 'starting') {
+        return;
+      }
+      // Never auto-rejoin while the host intentionally paused (button or background).
+      if (phaseRef.current === 'paused' && !publishingRef.current) {
         return;
       }
 
@@ -657,6 +697,7 @@ export function useMobileStagePublish(args: {
     // Retry from a failed / stuck Go Live: cancel recoveries, then tear down half-open state.
     if (opts?.force) {
       intentionalStopRef.current = true;
+      intentionalPauseRef.current = false;
       bumpReconnectEpoch();
       let spins = 0;
       while (reconnectInFlightRef.current && spins < 40) {
@@ -698,6 +739,7 @@ export function useMobileStagePublish(args: {
 
       startInFlightRef.current = true;
       intentionalStopRef.current = false;
+      intentionalPauseRef.current = false;
       wentLiveRef.current = false;
       publishingRef.current = false;
       reconnectAttemptsRef.current = 0;
@@ -776,6 +818,7 @@ export function useMobileStagePublish(args: {
   /** Stop publishing to buyers; keep local preview for the seller. */
   const stop = useCallback(async () => {
     intentionalStopRef.current = true;
+    intentionalPauseRef.current = false;
     bumpReconnectEpoch();
     clearTokenRefreshTimer();
     setPhase((prev) => (prev === 'live' || prev === 'starting' || prev === 'paused' ? 'stopping' : prev));
@@ -801,15 +844,18 @@ export function useMobileStagePublish(args: {
     if (phase !== 'live' || !publishingRef.current) return;
     setError(null);
     try {
+      intentionalPauseRef.current = true;
+      bumpReconnectEpoch();
       await withIvsStageSerialized(async () => {
         await setStreamsPublished(false);
       });
       publishingRef.current = false;
       setPhase('paused');
     } catch (err) {
+      intentionalPauseRef.current = false;
       setError(friendlyPublishError(err));
     }
-  }, [phase]);
+  }, [bumpReconnectEpoch, phase]);
 
   /** Resume publishing after a pause. */
   const resume = useCallback(async () => {
@@ -819,6 +865,8 @@ export function useMobileStagePublish(args: {
       await withIvsStageSerialized(async () => {
         await setStreamsPublished(true);
       });
+      intentionalPauseRef.current = false;
+      interruptedPublishRef.current = false;
       publishingRef.current = true;
       setPhase('live');
     } catch (err) {

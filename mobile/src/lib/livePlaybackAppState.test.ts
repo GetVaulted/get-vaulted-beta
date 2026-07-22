@@ -24,9 +24,9 @@ describe('livePlaybackAppState', () => {
     expect(shouldSuspendLiveStageMedia('active')).toBe(false);
   });
 
-  it('never suspends host publish on AppState changes (only Pause/End/kill)', () => {
+  it('pauses host publish only on true background (not Control Center inactive)', () => {
     expect(shouldSuspendHostStagePublish('inactive')).toBe(false);
-    expect(shouldSuspendHostStagePublish('background')).toBe(false);
+    expect(shouldSuspendHostStagePublish('background')).toBe(true);
     expect(shouldSuspendHostStagePublish('active')).toBe(false);
   });
 
