@@ -166,11 +166,20 @@ export async function GET() {
         orderBy: { createdAt: "desc" },
         select: { createdAt: true, eventType: true, error: true, processed: true },
       }),
+      // Only count events that look like real Stripe deliveries still waiting to finish.
+      // Signature rejects (eventType still "received", often empty payload) are final and must
+      // not keep Health degraded forever.
       prisma.webhookEventLog.count({
         where: {
           source: "stripe",
           processed: false,
           createdAt: { lte: new Date(now.getTime() - 10 * 60 * 1000) },
+          NOT: {
+            OR: [
+              { error: { startsWith: "verify:" } },
+              { AND: [{ eventType: "received" }, { externalId: null }] },
+            ],
+          },
         },
       }),
     ]);
