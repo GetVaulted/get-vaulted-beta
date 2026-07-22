@@ -34,7 +34,7 @@ describe("liveRoomSharedChannel", () => {
     expect(peekLiveRoomChannel("room-1")).toBeNull();
   });
 
-  it("subscribes once and replays last status to late listeners", () => {
+  it("subscribes once and replays last status to late listeners", async () => {
     resetLiveRoomSharedChannelsForTests();
     const statuses: string[] = [];
     const supabase = {
@@ -56,7 +56,46 @@ describe("liveRoomSharedChannel", () => {
       statuses.push(`second:${status}`);
     });
 
+    // subscribe() is deferred to a microtask so sibling hooks can attach .on() first
+    await Promise.resolve();
+
     expect(statuses).toEqual(["first:SUBSCRIBED", "second:SUBSCRIBED"]);
+  });
+
+  it("lets presence handlers bind after an earlier hook schedules subscribe", async () => {
+    resetLiveRoomSharedChannelsForTests();
+    const presenceBindOrder: string[] = [];
+    let subscribed = false;
+    const supabase = {
+      channel: (_name: string, _opts: unknown) => ({
+        on(type: string) {
+          if (subscribed && type === "presence") {
+            throw new Error(`cannot add 'presence' callbacks after 'subscribe()'.`);
+          }
+          presenceBindOrder.push(type);
+          return this;
+        },
+        subscribe: (cb: (status: string) => void) => {
+          subscribed = true;
+          presenceBindOrder.push("subscribe");
+          cb("SUBSCRIBED");
+          return {};
+        },
+        presenceState: () => ({}),
+      }),
+      removeChannel: () => {},
+    } as never;
+
+    const channel = retainLiveRoomChannel(supabase, "room-3", "observer");
+    // Moderation-style hook: broadcast + schedule subscribe
+    channel.on("broadcast");
+    subscribeLiveRoomChannel("room-3", () => {});
+    // Presence hook in a later effect same tick — must still bind before subscribe runs
+    channel.on("presence");
+    await Promise.resolve();
+
+    expect(presenceBindOrder).toEqual(["broadcast", "presence", "subscribe"]);
+    expect(subscribed).toBe(true);
   });
 
   it("uses room topic names aligned with mobile", () => {

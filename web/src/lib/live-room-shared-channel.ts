@@ -4,6 +4,7 @@ import { roomChannel } from "@/lib/realtime-channels";
 type ChannelEntry = {
   channel: RealtimeChannel;
   refs: number;
+  /** True once subscribe has been scheduled or completed for this entry. */
   subscribed: boolean;
   lastStatus: string | null;
   statusListeners: Set<(status: string) => void>;
@@ -12,7 +13,14 @@ type ChannelEntry = {
 /** Ref-counted Supabase room channels — one topic per live room with presence enabled. */
 const liveRoomChannels = new Map<string, ChannelEntry>();
 
-/** Subscribe once per shared channel; multiplex status callbacks across hooks. */
+/**
+ * Subscribe once per shared channel; multiplex status callbacks across hooks.
+ *
+ * Supabase forbids adding presence (and some other) callbacks after `subscribe()`.
+ * Several hooks share one channel and register `.on(...)` in separate effects, so we
+ * defer the actual `subscribe()` to a microtask — giving every same-tick retainer a
+ * chance to attach handlers first (moderation → presence → room subscription).
+ */
 export function subscribeLiveRoomChannel(
   liveRoomId: string,
   onStatus: (status: string) => void,
@@ -27,11 +35,15 @@ export function subscribeLiveRoomChannel(
   }
   if (!entry.subscribed) {
     entry.subscribed = true;
-    void entry.channel.subscribe((status) => {
-      entry.lastStatus = status;
-      for (const listener of entry.statusListeners) {
-        listener(status);
-      }
+    queueMicrotask(() => {
+      const current = liveRoomChannels.get(topic);
+      if (current !== entry) return;
+      void entry.channel.subscribe((status) => {
+        entry.lastStatus = status;
+        for (const listener of entry.statusListeners) {
+          listener(status);
+        }
+      });
     });
   }
 
