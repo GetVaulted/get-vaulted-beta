@@ -41,15 +41,20 @@ export function shouldWarmLiveHlsPipCompanion(args: {
 /**
  * Suspend Stage WebRTC only when the app is truly backgrounded.
  * iOS notification banners / alerts flash `inactive` with sound — treating that as suspend
- * tore down buyer subscribe (and host publish) → video worked, then instant black.
+ * tore down buyer subscribe → video worked, then instant black.
  */
 export function shouldSuspendLiveStageMedia(appState: AppStateStatus): boolean {
   return appState === 'background';
 }
 
-/** Host publish uses the same rule as buyer subscribe (background only). */
-export function shouldSuspendHostStagePublish(appState: AppStateStatus): boolean {
-  return shouldSuspendLiveStageMedia(appState);
+/**
+ * Host publish must stay up while the show is live — never mute the feed for Control Center,
+ * notification shade, brief app switches, or true background. Only intentional Pause / End Show /
+ * process death should stop publishing. (Buyers still suspend subscribe via
+ * `shouldSuspendLiveStageMedia` to save battery.)
+ */
+export function shouldSuspendHostStagePublish(_appState: AppStateStatus): boolean {
+  return false;
 }
 
 /** @deprecated Use shouldWarmLiveHlsPipCompanion — warm player must exist before background. */

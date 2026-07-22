@@ -1,5 +1,5 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -267,6 +267,20 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       setBusy(null);
     }
   };
+
+  // If the host re-opens the console while the show is still live (force-quit recovery), resume publish.
+  const autoResumeRef = useRef(false);
+  useEffect(() => {
+    if (loading || !token || !room || !stageWebrtcEnabled) return;
+    if (room.status !== 'live') return;
+    if (stream?.streamPaused === true) return;
+    if (stagePublish.phase !== 'idle') return;
+    if (busy === 'start' || busy === 'end') return;
+    if (autoResumeRef.current) return;
+    autoResumeRef.current = true;
+    void onStartBroadcast();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once per live room open
+  }, [loading, token, room?.status, room?.id, stream?.streamPaused, stageWebrtcEnabled, stagePublish.phase, busy]);
 
   const onStopBroadcast = async () => {
     await endShow();

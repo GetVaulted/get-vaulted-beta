@@ -21,7 +21,6 @@ import {
   requestHostStageToken,
 } from '../api/liveRoomStreamRepository';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
-import { shouldSuspendHostStagePublish } from '../lib/livePlaybackAppState';
 import {
   cameraPermissionDeniedMessage,
   cameraPermissionUnavailableMessage,
@@ -37,7 +36,9 @@ export type SellerCameraPermissionState = 'idle' | 'requesting' | 'granted' | 'd
 /** Refresh before server host TTL expires (720 min). Fallback if expiresInSeconds missing. */
 const HOST_TOKEN_REFRESH_LEAD_MS = 60 * 60 * 1000;
 const HOST_TOKEN_REFRESH_FALLBACK_MS = 11 * 60 * 60 * 1000;
-const HOST_MAX_REJOIN_ATTEMPTS = 5;
+/** Soft cap per reconnect burst — after this we wait and keep looping while still live. */
+const HOST_MAX_REJOIN_ATTEMPTS = 8;
+const HOST_REJOIN_LOOP_DELAY_MS = 5_000;
 
 function hostTokenRefreshDelayMs(expiresInSeconds: number): number {
   if (expiresInSeconds > 0) {
@@ -116,48 +117,38 @@ export function useMobileStagePublish(args: {
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (next === 'active') {
-        if (!interruptedPublishRef.current) return;
-        interruptedPublishRef.current = false;
-        const currentPhase = phaseRef.current;
-        if (currentPhase !== 'live' && currentPhase !== 'paused') return;
-        void (async () => {
-          // Notification banners used to kill publish; when we do background, retry hard.
-          const delays = [0, 400, 1200, 2500];
-          for (const delayMs of delays) {
-            if (delayMs > 0) {
-              await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-            }
-            if (!mountedRef.current || intentionalStopRef.current) return;
-            try {
-              await setStreamsPublished(true);
-              if (!mountedRef.current) return;
-              publishingRef.current = true;
-              setPhase('live');
-              return;
-            } catch {
-              /* mic may still be held — keep trying */
-            }
-          }
-          if (wentLiveRef.current && !intentionalStopRef.current) {
-            reconnectPublishRef.current('app_resume');
-          }
-        })();
-        return;
-      }
+      // Never unpublish on background/inactive — that was blacking out buyers whenever the host
+      // opened notifications, took a brief call overlay, or switched apps. Keep publishing.
+      if (next !== 'active') return;
+      if (intentionalStopRef.current || !wentLiveRef.current) return;
+      // Intentional Pause stays paused until the host taps Resume.
+      if (phaseRef.current === 'paused' && !publishingRef.current) return;
 
-      // Only true background — NOT iOS `inactive` (banners/alerts with sound).
-      if (!shouldSuspendHostStagePublish(next)) return;
-      if (!publishingRef.current && phaseRef.current !== 'live') return;
-
-      interruptedPublishRef.current = true;
-      publishingRef.current = false;
-      void setStreamsPublished(false).catch(() => {
-        /* ignore — releasing the mic avoids native crashes when fully backgrounded */
-      });
-      if (phaseRef.current === 'live' && mountedRef.current) {
-        setPhase('paused');
-      }
+      void (async () => {
+        const delays = [0, 400, 1200, 2500, 5000];
+        for (const delayMs of delays) {
+          if (delayMs > 0) {
+            await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+          }
+          if (!mountedRef.current || intentionalStopRef.current) return;
+          if (phaseRef.current === 'paused' && !publishingRef.current) return;
+          try {
+            await setStreamsPublished(true);
+            if (!mountedRef.current) return;
+            publishingRef.current = true;
+            interruptedPublishRef.current = false;
+            reconnectAttemptsRef.current = 0;
+            setPhase('live');
+            setError(null);
+            return;
+          } catch {
+            /* OS may have torn Stage down — fall through to full rejoin */
+          }
+        }
+        if (wentLiveRef.current && !intentionalStopRef.current) {
+          reconnectPublishRef.current('app_resume');
+        }
+      })();
     });
     return () => sub.remove();
   }, []);
@@ -455,16 +446,27 @@ export function useMobileStagePublish(args: {
       if (reconnectInFlightRef.current || intentionalStopRef.current || !wentLiveRef.current) return;
       if (reconnectAttemptsRef.current >= HOST_MAX_REJOIN_ATTEMPTS) {
         if (mountedRef.current) {
-          setError('Live connection lost. Stop and go live again to continue the show.');
-          setPhase('paused');
+          setError('Reconnecting to live…');
+          // Stay "live" intent — never park on paused unless the host tapped Pause.
+          if (phaseRef.current !== 'paused') setPhase('starting');
         }
         publishingRef.current = false;
+        setTimeout(() => {
+          if (!intentionalStopRef.current && wentLiveRef.current) {
+            reconnectAttemptsRef.current = 0;
+            reconnectPublishRef.current('rejoin_loop');
+          }
+        }, HOST_REJOIN_LOOP_DELAY_MS);
         return;
       }
 
       reconnectInFlightRef.current = true;
       reconnectAttemptsRef.current += 1;
       clearTokenRefreshTimer();
+      if (mountedRef.current && phaseRef.current !== 'paused') {
+        setPhase('starting');
+        setError(null);
+      }
 
       try {
         await withIvsStageSerialized(async () => {
@@ -508,6 +510,7 @@ export function useMobileStagePublish(args: {
         });
 
         publishingRef.current = true;
+        reconnectAttemptsRef.current = 0;
         if (mountedRef.current) {
           setPhase('live');
           setError(null);
@@ -518,25 +521,28 @@ export function useMobileStagePublish(args: {
         if (reconnectAttemptsRef.current >= HOST_MAX_REJOIN_ATTEMPTS) {
           if (mountedRef.current) {
             setError(
-              friendlyPublishError(err) ||
-                'Live connection lost. Stop and go live again to continue the show.',
+              friendlyPublishError(err) || 'Reconnecting to live…',
             );
-            setPhase('paused');
+            if (phaseRef.current !== 'paused') setPhase('starting');
           }
           publishingRef.current = false;
-        } else if (trigger !== 'token_refresh') {
-          // Brief backoff then retry — token refresh failures still count toward the cap.
           setTimeout(() => {
             if (!intentionalStopRef.current && wentLiveRef.current) {
-              reconnectPublishRef.current(`retry_${trigger}`);
+              reconnectAttemptsRef.current = 0;
+              reconnectPublishRef.current('rejoin_loop');
             }
-          }, 1_500);
+          }, HOST_REJOIN_LOOP_DELAY_MS);
         } else {
+          const delay = trigger === 'token_refresh' || trigger === 'token_refresh_retry' ? 1_500 : 1_500;
           setTimeout(() => {
             if (!intentionalStopRef.current && wentLiveRef.current) {
-              reconnectPublishRef.current('token_refresh_retry');
+              reconnectPublishRef.current(
+                trigger.startsWith('retry_') || trigger.includes('token_refresh')
+                  ? trigger
+                  : `retry_${trigger}`,
+              );
             }
-          }, 1_500);
+          }, delay);
         }
       } finally {
         reconnectInFlightRef.current = false;
@@ -548,6 +554,21 @@ export function useMobileStagePublish(args: {
   reconnectPublishRef.current = (trigger: string) => {
     void reconnectPublish(trigger);
   };
+
+  // Keepalive: if the OS silently drops publish while the host stays in-room, nudge it back.
+  useEffect(() => {
+    if (phase !== 'live') return undefined;
+    const id = setInterval(() => {
+      if (intentionalStopRef.current || !wentLiveRef.current) return;
+      if (phaseRef.current !== 'live') return;
+      void setStreamsPublished(true).catch(() => {
+        if (!intentionalStopRef.current && wentLiveRef.current) {
+          reconnectPublishRef.current('keepalive');
+        }
+      });
+    }, 20_000);
+    return () => clearInterval(id);
+  }, [phase]);
 
   const start = useCallback(async (opts?: { force?: boolean }): Promise<boolean> => {
     if (!isStageWebrtcEnabled()) {

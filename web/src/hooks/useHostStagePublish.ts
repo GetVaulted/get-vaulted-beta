@@ -318,7 +318,13 @@ export function useHostStagePublish({
           message: err instanceof Error ? err.message : "rejoin_failed",
         });
         if (reconnectAttemptsRef.current >= HOST_MAX_REJOIN_ATTEMPTS) {
-          setError("Live connection lost. End the show and go live again, or refresh the page.");
+          setError("Reconnecting to live…");
+          setTimeout(() => {
+            if (!intentionalStopRef.current && wentLiveRef.current) {
+              reconnectAttemptsRef.current = 0;
+              reconnectPublishRef.current("rejoin_loop");
+            }
+          }, 5_000);
         }
       } finally {
         reconnectInFlightRef.current = false;

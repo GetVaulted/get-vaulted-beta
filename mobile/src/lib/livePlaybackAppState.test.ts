@@ -22,8 +22,12 @@ describe('livePlaybackAppState', () => {
     expect(shouldSuspendLiveStageMedia('inactive')).toBe(false);
     expect(shouldSuspendLiveStageMedia('background')).toBe(true);
     expect(shouldSuspendLiveStageMedia('active')).toBe(false);
+  });
+
+  it('never suspends host publish on AppState changes (only Pause/End/kill)', () => {
     expect(shouldSuspendHostStagePublish('inactive')).toBe(false);
-    expect(shouldSuspendHostStagePublish('background')).toBe(true);
+    expect(shouldSuspendHostStagePublish('background')).toBe(false);
+    expect(shouldSuspendHostStagePublish('active')).toBe(false);
   });
 
   it('warms HLS PiP companion while actively watching WebRTC with a playback URL', () => {
