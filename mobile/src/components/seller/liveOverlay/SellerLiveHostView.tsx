@@ -114,6 +114,8 @@ type HostActions = {
   microphoneMuted: boolean;
   onToggleMicMute: () => void;
   onStartBroadcast: () => void;
+  /** Force teardown + start again (banner Retry). */
+  onRetryBroadcast: () => void;
   onStopBroadcast: () => void;
   onPauseBroadcast: () => void;
   onResumeBroadcast: () => void;
@@ -964,7 +966,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         />
       ) : null}
 
-      {host.broadcastError && host.broadcastPhase === 'idle' ? (
+      {host.broadcastError && (host.broadcastPhase === 'idle' || host.broadcastPhase === 'starting') ? (
         <View style={[styles.banner, { top: insets.top + 48 }]}>
           <LiveConsoleWarningBanner
             error={{
@@ -972,7 +974,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
               devDetail: null,
               isNetwork: false,
             }}
-            onRetry={host.onStartBroadcast}
+            onRetry={host.onRetryBroadcast}
+            retrying={host.busy === 'start' || host.broadcastPhase === 'starting'}
           />
         </View>
       ) : null}

@@ -453,7 +453,10 @@ export function LiveBreakSpotGridSheet({
         onWalletRequired();
         return;
       }
-      setError(e instanceof Error ? e.message : 'Checkout failed.');
+      setError(
+        mapLivePaymentFailureMessage(e instanceof Error ? e.message : null) ||
+          (e instanceof Error ? e.message : 'Checkout failed.'),
+      );
     } finally {
       checkoutInFlightRef.current = false;
       setBusy(false);

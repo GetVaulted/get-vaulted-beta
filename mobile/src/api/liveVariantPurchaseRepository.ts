@@ -1,6 +1,9 @@
 import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import { WalletIncompleteError } from '../lib/buyerWalletErrors';
 
+/** Stripe charge + tax/shipping estimate can exceed the default 15s mobile abort, especially on Android. */
+const VARIANT_PURCHASE_TIMEOUT_MS = 45_000;
+
 export function createLiveVariantPurchaseIdempotencyKey(variantId: string): string {
   const bucket = Math.floor(Date.now() / 30_000);
   return `lv_purchase_${variantId}_${bucket}`;
@@ -126,6 +129,7 @@ export async function purchaseLiveItemVariant(args: {
         paymentMethodId: args.paymentMethodId,
       }),
     },
+    { timeoutMs: VARIANT_PURCHASE_TIMEOUT_MS },
   );
 
   let payload: PurchasePayload = {};
@@ -164,6 +168,7 @@ export async function syncLiveItemVariantPurchase(args: {
       },
       body: JSON.stringify({ action: 'sync', purchaseId: args.purchaseId }),
     },
+    { timeoutMs: VARIANT_PURCHASE_TIMEOUT_MS },
   );
 
   let payload: PurchasePayload = {};

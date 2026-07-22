@@ -240,13 +240,17 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     }
   }, [room, roomId, reload, stagePublish, token, reloadRoom]);
 
-  const onStartBroadcast = async () => {
+  const onStartBroadcast = async (opts?: { force?: boolean }) => {
     if (!token) return;
     setBusy('start');
     setRoomError(null);
     try {
       if (stageWebrtcEnabled) {
-        await stagePublish.start();
+        const published = await stagePublish.start(opts?.force ? { force: true } : undefined);
+        if (!published) {
+          // Keep room scheduled / do not announce live when the camera never went on air.
+          return;
+        }
       }
       const current = room ?? (await reloadRoom());
       if (current?.status === 'scheduled') {
@@ -429,6 +433,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
           microphoneMuted: stagePublish.microphoneMuted,
           onToggleMicMute,
           onStartBroadcast: () => void onStartBroadcast(),
+          onRetryBroadcast: () => void onStartBroadcast({ force: true }),
           onStopBroadcast: () => void onStopBroadcast(),
           onPauseBroadcast: () => void onPauseBroadcast(),
           onResumeBroadcast: () => void onResumeBroadcast(),

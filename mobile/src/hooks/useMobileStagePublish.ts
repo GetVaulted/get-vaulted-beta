@@ -76,6 +76,10 @@ export function useMobileStagePublish(args: {
   const localStreamsReadyRef = useRef(false);
   const rearDefaultAppliedRef = useRef(false);
   const previewInitInFlightRef = useRef(false);
+  /** Shared preview init so concurrent Go Live / Retry await the same work instead of bailing. */
+  const previewInitPromiseRef = useRef<Promise<boolean> | null>(null);
+  /** Shared start promise so Retry doesn't silent-return while a start is in flight. */
+  const startPromiseRef = useRef<Promise<boolean> | null>(null);
   const listenerSubsRef = useRef<Array<{ remove: () => void }>>([]);
   const phaseRef = useRef<MobileHostBroadcastPhase>('idle');
   const interruptedPublishRef = useRef(false);
@@ -258,48 +262,59 @@ export function useMobileStagePublish(args: {
   const ensureLocalPreview = useCallback(async (): Promise<boolean> => {
     if (!isStageWebrtcEnabled()) return false;
     if (localStreamsReadyRef.current) return true;
-    if (previewInitInFlightRef.current) return false;
+    if (previewInitPromiseRef.current) return previewInitPromiseRef.current;
 
-    previewInitInFlightRef.current = true;
-    setPermissionState('requesting');
-    setPermissionError(null);
-    setError(null);
+    const run = (async (): Promise<boolean> => {
+      previewInitInFlightRef.current = true;
+      setPermissionState('requesting');
+      setPermissionError(null);
+      setError(null);
 
+      try {
+        await ensureStageSdkInitialized('studio');
+        const perms = await requestPermissions();
+        if (perms.camera === 'unavailable' || perms.microphone === 'unavailable') {
+          setPermissionState('unavailable');
+          setPermissionError(cameraPermissionUnavailableMessage());
+          return false;
+        }
+        if (perms.camera === 'denied' || perms.microphone === 'denied') {
+          setPermissionState('denied');
+          setPermissionError(cameraPermissionDeniedMessage());
+          return false;
+        }
+
+        await withIvsStageSerialized(async () => {
+          await initializeLocalStreams();
+          await applyDefaultRearCamera();
+        });
+
+        localStreamsReadyRef.current = true;
+        setLocalPreviewReady(true);
+        setPermissionState('granted');
+        return true;
+      } catch (err) {
+        const msg = friendlyPublishError(err);
+        if (/permission|denied/i.test(msg)) {
+          setPermissionState('denied');
+          setPermissionError(msg);
+        } else {
+          setPermissionState('unavailable');
+          setPermissionError(msg);
+        }
+        return false;
+      } finally {
+        previewInitInFlightRef.current = false;
+      }
+    })();
+
+    previewInitPromiseRef.current = run;
     try {
-      await ensureStageSdkInitialized('studio');
-      const perms = await requestPermissions();
-      if (perms.camera === 'unavailable' || perms.microphone === 'unavailable') {
-        setPermissionState('unavailable');
-        setPermissionError(cameraPermissionUnavailableMessage());
-        return false;
-      }
-      if (perms.camera === 'denied' || perms.microphone === 'denied') {
-        setPermissionState('denied');
-        setPermissionError(cameraPermissionDeniedMessage());
-        return false;
-      }
-
-      await withIvsStageSerialized(async () => {
-        await initializeLocalStreams();
-        await applyDefaultRearCamera();
-      });
-
-      localStreamsReadyRef.current = true;
-      setLocalPreviewReady(true);
-      setPermissionState('granted');
-      return true;
-    } catch (err) {
-      const msg = friendlyPublishError(err);
-      if (/permission|denied/i.test(msg)) {
-        setPermissionState('denied');
-        setPermissionError(msg);
-      } else {
-        setPermissionState('unavailable');
-        setPermissionError(msg);
-      }
-      return false;
+      return await run;
     } finally {
-      previewInitInFlightRef.current = false;
+      if (previewInitPromiseRef.current === run) {
+        previewInitPromiseRef.current = null;
+      }
     }
   }, [applyDefaultRearCamera]);
 
@@ -318,10 +333,14 @@ export function useMobileStagePublish(args: {
   }, [releaseLocalDevices]);
 
   const retryPreviewPermission = useCallback(async () => {
+    // Wait out any in-flight init so we don't destroy streams mid-setup then bail.
+    if (previewInitPromiseRef.current) {
+      await previewInitPromiseRef.current.catch(() => false);
+    }
     localStreamsReadyRef.current = false;
     rearDefaultAppliedRef.current = false;
     setLocalPreviewReady(false);
-    setPermissionState('idle');
+    setPermissionState('requesting');
     setPermissionError(null);
     await withIvsStageSerialized(async () => {
       try {
@@ -530,65 +549,103 @@ export function useMobileStagePublish(args: {
     void reconnectPublish(trigger);
   };
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (opts?: { force?: boolean }): Promise<boolean> => {
     if (!isStageWebrtcEnabled()) {
       setError('Real-Time streaming is disabled in this build.');
-      return;
+      return false;
     }
-    if (startInFlightRef.current || publishingRef.current) return;
     if (!cbRef.current.accessToken.trim()) {
       setError('Sign in to start broadcasting.');
-      return;
+      return false;
     }
 
-    const previewOk = localStreamsReadyRef.current || (await ensureLocalPreview());
-    if (!previewOk) {
-      setError(permissionError ?? cameraPermissionDeniedMessage());
-      return;
-    }
-
-    startInFlightRef.current = true;
-    intentionalStopRef.current = false;
-    wentLiveRef.current = false;
-    reconnectAttemptsRef.current = 0;
-    setPhase('starting');
-    setError(null);
-
-    const markLive = () => {
-      if (wentLiveRef.current) return;
-      wentLiveRef.current = true;
-      publishingRef.current = true;
-      reconnectAttemptsRef.current = 0;
-      setPhase('live');
-      void cbRef.current.onBroadcastStarted?.();
-      cbRef.current.onStreamRefresh?.();
-    };
-
-    try {
-      const tokenPayload = await requestHostStageToken(cbRef.current.roomId, cbRef.current.accessToken);
-
-      attachPublishListeners({
-        onFirstLive: () => {
-          markLive();
-          scheduleTokenRefresh(tokenPayload.expiresInSeconds);
-        },
-        allowReconnect: true,
-      });
-
-      await withIvsStageSerialized(async () => {
-        await joinStage(tokenPayload.token);
-        await setStreamsPublished(true);
-      });
-      // Listeners usually mark live; if they miss a race, don't leave the host on a spinner.
-      markLive();
-      scheduleTokenRefresh(tokenPayload.expiresInSeconds);
-    } catch (err) {
-      await teardownStageConnection();
-      await endServerSession();
-      setPhase('idle');
-      setError(friendlyPublishError(err));
-    } finally {
+    // Retry from a failed / stuck Go Live: tear down half-open stage state first.
+    if (opts?.force) {
+      intentionalStopRef.current = true;
+      try {
+        await teardownStageConnection();
+        await endServerSession();
+      } catch {
+        /* best-effort reset */
+      }
       startInFlightRef.current = false;
+      publishingRef.current = false;
+      wentLiveRef.current = false;
+      startPromiseRef.current = null;
+      intentionalStopRef.current = false;
+      setPhase('idle');
+    }
+
+    if (startPromiseRef.current) {
+      return startPromiseRef.current;
+    }
+    if (publishingRef.current && phaseRef.current === 'live') {
+      return true;
+    }
+
+    const run = (async (): Promise<boolean> => {
+      const previewOk = localStreamsReadyRef.current || (await ensureLocalPreview());
+      if (!previewOk) {
+        const msg = permissionError ?? cameraPermissionDeniedMessage();
+        setError(msg);
+        setPhase('idle');
+        return false;
+      }
+
+      startInFlightRef.current = true;
+      intentionalStopRef.current = false;
+      wentLiveRef.current = false;
+      reconnectAttemptsRef.current = 0;
+      setPhase('starting');
+      setError(null);
+
+      const markLive = () => {
+        if (wentLiveRef.current) return;
+        wentLiveRef.current = true;
+        publishingRef.current = true;
+        reconnectAttemptsRef.current = 0;
+        setPhase('live');
+        void cbRef.current.onBroadcastStarted?.();
+        cbRef.current.onStreamRefresh?.();
+      };
+
+      try {
+        const tokenPayload = await requestHostStageToken(cbRef.current.roomId, cbRef.current.accessToken);
+
+        attachPublishListeners({
+          onFirstLive: () => {
+            markLive();
+            scheduleTokenRefresh(tokenPayload.expiresInSeconds);
+          },
+          allowReconnect: true,
+        });
+
+        await withIvsStageSerialized(async () => {
+          await joinStage(tokenPayload.token);
+          await setStreamsPublished(true);
+        });
+        // Listeners usually mark live; if they miss a race, don't leave the host on a spinner.
+        markLive();
+        scheduleTokenRefresh(tokenPayload.expiresInSeconds);
+        return true;
+      } catch (err) {
+        await teardownStageConnection();
+        await endServerSession();
+        setPhase('idle');
+        setError(friendlyPublishError(err));
+        return false;
+      } finally {
+        startInFlightRef.current = false;
+      }
+    })();
+
+    startPromiseRef.current = run;
+    try {
+      return await run;
+    } finally {
+      if (startPromiseRef.current === run) {
+        startPromiseRef.current = null;
+      }
     }
   }, [
     attachPublishListeners,

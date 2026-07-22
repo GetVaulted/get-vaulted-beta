@@ -393,10 +393,13 @@ export function useLiveStagePlayback(args: {
     webrtcFailedRef.current = false;
     webrtcFailoverCountRef.current = 0;
     webrtcUpgradedRef.current = false;
+    hlsStalledRef.current = false;
     lastAttachKeyRef.current = '';
     noVideoSinceRef.current = null;
     setPlayerFatal(false);
     setVideoHasData(false);
+    setReconnectFailed(false);
+    setLoading(true);
     // Destroy HLS + leave Stage by dropping to 'none', bump the epoch so the native subscriber
     // surface remounts fresh, then refetch and re-plan (HLS first, WebRTC fallback).
     transportRef.current = 'none';
@@ -406,6 +409,16 @@ export function useLiveStagePlayback(args: {
     viewerLifecycleLog('playback_retry_requested', { roomId: args.roomId, attemptId: id });
     void fetchStream();
   }, [applyTransport, args.roomId, beginPlaybackAttempt, clearBackoff, fetchStream, hideReconnectingUi]);
+
+  // Permanent continuity: don't strand viewers on a dead Retry button — keep trying while the room
+  // is still live and no frames arrived.
+  useEffect(() => {
+    if (args.playbackMode !== 'active' || !reconnectFailed) return undefined;
+    const id = setInterval(() => {
+      retry();
+    }, 8_000);
+    return () => clearInterval(id);
+  }, [args.playbackMode, reconnectFailed, retry]);
 
   useEffect(() => {
     const prevMode = playbackModeRef.current;
