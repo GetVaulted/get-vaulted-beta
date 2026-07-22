@@ -61,6 +61,8 @@ export function useLiveRoomRealtimeSession(args: {
   onStreamHardRefresh?: () => void;
   /** @deprecated Prefer onStreamHardRefresh — kept for callers that only need metadata. */
   onStreamRefresh?: () => void;
+  /** Immediate streamPaused from `stream_status` — apply before GET /stream catches up. */
+  onStreamPausedHint?: (streamPaused: boolean) => void;
   onModerationChanged?: () => void;
 }) {
   const [roomSnap, setRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
@@ -472,8 +474,11 @@ export function useLiveRoomRealtimeSession(args: {
       const modeKey = mode || prev?.mode || '';
       const changed = !prev || prev.health !== health || prev.mode !== modeKey;
       lastStreamStatusRef.current = { health, mode: modeKey };
-      // Host pause/resume must refresh playback metadata — otherwise buyers stay on Retry
-      // after the host leaves the app (streamPaused never reaches the player).
+      // Apply pause immediately — don't wait on GET /stream (prefetch cache can lag 5s).
+      if (paused != null) {
+        args.onStreamPausedHint?.(paused);
+      }
+      // Host pause/resume must also hard-refresh playback metadata / Stage subscribe.
       if (paused != null || (changed && (health === 'live' || health === 'connecting'))) {
         args.onStreamHardRefresh?.() ?? args.onStreamRefresh?.();
       }

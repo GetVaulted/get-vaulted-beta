@@ -46,8 +46,43 @@ export type ViewerTransportState =
 export const PLAYBACK_RECONNECT_SLOW_MS = 3_000;
 /** Re-entry watchdog: abandon the current HLS attempt and force the WebRTC fallback surface. */
 export const HLS_FIRST_FRAME_TIMEOUT_MS = 6_000;
-/** Re-entry watchdog: neither transport produced video — surface a retry action. */
+/** Re-entry watchdog: neither transport produced video — keep auto-recovering (no Retry CTA). */
 export const PLAYBACK_RECONNECT_FAILED_MS = 10_000;
+
+/**
+ * Room looks live but no frames arrived — treat as Host paused locally so buyers are not
+ * stranded on Reconnecting when the background PATCH never landed.
+ */
+export const HOST_AWAY_NO_VIDEO_MS = 4_000;
+
+/** True when buyers should show Host paused without waiting for server streamPaused. */
+export function shouldTreatAsLocalHostAway(args: {
+  playbackActive: boolean;
+  roomLifecycleLive: boolean;
+  serverStreamPaused: boolean;
+  videoHasData: boolean;
+  msWithoutVideo: number | null;
+}): boolean {
+  if (!args.playbackActive || !args.roomLifecycleLive) return false;
+  if (args.serverStreamPaused || args.videoHasData) return false;
+  if (args.msWithoutVideo == null) return false;
+  return args.msWithoutVideo >= HOST_AWAY_NO_VIDEO_MS;
+}
+
+/** Merge realtime stream_status.streamPaused into cached player metadata immediately. */
+export function mergeRealtimeStreamPaused(
+  stream: BuyerSafeStreamFields | null,
+  streamPaused: boolean,
+): BuyerSafeStreamFields | null {
+  if (!stream) return stream;
+  if (stream.streamPaused === streamPaused) return stream;
+  return { ...stream, streamPaused };
+}
+
+/** Warm publish toggle failed → Play must leave/rejoin Stage (OS often kills it in background). */
+export function shouldEscalateHostResumeToFullRejoin(warmPublishSucceeded: boolean): boolean {
+  return !warmPublishSucceeded;
+}
 
 export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamFields | null {
   if (!data || typeof data !== 'object') return null;

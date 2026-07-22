@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, ActivityIndicator, Pressable, StyleSheet, Text, View, type AppStateStatus } from 'react-native';
+import { AppState, ActivityIndicator, StyleSheet, Text, View, type AppStateStatus } from 'react-native';
 import { useVideoPlayer, VideoView, type VideoPlayer } from 'expo-video';
 import { setStageAudioOutputEnabled } from 'expo-realtime-ivs-broadcast';
 import { useLiveStagePlayback, type LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
@@ -42,6 +42,11 @@ type Props = {
   refreshNonce?: number;
   /** Bumps on each new focus visit — surfaced in the __DEV__ diagnostic label + plan log. */
   roomVisitNonce?: number;
+  /**
+   * Immediate streamPaused from realtime `stream_status` (before GET /stream catches up).
+   * `null` = no hint; boolean overrides until the next stream fetch confirms.
+   */
+  realtimeStreamPaused?: boolean | null;
   muted: boolean;
   onMutedChange: (muted: boolean) => void;
   contentFit?: 'cover' | 'contain';
@@ -109,6 +114,7 @@ export function LiveStagePlayback({
   accessToken,
   refreshNonce,
   roomVisitNonce = 0,
+  realtimeStreamPaused = null,
   muted,
   onMutedChange,
   contentFit = 'cover',
@@ -131,9 +137,17 @@ export function LiveStagePlayback({
   const mainVideoRef = useRef<VideoView>(null);
   const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce, roomVisitNonce });
 
+  useEffect(() => {
+    if (realtimeStreamPaused == null) return;
+    playback.applyRealtimeStreamPaused(realtimeStreamPaused);
+  }, [playback.applyRealtimeStreamPaused, realtimeStreamPaused]);
+
   const playbackUrl = playback.stream?.playbackUrl ?? null;
   const streamHealth = playback.stream?.streamHealth ?? 'offline';
-  const streamPaused = playback.stream?.streamPaused === true;
+  const streamPaused =
+    playback.stream?.streamPaused === true ||
+    realtimeStreamPaused === true ||
+    playback.localHostAway === true;
   const transport = playback.transport;
   const viewerTransport = playback.viewerTransport;
   const reconnectFailed = playback.reconnectFailed;
@@ -615,24 +629,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
   loader: { marginBottom: spacing.md },
-  retryWrap: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    paddingBottom: '32%',
-  },
-  retryBtn: {
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.sm,
-    borderRadius: 999,
-    backgroundColor: colors.gold,
-  },
-  retryBtnTxt: {
-    color: '#0a0a0a',
-    fontSize: 14,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
   diagBadge: {
     position: 'absolute',
     top: 96,

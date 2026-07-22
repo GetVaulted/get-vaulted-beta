@@ -106,7 +106,7 @@ import {
 } from '../../lib/liveRoomViewport';
 import { isCompactLiveRoomLayout, liveRoomOverlayScale } from '../../lib/liveRoomUiScale';
 import { LiveRoomShareSheet } from './LiveRoomShareSheet';
-import { prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
+import { invalidateBuyerLiveStreamCache, prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
 import { WARM_NEIGHBOR_RADIUS } from '../../lib/liveStreamPlayback';
 import type { LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import type { LiveRoomLineupItemSnapshot } from '../../lib/liveBuyerQueueProjection';
@@ -256,6 +256,8 @@ function LiveSlide({
   const [staffChatOnly, setStaffChatOnly] = useState(false);
   const [streamMuted, setStreamMuted] = useState(false);
   const [streamRefreshNonce, setStreamRefreshNonce] = useState(0);
+  /** Immediate pause from realtime — applied before GET /stream catches up. */
+  const [realtimeStreamPaused, setRealtimeStreamPaused] = useState<boolean | null>(null);
   const [roomStatus, setRoomStatus] = useState(stream.roomStatus);
   const [broadcastGate, setBroadcastGate] = useState<LiveRoomBroadcastGate>({
     status: stream.roomStatus,
@@ -445,7 +447,11 @@ function LiveSlide({
     onStreamRefresh: () => {
       setRoomStatus((prev) => (prev === 'ended' ? prev : 'live'));
     },
+    onStreamPausedHint: (paused) => {
+      setRealtimeStreamPaused(paused);
+    },
     onStreamHardRefresh: () => {
+      invalidateBuyerLiveStreamCache(stream.id);
       setStreamRefreshNonce((n) => n + 1);
       setRoomStatus((prev) => (prev === 'ended' ? prev : 'live'));
     },
@@ -1159,6 +1165,7 @@ function LiveSlide({
                   // roomVisitNonce: focus re-entry must refetch/reload even when showId is unchanged.
                   refreshNonce={streamRefreshNonce + roomVisitNonce}
                   roomVisitNonce={roomVisitNonce}
+                  realtimeStreamPaused={realtimeStreamPaused}
                   muted={isActive ? streamMuted : true}
                   onMutedChange={setStreamMuted}
                   onBroadcastGateChange={handleBroadcastGateChange}

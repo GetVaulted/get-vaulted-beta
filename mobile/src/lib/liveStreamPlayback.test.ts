@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  HOST_AWAY_NO_VIDEO_MS,
   isLiveStreamSignal,
   markBuyerStageSubscribeTornDown,
+  mergeRealtimeStreamPaused,
   parseBuyerSafeStreamPayload,
   preferHlsOverWebrtcOnClient,
   resetBuyerStageSubscribeTornDownForTests,
   resolveLivePlaybackSurfaceState,
   resolveSurfaceTransportPlan,
   shouldAttachHlsPlayback,
+  shouldEscalateHostResumeToFullRejoin,
+  shouldTreatAsLocalHostAway,
   shouldUseStageWebrtcPlayback,
 } from './liveStreamPlayback';
 
@@ -317,5 +321,55 @@ describe('liveStreamPlayback', () => {
         roomLifecycleLive: true,
       }),
     ).toBe('live');
+  });
+
+  it('treats prolonged no-video as local Host paused when server pause never lands', () => {
+    expect(
+      shouldTreatAsLocalHostAway({
+        playbackActive: true,
+        roomLifecycleLive: true,
+        serverStreamPaused: false,
+        videoHasData: false,
+        msWithoutVideo: HOST_AWAY_NO_VIDEO_MS,
+      }),
+    ).toBe(true);
+    expect(
+      shouldTreatAsLocalHostAway({
+        playbackActive: true,
+        roomLifecycleLive: true,
+        serverStreamPaused: false,
+        videoHasData: false,
+        msWithoutVideo: HOST_AWAY_NO_VIDEO_MS - 1,
+      }),
+    ).toBe(false);
+    expect(
+      shouldTreatAsLocalHostAway({
+        playbackActive: true,
+        roomLifecycleLive: true,
+        serverStreamPaused: true,
+        videoHasData: false,
+        msWithoutVideo: HOST_AWAY_NO_VIDEO_MS,
+      }),
+    ).toBe(false);
+  });
+
+  it('merges realtime streamPaused into player metadata immediately', () => {
+    const base = {
+      playbackUrl: 'https://x.m3u8',
+      streamHealth: 'live',
+      streamPaused: false,
+      streamStartedAt: null,
+      streamEndedAt: null,
+      lastStatusSyncAt: null,
+      streamMode: 'stage_webrtc',
+      stageAvailable: true,
+    };
+    expect(mergeRealtimeStreamPaused(base, true)?.streamPaused).toBe(true);
+    expect(mergeRealtimeStreamPaused(null, true)).toBeNull();
+  });
+
+  it('escalates host Play to full Stage rejoin when warm publish toggle fails', () => {
+    expect(shouldEscalateHostResumeToFullRejoin(false)).toBe(true);
+    expect(shouldEscalateHostResumeToFullRejoin(true)).toBe(false);
   });
 });

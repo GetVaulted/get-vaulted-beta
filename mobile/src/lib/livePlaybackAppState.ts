@@ -72,6 +72,14 @@ export function shouldHostBackgroundAutoPause(args: {
   return args.phase === 'live' || args.phase === 'paused';
 }
 
+/**
+ * After leave-app pause, clear streamPaused for buyers only once Stage publish is back.
+ * (PATCH false before publish leaves buyers off Host paused with a black feed.)
+ */
+export function shouldClearStreamPausedAfterHostResume(publishSucceeded: boolean): boolean {
+  return publishSucceeded === true;
+}
+
 /** @deprecated Use shouldWarmLiveHlsPipCompanion — warm player must exist before background. */
 export function shouldAttachLiveHlsPipCompanion(appState: AppStateStatus): boolean {
   return appState === 'background';

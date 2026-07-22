@@ -21,6 +21,7 @@ import { LiveConsoleWarningBanner } from '../components/seller/liveConsole/LiveC
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
 import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
 import { useMobileStagePublish } from '../hooks/useMobileStagePublish';
+import { shouldClearStreamPausedAfterHostResume } from '../lib/livePlaybackAppState';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { notifyLiveDiscoveryChanged } from '../lib/notifyLiveDiscoveryChanged';
@@ -133,14 +134,13 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       }
     },
     onStreamRefresh: () => void reloadStream(true),
-    onBackgroundAutoPause: () => {
+    onBackgroundAutoPause: async () => {
       // Same signal as the Pause button so buyers see "Host paused" immediately.
       // Do not await reloadStream here — iOS suspends the app before that round-trip finishes.
+      // Foreground re-fire awaits this PATCH so DB matches before the host taps Play.
       setStream((prev) => (prev ? { ...prev, streamPaused: true } : prev));
       if (!token) return;
-      void patchLiveRoomStreamPaused(token, roomId, true).catch(() => {
-        /* retried when host returns to the app while still paused */
-      });
+      await patchLiveRoomStreamPaused(token, roomId, true);
     },
   });
 
@@ -330,10 +330,18 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     if (!token) return;
     setBusy('refresh');
     try {
+      // Publish first — clearing streamPaused before Stage is back leaves buyers with no video.
+      const published = await stagePublish.resume();
+      if (!shouldClearStreamPausedAfterHostResume(published)) {
+        setStream((prev) => (prev ? { ...prev, streamPaused: true } : prev));
+        setStreamWarning(sanitizeLiveError('Could not resume the live feed. Tap Play again.', 'stream'));
+        return;
+      }
       await patchLiveRoomStreamPaused(token, roomId, false);
-      await stagePublish.resume();
+      setStream((prev) => (prev ? { ...prev, streamPaused: false } : prev));
       await reloadStream(false);
     } catch (e) {
+      setStream((prev) => (prev ? { ...prev, streamPaused: true } : prev));
       setStreamWarning(sanitizeLiveError(e, 'stream'));
     } finally {
       setBusy(null);

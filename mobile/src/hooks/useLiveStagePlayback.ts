@@ -19,8 +19,10 @@ import {
   isBuyerStageWebrtcRejoinBlocked,
   isHybridLiveEnabled,
   isLiveStreamSignal,
+  mergeRealtimeStreamPaused,
   resolveSurfaceTransportPlan,
   shouldAttachHlsPlayback,
+  shouldTreatAsLocalHostAway,
   shouldUseStageWebrtcPlayback,
   type BuyerSafeStreamFields,
   type LivePlaybackTransport,
@@ -103,6 +105,8 @@ export function useLiveStagePlayback(args: {
   const [fetchFailed, setFetchFailed] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectFailed, setReconnectFailed] = useState(false);
+  /** Local Host paused when frames stop but server streamPaused never arrived. */
+  const [localHostAway, setLocalHostAway] = useState(false);
   const [stream, setStream] = useState<BuyerSafeStreamFields | null>(() =>
     peekCachedBuyerLiveStream(args.roomId),
   );
@@ -244,8 +248,11 @@ export function useLiveStagePlayback(args: {
       setLoading(false);
       retryRef.current = 0;
       setPlayerRetryCount(0);
-      // Host pause is intentional — never strand buyers on the Retry CTA.
-      if (safe.streamPaused) setReconnectFailed(false);
+      // Host pause is intentional — never strand buyers on Reconnecting / Retry.
+      if (safe.streamPaused) {
+        setReconnectFailed(false);
+        setLocalHostAway(false);
+      }
       viewerLifecycleLog('playback_url_received', {
         roomId: args.roomId,
         playbackUrl: safe.playbackUrl,
@@ -412,16 +419,57 @@ export function useLiveStagePlayback(args: {
     void fetchStream();
   }, [applyTransport, args.roomId, beginPlaybackAttempt, clearBackoff, fetchStream, hideReconnectingUi]);
 
-  // Permanent continuity: don't strand viewers on a dead Retry button — keep trying while the room
-  // is still live and no frames arrived. Skip while host is intentionally paused.
+  // Permanent continuity: keep trying while the room is live. Skip while host is paused / away.
   useEffect(() => {
     if (args.playbackMode !== 'active' || !reconnectFailed) return undefined;
-    if (stream?.streamPaused) return undefined;
+    if (stream?.streamPaused || localHostAway) return undefined;
     const id = setInterval(() => {
       retry();
     }, 8_000);
     return () => clearInterval(id);
-  }, [args.playbackMode, reconnectFailed, retry, stream?.streamPaused]);
+  }, [args.playbackMode, localHostAway, reconnectFailed, retry, stream?.streamPaused]);
+
+  // Local Host paused: no frames while room still looks live (background PATCH often never lands).
+  useEffect(() => {
+    if (args.playbackMode !== 'active') {
+      setLocalHostAway(false);
+      return undefined;
+    }
+    if (videoHasData || stream?.streamPaused) {
+      setLocalHostAway(false);
+      noVideoSinceRef.current = null;
+      return undefined;
+    }
+    if (!isLiveStreamSignal(stream?.streamHealth ?? 'offline')) {
+      setLocalHostAway(false);
+      return undefined;
+    }
+    if (noVideoSinceRef.current == null) noVideoSinceRef.current = Date.now();
+    const tick = () => {
+      const since = noVideoSinceRef.current;
+      const msWithoutVideo = since == null ? null : Date.now() - since;
+      const away = shouldTreatAsLocalHostAway({
+        playbackActive: true,
+        roomLifecycleLive: isLiveStreamSignal(streamRef.current?.streamHealth ?? 'offline'),
+        serverStreamPaused: streamRef.current?.streamPaused === true,
+        videoHasData: videoHasDataRef.current,
+        msWithoutVideo,
+      });
+      setLocalHostAway(away);
+      if (away) setReconnectFailed(false);
+    };
+    tick();
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+  }, [args.playbackMode, stream?.streamHealth, stream?.streamPaused, videoHasData]);
+
+  const applyRealtimeStreamPaused = useCallback((streamPaused: boolean) => {
+    setStream((prev) => mergeRealtimeStreamPaused(prev, streamPaused));
+    if (streamPaused) {
+      setReconnectFailed(false);
+      setLocalHostAway(false);
+    }
+  }, []);
 
   useEffect(() => {
     const prevMode = playbackModeRef.current;
@@ -492,6 +540,8 @@ export function useLiveStagePlayback(args: {
 
   useEffect(() => {
     if (args.playbackMode === 'off' || args.refreshNonce == null || args.refreshNonce < 1) return;
+    // Drop stale prefetch so pause/resume from realtime is not served for up to 5s.
+    invalidateBuyerLiveStreamCache(args.roomId);
     clearBackoff();
     retryRef.current = 0;
     lastAttachKeyRef.current = '';
@@ -512,6 +562,7 @@ export function useLiveStagePlayback(args: {
   }, [
     args.refreshNonce,
     args.playbackMode,
+    args.roomId,
     beginPlaybackAttempt,
     cancelWebrtcUpgrade,
     clearBackoff,
@@ -602,7 +653,15 @@ export function useLiveStagePlayback(args: {
       !videoHasDataRef.current &&
       playbackModeRef.current === 'active' &&
       !streamRef.current?.streamPaused &&
-      isLiveStreamSignal(streamRef.current?.streamHealth ?? 'offline');
+      isLiveStreamSignal(streamRef.current?.streamHealth ?? 'offline') &&
+      !shouldTreatAsLocalHostAway({
+        playbackActive: true,
+        roomLifecycleLive: true,
+        serverStreamPaused: false,
+        videoHasData: false,
+        msWithoutVideo:
+          noVideoSinceRef.current == null ? null : Date.now() - noVideoSinceRef.current,
+      });
 
     const slowId = setTimeout(() => {
       if (!stillWaiting()) return;
@@ -655,6 +714,7 @@ export function useLiveStagePlayback(args: {
     }
     setVideoHasData(true);
     setReconnectFailed(false);
+    setLocalHostAway(false);
     hideReconnectingUi();
     setPlayerFatal(false);
     noVideoSinceRef.current = null;
@@ -736,6 +796,7 @@ export function useLiveStagePlayback(args: {
     fetchFailed,
     reconnecting,
     reconnectFailed,
+    localHostAway,
     stream,
     transport,
     viewerTransport,
@@ -749,6 +810,7 @@ export function useLiveStagePlayback(args: {
     onWebrtcFailed,
     onWebrtcDisconnected,
     webrtcSubscribeEpoch,
+    applyRealtimeStreamPaused,
     retry,
     refetch: fetchStream,
   };

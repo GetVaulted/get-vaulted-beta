@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   LIVE_PIP_RETRY_DELAYS_MS,
   shouldAttemptLivePictureInPicture,
+  shouldClearStreamPausedAfterHostResume,
   shouldHostBackgroundAutoPause,
   shouldSuspendHostStagePublish,
   shouldSuspendLiveStageMedia,
@@ -87,5 +88,10 @@ describe('livePlaybackAppState', () => {
 
   it('retries PiP long enough for Stage HLS mirror startup', () => {
     expect(LIVE_PIP_RETRY_DELAYS_MS.at(-1)).toBeGreaterThanOrEqual(6000);
+  });
+
+  it('clears streamPaused for buyers only after host Play republishes', () => {
+    expect(shouldClearStreamPausedAfterHostResume(true)).toBe(true);
+    expect(shouldClearStreamPausedAfterHostResume(false)).toBe(false);
   });
 });
