@@ -55,6 +55,8 @@ export type RoomBroadcastPayload = {
   emittedAt?: string;
   streamHealth?: string;
   streamMode?: string;
+  /** Host Pause / background pause — buyers must refresh and show Host paused (not Retry). */
+  streamPaused?: boolean;
   winnerUsername?: string | null;
   winnerId?: string | null;
   winningAmountUsd?: number | null;

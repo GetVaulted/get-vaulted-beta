@@ -466,11 +466,15 @@ export function useLiveRoomRealtimeSession(args: {
         typeof payload.streamHealth === 'string' ? payload.streamHealth.toLowerCase() : '';
       const mode =
         typeof payload.streamMode === 'string' ? payload.streamMode.toLowerCase() : '';
+      const paused =
+        typeof payload.streamPaused === 'boolean' ? payload.streamPaused : null;
       const prev = lastStreamStatusRef.current;
       const modeKey = mode || prev?.mode || '';
       const changed = !prev || prev.health !== health || prev.mode !== modeKey;
       lastStreamStatusRef.current = { health, mode: modeKey };
-      if (changed && (health === 'live' || health === 'connecting')) {
+      // Host pause/resume must refresh playback metadata — otherwise buyers stay on Retry
+      // after the host leaves the app (streamPaused never reaches the player).
+      if (paused != null || (changed && (health === 'live' || health === 'connecting'))) {
         args.onStreamHardRefresh?.() ?? args.onStreamRefresh?.();
       }
     },

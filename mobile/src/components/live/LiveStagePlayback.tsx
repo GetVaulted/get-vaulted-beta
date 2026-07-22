@@ -437,12 +437,12 @@ export function LiveStagePlayback({
         />
       );
     }
-    // Watchdog gave up (neither HLS nor WebRTC produced video) — the retry action renders on top.
+    // Watchdog gave up — keep auto-recovering; never push buyers to a Retry CTA (host pause / brief drops).
     if (reconnectFailed && roomLifecycleLive && roomStatus !== 'ended') {
       return (
         <StandbyOverlay
-          title="Can't load the video"
-          body="We couldn't start this stream. Tap retry to try again."
+          title="Reconnecting…"
+          body="Restoring your live stream connection."
         />
       );
     }
@@ -562,19 +562,6 @@ export function LiveStagePlayback({
             <ActivityIndicator color={colors.gold} style={styles.loader} />
           ) : null}
           {standbyContent}
-        </View>
-      ) : null}
-
-      {isForeground && reconnectFailed && roomLifecycleLive && roomStatus !== 'ended' ? (
-        <View style={styles.retryWrap} pointerEvents="box-none">
-          <Pressable
-            onPress={() => playback.retry()}
-            style={styles.retryBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Retry loading the live stream"
-          >
-            <Text style={styles.retryBtnTxt}>Retry</Text>
-          </Pressable>
         </View>
       ) : null}
 

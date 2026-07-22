@@ -244,6 +244,8 @@ export function useLiveStagePlayback(args: {
       setLoading(false);
       retryRef.current = 0;
       setPlayerRetryCount(0);
+      // Host pause is intentional — never strand buyers on the Retry CTA.
+      if (safe.streamPaused) setReconnectFailed(false);
       viewerLifecycleLog('playback_url_received', {
         roomId: args.roomId,
         playbackUrl: safe.playbackUrl,
@@ -411,14 +413,15 @@ export function useLiveStagePlayback(args: {
   }, [applyTransport, args.roomId, beginPlaybackAttempt, clearBackoff, fetchStream, hideReconnectingUi]);
 
   // Permanent continuity: don't strand viewers on a dead Retry button — keep trying while the room
-  // is still live and no frames arrived.
+  // is still live and no frames arrived. Skip while host is intentionally paused.
   useEffect(() => {
     if (args.playbackMode !== 'active' || !reconnectFailed) return undefined;
+    if (stream?.streamPaused) return undefined;
     const id = setInterval(() => {
       retry();
     }, 8_000);
     return () => clearInterval(id);
-  }, [args.playbackMode, reconnectFailed, retry]);
+  }, [args.playbackMode, reconnectFailed, retry, stream?.streamPaused]);
 
   useEffect(() => {
     const prevMode = playbackModeRef.current;
@@ -598,6 +601,7 @@ export function useLiveStagePlayback(args: {
       playbackAttemptIdRef.current === attemptId &&
       !videoHasDataRef.current &&
       playbackModeRef.current === 'active' &&
+      !streamRef.current?.streamPaused &&
       isLiveStreamSignal(streamRef.current?.streamHealth ?? 'offline');
 
     const slowId = setTimeout(() => {
