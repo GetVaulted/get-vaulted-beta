@@ -1580,16 +1580,16 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   }, []);
 
   const handleWebcamBroadcastStarted = useCallback(() => {
-    if (data?.room.status === "live" || goLivePatchRequestedRef.current) {
+    if (data?.room?.status === "live" || goLivePatchRequestedRef.current) {
       logIvsWeb("room go-live skipped", {
-        reason: data?.room.status === "live" ? "room_already_live" : "patch_already_requested",
+        reason: data?.room?.status === "live" ? "room_already_live" : "patch_already_requested",
       });
       return;
     }
     logIvsWeb("room go-live patch requested");
     goLivePatchRequestedRef.current = true;
     void patchRoom("start");
-  }, [data?.room.status, patchRoom]);
+  }, [data?.room?.status, patchRoom]);
 
   // Never auto-grab the PC camera — when the seller is already live on phone, preview would
   // fail or fight the phone publisher and show a false "Stream didn't start" error.

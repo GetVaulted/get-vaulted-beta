@@ -43,6 +43,11 @@ export default function AppError({
         This page hit an unexpected error. Try again — if it keeps happening after a hard refresh,
         contact support.
       </p>
+      {error.message ? (
+        <p className="mt-3 max-w-md break-words rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-left font-mono text-[11px] text-zinc-400">
+          {error.message}
+        </p>
+      ) : null}
       {error.digest ? (
         <p className="mt-2 font-mono text-[11px] text-zinc-600">Ref: {error.digest}</p>
       ) : null}

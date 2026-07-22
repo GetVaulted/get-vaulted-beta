@@ -5,7 +5,8 @@ import { usePathname } from "next/navigation";
 import { ADMIN_NAV_LINKS } from "@/lib/admin/admin-modules";
 
 export function AdminNav() {
-  const pathname = usePathname();
+  // Next can briefly return null from usePathname during hydration/nav — never call string methods on it.
+  const pathname = usePathname() ?? "";
 
   return (
     <header className="border-b border-white/[0.08] bg-[#08080a]/95 backdrop-blur-md">

@@ -32,7 +32,7 @@ function formatThreadTime(iso: string) {
 }
 
 export function MessagesWorkspace({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const { status } = useSession();
   const [inbox, setInbox] = useState<"primary" | "request">("primary");
   const [threads, setThreads] = useState<ThreadListItem[] | null>(null);

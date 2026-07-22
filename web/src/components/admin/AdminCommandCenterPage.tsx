@@ -60,9 +60,9 @@ export function AdminCommandCenterPage() {
               { label: "Scheduled shows", value: data?.liveScheduled ?? 0, href: "/admin/live-shows" },
               { label: "Open reports", value: data?.openReports ?? 0, href: "/admin/trust", tone: "warn" },
               { label: "Pending listings", value: data?.pendingListings ?? 0, href: "/admin/moderation" },
-              { label: "GMV (recent paid)", value: data?.finance.gmvUsd ?? null, hint: "Item subtotal, paid orders sample", tone: "gold" },
-              { label: "Platform fees", value: data?.finance.platformFeesUsd ?? null, href: "/admin/finance" },
-              { label: "Pending payouts", value: data?.finance.pendingPayoutsUsd ?? null, href: "/admin/seller-risk" },
+              { label: "GMV (recent paid)", value: data?.finance?.gmvUsd ?? null, hint: "Item subtotal, paid orders sample", tone: "gold" },
+              { label: "Platform fees", value: data?.finance?.platformFeesUsd ?? null, href: "/admin/finance" },
+              { label: "Pending payouts", value: data?.finance?.pendingPayoutsUsd ?? null, href: "/admin/seller-risk" },
               { label: "Active layaways", value: data?.activeLayaways ?? 0, href: "/admin/fulfillment" },
               { label: "Payout reviews", value: data?.sellersPendingPayoutReview ?? 0, href: "/admin/seller-risk", tone: "warn" },
               { label: "Suspended users", value: data?.suspendedUsers ?? 0, href: "/admin/users-management" },
@@ -93,7 +93,7 @@ export function AdminCommandCenterPage() {
             </ul>
           </div>
 
-          {data?.finance.gmvUsd != null ? (
+          {data?.finance?.gmvUsd != null ? (
             <p className="mt-4 text-[11px] text-zinc-600">
               Snapshot GMV {formatAdminUsd(data.finance.gmvUsd)} · Fees {formatAdminUsd(data.finance.platformFeesUsd)} · Pending payouts{" "}
               {formatAdminUsd(data.finance.pendingPayoutsUsd)}
