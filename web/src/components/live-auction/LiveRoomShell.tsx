@@ -114,9 +114,11 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     });
   }, [roomId]);
 
+  // Saved / scheduled / ended shows are not live rooms — do not mount presence (or crash the page
+  // trying to attach presence callbacks on a channel already subscribed for moderation/chat).
   const presenceCount = useRealtimeRoomPresence({
     liveRoomId: roomId,
-    enabled: Boolean(roomId),
+    enabled: Boolean(roomId) && detail?.status === "live",
     userId: session?.user?.id ?? null,
     viewerDisplayName: session?.user?.username?.trim() ? session.user.username : null,
     onPresenceStateChange: ({ status, reconnectCount }) => {

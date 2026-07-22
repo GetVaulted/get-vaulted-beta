@@ -246,18 +246,19 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const isBreak = roomType === "break";
   const router = useRouter();
   const { data: session } = useSession();
+  const [data, setData] = useState<HostPayload | null>(null);
+  const hostDataRef = useRef<HostPayload | null>(null);
+  hostDataRef.current = data;
+  // Presence is for live viewer counts only — saved/scheduled shows must not open a presence session.
   const liveViewerCount = useRealtimeRoomPresence({
     liveRoomId: roomId,
-    enabled: Boolean(roomId),
+    enabled: Boolean(roomId) && data?.room?.status === "live",
     trackSelf: false,
   });
   useEffect(() => {
     if (!roomId || liveViewerCount == null) return;
     void syncLiveRoomViewerCount({ liveRoomId: roomId, viewerCount: liveViewerCount });
   }, [roomId, liveViewerCount]);
-  const [data, setData] = useState<HostPayload | null>(null);
-  const hostDataRef = useRef<HostPayload | null>(null);
-  hostDataRef.current = data;
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

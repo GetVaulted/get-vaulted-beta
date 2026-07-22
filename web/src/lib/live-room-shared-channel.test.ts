@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildPresenceChannelKey, resolvePresenceSlotSync } from "@/lib/live-room-presence-key";
 import {
+  bindLiveRoomPresenceHandlers,
   peekLiveRoomChannel,
   releaseLiveRoomChannel,
   resetLiveRoomSharedChannelsForTests,
@@ -16,6 +17,9 @@ describe("liveRoomSharedChannel", () => {
       channel: (name: string, opts: unknown) => ({
         name,
         opts,
+        on() {
+          return this;
+        },
         subscribe: () => {},
         presenceState: () => ({}),
       }),
@@ -39,6 +43,9 @@ describe("liveRoomSharedChannel", () => {
     const statuses: string[] = [];
     const supabase = {
       channel: (_name: string, _opts: unknown) => ({
+        on() {
+          return this;
+        },
         subscribe: (cb: (status: string) => void) => {
           cb("SUBSCRIBED");
           return {};
@@ -62,9 +69,9 @@ describe("liveRoomSharedChannel", () => {
     expect(statuses).toEqual(["first:SUBSCRIBED", "second:SUBSCRIBED"]);
   });
 
-  it("lets presence handlers bind after an earlier hook schedules subscribe", async () => {
+  it("wires presence multiplexers at channel create before subscribe", async () => {
     resetLiveRoomSharedChannelsForTests();
-    const presenceBindOrder: string[] = [];
+    const order: string[] = [];
     let subscribed = false;
     const supabase = {
       channel: (_name: string, _opts: unknown) => ({
@@ -72,12 +79,12 @@ describe("liveRoomSharedChannel", () => {
           if (subscribed && type === "presence") {
             throw new Error(`cannot add 'presence' callbacks after 'subscribe()'.`);
           }
-          presenceBindOrder.push(type);
+          order.push(`on:${type}`);
           return this;
         },
         subscribe: (cb: (status: string) => void) => {
           subscribed = true;
-          presenceBindOrder.push("subscribe");
+          order.push("subscribe");
           cb("SUBSCRIBED");
           return {};
         },
@@ -86,15 +93,16 @@ describe("liveRoomSharedChannel", () => {
       removeChannel: () => {},
     } as never;
 
-    const channel = retainLiveRoomChannel(supabase, "room-3", "observer");
-    // Moderation-style hook: broadcast + schedule subscribe
-    channel.on("broadcast");
+    // First retainer (e.g. moderation) creates the channel — presence bindings happen here.
+    retainLiveRoomChannel(supabase, "room-3", "observer");
     subscribeLiveRoomChannel("room-3", () => {});
-    // Presence hook in a later effect same tick — must still bind before subscribe runs
-    channel.on("presence");
+    // Late presence hook after subscribe is scheduled — must not call channel.on("presence") again.
+    const syncCalls: number[] = [];
+    bindLiveRoomPresenceHandlers("room-3", { onSync: () => syncCalls.push(1) });
     await Promise.resolve();
 
-    expect(presenceBindOrder).toEqual(["broadcast", "presence", "subscribe"]);
+    expect(order.filter((x) => x.startsWith("on:presence")).length).toBe(3);
+    expect(order).toContain("subscribe");
     expect(subscribed).toBe(true);
   });
 

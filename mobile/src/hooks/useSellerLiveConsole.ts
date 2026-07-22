@@ -64,9 +64,10 @@ export function useSellerLiveConsole({
   const [sellerSummary, setSellerSummary] = useState<HostSellerShowSummary | null>(null);
   const [paymentFailures, setPaymentFailures] = useState<HostPaymentFailureRow[]>([]);
   const [activeItem, setActiveItem] = useState<LiveRoomItemRow | null>(null);
+  // Presence is for live viewer counts only — saved/scheduled shows must not open a presence session.
   const liveViewerCount = useRealtimeRoomPresence({
     liveRoomId: roomId,
-    enabled: roomStatus !== 'ended',
+    enabled: roomStatus === 'live',
     trackSelf: false,
   });
   // Sticky last known count — avoid flashing 0 while presence/broadcast reconnects.
@@ -74,7 +75,7 @@ export function useSellerLiveConsole({
   if (liveViewerCount != null) stickyViewerCountRef.current = liveViewerCount;
   const viewerCount = liveViewerCount ?? stickyViewerCountRef.current ?? 0;
   useEffect(() => {
-    if (liveViewerCount == null || roomStatus === 'ended') return;
+    if (liveViewerCount == null || roomStatus !== 'live') return;
     void syncLiveRoomViewerCount({ liveRoomId: roomId, viewerCount: liveViewerCount, accessToken });
   }, [accessToken, liveViewerCount, roomId, roomStatus]);
   const [serverNowMs, setServerNowMs] = useState(Date.now());

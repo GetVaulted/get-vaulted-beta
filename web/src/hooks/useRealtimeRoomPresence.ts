@@ -8,6 +8,8 @@ import {
   shouldPublishViewerCountBroadcast,
 } from "@/lib/live-room-viewer-count-broadcast";
 import {
+  bindLiveRoomPresenceHandlers,
+  bindLiveRoomViewerCountHandler,
   releaseLiveRoomChannel,
   retainLiveRoomChannel,
   subscribeLiveRoomChannel,
@@ -76,7 +78,11 @@ export function useRealtimeRoomPresence(opts: {
   }, [enabled, liveRoomId, trackSelf, userId]);
 
   useEffect(() => {
-    if (!enabled || !liveRoomId) return;
+    if (!enabled || !liveRoomId) {
+      setLocalCount(null);
+      setBroadcastCount(null);
+      return;
+    }
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
 
@@ -130,9 +136,11 @@ export function useRealtimeRoomPresence(opts: {
       updateCount();
     };
 
-    channel
-      .on("presence", { event: "sync" }, updateCount)
-      .on("presence", { event: "join" }, (payload: { newPresences?: Record<string, unknown>[] }) => {
+    // Bind via shared multiplexer — safe if moderation/subscription already retained the channel,
+    // and safe when this effect re-runs after session hydrate (userId change).
+    const unbindPresence = bindLiveRoomPresenceHandlers(liveRoomId, {
+      onSync: updateCount,
+      onJoin: (payload) => {
         for (const p of payload?.newPresences ?? []) {
           const id = joinAnnounceId(p, liveRoomId);
           if (!id || joinedChatAnnounced.has(id)) continue;
@@ -141,18 +149,20 @@ export function useRealtimeRoomPresence(opts: {
           onViewerEventRef.current?.({ kind: "joined", label });
         }
         updateCount();
-      })
-      .on("presence", { event: "leave" }, (payload: { leftPresences?: Record<string, unknown>[] }) => {
+      },
+      onLeave: (payload) => {
         for (const p of payload?.leftPresences ?? []) {
           const id = joinAnnounceId(p, liveRoomId);
           if (id) joinedChatAnnounced.delete(id);
         }
         updateCount();
-      })
-      .on("broadcast", { event: RT_EVENT.viewerCount }, ({ payload }) => {
-        const n = parseViewerCountBroadcast(payload);
-        if (n != null) setBroadcastCount(n);
-      });
+      },
+    });
+
+    const unbindViewerCount = bindLiveRoomViewerCountHandler(liveRoomId, (payload) => {
+      const n = parseViewerCountBroadcast(payload);
+      if (n != null) setBroadcastCount(n);
+    });
 
     const onVisible = () => {
       if (!trackSelf || document.visibilityState !== "visible") return;
@@ -180,6 +190,8 @@ export function useRealtimeRoomPresence(opts: {
       if (trackSelf) document.removeEventListener("visibilitychange", onVisible);
       if (heartbeatId != null) window.clearInterval(heartbeatId);
       unsubscribeStatus();
+      unbindPresence();
+      unbindViewerCount();
       if (trackSelf) {
         void channel.send({ type: "broadcast", event: RT_EVENT.viewerLeft, payload: { liveRoomId } });
         void channel.untrack();
