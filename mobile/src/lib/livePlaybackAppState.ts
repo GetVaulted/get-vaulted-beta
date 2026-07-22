@@ -88,6 +88,34 @@ export function shouldStayPausedAfterIntentionalUnpublish(intentionalPause: bool
   return intentionalPause === true;
 }
 
+/**
+ * Whatnot invariant: while the room is live, Stage failures map to minimized + Resume —
+ * never the pre-live idle Retry banner.
+ */
+export function shouldShowLiveResumeInsteadOfRetry(args: {
+  roomStatus: 'scheduled' | 'live' | 'ended';
+  broadcastPhase: 'idle' | 'starting' | 'live' | 'paused' | 'stopping';
+  hasBroadcastError: boolean;
+}): boolean {
+  if (args.roomStatus !== 'live') return false;
+  if (args.broadcastPhase === 'idle') return true;
+  if (args.hasBroadcastError && (args.broadcastPhase === 'paused' || args.broadcastPhase === 'starting')) {
+    return true;
+  }
+  return false;
+}
+
+/** Pre-live Go Live Retry banner only when the room is not live yet. */
+export function shouldShowPreLiveRetryBanner(args: {
+  roomStatus: 'scheduled' | 'live' | 'ended';
+  broadcastPhase: 'idle' | 'starting' | 'live' | 'paused' | 'stopping';
+  hasBroadcastError: boolean;
+}): boolean {
+  if (args.roomStatus === 'live') return false;
+  if (!args.hasBroadcastError) return false;
+  return args.broadcastPhase === 'idle' || args.broadcastPhase === 'starting';
+}
+
 /** @deprecated Use shouldWarmLiveHlsPipCompanion — warm player must exist before background. */
 export function shouldAttachLiveHlsPipCompanion(appState: AppStateStatus): boolean {
   return appState === 'background';

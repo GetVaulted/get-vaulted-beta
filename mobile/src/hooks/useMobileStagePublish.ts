@@ -140,10 +140,53 @@ export function useMobileStagePublish(args: {
     };
   }, []);
 
+  /**
+   * Whatnot-style Minimize show: Pause button and leave-app share this exact path.
+   * Unpublish only — never idle/Retry/teardown while minimized.
+   */
+  const minimizeShow = useCallback(async () => {
+    if (intentionalStopRef.current) return;
+    const p = phaseRef.current;
+    if (p !== 'live' && p !== 'paused' && p !== 'starting') return;
+    const alreadyMinimized = intentionalPauseRef.current && p === 'paused' && !publishingRef.current;
+
+    intentionalPauseRef.current = true;
+    interruptedPublishRef.current = true;
+    bumpReconnectEpoch();
+    publishingRef.current = false;
+    if (mountedRef.current) {
+      setPhase('paused');
+      setError(null);
+    }
+
+    // Signal buyers first — iOS often kills network after unpublish/background settles.
+    try {
+      await cbRef.current.onBackgroundAutoPause?.();
+    } catch {
+      /* retried on foreground */
+    }
+
+    if (alreadyMinimized) return;
+    try {
+      await withIvsStageSerialized(async () => {
+        await setStreamsPublished(false);
+      });
+    } catch {
+      /* stay paused — native unpublish can throw after OS suspend */
+    }
+    if (mountedRef.current) {
+      setPhase('paused');
+      setError(null);
+    }
+  }, [bumpReconnectEpoch]);
+
+  const minimizeShowRef = useRef(minimizeShow);
+  minimizeShowRef.current = minimizeShow;
+
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      // True background (home / app switcher): pause like the Pause button. Do NOT pause on
-      // iOS `inactive` alone — that is Control Center / banners and used to black out buyers.
+      // True background (home / app switcher): same Minimize path as the Pause button.
+      // Do NOT minimize on iOS `inactive` alone (Control Center / banners).
       if (
         shouldHostBackgroundAutoPause({
           appState: next,
@@ -152,36 +195,18 @@ export function useMobileStagePublish(args: {
           phase: phaseRef.current,
         })
       ) {
-        const alreadyPaused = intentionalPauseRef.current && phaseRef.current === 'paused';
-        intentionalPauseRef.current = true;
-        interruptedPublishRef.current = true;
-        bumpReconnectEpoch();
-        publishingRef.current = false;
-        if (mountedRef.current) setPhase('paused');
-
-        // Signal buyers FIRST — iOS often kills network after unpublish/background settles.
-        void Promise.resolve()
-          .then(() => cbRef.current.onBackgroundAutoPause?.())
-          .catch(() => {
-            /* best-effort buyer Host Paused signal */
-          });
-
-        if (!alreadyPaused) {
-          void withIvsStageSerialized(async () => {
-            await setStreamsPublished(false);
-          }).catch(() => {
-            /* releasing publish avoids native Stage crashes when backgrounded */
-          });
-        }
+        void minimizeShowRef.current();
         return;
       }
 
       if (next !== 'active') return;
-      // Intentional Pause (button or background) stays paused until the host taps Resume.
-      // Re-fire + await buyer Host paused — background PATCH is frequently killed mid-flight on iOS.
+      // Stay minimized until host taps Resume — re-fire Host paused (background PATCH often dies).
       if (intentionalPauseRef.current || (phaseRef.current === 'paused' && !publishingRef.current)) {
         if (intentionalPauseRef.current) {
-          if (mountedRef.current) setPhase('paused');
+          if (mountedRef.current) {
+            setPhase('paused');
+            setError(null);
+          }
           void (async () => {
             try {
               await cbRef.current.onBackgroundAutoPause?.();
@@ -192,42 +217,10 @@ export function useMobileStagePublish(args: {
         }
         return;
       }
-      if (!canAutoRecoverPublish()) return;
-
-      const epoch = reconnectEpochRef.current;
-      void (async () => {
-        const delays = [0, 400, 1200, 2500, 5000];
-        for (const delayMs of delays) {
-          if (delayMs > 0) {
-            await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-          }
-          if (epoch !== reconnectEpochRef.current || !canAutoRecoverPublish()) return;
-          if (intentionalPauseRef.current) return;
-          if (phaseRef.current === 'paused' && !publishingRef.current) return;
-          try {
-            await withIvsStageSerialized(async () => {
-              await setStreamsPublished(true);
-            });
-            if (epoch !== reconnectEpochRef.current || !mountedRef.current) return;
-            publishingRef.current = true;
-            interruptedPublishRef.current = false;
-            reconnectAttemptsRef.current = 0;
-            if (phaseRef.current !== 'paused') {
-              setPhase('live');
-              setError(null);
-            }
-            return;
-          } catch {
-            /* OS may have torn Stage down — fall through to full rejoin */
-          }
-        }
-        if (epoch === reconnectEpochRef.current && canAutoRecoverPublish() && !intentionalPauseRef.current) {
-          reconnectPublishRef.current('app_resume');
-        }
-      })();
+      // No auto-republish after minimize — Whatnot Resume is explicit.
     });
     return () => sub.remove();
-  }, [bumpReconnectEpoch, canAutoRecoverPublish]);
+  }, []);
 
   const clearTokenRefreshTimer = useCallback(() => {
     if (tokenRefreshTimerRef.current != null) {
@@ -883,65 +876,31 @@ export function useMobileStagePublish(args: {
     }
   }, [bumpReconnectEpoch, clearTokenRefreshTimer, endServerSession, phase, teardownStageConnection]);
 
-  /** Pause video/audio to buyers while keeping the stage session warm. */
-  const pause = useCallback(async () => {
-    if (phase !== 'live' && phase !== 'paused') return;
-    if (phase === 'paused' && intentionalPauseRef.current && !publishingRef.current) return;
-    setError(null);
-    try {
-      intentionalPauseRef.current = true;
-      bumpReconnectEpoch();
-      publishingRef.current = false;
-      setPhase('paused');
-      await withIvsStageSerialized(async () => {
-        await setStreamsPublished(false);
-      });
-    } catch (err) {
-      // Still treat as paused so buyers aren't stuck on a half-open publish.
-      intentionalPauseRef.current = true;
-      publishingRef.current = false;
-      setPhase('paused');
-      setError(friendlyPublishError(err));
-    }
-  }, [bumpReconnectEpoch, phase]);
-
   /**
-   * Resume after Pause / leave-app. Try a warm publish toggle first; if the OS tore Stage
-   * down in the background, leave + rejoin + publish (auto-reconnect cannot do this while paused).
-   * Returns true only after buyers can receive video again.
+   * Whatnot-style Resume: always full leave + token + join + publish (not a warm toggle).
+   * Works from `paused` or `idle` (force-quit / reopen recovery). Never lands on idle+Retry.
    */
-  const resume = useCallback(async (): Promise<boolean> => {
-    if (phaseRef.current !== 'paused') return false;
+  const resumeShow = useCallback(async (): Promise<boolean> => {
+    const p = phaseRef.current;
+    if (p !== 'paused' && p !== 'idle' && p !== 'starting') return false;
+    if (reconnectInFlightRef.current || startInFlightRef.current) return false;
+
+    intentionalPauseRef.current = true;
+    intentionalStopRef.current = false;
     setError(null);
 
     const previewOk = localStreamsReadyRef.current || (await ensureLocalPreview());
     if (!previewOk) {
       const msg = permissionError ?? cameraPermissionDeniedMessage();
-      setError(msg);
+      intentionalPauseRef.current = true;
+      publishingRef.current = false;
+      if (mountedRef.current) {
+        setPhase('paused');
+        setError(msg);
+      }
       return false;
     }
 
-    // 1) Warm session — same as Pause toggle reverse.
-    try {
-      await withIvsStageSerialized(async () => {
-        await setStreamsPublished(true);
-      });
-      intentionalPauseRef.current = false;
-      interruptedPublishRef.current = false;
-      publishingRef.current = true;
-      wentLiveRef.current = true;
-      if (mountedRef.current) {
-        setPhase('live');
-        setError(null);
-      }
-      cbRef.current.onStreamRefresh?.();
-      return true;
-    } catch {
-      /* Stage likely dead after background — full rejoin below */
-    }
-
-    // 2) Full recover: leave + fresh token + join + publish (allowed from paused).
-    if (reconnectInFlightRef.current || startInFlightRef.current) return false;
     reconnectInFlightRef.current = true;
     clearTokenRefreshTimer();
     if (mountedRef.current) {
@@ -1016,8 +975,10 @@ export function useMobileStagePublish(args: {
       cbRef.current.onStreamRefresh?.();
       return true;
     } catch (err) {
+      // Live show recovery failed — stay minimized (Resume), never idle Retry.
       intentionalPauseRef.current = true;
       publishingRef.current = false;
+      wentLiveRef.current = true;
       if (mountedRef.current) {
         setPhase('paused');
         setError(friendlyPublishError(err));
@@ -1034,6 +995,11 @@ export function useMobileStagePublish(args: {
     permissionError,
     scheduleTokenRefresh,
   ]);
+
+  /** @deprecated Prefer minimizeShow — Pause button alias. */
+  const pause = minimizeShow;
+  /** @deprecated Prefer resumeShow — Play button alias. */
+  const resume = resumeShow;
 
   /** End show — fully release camera/mic hardware. */
   const releaseCamera = useCallback(async () => {
@@ -1055,6 +1021,8 @@ export function useMobileStagePublish(args: {
     setCameraZoom,
     start,
     stop,
+    minimizeShow,
+    resumeShow,
     pause,
     resume,
     releaseCamera,

@@ -49,6 +49,10 @@ import { parseVariantPurchasedRandomClaim } from '../../../lib/liveVariantSpotBo
 import { useSellerLiveConsole } from '../../../hooks/useSellerLiveConsole';
 import { useHostGiveawayActions, pickHostStageGiveaway } from '../../../hooks/useHostGiveawayActions';
 import { LiveRoomShareSheet } from '../../live/LiveRoomShareSheet';
+import {
+  shouldShowLiveResumeInsteadOfRetry,
+  shouldShowPreLiveRetryBanner,
+} from '../../../lib/livePlaybackAppState';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { SellerLiveBroadcastSheet } from './SellerLiveBroadcastSheet';
 import { SellerLiveOverlayHeader } from './SellerLiveOverlayHeader';
@@ -970,16 +974,42 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         />
       ) : null}
 
-      {host.broadcastError && (host.broadcastPhase === 'idle' || host.broadcastPhase === 'starting') ? (
+      {/* Pre-live only: idle Retry. While room is live, never show this — use Resume (Whatnot). */}
+      {shouldShowPreLiveRetryBanner({
+        roomStatus: host.room?.status ?? 'scheduled',
+        broadcastPhase: host.broadcastPhase,
+        hasBroadcastError: Boolean(host.broadcastError),
+      }) ? (
         <View style={[styles.banner, { top: insets.top + 48 }]}>
           <LiveConsoleWarningBanner
             error={{
-              userMessage: host.broadcastError,
+              userMessage: host.broadcastError || 'Could not start broadcast.',
               devDetail: null,
               isNetwork: false,
             }}
             onRetry={host.onRetryBroadcast}
             retrying={host.busy === 'start' || host.broadcastPhase === 'starting'}
+          />
+        </View>
+      ) : null}
+
+      {/* Live + stuck idle/error: Resume CTA (same as Play), not Go Live Retry. */}
+      {host.stageWebrtcEnabled &&
+      shouldShowLiveResumeInsteadOfRetry({
+        roomStatus: host.room?.status ?? 'scheduled',
+        broadcastPhase: host.broadcastPhase,
+        hasBroadcastError: Boolean(host.broadcastError),
+      }) ? (
+        <View style={[styles.banner, { top: insets.top + 48 }]}>
+          <LiveConsoleWarningBanner
+            error={{
+              userMessage: host.broadcastError || SELLER_CONSOLE.resumeStreamHint,
+              devDetail: null,
+              isNetwork: false,
+            }}
+            onRetry={host.onResumeBroadcast}
+            actionLabel={SELLER_CONSOLE.resumeStream}
+            retrying={host.busy === 'refresh' || host.broadcastPhase === 'starting'}
           />
         </View>
       ) : null}

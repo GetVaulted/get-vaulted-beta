@@ -15,7 +15,11 @@ export const SELLER_CONSOLE = {
   obsSetup: 'OBS / RTMP',
   camera: 'Camera',
   microphone: 'Microphone',
-  previewHint: 'Check your camera and mic, then go live. You stay in the command center.',
+  previewHint:
+    'Check your camera and mic, then go live. Leaving the app pauses buyers (Resume to continue). Use OBS / RTMP if you need the camera to keep streaming away from the phone.',
+  resumeStreamHint: 'Show minimized — tap Resume to bring the live feed back.',
+  liveLeaveAppHint:
+    'Leaving the app pauses your show for buyers. Tap Resume when you return. Need the camera to stay on? Use OBS / RTMP.',
   copyLink: 'Copy link',
   nativeShare: 'Share…',
   shareInApp: 'Share in Get Vaulted',

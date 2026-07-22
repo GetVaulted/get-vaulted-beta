@@ -283,46 +283,14 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     }
   };
 
-  // If the host re-opens the console while the show is still live (force-quit recovery), resume publish.
-  // Also recovers leave-app stuck state: idle + streamPaused (or Retry) must republish and clear pause.
-  // Do not fight a start already in flight.
-  const autoResumeRef = useRef(false);
-  useEffect(() => {
-    if (loading || !token || !room || !stageWebrtcEnabled) return;
-    if (room.status !== 'live') return;
-    if (stagePublish.phase !== 'idle') return;
-    if (!stagePublish.localPreviewReady) return;
-    if (busy === 'start' || busy === 'end' || busy === 'refresh') return;
-    if (autoResumeRef.current) return;
-    autoResumeRef.current = true;
-    // Force when we already have a Retry/error or a stuck Host paused flag — warm start can no-op.
-    void onStartBroadcast({
-      force: Boolean(stagePublish.error) || stream?.streamPaused === true,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once per live room open
-  }, [
-    loading,
-    token,
-    room?.status,
-    room?.id,
-    stream?.streamPaused,
-    stageWebrtcEnabled,
-    stagePublish.phase,
-    stagePublish.error,
-    stagePublish.localPreviewReady,
-    busy,
-  ]);
-
-  const onStopBroadcast = async () => {
-    await endShow();
-  };
-
   const onPauseBroadcast = async () => {
     if (!token) return;
     setBusy('refresh');
     try {
+      // minimizeShow signals buyers + unpublishes (Whatnot Minimize).
+      await stagePublish.minimizeShow();
       await patchLiveRoomStreamPaused(token, roomId, true);
-      await stagePublish.pause();
+      setStream((prev) => (prev ? { ...prev, streamPaused: true } : prev));
       await reloadStream(false);
     } catch (e) {
       setStreamWarning(sanitizeLiveError(e, 'stream'));
@@ -334,12 +302,13 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   const onResumeBroadcast = async () => {
     if (!token) return;
     setBusy('refresh');
+    setStreamWarning(null);
     try {
-      // Publish first — clearing streamPaused before Stage is back leaves buyers with no video.
-      const published = await stagePublish.resume();
+      // Full Stage rejoin first — clearing streamPaused before publish leaves buyers with no video.
+      const published = await stagePublish.resumeShow();
       if (!shouldClearStreamPausedAfterHostResume(published)) {
         setStream((prev) => (prev ? { ...prev, streamPaused: true } : prev));
-        setStreamWarning(sanitizeLiveError('Could not resume the live feed. Tap Play again.', 'stream'));
+        setStreamWarning(sanitizeLiveError('Could not resume the live feed. Tap Resume again.', 'stream'));
         return;
       }
       await patchLiveRoomStreamPaused(token, roomId, false);
@@ -351,6 +320,34 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     } finally {
       setBusy(null);
     }
+  };
+
+  // Force-quit / cold reopen: room still live but Stage remounted idle → one resumeShow.
+  // Do NOT auto-run when phase is paused (host tapped Pause / leave-app — they tap Resume).
+  const autoResumeRef = useRef(false);
+  useEffect(() => {
+    if (loading || !token || !room || !stageWebrtcEnabled) return;
+    if (room.status !== 'live') return;
+    if (stagePublish.phase !== 'idle') return;
+    if (!stagePublish.localPreviewReady) return;
+    if (busy === 'start' || busy === 'end' || busy === 'refresh') return;
+    if (autoResumeRef.current) return;
+    autoResumeRef.current = true;
+    void onResumeBroadcast();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once per live room open
+  }, [
+    loading,
+    token,
+    room?.status,
+    room?.id,
+    stageWebrtcEnabled,
+    stagePublish.phase,
+    stagePublish.localPreviewReady,
+    busy,
+  ]);
+
+  const onStopBroadcast = async () => {
+    await endShow();
   };
 
   const onStartShow = async () => {
@@ -486,7 +483,9 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
           microphoneMuted: stagePublish.microphoneMuted,
           onToggleMicMute,
           onStartBroadcast: () => void onStartBroadcast(),
-          onRetryBroadcast: () => void onStartBroadcast({ force: true }),
+          // While live, Retry must recover like Whatnot Resume (not a cold Go Live that leaves streamPaused).
+          onRetryBroadcast: () =>
+            void (room.status === 'live' ? onResumeBroadcast() : onStartBroadcast({ force: true })),
           onStopBroadcast: () => void onStopBroadcast(),
           onPauseBroadcast: () => void onPauseBroadcast(),
           onResumeBroadcast: () => void onResumeBroadcast(),

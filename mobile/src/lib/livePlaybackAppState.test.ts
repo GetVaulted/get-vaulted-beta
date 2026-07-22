@@ -4,6 +4,8 @@ import {
   shouldAttemptLivePictureInPicture,
   shouldClearStreamPausedAfterHostResume,
   shouldHostBackgroundAutoPause,
+  shouldShowLiveResumeInsteadOfRetry,
+  shouldShowPreLiveRetryBanner,
   shouldStayPausedAfterIntentionalUnpublish,
   shouldSuspendHostStagePublish,
   shouldSuspendLiveStageMedia,
@@ -99,5 +101,29 @@ describe('livePlaybackAppState', () => {
   it('keeps Host paused after intentional unpublish instead of idle Retry', () => {
     expect(shouldStayPausedAfterIntentionalUnpublish(true)).toBe(true);
     expect(shouldStayPausedAfterIntentionalUnpublish(false)).toBe(false);
+  });
+
+  it('while room is live shows Resume recovery instead of pre-live Retry', () => {
+    expect(
+      shouldShowLiveResumeInsteadOfRetry({
+        roomStatus: 'live',
+        broadcastPhase: 'idle',
+        hasBroadcastError: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowPreLiveRetryBanner({
+        roomStatus: 'live',
+        broadcastPhase: 'idle',
+        hasBroadcastError: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowPreLiveRetryBanner({
+        roomStatus: 'scheduled',
+        broadcastPhase: 'idle',
+        hasBroadcastError: true,
+      }),
+    ).toBe(true);
   });
 });

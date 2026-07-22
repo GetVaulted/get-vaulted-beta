@@ -56,7 +56,7 @@ export function SellerLiveBroadcastSheet({
               <Ionicons name="close" size={22} color={colors.textSecondary} />
             </Pressable>
           </View>
-          <Text style={styles.sub}>{SELLER_CONSOLE.previewHint}</Text>
+          <Text style={styles.sub}>{SELLER_CONSOLE.liveLeaveAppHint}</Text>
           <ScrollView showsVerticalScrollIndicator={false}>
             {showZoom ? (
               <View style={styles.zoomSection}>
