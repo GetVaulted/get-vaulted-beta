@@ -102,3 +102,77 @@ describe('notifyFollow — href', () => {
     expect(rows[0]?.href).toBeUndefined();
   });
 });
+
+describe('syncServerNotifications — canonical user id', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (FileSystem.getInfoAsync as ReturnType<typeof vi.fn>).mockResolvedValue({ exists: false });
+    vi.resetModules();
+  });
+
+  it('re-keys stored rows from supabase auth id to prisma user id so the home badge can count them', async () => {
+    vi.doMock('../api/notificationsRepository', () => ({
+      fetchVaultNotifications: vi.fn(async () => ({
+        notifications: [
+          {
+            id: 'srv-1',
+            type: 'order_paid',
+            title: 'Order paid',
+            body: 'Your order is paid',
+            href: '/orders/ord-1',
+            readAt: null,
+            createdAt: '2026-07-21T12:00:00.000Z',
+          },
+        ],
+        unreadCount: 1,
+      })),
+    }));
+
+    const mod = await import('./notificationStore');
+    await mod.pushNotification({
+      userId: 'supabase-auth-id',
+      kind: 'order',
+      title: 'Order paid',
+      body: 'Your order is paid',
+      href: '/orders/ord-1',
+    });
+    // Force the local id to match the server id so sync updates instead of inserting.
+    const storeRaw = (FileSystem.writeAsStringAsync as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[1] as string;
+    const parsed = JSON.parse(storeRaw) as { notifications: { id: string; userId: string; read: boolean }[] };
+    parsed.notifications[0]!.id = 'srv-1';
+    (FileSystem.getInfoAsync as ReturnType<typeof vi.fn>).mockResolvedValue({ exists: true });
+    (FileSystem.readAsStringAsync as ReturnType<typeof vi.fn>).mockResolvedValue(JSON.stringify(parsed));
+    // Clear in-memory cache by re-importing with seeded file.
+    vi.resetModules();
+    vi.doMock('../api/notificationsRepository', () => ({
+      fetchVaultNotifications: vi.fn(async () => ({
+        notifications: [
+          {
+            id: 'srv-1',
+            type: 'order_paid',
+            title: 'Order paid',
+            body: 'Your order is paid',
+            href: '/orders/ord-1',
+            readAt: null,
+            createdAt: '2026-07-21T12:00:00.000Z',
+          },
+        ],
+        unreadCount: 1,
+      })),
+    }));
+    vi.doMock('./notificationEvents', () => ({
+      emitNotificationBadgeChanged: vi.fn(),
+    }));
+    vi.doMock('../push/pushRegistrationService', () => ({
+      syncAppIconBadge: vi.fn(async () => undefined),
+    }));
+
+    const fresh = await import('./notificationStore');
+    await fresh.syncServerNotifications('prisma-user-id', 'token');
+    const rows = await fresh.listNotifications('prisma-user-id');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe('srv-1');
+    expect(await fresh.unreadNotificationCount('prisma-user-id')).toBe(1);
+    expect(await fresh.unreadNotificationCount('supabase-auth-id')).toBe(0);
+  });
+});

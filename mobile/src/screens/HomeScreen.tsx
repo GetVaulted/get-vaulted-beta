@@ -113,7 +113,7 @@ export function HomeScreen() {
   const layout = useMarketplaceLayout();
   const navigation = useNavigation<Nav>();
   const { user, guestExploreMode, session } = useAuth();
-  const { count: notificationCount } = useNotificationBadge(user?.id);
+  const { count: notificationCount } = useNotificationBadge(user?.id, session?.access_token);
   const sellerSetup = useSellerSetupState(session?.access_token, user?.id, Boolean(user?.id));
   const { remind, isReminderSet } = useLiveEventReminders();
   const creatorsSectionY = useRef(0);

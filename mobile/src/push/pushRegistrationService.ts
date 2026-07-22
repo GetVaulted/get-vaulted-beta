@@ -236,6 +236,16 @@ export async function revokePushRegistrationForSession(args: {
   }
 }
 
+/** Keep the iPhone home-screen app icon badge in sync with unread vault notifications. */
+export async function syncAppIconBadge(unreadCount: number): Promise<void> {
+  if (!isPushNotificationsAvailable()) return;
+  try {
+    await Notifications.setBadgeCountAsync(Math.max(0, Math.floor(unreadCount)));
+  } catch {
+    /* best-effort — simulator / denied permission */
+  }
+}
+
 export function addNotificationReceivedListener(
   listener: (n: Notifications.Notification) => void,
 ): Notifications.EventSubscription {
