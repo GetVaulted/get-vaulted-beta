@@ -20,7 +20,7 @@ import {
   requestHostStageToken,
 } from '../api/liveRoomStreamRepository';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
-import { shouldSuspendHostStagePublish } from '../lib/livePlaybackAppState';
+import { shouldHostBackgroundAutoPause } from '../lib/livePlaybackAppState';
 import {
   cameraPermissionDeniedMessage,
   cameraPermissionUnavailableMessage,
@@ -140,31 +140,50 @@ export function useMobileStagePublish(args: {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       // True background (home / app switcher): pause like the Pause button. Do NOT pause on
       // iOS `inactive` alone — that is Control Center / banners and used to black out buyers.
-      if (shouldSuspendHostStagePublish(next)) {
-        if (!wentLiveRef.current || intentionalStopRef.current) return;
-        if (phaseRef.current !== 'live' || !publishingRef.current) return;
-
+      if (
+        shouldHostBackgroundAutoPause({
+          appState: next,
+          wentLive: wentLiveRef.current,
+          intentionalStop: intentionalStopRef.current,
+          phase: phaseRef.current,
+        })
+      ) {
+        const alreadyPaused = intentionalPauseRef.current && phaseRef.current === 'paused';
         intentionalPauseRef.current = true;
         interruptedPublishRef.current = true;
         bumpReconnectEpoch();
         publishingRef.current = false;
         if (mountedRef.current) setPhase('paused');
-        void withIvsStageSerialized(async () => {
-          await setStreamsPublished(false);
-        }).catch(() => {
-          /* releasing publish avoids native Stage crashes when backgrounded */
-        });
+
+        // Signal buyers FIRST — iOS often kills network after unpublish/background settles.
         try {
           cbRef.current.onBackgroundAutoPause?.();
         } catch {
           /* best-effort buyer Host Paused signal */
+        }
+
+        if (!alreadyPaused) {
+          void withIvsStageSerialized(async () => {
+            await setStreamsPublished(false);
+          }).catch(() => {
+            /* releasing publish avoids native Stage crashes when backgrounded */
+          });
         }
         return;
       }
 
       if (next !== 'active') return;
       // Intentional Pause (button or background) stays paused until the host taps Resume.
+      // Re-fire buyer Host paused — background PATCH is frequently killed mid-flight on iOS.
       if (intentionalPauseRef.current || (phaseRef.current === 'paused' && !publishingRef.current)) {
+        if (intentionalPauseRef.current) {
+          if (mountedRef.current) setPhase('paused');
+          try {
+            cbRef.current.onBackgroundAutoPause?.();
+          } catch {
+            /* best-effort */
+          }
+        }
         return;
       }
       if (!canAutoRecoverPublish()) return;
@@ -216,7 +235,7 @@ export function useMobileStagePublish(args: {
       clearTokenRefreshTimer();
       const delayMs = hostTokenRefreshDelayMs(expiresInSeconds);
       tokenRefreshTimerRef.current = setTimeout(() => {
-        if (!wentLiveRef.current || intentionalStopRef.current) return;
+        if (!wentLiveRef.current || intentionalStopRef.current || intentionalPauseRef.current) return;
         reconnectPublishRef.current('token_refresh');
       }, delayMs);
     },
@@ -841,18 +860,22 @@ export function useMobileStagePublish(args: {
 
   /** Pause video/audio to buyers while keeping the stage session warm. */
   const pause = useCallback(async () => {
-    if (phase !== 'live' || !publishingRef.current) return;
+    if (phase !== 'live' && phase !== 'paused') return;
+    if (phase === 'paused' && intentionalPauseRef.current && !publishingRef.current) return;
     setError(null);
     try {
       intentionalPauseRef.current = true;
       bumpReconnectEpoch();
+      publishingRef.current = false;
+      setPhase('paused');
       await withIvsStageSerialized(async () => {
         await setStreamsPublished(false);
       });
+    } catch (err) {
+      // Still treat as paused so buyers aren't stuck on a half-open publish.
+      intentionalPauseRef.current = true;
       publishingRef.current = false;
       setPhase('paused');
-    } catch (err) {
-      intentionalPauseRef.current = false;
       setError(friendlyPublishError(err));
     }
   }, [bumpReconnectEpoch, phase]);

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   LIVE_PIP_RETRY_DELAYS_MS,
   shouldAttemptLivePictureInPicture,
+  shouldHostBackgroundAutoPause,
   shouldSuspendHostStagePublish,
   shouldSuspendLiveStageMedia,
   shouldWarmLiveHlsPipCompanion,
@@ -28,6 +29,33 @@ describe('livePlaybackAppState', () => {
     expect(shouldSuspendHostStagePublish('inactive')).toBe(false);
     expect(shouldSuspendHostStagePublish('background')).toBe(true);
     expect(shouldSuspendHostStagePublish('active')).toBe(false);
+  });
+
+  it('auto-pauses a live host on background so buyers get Host paused', () => {
+    expect(
+      shouldHostBackgroundAutoPause({
+        appState: 'background',
+        wentLive: true,
+        intentionalStop: false,
+        phase: 'live',
+      }),
+    ).toBe(true);
+    expect(
+      shouldHostBackgroundAutoPause({
+        appState: 'inactive',
+        wentLive: true,
+        intentionalStop: false,
+        phase: 'live',
+      }),
+    ).toBe(false);
+    expect(
+      shouldHostBackgroundAutoPause({
+        appState: 'background',
+        wentLive: false,
+        intentionalStop: false,
+        phase: 'live',
+      }),
+    ).toBe(false);
   });
 
   it('warms HLS PiP companion while actively watching WebRTC with a playback URL', () => {

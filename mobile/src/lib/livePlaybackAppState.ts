@@ -57,6 +57,21 @@ export function shouldSuspendHostStagePublish(appState: AppStateStatus): boolean
   return appState === 'background';
 }
 
+/**
+ * Host is on-air enough that leaving the app should become an intentional Pause
+ * (even if the OS already dropped the publish socket).
+ */
+export function shouldHostBackgroundAutoPause(args: {
+  appState: AppStateStatus;
+  wentLive: boolean;
+  intentionalStop: boolean;
+  phase: 'idle' | 'starting' | 'live' | 'paused' | 'stopping';
+}): boolean {
+  if (!shouldSuspendHostStagePublish(args.appState)) return false;
+  if (!args.wentLive || args.intentionalStop) return false;
+  return args.phase === 'live' || args.phase === 'paused';
+}
+
 /** @deprecated Use shouldWarmLiveHlsPipCompanion — warm player must exist before background. */
 export function shouldAttachLiveHlsPipCompanion(appState: AppStateStatus): boolean {
   return appState === 'background';

@@ -135,16 +135,12 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     onStreamRefresh: () => void reloadStream(true),
     onBackgroundAutoPause: () => {
       // Same signal as the Pause button so buyers see "Host paused" immediately.
+      // Do not await reloadStream here — iOS suspends the app before that round-trip finishes.
       setStream((prev) => (prev ? { ...prev, streamPaused: true } : prev));
       if (!token) return;
-      void (async () => {
-        try {
-          await patchLiveRoomStreamPaused(token, roomId, true);
-          await reloadStream(false);
-        } catch {
-          /* best-effort — local publish already stopped */
-        }
-      })();
+      void patchLiveRoomStreamPaused(token, roomId, true).catch(() => {
+        /* retried when host returns to the app while still paused */
+      });
     },
   });
 
