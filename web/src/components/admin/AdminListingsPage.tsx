@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 type Row = {
@@ -27,33 +27,50 @@ const CHANNEL_OPTIONS = [
   { id: "live", label: "Live" },
 ] as const;
 type Channel = (typeof CHANNEL_OPTIONS)[number]["id"];
+type Status = (typeof STATUS_OPTIONS)[number];
 
-function parseStatus(raw: string | null): (typeof STATUS_OPTIONS)[number] {
+function parseStatus(raw: string | null | undefined): Status {
   if (raw && (STATUS_OPTIONS as readonly string[]).includes(raw)) {
-    return raw as (typeof STATUS_OPTIONS)[number];
+    return raw as Status;
   }
   return "all";
 }
 
-function parseChannel(raw: string | null): Channel {
+function parseChannel(raw: string | null | undefined): Channel {
   return raw === "live" ? "live" : "marketplace";
 }
 
-function parsePage(raw: string | null): number {
+function parsePage(raw: string | null | undefined): number {
   const n = Number.parseInt(raw ?? "1", 10);
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
-export function AdminListingsPage() {
+function listingsHref(next: { status: Status; channel: Channel; page: number }): string {
+  const sp = new URLSearchParams();
+  if (next.status !== "all") sp.set("status", next.status);
+  sp.set("channel", next.channel);
+  if (next.page > 1) sp.set("page", String(next.page));
+  const qs = sp.toString();
+  return qs ? `/admin/listings?${qs}` : "/admin/listings";
+}
+
+export type AdminListingsPageProps = {
+  initialStatus?: string | null;
+  initialChannel?: string | null;
+  initialPage?: string | null;
+};
+
+export function AdminListingsPage({
+  initialStatus = null,
+  initialChannel = null,
+  initialPage = null,
+}: AdminListingsPageProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const [status, setStatus] = useState<(typeof STATUS_OPTIONS)[number]>(() =>
-    parseStatus(searchParams.get("status")),
-  );
-  const [channel, setChannel] = useState<Channel>(() => parseChannel(searchParams.get("channel")));
+  const [status, setStatus] = useState<Status>(() => parseStatus(initialStatus));
+  const [channel, setChannel] = useState<Channel>(() => parseChannel(initialChannel));
   const [category, setCategory] = useState("all");
   const [seller, setSeller] = useState("");
-  const [page, setPage] = useState(() => parsePage(searchParams.get("page")));
+  const [page, setPage] = useState(() => parsePage(initialPage));
   const [categories, setCategories] = useState<string[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
@@ -62,16 +79,16 @@ export function AdminListingsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const syncUrl = useCallback(
-    (next: { status: string; channel: Channel; page: number }) => {
-      const sp = new URLSearchParams();
-      if (next.status !== "all") sp.set("status", next.status);
-      sp.set("channel", next.channel);
-      if (next.page > 1) sp.set("page", String(next.page));
-      const qs = sp.toString();
-      const href = qs ? `/admin/listings?${qs}` : "/admin/listings";
-      const current = `${window.location.pathname}${window.location.search}`;
-      if (current === href) return;
+  /** Update the address bar only from explicit user actions — never from a mount effect. */
+  const pushFilters = useCallback(
+    (next: { status: Status; channel: Channel; page: number }) => {
+      const href = listingsHref(next);
+      try {
+        const current = `${window.location.pathname}${window.location.search}`;
+        if (current === href) return;
+      } catch {
+        /* ignore */
+      }
       router.replace(href, { scroll: false });
     },
     [router],
@@ -79,6 +96,7 @@ export function AdminListingsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setActionError(null);
     try {
       const sp = new URLSearchParams();
       sp.set("status", status);
@@ -88,7 +106,14 @@ export function AdminListingsPage() {
       sp.set("pageSize", "25");
       if (seller.trim()) sp.set("seller", seller.trim());
       const res = await fetch(`/api/admin/listings?${sp.toString()}`, { cache: "no-store" });
-      if (!res.ok) return;
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setActionError(typeof j.error === "string" ? j.error : `Could not load listings (${res.status}).`);
+        setRows([]);
+        setTotal(0);
+        setTotalPages(1);
+        return;
+      }
       const j = (await res.json()) as {
         listings?: Row[];
         categories?: string[];
@@ -101,6 +126,9 @@ export function AdminListingsPage() {
       setTotal(typeof j.total === "number" ? j.total : 0);
       setTotalPages(typeof j.totalPages === "number" ? Math.max(1, j.totalPages) : 1);
       if (typeof j.page === "number" && j.page !== page) setPage(j.page);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Could not load listings.");
+      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -109,10 +137,6 @@ export function AdminListingsPage() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    syncUrl({ status, channel, page });
-  }, [status, channel, page, syncUrl]);
 
   const setCompany = async (id: string, next: boolean) => {
     setBusyId(id);
@@ -189,6 +213,7 @@ export function AdminListingsPage() {
               onClick={() => {
                 setChannel(opt.id);
                 setPage(1);
+                pushFilters({ status, channel: opt.id, page: 1 });
               }}
               className={
                 active
@@ -208,8 +233,10 @@ export function AdminListingsPage() {
           <select
             value={status}
             onChange={(e) => {
-              setStatus(e.target.value as (typeof STATUS_OPTIONS)[number]);
+              const next = e.target.value as Status;
+              setStatus(next);
               setPage(1);
+              pushFilters({ status: next, channel, page: 1 });
             }}
             className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
           >
@@ -250,6 +277,7 @@ export function AdminListingsPage() {
           type="button"
           onClick={() => {
             setPage(1);
+            pushFilters({ status, channel, page: 1 });
             void load();
           }}
           className="rounded-lg border border-gold/35 bg-gold/10 px-3 py-1.5 text-xs font-semibold text-gold-bright hover:bg-gold/15"
@@ -266,7 +294,11 @@ export function AdminListingsPage() {
           <button
             type="button"
             disabled={loading || page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            onClick={() => {
+              const next = Math.max(1, page - 1);
+              setPage(next);
+              pushFilters({ status, channel, page: next });
+            }}
             className="rounded border border-white/15 px-2.5 py-1 text-[10px] font-semibold text-zinc-200 disabled:opacity-40"
           >
             Previous
@@ -277,7 +309,11 @@ export function AdminListingsPage() {
           <button
             type="button"
             disabled={loading || page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
+            onClick={() => {
+              const next = page + 1;
+              setPage(next);
+              pushFilters({ status, channel, page: next });
+            }}
             className="rounded border border-white/15 px-2.5 py-1 text-[10px] font-semibold text-zinc-200 disabled:opacity-40"
           >
             Next
@@ -315,18 +351,18 @@ export function AdminListingsPage() {
                 <tr key={r.id} className="border-b border-white/[0.05] text-zinc-300">
                   <td className="max-w-[220px] px-3 py-2 align-top">
                     <Link
-                      href={`/marketplace/${encodeURIComponent(r.id)}`}
+                      href={`/listing/${encodeURIComponent(r.id)}`}
                       className="font-medium text-zinc-100 hover:text-gold-bright hover:underline"
                     >
-                      {r.title}
+                      {r.title || "(untitled)"}
                     </Link>
                     <p className="mt-0.5 font-mono text-[10px] text-zinc-600">{r.id}</p>
                   </td>
                   <td className="px-3 py-2 align-top">
-                    <span className="text-zinc-200">@{r.sellerUsername}</span>
-                    <p className="text-[10px] text-zinc-600">{r.sellerEmail}</p>
+                    <span className="text-zinc-200">@{r.sellerUsername || "unknown"}</span>
+                    <p className="text-[10px] text-zinc-600">{r.sellerEmail || "—"}</p>
                   </td>
-                  <td className="px-3 py-2 align-top text-zinc-400">{r.category}</td>
+                  <td className="px-3 py-2 align-top text-zinc-400">{r.category || "—"}</td>
                   <td className="px-3 py-2 align-top capitalize text-zinc-400">
                     {r.status}
                     <span className="mt-0.5 block text-[10px] text-zinc-600">{r.buyingFormat}</span>
@@ -398,7 +434,11 @@ export function AdminListingsPage() {
           <button
             type="button"
             disabled={loading || page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            onClick={() => {
+              const next = Math.max(1, page - 1);
+              setPage(next);
+              pushFilters({ status, channel, page: next });
+            }}
             className="rounded border border-white/15 px-2.5 py-1 text-[10px] font-semibold text-zinc-200 disabled:opacity-40"
           >
             Previous
@@ -409,7 +449,11 @@ export function AdminListingsPage() {
           <button
             type="button"
             disabled={loading || page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
+            onClick={() => {
+              const next = page + 1;
+              setPage(next);
+              pushFilters({ status, channel, page: next });
+            }}
             className="rounded border border-white/15 px-2.5 py-1 text-[10px] font-semibold text-zinc-200 disabled:opacity-40"
           >
             Next

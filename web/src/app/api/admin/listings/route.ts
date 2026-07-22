@@ -68,53 +68,61 @@ export async function GET(req: Request) {
   const orderBy: Prisma.ListingOrderByWithRelationInput =
     statusParam === "removed" ? { moderationRemovedAt: "desc" } : { updatedAt: "desc" };
 
-  const [total, rows, categories] = await Promise.all([
-    prisma.listing.count({ where }),
-    prisma.listing.findMany({
-      where,
-      include: {
-        seller: { select: { id: true, username: true, email: true } },
-        _count: { select: { liveRoomItems: true } },
-      },
-      orderBy,
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-    prisma.listing.findMany({
-      select: { category: true },
-      distinct: ["category"],
-      orderBy: { category: "asc" },
-      take: 80,
-    }),
-  ]);
+  try {
+    const [total, rows, categories] = await Promise.all([
+      prisma.listing.count({ where }),
+      prisma.listing.findMany({
+        where,
+        include: {
+          seller: { select: { id: true, username: true, email: true } },
+          _count: { select: { liveRoomItems: true } },
+        },
+        orderBy,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.listing.findMany({
+        select: { category: true },
+        distinct: ["category"],
+        orderBy: { category: "asc" },
+        take: 80,
+      }),
+    ]);
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  return NextResponse.json({
-    listings: rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      category: r.category,
-      status: r.status,
-      buyingFormat: r.buyingFormat,
-      priceUsd: r.priceUsd,
-      sellerId: r.sellerId,
-      sellerUsername: r.seller.username,
-      sellerEmail: r.seller.email,
-      isCompanyListing: r.isCompanyListing,
-      channel: r._count.liveRoomItems > 0 ? "live" : "marketplace",
-      moderationRemovedAt: r.moderationRemovedAt?.toISOString() ?? null,
-      adminReviewedAt: r.adminReviewedAt?.toISOString() ?? null,
-      createdAt: r.createdAt.toISOString(),
-      updatedAt: r.updatedAt.toISOString(),
-    })),
-    categories: categories.map((c) => c.category),
-    page,
-    pageSize,
-    total,
-    totalPages,
-    channel,
-  });
+    return NextResponse.json({
+      listings: rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        category: r.category,
+        status: r.status,
+        buyingFormat: r.buyingFormat,
+        priceUsd: r.priceUsd,
+        sellerId: r.sellerId,
+        sellerUsername: r.seller?.username ?? "unknown",
+        sellerEmail: r.seller?.email ?? "",
+        isCompanyListing: r.isCompanyListing,
+        channel: r._count.liveRoomItems > 0 ? "live" : "marketplace",
+        moderationRemovedAt: r.moderationRemovedAt?.toISOString() ?? null,
+        adminReviewedAt: r.adminReviewedAt?.toISOString() ?? null,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+      })),
+      categories: categories.map((c) => c.category),
+      page,
+      pageSize,
+      total,
+      totalPages,
+      channel,
+    });
+  } catch (e) {
+    console.error("[admin/listings GET]", e);
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Failed to load listings." },
+      { status: 500 },
+    );
+  }
 }
 
 async function replaceListingImages(listingId: string, urls: string[]) {
