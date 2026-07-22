@@ -69,7 +69,10 @@ export function AdminListingsPage() {
       sp.set("channel", next.channel);
       if (next.page > 1) sp.set("page", String(next.page));
       const qs = sp.toString();
-      router.replace(qs ? `/admin/listings?${qs}` : "/admin/listings", { scroll: false });
+      const href = qs ? `/admin/listings?${qs}` : "/admin/listings";
+      const current = `${window.location.pathname}${window.location.search}`;
+      if (current === href) return;
+      router.replace(href, { scroll: false });
     },
     [router],
   );
