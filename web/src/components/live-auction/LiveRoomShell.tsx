@@ -85,6 +85,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const [premiumWalletOpen, setPremiumWalletOpen] = useState(false);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const seenSpotCelebrationKeysRef = useRef<Set<string>>(new Set());
+  /** Sticky last known count — must stay above loading/null early returns (React hooks rules). */
+  const stickyViewerCountRef = useRef<number | null>(null);
 
   const showSpotCelebration = useCallback((taken: LiveSpotTakenCelebrationPayload) => {
     const key = spotCelebrationDismissKey(taken);
@@ -1020,7 +1022,6 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       : LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR
     : null;
   // Sticky last known count — avoid flashing 0 while presence/broadcast reconnects.
-  const stickyViewerCountRef = useRef<number | null>(null);
   if (presenceCount != null) stickyViewerCountRef.current = presenceCount;
   const viewerCount = presenceCount ?? stickyViewerCountRef.current ?? 0;
   const paymentFailure = detail.buyerUnresolvedPaymentFailure ?? null;
