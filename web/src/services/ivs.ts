@@ -869,6 +869,103 @@ export async function countStagePublishers(stageArn: string): Promise<number | n
 }
 
 /**
+ * Publisher-derived health for Stage rooms — bypasses the channel-poll ignore path.
+ * Use this when we know whether a host is actually publishing (countStagePublishers).
+ */
+export async function commitStagePublisherDerivedHealth(
+  roomId: string,
+  newHealth: Extract<LiveStreamHealth, "live" | "connecting">,
+): Promise<"updated" | "unchanged" | "missing"> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: { streamHealth: true, streamStartedAt: true, status: true, streamMode: true },
+  });
+  if (!room || room.status !== "live" || room.streamMode !== "stage_webrtc") return "missing";
+  if (room.streamHealth === newHealth) {
+    await prisma.liveRoom
+      .update({ where: { id: roomId }, data: { lastIvsStatusSyncAt: new Date() } })
+      .catch(() => {});
+    return "unchanged";
+  }
+
+  const now = new Date();
+  const data: {
+    streamHealth: LiveStreamHealth;
+    lastIvsStatusSyncAt: Date;
+    lastIvsError: null;
+    roomVersion: { increment: number };
+    streamStartedAt?: Date;
+    streamEndedAt?: Date | null;
+    hostAbsentSince?: Date | null;
+  } = {
+    streamHealth: newHealth,
+    lastIvsStatusSyncAt: now,
+    lastIvsError: null,
+    roomVersion: { increment: 1 },
+  };
+  if (newHealth === "live") {
+    if (!room.streamStartedAt) data.streamStartedAt = now;
+    data.streamEndedAt = null;
+    data.hostAbsentSince = null;
+  }
+
+  const updated = await prisma.liveRoom.update({
+    where: { id: roomId },
+    data,
+    select: { roomVersion: true },
+  });
+
+  emitStreamStatusChanged(roomId, {
+    streamHealth: newHealth,
+    roomVersion: updated.roomVersion,
+    lastStatusSyncAt: now.toISOString(),
+  });
+  logIvsOpsServer("ivs_stage_publisher_health", {
+    roomId,
+    from: room.streamHealth,
+    to: newHealth,
+  });
+  return "updated";
+}
+
+/**
+ * Reconcile `streamHealth` from real Stage publishers.
+ * - Publisher present → `live` (video can flow / HLS mirror can source).
+ * - No publisher after go-live grace → `connecting` (honest “waiting on host”, not fake live).
+ * Never ends the room; never throws.
+ */
+export async function reconcileStagePublisherHealth(roomId: string): Promise<"live" | "connecting" | "unknown" | "skip"> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: {
+      status: true,
+      streamMode: true,
+      ivsStageArn: true,
+      streamStartedAt: true,
+      streamHealth: true,
+    },
+  });
+  if (!room || room.status !== "live" || room.streamMode !== "stage_webrtc" || !room.ivsStageArn) {
+    return "skip";
+  }
+
+  const publishers = await countStagePublishers(room.ivsStageArn);
+  if (publishers === null) return "unknown";
+
+  if (publishers > 0) {
+    await commitStagePublisherDerivedHealth(roomId, "live");
+    return "live";
+  }
+
+  const msSinceStart = room.streamStartedAt ? Date.now() - room.streamStartedAt.getTime() : Number.POSITIVE_INFINITY;
+  // Match stuck-recovery grace — don't flap to connecting during the first minute of Go Live.
+  if (msSinceStart < 60_000) return "skip";
+
+  await commitStagePublisherDerivedHealth(roomId, "connecting");
+  return "connecting";
+}
+
+/**
  * Self-heal Stage→HLS mirror for guests / buyer failover.
  *
  * Anti-thrash: a freshly started composition needs ~15–30s before its channel destination reports
@@ -975,18 +1072,21 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
   }
   const token = await createHostStageToken(roomId, userId);
   const now = new Date();
-  // Mark live + return token immediately. Do NOT await HLS composition here — retries can take
-  // 15–20s+ and the mobile client aborts at 15s, leaving Go Live stuck on a spinner.
+  // Mark stream connecting + return token immediately. Do NOT stamp streamHealth=live until a
+  // publisher is confirmed (buyer polls / stuck recovery) — fake "live" with no camera is what
+  // blacks out viewers and makes Retry look dead. Do NOT await HLS composition here — retries can
+  // take 15–20s+ and the mobile client aborts, leaving Go Live stuck on a spinner.
   await prisma.liveRoom.update({
     where: { id: roomId },
     data: {
       streamProvider: "aws_ivs",
       streamMode: "stage_webrtc",
-      streamHealth: "live",
+      streamHealth: "connecting",
       streamStartedAt: now,
       streamEndedAt: null,
       lastIvsStatusSyncAt: now,
       lastIvsError: null,
+      hostAbsentSince: null,
     },
   });
   logIvsOpsServer("ivs_stage_broadcast_start", { roomId });
@@ -999,9 +1099,16 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
       select: { ivsCompositionArn: true, ivsChannelArn: true, streamHealth: true, status: true },
     });
     if (!room || room.status !== "live") return;
-    if (room.streamHealth !== "live" && room.streamHealth !== "connecting") return;
-    if (room.ivsCompositionArn && room.ivsChannelArn) {
-      const { health: channelHealth } = await getStreamStatus(room.ivsChannelArn);
+    // Promote health if the host already published during the delay.
+    await reconcileStagePublisherHealth(roomId);
+    const refreshed = await prisma.liveRoom.findUnique({
+      where: { id: roomId },
+      select: { streamHealth: true, ivsCompositionArn: true, ivsChannelArn: true },
+    });
+    if (!refreshed) return;
+    if (refreshed.streamHealth !== "live" && refreshed.streamHealth !== "connecting") return;
+    if (refreshed.ivsCompositionArn && refreshed.ivsChannelArn) {
+      const { health: channelHealth } = await getStreamStatus(refreshed.ivsChannelArn);
       if (channelHealth === "live" || channelHealth === "connecting") return;
       await stopStageComposition(roomId);
     }
@@ -1030,6 +1137,8 @@ export async function endHostStageSession(roomId: string): Promise<void> {
   });
   if (room?.status === "live") {
     cancelDelayedCompositionStop(roomId);
+    // Soft disconnect: room stays live so host can Go Live again, but stop lying that video is up.
+    await commitStagePublisherDerivedHealth(roomId, "connecting").catch(() => {});
     logIvsOpsServer("ivs_stage_broadcast_soft_disconnect", { roomId });
     return;
   }

@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
 import {
   ensureStageHlsCompositionActive,
+  reconcileStagePublisherHealth,
   reconcileStaleLiveStreamWithRoomStatus,
   syncLiveRoomStreamFromIvs,
 } from "@/services/ivs";
@@ -21,6 +22,13 @@ function maybeHealStageComposition(roomId: string): void {
   const rl = checkRateLimit(`stage-composition-heal:${roomId}`, { limit: 1, windowMs: 30_000 });
   if (!rl.ok) return;
   void ensureStageHlsCompositionActive(roomId).catch(() => {});
+}
+
+/** Keep streamHealth honest from Stage publishers (not the lagging HLS channel). */
+function maybeReconcileStagePublisherHealth(roomId: string): void {
+  const rl = checkRateLimit(`stage-publisher-health:${roomId}`, { limit: 1, windowMs: 15_000 });
+  if (!rl.ok) return;
+  void reconcileStagePublisherHealth(roomId).catch(() => {});
 }
 
 function clientKey(req: Request): string {
@@ -52,6 +60,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       const syncResult = await syncLiveRoomStreamFromIvs(id);
       const reconcileResult = await reconcileStaleLiveStreamWithRoomStatus(id);
       await ensureStageHlsCompositionActive(id);
+      await reconcileStagePublisherHealth(id);
       logIvsOpsServer("ivs_stream_sync_pull", {
         roomId: id,
         syncUpdated: syncResult?.kind === "updated",
@@ -68,6 +77,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   }
 
   maybeHealStageComposition(id);
+  maybeReconcileStagePublisherHealth(id);
 
   const auth = await resolveLiveRoomsUserId(req);
   const userId = auth instanceof Response ? null : auth.userId;

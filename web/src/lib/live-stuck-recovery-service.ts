@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import { countStagePublishers, endHostStageSession } from "@/services/ivs";
+import {
+  commitStagePublisherDerivedHealth,
+  countStagePublishers,
+  endHostStageSession,
+} from "@/services/ivs";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
 import { liveShowEndGmvFields } from "@/lib/live-show-gmv";
 import { finalizeLiveStreamReplay } from "@/lib/trust/live-replay-service";
@@ -113,11 +117,7 @@ export async function recoverStuckLiveRooms(): Promise<StuckLiveRecoverySummary>
       const hasPublisher = publishers > 0;
 
       if (hasPublisher) {
-        if (room.hostAbsentSince) {
-          await prisma.liveRoom
-            .update({ where: { id: room.id }, data: { hostAbsentSince: null } })
-            .catch(() => {});
-        }
+        await commitStagePublisherDerivedHealth(room.id, "live").catch(() => {});
         summary.healthy += 1;
         continue;
       }
@@ -135,6 +135,8 @@ export async function recoverStuckLiveRooms(): Promise<StuckLiveRecoverySummary>
           .update({ where: { id: room.id }, data: { hostAbsentSince: absentSince } })
           .catch(() => {});
       }
+      // Honest health: buyers see "waiting on host" instead of a fake live black screen.
+      await commitStagePublisherDerivedHealth(room.id, "connecting").catch(() => {});
       const msSincePublisherAbsent = now - absentSince.getTime();
 
       let action: StuckLiveAction = decideStuckLiveAction({

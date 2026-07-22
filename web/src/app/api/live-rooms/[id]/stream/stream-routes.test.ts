@@ -16,6 +16,7 @@ const hoisted = vi.hoisted(() => ({
   createViewerStageToken: vi.fn(),
   endHostStageSession: vi.fn(),
   ensureStageHlsCompositionActive: vi.fn(),
+  reconcileStagePublisherHealth: vi.fn(async () => "skip" as const),
   checkRateLimit: vi.fn(() => ({ ok: true as const, remaining: 29, resetAt: Date.now() + 60_000 })),
   userFindUnique: vi.fn(),
 }));
@@ -64,6 +65,7 @@ vi.mock("@/services/ivs", () => ({
   createViewerStageToken: hoisted.createViewerStageToken,
   endHostStageSession: hoisted.endHostStageSession,
   ensureStageHlsCompositionActive: hoisted.ensureStageHlsCompositionActive,
+  reconcileStagePublisherHealth: hoisted.reconcileStagePublisherHealth,
 }));
 
 vi.mock("@/lib/realtime-emit-server", () => ({
