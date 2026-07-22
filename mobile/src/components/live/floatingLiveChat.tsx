@@ -465,8 +465,8 @@ export function FloatingLiveChat({
       ) : null}
       <ScrollView
         ref={scrollRef}
-        style={[styles.scrollViewport, { height: scrollMaxHeight }]}
-        contentContainerStyle={[styles.stackBottomAnchored, { minHeight: scrollMaxHeight }]}
+        style={[styles.scrollViewport, { maxHeight: scrollMaxHeight }]}
+        contentContainerStyle={styles.stackBottomAnchored}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -736,7 +736,7 @@ const styles = StyleSheet.create({
     ...TEXT_SHADOW,
   },
   chatExpandToggle: {
-    alignSelf: 'flex-end',
+    alignSelf: 'flex-start',
     marginBottom: 4,
     paddingHorizontal: 8,
     paddingVertical: 5,
@@ -747,11 +747,10 @@ const styles = StyleSheet.create({
   },
   scrollViewport: {
     width: '100%',
+    flexGrow: 0,
   },
   stackBottomAnchored: {
     width: '100%',
-    flexGrow: 1,
-    justifyContent: 'flex-end',
     alignItems: 'flex-start',
     paddingBottom: 0,
   },
@@ -826,13 +825,14 @@ const styles = StyleSheet.create({
   staffToggleRow: {
     flexDirection: 'row',
     alignSelf: 'flex-start',
-    gap: 6,
-    marginBottom: 6,
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
   },
   staffToggleBtn: {
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     backgroundColor: 'rgba(0,0,0,0.35)',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.16)',

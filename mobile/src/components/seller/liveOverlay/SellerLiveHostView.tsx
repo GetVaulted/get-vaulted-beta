@@ -14,6 +14,7 @@ import { openUserProfile } from '../../../navigation/openPlatform';
 import {
   computeChatStackMaxHeight,
   computeLiveRoomBottomStack,
+  scaledStaffChatToggleHeight,
   scaledComposerBarHeight,
 } from '../../../lib/liveRoomBottomLayout';
 import { sellerConsoleToolbarScale, liveRoomOverlayScale } from '../../../lib/liveRoomUiScale';
@@ -515,11 +516,14 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     user?.id,
   ]);
 
-  const sellerPinnedBarBottom = sellerComposerBottom + composerBarHeight + Math.round(6 * overlayScale);
+  const staffToggleHeight = scaledStaffChatToggleHeight(overlayScale, modActor.canModerate);
+  const sellerComposerBlockHeight = composerBarHeight + staffToggleHeight;
+  const sellerPinnedBarBottom = sellerComposerBottom + sellerComposerBlockHeight + Math.round(6 * overlayScale);
   const sellerPinnedReserve = pinnedModerator
     ? Math.round(62 * overlayScale) + Math.round(6 * overlayScale)
     : 0;
-  const sellerChatBottom = sellerComposerBottom + composerBarHeight + Math.round(12 * overlayScale) + sellerPinnedReserve;
+  const sellerChatBottom =
+    sellerComposerBottom + sellerComposerBlockHeight + Math.round(12 * overlayScale) + sellerPinnedReserve;
   const chatMaxHeight = computeChatStackMaxHeight({
     slideHeight: windowHeight,
     topReserve: headerPaddingTop + sellerHeaderBlockHeight(windowWidth) + 8,
@@ -769,7 +773,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       ) : null}
 
       <SellerHostSideRail
-        bottom={sellerComposerBottom + composerBarHeight + spacing.sm}
+        bottom={sellerComposerBottom + sellerComposerBlockHeight + spacing.sm}
         onShare={() => void handleShare()}
         onNotes={() => setShowNotesOpen(true)}
         hasNotes={hasLiveShowNotes(showNotes)}

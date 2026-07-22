@@ -746,6 +746,7 @@ function LiveSlide({
     compact,
     pinnedModeratorActive: Boolean(pinnedModerator),
     slowModeActive: slowMode.slowModeActive,
+    staffChatToggleActive: modActor.canModerate,
     overlayScale,
   });
   const chatMaxHeight = computeChatStackMaxHeight({

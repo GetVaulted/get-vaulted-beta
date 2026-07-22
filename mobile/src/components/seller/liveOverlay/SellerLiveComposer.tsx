@@ -3,7 +3,10 @@ import { Animated, StyleSheet, View } from 'react-native';
 import {
   FloatingChatComposer,
 } from '../../live/floatingLiveChat';
-import { scaledComposerBarHeight } from '../../../lib/liveRoomBottomLayout';
+import {
+  scaledComposerBarHeight,
+  scaledStaffChatToggleHeight,
+} from '../../../lib/liveRoomBottomLayout';
 import type { MentionComposerInputHandle } from '../../mentions/MentionComposerInput';
 import { colors } from '../../../theme';
 
@@ -47,7 +50,7 @@ export function SellerLiveComposer({
   const glow = useRef(new Animated.Value(0)).current;
   const active = value.trim().length > 0;
   const barHeight = scaledComposerBarHeight(overlayScale ?? 1);
-  const staffToggleExtra = canUseStaffChat ? 34 : 0;
+  const staffToggleExtra = scaledStaffChatToggleHeight(overlayScale ?? 1, canUseStaffChat);
 
   return (
     <Animated.View

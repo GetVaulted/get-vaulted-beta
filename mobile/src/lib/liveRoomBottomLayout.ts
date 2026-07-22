@@ -3,6 +3,12 @@ export const DEFAULT_COMMERCE_OVERLAY_HEIGHT = 118;
 
 export const COMPOSER_BAR_HEIGHT = 44;
 
+/**
+ * Everyone / Staff toggle row above the composer for host/mod.
+ * Includes the row's bottom margin so chat clears the chips.
+ */
+export const STAFF_CHAT_TOGGLE_ROW_HEIGHT = 36;
+
 /** Space between commerce HUD top edge and composer bottom edge. */
 export const COMPOSER_ABOVE_HUD_GAP = 8;
 
@@ -51,11 +57,16 @@ export function computeLiveRoomBottomStack(args: {
   compact?: boolean;
   pinnedModeratorActive?: boolean;
   slowModeActive?: boolean;
+  /** Host/mod Everyone|Staff chips above the composer — reserve their height. */
+  staffChatToggleActive?: boolean;
   /** iPad overlay scale — enlarges composer + spacing only on tablet. */
   overlayScale?: number;
 }): LiveRoomBottomStack {
   const overlayScale = args.overlayScale && args.overlayScale > 1 ? args.overlayScale : 1;
-  const composerHeight = Math.round(COMPOSER_BAR_HEIGHT * overlayScale);
+  const staffToggleHeight = args.staffChatToggleActive
+    ? Math.round(STAFF_CHAT_TOGGLE_ROW_HEIGHT * overlayScale)
+    : 0;
+  const composerHeight = Math.round(COMPOSER_BAR_HEIGHT * overlayScale) + staffToggleHeight;
   const keyboardOffset = Math.max(0, args.keyboardOffset ?? 0);
   const composerGap = Math.round(
     (args.compact ? COMPACT_COMPOSER_ABOVE_HUD_GAP : COMPOSER_ABOVE_HUD_GAP) * overlayScale,
@@ -96,6 +107,12 @@ export function computeLiveRoomBottomStack(args: {
 /** Composer bar height after optional iPad overlay scale. */
 export function scaledComposerBarHeight(overlayScale = 1): number {
   return Math.round(COMPOSER_BAR_HEIGHT * (overlayScale > 1 ? overlayScale : 1));
+}
+
+/** Staff chat toggle row height after optional iPad overlay scale. */
+export function scaledStaffChatToggleHeight(overlayScale = 1, active = true): number {
+  if (!active) return 0;
+  return Math.round(STAFF_CHAT_TOGGLE_ROW_HEIGHT * (overlayScale > 1 ? overlayScale : 1));
 }
 
 /** Cap chat stack height on small screens while preserving separation from commerce HUD. */

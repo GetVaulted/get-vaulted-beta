@@ -109,16 +109,25 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     }
   }, [reloadRoom, reloadStream, token]);
 
+  const markRoomLiveOnServer = useCallback(async () => {
+    if (!token) return;
+    const current = room ?? (await reloadRoom());
+    if (current?.status !== 'scheduled') return;
+    await patchLiveRoomAction(token, roomId, 'start');
+  }, [room, roomId, token, reloadRoom]);
+
   const stagePublish = useMobileStagePublish({
     roomId,
     accessToken: token ?? '',
     previewEnabled: stageWebrtcEnabled && Boolean(token) && !loading && Boolean(room),
     onBroadcastStarted: async () => {
       try {
+        // Only runs after publish is confirmed — never mark the room live on a half-open Stage join.
         const current = room ?? (await reloadRoom());
         if (current?.status !== 'scheduled') return;
         await markRoomLiveOnServer();
         await notifyLiveDiscoveryChanged();
+        await reloadRoom();
       } catch {
         /* onStartBroadcast surfaces errors to the host UI */
       }
@@ -214,13 +223,6 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     }
   };
 
-  const markRoomLiveOnServer = useCallback(async () => {
-    if (!token) return;
-    const current = room ?? (await reloadRoom());
-    if (current?.status !== 'scheduled') return;
-    await patchLiveRoomAction(token, roomId, 'start');
-  }, [room, roomId, token, reloadRoom]);
-
   const endShow = useCallback(async () => {
     if (!token) return;
     setBusy('end');
@@ -269,18 +271,32 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   };
 
   // If the host re-opens the console while the show is still live (force-quit recovery), resume publish.
+  // Do not fight a failed Go Live (broadcastError) or a start already in flight.
   const autoResumeRef = useRef(false);
   useEffect(() => {
     if (loading || !token || !room || !stageWebrtcEnabled) return;
     if (room.status !== 'live') return;
     if (stream?.streamPaused === true) return;
     if (stagePublish.phase !== 'idle') return;
+    if (stagePublish.error) return;
+    if (!stagePublish.localPreviewReady) return;
     if (busy === 'start' || busy === 'end') return;
     if (autoResumeRef.current) return;
     autoResumeRef.current = true;
     void onStartBroadcast();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once per live room open
-  }, [loading, token, room?.status, room?.id, stream?.streamPaused, stageWebrtcEnabled, stagePublish.phase, busy]);
+  }, [
+    loading,
+    token,
+    room?.status,
+    room?.id,
+    stream?.streamPaused,
+    stageWebrtcEnabled,
+    stagePublish.phase,
+    stagePublish.error,
+    stagePublish.localPreviewReady,
+    busy,
+  ]);
 
   const onStopBroadcast = async () => {
     await endShow();

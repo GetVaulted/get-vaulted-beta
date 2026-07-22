@@ -11,6 +11,7 @@ import {
   PINNED_MODERATOR_ROW_HEIGHT,
   SLOW_MODE_ROW_GAP,
   SLOW_MODE_ROW_HEIGHT,
+  STAFF_CHAT_TOGGLE_ROW_HEIGHT,
 } from './liveRoomBottomLayout';
 
 describe('computeLiveRoomBottomStack', () => {
@@ -89,6 +90,16 @@ describe('computeLiveRoomBottomStack', () => {
       slowModeActive: true,
     });
     expect(slow.chatBottom - plain.chatBottom).toBe(SLOW_MODE_ROW_HEIGHT + SLOW_MODE_ROW_GAP);
+  });
+
+  it('reserves the Everyone/Staff toggle above the composer for host/mod', () => {
+    const plain = computeLiveRoomBottomStack({ dockPaddingBottom: 20, commerceHeight: 140 });
+    const withStaff = computeLiveRoomBottomStack({
+      dockPaddingBottom: 20,
+      commerceHeight: 140,
+      staffChatToggleActive: true,
+    });
+    expect(withStaff.chatBottom - plain.chatBottom).toBe(STAFF_CHAT_TOGGLE_ROW_HEIGHT);
   });
 });
 
