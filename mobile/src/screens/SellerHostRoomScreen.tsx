@@ -255,6 +255,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     if (!token) return;
     setBusy('start');
     setRoomError(null);
+    setStreamWarning(null);
     try {
       if (stageWebrtcEnabled) {
         const published = await stagePublish.start(opts?.force ? { force: true } : undefined);
@@ -263,6 +264,9 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
           return;
         }
       }
+      // Leave-app / Pause can leave streamPaused=true — clear it after publish so buyers get video.
+      await patchLiveRoomStreamPaused(token, roomId, false);
+      setStream((prev) => (prev ? { ...prev, streamPaused: false } : prev));
       const current = room ?? (await reloadRoom());
       if (current?.status === 'scheduled') {
         await markRoomLiveOnServer();
@@ -280,20 +284,21 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   };
 
   // If the host re-opens the console while the show is still live (force-quit recovery), resume publish.
-  // Skip when streamPaused — background/Pause already parked the show on Host Paused until Resume.
-  // Do not fight a failed Go Live (broadcastError) or a start already in flight.
+  // Also recovers leave-app stuck state: idle + streamPaused (or Retry) must republish and clear pause.
+  // Do not fight a start already in flight.
   const autoResumeRef = useRef(false);
   useEffect(() => {
     if (loading || !token || !room || !stageWebrtcEnabled) return;
     if (room.status !== 'live') return;
-    if (stream?.streamPaused === true) return;
     if (stagePublish.phase !== 'idle') return;
-    if (stagePublish.error) return;
     if (!stagePublish.localPreviewReady) return;
-    if (busy === 'start' || busy === 'end') return;
+    if (busy === 'start' || busy === 'end' || busy === 'refresh') return;
     if (autoResumeRef.current) return;
     autoResumeRef.current = true;
-    void onStartBroadcast();
+    // Force when we already have a Retry/error or a stuck Host paused flag — warm start can no-op.
+    void onStartBroadcast({
+      force: Boolean(stagePublish.error) || stream?.streamPaused === true,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once per live room open
   }, [
     loading,

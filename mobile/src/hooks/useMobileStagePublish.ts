@@ -20,7 +20,10 @@ import {
   requestHostStageToken,
 } from '../api/liveRoomStreamRepository';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
-import { shouldHostBackgroundAutoPause } from '../lib/livePlaybackAppState';
+import {
+  shouldHostBackgroundAutoPause,
+  shouldStayPausedAfterIntentionalUnpublish,
+} from '../lib/livePlaybackAppState';
 import {
   cameraPermissionDeniedMessage,
   cameraPermissionUnavailableMessage,
@@ -480,6 +483,16 @@ export function useMobileStagePublish(args: {
           return;
         }
         if (evt.state === 'failed') {
+          // Pause / leave-app calls setStreamsPublished(false) on purpose — that often surfaces as
+          // publish "failed". Stay on Host paused with Play; never drop to idle + Retry (black feed).
+          if (shouldStayPausedAfterIntentionalUnpublish(intentionalPauseRef.current)) {
+            publishingRef.current = false;
+            if (mountedRef.current) {
+              setPhase('paused');
+              setError(null);
+            }
+            return;
+          }
           // Still joining Go Live — let start()'s catch clear state; do not reconnect yet.
           if (startInFlightRef.current || !wentLiveRef.current) {
             if (!startInFlightRef.current) {
@@ -491,7 +504,7 @@ export function useMobileStagePublish(args: {
             }
             return;
           }
-          if (opts.allowReconnect && !intentionalStopRef.current && !intentionalPauseRef.current) {
+          if (opts.allowReconnect && !intentionalStopRef.current) {
             reconnectPublishRef.current('publish_failed');
             return;
           }
@@ -507,6 +520,15 @@ export function useMobileStagePublish(args: {
 
       const errSub = addOnStageErrorListener((evt) => {
         if (!evt.isFatal) return;
+        // Background pause can tear the Stage socket — keep Host paused so Play can full-rejoin.
+        if (shouldStayPausedAfterIntentionalUnpublish(intentionalPauseRef.current)) {
+          publishingRef.current = false;
+          if (mountedRef.current) {
+            setPhase('paused');
+            setError(null);
+          }
+          return;
+        }
         if (startInFlightRef.current || !wentLiveRef.current) {
           if (!startInFlightRef.current && (publishingRef.current || wentLiveRef.current)) {
             setError(evt.description || `stage_error_${evt.code}`);
@@ -519,7 +541,7 @@ export function useMobileStagePublish(args: {
           }
           return;
         }
-        if (opts.allowReconnect && !intentionalStopRef.current && !intentionalPauseRef.current) {
+        if (opts.allowReconnect && !intentionalStopRef.current) {
           reconnectPublishRef.current(`stage_error_${evt.code}`);
           return;
         }

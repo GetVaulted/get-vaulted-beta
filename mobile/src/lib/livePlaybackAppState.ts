@@ -80,6 +80,14 @@ export function shouldClearStreamPausedAfterHostResume(publishSucceeded: boolean
   return publishSucceeded === true;
 }
 
+/**
+ * Unpublish during Pause / leave-app often fires native publish "failed".
+ * Keep Host paused (Play) — never drop to idle + Retry (buyers black forever).
+ */
+export function shouldStayPausedAfterIntentionalUnpublish(intentionalPause: boolean): boolean {
+  return intentionalPause === true;
+}
+
 /** @deprecated Use shouldWarmLiveHlsPipCompanion — warm player must exist before background. */
 export function shouldAttachLiveHlsPipCompanion(appState: AppStateStatus): boolean {
   return appState === 'background';

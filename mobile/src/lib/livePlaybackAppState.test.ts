@@ -4,6 +4,7 @@ import {
   shouldAttemptLivePictureInPicture,
   shouldClearStreamPausedAfterHostResume,
   shouldHostBackgroundAutoPause,
+  shouldStayPausedAfterIntentionalUnpublish,
   shouldSuspendHostStagePublish,
   shouldSuspendLiveStageMedia,
   shouldWarmLiveHlsPipCompanion,
@@ -93,5 +94,10 @@ describe('livePlaybackAppState', () => {
   it('clears streamPaused for buyers only after host Play republishes', () => {
     expect(shouldClearStreamPausedAfterHostResume(true)).toBe(true);
     expect(shouldClearStreamPausedAfterHostResume(false)).toBe(false);
+  });
+
+  it('keeps Host paused after intentional unpublish instead of idle Retry', () => {
+    expect(shouldStayPausedAfterIntentionalUnpublish(true)).toBe(true);
+    expect(shouldStayPausedAfterIntentionalUnpublish(false)).toBe(false);
   });
 });
