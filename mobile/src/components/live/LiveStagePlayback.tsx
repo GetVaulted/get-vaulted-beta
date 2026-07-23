@@ -174,12 +174,15 @@ export function LiveStagePlayback({
   const roomLifecycleLive = roomStatus === 'live' || streamSignalLive;
 
   const playbackActive = isForeground;
-  const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
+  // Never keep Stage subscribed while Host paused — leave→rejoin during pause latches buyers onto
+  // a dead HLS mirror and "Waiting for host video" after Play.
+  const useWebrtc = transport === 'webrtc' && enabled && playbackActive && !streamPaused;
   const hlsAttachable = Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
   // Hold the HLS mirror on the settled show through the WebRTC upgrade until WebRTC paints, so the
   // swap has no black "connecting" gap. Neighbors buffer HLS muted+hidden for instant switching.
   const webrtcUpgradeHold = useWebrtc && !webrtcReady;
-  const attachHls = hlsAttachable && ((transport === 'hls' && hlsWarm) || webrtcUpgradeHold);
+  const attachHls =
+    !streamPaused && hlsAttachable && ((transport === 'hls' && hlsWarm) || webrtcUpgradeHold);
   const stageMediaSuspended = shouldSuspendLiveStageMedia(appState);
 
   useEffect(() => {

@@ -149,6 +149,15 @@ export function markBuyerStageSubscribeTornDown(): void {
   buyerStageSubscribeTornDown = true;
 }
 
+/**
+ * Host Resume / Play: clear the process-wide "never rejoin WebRTC" latch.
+ * Without this, leave-app pause → remote video lost → leaveStage → buyers are stuck on a
+ * dead HLS mirror and show "Waiting for host video" forever after the host taps Play.
+ */
+export function clearBuyerStageSubscribeTornDown(): void {
+  buyerStageSubscribeTornDown = false;
+}
+
 /** True after the first buyer Stage leave in this process — WebRTC rejoin is blocked. */
 export function isBuyerStageWebrtcRejoinBlocked(): boolean {
   return buyerStageSubscribeTornDown;

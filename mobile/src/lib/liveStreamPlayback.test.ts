@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   HOST_AWAY_NO_VIDEO_MS,
+  clearBuyerStageSubscribeTornDown,
+  isBuyerStageWebrtcRejoinBlocked,
   isLiveStreamSignal,
   markBuyerStageSubscribeTornDown,
   mergeRealtimeStreamPaused,
@@ -291,6 +293,23 @@ describe('liveStreamPlayback', () => {
           hlsStalled: true,
         }),
       ).toEqual({ transport: 'webrtc', armUpgrade: false });
+    });
+
+    it('host Play clears the Stage leave latch so WebRTC upgrade is allowed again', () => {
+      markBuyerStageSubscribeTornDown();
+      expect(isBuyerStageWebrtcRejoinBlocked()).toBe(true);
+      clearBuyerStageSubscribeTornDown();
+      expect(isBuyerStageWebrtcRejoinBlocked()).toBe(false);
+      expect(
+        resolveSurfaceTransportPlan({
+          stream: liveStageStream,
+          isActive: true,
+          webrtcFailed: false,
+          accessToken: 'jwt',
+          hybridEnabled: true,
+          alreadyUpgraded: false,
+        }),
+      ).toEqual({ transport: 'hls', armUpgrade: true });
     });
 
     it('stalled HLS on the first visit (no leave) also forces WebRTC instead of an HLS preview', () => {

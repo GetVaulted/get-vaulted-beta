@@ -9,6 +9,7 @@ import {
   peekPrefetchedViewerStageToken,
 } from '../lib/liveStreamPrefetchCache';
 import {
+  HOST_AWAY_NO_VIDEO_MS,
   HLS_FIRST_FRAME_TIMEOUT_MS,
   MAX_PLAYER_RETRIES,
   PLAYBACK_RECONNECT_FAILED_MS,
@@ -16,6 +17,7 @@ import {
   PLAYER_BACKOFF_BASE_MS,
   STREAM_POLL_MS,
   WEBRTC_UPGRADE_DWELL_MS,
+  clearBuyerStageSubscribeTornDown,
   isBuyerStageWebrtcRejoinBlocked,
   isHybridLiveEnabled,
   isLiveStreamSignal,
@@ -245,6 +247,7 @@ export function useLiveStagePlayback(args: {
       }
       setFetchFailed(false);
       setStream(safe);
+      streamRef.current = safe;
       setLoading(false);
       retryRef.current = 0;
       setPlayerRetryCount(0);
@@ -252,6 +255,33 @@ export function useLiveStagePlayback(args: {
       if (safe.streamPaused) {
         setReconnectFailed(false);
         setLocalHostAway(false);
+        setVideoHasData(false);
+        // Park media while Host paused. Rejoining Stage/HLS here poisons the process-wide
+        // leave latch and leaves buyers stuck on a dead mirror after Play.
+        transportRef.current = 'none';
+        applyTransport('none');
+        cancelWebrtcUpgrade();
+        viewerLifecycleLog('playback_url_received', {
+          roomId: args.roomId,
+          playbackUrl: safe.playbackUrl,
+          streamHealth: safe.streamHealth,
+          streamMode: safe.streamMode,
+          stageAvailable: safe.stageAvailable,
+          streamPaused: true,
+        });
+        viewerLifecycleLog('viewer_playback_plan', {
+          showId: args.roomId,
+          roomVisitNonce: args.roomVisitNonce ?? null,
+          refreshNonce: args.refreshNonce ?? null,
+          screenFocused: args.playbackMode === 'active',
+          playbackMode: args.playbackMode,
+          showLive: isLiveStreamSignal(safe.streamHealth),
+          streamHealth: safe.streamHealth,
+          selectedTransport: 'none',
+          selectionReason: 'host_paused_park',
+          playbackAttemptId: playbackAttemptIdRef.current,
+        });
+        return;
       }
       viewerLifecycleLog('playback_url_received', {
         roomId: args.roomId,
@@ -366,6 +396,7 @@ export function useLiveStagePlayback(args: {
       if (playbackAttemptIdRef.current !== attemptId) return;
       if (videoHasDataRef.current) return;
       const safe = streamRef.current;
+      if (safe?.streamPaused) return;
       if (!safe || !shouldUseStageWebrtcPlayback(safe, false, args.accessToken)) {
         viewerLifecycleLog('playback_fallback_unavailable', {
           roomId: args.roomId,
@@ -463,17 +494,99 @@ export function useLiveStagePlayback(args: {
     return () => clearInterval(id);
   }, [args.playbackMode, stream?.streamHealth, stream?.streamPaused, videoHasData]);
 
-  const applyRealtimeStreamPaused = useCallback((streamPaused: boolean) => {
-    setStream((prev) => mergeRealtimeStreamPaused(prev, streamPaused));
-    if (streamPaused) {
+  const applyRealtimeStreamPaused = useCallback((paused: boolean) => {
+    setStream((prev) => {
+      const next = mergeRealtimeStreamPaused(prev, paused);
+      // Keep streamRef in sync immediately — refreshNonce can fire in the same tick.
+      streamRef.current = next;
+      return next;
+    });
+    if (paused) {
       setReconnectFailed(false);
       setLocalHostAway(false);
-    } else {
-      // Host resumed — force a fresh playback attempt even if frames were stale.
-      setLocalHostAway(false);
-      setReconnectFailed(false);
+      setVideoHasData(false);
+      // Park media while Host paused — do not keep thrashing Stage (that poisons rejoin).
+      transportRef.current = 'none';
+      applyTransport('none');
+      cancelWebrtcUpgrade();
+      return;
     }
-  }, []);
+    // Host tapped Play: must rejoin WebRTC even if an earlier pause tore Stage down.
+    clearBuyerStageSubscribeTornDown();
+    invalidateBuyerLiveStreamCache(args.roomId);
+    invalidateViewerStageToken(args.roomId);
+    clearBackoff();
+    retryRef.current = 0;
+    lastAttachKeyRef.current = '';
+    webrtcFailedRef.current = false;
+    webrtcFailoverCountRef.current = 0;
+    webrtcUpgradedRef.current = false;
+    hlsStalledRef.current = true; // prefer WebRTC over a starved HLS mirror
+    noVideoSinceRef.current = null;
+    setLocalHostAway(false);
+    setReconnectFailed(false);
+    setPlayerFatal(false);
+    setPlayerRetryCount(0);
+    setVideoHasData(false);
+    hideReconnectingUi();
+    if (args.playbackMode === 'active') {
+      beginPlaybackAttempt('host_resume');
+      setWebrtcSubscribeEpoch((n) => n + 1);
+      applyTransport('webrtc');
+    }
+    void fetchStream();
+  }, [
+    applyTransport,
+    args.playbackMode,
+    args.roomId,
+    beginPlaybackAttempt,
+    cancelWebrtcUpgrade,
+    clearBackoff,
+    fetchStream,
+    hideReconnectingUi,
+  ]);
+
+  useEffect(() => {
+    if (args.playbackMode === 'off' || args.refreshNonce == null || args.refreshNonce < 1) return;
+    // Drop stale prefetch so pause/resume from realtime is not served for up to 5s.
+    invalidateBuyerLiveStreamCache(args.roomId);
+    invalidateViewerStageToken(args.roomId);
+    // While Host paused: refresh metadata only — remounting Stage poisons rejoin after Play.
+    if (streamRef.current?.streamPaused === true) {
+      void fetchStream();
+      return;
+    }
+    clearBackoff();
+    retryRef.current = 0;
+    lastAttachKeyRef.current = '';
+    webrtcFailedRef.current = false;
+    webrtcFailoverCountRef.current = 0;
+    webrtcUpgradedRef.current = false;
+    cancelWebrtcUpgrade();
+    noVideoSinceRef.current = null;
+    setPlayerFatal(false);
+    setPlayerRetryCount(0);
+    setVideoHasData(false);
+    hideReconnectingUi();
+    // Host Play after pause: always allow WebRTC again (pause teardown sets the block latch).
+    clearBuyerStageSubscribeTornDown();
+    hlsStalledRef.current = true;
+    if (args.playbackMode === 'active') beginPlaybackAttempt('refresh_nonce');
+    // Always remount Stage subscribe on hard refresh — not only when already on WebRTC.
+    if (args.playbackMode === 'active') {
+      setWebrtcSubscribeEpoch((n) => n + 1);
+    }
+    void fetchStream();
+  }, [
+    args.refreshNonce,
+    args.playbackMode,
+    args.roomId,
+    beginPlaybackAttempt,
+    cancelWebrtcUpgrade,
+    clearBackoff,
+    fetchStream,
+    hideReconnectingUi,
+  ]);
 
   useEffect(() => {
     const prevMode = playbackModeRef.current;
@@ -543,44 +656,16 @@ export function useLiveStagePlayback(args: {
   ]);
 
   useEffect(() => {
-    if (args.playbackMode === 'off' || args.refreshNonce == null || args.refreshNonce < 1) return;
-    // Drop stale prefetch so pause/resume from realtime is not served for up to 5s.
-    invalidateBuyerLiveStreamCache(args.roomId);
-    clearBackoff();
-    retryRef.current = 0;
-    lastAttachKeyRef.current = '';
-    webrtcFailedRef.current = false;
-    webrtcFailoverCountRef.current = 0;
-    webrtcUpgradedRef.current = false;
-    cancelWebrtcUpgrade();
-    noVideoSinceRef.current = null;
-    setPlayerFatal(false);
-    setPlayerRetryCount(0);
-    hideReconnectingUi();
-    if (args.playbackMode === 'active') beginPlaybackAttempt('refresh_nonce');
-    // Hard refresh after focus re-entry / host signal — recreate Stage subscribe if still on WebRTC.
-    if (args.playbackMode === 'active' && transportRef.current === 'webrtc') {
-      setWebrtcSubscribeEpoch((n) => n + 1);
-    }
-    void fetchStream();
-  }, [
-    args.refreshNonce,
-    args.playbackMode,
-    args.roomId,
-    beginPlaybackAttempt,
-    cancelWebrtcUpgrade,
-    clearBackoff,
-    fetchStream,
-    hideReconnectingUi,
-  ]);
-
-  useEffect(() => {
     if (args.playbackMode !== 'active') return undefined;
     let cancelled = false;
     const onAppState = (next: AppStateStatus) => {
       if (next !== 'active') {
         clearBackoff();
         cancelWebrtcUpgrade();
+        return;
+      }
+      if (streamRef.current?.streamPaused) {
+        void fetchStream();
         return;
       }
       lastAttachKeyRef.current = '';
@@ -620,8 +705,10 @@ export function useLiveStagePlayback(args: {
 
   useEffect(() => {
     if (args.playbackMode !== 'active' || !stream || !isLiveStreamSignal(stream.streamHealth)) return undefined;
+    if (stream.streamPaused) return undefined;
     const id = setInterval(() => {
       if (videoHasData) return;
+      if (streamRef.current?.streamPaused) return;
       const since = noVideoSinceRef.current;
       if (since == null || Date.now() - since < NO_VIDEO_RECOVER_MS) return;
       noVideoSinceRef.current = Date.now();
