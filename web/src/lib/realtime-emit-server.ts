@@ -258,7 +258,7 @@ export function emitPurchaseCompleted(
     orderId: opts?.orderId ?? null,
     paymentStatus: opts?.paymentStatus ?? null,
     noBids: opts?.noBids === true,
-    itemSoldOut: opts?.itemSoldOut !== false,
+    itemSoldOut: opts?.itemSoldOut === true,
   });
 }
 

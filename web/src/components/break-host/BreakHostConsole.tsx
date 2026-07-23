@@ -1231,7 +1231,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         flashHostNotice(`Payment failed · @${who.replace(/^@/, "")} — awaiting recovery`);
       } else if (celebration?.kind === "sold") {
         flashHostNotice("Item sold · syncing");
-      } else if (celebration?.kind === "no_bids" && payload.itemSoldOut !== false) {
+      } else if (celebration?.kind === "no_bids" && payload.itemSoldOut === true) {
         flashHostNotice("No bids · lot skipped");
       }
       scheduleFallbackRefresh("purchase_completed", 40);

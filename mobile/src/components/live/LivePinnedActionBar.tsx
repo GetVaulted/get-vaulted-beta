@@ -28,6 +28,7 @@ import { purchaseLiveBuyNow, syncLiveBuyNowPurchase } from '../../api/liveBuyNow
 import {
   isWalletIncompleteError,
   isWalletIncompleteReadiness,
+  isWalletReadyForLiveBid,
   walletReadinessFromSnapshot,
   type BuyerWalletReadiness,
 } from '../../lib/buyerWalletErrors';
@@ -639,9 +640,22 @@ export function LivePinnedActionBar({
         return;
       }
       const walletFromSnap = walletReadinessFromSnapshot(snap);
-      if (walletFromSnap && isWalletIncompleteReadiness(walletFromSnap)) {
+      let walletForBid = walletFromSnap;
+      if (!isWalletReadyForLiveBid(walletForBid)) {
+        const paymentSession = await fetchLiveBuyerPaymentSession(accessToken, stream.id);
+        if (paymentSession) {
+          walletForBid = {
+            paymentReady: paymentSession.paymentReady,
+            shippingReady: paymentSession.shippingReady,
+          };
+        }
+      }
+      if (!isWalletReadyForLiveBid(walletForBid)) {
         logBidControl('blocked', { reason: 'wallet incomplete' });
-        openedWallet = openWalletSetup('precheck_incomplete', walletFromSnap);
+        openedWallet = openWalletSetup(
+          'precheck_incomplete',
+          walletForBid ?? { paymentReady: false, shippingReady: false },
+        );
         return;
       }
       if (snap.status !== 'live' || !snap.activeItemId) {

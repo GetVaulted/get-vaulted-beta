@@ -508,7 +508,12 @@ function LiveSlide({
 
     let cancelled = false;
     void fetchLiveBuyerPaymentSession(accessToken, stream.id).then((session) => {
-      if (cancelled || !session) return;
+      if (cancelled) return;
+      if (!session) {
+        // Fail closed for bidding chrome — unknown readiness must not look "ready".
+        setWalletReadiness({ paymentReady: false, shippingReady: false });
+        return;
+      }
       setWalletReadiness({
         paymentReady: session.paymentReady,
         shippingReady: session.shippingReady,

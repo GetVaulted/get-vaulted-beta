@@ -41,7 +41,13 @@ export function walletReadinessFromSnapshot(snap: {
   return { paymentReady: snap.paymentReady, shippingReady: snap.shippingReady };
 }
 
+/** True when readiness is known incomplete. Null/unknown is not incomplete for UI chrome. */
 export function isWalletIncompleteReadiness(r: BuyerWalletReadiness | null | undefined): boolean {
   if (!r) return false;
   return !r.paymentReady || !r.shippingReady;
+}
+
+/** Bids must not proceed until wallet is known-ready (null/unknown blocks). */
+export function isWalletReadyForLiveBid(r: BuyerWalletReadiness | null | undefined): boolean {
+  return Boolean(r?.paymentReady && r?.shippingReady);
 }

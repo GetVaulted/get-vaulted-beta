@@ -8,22 +8,39 @@ export async function buyerHasShippingAddressSaved(userId: string): Promise<bool
   return shipping != null;
 }
 
+type WalletReadiness = { paymentReady: boolean; shippingReady: boolean };
+
+/** Short TTL so Hold-to-Bid does not hit Stripe PM list on every bid in a burst. */
+const WALLET_READY_TTL_MS = 20_000;
+const walletReadyCache = new Map<string, { at: number; value: WalletReadiness }>();
+
+export function clearBuyerLiveWalletReadinessCache(userId?: string): void {
+  if (userId) {
+    walletReadyCache.delete(userId);
+    return;
+  }
+  walletReadyCache.clear();
+}
+
 /**
  * When Stripe is off (local dev), both gates are relaxed — same behavior as `buyerHasCardOnFileForLiveBidding`.
  * In production, live buyers need a saved card and a shipping address on their account (Wallet).
  */
-export async function getBuyerLiveWalletReadiness(userId: string): Promise<{
-  paymentReady: boolean;
-  shippingReady: boolean;
-}> {
+export async function getBuyerLiveWalletReadiness(userId: string): Promise<WalletReadiness> {
   if (!isStripeConfigured()) {
     return { paymentReady: true, shippingReady: true };
+  }
+  const cached = walletReadyCache.get(userId);
+  if (cached && Date.now() - cached.at < WALLET_READY_TTL_MS) {
+    return cached.value;
   }
   const [paymentReady, shippingReady] = await Promise.all([
     buyerHasCardOnFileForLiveBidding(userId),
     buyerHasShippingAddressSaved(userId),
   ]);
-  return { paymentReady, shippingReady };
+  const value = { paymentReady, shippingReady };
+  walletReadyCache.set(userId, { at: Date.now(), value });
+  return value;
 }
 
 export type LiveWalletIncompleteBody = {
@@ -38,6 +55,8 @@ export type LiveWalletIncompleteBody = {
 export async function liveWalletIncompleteOrNull(userId: string): Promise<LiveWalletIncompleteBody | null> {
   const { paymentReady, shippingReady } = await getBuyerLiveWalletReadiness(userId);
   if (paymentReady && shippingReady) return null;
+  // Incomplete → drop cache so the next check after wallet setup is fresh.
+  clearBuyerLiveWalletReadinessCache(userId);
   const missing: string[] = [];
   if (!paymentReady) missing.push("saved payment method");
   if (!shippingReady) missing.push("shipping address with contact phone");

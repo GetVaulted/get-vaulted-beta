@@ -853,7 +853,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         setDetail((prev) => {
           if (!prev) return prev;
           const noBids = payload.noBids === true;
-          const itemSoldOut = payload.itemSoldOut !== false;
+          const itemSoldOut = payload.itemSoldOut === true;
           const items = prev.items.map((it) => {
             if (it.id !== payload.itemId) return it;
             const itemVersion =

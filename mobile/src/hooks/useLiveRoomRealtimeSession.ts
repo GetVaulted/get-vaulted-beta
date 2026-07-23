@@ -428,7 +428,7 @@ export function useLiveRoomRealtimeSession(args: {
       setRoomSnap((prev) => {
         if (!prev) return prev;
         const noBids = payload.noBids === true;
-        const itemSoldOut = payload.itemSoldOut !== false;
+        const itemSoldOut = payload.itemSoldOut === true;
         return applyBuyerSnapshotPurchaseCompleted(prev, payload.itemId, wallNow, { noBids, itemSoldOut });
       });
       const parsed = parsePurchaseCompletedCelebration(payload, args.userId);
@@ -460,9 +460,7 @@ export function useLiveRoomRealtimeSession(args: {
     },
     onRoomStateEvent: () => scheduleReconcile(600),
     onReconnect: () => {
-      setConnectionBanner('Live connection restored');
-      if (reconnectBannerClearTimerRef.current) clearTimeout(reconnectBannerClearTimerRef.current);
-      reconnectBannerClearTimerRef.current = setTimeout(() => setConnectionBanner(null), 2400);
+      setConnectionBanner(null);
       scheduleReconcile(120);
       args.onStreamHardRefresh?.() ?? args.onStreamRefresh?.();
     },
@@ -518,21 +516,15 @@ export function useLiveRoomRealtimeSession(args: {
           clearTimeout(reconnectBannerTimerRef.current);
           reconnectBannerTimerRef.current = null;
         }
-        if (reconnectCount > 0) {
-          setConnectionBanner('Live connection restored');
-          if (reconnectBannerClearTimerRef.current) clearTimeout(reconnectBannerClearTimerRef.current);
-          reconnectBannerClearTimerRef.current = setTimeout(() => setConnectionBanner(null), 2400);
-        } else {
-          setConnectionBanner(null);
-        }
+        // Silent reconnect while video/poll still work — no sticky "Reconnecting…" pill.
+        setConnectionBanner(null);
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
         realtimeConnectedRef.current = false;
         setConnectionState('reconnecting');
-        if (!reconnectBannerTimerRef.current) {
-          reconnectBannerTimerRef.current = setTimeout(() => {
-            reconnectBannerTimerRef.current = null;
-            setConnectionBanner('Reconnecting…');
-          }, 1_500);
+        // Do not show a Reconnecting pill — fallback poll + video often stay healthy.
+        if (reconnectBannerTimerRef.current) {
+          clearTimeout(reconnectBannerTimerRef.current);
+          reconnectBannerTimerRef.current = null;
         }
       } else if (status === 'JOINING') {
         setConnectionState(reconnectCount > 0 ? 'reconnecting' : 'connecting');

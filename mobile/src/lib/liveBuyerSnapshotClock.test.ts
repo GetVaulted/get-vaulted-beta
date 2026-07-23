@@ -29,11 +29,20 @@ describe('liveBuyerSnapshotClock', () => {
     expect(next.biddingOpen).toBe(false);
   });
 
-  it('stops timer immediately on purchase_completed', () => {
+  it('stops timer immediately on purchase_completed but keeps lot until sold out is explicit', () => {
     const next = applyBuyerSnapshotPurchaseCompleted(snap(), 'item-1', Date.now());
     expect(next.lotBidPhase).toBe('settled');
     expect(next.auctionEndsAt).toBeNull();
     expect(next.biddingOpen).toBe(false);
+    expect(next.activeItemId).toBe('item-1');
+  });
+
+  it('clears pinned lot only when itemSoldOut is true', () => {
+    const next = applyBuyerSnapshotPurchaseCompleted(snap(), 'item-1', Date.now(), {
+      itemSoldOut: true,
+    });
+    expect(next.activeItemId).toBeNull();
+    expect(next.lotBidPhase).toBe('settled');
   });
 
   it('keeps lot ready after multi-qty no-bid round', () => {
