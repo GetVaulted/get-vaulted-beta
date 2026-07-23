@@ -49,6 +49,11 @@ export function useMobileStageSubscribe(args: {
   roomId: string;
   accessToken?: string;
   active: boolean;
+  /**
+   * Host Pause / leave-app keep-alive: stay joined while remote video is intentionally gone.
+   * Skips remote_video_lost rejoin (which would leaveStage + poison the process latch).
+   */
+  hostPaused?: boolean;
   refreshNonce?: number;
   subscribeEpoch?: number;
   onConnected: () => void;
@@ -112,9 +117,14 @@ export function useMobileStageSubscribe(args: {
 
   useEffect(() => {
     if (!args.active || !connectedRef.current) return undefined;
+    if (args.hostPaused) return undefined;
     let lostSince: number | null = remoteVideo ? null : Date.now();
     const id = setInterval(() => {
       if (!connectedRef.current) return;
+      if (cbRef.current.hostPaused) {
+        lostSince = null;
+        return;
+      }
       if (remoteVideo) {
         lostSince = null;
         return;
@@ -126,7 +136,7 @@ export function useMobileStageSubscribe(args: {
       }
     }, REMOTE_VIDEO_CHECK_MS);
     return () => clearInterval(id);
-  }, [remoteVideo, args.active]);
+  }, [remoteVideo, args.active, args.hostPaused]);
 
   useEffect(() => {
     if (!args.active) {

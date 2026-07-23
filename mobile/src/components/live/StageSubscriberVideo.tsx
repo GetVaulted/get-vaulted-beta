@@ -8,6 +8,8 @@ type Props = {
   roomId: string;
   accessToken?: string;
   active: boolean;
+  /** Host Pause / leave-app — keep Stage joined; do not rejoin on missing remote video. */
+  hostPaused?: boolean;
   refreshNonce?: number;
   subscribeEpoch?: number;
   /** Bumps when the app returns to the foreground; forces a fresh native surface. */
@@ -23,6 +25,7 @@ export function StageSubscriberVideo({
   roomId,
   accessToken,
   active,
+  hostPaused = false,
   refreshNonce,
   subscribeEpoch,
   foregroundResumeNonce = 0,
@@ -35,6 +38,7 @@ export function StageSubscriberVideo({
     roomId,
     accessToken,
     active,
+    hostPaused,
     refreshNonce,
     subscribeEpoch,
     onConnected,

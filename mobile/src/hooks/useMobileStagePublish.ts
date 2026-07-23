@@ -22,6 +22,7 @@ import {
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import {
   shouldHostBackgroundAutoPause,
+  shouldPreferWarmHostResume,
   shouldStayPausedAfterIntentionalUnpublish,
 } from '../lib/livePlaybackAppState';
 import {
@@ -141,8 +142,8 @@ export function useMobileStagePublish(args: {
   }, []);
 
   /**
-   * Whatnot-style Minimize show: Pause button and leave-app share this exact path.
-   * Unpublish only — never idle/Retry/teardown while minimized.
+   * Whatnot-style Minimize: Pause button and leave-app share this path.
+   * Unpublish only — Stage stays joined (keep-session-alive). Never idle/Retry/leaveStage.
    */
   const minimizeShow = useCallback(async () => {
     if (intentionalStopRef.current) return;
@@ -877,8 +878,9 @@ export function useMobileStagePublish(args: {
   }, [bumpReconnectEpoch, clearTokenRefreshTimer, endServerSession, phase, teardownStageConnection]);
 
   /**
-   * Whatnot-style Resume: always full leave + token + join + publish (not a warm toggle).
-   * Works from `paused` or `idle` (force-quit / reopen recovery). Never lands on idle+Retry.
+   * Whatnot/TikTok/eBay Resume: keep the Stage session alive.
+   * Warm path = republish on the same join (Pause / leave-app never leaveStage).
+   * Cold path = leave + token + join only after process death or warm failure.
    */
   const resumeShow = useCallback(async (): Promise<boolean> => {
     const p = phaseRef.current;
@@ -908,7 +910,44 @@ export function useMobileStagePublish(args: {
       setError(null);
     }
 
+    const markLive = (expiresInSeconds?: number) => {
+      intentionalPauseRef.current = false;
+      interruptedPublishRef.current = false;
+      publishingRef.current = true;
+      wentLiveRef.current = true;
+      reconnectAttemptsRef.current = 0;
+      if (mountedRef.current) {
+        setPhase('live');
+        setError(null);
+      }
+      if (expiresInSeconds != null) scheduleTokenRefresh(expiresInSeconds);
+      cbRef.current.onStreamRefresh?.();
+    };
+
     try {
+      // Warm Play — same Stage join, just turn publish back on (industry keep-session-alive).
+      if (
+        shouldPreferWarmHostResume({
+          phase: p === 'starting' ? 'paused' : p,
+          intentionalPause: true,
+        }) ||
+        p === 'paused'
+      ) {
+        try {
+          await withIvsStageSerialized(async () => {
+            await setStreamsPublished(true);
+          });
+          if (intentionalStopRef.current || !mountedRef.current) {
+            if (mountedRef.current) setPhase('paused');
+            return false;
+          }
+          markLive();
+          return true;
+        } catch {
+          /* fall through to full rejoin */
+        }
+      }
+
       await withIvsStageSerialized(async () => {
         clearStageListeners();
         try {
@@ -937,17 +976,7 @@ export function useMobileStagePublish(args: {
 
       attachPublishListeners({
         onFirstLive: () => {
-          intentionalPauseRef.current = false;
-          interruptedPublishRef.current = false;
-          publishingRef.current = true;
-          wentLiveRef.current = true;
-          reconnectAttemptsRef.current = 0;
-          if (mountedRef.current) {
-            setPhase('live');
-            setError(null);
-          }
-          scheduleTokenRefresh(tokenPayload.expiresInSeconds);
-          cbRef.current.onStreamRefresh?.();
+          markLive(tokenPayload.expiresInSeconds);
         },
         allowReconnect: true,
       });
@@ -962,17 +991,7 @@ export function useMobileStagePublish(args: {
         return false;
       }
 
-      intentionalPauseRef.current = false;
-      interruptedPublishRef.current = false;
-      publishingRef.current = true;
-      wentLiveRef.current = true;
-      reconnectAttemptsRef.current = 0;
-      if (mountedRef.current) {
-        setPhase('live');
-        setError(null);
-      }
-      scheduleTokenRefresh(tokenPayload.expiresInSeconds);
-      cbRef.current.onStreamRefresh?.();
+      markLive(tokenPayload.expiresInSeconds);
       return true;
     } catch (err) {
       // Live show recovery failed — stay minimized (Resume), never idle Retry.

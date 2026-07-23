@@ -177,13 +177,13 @@ export function LiveStagePlayback({
   const roomLifecycleLive = roomStatus === 'live' || streamSignalLive;
 
   const playbackActive = isForeground;
-  // Never keep Stage subscribed while Host paused — leave→rejoin during pause latches buyers onto
-  // a dead HLS mirror and "Waiting for host video" after Play.
-  const useWebrtc = transport === 'webrtc' && enabled && playbackActive && !streamPaused;
+  // Keep Stage subscribed while Host paused (TikTok/Whatnot/eBay). Unmounting Stage on pause
+  // leave-latches buyers onto a dead HLS mirror and "Waiting for host video" after Play.
+  const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
   const hlsAttachable = Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
   // Hold the HLS mirror on the settled show through the WebRTC upgrade until WebRTC paints, so the
   // swap has no black "connecting" gap. Neighbors buffer HLS muted+hidden for instant switching.
-  const webrtcUpgradeHold = useWebrtc && !webrtcReady;
+  const webrtcUpgradeHold = useWebrtc && !webrtcReady && !streamPaused;
   const attachHls =
     !streamPaused && hlsAttachable && ((transport === 'hls' && hlsWarm) || webrtcUpgradeHold);
   const stageMediaSuspended = shouldSuspendLiveStageMedia(appState);
@@ -545,6 +545,7 @@ export function LiveStagePlayback({
           roomId={roomId}
           accessToken={accessToken}
           active={useWebrtc && !stageMediaSuspended}
+          hostPaused={streamPaused}
           refreshNonce={refreshNonce}
           subscribeEpoch={playback.webrtcSubscribeEpoch}
           foregroundResumeNonce={surfaceResumeNonce}

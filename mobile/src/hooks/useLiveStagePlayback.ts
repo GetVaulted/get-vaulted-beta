@@ -215,7 +215,9 @@ export function useLiveStagePlayback(args: {
     (reason: string) => {
       playbackAttemptIdRef.current += 1;
       const id = playbackAttemptIdRef.current;
-      hlsStalledRef.current = false;
+      // Do NOT clear hlsStalledRef here. Host resume / forceWebrtcFallback set it so
+      // fetchStream prefers WebRTC over a cold HLS mirror. Clearing it stranded buyers
+      // on "Waiting for host video" after Play.
       setReconnectFailed(false);
       setAttemptNonce((n) => n + 1);
       viewerLifecycleLog('playback_attempt_begin', {
@@ -251,16 +253,21 @@ export function useLiveStagePlayback(args: {
       setLoading(false);
       retryRef.current = 0;
       setPlayerRetryCount(0);
-      // Host pause is intentional — never strand buyers on Reconnecting / Retry.
+      // Host pause: keep WebRTC subscribed (keep-session-alive). Parking to `none` unmounted
+      // Stage, leave-latched buyers, and left them stuck after Play.
       if (safe.streamPaused) {
         setReconnectFailed(false);
         setLocalHostAway(false);
-        setVideoHasData(false);
-        // Park media while Host paused. Rejoining Stage/HLS here poisons the process-wide
-        // leave latch and leaves buyers stuck on a dead mirror after Play.
-        transportRef.current = 'none';
-        applyTransport('none');
         cancelWebrtcUpgrade();
+        const keepWebrtc =
+          args.playbackMode === 'active' &&
+          (transportRef.current === 'webrtc' ||
+            shouldUseStageWebrtcPlayback(safe, webrtcFailedRef.current, args.accessToken));
+        if (keepWebrtc) {
+          webrtcUpgradedRef.current = true;
+          hlsStalledRef.current = true;
+          applyTransport('webrtc');
+        }
         viewerLifecycleLog('playback_url_received', {
           roomId: args.roomId,
           playbackUrl: safe.playbackUrl,
@@ -277,8 +284,8 @@ export function useLiveStagePlayback(args: {
           playbackMode: args.playbackMode,
           showLive: isLiveStreamSignal(safe.streamHealth),
           streamHealth: safe.streamHealth,
-          selectedTransport: 'none',
-          selectionReason: 'host_paused_park',
+          selectedTransport: keepWebrtc ? 'webrtc' : transportRef.current,
+          selectionReason: 'host_paused_keep_session',
           playbackAttemptId: playbackAttemptIdRef.current,
         });
         return;
@@ -505,34 +512,47 @@ export function useLiveStagePlayback(args: {
       setReconnectFailed(false);
       setLocalHostAway(false);
       setVideoHasData(false);
-      // Park media while Host paused — do not keep thrashing Stage (that poisons rejoin).
-      transportRef.current = 'none';
-      applyTransport('none');
       cancelWebrtcUpgrade();
+      // Keep WebRTC subscribed through Host paused — do not leaveStage / park to none.
+      if (args.playbackMode === 'active') {
+        webrtcUpgradedRef.current = true;
+        hlsStalledRef.current = true;
+        if (transportRef.current === 'none' || transportRef.current === 'waiting') {
+          applyTransport('webrtc');
+        } else if (transportRef.current === 'hls') {
+          applyTransport('webrtc');
+        }
+      }
       return;
     }
-    // Host tapped Play: must rejoin WebRTC even if an earlier pause tore Stage down.
+    // Host tapped Play: stay on the same Stage subscribe when possible.
     clearBuyerStageSubscribeTornDown();
     invalidateBuyerLiveStreamCache(args.roomId);
     invalidateViewerStageToken(args.roomId);
     clearBackoff();
     retryRef.current = 0;
-    lastAttachKeyRef.current = '';
     webrtcFailedRef.current = false;
     webrtcFailoverCountRef.current = 0;
-    webrtcUpgradedRef.current = false;
+    webrtcUpgradedRef.current = true;
     hlsStalledRef.current = true; // prefer WebRTC over a starved HLS mirror
     noVideoSinceRef.current = null;
     setLocalHostAway(false);
     setReconnectFailed(false);
     setPlayerFatal(false);
     setPlayerRetryCount(0);
-    setVideoHasData(false);
     hideReconnectingUi();
     if (args.playbackMode === 'active') {
-      beginPlaybackAttempt('host_resume');
-      setWebrtcSubscribeEpoch((n) => n + 1);
-      applyTransport('webrtc');
+      const alreadyOnWebrtc = transportRef.current === 'webrtc';
+      beginPlaybackAttempt(alreadyOnWebrtc ? 'host_resume_soft' : 'host_resume');
+      hlsStalledRef.current = true;
+      webrtcUpgradedRef.current = true;
+      if (!alreadyOnWebrtc) {
+        lastAttachKeyRef.current = '';
+        setVideoHasData(false);
+        setWebrtcSubscribeEpoch((n) => n + 1);
+        applyTransport('webrtc');
+      }
+      // Soft resume: same subscribe — frames return when host republishes; no remount thrash.
     }
     void fetchStream();
   }, [
@@ -562,12 +582,17 @@ export function useLiveStagePlayback(args: {
       void fetchStream();
       return;
     }
+    // Soft host-resume already on WebRTC: don't remount — wait for republished frames.
+    if (transportRef.current === 'webrtc' && hlsStalledRef.current) {
+      void fetchStream();
+      return;
+    }
     clearBackoff();
     retryRef.current = 0;
     lastAttachKeyRef.current = '';
     webrtcFailedRef.current = false;
     webrtcFailoverCountRef.current = 0;
-    webrtcUpgradedRef.current = false;
+    webrtcUpgradedRef.current = true;
     cancelWebrtcUpgrade();
     noVideoSinceRef.current = null;
     setPlayerFatal(false);
@@ -578,15 +603,18 @@ export function useLiveStagePlayback(args: {
     clearBuyerStageSubscribeTornDown();
     hlsStalledRef.current = true;
     if (args.playbackMode === 'active') beginPlaybackAttempt('refresh_nonce');
+    hlsStalledRef.current = true;
     // Always remount Stage subscribe on hard refresh — not only when already on WebRTC.
     if (args.playbackMode === 'active') {
       setWebrtcSubscribeEpoch((n) => n + 1);
+      applyTransport('webrtc');
     }
     void fetchStream();
   }, [
     args.refreshNonce,
     args.playbackMode,
     args.roomId,
+    applyTransport,
     beginPlaybackAttempt,
     cancelWebrtcUpgrade,
     clearBackoff,
@@ -745,20 +773,14 @@ export function useLiveStagePlayback(args: {
       return undefined;
     }
     const attemptId = playbackAttemptIdRef.current;
+    // Soft localHostAway must NOT abort recovery after Play — that left buyers on
+    // "Waiting for host video" forever when HLS was cold and WebRTC never forced.
     const stillWaiting = () =>
       playbackAttemptIdRef.current === attemptId &&
       !videoHasDataRef.current &&
       playbackModeRef.current === 'active' &&
       !streamRef.current?.streamPaused &&
-      isLiveStreamSignal(streamRef.current?.streamHealth ?? 'offline') &&
-      !shouldTreatAsLocalHostAway({
-        playbackActive: true,
-        roomLifecycleLive: true,
-        serverStreamPaused: false,
-        videoHasData: false,
-        msWithoutVideo:
-          noVideoSinceRef.current == null ? null : Date.now() - noVideoSinceRef.current,
-      });
+      isLiveStreamSignal(streamRef.current?.streamHealth ?? 'offline');
 
     const slowId = setTimeout(() => {
       if (!stillWaiting()) return;
@@ -819,6 +841,7 @@ export function useLiveStagePlayback(args: {
     setPlayerRetryCount(0);
     webrtcFailoverCountRef.current = 0;
     webrtcFailedRef.current = false;
+    hlsStalledRef.current = false;
   }, [args.roomId, hideReconnectingUi]);
 
   const onVideoError = useCallback(() => {

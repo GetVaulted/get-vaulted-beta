@@ -4,6 +4,7 @@ import {
   shouldAttemptLivePictureInPicture,
   shouldClearStreamPausedAfterHostResume,
   shouldHostBackgroundAutoPause,
+  shouldPreferWarmHostResume,
   shouldShowLiveResumeInsteadOfRetry,
   shouldShowPreLiveRetryBanner,
   shouldStayPausedAfterIntentionalUnpublish,
@@ -96,6 +97,12 @@ describe('livePlaybackAppState', () => {
   it('clears streamPaused for buyers only after host Play republishes', () => {
     expect(shouldClearStreamPausedAfterHostResume(true)).toBe(true);
     expect(shouldClearStreamPausedAfterHostResume(false)).toBe(false);
+  });
+
+  it('prefers warm Play while minimized (same Stage session) over leave+rejoin', () => {
+    expect(shouldPreferWarmHostResume({ phase: 'paused', intentionalPause: true })).toBe(true);
+    expect(shouldPreferWarmHostResume({ phase: 'idle', intentionalPause: true })).toBe(false);
+    expect(shouldPreferWarmHostResume({ phase: 'paused', intentionalPause: false })).toBe(false);
   });
 
   it('keeps Host paused after intentional unpublish instead of idle Retry', () => {

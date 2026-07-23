@@ -81,6 +81,18 @@ export function shouldClearStreamPausedAfterHostResume(publishSucceeded: boolean
 }
 
 /**
+ * TikTok / Whatnot / eBay pattern: Pause keeps the Stage session joined.
+ * Warm Play = republish on the same session. Full leave+rejoin only after process death
+ * (phase idle) or when warm republish fails.
+ */
+export function shouldPreferWarmHostResume(args: {
+  phase: 'idle' | 'starting' | 'live' | 'paused' | 'stopping';
+  intentionalPause: boolean;
+}): boolean {
+  return args.intentionalPause && args.phase === 'paused';
+}
+
+/**
  * Unpublish during Pause / leave-app often fires native publish "failed".
  * Keep Host paused (Play) — never drop to idle + Retry (buyers black forever).
  */
