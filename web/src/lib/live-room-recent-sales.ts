@@ -31,21 +31,26 @@ export type HostRecentSaleRowDTO = {
 };
 
 function toneFromVariantPaymentStatus(ps: string): { paymentTone: HostRecentSaleRowDTO["paymentTone"]; statusLabel: string } {
-  if (ps === "paid") return { paymentTone: "paid", statusLabel: "Paid" };
-  if (ps === "failed") return { paymentTone: "retry", statusLabel: "Failed" };
+  if (ps === "paid") return { paymentTone: "paid", statusLabel: "Approved" };
+  if (ps === "failed") return { paymentTone: "retry", statusLabel: "Declined" };
+  if (ps === "payment_requires_action") return { paymentTone: "pending", statusLabel: "Needs auth" };
   return { paymentTone: "pending", statusLabel: "Pending" };
 }
 
 function toneFromOrderPaymentStatus(ps: string): { paymentTone: HostRecentSaleRowDTO["paymentTone"]; statusLabel: string } {
-  if (ps === PAYMENT_PAID) return { paymentTone: "paid", statusLabel: "Paid" };
-  if (ps === PAYMENT_FAILED || ps === PAYMENT_EXPIRED) return { paymentTone: "retry", statusLabel: "Failed" };
-  if (ps === PAYMENT_PENDING || ps === PAYMENT_REQUIRES_ACTION) return { paymentTone: "pending", statusLabel: "Pending" };
+  if (ps === PAYMENT_PAID) return { paymentTone: "paid", statusLabel: "Approved" };
+  if (ps === PAYMENT_FAILED || ps === PAYMENT_EXPIRED) return { paymentTone: "retry", statusLabel: "Declined" };
+  if (ps === PAYMENT_REQUIRES_ACTION) return { paymentTone: "pending", statusLabel: "Needs auth" };
+  if (ps === PAYMENT_PENDING) return { paymentTone: "pending", statusLabel: "Pending" };
   return { paymentTone: "pending", statusLabel: ps };
 }
 
 function toneFromBreakPaymentStatus(ps: string): { paymentTone: HostRecentSaleRowDTO["paymentTone"]; statusLabel: string } {
-  if (ps === PAYMENT_PAID || ps === "paid") return { paymentTone: "paid", statusLabel: "Paid" };
-  if (ps === "failed" || ps === PAYMENT_FAILED) return { paymentTone: "retry", statusLabel: "Failed" };
+  if (ps === PAYMENT_PAID || ps === "paid") return { paymentTone: "paid", statusLabel: "Approved" };
+  if (ps === "failed" || ps === PAYMENT_FAILED) return { paymentTone: "retry", statusLabel: "Declined" };
+  if (ps === PAYMENT_REQUIRES_ACTION || ps === "payment_requires_action") {
+    return { paymentTone: "pending", statusLabel: "Needs auth" };
+  }
   if (ps === "pending_payment" || ps === PAYMENT_PENDING) return { paymentTone: "pending", statusLabel: "Pending" };
   if (ps === "unpaid") return { paymentTone: "pending", statusLabel: "Unpaid" };
   return { paymentTone: "pending", statusLabel: ps };

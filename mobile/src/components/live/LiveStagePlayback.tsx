@@ -18,7 +18,7 @@ import {
   parseScheduledStartMs,
   resolveScheduledPrereleasePhase,
 } from '../../lib/liveStreamScheduled';
-import { shouldSuspendLiveStageMedia } from '../../lib/livePlaybackAppState';
+import { LIVE_BACKGROUND_SUSPEND_DWELL_MS } from '../../lib/livePlaybackAppState';
 import { liveStageContentFitForStreamMode } from '../../lib/liveRoomViewport';
 import { viewerLifecycleLog } from '../../lib/viewerLifecycleLog';
 import { colors, spacing } from '../../theme';
@@ -128,13 +128,14 @@ export function LiveStagePlayback({
   // Set true once the WebRTC surface actually paints; drives the seamless HLS->WebRTC swap on the
   // settled show. Reset whenever this surface stops using WebRTC.
   const [webrtcReady, setWebrtcReady] = useState(false);
-  const [appState, setAppState] = useState<AppStateStatus>(() => AppState.currentState);
-  // Bumped each time the app returns to the foreground. iOS can detach the native Stage video
-  // surface while we're `inactive`/`background` (tapping a notification, Control Center, etc.);
-  // the WebRTC connection survives so audio keeps playing, but the surface comes back black with
-  // no recovery signal. Folding this into the remote-view key forces a fresh surface on return.
+  // Debounced: brief exit→return must not leave Stage (native crash). Only true after dwell.
+  const [stageMediaSuspended, setStageMediaSuspended] = useState(false);
+  // Bumped only after a committed background suspend + return. iOS can detach the native Stage
+  // surface while truly backgrounded; remounting recovers black video without racing quick flickers.
   const [surfaceResumeNonce, setSurfaceResumeNonce] = useState(0);
   const prevAppStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const suspendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didCommitSuspendRef = useRef(false);
   const mainVideoRef = useRef<VideoView>(null);
   const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce, roomVisitNonce });
 
@@ -186,7 +187,6 @@ export function LiveStagePlayback({
   const webrtcUpgradeHold = useWebrtc && !webrtcReady && !streamPaused;
   const attachHls =
     !streamPaused && hlsAttachable && ((transport === 'hls' && hlsWarm) || webrtcUpgradeHold);
-  const stageMediaSuspended = shouldSuspendLiveStageMedia(appState);
 
   useEffect(() => {
     if (!useWebrtc || !isForeground) setWebrtcReady(false);
@@ -301,15 +301,44 @@ export function LiveStagePlayback({
   }, [attachHls, isForeground, playbackUrl, player, roomId, safeVideoReplace]);
 
   useEffect(() => {
+    const clearSuspendTimer = () => {
+      if (suspendTimerRef.current != null) {
+        clearTimeout(suspendTimerRef.current);
+        suspendTimerRef.current = null;
+      }
+    };
     const sub = AppState.addEventListener('change', (next) => {
       const prev = prevAppStateRef.current;
       prevAppStateRef.current = next;
-      setAppState(next);
-      if (next === 'active' && prev !== 'active') {
-        setSurfaceResumeNonce((n) => n + 1);
+
+      if (next === 'background') {
+        // Debounce: quick exit→return must not leave Stage (native IVS crash on remount).
+        clearSuspendTimer();
+        suspendTimerRef.current = setTimeout(() => {
+          suspendTimerRef.current = null;
+          if (prevAppStateRef.current !== 'background') return;
+          didCommitSuspendRef.current = true;
+          setStageMediaSuspended(true);
+        }, LIVE_BACKGROUND_SUSPEND_DWELL_MS);
+        return;
+      }
+
+      if (next === 'active') {
+        clearSuspendTimer();
+        const wasSuspended = didCommitSuspendRef.current;
+        didCommitSuspendRef.current = false;
+        setStageMediaSuspended(false);
+        // Remount native surface only after a real suspend — not every inactive→active flash.
+        if (wasSuspended && prev !== 'active') {
+          setSurfaceResumeNonce((n) => n + 1);
+        }
       }
     });
-    return () => sub.remove();
+    return () => {
+      clearSuspendTimer();
+      sub.remove();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- AppState subscription is mount-lifetime
   }, []);
 
   useEffect(() => {

@@ -2,13 +2,13 @@ import { prisma } from "@/lib/prisma";
 import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import type { LiveRoomType } from "@/generated/prisma/client";
 import { closeActiveLiveRoomItemUnitSale } from "@/lib/live-room-item-unit-sale";
-import { sendBreakAuctionWinNotificationsDeferred } from "@/lib/break-live-auction-round-finalize";
 import { notifyLiveAuctionWinPaymentOutcome } from "@/lib/live-auction-win-payment-notify";
 import { recordPaymentFailureFromCharge } from "@/lib/live-room-payment-failure";
 import {
   chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard,
   type ChargeOrderSavedPmOutcome,
 } from "@/lib/stripe-charge-order-saved-pm";
+import { PAYMENT_FAILED, PAYMENT_PENDING, PAYMENT_REQUIRES_ACTION } from "@/services/payments";
 import {
   emitActiveItemChanged,
   emitLiveRoomQueueItemsChanged,
@@ -21,6 +21,20 @@ import {
 } from "@/lib/live-variant-spot-auction-settle";
 import { isMultiQuantityLiveAuctionItem } from "@/lib/live-auction-host-start";
 import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
+
+/**
+ * Early charge failures (no saved card, Stripe not configured, etc.) return `error` without flipping
+ * Order.paymentStatus — leave those as Declined in Sales instead of stuck Pending.
+ */
+async function markLiveAuctionOrderFailedIfStillOpen(orderId: string): Promise<void> {
+  await prisma.order.updateMany({
+    where: {
+      id: orderId,
+      paymentStatus: { in: [PAYMENT_PENDING, PAYMENT_REQUIRES_ACTION] },
+    },
+    data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
+  });
+}
 
 /**
  * Grace after `auctionEndsAt` before the server force-finalizes an overdue lot. Kept small so the
@@ -148,12 +162,6 @@ export async function settleAndChargeLiveAuctionLot(args: {
     }
   }
 
-  if (settled.pendingWinNotifications) {
-    void sendBreakAuctionWinNotificationsDeferred(settled.pendingWinNotifications).catch((err) =>
-      console.error("[auction close] deferred win notifications", err),
-    );
-  }
-
   const winnerUsername = settled.buyerId
     ? (await prisma.user.findUnique({ where: { id: settled.buyerId }, select: { username: true } }))?.username ?? null
     : null;
@@ -169,76 +177,75 @@ export async function settleAndChargeLiveAuctionLot(args: {
   }
 
   let autoCharge: ChargeOrderSavedPmOutcome = { outcome: "error", code: "NO_BUYER" };
-  const chargeAndNotifyDeferred = Boolean(settled.pendingWinNotifications);
   if (settled.buyerId && settled.orderId) {
-    if (!chargeAndNotifyDeferred) {
-      console.info("[auction close] charging winner", {
+    // Always charge before emitting purchase_completed so Sales shows Approved/Declined, not Pending.
+    // (Break rounds used to fire-and-forget charge via pendingWinNotifications and stuck on Pending.)
+    console.info("[auction close] charging winner", {
+      trigger,
+      liveRoomId,
+      itemId,
+      orderId: settled.orderId,
+      buyerId: settled.buyerId,
+      amountUsd: settled.itemPriceUsd ?? null,
+    });
+    try {
+      autoCharge = await chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard({
+        buyerId: settled.buyerId,
+        orderId: settled.orderId,
+      });
+    } catch (err) {
+      console.error("[auction close] auto-charge exception", err);
+      autoCharge = { outcome: "error", code: "CHARGE_EXCEPTION" };
+    }
+    if (autoCharge.outcome === "error") {
+      await markLiveAuctionOrderFailedIfStillOpen(settled.orderId);
+    }
+    if (settled.sellerId && settled.listingTitle && settled.itemPriceUsd != null) {
+      try {
+        await notifyLiveAuctionWinPaymentOutcome({
+          buyerId: settled.buyerId,
+          sellerId: settled.sellerId,
+          orderId: settled.orderId,
+          listingTitle: settled.listingTitle,
+          itemPriceUsd: settled.itemPriceUsd,
+          charge: autoCharge,
+        });
+      } catch (err) {
+        console.error("[auction close] win notify", err);
+      }
+    }
+    if (autoCharge.outcome === "paid") {
+      console.info("[auction close] payment success", {
         trigger,
         liveRoomId,
         itemId,
         orderId: settled.orderId,
         buyerId: settled.buyerId,
-        amountUsd: settled.itemPriceUsd ?? null,
       });
-      try {
-        autoCharge = await chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard({
-          buyerId: settled.buyerId,
-          orderId: settled.orderId,
-        });
-      } catch (err) {
-        console.error("[auction close] auto-charge exception", err);
-        autoCharge = { outcome: "error", code: "CHARGE_EXCEPTION" };
-      }
-      if (settled.sellerId && settled.listingTitle && settled.itemPriceUsd != null) {
-        try {
-          await notifyLiveAuctionWinPaymentOutcome({
-            buyerId: settled.buyerId,
-            sellerId: settled.sellerId,
-            orderId: settled.orderId,
-            listingTitle: settled.listingTitle,
-            itemPriceUsd: settled.itemPriceUsd,
-            charge: autoCharge,
-          });
-        } catch (err) {
-          console.error("[auction close] win notify", err);
-        }
-      }
-      if (autoCharge.outcome === "paid") {
-        console.info("[auction close] payment success", {
-          trigger,
-          liveRoomId,
-          itemId,
-          orderId: settled.orderId,
-          buyerId: settled.buyerId,
-        });
-        void recordBuyerGiveawayPurchaseEntries(liveRoomId, settled.buyerId, settled.orderId).catch((e) => {
-          console.error("[auction close] buyers giveaway entry", e);
-        });
-      } else {
-        console.info("[auction close] payment failed", {
-          trigger,
-          liveRoomId,
-          itemId,
-          orderId: settled.orderId,
-          buyerId: settled.buyerId,
-          outcome: autoCharge.outcome,
-          code: autoCharge.outcome === "error" ? autoCharge.code : undefined,
-        });
-        await recordPaymentFailureFromCharge({
-          liveRoomId,
-          buyerId: settled.buyerId,
-          kind: "auction_win",
-          liveRoomItemId: itemId,
-          orderId: settled.orderId,
-          amountUsd: settled.itemPriceUsd ?? 0,
-          itemTitle: settled.listingTitle ?? undefined,
-          charge: autoCharge,
-        });
-      }
+      void recordBuyerGiveawayPurchaseEntries(liveRoomId, settled.buyerId, settled.orderId).catch((e) => {
+        console.error("[auction close] buyers giveaway entry", e);
+      });
+    } else {
+      console.info("[auction close] payment failed", {
+        trigger,
+        liveRoomId,
+        itemId,
+        orderId: settled.orderId,
+        buyerId: settled.buyerId,
+        outcome: autoCharge.outcome,
+        code: autoCharge.outcome === "error" ? autoCharge.code : undefined,
+      });
+      await recordPaymentFailureFromCharge({
+        liveRoomId,
+        buyerId: settled.buyerId,
+        kind: "auction_win",
+        liveRoomItemId: itemId,
+        orderId: settled.orderId,
+        amountUsd: settled.itemPriceUsd ?? 0,
+        itemTitle: settled.listingTitle ?? undefined,
+        charge: autoCharge,
+      });
     }
-    const paymentStatus = chargeAndNotifyDeferred
-      ? "pending"
-      : chargeOutcomeToPaymentStatus(autoCharge.outcome);
     emitPurchaseCompleted(liveRoomId, itemId, {
       roomVersion: settled.roomVersion,
       itemVersion: settled.itemVersion,
@@ -247,7 +254,7 @@ export async function settleAndChargeLiveAuctionLot(args: {
       winningAmountUsd: settled.itemPriceUsd,
       itemTitle: settled.listingTitle ?? null,
       orderId: settled.orderId,
-      paymentStatus,
+      paymentStatus: chargeOutcomeToPaymentStatus(autoCharge.outcome),
       itemSoldOut: settled.itemSoldOut,
     });
   } else if (settled.buyerId) {
@@ -258,7 +265,7 @@ export async function settleAndChargeLiveAuctionLot(args: {
       winnerId: settled.buyerId,
       winningAmountUsd: settled.itemPriceUsd,
       orderId: settled.orderId ?? null,
-      paymentStatus: "pending",
+      paymentStatus: "payment_failed",
       itemSoldOut: settled.itemSoldOut,
     });
   }
