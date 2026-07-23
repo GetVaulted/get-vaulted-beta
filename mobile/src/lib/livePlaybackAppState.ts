@@ -93,6 +93,20 @@ export function shouldPreferWarmHostResume(args: {
 }
 
 /**
+ * Toolbar Play/Resume must stay visible on live rooms even when Stage remounts idle
+ * or cameraReady flickers (common on private shows after leave-app).
+ */
+export function shouldShowHostResumeControl(args: {
+  roomStatus: 'scheduled' | 'live' | 'ended';
+  phase: 'idle' | 'starting' | 'live' | 'paused' | 'stopping';
+  streamPaused?: boolean;
+}): boolean {
+  if (args.roomStatus !== 'live') return false;
+  if (args.streamPaused) return true;
+  return args.phase === 'paused' || args.phase === 'idle' || args.phase === 'starting';
+}
+
+/**
  * Unpublish during Pause / leave-app often fires native publish "failed".
  * Keep Host paused (Play) — never drop to idle + Retry (buyers black forever).
  */

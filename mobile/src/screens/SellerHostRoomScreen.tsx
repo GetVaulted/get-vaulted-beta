@@ -318,6 +318,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       }
       await patchLiveRoomStreamPaused(token, roomId, false);
       setStream((prev) => (prev ? { ...prev, streamPaused: false } : prev));
+      setStreamWarning(null);
       await reloadStream(false);
     } catch (e) {
       setStream((prev) => (prev ? { ...prev, streamPaused: true } : prev));
@@ -463,8 +464,11 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
         <View style={[styles.streamBanner, { top: insets.top + 52 }]}>
           <LiveConsoleWarningBanner
             error={streamWarning}
-            onRetry={() => void reloadStream(true)}
-            retrying={streamChecking}
+            onRetry={() =>
+              void (room.status === 'live' ? onResumeBroadcast() : reloadStream(true))
+            }
+            actionLabel={room.status === 'live' ? 'Resume' : 'Retry'}
+            retrying={streamChecking || busy === 'refresh'}
           />
         </View>
       ) : null}

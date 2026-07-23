@@ -699,7 +699,15 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         <View style={[styles.banner, { top: insets.top + 4 }]}>
           <LiveConsoleWarningBanner
             error={host.roomError}
-            onRetry={() => host.onReload()}
+            onRetry={() => {
+              if (roomLive) {
+                void host.onResumeBroadcast();
+                return;
+              }
+              host.onReload();
+            }}
+            actionLabel={roomLive ? SELLER_CONSOLE.resumeStream : 'Retry'}
+            retrying={host.busy === 'refresh' || host.broadcastPhase === 'starting'}
           />
         </View>
       ) : null}
@@ -751,6 +759,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
             onStopStream={host.onStopBroadcast}
             onPauseStream={host.onPauseBroadcast}
             onResumeStream={host.onResumeBroadcast}
+            streamPaused={host.stream?.streamPaused === true}
             showCameraFlip={host.stageWebrtcEnabled && host.showCameraPreview}
             cameraFlipDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
             onFlipCamera={host.onFlipCamera}
@@ -973,7 +982,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         />
       ) : null}
 
-      {/* Pre-live only: idle Retry. While room is live, never show this — use Resume (Whatnot). */}
+      {/* Pre-live only: idle Retry. While room is live, never show this — use toolbar Play. */}
       {shouldShowPreLiveRetryBanner({
         roomStatus: host.room?.status ?? 'scheduled',
         broadcastPhase: host.broadcastPhase,
@@ -992,8 +1001,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         </View>
       ) : null}
 
-      {/* Live + stuck idle/error: Resume CTA (same as Play), not Go Live Retry. */}
-      {host.stageWebrtcEnabled &&
+      {/* Live recovery hint only when toolbar can't yet show Play (no stage). Stage hosts use toolbar Play. */}
+      {!host.stageWebrtcEnabled &&
       shouldShowLiveResumeInsteadOfRetry({
         roomStatus: host.room?.status ?? 'scheduled',
         broadcastPhase: host.broadcastPhase,

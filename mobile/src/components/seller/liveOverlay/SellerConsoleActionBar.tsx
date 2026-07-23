@@ -48,6 +48,8 @@ type Props = {
   onStopStream: () => void;
   onPauseStream?: () => void;
   onResumeStream?: () => void;
+  /** Server streamPaused — keeps Play visible while Host paused. */
+  streamPaused?: boolean;
   viewerCount?: number;
   showCameraFlip?: boolean;
   cameraFlipDisabled?: boolean;
@@ -77,6 +79,7 @@ export function SellerConsoleActionBar({
   onStopStream,
   onPauseStream,
   onResumeStream,
+  streamPaused = false,
   showCameraFlip,
   cameraFlipDisabled,
   onFlipCamera,
@@ -86,11 +89,13 @@ export function SellerConsoleActionBar({
   onToggleMicMute,
 }: Props) {
   const { width: windowWidth } = useWindowDimensions();
-  // On-air = broadcasting (or mid-stop). The WebRTC broadcast control hides its go-live button
-  // until the camera is ready, so pre-live we must fall back to the plain go-live Play; otherwise
-  // a host whose camera preview/permission hasn't resolved is left with NO way to start the show.
+  // On-air = broadcasting (or mid-stop). Also keep controls while the room is live but Stage
+  // remounted idle — otherwise private/live hosts lose Play when cameraReady flickers false.
   const broadcastOnAir =
-    broadcastPhase === 'live' || broadcastPhase === 'paused' || broadcastPhase === 'stopping';
+    broadcastPhase === 'live' ||
+    broadcastPhase === 'paused' ||
+    broadcastPhase === 'stopping' ||
+    (roomStatus === 'live' && (broadcastPhase === 'idle' || broadcastPhase === 'starting'));
   const scale = sellerConsoleToolbarScale(windowWidth);
   const pillIcon = Math.round(PILL_ICON * scale);
   const pillLabelSize = PILL_LABEL * scale;
@@ -231,10 +236,11 @@ export function SellerConsoleActionBar({
               onPress={onFlipCamera}
             />
           ) : null}
-          {stageEnabled && (cameraReady || broadcastOnAir) ? (
+          {stageEnabled && (cameraReady || broadcastOnAir || roomStatus === 'live') ? (
             <SellerBroadcastControl
               phase={broadcastPhase}
               roomStatus={roomStatus}
+              streamPaused={streamPaused}
               stageEnabled={stageEnabled}
               cameraReady={cameraReady}
               busy={broadcastBusy}

@@ -8,6 +8,8 @@ import { colors, radii } from '../../../theme';
 type Props = {
   phase: MobileHostBroadcastPhase;
   roomStatus: 'scheduled' | 'live' | 'ended';
+  /** Server Host paused flag — show Play even if phase briefly still says live. */
+  streamPaused?: boolean;
   stageEnabled: boolean;
   cameraReady: boolean;
   busy: boolean;
@@ -24,6 +26,7 @@ type Props = {
 export function SellerBroadcastControl({
   phase,
   roomStatus,
+  streamPaused = false,
   stageEnabled,
   cameraReady,
   busy,
@@ -38,13 +41,21 @@ export function SellerBroadcastControl({
 
   const stopping = phase === 'stopping';
   const roomEnded = roomStatus === 'ended';
+  const roomLive = roomStatus === 'live';
   const isOnAir = phase === 'live' || phase === 'paused' || stopping;
-  const canShow = cameraReady || isOnAir;
+  // Live room + idle (process remount / failed warm Play): still show Stop + Resume — do not
+  // hide the whole control when cameraReady is briefly false (private shows hit this often).
+  const needsLiveRecovery = roomLive && (phase === 'idle' || phase === 'starting' || streamPaused);
+  const canShow = cameraReady || isOnAir || needsLiveRecovery;
   if (!canShow || roomEnded) return null;
 
-  const showStop = isOnAir;
-  const showPause = showStop && phase === 'live' && Boolean(onPause);
-  const showResume = showStop && phase === 'paused' && Boolean(onResume);
+  const showStop = isOnAir || needsLiveRecovery;
+  const showResume =
+    Boolean(onResume) &&
+    (phase === 'paused' ||
+      streamPaused ||
+      (roomLive && (phase === 'idle' || phase === 'starting')));
+  const showPause = showStop && phase === 'live' && !streamPaused && !showResume && Boolean(onPause);
   const starting = busy && (phase === 'idle' || phase === 'starting');
   const iconSize = headerCompact ? 15 : compact ? 18 : 20;
   const btnSize = headerCompact ? 32 : compact ? 44 : 48;
@@ -57,6 +68,11 @@ export function SellerBroadcastControl({
     }
     if (!cameraReady || busy || stopping) return;
     confirmStartLive(onStart);
+  };
+
+  const onResumePress = () => {
+    if (busy || stopping) return;
+    onResume?.();
   };
 
   const primaryDisabled = stopping || (showStop ? busy : !cameraReady || busy);
@@ -84,7 +100,7 @@ export function SellerBroadcastControl({
             { width: btnSize, height: btnSize },
             (stopping || busy) && styles.disabled,
           ]}
-          onPress={onResume}
+          onPress={onResumePress}
           disabled={stopping || busy}
           accessibilityLabel={SELLER_CONSOLE.resumeStream}
         >

@@ -5,6 +5,7 @@ import {
   shouldClearStreamPausedAfterHostResume,
   shouldHostBackgroundAutoPause,
   shouldPreferWarmHostResume,
+  shouldShowHostResumeControl,
   shouldShowLiveResumeInsteadOfRetry,
   shouldShowPreLiveRetryBanner,
   shouldStayPausedAfterIntentionalUnpublish,
@@ -103,6 +104,16 @@ describe('livePlaybackAppState', () => {
     expect(shouldPreferWarmHostResume({ phase: 'paused', intentionalPause: true })).toBe(true);
     expect(shouldPreferWarmHostResume({ phase: 'idle', intentionalPause: true })).toBe(false);
     expect(shouldPreferWarmHostResume({ phase: 'paused', intentionalPause: false })).toBe(false);
+  });
+
+  it('keeps toolbar Play visible on live rooms when Stage is idle/paused or streamPaused', () => {
+    expect(shouldShowHostResumeControl({ roomStatus: 'live', phase: 'paused' })).toBe(true);
+    expect(shouldShowHostResumeControl({ roomStatus: 'live', phase: 'idle' })).toBe(true);
+    expect(
+      shouldShowHostResumeControl({ roomStatus: 'live', phase: 'live', streamPaused: true }),
+    ).toBe(true);
+    expect(shouldShowHostResumeControl({ roomStatus: 'live', phase: 'live' })).toBe(false);
+    expect(shouldShowHostResumeControl({ roomStatus: 'scheduled', phase: 'idle' })).toBe(false);
   });
 
   it('keeps Host paused after intentional unpublish instead of idle Retry', () => {
