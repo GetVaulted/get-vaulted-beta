@@ -419,17 +419,17 @@ export function useLiveStagePlayback(args: {
     void fetchStream();
   }, [applyTransport, args.roomId, beginPlaybackAttempt, clearBackoff, fetchStream, hideReconnectingUi]);
 
-  // Permanent continuity: keep trying while the room is live. Skip while host is paused / away.
+  // Keep trying while the room is live. Only stop the loop for real server Host paused.
   useEffect(() => {
     if (args.playbackMode !== 'active' || !reconnectFailed) return undefined;
-    if (stream?.streamPaused || localHostAway) return undefined;
+    if (stream?.streamPaused) return undefined;
     const id = setInterval(() => {
       retry();
     }, 8_000);
     return () => clearInterval(id);
-  }, [args.playbackMode, localHostAway, reconnectFailed, retry, stream?.streamPaused]);
+  }, [args.playbackMode, reconnectFailed, retry, stream?.streamPaused]);
 
-  // Local Host paused: no frames while room still looks live (background PATCH often never lands).
+  // Soft "host away" for watchdog only — never blocks reconnect and never drives Host paused UI.
   useEffect(() => {
     if (args.playbackMode !== 'active') {
       setLocalHostAway(false);
@@ -456,7 +456,7 @@ export function useLiveStagePlayback(args: {
         msWithoutVideo,
       });
       setLocalHostAway(away);
-      if (away) setReconnectFailed(false);
+      // Do not clear reconnectFailed here — buyers must keep recovering until frames arrive.
     };
     tick();
     const id = setInterval(tick, 500);
@@ -468,6 +468,10 @@ export function useLiveStagePlayback(args: {
     if (streamPaused) {
       setReconnectFailed(false);
       setLocalHostAway(false);
+    } else {
+      // Host resumed — force a fresh playback attempt even if frames were stale.
+      setLocalHostAway(false);
+      setReconnectFailed(false);
     }
   }, []);
 

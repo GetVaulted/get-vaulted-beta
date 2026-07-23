@@ -323,7 +323,7 @@ describe('liveStreamPlayback', () => {
     ).toBe('live');
   });
 
-  it('treats prolonged no-video as local Host paused when server pause never lands', () => {
+  it('flags prolonged no-video as soft host-away without requiring server streamPaused', () => {
     expect(
       shouldTreatAsLocalHostAway({
         playbackActive: true,

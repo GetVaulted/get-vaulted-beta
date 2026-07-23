@@ -257,6 +257,10 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     setRoomError(null);
     setStreamWarning(null);
     try {
+      // Clear any leftover Host paused from a prior minimize before buyers join this Go Live.
+      setStream((prev) => (prev ? { ...prev, streamPaused: false } : prev));
+      void patchLiveRoomStreamPaused(token, roomId, false).catch(() => undefined);
+
       if (stageWebrtcEnabled) {
         const published = await stagePublish.start(opts?.force ? { force: true } : undefined);
         if (!published) {
@@ -264,7 +268,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
           return;
         }
       }
-      // Leave-app / Pause can leave streamPaused=true — clear it after publish so buyers get video.
+      // Confirm unpaused after publish so realtime buyers leave Host paused.
       await patchLiveRoomStreamPaused(token, roomId, false);
       setStream((prev) => (prev ? { ...prev, streamPaused: false } : prev));
       const current = room ?? (await reloadRoom());
@@ -345,6 +349,26 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     stagePublish.localPreviewReady,
     busy,
   ]);
+
+  // Heal stuck streamPaused while the host is actually publishing (buyers otherwise sit on Host paused).
+  useEffect(() => {
+    if (!token || stagePublish.phase !== 'live') return;
+    if (stream?.streamPaused !== true) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await patchLiveRoomStreamPaused(token, roomId, false);
+        if (!cancelled) {
+          setStream((prev) => (prev ? { ...prev, streamPaused: false } : prev));
+        }
+      } catch {
+        /* next live tick / Resume can retry */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, roomId, stagePublish.phase, stream?.streamPaused]);
 
   const onStopBroadcast = async () => {
     await endShow();

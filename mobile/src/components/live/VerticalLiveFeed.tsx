@@ -454,6 +454,8 @@ function LiveSlide({
       invalidateBuyerLiveStreamCache(stream.id);
       setStreamRefreshNonce((n) => n + 1);
       setRoomStatus((prev) => (prev === 'ended' ? prev : 'live'));
+      // Hard refresh after resume — drop a stale "paused" hint so buyers leave Host paused.
+      setRealtimeStreamPaused((prev) => (prev === true ? null : prev));
     },
   });
   const fetchLiveSnapshot = liveSession.fetchSnapshot;

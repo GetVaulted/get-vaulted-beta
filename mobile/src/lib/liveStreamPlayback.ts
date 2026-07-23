@@ -50,12 +50,12 @@ export const HLS_FIRST_FRAME_TIMEOUT_MS = 6_000;
 export const PLAYBACK_RECONNECT_FAILED_MS = 10_000;
 
 /**
- * Room looks live but no frames arrived — treat as Host paused locally so buyers are not
- * stranded on Reconnecting when the background PATCH never landed.
+ * Soft signal: room looks live but no frames yet. Used for watchdog only —
+ * must NOT drive the "Host paused" buyer UI (that stranded viewers on 143).
  */
 export const HOST_AWAY_NO_VIDEO_MS = 4_000;
 
-/** True when buyers should show Host paused without waiting for server streamPaused. */
+/** True when playback should treat prolonged no-frames as soft host-away (not server pause). */
 export function shouldTreatAsLocalHostAway(args: {
   playbackActive: boolean;
   roomLifecycleLive: boolean;
