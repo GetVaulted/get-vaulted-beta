@@ -81,6 +81,33 @@ export function shouldClearStreamPausedAfterHostResume(publishSucceeded: boolean
 }
 
 /**
+ * Toolbar Play can show while phase is still `live` (stuck streamPaused after a PATCH race).
+ * If we are already publishing, Play only needs to clear Host paused — not rejoin Stage.
+ */
+export function shouldTreatHostResumeAsAlreadyLive(args: {
+  phase: 'idle' | 'starting' | 'live' | 'paused' | 'stopping';
+  publishing: boolean;
+  intentionalPause: boolean;
+}): boolean {
+  return args.phase === 'live' && args.publishing && !args.intentionalPause;
+}
+
+/**
+ * Play may be tapped whenever Host paused / remount idle / stuck live+unpublish.
+ * Must not early-return false for phase `live` + streamPaused (that left buyers black).
+ */
+export function canAttemptHostResumeShow(args: {
+  phase: 'idle' | 'starting' | 'live' | 'paused' | 'stopping';
+  publishing: boolean;
+  intentionalPause: boolean;
+}): boolean {
+  if (shouldTreatHostResumeAsAlreadyLive(args)) return true;
+  if (args.phase === 'paused' || args.phase === 'idle' || args.phase === 'starting') return true;
+  // Live but not publishing (OS dropped publish) or still flagged intentional pause.
+  return args.phase === 'live' && (!args.publishing || args.intentionalPause);
+}
+
+/**
  * TikTok / Whatnot / eBay pattern: Pause keeps the Stage session joined.
  * Warm Play = republish on the same session. Full leave+rejoin only after process death
  * (phase idle) or when warm republish fails.

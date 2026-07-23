@@ -7,7 +7,7 @@ export const SELLER_CONSOLE = {
   goLive: 'Go live',
   startStream: 'Start stream',
   pauseStream: 'Pause',
-  resumeStream: 'Resume',
+  resumeStream: 'Play',
   stopStream: 'Stop stream',
   endShow: 'End show',
   clutchTime: 'Clutch Time',
@@ -16,10 +16,10 @@ export const SELLER_CONSOLE = {
   camera: 'Camera',
   microphone: 'Microphone',
   previewHint:
-    'Check your camera and mic, then go live. Leaving the app pauses buyers (Resume to continue). Use OBS / RTMP if you need the camera to keep streaming away from the phone.',
-  resumeStreamHint: 'Show minimized — tap Resume to bring the live feed back.',
+    'Check your camera and mic, then go live. Leaving the app pauses buyers (tap Play to continue). Use OBS / RTMP if you need the camera to keep streaming away from the phone.',
+  resumeStreamHint: 'Show minimized — tap Play to bring the live feed back.',
   liveLeaveAppHint:
-    'Leaving the app pauses your show for buyers. Tap Resume when you return. Need the camera to stay on? Use OBS / RTMP.',
+    'Leaving the app pauses your show for buyers. Tap Play when you return. Need the camera to stay on? Use OBS / RTMP.',
   copyLink: 'Copy link',
   nativeShare: 'Share…',
   shareInApp: 'Share in Get Vaulted',

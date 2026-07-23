@@ -699,13 +699,17 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         <View style={[styles.banner, { top: insets.top + 4 }]}>
           <LiveConsoleWarningBanner
             error={host.roomError}
-            onRetry={() => {
-              if (roomLive) {
-                void host.onResumeBroadcast();
-                return;
-              }
-              host.onReload();
-            }}
+            onRetry={
+              roomLive && host.stageWebrtcEnabled
+                ? undefined
+                : () => {
+                    if (roomLive) {
+                      void host.onResumeBroadcast();
+                      return;
+                    }
+                    host.onReload();
+                  }
+            }
             actionLabel={roomLive ? SELLER_CONSOLE.resumeStream : 'Retry'}
             retrying={host.busy === 'refresh' || host.broadcastPhase === 'starting'}
           />

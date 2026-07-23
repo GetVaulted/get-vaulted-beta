@@ -24,6 +24,8 @@ import {
   shouldHostBackgroundAutoPause,
   shouldPreferWarmHostResume,
   shouldStayPausedAfterIntentionalUnpublish,
+  canAttemptHostResumeShow,
+  shouldTreatHostResumeAsAlreadyLive,
 } from '../lib/livePlaybackAppState';
 import {
   cameraPermissionDeniedMessage,
@@ -883,9 +885,33 @@ export function useMobileStagePublish(args: {
    * Cold path = leave + token + join only after process death or warm failure.
    */
   const resumeShow = useCallback(async (): Promise<boolean> => {
-    const p = phaseRef.current;
-    if (p !== 'paused' && p !== 'idle' && p !== 'starting') return false;
+    // Wait out a finishing reconnect/start so Play is not a silent no-op.
+    let spins = 0;
+    while ((reconnectInFlightRef.current || startInFlightRef.current) && spins < 40) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      spins += 1;
+    }
     if (reconnectInFlightRef.current || startInFlightRef.current) return false;
+
+    const p = phaseRef.current;
+    const resumeGate = {
+      phase: p,
+      publishing: publishingRef.current,
+      intentionalPause: intentionalPauseRef.current,
+    };
+    if (!canAttemptHostResumeShow(resumeGate)) return false;
+
+    // Stuck Host-paused flag while already publishing — Play only clears streamPaused.
+    if (shouldTreatHostResumeAsAlreadyLive(resumeGate)) {
+      intentionalPauseRef.current = false;
+      interruptedPublishRef.current = false;
+      if (mountedRef.current) {
+        setPhase('live');
+        setError(null);
+      }
+      cbRef.current.onStreamRefresh?.();
+      return true;
+    }
 
     intentionalPauseRef.current = true;
     intentionalStopRef.current = false;
@@ -924,19 +950,42 @@ export function useMobileStagePublish(args: {
       cbRef.current.onStreamRefresh?.();
     };
 
+    /** Attach before setStreamsPublished so we don't miss a fast "published" event. */
+    const waitForPublished = (timeoutMs: number) =>
+      new Promise<boolean>((resolve) => {
+        let done = false;
+        const finish = (ok: boolean) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          sub.remove();
+          resolve(ok);
+        };
+        const timer = setTimeout(() => finish(false), timeoutMs);
+        const sub = addOnPublishStateChangedListener((evt) => {
+          if (evt.state === 'published') finish(true);
+          if (evt.state === 'failed') finish(false);
+        });
+      });
+
     try {
       // Warm Play — same Stage join, just turn publish back on (industry keep-session-alive).
-      if (
+      const preferWarm =
         shouldPreferWarmHostResume({
-          phase: p === 'starting' ? 'paused' : p,
+          phase: p === 'starting' || p === 'live' ? 'paused' : p,
           intentionalPause: true,
-        }) ||
-        p === 'paused'
-      ) {
+        }) || p === 'paused';
+
+      if (preferWarm) {
+        const publishedWait = waitForPublished(5_000);
         try {
           await withIvsStageSerialized(async () => {
             await setStreamsPublished(true);
           });
+          const published = await publishedWait;
+          if (!published) {
+            throw new Error('warm_republish_failed');
+          }
           if (intentionalStopRef.current || !mountedRef.current) {
             if (mountedRef.current) setPhase('paused');
             return false;
@@ -944,6 +993,7 @@ export function useMobileStagePublish(args: {
           markLive();
           return true;
         } catch {
+          await publishedWait;
           /* fall through to full rejoin */
         }
       }
@@ -981,6 +1031,7 @@ export function useMobileStagePublish(args: {
         allowReconnect: true,
       });
 
+      const publishedWait = waitForPublished(8_000);
       await withIvsStageSerialized(async () => {
         await joinStage(tokenPayload.token);
         await setStreamsPublished(true);
@@ -991,10 +1042,15 @@ export function useMobileStagePublish(args: {
         return false;
       }
 
+      const published = await publishedWait;
+      if (!published) {
+        throw new Error('cold_republish_failed');
+      }
+
       markLive(tokenPayload.expiresInSeconds);
       return true;
     } catch (err) {
-      // Live show recovery failed — stay minimized (Resume), never idle Retry.
+      // Live show recovery failed — stay minimized (Play), never idle Retry.
       intentionalPauseRef.current = true;
       publishingRef.current = false;
       wentLiveRef.current = true;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   LIVE_PIP_RETRY_DELAYS_MS,
+  canAttemptHostResumeShow,
   shouldAttemptLivePictureInPicture,
   shouldClearStreamPausedAfterHostResume,
   shouldHostBackgroundAutoPause,
@@ -11,6 +12,7 @@ import {
   shouldStayPausedAfterIntentionalUnpublish,
   shouldSuspendHostStagePublish,
   shouldSuspendLiveStageMedia,
+  shouldTreatHostResumeAsAlreadyLive,
   shouldWarmLiveHlsPipCompanion,
 } from './livePlaybackAppState';
 
@@ -98,6 +100,54 @@ describe('livePlaybackAppState', () => {
   it('clears streamPaused for buyers only after host Play republishes', () => {
     expect(shouldClearStreamPausedAfterHostResume(true)).toBe(true);
     expect(shouldClearStreamPausedAfterHostResume(false)).toBe(false);
+  });
+
+  it('treats live+publishing as already-resumed so Play can clear stuck streamPaused', () => {
+    expect(
+      shouldTreatHostResumeAsAlreadyLive({
+        phase: 'live',
+        publishing: true,
+        intentionalPause: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldTreatHostResumeAsAlreadyLive({
+        phase: 'live',
+        publishing: false,
+        intentionalPause: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldTreatHostResumeAsAlreadyLive({
+        phase: 'paused',
+        publishing: false,
+        intentionalPause: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('allows Play while live+streamPaused even when Stage phase is still live', () => {
+    expect(
+      canAttemptHostResumeShow({
+        phase: 'live',
+        publishing: true,
+        intentionalPause: false,
+      }),
+    ).toBe(true);
+    expect(
+      canAttemptHostResumeShow({
+        phase: 'live',
+        publishing: false,
+        intentionalPause: true,
+      }),
+    ).toBe(true);
+    expect(
+      canAttemptHostResumeShow({
+        phase: 'stopping',
+        publishing: false,
+        intentionalPause: false,
+      }),
+    ).toBe(false);
   });
 
   it('prefers warm Play while minimized (same Stage session) over leave+rejoin', () => {

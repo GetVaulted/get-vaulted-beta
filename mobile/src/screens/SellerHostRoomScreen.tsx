@@ -313,7 +313,9 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       const published = await stagePublish.resumeShow();
       if (!shouldClearStreamPausedAfterHostResume(published)) {
         setStream((prev) => (prev ? { ...prev, streamPaused: true } : prev));
-        setStreamWarning(sanitizeLiveError('Could not resume the live feed. Tap Resume again.', 'stream'));
+        setStreamWarning(
+          sanitizeLiveError('Could not resume the live feed. Tap Play again.', 'stream'),
+        );
         return;
       }
       await patchLiveRoomStreamPaused(token, roomId, false);
@@ -464,10 +466,13 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
         <View style={[styles.streamBanner, { top: insets.top + 52 }]}>
           <LiveConsoleWarningBanner
             error={streamWarning}
-            onRetry={() =>
-              void (room.status === 'live' ? onResumeBroadcast() : reloadStream(true))
+            // Stage hosts already have toolbar Play — don't add a second "Resume" control.
+            onRetry={
+              stageWebrtcEnabled && room.status === 'live'
+                ? undefined
+                : () => void (room.status === 'live' ? onResumeBroadcast() : reloadStream(true))
             }
-            actionLabel={room.status === 'live' ? 'Resume' : 'Retry'}
+            actionLabel={room.status === 'live' ? 'Play' : 'Retry'}
             retrying={streamChecking || busy === 'refresh'}
           />
         </View>
