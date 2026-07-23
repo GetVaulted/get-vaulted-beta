@@ -155,7 +155,11 @@ export function useLiveRoomRealtimeSession(args: {
   const outbidTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realtimeConnectedRef = useRef(false);
   const fetchStartRef = useRef(0);
-  const lastStreamStatusRef = useRef<{ health: string; mode: string } | null>(null);
+  const lastStreamStatusRef = useRef<{
+    health: string;
+    mode: string;
+    paused: boolean | null;
+  } | null>(null);
   const reconnectBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectBannerClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -472,15 +476,33 @@ export function useLiveRoomRealtimeSession(args: {
         typeof payload.streamPaused === 'boolean' ? payload.streamPaused : null;
       const prev = lastStreamStatusRef.current;
       const modeKey = mode || prev?.mode || '';
-      const changed = !prev || prev.health !== health || prev.mode !== modeKey;
-      lastStreamStatusRef.current = { health, mode: modeKey };
+      const healthChanged = Boolean(prev && prev.health !== health);
+      const modeChanged = Boolean(prev && prev.mode !== modeKey);
+      const pausedChanged = paused != null && paused !== prev?.paused;
+      const firstStatus = !prev;
+      const wasLiveSignal = Boolean(prev && (prev.health === 'live' || prev.health === 'connecting'));
+      const isLiveSignal = health === 'live' || health === 'connecting';
+      lastStreamStatusRef.current = {
+        health: health || prev?.health || '',
+        mode: modeKey,
+        paused: paused ?? prev?.paused ?? null,
+      };
       // Apply pause immediately — don't wait on GET /stream (prefetch cache can lag 5s).
       if (paused != null) {
         args.onStreamPausedHint?.(paused);
       }
-      // Host pause/resume must also hard-refresh playback metadata / Stage subscribe.
-      if (paused != null || (changed && (health === 'live' || health === 'connecting'))) {
+      // Hard remount only when playback must restart. Every stream_status includes streamPaused
+      // as a boolean — treating that as "always hard refresh" black-flashed buyers mid-show.
+      const needsHardRemount =
+        pausedChanged ||
+        modeChanged ||
+        firstStatus ||
+        (healthChanged && wasLiveSignal !== isLiveSignal);
+      if (needsHardRemount) {
         args.onStreamHardRefresh?.() ?? args.onStreamRefresh?.();
+      } else if (healthChanged || modeChanged) {
+        // live↔connecting flaps: refresh metadata only; keep the Stage/HLS surface up.
+        args.onStreamRefresh?.();
       }
     },
     onConnectionStateChange: ({ status, reconnectCount }) => {

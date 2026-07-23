@@ -55,14 +55,20 @@ export async function sendLiveRoomChatMessage(args: {
   };
   if (args.clientMessageId?.trim()) payload.clientMessageId = args.clientMessageId.trim();
   if (args.staffOnly) payload.staffOnly = true;
-  const res = await fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(args.roomId)}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${args.accessToken}`,
+  // Chat posts can lag under live-show load; a short timeout made buyers mash Send while the
+  // first request was still finishing (draft popped back into the input on each failure).
+  const res = await fetchWebApiMobile(
+    `/api/live-rooms/${encodeURIComponent(args.roomId)}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${args.accessToken}`,
+      },
+      body: JSON.stringify(payload),
     },
-    body: JSON.stringify(payload),
-  });
+    { timeoutMs: 25_000 },
+  );
   let j: { message?: LiveRoomChatMessageRow; error?: string } = {};
   try {
     j = (await res.json()) as typeof j;

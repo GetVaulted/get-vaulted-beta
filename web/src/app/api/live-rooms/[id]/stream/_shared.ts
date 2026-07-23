@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireLiveRoomHostAccess } from "@/lib/resolve-live-host-access";
+import { formatIvsObsIngestUrl } from "@/lib/ivs-obs-ingest-url";
 
 /** Configured IVS channel latency mode ("LOW" = low-latency HLS), without pulling in the AWS SDK service. */
 function configuredLatencyMode(): "LOW" | "NORMAL" {
@@ -78,7 +79,8 @@ export function toBuyerSafeStreamPayload(row: StreamRow) {
 export function toHostStreamPayload(row: StreamRow) {
   return {
     ...toBuyerSafeStreamPayload(row),
-    ingestEndpoint: row.ivsIngestEndpoint,
+    // OBS Custom service needs rtmps://host:443/app/ — never the bare AWS ingest host.
+    ingestEndpoint: formatIvsObsIngestUrl(row.ivsIngestEndpoint),
     channelArn: row.ivsChannelArn,
     channelName: row.ivsChannelName,
     streamKeyArn: row.ivsStreamKeyArn,

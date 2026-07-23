@@ -100,7 +100,7 @@ import {
   computeLiveStageSafeInsets,
   computeLiveTopReserve,
   computeGiveawaySideTabTop,
-  LIVE_STAGE_CONTENT_FIT,
+  liveStageContentFitForStreamMode,
   logLiveStageLayoutDebug,
   type LiveStageContainer,
 } from '../../lib/liveRoomViewport';
@@ -253,6 +253,7 @@ function LiveSlide({
   const [reportOpen, setReportOpen] = useState(false);
   const [reportChatMessage, setReportChatMessage] = useState<ChatMessage | null>(null);
   const [chatDraft, setChatDraft] = useState('');
+  const [chatSendError, setChatSendError] = useState<string | null>(null);
   const [staffChatOnly, setStaffChatOnly] = useState(false);
   const [streamMuted, setStreamMuted] = useState(false);
   const [streamRefreshNonce, setStreamRefreshNonce] = useState(0);
@@ -685,9 +686,9 @@ function LiveSlide({
       layoutHeight: stageContainer.layoutHeight,
       offsetLeft: stageContainer.offsetLeft,
       offsetTop: stageContainer.offsetTop,
-      contentFit: LIVE_STAGE_CONTENT_FIT,
+      contentFit: liveStageContentFitForStreamMode(broadcastGate.streamMode),
     });
-  }, [isActive, stream.id, stageContainer, screenHeight]);
+  }, [isActive, stream.id, stageContainer, screenHeight, broadcastGate.streamMode]);
 
   useEffect(() => {
     if (isActive) return undefined;
@@ -973,12 +974,15 @@ function LiveSlide({
     const t = chatDraft.trim();
     if (!t || liveChat.sending) return;
     chatComposerRef.current?.dismissSuggestions();
-    setChatDraft('');
+    setChatSendError(null);
+    // Keep draft until the server confirms — clearing then restoring on failure looked like
+    // "message bounced back" and buyers mashed Send.
     try {
       const ok = await liveChat.send(t, {
         staffOnly: staffChatOnly && modActor.canModerate,
       });
       if (ok) {
+        setChatDraft('');
         if (!(staffChatOnly && modActor.canModerate)) {
           slowMode.recordSuccessfulSend();
         }
@@ -986,8 +990,8 @@ function LiveSlide({
         Keyboard.dismiss();
       }
     } catch (e) {
-      setChatDraft(t);
       const msg = e instanceof Error ? e.message : String(e);
+      setChatSendError(msg);
       slowMode.syncFromSendError(msg);
       moderation.handleRestrictionError(msg);
       if (__DEV__) console.warn('[liveRoom chat] send failed', msg);
@@ -1576,6 +1580,14 @@ function LiveSlide({
         </View>
       ) : null}
 
+      {chatSendError &&
+      !(moderation.myRestrictions?.muted || liveChat.error?.includes('muted')) &&
+      !moderation.roomBlocked ? (
+        <View style={[styles.mutedBanner, { bottom: bottomStack.composerBottom + COMPOSER_BAR_HEIGHT + 8 }]}>
+          <LiveRoomText style={styles.mutedBannerText}>{chatSendError}</LiveRoomText>
+        </View>
+      ) : null}
+
       {slowMode.slowModeActive ? (
         <LiveChatSlowModeTimer
           bottom={slowModeTimerBottom}
@@ -1593,7 +1605,10 @@ function LiveSlide({
         left={spacing.lg}
         rightEdge={chatRightEdge}
         value={chatDraft}
-        onChangeText={setChatDraft}
+        onChangeText={(t) => {
+          setChatDraft(t);
+          if (chatSendError) setChatSendError(null);
+        }}
         onSend={sendFloatingChat}
         placeholder={
           staffChatOnly && modActor.canModerate ? 'Staff only…' : chatComposerPlaceholder

@@ -85,6 +85,18 @@ export function shouldAttachHlsPlayback(streamHealth: string, playbackUrl: strin
   return h === "live" || h === "connecting";
 }
 
+/**
+ * Phone Stage fills the 9:16 plate (`cover`).
+ * OBS / RTMP HLS is usually landscape — `contain` avoids center-crop “zoom”.
+ */
+export function liveStageObjectFitForStreamMode(
+  streamMode: string | null | undefined,
+): "cover" | "contain" {
+  const mode = typeof streamMode === "string" ? streamMode.trim().toLowerCase() : "";
+  if (mode === "channel_hls") return "contain";
+  return "cover";
+}
+
 export function isOfflineLikeStreamHealth(streamHealth: string): boolean {
   const h = streamHealth.toLowerCase();
   return h === "offline" || h === "not_provisioned" || h === "ended";

@@ -15,6 +15,16 @@ import type { ChatMessage, ChatMessageKind } from '../types';
 
 const joinCooldownByRoom = new Map<string, number>();
 
+function isTransientChatSendError(message: string): boolean {
+  return /timed out|network request failed|could not reach|fetch failed|aborted|network error/i.test(
+    message,
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function mapRow(m: LiveRoomChatMessageRow, hostUsername: string, hostUserId?: string): ChatMessage | null {
   const text = m.body?.trim();
   if (!text) return null;
@@ -259,14 +269,7 @@ export function useLiveRoomChat(args: {
       };
       setMessages((prev) => mergeChatMessagesById(prev, [optimistic]));
 
-      try {
-        const row = await sendLiveRoomChatMessage({
-          accessToken: args.accessToken,
-          roomId: args.roomId,
-          body,
-          clientMessageId,
-          staffOnly,
-        });
+      const commitRow = (row: LiveRoomChatMessageRow) => {
         const next = mapRow(row, args.hostUsername, args.hostUserId);
         setMessages((prev) => {
           const stripped = stripMatchingPendingMessages(prev, next ? [next] : []);
@@ -274,7 +277,29 @@ export function useLiveRoomChat(args: {
           return mergeChatMessagesById(stripped, [next]);
         });
         setError(null);
-        return true;
+      };
+
+      try {
+        const post = () =>
+          sendLiveRoomChatMessage({
+            accessToken: args.accessToken!,
+            roomId: args.roomId,
+            body,
+            clientMessageId,
+            staffOnly,
+          });
+        try {
+          commitRow(await post());
+          return true;
+        } catch (first) {
+          const msg = first instanceof Error ? first.message : String(first);
+          // One quiet retry for flaky live-show networks / timeouts. Server duplicate window
+          // returns the first message if it actually landed.
+          if (!isTransientChatSendError(msg)) throw first;
+          await sleep(450);
+          commitRow(await post());
+          return true;
+        }
       } catch (e) {
         setMessages((prev) => prev.filter((m) => m.id !== pendingId));
         const msg = e instanceof Error ? e.message : String(e);

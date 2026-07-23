@@ -48,7 +48,7 @@ export const OBS_HELP_ARTICLES: {
     body: [
       "In Seller HQ → OBS Studio, pick your show and click Connect OBS (or Set up stream) to create RTMPS credentials.",
       "Open OBS → Settings → Stream → Service: Custom.",
-      "Paste the RTMPS ingest URL into Server and the stream key into Stream Key.",
+      "Paste the RTMPS ingest URL into Server and the stream key into Stream Key. The Server field must look like rtmps://….live-video.net:443/app/ (Get Vaulted copies it in that form).",
       "Recommended: Settings → Output → Video bitrate 4500–6000 Kbps, keyframe interval 2 s, encoder x264 or NVENC.",
       "Add Get Vaulted browser-source widgets (bid, sold, tips) from the Widgets section — generate a widget token and copy URLs with ?token= included.",
     ],
@@ -68,9 +68,10 @@ export const OBS_HELP_ARTICLES: {
     id: "troubleshooting",
     title: "Troubleshooting",
     body: [
+      "Invalid Path or Connection URL in OBS: Server must be rtmps://….live-video.net:443/app/ — tap Copy RTMPS URL again (Get Vaulted now copies the full form).",
       "Connecting forever: confirm OBS shows “Streaming”, then Refresh status in Stream settings.",
       "Auth failed: rotate stream key, update OBS, and start streaming again.",
-      "No video for buyers: verify the correct show is selected and RTMPS URL matches the active room.",
+      "No video for buyers: verify the correct show is selected, RTMPS URL matches the active room, and you did not also tap phone Go Live (that switches buyers to camera/Stage).",
       "Dropped frames: lower bitrate or resolution in OBS Output settings.",
       "Widgets blank: confirm roomId in the widget URL matches your live show.",
       "401 on widgets: rotate the widget token in OBS Studio and update every browser source URL.",
@@ -82,7 +83,7 @@ export const OBS_HELP_ARTICLES: {
     body: [
       "Do I need OBS? No — you can use the in-browser camera in Host console. OBS is for pro RTMP setups.",
       "Can I reuse one stream key? Each show has its own IVS channel; rotate keys if you suspect a leak.",
-      "Webcam + OBS? Use one path per show — either browser WebRTC or RTMP/OBS, not both simultaneously.",
+      "Webcam + OBS? Use one path per show — either browser/phone camera (Go Live) or RTMP/OBS, not both. After Connect OBS, do not tap Go Live on the phone/console or buyers will wait on a camera that is not publishing.",
       "Mobile streaming? Use the Get Vaulted mobile host app; OBS Studio mode is optimized for desktop RTMP.",
     ],
   },

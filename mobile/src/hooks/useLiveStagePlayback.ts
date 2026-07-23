@@ -556,6 +556,12 @@ export function useLiveStagePlayback(args: {
       void fetchStream();
       return;
     }
+    // Already painting: metadata refresh only. Remounting here caused random black → Loading flashes
+    // whenever stream_status / reconnect bumped refreshNonce during a healthy show.
+    if (videoHasDataRef.current && transportRef.current !== 'none') {
+      void fetchStream();
+      return;
+    }
     clearBackoff();
     retryRef.current = 0;
     lastAttachKeyRef.current = '';

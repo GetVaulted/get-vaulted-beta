@@ -19,7 +19,7 @@ import {
   resolveScheduledPrereleasePhase,
 } from '../../lib/liveStreamScheduled';
 import { shouldSuspendLiveStageMedia } from '../../lib/livePlaybackAppState';
-import { LIVE_STAGE_CONTENT_FIT } from '../../lib/liveRoomViewport';
+import { liveStageContentFitForStreamMode } from '../../lib/liveRoomViewport';
 import { viewerLifecycleLog } from '../../lib/viewerLifecycleLog';
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
@@ -49,6 +49,7 @@ type Props = {
   realtimeStreamPaused?: boolean | null;
   muted: boolean;
   onMutedChange: (muted: boolean) => void;
+  /** Override auto fit (cover for phone Stage, contain for OBS/HLS). */
   contentFit?: 'cover' | 'contain';
   onBroadcastGateChange?: (gate: LiveRoomBroadcastGate) => void;
 };
@@ -117,7 +118,7 @@ export function LiveStagePlayback({
   realtimeStreamPaused = null,
   muted,
   onMutedChange,
-  contentFit = 'cover',
+  contentFit: contentFitOverride,
   onBroadcastGateChange,
 }: Props) {
   const mode: LivePlaybackMode = playbackMode ?? (enabled ? 'active' : 'off');
@@ -148,6 +149,8 @@ export function LiveStagePlayback({
   const streamPaused =
     playback.stream?.streamPaused === true || realtimeStreamPaused === true;
   const transport = playback.transport;
+  const contentFit =
+    contentFitOverride ?? liveStageContentFitForStreamMode(playback.stream?.streamMode);
   const viewerTransport = playback.viewerTransport;
   const reconnectFailed = playback.reconnectFailed;
 
@@ -520,7 +523,7 @@ export function LiveStagePlayback({
         <Image
           source={{ uri: thumbnailUrl }}
           style={StyleSheet.absoluteFill}
-          contentFit={contentFit === 'cover' ? LIVE_STAGE_CONTENT_FIT : 'contain'}
+          contentFit={contentFit}
           contentPosition="center"
         />
       ) : null}

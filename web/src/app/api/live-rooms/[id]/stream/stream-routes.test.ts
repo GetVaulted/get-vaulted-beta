@@ -5,6 +5,7 @@ const hoisted = vi.hoisted(() => ({
   getServerSessionSafe: vi.fn(),
   hostAccess: vi.fn(),
   liveRoomFindUnique: vi.fn(),
+  liveRoomUpdate: vi.fn(),
   provisionRoomStream: vi.fn(),
   prepareHostWebBroadcastSession: vi.fn(),
   endHostWebBroadcastSession: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     liveRoom: {
       findUnique: hoisted.liveRoomFindUnique,
+      update: hoisted.liveRoomUpdate,
     },
     user: {
       findUnique: hoisted.userFindUnique,
@@ -110,6 +112,7 @@ describe("live room stream routes", () => {
     vi.clearAllMocks();
     const sellerSession = { user: { id: "seller_1" } };
     hoisted.liveRoomFindUnique.mockResolvedValue(streamRow());
+    hoisted.liveRoomUpdate.mockResolvedValue(streamRow({ streamMode: "channel_hls" }));
     hoisted.getServerSession.mockResolvedValue(sellerSession);
     hoisted.getServerSessionSafe.mockResolvedValue(sellerSession);
     hoisted.hostAccess.mockResolvedValue({ ok: true, room: { id: "room_1", sellerId: "seller_1" }, isAdmin: false });
@@ -157,9 +160,18 @@ describe("live room stream routes", () => {
       params: Promise.resolve({ id: "room_1" }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ingest?: { oneTimeStreamKey?: string } };
+    const body = (await res.json()) as {
+      ingest?: { oneTimeStreamKey?: string; endpoint?: string };
+    };
     expect(body.ingest?.oneTimeStreamKey).toBe("sk_live_secret");
+    expect(body.ingest?.endpoint).toBe("rtmps://ingest:443/app/");
     expect(hoisted.provisionRoomStream).toHaveBeenCalledWith("room_1");
+    expect(hoisted.liveRoomUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "room_1" },
+        data: { streamMode: "channel_hls" },
+      }),
+    );
   });
 
   it("buyer cannot provision stream", async () => {

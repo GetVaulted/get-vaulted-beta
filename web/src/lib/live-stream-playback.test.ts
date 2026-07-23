@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  liveStageObjectFitForStreamMode,
   parseBuyerSafeStreamPayload,
   preferHlsOverWebrtcOnClient,
   preferNativeHlsElementPlayback,
@@ -8,6 +9,12 @@ import {
 } from "@/lib/live-stream-playback";
 
 describe("live-stream-playback", () => {
+  it("liveStageObjectFitForStreamMode letterboxes OBS/HLS and fills phone Stage", () => {
+    expect(liveStageObjectFitForStreamMode("channel_hls")).toBe("contain");
+    expect(liveStageObjectFitForStreamMode("stage_webrtc")).toBe("cover");
+    expect(liveStageObjectFitForStreamMode(null)).toBe("cover");
+  });
+
   it("parseBuyerSafeStreamPayload reads only nested stream fields", () => {
     const parsed = parseBuyerSafeStreamPayload({
       stream: {

@@ -22,6 +22,7 @@ import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller
 import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
 import { useMobileStagePublish } from '../hooks/useMobileStagePublish';
 import { shouldClearStreamPausedAfterHostResume } from '../lib/livePlaybackAppState';
+import { formatIvsObsIngestUrl } from '../lib/ivsObsIngestUrl';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { notifyLiveDiscoveryChanged } from '../lib/notifyLiveDiscoveryChanged';
@@ -410,7 +411,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     void stagePublish.toggleMicrophoneMute();
   };
 
-  const serverUrl = ingestEndpoint ?? stream?.ingestEndpoint ?? null;
+  const serverUrl = formatIvsObsIngestUrl(ingestEndpoint ?? stream?.ingestEndpoint ?? null);
   const streamKey = oneTimeKey;
 
   const streamConnected = useMemo(() => {

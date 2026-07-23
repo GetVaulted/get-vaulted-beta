@@ -646,15 +646,14 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       return;
     }
     chatComposerRef.current?.dismissSuggestions();
-    setChatDraft('');
     try {
       const ok = await liveChat.send(text, { staffOnly: staffChatOnly });
       if (ok) {
+        setChatDraft('');
         chatComposerRef.current?.blur();
         Keyboard.dismiss();
       }
     } catch (e) {
-      setChatDraft(text);
       const msg = e instanceof Error ? e.message : String(e);
       Alert.alert('Chat', msg);
     }
