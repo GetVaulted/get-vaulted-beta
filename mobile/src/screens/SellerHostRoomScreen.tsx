@@ -313,9 +313,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       const published = await stagePublish.resumeShow();
       if (!shouldClearStreamPausedAfterHostResume(published)) {
         setStream((prev) => (prev ? { ...prev, streamPaused: true } : prev));
-        setStreamWarning(
-          sanitizeLiveError('Could not resume the live feed. Tap Play again.', 'stream'),
-        );
+        // No yellow banner — toolbar Play is the recovery control.
         return;
       }
       await patchLiveRoomStreamPaused(token, roomId, false);
@@ -357,6 +355,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   // Heal stuck streamPaused while the host is actually publishing (buyers otherwise sit on Host paused).
   useEffect(() => {
     if (!token || stagePublish.phase !== 'live') return;
+    if (streamWarning) setStreamWarning(null);
     if (stream?.streamPaused !== true) return;
     let cancelled = false;
     void (async () => {
@@ -366,13 +365,13 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
           setStream((prev) => (prev ? { ...prev, streamPaused: false } : prev));
         }
       } catch {
-        /* next live tick / Resume can retry */
+        /* next live tick / Play can retry */
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [token, roomId, stagePublish.phase, stream?.streamPaused]);
+  }, [token, roomId, stagePublish.phase, stream?.streamPaused, streamWarning]);
 
   const onStopBroadcast = async () => {
     await endShow();
@@ -462,21 +461,6 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      {streamWarning ? (
-        <View style={[styles.streamBanner, { top: insets.top + 52 }]}>
-          <LiveConsoleWarningBanner
-            error={streamWarning}
-            // Stage hosts already have toolbar Play — don't add a second "Resume" control.
-            onRetry={
-              stageWebrtcEnabled && room.status === 'live'
-                ? undefined
-                : () => void (room.status === 'live' ? onResumeBroadcast() : reloadStream(true))
-            }
-            actionLabel={room.status === 'live' ? 'Play' : 'Retry'}
-            retrying={streamChecking || busy === 'refresh'}
-          />
-        </View>
-      ) : null}
       <SellerLiveHostView
         navigation={navigation}
         roomId={roomId}
@@ -533,10 +517,4 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
   centered: { alignItems: 'center', justifyContent: 'center', gap: spacing.md },
   loadingLbl: { color: colors.textMuted, fontSize: 14 },
-  streamBanner: {
-    position: 'absolute',
-    left: spacing.sm,
-    right: spacing.sm,
-    zIndex: 18,
-  },
 });

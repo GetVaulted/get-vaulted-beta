@@ -50,7 +50,6 @@ import { useSellerLiveConsole } from '../../../hooks/useSellerLiveConsole';
 import { useHostGiveawayActions, pickHostStageGiveaway } from '../../../hooks/useHostGiveawayActions';
 import { LiveRoomShareSheet } from '../../live/LiveRoomShareSheet';
 import {
-  shouldShowLiveResumeInsteadOfRetry,
   shouldShowPreLiveRetryBanner,
 } from '../../../lib/livePlaybackAppState';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
@@ -695,21 +694,17 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         permissionRetrying={host.cameraPermissionRetrying}
       />
 
-      {host.roomError ? (
+      {host.roomError && !(roomLive && host.stageWebrtcEnabled) ? (
         <View style={[styles.banner, { top: insets.top + 4 }]}>
           <LiveConsoleWarningBanner
             error={host.roomError}
-            onRetry={
-              roomLive && host.stageWebrtcEnabled
-                ? undefined
-                : () => {
-                    if (roomLive) {
-                      void host.onResumeBroadcast();
-                      return;
-                    }
-                    host.onReload();
-                  }
-            }
+            onRetry={() => {
+              if (roomLive) {
+                void host.onResumeBroadcast();
+                return;
+              }
+              host.onReload();
+            }}
             actionLabel={roomLive ? SELLER_CONSOLE.resumeStream : 'Retry'}
             retrying={host.busy === 'refresh' || host.broadcastPhase === 'starting'}
           />
@@ -986,7 +981,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         />
       ) : null}
 
-      {/* Pre-live only: idle Retry. While room is live, never show this — use toolbar Play. */}
+      {/* Pre-live only: idle Retry. While room is live, never show yellow recovery chrome. */}
       {shouldShowPreLiveRetryBanner({
         roomStatus: host.room?.status ?? 'scheduled',
         broadcastPhase: host.broadcastPhase,
@@ -1001,27 +996,6 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
             }}
             onRetry={host.onRetryBroadcast}
             retrying={host.busy === 'start' || host.broadcastPhase === 'starting'}
-          />
-        </View>
-      ) : null}
-
-      {/* Live recovery hint only when toolbar can't yet show Play (no stage). Stage hosts use toolbar Play. */}
-      {!host.stageWebrtcEnabled &&
-      shouldShowLiveResumeInsteadOfRetry({
-        roomStatus: host.room?.status ?? 'scheduled',
-        broadcastPhase: host.broadcastPhase,
-        hasBroadcastError: Boolean(host.broadcastError),
-      }) ? (
-        <View style={[styles.banner, { top: insets.top + 48 }]}>
-          <LiveConsoleWarningBanner
-            error={{
-              userMessage: host.broadcastError || SELLER_CONSOLE.resumeStreamHint,
-              devDetail: null,
-              isNetwork: false,
-            }}
-            onRetry={host.onResumeBroadcast}
-            actionLabel={SELLER_CONSOLE.resumeStream}
-            retrying={host.busy === 'refresh' || host.broadcastPhase === 'starting'}
           />
         </View>
       ) : null}
