@@ -1719,6 +1719,7 @@ function LiveSlide({
           staffCommerceBlocked={staffCommerceBlocked}
           onSpotCelebration={liveSession.showSpotCelebration}
           viewerUsername={myChatSender.username}
+          viewerUserId={userId ?? null}
           commerceActive={isActive}
           vaultRevealActive={Boolean(liveSession.vaultRevealSpin)}
         />

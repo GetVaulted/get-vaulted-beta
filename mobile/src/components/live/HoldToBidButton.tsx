@@ -8,14 +8,15 @@ import { LIVE_CLAIM_CTA_GRADIENT } from './liveClaimCtaStyle';
 import { LiveRoomText } from './LiveRoomText';
 
 /** Deliberate hold duration — short enough for fast auctions, long enough to avoid swipe accidents. */
-export const HOLD_TO_BID_MS = 420;
+export const HOLD_TO_BID_MS = 280;
 
-const PROCESSING_LABEL = 'Processing';
+/** Bid ACK in flight — not payment. Settlement charges after the auction ends (host mark sold). */
+const PROCESSING_LABEL = 'Placing bid…';
 
 type Props = {
   label: string;
   disabled?: boolean;
-  /** Network in flight — shows Processing and blocks new holds until cleared. */
+  /** Network in flight — shows Placing bid… and blocks new holds until cleared. */
   busy?: boolean;
   onCommit: () => void;
   /** Return false to abort the hold (e.g. auth required). */

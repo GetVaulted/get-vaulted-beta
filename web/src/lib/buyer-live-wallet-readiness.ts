@@ -10,8 +10,8 @@ export async function buyerHasShippingAddressSaved(userId: string): Promise<bool
 
 type WalletReadiness = { paymentReady: boolean; shippingReady: boolean };
 
-/** Short TTL so Hold-to-Bid does not hit Stripe PM list on every bid in a burst. */
-const WALLET_READY_TTL_MS = 20_000;
+/** Cache ready wallets for the show; incomplete clears immediately so setup is rechecked. */
+const WALLET_READY_TTL_MS = 5 * 60_000;
 const walletReadyCache = new Map<string, { at: number; value: WalletReadiness }>();
 
 export function clearBuyerLiveWalletReadinessCache(userId?: string): void {
@@ -39,7 +39,12 @@ export async function getBuyerLiveWalletReadiness(userId: string): Promise<Walle
     buyerHasShippingAddressSaved(userId),
   ]);
   const value = { paymentReady, shippingReady };
-  walletReadyCache.set(userId, { at: Date.now(), value });
+  // Only cache a ready wallet — incomplete must recheck after the buyer updates Wallet.
+  if (paymentReady && shippingReady) {
+    walletReadyCache.set(userId, { at: Date.now(), value });
+  } else {
+    walletReadyCache.delete(userId);
+  }
   return value;
 }
 

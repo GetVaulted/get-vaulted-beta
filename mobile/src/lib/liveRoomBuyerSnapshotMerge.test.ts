@@ -301,4 +301,18 @@ describe('mergeBuyerSnapshotForOptimisticBid', () => {
     expect(merged?.minNextBidUsd).toBeGreaterThan(5);
     expect(merged?.lotBidPhase).toBe('bidding_open');
   });
+
+  it('marks the local viewer as leading bidder when provided', () => {
+    const prev = snap({ currentBidUsd: 4, minNextBidUsd: 5, lastHighBidderId: 'other' });
+    const merged = mergeBuyerSnapshotForOptimisticBid(prev, {
+      itemId: 'item-1',
+      amountUsd: 5,
+      wallNowMs: 2_000,
+      leadingBidderId: 'me',
+      leadingBidderUsername: 'vaulted_me',
+    });
+
+    expect(merged?.lastHighBidderId).toBe('me');
+    expect(merged?.lastHighBidderUsername).toBe('vaulted_me');
+  });
 });
