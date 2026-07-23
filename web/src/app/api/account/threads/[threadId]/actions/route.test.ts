@@ -19,6 +19,8 @@ vi.mock("@/lib/resolve-account-auth", () => ({
 
 vi.mock("@/lib/user-block", () => ({
   setUserBlocked: hoisted.setUserBlocked,
+  isUserBlockError: (e: unknown) =>
+    Boolean(e && typeof e === "object" && "code" in e && typeof (e as { code: unknown }).code === "string"),
 }));
 
 vi.mock("@/lib/prisma", () => ({

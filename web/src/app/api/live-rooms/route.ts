@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { LiveRoomType, Prisma, TeamBoardLeague } from "@/generated/prisma/client";
 import type { LiveShowCarrierPreference } from "@/generated/prisma/enums";
 import { getServerSessionSafe } from "@/lib/auth";
-import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
+import { resolveLiveRoomsUserId, resolveOptionalLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { isDevTempNoDatabaseMode } from "@/lib/dev-temp-no-db";
 import { isHiddenFixtureSellerEmail, prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
 import { prismaLiveRoomCreateHint, serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
@@ -29,6 +29,7 @@ import {
 import { isPublicDiscoveryLiveRoom, parseLiveRoomDiscoveryVisibility } from "@/lib/live-room-public-discovery";
 import { buildWeeklyRecurringScheduleDates } from "@/lib/live-room-recurring-schedule";
 import { parseLiveTeaserFieldsFromBody } from "@/lib/live-room-teaser";
+import { listHiddenPeerIdsForViewer } from "@/lib/user-block";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
 
@@ -101,6 +102,22 @@ export async function GET(req: Request) {
           }
         : {}),
     };
+
+    const viewerId =
+      bearerUserId ??
+      session?.user?.id ??
+      (await resolveOptionalLiveRoomsUserId(req));
+    if (viewerId && !viewingOwnSellerRooms) {
+      const hiddenHosts = await listHiddenPeerIdsForViewer(prisma, viewerId);
+      if (hiddenHosts.length > 0) {
+        if (sellerId && hiddenHosts.includes(sellerId)) {
+          return NextResponse.json({ rooms: [] });
+        }
+        if (!sellerId) {
+          where.sellerId = { notIn: hiddenHosts };
+        }
+      }
+    }
 
     const rows = await prisma.liveRoom.findMany({
       where,

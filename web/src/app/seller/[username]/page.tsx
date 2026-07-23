@@ -15,6 +15,7 @@ import { prisma } from "@/lib/prisma";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { buildSellerPageMetadata, buildSellerProfileJsonLd } from "@/lib/site-seo";
 import { JsonLdScript } from "@/components/seo/JsonLdScript";
+import { viewerCanSeeUser } from "@/lib/user-block";
 import {
   parseSellerShopTab,
   SELLER_SHOP_TABS,
@@ -88,6 +89,7 @@ export default async function SellerShopPage({
   const isOwnShop = session?.user?.id === user.id;
   const isAdmin = session?.user?.role === "admin";
   if (isHiddenFixtureSellerEmail(user.email) && !isOwnShop && !isAdmin) notFound();
+  if (!(await viewerCanSeeUser(prisma, session?.user?.id, user.id))) notFound();
 
   const basePath = sellerProfilePath(user.username);
 

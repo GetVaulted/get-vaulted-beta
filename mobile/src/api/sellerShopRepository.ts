@@ -53,6 +53,7 @@ export async function fetchSellerShop(opts: {
   tab?: SellerShopTab;
   page?: number;
   pageSize?: number;
+  accessToken?: string | null;
 }): Promise<SellerShopResult | null> {
   const params = new URLSearchParams();
   if (opts.sellerId?.trim()) params.set('sellerId', opts.sellerId.trim());
@@ -63,7 +64,10 @@ export async function fetchSellerShop(opts: {
   if (opts.page && opts.page > 1) params.set('page', String(opts.page));
   if (opts.pageSize) params.set('pageSize', String(opts.pageSize));
 
-  const res = await fetchWebApi(`/api/sellers/shop?${params.toString()}`);
+  const headers: HeadersInit | undefined = opts.accessToken
+    ? { Authorization: `Bearer ${opts.accessToken}` }
+    : undefined;
+  const res = await fetchWebApi(`/api/sellers/shop?${params.toString()}`, { headers });
   const body = (await res.json().catch(() => null)) as SellerShopResponse | { error?: string } | null;
   if (!res.ok || !body || !('seller' in body)) {
     console.warn('[fetchSellerShop]', res.status, body);

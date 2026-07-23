@@ -112,6 +112,11 @@ export function MyAccountPage() {
       title: "Followers & Following",
       description: "See who follows you and sellers you follow.",
     },
+    {
+      href: "/account/blocked",
+      title: "Blocked users",
+      description: "People you’ve blocked can’t find or see you.",
+    },
   ];
 
   const sellerTiles: HubTile[] =

@@ -65,7 +65,14 @@ export async function getListingsAccessToken(): Promise<string> {
 
 export async function fetchPublishedListingsFromWeb(opts?: { force?: boolean }): Promise<WebMarketplaceListing[]> {
   return readThroughPublishedListingsCache(async () => {
-    const res = await fetchWebApi('/api/listings?scope=published');
+    let headers: HeadersInit | undefined;
+    try {
+      const token = await resolveSellerAccessToken();
+      if (token) headers = { Authorization: `Bearer ${token}` };
+    } catch {
+      // Guest browse — no block filter.
+    }
+    const res = await fetchWebApi('/api/listings?scope=published', { headers });
     const body = (await res.json().catch(() => null)) as { listings?: WebMarketplaceListing[] } | null;
     if (!res.ok) {
       console.warn('[fetchPublishedListingsFromWeb]', fetchApiErrorMessage(res, body));

@@ -18,6 +18,7 @@ import { ChangePasswordScreen } from '../screens/settings/ChangePasswordScreen';
 import { DeleteAccountScreen } from '../screens/settings/DeleteAccountScreen';
 import { CommunityGuidelinesScreen } from '../screens/settings/CommunityGuidelinesScreen';
 import { ReportingSafetyScreen } from '../screens/settings/ReportingSafetyScreen';
+import { BlockedUsersScreen } from '../screens/settings/BlockedUsersScreen';
 import { HelpCenterScreen } from '../screens/help/HelpCenterScreen';
 import { VaultSearchScreen } from '../screens/VaultSearchScreen';
 import { HelpArticleScreen } from '../screens/help/HelpArticleScreen';
@@ -272,6 +273,7 @@ export function RootNavigator() {
           <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
           <Stack.Screen name="CommunityGuidelines" component={CommunityGuidelinesScreen} />
           <Stack.Screen name="ReportingSafety" component={ReportingSafetyScreen} />
+          <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
           <Stack.Screen name="HelpCenter" component={HelpCenterScreen} />
           <Stack.Screen
             name="VaultSearch"

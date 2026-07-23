@@ -79,6 +79,7 @@ export type RootStackParamList = {
   DeleteAccount: undefined;
   CommunityGuidelines: undefined;
   ReportingSafety: undefined;
+  BlockedUsers: undefined;
   HelpCenter: { focusSearch?: boolean } | undefined;
   HelpArticle: { articleId: string };
   ContactSupport:

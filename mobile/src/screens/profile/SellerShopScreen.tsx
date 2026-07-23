@@ -54,7 +54,11 @@ export function SellerShopScreen({ navigation, route }: Props) {
       if (opts?.refresh) setRefreshing(true);
       else setLoading(true);
 
-      const result = await fetchSellerShop({ sellerId, tab });
+      const result = await fetchSellerShop({
+        sellerId,
+        tab,
+        accessToken: session?.access_token,
+      });
       if (!result) {
         setNotFound(true);
         setShop(null);
