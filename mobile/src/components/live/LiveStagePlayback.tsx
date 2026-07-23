@@ -144,10 +144,9 @@ export function LiveStagePlayback({
 
   const playbackUrl = playback.stream?.playbackUrl ?? null;
   const streamHealth = playback.stream?.streamHealth ?? 'offline';
+  // Only server/realtime pause = Host paused. Local no-frames is "waiting", not minimize.
   const streamPaused =
-    playback.stream?.streamPaused === true ||
-    realtimeStreamPaused === true ||
-    playback.localHostAway === true;
+    playback.stream?.streamPaused === true || realtimeStreamPaused === true;
   const transport = playback.transport;
   const viewerTransport = playback.viewerTransport;
   const reconnectFailed = playback.reconnectFailed;
