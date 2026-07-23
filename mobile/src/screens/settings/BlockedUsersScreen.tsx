@@ -123,7 +123,7 @@ export function BlockedUsersScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
+  screen: { flex: 1, backgroundColor: colors.background },
   list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.sm },
   empty: { color: colors.textSecondary, marginTop: spacing.xl, textAlign: 'center' },
   row: {
