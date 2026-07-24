@@ -319,12 +319,12 @@ export async function resolveBreakSpotSellerProfile(args: {
   }
 
   /** Card-mailer on a Helmets show is almost always a wrong default inheritance — use helmet rates. */
-  async function preferCategoryOverCardMailer(
-    profile: { id: string; sourceSlug: string } | null,
-  ) {
+  async function preferCategoryOverCardMailer<T extends { id: string; sourceSlug: string }>(
+    profile: T | null,
+  ): Promise<T | null> {
     if (!profile) return null;
     if (categoryWantsHeavyParcel && profile.sourceSlug === "live_break_spot") {
-      return (await profileBySlug(categorySlug)) ?? profile;
+      return ((await profileBySlug(categorySlug)) as T | null) ?? profile;
     }
     return profile;
   }
