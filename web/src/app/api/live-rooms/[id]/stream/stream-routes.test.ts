@@ -213,6 +213,30 @@ describe("live room stream routes", () => {
     expect(hoisted.syncLiveRoomStreamFromIvs).not.toHaveBeenCalled();
   });
 
+  it("buyer GET for channel_hls runs throttled IVS health sync", async () => {
+    hoisted.liveRoomFindUnique
+      .mockResolvedValueOnce(
+        streamRow({
+          streamMode: "channel_hls",
+          streamHealth: "offline",
+          lastIvsStatusSyncAt: null,
+        }),
+      )
+      .mockResolvedValueOnce(
+        streamRow({
+          streamMode: "channel_hls",
+          streamHealth: "live",
+        }),
+      );
+    const res = await getStream(new Request("http://x/api/live-rooms/room_1/stream"), {
+      params: Promise.resolve({ id: "room_1" }),
+    });
+    expect(res.status).toBe(200);
+    expect(hoisted.syncLiveRoomStreamFromIvs).toHaveBeenCalledWith("room_1");
+    const body = (await res.json()) as { stream?: { streamHealth?: string } };
+    expect(body.stream?.streamHealth).toBe("live");
+  });
+
   it("buyer cannot receive stream key", async () => {
     hoisted.getServerSession.mockResolvedValueOnce(null);
     hoisted.getServerSessionSafe.mockResolvedValueOnce(null);

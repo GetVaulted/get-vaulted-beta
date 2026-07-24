@@ -63,7 +63,11 @@ export function ObsStreamSettingsCard({
         <div className="rounded-xl border border-white/10 bg-zinc-950/70 p-3">
           <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Stream key</p>
           <p className="mt-1 break-all text-xs text-zinc-200">{setup.maskedKey}</p>
-          <p className="mt-1 text-[11px] text-amber-200/85">Private — anyone with this key can stream to your room.</p>
+          {setup.hasIngest && !setup.oneTimeKey ? (
+            <p className="mt-2 text-[11px] leading-relaxed text-amber-200/90">{OBS_STUDIO.keyMissingHint}</p>
+          ) : (
+            <p className="mt-1 text-[11px] text-amber-200/85">Private — anyone with this key can stream to your room.</p>
+          )}
           <div className="mt-2 flex flex-wrap gap-2">
             <button
               type="button"

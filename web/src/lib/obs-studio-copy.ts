@@ -21,6 +21,8 @@ export const OBS_STUDIO = {
   hideKey: "Hide key",
   rotateKey: "Rotate stream key",
   setupStream: "Set up stream",
+  keyMissingHint:
+    "Stream key was shown once when the channel was created. Click Rotate stream key to issue a new one, then paste it into OBS (Settings → Stream → Custom).",
   lastHeartbeat: "Last heartbeat",
   connectionState: "Connection state",
   streamHealth: "Stream health",

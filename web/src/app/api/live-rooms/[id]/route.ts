@@ -32,7 +32,7 @@ import {
 } from "@/lib/live-variant-checkout-preview-for-room";
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
 import { finalizeLiveStreamReplay } from "@/lib/trust/live-replay-service";
-import { endHostStageSession } from "@/services/ivs";
+import { endHostStageSession, syncLiveRoomStreamFromIvs } from "@/services/ivs";
 import { logSellerRoomStateSnapshot } from "@/lib/log-room-state-snapshot";
 import { liveShowEndGmvFields } from "@/lib/live-show-gmv";
 import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
@@ -288,6 +288,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       teamBoardLeague: true,
       completedSalesGmvUsd: true,
       discoveryVisibility: true,
+      streamMode: true,
+      ivsChannelArn: true,
     },
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -383,6 +385,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
           console.error("[live-rooms] notifyFollowersSellerWentLive failed", existing.sellerId, e),
         );
       }
+    }
+    // OBS path: pull IVS GetStream ASAP so buyers flip from offline → live without waiting
+    // for the host to keep the OBS Studio tab open.
+    if (existing.streamMode === "channel_hls" && existing.ivsChannelArn) {
+      void syncLiveRoomStreamFromIvs(id).catch((e) =>
+        console.error("[live-rooms] syncLiveRoomStreamFromIvs after start failed", id, e),
+      );
     }
     emitLiveDiscoveryChanged({ roomId: id, status: "live", reason: "started" });
     return NextResponse.json({ ok: true });

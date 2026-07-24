@@ -31,14 +31,33 @@ function maybeReconcileStagePublisherHealth(roomId: string): void {
   void reconcileStagePublisherHealth(roomId).catch(() => {});
 }
 
-function clientKey(req: Request): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip")?.trim() || "unknown";
+/** Keep channel_hls `streamHealth` honest from IVS GetStream (OBS path has no Stage publisher). */
+async function maybeSyncChannelHlsHealth(row: Awaited<ReturnType<typeof getStreamRow>>): Promise<
+  NonNullable<Awaited<ReturnType<typeof getStreamRow>>> | null
+> {
+  if (!row) return null;
+  if (row.streamMode !== "channel_hls" || !row.ivsChannelArn) return row;
+  if (row.streamHealth === "ended" || row.streamHealth === "not_provisioned") return row;
+  // Already live and recently synced — skip AWS call.
+  const syncedAt = row.lastIvsStatusSyncAt?.getTime() ?? 0;
+  const staleMs = Date.now() - syncedAt;
+  if (row.streamHealth === "live" && staleMs < 20_000) return row;
+  const rl = checkRateLimit(`channel-hls-health:${row.id}`, { limit: 1, windowMs: 12_000 });
+  if (!rl.ok) return row;
+  try {
+    await syncLiveRoomStreamFromIvs(row.id);
+    logIvsOpsServer("ivs_channel_hls_buyer_sync", { roomId: row.id, previousHealth: row.streamHealth });
+    return (await getStreamRow(row.id)) ?? row;
+  } catch {
+    logIvsOpsServer("ivs_channel_hls_buyer_sync_error", { roomId: row.id });
+    return row;
+  }
 }
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
-  const row = await getStreamRow(id);
+  let row = await getStreamRow(id);
   if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
 
   const url = new URL(req.url);
@@ -75,6 +94,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
     return NextResponse.json({ stream: toHostStreamPayload(refreshed), viewerRole: "host" });
   }
+
+  // OBS / channel_hls: buyers previously only saw DB health. Without host ?sync=1 or the IVS
+  // webhook, streamHealth stayed offline while OBS was already encoding. Throttled GetStream
+  // keeps playbackUrl + health honest for the HLS path.
+  row = (await maybeSyncChannelHlsHealth(row)) ?? row;
 
   maybeHealStageComposition(id);
   maybeReconcileStagePublisherHealth(id);
