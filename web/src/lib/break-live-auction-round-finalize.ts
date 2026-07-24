@@ -3,7 +3,11 @@ import { createNotification } from "@/lib/notifications";
 import { recordPaymentFailureFromCharge } from "@/lib/live-room-payment-failure";
 import { prisma } from "@/lib/prisma";
 import { createOrderFromAuctionWin } from "@/lib/offer-fulfillment";
-import { chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard } from "@/lib/stripe-charge-order-saved-pm";
+import {
+  chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard,
+  type ChargeOrderSavedPmOutcome,
+} from "@/lib/stripe-charge-order-saved-pm";
+import { PAYMENT_FAILED, PAYMENT_PENDING, PAYMENT_REQUIRES_ACTION } from "@/services/payments";
 import {
   formatLiveQueueItemUnitTitle,
   normalizeQuantityInitial,
@@ -201,10 +205,10 @@ export async function finalizeBreakAuctionRoundIfEnded(
   };
 }
 
-/** Default auction-win copy (mirrors `createOrderFromAuctionWin` when `skipWinNotifications` was used). */
+/** Charge winner + notify. Callers must await so Sales can show Approved/Declined (not stuck Pending). */
 export async function sendBreakAuctionWinNotificationsDeferred(
   pending: NonNullable<BreakRoundFinalizeResult["pendingWinNotifications"]>,
-): Promise<void> {
+): Promise<ChargeOrderSavedPmOutcome> {
   const titleShort =
     pending.listingTitle.length > 80 ? `${pending.listingTitle.slice(0, 77)}…` : pending.listingTitle;
   const priceStr = pending.itemPriceUsd.toLocaleString("en-US", {
@@ -212,10 +216,25 @@ export async function sendBreakAuctionWinNotificationsDeferred(
     currency: "USD",
     maximumFractionDigits: 0,
   });
-  const charge = await chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard({
-    buyerId: pending.buyerId,
-    orderId: pending.orderId,
-  });
+  let charge: ChargeOrderSavedPmOutcome;
+  try {
+    charge = await chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard({
+      buyerId: pending.buyerId,
+      orderId: pending.orderId,
+    });
+  } catch (err) {
+    console.error("[break auction] auto-charge exception", err);
+    charge = { outcome: "error", code: "CHARGE_EXCEPTION" };
+  }
+  if (charge.outcome === "error") {
+    await prisma.order.updateMany({
+      where: {
+        id: pending.orderId,
+        paymentStatus: { in: [PAYMENT_PENDING, PAYMENT_REQUIRES_ACTION] },
+      },
+      data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
+    });
+  }
   const paid = charge.outcome === "paid";
   const paymentFailed = charge.outcome === "error";
   const needsAuth = charge.outcome === "requires_action" || charge.outcome === "processing";
@@ -239,7 +258,11 @@ export async function sendBreakAuctionWinNotificationsDeferred(
       ? `You won “${titleShort}” at ${priceStr}. Complete payment in the show — your bank may require an extra step.`
       : `You won “${titleShort}” at ${priceStr}. We could not charge your card. Update your payment method in the show before the host continues.`;
 
-  const sellerTitle = paid ? "Auction ended — paid" : paymentFailed ? "Auction ended — payment failed" : "Auction ended — payment pending";
+  const sellerTitle = paid
+    ? "Auction ended — approved"
+    : paymentFailed
+      ? "Auction ended — declined"
+      : "Auction ended — payment pending";
   const sellerBody = paid
     ? `Payment received for "${titleShort}".`
     : paymentFailed
@@ -264,4 +287,5 @@ export async function sendBreakAuctionWinNotificationsDeferred(
     body: sellerBody,
     href: "/account/sales",
   });
+  return charge;
 }

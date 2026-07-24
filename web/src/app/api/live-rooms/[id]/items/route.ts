@@ -158,6 +158,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const inheritedSellerProfile = await resolveDefaultSellerProfileForLiveShow({
       sellerId: room.sellerId,
       showDefaultSellerProfileId: room.defaultSellerShippingProfileId,
+      category: room.category,
       db: prisma,
     });
     sellerShippingProfileId = inheritedSellerProfile?.id ?? null;

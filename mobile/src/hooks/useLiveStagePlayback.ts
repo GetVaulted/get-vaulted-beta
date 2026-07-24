@@ -31,6 +31,7 @@ import {
   type ViewerTransportState,
 } from '../lib/liveStreamPlayback';
 import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
+import { shouldCommitLiveBackgroundAfterDwell } from '../lib/livePlaybackAppState';
 
 export type LivePlaybackMode = 'active' | 'prefetch' | 'off';
 
@@ -692,10 +693,24 @@ export function useLiveStagePlayback(args: {
   useEffect(() => {
     if (args.playbackMode !== 'active') return undefined;
     let cancelled = false;
+    let backgroundAtMs: number | null = null;
     const onAppState = (next: AppStateStatus) => {
+      if (next === 'background') {
+        backgroundAtMs = Date.now();
+        clearBackoff();
+        cancelWebrtcUpgrade();
+        return;
+      }
       if (next !== 'active') {
         clearBackoff();
         cancelWebrtcUpgrade();
+        return;
+      }
+      const dwellMs = backgroundAtMs != null ? Date.now() - backgroundAtMs : 0;
+      backgroundAtMs = null;
+      // Brief exit→return: keep the existing Stage session — hard remount crashes native IVS.
+      if (!shouldCommitLiveBackgroundAfterDwell(dwellMs)) {
+        void fetchStream();
         return;
       }
       if (streamRef.current?.streamPaused) {

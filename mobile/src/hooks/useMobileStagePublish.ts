@@ -21,6 +21,7 @@ import {
 } from '../api/liveRoomStreamRepository';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import {
+  LIVE_BACKGROUND_SUSPEND_DWELL_MS,
   shouldHostBackgroundAutoPause,
   shouldPreferWarmHostResume,
   shouldStayPausedAfterIntentionalUnpublish,
@@ -187,9 +188,17 @@ export function useMobileStagePublish(args: {
   minimizeShowRef.current = minimizeShow;
 
   useEffect(() => {
+    let minimizeTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearMinimizeTimer = () => {
+      if (minimizeTimer != null) {
+        clearTimeout(minimizeTimer);
+        minimizeTimer = null;
+      }
+    };
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       // True background (home / app switcher): same Minimize path as the Pause button.
       // Do NOT minimize on iOS `inactive` alone (Control Center / banners).
+      // Debounce: brief exit→return must not unpublish mid-suspend (native Stage crash).
       if (
         shouldHostBackgroundAutoPause({
           appState: next,
@@ -198,11 +207,17 @@ export function useMobileStagePublish(args: {
           phase: phaseRef.current,
         })
       ) {
-        void minimizeShowRef.current();
+        clearMinimizeTimer();
+        minimizeTimer = setTimeout(() => {
+          minimizeTimer = null;
+          if (AppState.currentState !== 'background') return;
+          void minimizeShowRef.current();
+        }, LIVE_BACKGROUND_SUSPEND_DWELL_MS);
         return;
       }
 
       if (next !== 'active') return;
+      clearMinimizeTimer();
       // Stay minimized until host taps Resume — re-fire Host paused (background PATCH often dies).
       if (intentionalPauseRef.current || (phaseRef.current === 'paused' && !publishingRef.current)) {
         if (intentionalPauseRef.current) {
@@ -222,7 +237,10 @@ export function useMobileStagePublish(args: {
       }
       // No auto-republish after minimize — Whatnot Resume is explicit.
     });
-    return () => sub.remove();
+    return () => {
+      clearMinimizeTimer();
+      sub.remove();
+    };
   }, []);
 
   const clearTokenRefreshTimer = useCallback(() => {

@@ -86,6 +86,7 @@ function buildSections(
       { href: "/account/orders", label: "Orders", icon: <PackageIcon /> },
       { href: "/account/watchlist", label: "Watchlist", icon: <HeartIcon /> },
       { href: "/account/following", label: "Followers & Following", icon: <UsersIcon /> },
+      { href: "/account/blocked", label: "Blocked users", icon: <UsersIcon /> },
     ],
   };
 

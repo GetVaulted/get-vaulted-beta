@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  LIVE_BACKGROUND_SUSPEND_DWELL_MS,
   LIVE_PIP_RETRY_DELAYS_MS,
   canAttemptHostResumeShow,
   shouldAttemptLivePictureInPicture,
   shouldClearStreamPausedAfterHostResume,
+  shouldCommitLiveBackgroundAfterDwell,
   shouldHostBackgroundAutoPause,
   shouldPreferWarmHostResume,
   shouldShowHostResumeControl,
@@ -31,6 +33,13 @@ describe('livePlaybackAppState', () => {
     expect(shouldSuspendLiveStageMedia('inactive')).toBe(false);
     expect(shouldSuspendLiveStageMedia('background')).toBe(true);
     expect(shouldSuspendLiveStageMedia('active')).toBe(false);
+  });
+
+  it('only commits Stage suspend after a background dwell (brief exit/return is a no-op)', () => {
+    expect(shouldCommitLiveBackgroundAfterDwell(0)).toBe(false);
+    expect(shouldCommitLiveBackgroundAfterDwell(699)).toBe(false);
+    expect(shouldCommitLiveBackgroundAfterDwell(LIVE_BACKGROUND_SUSPEND_DWELL_MS)).toBe(true);
+    expect(shouldCommitLiveBackgroundAfterDwell(2000)).toBe(true);
   });
 
   it('pauses host publish only on true background (not Control Center inactive)', () => {

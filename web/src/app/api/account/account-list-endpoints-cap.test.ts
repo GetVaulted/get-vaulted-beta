@@ -35,6 +35,10 @@ vi.mock("@/lib/resolve-account-auth", () => ({
   resolveAccountUserId: vi.fn().mockResolvedValue({ userId: "u1" }),
 }));
 
+vi.mock("@/lib/user-block", () => ({
+  listHiddenPeerIdsForViewer: vi.fn().mockResolvedValue([]),
+}));
+
 function takeOf(mockFn: ReturnType<typeof vi.fn>): number | undefined {
   const args = mockFn.mock.calls[0]?.[0] as { take?: number } | undefined;
   return args?.take;

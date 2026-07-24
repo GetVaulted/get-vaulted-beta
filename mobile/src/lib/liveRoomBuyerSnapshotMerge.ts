@@ -186,7 +186,14 @@ export function mergeBuyerSnapshotForBidPlaced(
 /** Optimistic HUD advance as soon as Hold-to-Bid commits (before HTTP returns). */
 export function mergeBuyerSnapshotForOptimisticBid(
   snap: LiveRoomBuyerSnapshot,
-  args: { itemId: string; amountUsd: number; wallNowMs: number },
+  args: {
+    itemId: string;
+    amountUsd: number;
+    wallNowMs: number;
+    /** Local viewer — marks “you’re winning” before ACK. */
+    leadingBidderId?: string | null;
+    leadingBidderUsername?: string | null;
+  },
 ): LiveRoomBuyerSnapshot | null {
   if (!args.itemId || !Number.isFinite(args.amountUsd) || args.amountUsd <= 0) return null;
   if (snap.activeItemId && snap.activeItemId !== args.itemId) return null;
@@ -200,8 +207,12 @@ export function mergeBuyerSnapshotForOptimisticBid(
         biddingOpen: true,
         auctionEndsAt: snap.auctionEndsAt,
         startingBidUsd: snap.startingBidUsd,
-        lastHighBidderId: snap.lastHighBidderId,
-        lastHighBidderUsername: snap.lastHighBidderUsername,
+        lastHighBidderId:
+          args.leadingBidderId !== undefined ? args.leadingBidderId : snap.lastHighBidderId,
+        lastHighBidderUsername:
+          args.leadingBidderUsername !== undefined
+            ? args.leadingBidderUsername
+            : snap.lastHighBidderUsername,
       },
     },
     args.wallNowMs,

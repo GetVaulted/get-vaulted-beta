@@ -332,6 +332,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
         item.auctionEndsAt <= now;
 
       let fin: BreakRoundFinalizeResult = { finalized: false, skipStartAuction: false };
+      let breakChargePaymentStatus: string | undefined;
       if (needsBreakPriorFinalize) {
         const tBreak0 = Date.now();
         fin = await prisma.$transaction(
@@ -348,9 +349,33 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
           skipStartAuction: fin.skipStartAuction,
         });
         if (fin.pendingWinNotifications) {
-          void sendBreakAuctionWinNotificationsDeferred(fin.pendingWinNotifications).catch((err) =>
-            console.error("[live-room item PATCH startAuction] deferred win notifications", err),
-          );
+          try {
+            const charge = await sendBreakAuctionWinNotificationsDeferred(fin.pendingWinNotifications);
+            breakChargePaymentStatus =
+              charge.outcome === "paid"
+                ? "paid"
+                : charge.outcome === "requires_action" || charge.outcome === "processing"
+                  ? "requires_action"
+                  : charge.outcome === "error"
+                    ? "payment_failed"
+                    : "pending";
+          } catch (err) {
+            console.error("[live-room item PATCH startAuction] win charge/notify", err);
+            breakChargePaymentStatus = "payment_failed";
+          }
+        }
+        if (fin.finalized && fin.orderId && breakChargePaymentStatus && !fin.skipStartAuction) {
+          const [roomRow, itemRow] = await Promise.all([
+            prisma.liveRoom.findUnique({ where: { id: liveRoomId }, select: { roomVersion: true } }),
+            prisma.liveRoomItem.findUnique({ where: { id: itemId }, select: { itemVersion: true } }),
+          ]);
+          emitPurchaseCompleted(liveRoomId, itemId, {
+            roomVersion: roomRow?.roomVersion ?? room.roomVersion,
+            itemVersion: itemRow?.itemVersion ?? item.itemVersion,
+            orderId: fin.orderId,
+            paymentStatus: breakChargePaymentStatus,
+            itemSoldOut: false,
+          });
         }
       }
 
@@ -381,6 +406,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
           emitPurchaseCompleted(liveRoomId, itemId, {
             roomVersion: next.roomVersion,
             itemVersion: next.itemVersion,
+            orderId: fin.orderId ?? null,
+            ...(breakChargePaymentStatus ? { paymentStatus: breakChargePaymentStatus } : {}),
           });
         } catch (emitErr) {
           console.error("[live-room item PATCH startAuction] realtime emit failed (non-fatal)", emitErr);

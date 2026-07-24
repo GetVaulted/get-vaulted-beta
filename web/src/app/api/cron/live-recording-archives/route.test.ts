@@ -20,19 +20,19 @@ function req(headers?: HeadersInit) {
 }
 
 describe("POST /api/cron/live-recording-archives auth gate", () => {
-  const prevEnv = process.env.NODE_ENV;
+  const originalNodeEnv = process.env.NODE_ENV;
 
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.CRON_SECRET;
+    vi.stubEnv("NODE_ENV", originalNodeEnv ?? "test");
     hoisted.reconcile.mockResolvedValue({ packed: 1, failed: 0 });
   });
 
   it("rejects with 503 in production when CRON_SECRET is unset", async () => {
-    process.env.NODE_ENV = "production";
+    vi.stubEnv("NODE_ENV", "production");
     const res = await POST(req());
     expect(res.status).toBe(503);
-    process.env.NODE_ENV = prevEnv;
   });
 
   it("rejects wrong bearer", async () => {
@@ -51,10 +51,9 @@ describe("POST /api/cron/live-recording-archives auth gate", () => {
   });
 
   it("runs outside production even when CRON_SECRET is unset", async () => {
-    process.env.NODE_ENV = "test";
+    vi.stubEnv("NODE_ENV", "test");
     delete process.env.CRON_SECRET;
     const res = await POST(req());
     expect(res.status).toBe(200);
-    process.env.NODE_ENV = prevEnv;
   });
 });

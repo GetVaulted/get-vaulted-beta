@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { computeBuyerLiveShippingTotals } from "@/lib/unified-shipping-engine";
 import {
   computePoolTotalsFromGroups,
+  frozenPriorPurchaseProfileRow,
   packageGroupsFromProfileRows,
 } from "@/services/shipping/live-shipping-pool";
 import { PLATFORM_SHIPPING_PROFILE_SEEDS } from "@/lib/unified-shipping-engine";
@@ -26,7 +27,7 @@ function seedToProfileInput(seed: (typeof PLATFORM_SHIPPING_PROFILE_SEEDS)[numbe
 describe("live-shipping-pool", () => {
   const showCap = {
     shippingCapEnabled: true,
-    shippingCapCents: 1200,
+    shippingCapCents: 999,
     freeShippingEnabled: false,
     sellerPaysOverCap: true,
   };
@@ -94,5 +95,50 @@ describe("live-shipping-pool", () => {
     });
     expect(due.shippingDueForThisPurchaseCents).toBe(0);
     expect(due.capReached).toBe(true);
+  });
+
+  it("frozen prior purchases stay light so a profile remap cannot claw back on the next win", () => {
+    const capped = { ...showCap, shippingCapCents: 999 };
+
+    // Buyer already paid card-tier shipping (~$5.99) for two light wins.
+    const alreadyChargedCents = 599;
+    const prior = [
+      frozenPriorPurchaseProfileRow({ itemId: "old-a", appliedWeightOz: 4 }),
+      frozenPriorPurchaseProfileRow({ itemId: "old-b", appliedWeightOz: 4 }),
+    ];
+    // Bad remap would treat those as helmets; frozen rows must not.
+    const wronglyRemapped = [
+      { itemId: "old-a", profile: seedToProfileInput(helmet) },
+      { itemId: "old-b", profile: seedToProfileInput(helmet) },
+    ];
+    const frozenPool = computePoolTotalsFromGroups(packageGroupsFromProfileRows(prior), capped);
+    const remappedPool = computePoolTotalsFromGroups(packageGroupsFromProfileRows(wronglyRemapped), capped);
+    expect(frozenPool.buyerTotalCents).toBeLessThan(remappedPool.buyerTotalCents);
+
+    // Next win is a real helmet — only the incremental gap to the new pool is due.
+    const withNewHelmet = packageGroupsFromProfileRows([
+      ...prior,
+      { itemId: "new-h", profile: seedToProfileInput(helmet) },
+    ]);
+    const newPool = computePoolTotalsFromGroups(withNewHelmet, capped);
+    const due = computeBuyerLiveShippingTotals({
+      shippingMode: "capped",
+      shippingCapCents: 999,
+      sellerPaysOverCap: true,
+      estimatedEligibleBundleShippingCents: newPool.buyerTotalCents,
+      shippingAlreadyChargedCents: alreadyChargedCents,
+    });
+    expect(due.shippingDueForThisPurchaseCents).toBe(
+      Math.max(0, newPool.buyerTotalCents - alreadyChargedCents),
+    );
+    // Must not jump straight to full-cap clawback just from remapping old rows.
+    const remappedDue = computeBuyerLiveShippingTotals({
+      shippingMode: "capped",
+      shippingCapCents: 999,
+      sellerPaysOverCap: true,
+      estimatedEligibleBundleShippingCents: remappedPool.buyerTotalCents,
+      shippingAlreadyChargedCents: alreadyChargedCents,
+    });
+    expect(due.shippingDueForThisPurchaseCents).toBeLessThanOrEqual(remappedDue.shippingDueForThisPurchaseCents);
   });
 });

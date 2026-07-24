@@ -39,6 +39,8 @@ describe("unified-shipping-engine", () => {
   it("suggests profile from category", () => {
     expect(suggestShippingProfileSlugForCategory("NFL Helmets")).toBe("full_size_helmet");
     expect(suggestShippingProfileSlugForCategory("Graded Slabs")).toBe("graded_card");
+    expect(suggestShippingProfileSlugForCategory("Hobby Break")).toBe("trading_cards");
+    expect(suggestShippingProfileSlugForCategory("Team Lot")).toBe("card_lot");
   });
 
   it("resolves profile dimensions with custom overrides", () => {
@@ -82,7 +84,7 @@ describe("unified-shipping-engine", () => {
     expect(groups.every((g) => g.items.length === 1)).toBe(true);
   });
 
-  it("applies buyer shipping cap with seller subsidy", () => {
+  it("applies buyer shipping cap with seller subsidy (platform max $9.99)", () => {
     const result = computeLiveBuyerShippingCharge({
       rawShippoEstimateCents: 2500,
       show: {
@@ -92,9 +94,25 @@ describe("unified-shipping-engine", () => {
         sellerPaysOverCap: true,
       },
     });
-    expect(result.buyerPaysCents).toBe(1500);
-    expect(result.sellerSubsidyCents).toBe(1000);
+    // Host-requested 1500 is clamped to the $9.99 platform ceiling.
+    expect(result.buyerPaysCents).toBe(999);
+    expect(result.sellerSubsidyCents).toBe(1501);
     expect(result.shippingCapApplied).toBe(true);
+  });
+
+  it("calculated mode still never charges the buyer more than $9.99", () => {
+    const result = computeLiveBuyerShippingCharge({
+      rawShippoEstimateCents: 2500,
+      show: {
+        shippingMode: "calculated",
+        shippingCapEnabled: false,
+        shippingCapCents: null,
+        freeShippingEnabled: false,
+        sellerPaysOverCap: true,
+      },
+    });
+    expect(result.buyerPaysCents).toBe(999);
+    expect(result.sellerSubsidyCents).toBe(1501);
   });
 
   it("free shipping charges buyer zero and seller absorbs all", () => {
@@ -153,18 +171,18 @@ describe("unified-shipping-engine", () => {
     const liability = computeShowShippingLiability({
       show: {
         shippingCapEnabled: true,
-        shippingCapCents: 1500,
+        shippingCapCents: 999,
         freeShippingEnabled: false,
         sellerPaysOverCap: true,
       },
       sessions: [
-        { shippingCostCents: 1500, estimatedLabelCostCents: 1200, sellerShippingSubsidyCents: 0, buyerId: "b1" },
-        { shippingCostCents: 1500, estimatedLabelCostCents: 1800, sellerShippingSubsidyCents: 300, buyerId: "b2" },
+        { shippingCostCents: 999, estimatedLabelCostCents: 1200, sellerShippingSubsidyCents: 201, buyerId: "b1" },
+        { shippingCostCents: 999, estimatedLabelCostCents: 1800, sellerShippingSubsidyCents: 801, buyerId: "b2" },
       ],
     });
-    expect(liability.collectedCents).toBe(3000);
+    expect(liability.collectedCents).toBe(1998);
     expect(liability.estimatedLabelCostCents).toBe(3000);
-    expect(liability.netCents).toBe(0);
+    expect(liability.netCents).toBe(-1002);
     expect(liability.buyersCount).toBe(2);
   });
 });

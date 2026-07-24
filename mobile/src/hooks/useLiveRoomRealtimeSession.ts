@@ -598,7 +598,12 @@ export function useLiveRoomRealtimeSession(args: {
     unresolvedPaymentFailure,
     fetchSnapshot,
     syncedNowMs: () => syncedWallTimeMs(clockSkewMs),
-    applyOptimisticBid: (args: { itemId: string; amountUsd: number }) => {
+    applyOptimisticBid: (args: {
+      itemId: string;
+      amountUsd: number;
+      leadingBidderId?: string | null;
+      leadingBidderUsername?: string | null;
+    }) => {
       const wallNow = syncedWallTimeMs(clockSkewMs);
       setRoomSnap((prev) => {
         if (!prev) return prev;
@@ -606,6 +611,8 @@ export function useLiveRoomRealtimeSession(args: {
           itemId: args.itemId,
           amountUsd: args.amountUsd,
           wallNowMs: wallNow,
+          leadingBidderId: args.leadingBidderId,
+          leadingBidderUsername: args.leadingBidderUsername,
         });
         if (merged && (merged.currentBidUsd ?? 0) > (prev.currentBidUsd ?? 0)) {
           console.info('[bid] high bid advanced', {

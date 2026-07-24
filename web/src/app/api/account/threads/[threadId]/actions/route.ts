@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
-import { setUserBlocked } from "@/lib/user-block";
+import { isUserBlockError, setUserBlocked } from "@/lib/user-block";
 import { prisma } from "@/lib/prisma";
 
 type Body = {
@@ -85,6 +85,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ threadId: str
   if (action === "block") {
     const blocked = body.value !== false;
     const otherUserId = thread.buyerId === uid ? thread.sellerId : thread.buyerId;
+    try {
+      await setUserBlocked(prisma, { blockerId: uid, blockedId: otherUserId, blocked });
+    } catch (e) {
+      if (isUserBlockError(e)) {
+        const status = e.code === "USER_NOT_FOUND" ? 404 : 403;
+        return NextResponse.json({ error: e.message, code: e.code }, { status });
+      }
+      throw e;
+    }
     await prisma.messageThreadParticipant.update({
       where: { id: participant.id },
       data: { blocked },
@@ -92,7 +101,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ threadId: str
     // Per-thread flag stays for backward-compat UI state, but the durable, cross-thread
     // UserBlock table is the actual source of truth for whether new threads/messages
     // between this pair are allowed (see FIX 2, messaging security audit 2026-07).
-    await setUserBlocked(prisma, { blockerId: uid, blockedId: otherUserId, blocked });
     return NextResponse.json({ ok: true, blocked });
   }
 

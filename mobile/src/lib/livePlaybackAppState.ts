@@ -1,5 +1,16 @@
 import type { AppStateStatus } from 'react-native';
 
+/**
+ * Brief home / app-switcher flickers (exit → return in &lt;1s) must not tear down IVS Stage.
+ * Leave+rejoin racing a native surface remount crashes the process on resume.
+ */
+export const LIVE_BACKGROUND_SUSPEND_DWELL_MS = 700;
+
+/** True once the app has stayed backgrounded long enough to safely suspend Stage / minimize host. */
+export function shouldCommitLiveBackgroundAfterDwell(dwellMs: number): boolean {
+  return dwellMs >= LIVE_BACKGROUND_SUSPEND_DWELL_MS;
+}
+
 /** Phone calls, Control Center, and Siri use `inactive` — not a true background transition. */
 export function isLiveAudioInterruptionState(state: AppStateStatus): boolean {
   return state === 'inactive' || state === 'background';

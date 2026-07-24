@@ -108,7 +108,7 @@ export async function settleLiveAuctionItemWhenMarkedSold(
       title: true,
       sellerId: true,
       shippingPriceUsd: true,
-    shipFromAddressId: true,
+      shipFromAddressId: true,
       startingBidUsd: true,
       currentBidUsd: true,
       priceUsd: true,
@@ -117,6 +117,17 @@ export async function settleLiveAuctionItemWhenMarkedSold(
   });
   if (!listingRow || listingRow.moderationRemovedAt) {
     throw new Error("LISTING_NOT_AVAILABLE");
+  }
+
+  // Multi-qty lots stamp `unitListingTitle` ("PYT Break 1 #3") at close — keep listing,
+  // order, and the broadcast celebration on that exact string even when a listing already existed.
+  const listingTitle =
+    (args.unitListingTitle?.trim() || listingRow.title).slice(0, 200) || "Live auction";
+  if (listingTitle !== listingRow.title) {
+    await tx.listing.update({
+      where: { id: listingRow.id },
+      data: { title: listingTitle },
+    });
   }
 
   const bidRows = await tx.bid.findMany({
@@ -173,7 +184,7 @@ export async function settleLiveAuctionItemWhenMarkedSold(
 
   const order = await createOrderFromAuctionWin(tx, {
     listingId: listingRow.id,
-    listingTitle: listingRow.title,
+    listingTitle,
     buyerId: leaderId,
     sellerId: listingRow.sellerId,
     itemPriceUsd,
@@ -197,7 +208,7 @@ export async function settleLiveAuctionItemWhenMarkedSold(
   return {
     orderId: order.orderId,
     buyerId: leaderId,
-    listingTitle: listingRow.title,
+    listingTitle,
     itemPriceUsd,
     sellerId: listingRow.sellerId,
   };

@@ -193,6 +193,12 @@ export function SettingsScreen({ navigation }: Props) {
           icon="flag-outline"
           onPress={() => navigation.navigate('ReportingSafety')}
         />
+        <SettingsRow
+          label="Blocked users"
+          sub="People you blocked can’t find or see you"
+          icon="hand-left-outline"
+          onPress={() => navigation.navigate('BlockedUsers')}
+        />
 
         <SettingsSectionHeader title="Settings" />
         <SettingsRow

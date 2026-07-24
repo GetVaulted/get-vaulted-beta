@@ -191,6 +191,26 @@ describe("live-show capped shipping", () => {
     expect(result.sellerShippingSubsidyCents).toBe(801);
   });
 
+  it("11. after the show shipping cap is paid, buyer copy is Free shipping", async () => {
+    const { buyerLiveShippingPaidCopy } = await import("@/lib/live-show-shipping-terms");
+    expect(
+      buyerLiveShippingPaidCopy({
+        mode: "capped",
+        paidCents: 999,
+        capCents: 999,
+        capReached: true,
+      }),
+    ).toBe("Free shipping");
+    expect(
+      buyerLiveShippingPaidCopy({
+        mode: "calculated",
+        paidCents: 999,
+        capCents: 999,
+        capReached: true,
+      }),
+    ).toBe("Free shipping");
+  });
+
   it("10. USPS, UPS, and Best Rate only return permitted Shippo rates", () => {
     const rates = [
       { provider: "FedEx", amount: "3.00", object_id: "f1" },

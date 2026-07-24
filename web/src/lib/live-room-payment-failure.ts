@@ -35,6 +35,10 @@ import {
   resolveBuyerRecoveryPaymentMethodId,
 } from "@/lib/stripe-buyer-payment-method-setup";
 import { assertPaymentMethodOwnedByUser } from "@/lib/stripe-customer";
+import {
+  enrichPaymentFailureChargeAmounts,
+  resolveLivePaymentFailureChargeUsd,
+} from "@/lib/live-purchase-charge-total";
 
 export type LiveBuyerPaymentFailureDTO = {
   id: string;
@@ -117,6 +121,13 @@ function serializeBuyerFailure(row: {
   };
 }
 
+async function toBuyerFailureDto(
+  row: Parameters<typeof serializeBuyerFailure>[0] & { buyerId?: string },
+): Promise<LiveBuyerPaymentFailureDTO | null> {
+  const [enriched] = await enrichPaymentFailureChargeAmounts([row]);
+  return serializeBuyerFailure(enriched ?? row);
+}
+
 export async function getUnresolvedPaymentFailureForBuyer(
   liveRoomId: string,
   buyerId: string,
@@ -129,7 +140,8 @@ export async function getUnresolvedPaymentFailureForBuyer(
     },
     orderBy: { failedAt: "desc" },
   });
-  return row ? serializeBuyerFailure(row) : null;
+  if (!row) return null;
+  return toBuyerFailureDto(row);
 }
 
 export async function listUnresolvedPaymentFailuresForRoom(
@@ -140,7 +152,8 @@ export async function listUnresolvedPaymentFailuresForRoom(
     orderBy: { failedAt: "desc" },
     take: 20,
   });
-  return rows
+  const enriched = await enrichPaymentFailureChargeAmounts(rows);
+  return enriched
     .map((row) => {
       const base = serializeBuyerFailure(row);
       if (!base) return null;
@@ -248,6 +261,13 @@ export async function recordLiveRoomPaymentFailure(args: {
     )?.username ??
     null;
 
+  const amountUsd = await resolveLivePaymentFailureChargeUsd({
+    fallbackUsd: args.amountUsd,
+    orderId: args.orderId,
+    variantPurchaseId: args.variantPurchaseId,
+    breakSpotId: args.breakSpotId,
+  });
+
   const row = existing
     ? await prisma.liveRoomPaymentFailure.update({
         where: { id: existing.id },
@@ -257,7 +277,7 @@ export async function recordLiveRoomPaymentFailure(args: {
           orderId: args.orderId ?? existing.orderId,
           variantPurchaseId: args.variantPurchaseId ?? existing.variantPurchaseId,
           breakSpotId: args.breakSpotId ?? existing.breakSpotId,
-          amountUsd: args.amountUsd,
+          amountUsd,
           status: args.status,
           failureReason: args.failureReason,
           itemTitle: args.itemTitle ?? existing.itemTitle,
@@ -273,7 +293,7 @@ export async function recordLiveRoomPaymentFailure(args: {
           orderId: args.orderId ?? undefined,
           variantPurchaseId: args.variantPurchaseId ?? undefined,
           breakSpotId: args.breakSpotId ?? undefined,
-          amountUsd: args.amountUsd,
+          amountUsd,
           status: args.status,
           failureReason: args.failureReason,
           itemTitle: args.itemTitle ?? undefined,
@@ -286,7 +306,7 @@ export async function recordLiveRoomPaymentFailure(args: {
     failureId: row.id,
     buyerId: args.buyerId,
     buyerUsername,
-    amountUsd: args.amountUsd,
+    amountUsd,
     itemTitle: row.itemTitle,
     liveRoomItemId: row.liveRoomItemId,
     orderId: row.orderId,
@@ -720,7 +740,7 @@ export async function retryLiveRoomPaymentFailure(args: {
       ok: false,
       error: "This payment cannot be retried automatically yet.",
       code: "UNSUPPORTED_KIND",
-      paymentFailure: serializeBuyerFailure(failureRow)!,
+      paymentFailure: (await toBuyerFailureDto(failureRow))!,
     };
   }
 
@@ -729,7 +749,7 @@ export async function retryLiveRoomPaymentFailure(args: {
       ok: false,
       error: "Retry failed.",
       code: "CHARGE_FAILED",
-      paymentFailure: serializeBuyerFailure(failureRow)!,
+      paymentFailure: (await toBuyerFailureDto(failureRow))!,
     };
   }
 
@@ -885,7 +905,7 @@ export async function syncLiveRoomPaymentFailureAfterSca(args: {
     }
   }
 
-  const dto = serializeBuyerFailure(failureRow);
+  const dto = await toBuyerFailureDto(failureRow);
   return {
     ok: false,
     error: "Payment not completed yet.",

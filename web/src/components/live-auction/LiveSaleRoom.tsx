@@ -948,6 +948,18 @@ export function LiveSaleRoom({
             : fmt(currentTopBid)
           : "$0"}
       </p>
+      {roomType === "auction" && isWinning ? (
+        <p className="mt-1 text-sm font-bold text-gold-bright">You&apos;re winning</p>
+      ) : roomType === "auction" && activeDb ? (
+        <p className="mt-1 truncate text-sm font-bold text-zinc-50" data-testid="live-auction-leader-line">
+          {formatAuctionLeaderLine({
+            lastHighBidderUsername: activeDb.lastHighBidderUsername,
+            lastHighBidderId: activeDb.lastHighBidderId,
+            currentBidUsd: activeDb.currentBidUsd,
+            startingBidUsd: activeDb.startingBidUsd,
+          })}
+        </p>
+      ) : null}
       <p className="mt-0.5 line-clamp-2 text-[11px] font-medium text-zinc-200">{priceLine}</p>
       {!isHost && (roomType === "auction" || roomType === "sale") && !activeHasVariants ? (
         <LiveShippingIndicator
@@ -1184,9 +1196,12 @@ export function LiveSaleRoom({
             : "Select an item"}
         </p>
         {roomType === "auction" && isWinning ? (
-          <p className="text-[9px] font-semibold uppercase tracking-wide text-gold-bright/85">You&apos;re winning</p>
+          <p className="mt-0.5 text-[12px] font-bold text-gold-bright">You&apos;re winning</p>
         ) : roomType === "auction" && activeDb ? (
-          <p className="text-[10px] font-semibold text-zinc-300">
+          <p
+            className="mt-0.5 truncate text-[12px] font-bold text-zinc-50"
+            data-testid="live-auction-leader-line"
+          >
             {formatAuctionLeaderLine({
               lastHighBidderUsername: activeDb.lastHighBidderUsername,
               lastHighBidderId: activeDb.lastHighBidderId,

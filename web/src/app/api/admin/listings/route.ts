@@ -6,6 +6,7 @@ import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-i
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
 import { assertSellerCanPublishListing } from "@/lib/seller-publish-readiness";
+import { resolveLiveShowShippingCapCents } from "@/lib/live-show-shipping-terms";
 
 const listingInclude = listingWithSellerFulfillmentInclude;
 
@@ -330,7 +331,7 @@ export async function POST(req: Request) {
       parcelHeightIn,
       shippingBaseWeightOz,
       shippingIncrementalWeightOz,
-      shippingPriceCapCents: Math.floor(Number(process.env.LIVE_SHIPPING_CAP_CENTS ?? 1199)),
+      shippingPriceCapCents: resolveLiveShowShippingCapCents(),
       shippingCategory,
       shipAlone: false,
       shipFromAddressId,

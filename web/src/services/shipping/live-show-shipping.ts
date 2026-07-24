@@ -7,7 +7,7 @@ import {
   resolveShippingProfileDimensions,
   shipmentProfileEditLocked,
 } from "@/lib/unified-shipping-engine";
-import { liveRoomShippingPatchFromMode, shippingModeFromRoomFlags } from "@/lib/live-show-shipping-terms";
+import { liveRoomShippingPatchFromMode, resolveLiveShowShippingCapCents, shippingModeFromRoomFlags } from "@/lib/live-show-shipping-terms";
 import { liveShowShippingConfigFromRoom } from "@/services/shipping/live-shipping-pool";
 import { getActivePlatformShippingProfiles } from "@/services/shipping/platform-shipping-profiles";
 import { getActiveSellerShippingProfiles, sellerProfileToProfileInput } from "@/services/shipping/seller-shipping-profiles";
@@ -187,7 +187,7 @@ export async function updateLiveShowShippingSettings(
   if (patch.shippingCapCents !== undefined && !patch.shippingMode) {
     data.shippingCapCents =
       patch.shippingCapCents != null && Number.isFinite(patch.shippingCapCents)
-        ? Math.max(0, Math.floor(patch.shippingCapCents))
+        ? resolveLiveShowShippingCapCents(patch.shippingCapCents)
         : null;
   }
   if (typeof patch.freeShippingEnabled === "boolean" && !patch.shippingMode) {
