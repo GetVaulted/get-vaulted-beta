@@ -30,6 +30,7 @@ import { isPublicDiscoveryLiveRoom, parseLiveRoomDiscoveryVisibility } from "@/l
 import { buildWeeklyRecurringScheduleDates } from "@/lib/live-room-recurring-schedule";
 import { parseLiveTeaserFieldsFromBody } from "@/lib/live-room-teaser";
 import { listHiddenPeerIdsForViewer } from "@/lib/user-block";
+import { scheduleNotifyAdminsLiveShowCreated } from "@/lib/live-show-created-admin-notify";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
 
@@ -606,6 +607,10 @@ export async function POST(req: Request) {
 
   try {
     const createdIds: string[] = [];
+    const seller = await prisma.user.findUnique({
+      where: { id: sellerId },
+      select: { username: true },
+    });
 
     for (const slot of scheduleSlots) {
       const slotRoomData = { ...roomData, scheduledStartAt: slot };
@@ -627,6 +632,13 @@ export async function POST(req: Request) {
         });
         createdIds.push(created.id);
         emitLiveDiscoveryChanged({ roomId: created.id, status: "scheduled", reason: "created" });
+        scheduleNotifyAdminsLiveShowCreated({
+          roomId: created.id,
+          title: title.slice(0, 200),
+          roomType: rt,
+          sellerUsername: seller?.username,
+          scheduledStartAt: slot,
+        });
         logCreate("created_break", { id: created.id, recurring: recurringEnabled });
       } else {
         const room = await prisma.liveRoom.create({
@@ -635,6 +647,13 @@ export async function POST(req: Request) {
         });
         createdIds.push(room.id);
         emitLiveDiscoveryChanged({ roomId: room.id, status: "scheduled", reason: "created" });
+        scheduleNotifyAdminsLiveShowCreated({
+          roomId: room.id,
+          title: title.slice(0, 200),
+          roomType: rt,
+          sellerUsername: seller?.username,
+          scheduledStartAt: slot,
+        });
         logCreate("created", { id: room.id, recurring: recurringEnabled });
       }
     }

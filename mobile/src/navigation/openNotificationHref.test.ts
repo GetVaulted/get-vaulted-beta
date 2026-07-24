@@ -74,6 +74,14 @@ describe('openNotificationHref', () => {
       openNotificationHref(nav, '/seller/live');
       expect(nav.navigate).not.toHaveBeenCalledWith('SellerProfileByUsername', expect.anything());
     });
+
+    it('routes host console href to SellerHostRoom', () => {
+      const nav = fakeNav();
+      expect(openNotificationHref(nav, '/seller/live/room_abc/console', { type: 'live_host_starting_soon' })).toBe(
+        true,
+      );
+      expect(nav.navigate).toHaveBeenCalledWith('SellerHostRoom', { roomId: 'room_abc' });
+    });
   });
 
   it('routes a trade offer href to ReviewOffer in Trade Center', () => {

@@ -463,6 +463,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     teaserVideoUrl?: string | null;
     teaserVideoDurationMs?: number | null;
     scheduledStartAt?: Date | null;
+    hostPreStartNotifiedAt?: Date | null;
     tipModeratorId?: string | null;
     tipRecipientMode?: "host" | "moderator";
   } = {};
@@ -488,6 +489,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       const d = new Date(body.scheduledStartAt);
       if (!Number.isNaN(d.getTime())) data.scheduledStartAt = d;
     }
+    // Reschedule must allow a fresh T−15 host reminder.
+    data.hostPreStartNotifiedAt = null;
   }
 
   if ("tipModeratorId" in body || "tipRecipientMode" in body || "tipsToModerator" in body) {

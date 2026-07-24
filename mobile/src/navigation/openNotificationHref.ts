@@ -121,6 +121,13 @@ export function openNotificationHref(
     return true;
   }
 
+  // Host console deep link (T−15 “get ready” push).
+  const hostConsoleMatch = path.match(/^\/seller\/live\/([^/]+)\/console/);
+  if (hostConsoleMatch?.[1]) {
+    n.navigate('SellerHostRoom', { roomId: decodeURIComponent(hostConsoleMatch[1]) });
+    return true;
+  }
+
   if (path.startsWith('/account/seller') || ctx?.type === 'stripe_connect_action_required') {
     n.navigate('MainTabs', { screen: 'HQ' });
     return true;
