@@ -9,6 +9,8 @@ import {
 } from "@/lib/realtime-emit-server";
 import { idleVariantSpotCommerceReset } from "@/lib/live-variant-spot-commerce";
 import type { FinalizeTrigger } from "@/lib/live-auction-finalize";
+import { resolveSoldUnitDisplayTitle } from "@/lib/live-room-item-quantity-display";
+import { summarizeVariantSpots } from "@/lib/live-item-variant-presets";
 
 /** Close a PYT/PYD spot auction with no bids — keep pin, return to fixed checkout. */
 export async function resetVariantSpotAuctionNoBids(args: {
@@ -193,13 +195,41 @@ export async function settleVariantSpotAuctionWinner(args: {
       variant: { select: { label: true } },
     },
   });
+  const lotRow = await prisma.liveRoomItem.findUnique({
+    where: { id: args.itemId },
+    select: {
+      title: true,
+      quantity: true,
+      quantityInitial: true,
+      variants: { select: { soldCount: true, quantityRemaining: true, status: true, priceUsd: true } },
+    },
+  });
+  const unitsSoldAfter = lotRow?.variants?.length
+    ? summarizeVariantSpots(
+        lotRow.variants.map((v) => ({
+          soldCount: v.soldCount,
+          quantityRemaining: v.quantityRemaining,
+          status: v.status,
+          priceUsd: v.priceUsd,
+        })),
+      ).sold
+    : 1;
+  // Match on-screen lot description at hammer ("PYT Break 1 #3"), not only the team pin label.
+  const celebrationLabel = lotRow
+    ? resolveSoldUnitDisplayTitle({
+        title: lotRow.title,
+        quantity: lotRow.quantity,
+        quantityInitial: lotRow.quantityInitial,
+        unitsSoldAfter,
+      })
+    : (purchaseRow?.variant.label ?? "Spot");
 
   emitVariantPurchased(args.liveRoomId, {
     itemId: args.itemId,
     variantId,
     itemVersion: itemNext?.itemVersion ?? 0,
     purchaseId,
-    label: purchaseRow?.variant.label ?? "Spot",
+    label: celebrationLabel,
     buyerUsername: purchaseRow?.buyer.username?.trim() ?? "buyer",
     amountUsd: purchaseRow?.totalUsd,
   });

@@ -79,7 +79,7 @@ function chargeOutcomeToPaymentStatus(outcome: ChargeOrderSavedPmOutcome["outcom
 /**
  * Settle a live auction/break lot to its winner, charge the winner's saved card, emit realtime,
  * and record a payment-failure for buyer recovery on charge failure. This is the single source of
- * truth shared by the manual host "mark sold" route and the automatic timer-zero finalize. It is
+ * truth shared by the host "mark sold" route and automatic timer-zero finalize. It is
  * idempotent: the transaction only settles a lot still in `active` status, so concurrent callers
  * (manual click, timer nudge, read-sweep across multiple polls) cannot double-settle or
  * double-charge — losers throw `ITEM_ALREADY_SOLD` / `ITEM_NOT_ACTIVE`.
@@ -264,6 +264,7 @@ export async function settleAndChargeLiveAuctionLot(args: {
       winnerUsername,
       winnerId: settled.buyerId,
       winningAmountUsd: settled.itemPriceUsd,
+      itemTitle: settled.listingTitle ?? null,
       orderId: settled.orderId ?? null,
       paymentStatus: "payment_failed",
       itemSoldOut: settled.itemSoldOut,
@@ -376,44 +377,20 @@ async function skipLiveAuctionLotNoWinner(args: {
   return { closed: true };
 }
 
-/** Timer elapsed with a winner — close bidding; host marks sold to settle. */
-async function closeLiveAuctionLotPendingWinner(args: {
+/** Timer elapsed with a winner — settle + charge (same path as host Mark sold). */
+async function settleLiveAuctionLotOnTimerEnd(args: {
   liveRoomId: string;
   itemId: string;
+  room: RoomCtx;
   trigger: FinalizeTrigger;
-}): Promise<{ closed: boolean }> {
-  const { liveRoomId, itemId, trigger } = args;
-  const next = await prisma.$transaction(async (tx) => {
-    const updated = await tx.liveRoomItem.updateMany({
-      where: { id: itemId, liveRoomId, status: "active", biddingOpen: true },
-      data: { biddingOpen: false, itemVersion: { increment: 1 } },
-    });
-    if (updated.count === 0) return null;
-    const roomNext = await tx.liveRoom.update({
-      where: { id: liveRoomId },
-      data: { roomVersion: { increment: 1 } },
-      select: { roomVersion: true },
-    });
-    const itemNext = await tx.liveRoomItem.findUnique({
-      where: { id: itemId },
-      select: { itemVersion: true, auctionEndsAt: true },
-    });
-    return {
-      roomVersion: roomNext.roomVersion,
-      itemVersion: itemNext?.itemVersion ?? 0,
-      auctionEndsAt: itemNext?.auctionEndsAt?.toISOString() ?? null,
-    };
+}): Promise<{ settled: boolean; orderId: string | null }> {
+  const r = await settleAndChargeLiveAuctionLot({
+    liveRoomId: args.liveRoomId,
+    itemId: args.itemId,
+    room: args.room,
+    trigger: args.trigger,
   });
-  if (!next) return { closed: false };
-  emitActiveItemChanged(liveRoomId, itemId, {
-    roomVersion: next.roomVersion,
-    itemVersion: next.itemVersion,
-    biddingOpen: false,
-    auctionEndsAt: next.auctionEndsAt,
-  });
-  emitLiveRoomQueueItemsChanged(liveRoomId);
-  console.info("[auction close] timer ended, winner pending host mark sold", { trigger, liveRoomId, itemId });
-  return { closed: true };
+  return { settled: true, orderId: r.orderId };
 }
 
 /**
@@ -445,9 +422,10 @@ export type OverdueFinalizeSummary = {
 
 /**
  * Server-authoritative sweep: find active auction/break lots in this room whose server timer has
- * elapsed (`biddingOpen && auctionEndsAt <= now - grace`) and finalize each — settle+charge when a
- * winner exists, otherwise close unsold. Safe to call from any read/poll or an explicit nudge; the
- * underlying settle/close are idempotent so simultaneous callers can't double-process.
+ * elapsed (`auctionEndsAt <= now - grace`) and finalize each — settle+charge when a winner exists,
+ * otherwise close unsold. Also recovers lots left with bidding closed but not yet settled (older
+ * “mark sold” flow). Safe to call from any read/poll or an explicit nudge; settle/close are
+ * idempotent so simultaneous callers can't double-process.
  */
 export async function finalizeOverdueLiveAuctionLotsForRoom(args: {
   liveRoomId: string;
@@ -464,8 +442,12 @@ export async function finalizeOverdueLiveAuctionLotsForRoom(args: {
     where: {
       liveRoomId,
       status: "active",
-      biddingOpen: true,
       auctionEndsAt: { not: null, lte: cutoff },
+      OR: [
+        { biddingOpen: true },
+        // Older close-bidding-only path left these waiting for Mark sold — settle them now.
+        { biddingOpen: false, lastHighBidderId: { not: null } },
+      ],
     },
     select: { id: true, lastHighBidderId: true, auctionEndsAt: true, auctionVariantId: true },
   });
@@ -496,15 +478,14 @@ export async function finalizeOverdueLiveAuctionLotsForRoom(args: {
         continue;
       }
       if (lot.lastHighBidderId?.trim()) {
-        if (room.roomType === "auction") {
-          const c = await closeLiveAuctionLotPendingWinner({ liveRoomId, itemId: lot.id, trigger });
-          if (c.closed) summary.finalized += 1;
-          summary.results.push({ itemId: lot.id, outcome: "unsold" });
-        } else {
-          const r = await settleAndChargeLiveAuctionLot({ liveRoomId, itemId: lot.id, room, trigger });
-          summary.finalized += 1;
-          summary.results.push({ itemId: lot.id, outcome: "sold", orderId: r.orderId });
-        }
+        const r = await settleLiveAuctionLotOnTimerEnd({
+          liveRoomId,
+          itemId: lot.id,
+          room,
+          trigger,
+        });
+        summary.finalized += 1;
+        summary.results.push({ itemId: lot.id, outcome: "sold", orderId: r.orderId });
       } else {
         const c = await closeLiveAuctionLotNoWinner({ liveRoomId, itemId: lot.id, room, trigger });
         if (c.closed) summary.finalized += 1;
@@ -544,8 +525,11 @@ export async function finalizeOverdueLiveAuctionLotsAcrossLiveRooms(args?: {
   const overdueItems = await prisma.liveRoomItem.findMany({
     where: {
       status: "active",
-      biddingOpen: true,
       auctionEndsAt: { not: null, lte: cutoff },
+      OR: [
+        { biddingOpen: true },
+        { biddingOpen: false, lastHighBidderId: { not: null } },
+      ],
       liveRoom: {
         status: "live",
         roomType: { in: ["auction", "break", "sale"] },

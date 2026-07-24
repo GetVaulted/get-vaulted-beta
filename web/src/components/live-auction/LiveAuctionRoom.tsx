@@ -47,6 +47,7 @@ import {
   setLiveEventReminder,
 } from "@/lib/live-event-reminder";
 import { liveAuctionDisplayBidUsd } from "@/lib/live-auction-overlay-price";
+import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 import { LIVE_AUCTION_CLIENT_END_GRACE_MS } from "@/lib/live-auction-bid-extension";
 import { projectBuyerQueueLineup, buyerQueueRowSelectable } from "@/lib/live-buyer-queue-projection";
 import { fetchLiveBuyerPaymentSession } from "@/lib/live-tip-client";
@@ -518,6 +519,25 @@ export function LiveAuctionRoom({
     () => (activeDbItem ? liveAuctionMinBidUsd(activeDbItem) : 0),
     [activeDbItem],
   );
+
+  const viewerId = session?.user?.id ?? null;
+  const isWinning =
+    Boolean(viewerId) &&
+    Boolean(activeDbItem?.lastHighBidderId) &&
+    viewerId === activeDbItem!.lastHighBidderId &&
+    overlayIsLive;
+
+  const auctionLeaderLine =
+    !activeHasVariants && activeDbItem && (overlayIsLive || overlayTimerEndedUnsettled)
+      ? isWinning
+        ? "You're winning"
+        : formatAuctionLeaderLine({
+            lastHighBidderUsername: activeDbItem.lastHighBidderUsername,
+            lastHighBidderId: activeDbItem.lastHighBidderId,
+            currentBidUsd: activeDbItem.currentBidUsd,
+            startingBidUsd: activeDbItem.startingBidUsd,
+          })
+      : null;
 
   useEffect(() => {
     setUserHighBidUsd(null);
@@ -1121,6 +1141,16 @@ export function LiveAuctionRoom({
             <span className="text-zinc-400">•</span>
             <p className="text-zinc-300">{hostDisplayName}</p>
           </div>
+          {auctionLeaderLine ? (
+            <p
+              className={`mt-1.5 truncate text-sm font-bold tracking-tight ${
+                isWinning ? "text-gold-bright" : "text-zinc-50"
+              }`}
+              data-testid="live-auction-leader-line"
+            >
+              {auctionLeaderLine}
+            </p>
+          ) : null}
           {pytCheckoutHudMetaLine ? (
             <p className="mt-1 line-clamp-2 text-[10px] font-medium text-zinc-400">{pytCheckoutHudMetaLine}</p>
           ) : null}
@@ -1398,6 +1428,16 @@ export function LiveAuctionRoom({
                   : fmt(overlayItem.buyNow ?? overlayItem.topBid)
               : "$0"}
           </p>
+          {!activeHasVariants && auctionLeaderLine ? (
+            <p
+              className={`mt-1 max-w-[9.5rem] truncate text-right text-[12px] font-bold leading-tight ${
+                isWinning ? "text-gold-bright" : "text-zinc-50"
+              }`}
+              data-testid="live-auction-leader-line"
+            >
+              {auctionLeaderLine}
+            </p>
+          ) : null}
           {!activeHasVariants ? (
             <p
               className={`mt-1 inline-flex min-w-[3.25rem] justify-end rounded-full bg-black/35 px-2 py-0.5 text-[9px] font-bold tabular-nums ${

@@ -1,5 +1,10 @@
 /** Admin-controlled platform shipping profile defaults (seed data). */
 
+import {
+  DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS,
+  PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS,
+} from "../../../shared/live-show-shipping-config";
+
 export type PlatformShippingProfileSeed = {
   slug: string;
   name: string;
@@ -156,7 +161,9 @@ export function suggestShippingProfileSlugForCategory(category: string | null | 
   if (c.includes("mini") && c.includes("helmet")) return "mini_helmet";
   if (c.includes("speedflex")) return "speedflex_helmet";
   if (c.includes("helmet")) return "full_size_helmet";
-  if (c.includes("lot") || (c.includes("break") && !c.includes("helmet"))) return "card_lot";
+  if (c.includes("lot")) return "card_lot";
+  // Breaks / card shows use the light mailer band (not card_lot). Matches seller `live_break_spot`.
+  if (c.includes("break") && !c.includes("helmet")) return "trading_cards";
   if (c.includes("jersey") || c.includes("apparel")) return "jersey";
   if (c.includes("sneaker") || c.includes("shoe")) return "sneakers";
   if (c.includes("watch")) return "watch";
@@ -385,13 +392,14 @@ export function computeBuyerLiveShippingTotals(args: {
     };
   }
 
-  const cap =
-    args.shippingMode === "capped" && args.shippingCapCents != null
+  // Hosts may configure a lower show cap; calculated mode still hits the platform max.
+  const configured =
+    args.shippingCapCents != null && Number.isFinite(args.shippingCapCents)
       ? Math.max(0, Math.floor(args.shippingCapCents))
-      : null;
+      : DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS;
+  const cap = Math.min(configured, PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS);
 
-  const buyerTotalShippingCents =
-    args.shippingMode === "capped" && cap != null ? Math.min(cap, raw) : raw;
+  const buyerTotalShippingCents = Math.min(cap, raw);
 
   const shippingDueForThisPurchaseCents = Math.max(0, buyerTotalShippingCents - already);
   const sellerShippingSubsidyCents =
@@ -401,7 +409,7 @@ export function computeBuyerLiveShippingTotals(args: {
     buyerTotalShippingCents,
     shippingDueForThisPurchaseCents,
     sellerShippingSubsidyCents,
-    capReached: cap != null && buyerTotalShippingCents >= cap,
+    capReached: buyerTotalShippingCents >= cap,
     freeShippingApplied: false,
   };
 }

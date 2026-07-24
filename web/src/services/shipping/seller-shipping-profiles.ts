@@ -2,6 +2,7 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import type { LiveShowCarrierPreference } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import type { ProfileInput } from "@/lib/unified-shipping-engine";
+import { suggestSellerShippingProfileSourceSlugForCategory } from "@/lib/live-show-category-shipping-profile";
 
 export type SellerShippingProfileSeed = {
   sourceSlug: string;
@@ -242,6 +243,8 @@ export async function getActiveSellerShippingProfiles(sellerId: string, db: Db =
 export async function resolveDefaultSellerProfileForLiveShow(args: {
   sellerId: string;
   showDefaultSellerProfileId?: string | null;
+  /** Room category (Cards / Helmets / …) — used when the show has no explicit default profile. */
+  category?: string | null;
   db?: Db;
 }) {
   const db = args.db ?? prisma;
@@ -256,6 +259,11 @@ export async function resolveDefaultSellerProfileForLiveShow(args: {
     });
     if (explicit) return explicit;
   }
+  const categorySlug = suggestSellerShippingProfileSourceSlugForCategory(args.category);
+  const byCategory = await db.sellerShippingProfile.findFirst({
+    where: { sellerId: args.sellerId, sourceSlug: categorySlug, archivedAt: null },
+  });
+  if (byCategory) return byCategory;
   return db.sellerShippingProfile.findFirst({
     where: { sellerId: args.sellerId, archivedAt: null, isDefault: true },
   });
@@ -289,15 +297,38 @@ export function sellerShippingProfileToProfileInput(profile: {
   };
 }
 
-/** Break / team / spot commerce — item profile, then show default, then seeded break mailer. */
+/** Break / team / spot commerce — item profile, then show default, then category mailer/helmet. */
 export async function resolveBreakSpotSellerProfile(args: {
   sellerId: string;
   showDefaultSellerProfileId?: string | null;
   itemSellerProfileId?: string | null;
+  /** Room category so Helmets shows do not fall back to card-mailer rates. */
+  category?: string | null;
   db?: Db;
 }) {
   const db = args.db ?? prisma;
   await seedSellerShippingProfiles(args.sellerId, db);
+  const categorySlug = suggestSellerShippingProfileSourceSlugForCategory(args.category);
+  const categoryWantsHeavyParcel =
+    categorySlug === "full_size_helmet" || categorySlug === "mini_helmet";
+
+  async function profileBySlug(sourceSlug: string) {
+    return db.sellerShippingProfile.findFirst({
+      where: { sellerId: args.sellerId, sourceSlug, archivedAt: null },
+    });
+  }
+
+  /** Card-mailer on a Helmets show is almost always a wrong default inheritance — use helmet rates. */
+  async function preferCategoryOverCardMailer(
+    profile: { id: string; sourceSlug: string } | null,
+  ) {
+    if (!profile) return null;
+    if (categoryWantsHeavyParcel && profile.sourceSlug === "live_break_spot") {
+      return (await profileBySlug(categorySlug)) ?? profile;
+    }
+    return profile;
+  }
+
   if (args.itemSellerProfileId?.trim()) {
     const byItem = await db.sellerShippingProfile.findFirst({
       where: {
@@ -306,23 +337,25 @@ export async function resolveBreakSpotSellerProfile(args: {
         archivedAt: null,
       },
     });
-    if (byItem) return byItem;
+    const preferred = await preferCategoryOverCardMailer(byItem);
+    if (preferred) return preferred;
   }
   const showDefault = await resolveDefaultSellerProfileForLiveShow({
     sellerId: args.sellerId,
     showDefaultSellerProfileId: args.showDefaultSellerProfileId,
+    category: args.category,
     db,
   });
-  if (showDefault) return showDefault;
-  return db.sellerShippingProfile.findFirst({
-    where: { sellerId: args.sellerId, sourceSlug: "live_break_spot", archivedAt: null },
-  });
+  const preferredShow = await preferCategoryOverCardMailer(showDefault);
+  if (preferredShow) return preferredShow;
+  return profileBySlug(categorySlug);
 }
 
 export async function resolveSellerProfileForLiveRoomItem(args: {
   sellerId: string;
   sellerShippingProfileId?: string | null;
   showDefaultSellerProfileId?: string | null;
+  category?: string | null;
   db?: Db;
 }) {
   const db = args.db ?? prisma;
@@ -339,6 +372,7 @@ export async function resolveSellerProfileForLiveRoomItem(args: {
   return resolveDefaultSellerProfileForLiveShow({
     sellerId: args.sellerId,
     showDefaultSellerProfileId: args.showDefaultSellerProfileId,
+    category: args.category,
     db,
   });
 }

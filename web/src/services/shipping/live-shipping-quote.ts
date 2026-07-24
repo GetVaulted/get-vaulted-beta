@@ -9,6 +9,7 @@ import {
 } from "@/lib/shippo";
 import {
   computePoolTotalsFromGroups,
+  frozenPriorPurchaseProfileRow,
   liveShowShippingConfigFromRoom,
   resolveLiveRoomItemForSessionOrder,
 } from "@/services/shipping/live-shipping-pool";
@@ -100,29 +101,25 @@ export async function buildSessionPackageGroups(
     });
     const appliedWeightOz =
       Number.isFinite(si.appliedWeightOz) && si.appliedWeightOz > 0 ? si.appliedWeightOz : null;
+    const itemId = liveItem?.id ?? si.orderId;
+
+    // Past purchases: freeze charged weight — do not re-apply today's helmet/card profile.
+    if (appliedWeightOz != null) {
+      rows.push(frozenPriorPurchaseProfileRow({ itemId, appliedWeightOz }));
+      continue;
+    }
 
     // Break/PYT queue rows (liveRoomItem.listingId === null) are host board rows whose platform
     // profile (e.g. "Full-Size Helmet") should NOT be applied to the ephemeral slot-win listing.
     // Card buyers in a helmet break room must not be charged as 5-lb separate packages.
     const isBreakSpotQueueRow = liveItem != null && liveItem.listingId == null;
+    const itemOverrides = !isBreakSpotQueueRow ? (liveItem ?? undefined) : undefined;
 
-    const weightOverride =
-      appliedWeightOz != null
-        ? {
-            customWeightOz: appliedWeightOz,
-            customLengthIn: !isBreakSpotQueueRow ? (liveItem?.customLengthIn ?? null) : null,
-            customWidthIn: !isBreakSpotQueueRow ? (liveItem?.customWidthIn ?? null) : null,
-            customHeightIn: !isBreakSpotQueueRow ? (liveItem?.customHeightIn ?? null) : null,
-            // Break spot queue rows must not impose requiresSeparatePackage — card wins from a
-            // helmet break room should still be bundleable.
-            requiresSeparatePackage: !isBreakSpotQueueRow ? (liveItem?.requiresSeparatePackage ?? null) : null,
-          }
-        : !isBreakSpotQueueRow ? (liveItem ?? undefined) : undefined;
     if (liveItem?.shippingProfile && !isBreakSpotQueueRow) {
       rows.push({
         itemId: liveItem.id,
         profile: liveItem.shippingProfile,
-        overrides: weightOverride,
+        overrides: itemOverrides,
       });
       continue;
     }
@@ -134,27 +131,27 @@ export async function buildSessionPackageGroups(
     });
     if (fallback) {
       rows.push({
-        itemId: liveItem?.id ?? si.orderId,
+        itemId,
         profile: fallback,
-        overrides: weightOverride,
+        overrides: itemOverrides,
       });
       continue;
     }
 
     rows.push({
-      itemId: liveItem?.id ?? si.orderId,
+      itemId,
       profile: {
         id: "legacy",
         slug: "trading_cards",
         name: "Trading Cards",
-        defaultWeightOz: Math.max(1, si.appliedWeightOz),
+        defaultWeightOz: 4,
         defaultLengthIn: 6,
         defaultWidthIn: 4,
         defaultHeightIn: 1,
         bundleAllowed: !(liveItem?.requiresSeparatePackage === true),
         requiresSeparatePackage: liveItem?.requiresSeparatePackage === true,
       },
-      overrides: weightOverride,
+      overrides: itemOverrides,
     });
   }
 

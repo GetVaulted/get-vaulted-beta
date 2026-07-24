@@ -33,7 +33,7 @@ vi.mock("@/lib/stripe", async (importOriginal) => {
 
 describe("live shipping pricing sessions (integration)", () => {
   beforeAll(async () => {
-    vi.stubEnv("LIVE_SHIPPING_CAP_CENTS", "1199");
+    vi.stubEnv("LIVE_SHIPPING_CAP_CENTS", "999");
     await bootstrapIntegrationPrisma();
   }, 180_000);
 
@@ -137,15 +137,15 @@ describe("live shipping pricing sessions (integration)", () => {
           shippingCategory: "slab",
           baseWeight: 8,
           incrementalWeight: 3,
-          capCents: 1199,
+          capCents: 999,
         }),
       ),
     );
     let last = { pricingWeightOz: 0, shippingCostCents: 0, capReached: false };
     for (const o of orders) last = await addOrderToLiveShippingSession(o.id);
-    expect(last.shippingCostCents).toBe(1199);
+    expect(last.shippingCostCents).toBe(999);
     expect(last.capReached).toBe(true);
-    expect(calculateLiveShippingCost(last.pricingWeightOz, 1199)).toBe(1199);
+    expect(calculateLiveShippingCost(last.pricingWeightOz, 999)).toBe(999);
   });
 
   it("separates sessions by seller and live show", async () => {
@@ -219,7 +219,7 @@ describe("live shipping pricing sessions (integration)", () => {
       shippingCategory: "raw_card",
       baseWeight: 4,
       incrementalWeight: 1,
-      capCents: 1199,
+      capCents: 999,
     });
     const pendingOrder = await seedAuctionWinOrder({
       sellerId: seller.id,
@@ -228,7 +228,7 @@ describe("live shipping pricing sessions (integration)", () => {
       shippingCategory: "raw_card",
       baseWeight: 4,
       incrementalWeight: 1,
-      capCents: 1199,
+      capCents: 999,
     });
     const s1 = await addOrderToLiveShippingSession(paidOrder.id);
     await addOrderToLiveShippingSession(pendingOrder.id);

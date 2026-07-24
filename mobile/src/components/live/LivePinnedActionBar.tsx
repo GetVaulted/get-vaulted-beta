@@ -494,8 +494,11 @@ export function LivePinnedActionBar({
       : variantItemActive && !walletReady && !isVariantSpotAuctionLive(roomSnap)
         ? 'Add wallet for total with shipping + tax'
         : null;
-  const metaLine =
-    variantCheckoutMetaLine ?? [m.winningLine, m.stateLine].filter(Boolean).join(' · ');
+  const metaLine = variantCheckoutMetaLine ?? m.stateLine ?? null;
+  const winningLine = variantCheckoutMetaLine ? null : m.winningLine || null;
+  const viewerIsHighBidder = Boolean(
+    viewerUserId && roomSnap?.lastHighBidderId && viewerUserId === roomSnap.lastHighBidderId,
+  );
 
   // Shipping + tax line for the active auction / buy-now pinned lot (PYT/PYD spots use the variant
   // preview above). Server only attaches this for non-variant lots when the buyer has an address.
@@ -1343,6 +1346,18 @@ export function LivePinnedActionBar({
           </View>
         </View>
 
+        {winningLine ? (
+          <LiveRoomText
+            style={[
+              styles.winningLine,
+              { fontSize: hudFs(compact ? 13 : 14) },
+              viewerIsHighBidder ? styles.winningLineSelf : null,
+            ]}
+            numberOfLines={1}
+          >
+            {viewerIsHighBidder ? "You're winning" : winningLine}
+          </LiveRoomText>
+        ) : null}
         {metaLine ? (
           <LiveRoomText style={[styles.metaLine, { fontSize: hudFs(10) }]} numberOfLines={1}>
             {metaLine}
@@ -1627,6 +1642,16 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     letterSpacing: -0.05,
+  },
+  winningLine: {
+    color: 'rgba(255,255,255,0.96)',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    marginTop: 1,
+  },
+  winningLineSelf: {
+    color: colors.gold,
   },
   syncLine: {
     color: 'rgba(255,255,255,0.45)',

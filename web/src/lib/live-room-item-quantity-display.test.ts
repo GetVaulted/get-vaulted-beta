@@ -5,6 +5,7 @@ import {
   resolveHostConsoleUnitsClaimedOverride,
   resolveLiveBuyNowUnitSale,
   resolveLiveRoomItemQuantityState,
+  resolveSoldUnitDisplayTitle,
 } from "@/lib/live-room-item-quantity-display";
 
 describe("resolveHostConsoleUnitsClaimedOverride", () => {
@@ -213,5 +214,26 @@ describe("resolveClosingUnitNumber", () => {
 describe("formatLiveQueueItemUnitTitle", () => {
   it("formats numbered titles", () => {
     expect(formatLiveQueueItemUnitTitle("PYT Break 1", 2)).toBe("PYT Break 1 #2");
+  });
+});
+
+describe("resolveSoldUnitDisplayTitle", () => {
+  it("matches the on-screen unit that just sold", () => {
+    expect(
+      resolveSoldUnitDisplayTitle({
+        title: "PYT Break 1",
+        quantityInitial: 10,
+        quantity: 10,
+        unitsSoldAfter: 1,
+      }),
+    ).toBe("PYT Break 1 #1");
+    expect(
+      resolveSoldUnitDisplayTitle({
+        title: "PYT Break 1",
+        quantityInitial: 10,
+        quantity: 10,
+        unitsSoldAfter: 2,
+      }),
+    ).toBe("PYT Break 1 #2");
   });
 });

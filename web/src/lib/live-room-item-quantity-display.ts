@@ -115,6 +115,23 @@ export function resolveLiveRoomItemQuantityState(input: {
   };
 }
 
+/** Unit title for a sale that just completed (`unitsSoldAfter` is 1-based sold count after the sale). */
+export function resolveSoldUnitDisplayTitle(args: {
+  title: string;
+  quantityInitial?: number | null;
+  quantity?: number;
+  unitsSoldAfter: number;
+}): string {
+  const title = args.title.trim() || "Item";
+  const total = normalizeQuantityInitial({
+    quantity: args.quantity ?? args.unitsSoldAfter,
+    quantityInitial: args.quantityInitial,
+  });
+  if (total <= 1) return title;
+  const unit = Math.min(total, Math.max(1, Math.floor(args.unitsSoldAfter)));
+  return formatLiveQueueItemUnitTitle(title, unit);
+}
+
 /** Unit index for the sale that is about to close (1-based). */
 export function resolveClosingUnitNumber(row: {
   quantity: number;

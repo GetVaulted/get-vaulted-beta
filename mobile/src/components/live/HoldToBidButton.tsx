@@ -10,7 +10,7 @@ import { LiveRoomText } from './LiveRoomText';
 /** Deliberate hold duration — short enough for fast auctions, long enough to avoid swipe accidents. */
 export const HOLD_TO_BID_MS = 280;
 
-/** Bid ACK in flight — not payment. Settlement charges after the auction ends (host mark sold). */
+/** Bid ACK in flight — not payment. Settlement charges when the auction timer ends. */
 const PROCESSING_LABEL = 'Placing bid…';
 
 type Props = {

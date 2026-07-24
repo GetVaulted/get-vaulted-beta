@@ -39,6 +39,7 @@ import {
 } from "@/lib/marketplace-listing-query";
 import { maybeEmitMarketplaceCatalogChanged } from "@/lib/listing-catalog-emit";
 import { listHiddenPeerIdsForViewer } from "@/lib/user-block";
+import { resolveLiveShowShippingCapCents } from "@/lib/live-show-shipping-terms";
 
 const listingInclude = listingWithSellerFulfillmentInclude;
 
@@ -567,7 +568,7 @@ export async function POST(req: Request) {
     Number.isFinite(body.shippingPriceCapCents) &&
     body.shippingPriceCapCents >= 0
       ? Math.floor(body.shippingPriceCapCents)
-      : Math.floor(Number(process.env.LIVE_SHIPPING_CAP_CENTS ?? 1199));
+      : resolveLiveShowShippingCapCents();
   const shipAlone = Boolean(body.shipAlone);
   const shipFromAddressId =
     typeof body.shipFromAddressId === "string" && body.shipFromAddressId.trim().length > 0

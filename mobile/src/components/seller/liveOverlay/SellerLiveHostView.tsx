@@ -59,6 +59,7 @@ import {
   SellerLivePinnedOverlay,
   SELLER_PINNED_EMPTY_HEIGHT,
   SELLER_PINNED_OVERLAY_HEIGHT,
+  SELLER_PINNED_RUNNING_HEIGHT,
 } from './SellerLivePinnedOverlay';
 import { SellerLiveQueueSheet } from './SellerLiveQueueSheet';
 import { SellerNextUpRail, SELLER_NEXT_UP_RAIL_HEIGHT } from './SellerNextUpRail';
@@ -283,13 +284,18 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     const failedSales = console.recentSales.filter((r) => r.paymentTone === 'retry').length;
     return console.paymentFailures.length + failedSales;
   }, [console.paymentFailures.length, console.recentSales]);
-  const pinnedOverlayEstimate =
-    displayItem ? SELLER_PINNED_OVERLAY_HEIGHT : SELLER_PINNED_EMPTY_HEIGHT;
+  const pinnedOverlayEstimate = !displayItem
+    ? SELLER_PINNED_EMPTY_HEIGHT
+    : displayItem.biddingOpen
+      ? SELLER_PINNED_RUNNING_HEIGHT
+      : SELLER_PINNED_OVERLAY_HEIGHT;
   const [commerceHeight, setCommerceHeight] = useState(pinnedOverlayEstimate);
 
   useEffect(() => {
+    // Seed from estimate when lot / phase changes; onLayout then measures exact height.
+    // Never shrink below the estimate on this tick — that was stacking composer over On Screen.
     setCommerceHeight(pinnedOverlayEstimate);
-  }, [pinnedOverlayEstimate]);
+  }, [displayItem?.id, displayItem?.biddingOpen, pinnedOverlayEstimate]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -863,7 +869,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         onAuctionDurationChange={console.setHostAuctionDurationSec}
         hostOverlayMinimal
         onLayoutHeight={(h) => {
-          if (h > 0 && Math.abs(h - commerceHeight) > 2) setCommerceHeight(h);
+          if (h <= 0) return;
+          setCommerceHeight((prev) => (Math.abs(h - prev) > 2 ? h : prev));
         }}
       />
 

@@ -8,6 +8,7 @@ import {
 import {
   liveShowShippingTermsFromRoom,
   liveShowShippingConfigFromTerms,
+  PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS,
   type LiveShowShippingTerms,
 } from "@/lib/live-show-shipping-terms";
 import { roundUsd } from "@/lib/round-usd";
@@ -185,12 +186,14 @@ async function resolveShippingProfileForOrderTx(
         sellerId: order.sellerId,
         showDefaultSellerProfileId: show?.defaultSellerShippingProfileId ?? null,
         itemSellerProfileId: liveItem?.sellerShippingProfileId ?? null,
+        category: show?.category ?? liveItem?.liveRoom.category ?? null,
         db: tx,
       })
     : await resolveSellerProfileForLiveRoomItem({
         sellerId: order.sellerId,
         sellerShippingProfileId: liveItem?.sellerShippingProfileId ?? null,
         showDefaultSellerProfileId: show?.defaultSellerShippingProfileId ?? null,
+        category: show?.category ?? liveItem?.liveRoom.category ?? null,
         db: tx,
       });
 
@@ -255,6 +258,10 @@ function snapshotFromOrderRow(
 /**
  * Atomically reserve incremental live shipping for an order and persist an immutable terms snapshot.
  * Idempotent per order — safe to retry after partial failure.
+ *
+ * Buyer protection: once `shippingTermsSnapshotJson` exists, this returns that snapshot and never
+ * rewrites `shippingPriceUsd` / session `shippingChargedCents` for that order. Profile or rate
+ * changes only affect unsettled / future purchases (incremental delta vs already charged).
  */
 export async function settleLiveOrderShippingTx(
   tx: TransactionClient,
@@ -318,7 +325,12 @@ export async function settleLiveOrderShippingTx(
     shippingAlreadyChargedCents: alreadyReservedCents,
   });
 
-  const shippingDueCents = totals.shippingDueForThisPurchaseCents;
+  // Belt-and-suspenders: never let cumulative reserved shipping exceed the platform max.
+  const roomLeftUnderPlatformMax = Math.max(
+    0,
+    PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS - alreadyReservedCents,
+  );
+  const shippingDueCents = Math.min(totals.shippingDueForThisPurchaseCents, roomLeftUnderPlatformMax);
   const totalChargedSoFarCents = alreadyReservedCents + shippingDueCents;
   const shippingPriceUsd = shippingDueCents / 100;
   const estimatedBeforeCents = Math.max(0, session.shippingCostCents - shippingDueCents);

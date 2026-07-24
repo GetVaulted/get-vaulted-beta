@@ -340,6 +340,8 @@ export function VaultPinnedLotCard({
     });
   const showRunningStrip = !hostOverlayMinimal && hudPhase === 'running';
   const showEndedActions = hudPhase === 'ended';
+  // Live broadcast uses hostOverlayMinimal. Timer end auto-settles; keep Sold/Skip off the
+  // compact HUD so hosts don't double-tap while the server charges. Long-press → Sold remains.
   const showSecondaryActions =
     !hostOverlayMinimal && roomLive && hudPhase !== 'sold' && hudPhase !== 'skipped';
   const canEditSpots = Boolean(isVariantItem && onEditSpots && !busy);
@@ -391,7 +393,7 @@ export function VaultPinnedLotCard({
           style={[
             styles.title,
             compact && styles.titleCompact,
-            compact && scale !== 1 ? { fontSize: fs(12), lineHeight: fs(15) } : null,
+            compact && scale !== 1 ? { fontSize: fs(14), lineHeight: fs(18) } : null,
           ]}
           numberOfLines={2}
         >
@@ -459,7 +461,7 @@ export function VaultPinnedLotCard({
                   : showRunningStrip
                     ? 'Auction running'
                     : hudPhase === 'ended'
-                      ? 'Awaiting mark sold'
+                      ? 'Settling winner'
                       : hudPhase === 'sold'
                         ? 'Sold'
                         : hudPhase === 'skipped'
@@ -733,9 +735,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.gold,
   },
   timerFillUrgent: { backgroundColor: colors.live },
-  eyebrowCompact: { fontSize: 9 },
+  eyebrowCompact: { fontSize: 11 },
   title: { fontSize: 15, fontWeight: '800', color: colors.textPrimary },
-  titleCompact: { fontSize: 12, lineHeight: 15 },
+  titleCompact: { fontSize: 14, lineHeight: 18 },
   pinnedTeamChip: {
     alignSelf: 'flex-start',
     marginTop: 4,
@@ -805,10 +807,10 @@ const styles = StyleSheet.create({
   durationChipTxtSelected: { color: colors.gold },
   bidVal: { fontSize: 24, fontWeight: '900', color: colors.gold, marginTop: 1 },
   bidValCompact: { fontSize: 18, marginTop: 0 },
-  bidderRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
-  bidderDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.live },
-  leader: { fontSize: 11, fontWeight: '700', color: colors.textSecondary, flex: 1 },
-  leaderCompact: { fontSize: 10 },
+  bidderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  bidderDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.live },
+  leader: { fontSize: 14, fontWeight: '800', color: colors.textPrimary, flex: 1 },
+  leaderCompact: { fontSize: 13 },
   metaRow: { flexDirection: 'row', gap: spacing.sm, marginTop: 2 },
   meta: { fontSize: 10, fontWeight: '600', color: colors.textMuted },
   editSpotsHint: {
@@ -819,7 +821,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textTransform: 'uppercase',
   },
-  metaCompact: { fontSize: 9 },
+  metaCompact: { fontSize: 11 },
   metaOk: { color: colors.success },
   hostEndedCopy: {
     fontSize: 10,

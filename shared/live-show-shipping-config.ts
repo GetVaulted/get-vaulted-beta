@@ -7,14 +7,22 @@ export type LiveShowCarrierPreference = "usps" | "ups" | "best_rate";
 /** Default buyer shipping cap for capped live shows (admin-configurable via env on server). */
 export const DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS = 999;
 
+/**
+ * Hard platform ceiling: a live-show buyer never pays more than this for shipping
+ * (per bundled session), even if the host picks "calculated" rates or sets a higher cap.
+ */
+export const PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS = DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS;
+
 export function resolveLiveShowShippingCapCents(overrideCents?: number | null): number {
+  let resolved = DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS;
   if (overrideCents != null && Number.isFinite(overrideCents) && overrideCents >= 0) {
-    return Math.floor(overrideCents);
+    resolved = Math.floor(overrideCents);
+  } else {
+    const fromEnv =
+      typeof process !== "undefined" ? Number(process.env.LIVE_SHIPPING_CAP_CENTS) : Number.NaN;
+    if (Number.isFinite(fromEnv) && fromEnv >= 0) resolved = Math.floor(fromEnv);
   }
-  const fromEnv =
-    typeof process !== "undefined" ? Number(process.env.LIVE_SHIPPING_CAP_CENTS) : Number.NaN;
-  if (Number.isFinite(fromEnv) && fromEnv >= 0) return Math.floor(fromEnv);
-  return DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS;
+  return Math.min(resolved, PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS);
 }
 
 export function formatUsdFromCents(cents: number): string {
@@ -71,10 +79,11 @@ export function liveShowShippingConfigFromTerms(terms: LiveShowShippingTerms): {
   const flags = roomFlagsFromShippingMode(terms.shippingMode);
   return {
     ...flags,
+    // Calculated shows still honor the platform $9.99 buyer ceiling.
     shippingCapCents:
-      terms.shippingMode === "capped"
-        ? resolveLiveShowShippingCapCents(terms.shippingCapCents)
-        : null,
+      terms.shippingMode === "free"
+        ? null
+        : resolveLiveShowShippingCapCents(terms.shippingCapCents),
     sellerPaysOverCap: terms.sellerPaysOverCap,
     shippingMode: terms.shippingMode,
     carrierPreference: terms.carrierPreference,
@@ -121,12 +130,13 @@ export function buyerLiveShippingPaidCopy(args: {
   capReached: boolean;
 }): string {
   if (args.mode === "free") return "Free shipping";
+  // Once the per-show cap is paid, further eligible wins show as free shipping (not another add-on).
+  if (args.capReached) return "Free shipping";
   if (args.mode === "calculated") {
     return args.paidCents > 0
       ? `Shipping: ${formatUsdFromCents(args.paidCents)} + taxes`
       : "Shipping calculated by destination";
   }
-  if (args.capReached) return "Shipping cap reached — additional eligible wins ship free";
   const cap = resolveLiveShowShippingCapCents(args.capCents);
   const remaining = Math.max(0, cap - args.paidCents);
   return `Shipping paid: ${formatUsdFromCents(args.paidCents)} · ${formatUsdFromCents(remaining)} until cap`;

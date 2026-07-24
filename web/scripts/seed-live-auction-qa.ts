@@ -81,7 +81,7 @@ async function main() {
         shippingCategory: "raw_card",
         shippingBaseWeightOz: args.base,
         shippingIncrementalWeightOz: args.inc,
-        shippingPriceCapCents: 1199,
+        shippingPriceCapCents: 999,
         shipAlone: args.shipAlone,
         parcelWeightOz: 4,
         parcelLengthIn: 10,

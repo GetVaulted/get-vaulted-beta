@@ -11,6 +11,7 @@ import {
 export type { LiveShowShippingMode, LiveShowCarrierPreference, LiveShowShippingTerms } from "../../../shared/live-show-shipping-config";
 export {
   DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS,
+  PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS,
   resolveLiveShowShippingCapCents,
   roomFlagsFromShippingMode,
   shippingModeFromRoomFlags,

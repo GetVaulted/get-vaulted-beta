@@ -200,14 +200,14 @@ export async function createLiveCommerceFulfillmentOrderTx(
   });
   if (!show) throw new Error("LIVE_ROOM_NOT_FOUND");
 
-  // Do NOT inherit the show's defaultSellerShippingProfileId here.
-  // Break spot wins (e.g. "Live spot: Texans") are card mailers, not
-  // whatever heavy profile the seller set for individual auction items.
-  // Priority: item-level seller profile → seller's live_break_spot profile.
+  // Spot wins inherit the show's shipping profile by category:
+  // Cards / card breaks → card mailer (small tiered charges under the $9.99 cap).
+  // Helmets → full-size helmet rates (typically the full $9.99 cap).
   const breakProfile = await resolveBreakSpotSellerProfile({
     sellerId: args.sellerId,
-    showDefaultSellerProfileId: null,
+    showDefaultSellerProfileId: show.defaultSellerShippingProfileId,
     itemSellerProfileId: liveItem?.sellerShippingProfileId ?? null,
+    category: show.category,
     db: tx,
   });
 
