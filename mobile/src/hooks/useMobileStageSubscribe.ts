@@ -31,9 +31,14 @@ export type MobileStageRemoteTarget = {
 
 export type MobileStageSubscribePhase = 'idle' | 'connecting' | 'connected' | 'failed';
 
-async function teardownBuyerStage(reason: string): Promise<void> {
-  markBuyerStageSubscribeTornDown();
-  viewerLifecycleLog('stage_teardown', { reason });
+async function teardownBuyerStage(
+  reason: string,
+  opts?: { /** True only for committed home/background leave — never for feed swipe. */ latchRejoin?: boolean },
+): Promise<void> {
+  if (opts?.latchRejoin) {
+    markBuyerStageSubscribeTornDown();
+  }
+  viewerLifecycleLog('stage_teardown', { reason, latchRejoin: Boolean(opts?.latchRejoin) });
   await leaveStageSerialized(() => leaveStage());
   viewerLifecycleLog('cleanup_completed', { reason });
 }
@@ -41,9 +46,9 @@ async function teardownBuyerStage(reason: string): Promise<void> {
 /**
  * Buyer-side native IVS Real-Time Stage subscriber.
  *
- * On leave (`active=false` / unmount): fully leaveStage and reset local join state so the next
- * focus can start clean. Process-wide `markBuyerStageSubscribeTornDown` tells the transport
- * planner to prefer HLS on re-entry (WebRTC leave→rejoin poisons the native video surface).
+ * On leave (`active=false` / unmount): always `leaveStage` so the process-wide Stage singleton is
+ * free for the next show. Only latch “never rejoin WebRTC” when `latchRejoinOnLeave` is set
+ * (committed background suspend) — feed swipe must stay able to hybrid-upgrade the next room.
  */
 export function useMobileStageSubscribe(args: {
   roomId: string;
@@ -54,6 +59,11 @@ export function useMobileStageSubscribe(args: {
    * Skips remote_video_lost rejoin (which would leaveStage + poison the process latch).
    */
   hostPaused?: boolean;
+  /**
+   * When true, tearing down this subscribe marks the process-wide WebRTC rejoin latch.
+   * Use only for committed AppState background suspend — not show→show pager leaves.
+   */
+  latchRejoinOnLeave?: boolean;
   refreshNonce?: number;
   subscribeEpoch?: number;
   onConnected: () => void;
@@ -147,7 +157,9 @@ export function useMobileStageSubscribe(args: {
       setPhase('idle');
       setConnectionState('disconnected');
       if (hadJoin) {
-        void teardownBuyerStage('active_false');
+        void teardownBuyerStage('active_false', {
+          latchRejoin: Boolean(cbRef.current.latchRejoinOnLeave),
+        });
       }
       return;
     }
@@ -191,7 +203,9 @@ export function useMobileStageSubscribe(args: {
       setPhase('failed');
       setConnectionState('disconnected');
       viewerLifecycleLog('player_error', { roomId: args.roomId, reason });
-      void teardownBuyerStage(`fail_${reason}`);
+      void teardownBuyerStage(`fail_${reason}`, {
+        latchRejoin: Boolean(cbRef.current.latchRejoinOnLeave),
+      });
       cbRef.current.onFailed(reason);
     };
 
@@ -219,7 +233,7 @@ export function useMobileStageSubscribe(args: {
       clearTimers();
       teardownListeners();
       try {
-        await teardownBuyerStage(`rejoin_${trigger}`);
+        await teardownBuyerStage(`rejoin_${trigger}`, { latchRejoin: false });
         if (cancelled) return;
         await joinOnce();
       } finally {
@@ -300,7 +314,9 @@ export function useMobileStageSubscribe(args: {
         viewerLifecycleLog('stage_join_serialized_end', { roomId: args.roomId });
         hasJoinedStageRef.current = true;
         if (cancelled) {
-          await teardownBuyerStage('cancelled_after_join');
+          await teardownBuyerStage('cancelled_after_join', {
+            latchRejoin: Boolean(cbRef.current.latchRejoinOnLeave),
+          });
           return;
         }
 
@@ -329,7 +345,9 @@ export function useMobileStageSubscribe(args: {
       setPhase('idle');
       setConnectionState('disconnected');
       if (hadJoin) {
-        void teardownBuyerStage('effect_cleanup');
+        void teardownBuyerStage('effect_cleanup', {
+          latchRejoin: Boolean(cbRef.current.latchRejoinOnLeave),
+        });
       }
     };
   }, [args.active, args.accessToken, args.roomId, args.subscribeEpoch]);

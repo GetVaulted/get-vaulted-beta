@@ -130,21 +130,20 @@ export function isStageWebrtcEnabled(): boolean {
 }
 
 /**
- * Process-wide latch: after a buyer tears down an IVS Stage subscribe once, never rejoin WebRTC
- * for the rest of the app session — stay on HLS instead.
+ * Process-wide latch: after a **committed background** Stage leave, do not rejoin WebRTC for the
+ * rest of the app session — stay on HLS instead.
  *
- * Why: the Stage SDK is a process-wide singleton. Leave → rejoin reconnects audio and reports a
- * remote video stream to JS, but the native video preview often stays permanently black (late
- * `.disconnected` / view clear races wipe the new session’s binding). JS then treats
- * “stream in list” as painted and hides the working HLS mirror forever. App kill is the only
- * recovery today because it destroys that singleton.
+ * Why: the Stage SDK is a process-wide singleton. Leave → rejoin after the OS backgrounds the app
+ * often reconnects audio with a permanently black native video surface. JS then treats
+ * “stream in list” as painted and hides the working HLS mirror forever.
  *
- * First settle of the session can still upgrade to WebRTC. After any leave (back out, swipe away
- * from the Stage surface), subsequent visits use the HLS mirror only — which actually paints.
+ * Show→show feed swipes must **not** set this latch — they still `leaveStage` so the next room can
+ * hybrid HLS→WebRTC, but latching blocked that upgrade and left buyers on cold Stage HLS mirrors
+ * until they force-closed the app.
  */
 let buyerStageSubscribeTornDown = false;
 
-/** Call when a buyer Stage subscribe is torn down (`leaveStage`). Idempotent. */
+/** Call after a committed background Stage leave. Idempotent. */
 export function markBuyerStageSubscribeTornDown(): void {
   buyerStageSubscribeTornDown = true;
 }

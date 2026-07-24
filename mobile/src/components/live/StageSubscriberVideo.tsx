@@ -10,6 +10,11 @@ type Props = {
   active: boolean;
   /** Host Pause / leave-app — keep Stage joined; do not rejoin on missing remote video. */
   hostPaused?: boolean;
+  /**
+   * When true, leaving this subscribe latches process-wide “prefer HLS / no WebRTC rejoin”.
+   * Only for committed AppState background — never for feed swipe.
+   */
+  latchRejoinOnLeave?: boolean;
   refreshNonce?: number;
   subscribeEpoch?: number;
   /** Bumps when the app returns to the foreground; forces a fresh native surface. */
@@ -26,6 +31,7 @@ export function StageSubscriberVideo({
   accessToken,
   active,
   hostPaused = false,
+  latchRejoinOnLeave = false,
   refreshNonce,
   subscribeEpoch,
   foregroundResumeNonce = 0,
@@ -39,6 +45,7 @@ export function StageSubscriberVideo({
     accessToken,
     active,
     hostPaused,
+    latchRejoinOnLeave,
     refreshNonce,
     subscribeEpoch,
     onConnected,

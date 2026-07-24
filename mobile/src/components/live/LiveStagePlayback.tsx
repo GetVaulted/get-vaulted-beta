@@ -207,6 +207,11 @@ export function LiveStagePlayback({
     if (!useWebrtc || !isForeground) setWebrtcReady(false);
   }, [useWebrtc, isForeground]);
 
+  // New room in the pager: never keep the prior show's "WebRTC painted" flag (it hid HLS forever).
+  useEffect(() => {
+    setWebrtcReady(false);
+  }, [roomId]);
+
   useEffect(() => {
     viewerLifecycleLog(isForeground ? 'screen_focused' : 'screen_blurred', {
       roomId,
@@ -601,6 +606,7 @@ export function LiveStagePlayback({
           accessToken={accessToken}
           active={useWebrtc && !stageMediaSuspended && !blockStageAfterBackgroundLeave}
           hostPaused={streamPaused}
+          latchRejoinOnLeave={stageMediaSuspended || blockStageAfterBackgroundLeave}
           refreshNonce={refreshNonce}
           subscribeEpoch={playback.webrtcSubscribeEpoch}
           contentFit={contentFit}

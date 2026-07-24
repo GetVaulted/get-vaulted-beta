@@ -607,15 +607,18 @@ export function useLiveStagePlayback(args: {
       return;
     }
     // Buyer already left Stage this session (home swipe / suspend): metadata + HLS only.
-    // Clearing the latch + forcing WebRTC here is what made the feed start/stop until force-close.
+    // Keep warm HLS if already attached — do not park to `none` (that killed show→show buffers
+    // when this effect incorrectly re-ran on playbackMode changes).
     if (isBuyerStageWebrtcRejoinBlocked()) {
       webrtcUpgradedRef.current = false;
       hlsStalledRef.current = false;
-      lastAttachKeyRef.current = '';
       cancelWebrtcUpgrade();
-      if (args.playbackMode === 'active') beginPlaybackAttempt('refresh_nonce_hls');
-      transportRef.current = 'none';
-      applyTransport('none');
+      if (playbackModeRef.current === 'active') beginPlaybackAttempt('refresh_nonce_hls');
+      if (transportRef.current !== 'hls') {
+        lastAttachKeyRef.current = '';
+        transportRef.current = 'none';
+        applyTransport('none');
+      }
       void fetchStream();
       return;
     }
@@ -634,17 +637,18 @@ export function useLiveStagePlayback(args: {
     // Host Play after pause: always allow WebRTC again (pause teardown sets the block latch).
     clearBuyerStageSubscribeTornDown();
     hlsStalledRef.current = true;
-    if (args.playbackMode === 'active') beginPlaybackAttempt('refresh_nonce');
+    if (playbackModeRef.current === 'active') beginPlaybackAttempt('refresh_nonce');
     hlsStalledRef.current = true;
     // Always remount Stage subscribe on hard refresh — not only when already on WebRTC.
-    if (args.playbackMode === 'active') {
+    if (playbackModeRef.current === 'active') {
       setWebrtcSubscribeEpoch((n) => n + 1);
       applyTransport('webrtc');
     }
     void fetchStream();
+    // Intentionally omit playbackMode: swipe active↔prefetch must not hard-remount Stage / nuke HLS.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshNonce / roomId own this recovery path
   }, [
     args.refreshNonce,
-    args.playbackMode,
     args.roomId,
     applyTransport,
     beginPlaybackAttempt,
