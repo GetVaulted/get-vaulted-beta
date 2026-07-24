@@ -1,4 +1,4 @@
-import { NFL_DIVISIONS, NFL_TEAMS, spotColorKeyForPoolLabel } from './liveBreakPresets';
+import { NFL_DIVISIONS, NFL_TEAMS, liveBreakVariantIsSold, spotColorKeyForPoolLabel } from './liveBreakPresets';
 import { isRandomVariantAssignment, isVariantSalesFormat } from './liveItemVariant';
 import type { LiveRoomItemRow } from '../api/liveRoomControlRepository';
 
@@ -56,7 +56,7 @@ export function buildVariantSpotDisplayRows(
   }
 
   return item.variants.map((v) => {
-    const sold = v.quantityRemaining <= 0 || v.status === 'sold_out';
+    const sold = liveBreakVariantIsSold(v);
     return {
       id: v.id,
       label: v.label,

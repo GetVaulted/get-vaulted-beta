@@ -2208,12 +2208,47 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
 
       if (kind === "variant_purchase_saved_pm") {
         const purchaseId = pi.metadata?.purchaseId?.trim() || null;
-        if (purchaseId) {
+        const batchId = pi.metadata?.batchId?.trim() || null;
+        if (batchId) {
+          const { finalizeLiveItemVariantPurchaseBatchPaid } = await import(
+            "@/lib/live-item-variant-batch-purchase"
+          );
+          const { emitLiveRoomQueueItemsChanged } = await import("@/lib/realtime-emit-server");
+          await finalizeLiveItemVariantPurchaseBatchPaid(batchId, pi.id);
+          const purchase = await prisma.liveItemVariantPurchase.findFirst({
+            where: { batchId },
+            select: { liveRoomId: true },
+          });
+          if (purchase) emitLiveRoomQueueItemsChanged(purchase.liveRoomId);
+        } else if (purchaseId) {
           const { finalizeLiveItemVariantPurchasePaid } = await import("@/lib/live-item-variant-purchase");
           const { emitLiveRoomQueueItemsChanged } = await import("@/lib/realtime-emit-server");
           await finalizeLiveItemVariantPurchasePaid(purchaseId, pi.id);
           const purchase = await prisma.liveItemVariantPurchase.findUnique({
             where: { id: purchaseId },
+            select: { liveRoomId: true, batchId: true },
+          });
+          if (purchase?.batchId) {
+            const { finalizeLiveItemVariantPurchaseBatchPaid } = await import(
+              "@/lib/live-item-variant-batch-purchase"
+            );
+            await finalizeLiveItemVariantPurchaseBatchPaid(purchase.batchId, pi.id);
+          }
+          if (purchase) emitLiveRoomQueueItemsChanged(purchase.liveRoomId);
+        }
+        break;
+      }
+
+      if (kind === "variant_batch_purchase_saved_pm") {
+        const batchId = pi.metadata?.batchId?.trim() || null;
+        if (batchId) {
+          const { finalizeLiveItemVariantPurchaseBatchPaid } = await import(
+            "@/lib/live-item-variant-batch-purchase"
+          );
+          const { emitLiveRoomQueueItemsChanged } = await import("@/lib/realtime-emit-server");
+          await finalizeLiveItemVariantPurchaseBatchPaid(batchId, pi.id);
+          const purchase = await prisma.liveItemVariantPurchase.findFirst({
+            where: { batchId },
             select: { liveRoomId: true },
           });
           if (purchase) emitLiveRoomQueueItemsChanged(purchase.liveRoomId);
@@ -2276,9 +2311,49 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       const orderId = pi.metadata?.orderId?.trim() || null;
       const kind = pi.metadata?.kind ?? null;
 
-      if (kind === "variant_purchase_saved_pm") {
+      if (kind === "variant_purchase_saved_pm" || kind === "variant_batch_purchase_saved_pm") {
         const purchaseId = pi.metadata?.purchaseId?.trim() || null;
-        if (purchaseId) {
+        const batchIdMeta = pi.metadata?.batchId?.trim() || null;
+        let resolvedBatchId = batchIdMeta;
+        if (!resolvedBatchId && purchaseId) {
+          const row = await prisma.liveItemVariantPurchase.findUnique({
+            where: { id: purchaseId },
+            select: { batchId: true },
+          });
+          resolvedBatchId = row?.batchId ?? null;
+        }
+        if (resolvedBatchId) {
+          const { releaseVariantPurchaseBatchOnCheckoutExpired } = await import(
+            "@/lib/live-item-variant-batch-purchase"
+          );
+          await releaseVariantPurchaseBatchOnCheckoutExpired(resolvedBatchId);
+          const batchPurchase = await prisma.liveItemVariantPurchase.findFirst({
+            where: { batchId: resolvedBatchId },
+            select: {
+              id: true,
+              liveRoomId: true,
+              liveRoomItemId: true,
+              buyerId: true,
+              totalUsd: true,
+            },
+          });
+          if (batchPurchase) {
+            const sum = await prisma.liveItemVariantPurchase.aggregate({
+              where: { batchId: resolvedBatchId },
+              _sum: { totalUsd: true },
+            });
+            await ensureLiveRoomPaymentFailureRecorded({
+              liveRoomId: batchPurchase.liveRoomId,
+              buyerId: batchPurchase.buyerId,
+              kind: "variant_purchase",
+              variantPurchaseId: batchPurchase.id,
+              liveRoomItemId: batchPurchase.liveRoomItemId,
+              amountUsd: sum._sum.totalUsd ?? batchPurchase.totalUsd,
+              itemTitle: "Multiple spots",
+              failureReason: pi.last_payment_error?.message ?? "Your card was declined.",
+            });
+          }
+        } else if (purchaseId) {
           const purchase = await prisma.liveItemVariantPurchase.findUnique({
             where: { id: purchaseId },
             select: {

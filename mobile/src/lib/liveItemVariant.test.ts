@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import {
   availableVariantCount,
+  evaluateFreshVariantsForBatchCheckout,
   evaluateFreshVariantsForCheckout,
   isActiveVariantBuyerItem,
   isVariantSalesFormat,
@@ -136,6 +137,31 @@ describe('evaluateFreshVariantsForCheckout', () => {
   it('proceeds on a local-trust basis when the item was never tracked as the active lot (pre-live shop flow)', () => {
     const decision = evaluateFreshVariantsForCheckout({ status: 'not_tracked' }, 'v1');
     expect(decision).toEqual({ proceed: true });
+  });
+
+  it('batch checkout requires every selected id to still be open', () => {
+    const availableVariant = {
+      id: 'v1',
+      label: 'Bengals',
+      priceUsd: 10,
+      quantityRemaining: 1,
+      soldCount: 0,
+      isHot: false,
+      sortOrder: 0,
+      status: 'available',
+      buyerUsername: null,
+    };
+    const ok = evaluateFreshVariantsForBatchCheckout(
+      { status: 'fresh', variants: [availableVariant, { ...availableVariant, id: 'v2', label: 'Chiefs' }] },
+      ['v1', 'v2'],
+    );
+    expect(ok).toEqual({ proceed: true });
+
+    const missing = evaluateFreshVariantsForBatchCheckout(
+      { status: 'fresh', variants: [availableVariant] },
+      ['v1', 'v2'],
+    );
+    expect(missing.proceed).toBe(false);
   });
 });
 

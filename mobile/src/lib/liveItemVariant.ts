@@ -154,6 +154,42 @@ export function evaluateFreshVariantsForCheckout(
   return { proceed: true };
 }
 
+/** Same pre-charge gate for multi-select checkout — every selected id must still be open. */
+export function evaluateFreshVariantsForBatchCheckout(
+  result: RefreshVariantsResult,
+  selectedVariantIds: string[],
+): CheckoutAvailabilityDecision {
+  if (selectedVariantIds.length === 0) {
+    return { proceed: false, message: 'Select at least one spot.', closeSheet: false };
+  }
+  if (result.status === 'not_tracked') return { proceed: true };
+  if (result.status === 'item_changed') {
+    return {
+      proceed: false,
+      message: 'This lot has changed — please review before buying.',
+      closeSheet: true,
+    };
+  }
+  if (result.status === 'fetch_failed') {
+    return {
+      proceed: false,
+      message: "Couldn't verify availability — please try again.",
+      closeSheet: false,
+    };
+  }
+  for (const id of selectedVariantIds) {
+    const fresh = result.variants.find((v) => v.id === id);
+    if (!fresh || !variantIsAvailable(fresh)) {
+      return {
+        proceed: false,
+        message: 'One or more selected spots just sold out. Update your selection.',
+        closeSheet: false,
+      };
+    }
+  }
+  return { proceed: true };
+}
+
 export function availableVariantCount(variants: LiveItemVariantSnapshot[] | undefined): number {
   return (variants ?? []).filter(variantIsAvailable).length;
 }

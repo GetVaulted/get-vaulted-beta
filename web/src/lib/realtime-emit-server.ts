@@ -102,6 +102,9 @@ export function emitVariantPurchased(
     itemVersion: number;
     quantity?: number;
     randomReveal?: boolean;
+    /** Multi-spot checkout: all claimed labels (label is a joined display string). */
+    labels?: string[];
+    batchId?: string;
   },
 ): void {
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.variantPurchased, payload);

@@ -90,6 +90,14 @@ export function buildLocalVariantPurchaseCelebration(args: {
   };
 }
 
+/** Joined label for multi-spot checkout celebrations. */
+export function formatBatchSpotCelebrationLabel(labels: string[]): string {
+  const cleaned = labels.map((l) => l.trim()).filter(Boolean);
+  if (cleaned.length === 0) return 'Spots';
+  if (cleaned.length <= 3) return cleaned.join(' · ');
+  return `${cleaned.slice(0, 2).join(' · ')} +${cleaned.length - 2} more`;
+}
+
 export function formatSpotCelebrationAccessibility(
   celebration: LiveSpotTakenCelebration,
   opts?: { viewerIsWinner?: boolean },

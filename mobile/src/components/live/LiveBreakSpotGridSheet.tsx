@@ -20,7 +20,9 @@ import {
 } from '../../api/liveVariantCheckoutPreviewRepository';
 import {
   purchaseLiveItemVariant,
+  purchaseLiveItemVariantBatch,
   syncLiveItemVariantPurchase,
+  syncLiveItemVariantPurchaseBatch,
 } from '../../api/liveVariantPurchaseRepository';
 import { isWalletIncompleteError } from '../../lib/buyerWalletErrors';
 import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
@@ -36,11 +38,16 @@ import {
   variantSelectSpotLabel,
   isRandomVariantAssignment,
   evaluateFreshVariantsForCheckout,
+  evaluateFreshVariantsForBatchCheckout,
   type LiveItemSalesFormat,
   type RefreshVariantsResult,
 } from '../../lib/liveItemVariant';
 import { colors, radii, spacing } from '../../theme';
-import { buildLocalVariantPurchaseCelebration, type LiveSpotTakenCelebration } from '../../lib/liveSpotCelebration';
+import {
+  buildLocalVariantPurchaseCelebration,
+  formatBatchSpotCelebrationLabel,
+  type LiveSpotTakenCelebration,
+} from '../../lib/liveSpotCelebration';
 import { HoldToBidButton } from './HoldToBidButton';
 import { LiveRoomText } from './LiveRoomText';
 
@@ -112,7 +119,7 @@ export function LiveBreakSpotGridSheet({
   const insets = useSafeAreaInsets();
   const { confirmPayment } = useStripe();
   const isDivisionBreak = salesFormat === 'team_break';
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkoutPreview, setCheckoutPreview] = useState<LiveVariantCheckoutPreview | null>(null);
@@ -128,16 +135,20 @@ export function LiveBreakSpotGridSheet({
   }, [excludeVariantIds, variants]);
   const sortedVariants = useMemo(() => sortVariantsForBuyerDisplay(pickerVariants), [pickerVariants]);
   const spotSummary = useMemo(() => summarizeVariantSpots(pickerVariants), [pickerVariants]);
-  const selected = sortedVariants.find((v) => v.id === selectedId) ?? null;
+  const selectedVariants = useMemo(
+    () => sortedVariants.filter((v) => selectedIds.includes(v.id)),
+    [selectedIds, sortedVariants],
+  );
+  const selected = selectedVariants[0] ?? null;
+  const selectionCount = selectedVariants.length;
   const pickerBaseLabel = variantSelectSpotLabel(salesFormat, isRandom);
 
   const unitPrice = selected?.priceUsd ?? spotSummary.fromPriceUsd ?? 0;
-  const quantity = 1;
 
   const spotPrice = useMemo(() => {
-    if (!selected) return 0;
-    return Math.round(selected.priceUsd * quantity * 100) / 100;
-  }, [quantity, selected]);
+    if (selectedVariants.length === 0) return 0;
+    return Math.round(selectedVariants.reduce((sum, v) => sum + v.priceUsd, 0) * 100) / 100;
+  }, [selectedVariants]);
 
   // FIX 4: a seed is only trustworthy when it was computed for THIS item — matching price alone
   // isn't enough (two different items can coincidentally share a spot price). A seed missing an
@@ -173,7 +184,7 @@ export function LiveBreakSpotGridSheet({
 
   useEffect(() => {
     if (!visible) {
-      setSelectedId(null);
+      setSelectedIds([]);
       setError(null);
       setBusy(false);
       checkoutInFlightRef.current = false;
@@ -183,20 +194,31 @@ export function LiveBreakSpotGridSheet({
     }
     if (isRandom) {
       const available = sortedVariants.find((v) => variantIsAvailable(v));
-      if (available) setSelectedId(available.id);
+      if (available) setSelectedIds([available.id]);
       return;
     }
     if (
       initialVariantId &&
+      selectedIds.length === 0 &&
       sortedVariants.some((v) => v.id === initialVariantId && variantIsAvailable(v))
     ) {
-      setSelectedId(initialVariantId);
+      setSelectedIds([initialVariantId]);
       return;
     }
-    if (selectedId && !sortedVariants.some((v) => v.id === selectedId && variantIsAvailable(v))) {
-      setSelectedId(null);
-    }
-  }, [initialVariantId, isRandom, selectedId, sortedVariants, visible]);
+    setSelectedIds((prev) => {
+      const next = prev.filter((id) => sortedVariants.some((v) => v.id === id && variantIsAvailable(v)));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [initialVariantId, isRandom, sortedVariants, visible]);
+
+  const toggleSpot = (variantId: string) => {
+    if (isRandom) return;
+    setSelectedIds((prev) => {
+      if (prev.includes(variantId)) return prev.filter((id) => id !== variantId);
+      return [...prev, variantId];
+    });
+    setError(null);
+  };
 
   useEffect(() => {
     if (!visible || !walletReady || !accessToken?.trim() || spotPrice <= 0) {
@@ -256,9 +278,12 @@ export function LiveBreakSpotGridSheet({
     };
   }, [accessToken, itemId, roomId, seedCheckoutPreview, seedMatchesActiveItem, spotPrice, visible, walletReady]);
 
-  const pickerTitle = selected
-    ? `${pickerBaseLabel}: ${selected.label}`
-    : pickerBaseLabel;
+  const pickerTitle =
+    selectionCount === 0
+      ? pickerBaseLabel
+      : selectionCount === 1
+        ? `${pickerBaseLabel}: ${selectedVariants[0]!.label}`
+        : `${pickerBaseLabel}: ${selectionCount} selected`;
 
   const allSold = spotSummary.available <= 0 && pickerVariants.length > 0;
 
@@ -266,7 +291,7 @@ export function LiveBreakSpotGridSheet({
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setBusy(false);
     setError(null);
-    setSelectedId(null);
+    setSelectedIds([]);
     onClose();
     onPurchased();
     if (isRandom || !onSpotCelebration) return;
@@ -284,12 +309,12 @@ export function LiveBreakSpotGridSheet({
     // FIX 3: synchronous guard checked before any async work — `busy` is a React state update
     // and is not guaranteed to have re-rendered yet when a second hold-to-commit fires.
     if (checkoutInFlightRef.current) return;
-    if (!selected) {
+    if (selectedVariants.length === 0) {
       setError(`Select ${isDivisionBreak ? 'a division' : 'a team'} first.`);
       return;
     }
-    if (!variantIsAvailable(selected)) {
-      setError('That spot was just taken. Pick another.');
+    if (selectedVariants.some((v) => !variantIsAvailable(v))) {
+      setError('One or more spots were just taken. Update your selection.');
       return;
     }
     if (!accessToken?.trim()) {
@@ -303,13 +328,12 @@ export function LiveBreakSpotGridSheet({
     checkoutInFlightRef.current = true;
     setBusy(true);
     setError(null);
+    const useBatch = !isRandom && selectedVariants.length >= 2;
+    const celebrationLabel = useBatch
+      ? formatBatchSpotCelebrationLabel(selectedVariants.map((v) => v.label))
+      : selectedVariants[0]!.label;
+    const chargeFallback = spotPrice;
     try {
-      // FIX 2 (re-validate before charging) + FIX (2026-07 gap): every path through this block
-      // when `onRefreshVariants` is provided must either confirm fresh availability or reject the
-      // purchase attempt — never silently trust the (possibly stale) local `variants` prop, both
-      // when the active lot changed underneath the buyer and when the refresh request itself
-      // failed. Pick mode only — random-pool assignment doesn't pre-select a specific spot, so
-      // there's nothing to re-validate here; Vault Reveal assigns from whatever remains.
       if (!isRandom && onRefreshVariants) {
         let result: RefreshVariantsResult;
         try {
@@ -317,10 +341,19 @@ export function LiveBreakSpotGridSheet({
         } catch {
           result = { status: 'fetch_failed' };
         }
-        const decision = evaluateFreshVariantsForCheckout(result, selected.id);
+        const decision = useBatch
+          ? evaluateFreshVariantsForBatchCheckout(
+              result,
+              selectedVariants.map((v) => v.id),
+            )
+          : evaluateFreshVariantsForCheckout(result, selectedVariants[0]!.id);
         if (!decision.proceed) {
           setError(decision.message);
-          setSelectedId(null);
+          if (useBatch) {
+            /* keep selection so buyer can deselect sold spots */
+          } else {
+            setSelectedIds([]);
+          }
           if (decision.closeSheet) onClose();
           return;
         }
@@ -328,14 +361,47 @@ export function LiveBreakSpotGridSheet({
       const paymentSession = accessToken?.trim()
         ? await fetchLiveBuyerPaymentSession(accessToken, roomId)
         : null;
-      const res = await purchaseLiveItemVariant({
-        accessToken,
-        liveRoomId: roomId,
-        itemId,
-        variantId: selected.id,
-        quantity,
-        paymentMethodId: paymentSession?.activePaymentMethodId ?? undefined,
-      });
+      const paymentMethodId = paymentSession?.activePaymentMethodId ?? undefined;
+
+      const res = useBatch
+        ? await purchaseLiveItemVariantBatch({
+            accessToken,
+            liveRoomId: roomId,
+            itemId,
+            variantIds: selectedVariants.map((v) => v.id),
+            paymentMethodId,
+          })
+        : await purchaseLiveItemVariant({
+            accessToken,
+            liveRoomId: roomId,
+            itemId,
+            variantId: selectedVariants[0]!.id,
+            quantity: 1,
+            paymentMethodId,
+          });
+
+      const syncPurchase = async (purchaseRes: typeof res) => {
+        if (!('purchaseId' in purchaseRes) && !('batchId' in purchaseRes)) return purchaseRes;
+        if (useBatch && purchaseRes.ok && 'batchId' in purchaseRes && purchaseRes.batchId) {
+          return syncLiveItemVariantPurchaseBatch({
+            accessToken,
+            liveRoomId: roomId,
+            itemId,
+            batchId: purchaseRes.batchId,
+          });
+        }
+        if (purchaseRes.ok && 'purchaseId' in purchaseRes) {
+          return syncLiveItemVariantPurchase({
+            accessToken,
+            liveRoomId: roomId,
+            itemId,
+            variantId: selectedVariants[0]!.id,
+            purchaseId: purchaseRes.purchaseId,
+          });
+        }
+        return purchaseRes;
+      };
+
       if (!res.ok) {
         const msg =
           mapLivePaymentFailureMessage(res.error, res.code) + (res.paymentFailed ? ' Spot was not sold.' : '');
@@ -360,8 +426,8 @@ export function LiveBreakSpotGridSheet({
       }
       if ('paid' in res) {
         finishSuccessfulPurchase(
-          selected.label,
-          checkoutPreview?.chargeNowUsd ?? selected.priceUsd * quantity,
+          res.labels?.length ? formatBatchSpotCelebrationLabel(res.labels) : celebrationLabel,
+          checkoutPreview?.chargeNowUsd ?? chargeFallback,
         );
         return;
       }
@@ -372,28 +438,13 @@ export function LiveBreakSpotGridSheet({
           setError(msg);
           onClose();
           Alert.alert('Payment failed', msg);
-          const synced = await syncLiveItemVariantPurchase({
-            accessToken,
-            liveRoomId: roomId,
-            itemId,
-            variantId: selected.id,
-            purchaseId: res.purchaseId,
-          });
+          const synced = await syncPurchase(res);
           if (!synced.ok && synced.paymentFailed) await onRoomRefresh?.();
           return;
         }
-        const synced = await syncLiveItemVariantPurchase({
-          accessToken,
-          liveRoomId: roomId,
-          itemId,
-          variantId: selected.id,
-          purchaseId: res.purchaseId,
-        });
+        const synced = await syncPurchase(res);
         if (synced.ok && 'paid' in synced) {
-          finishSuccessfulPurchase(
-            selected.label,
-            checkoutPreview?.chargeNowUsd ?? selected.priceUsd * quantity,
-          );
+          finishSuccessfulPurchase(celebrationLabel, checkoutPreview?.chargeNowUsd ?? chargeFallback);
           return;
         }
         setError(
@@ -413,21 +464,11 @@ export function LiveBreakSpotGridSheet({
         return;
       }
       if ('processing' in res) {
-        // Async PI — poll sync a few times so a succeeded charge is finalized even if the webhook lags.
         for (let attempt = 0; attempt < 4; attempt += 1) {
           await new Promise((r) => setTimeout(r, 800 + attempt * 400));
-          const synced = await syncLiveItemVariantPurchase({
-            accessToken,
-            liveRoomId: roomId,
-            itemId,
-            variantId: selected.id,
-            purchaseId: res.purchaseId,
-          });
+          const synced = await syncPurchase(res);
           if (synced.ok && 'paid' in synced) {
-            finishSuccessfulPurchase(
-              selected.label,
-              checkoutPreview?.chargeNowUsd ?? selected.priceUsd * quantity,
-            );
+            finishSuccessfulPurchase(celebrationLabel, checkoutPreview?.chargeNowUsd ?? chargeFallback);
             return;
           }
           if (!synced.ok && synced.paymentFailed) {
@@ -519,11 +560,13 @@ export function LiveBreakSpotGridSheet({
               <LiveRoomText style={styles.pickerHint}>
                 {isRandom
                   ? 'Hold to buy — Vault Reveal assigns your team from what’s left'
-                  : selected
+                  : selectionCount > 0
                     ? walletReady
-                      ? `Hold to buy to pay ${fmtMoney(chargeNow)} now — spot, shipping, and tax below`
+                      ? selectionCount > 1
+                        ? `Hold to buy to pay ${fmtMoney(chargeNow)} for ${selectionCount} spots — shipping and tax below`
+                        : `Hold to buy to pay ${fmtMoney(chargeNow)} now — spot, shipping, and tax below`
                       : `Confirm ${isDivisionBreak ? 'division' : 'team'}, then hold to buy to checkout`
-                    : `Tap ${isDivisionBreak ? 'a division' : 'a team'} to checkout`}
+                    : `Tap ${isDivisionBreak ? 'divisions' : 'teams'} to multi-select, then checkout`}
               </LiveRoomText>
               {isRandom ? (
                 <View style={styles.randomRevealCard}>
@@ -538,13 +581,12 @@ export function LiveBreakSpotGridSheet({
                     <TeamPill
                       key={variant.id}
                       variant={variant}
-                      selected={selectedId === variant.id}
+                      selected={selectedIds.includes(variant.id)}
                       wide={isDivisionBreak}
                       onSelect={() => {
                         if (!variantIsAvailable(variant)) return;
                         void Haptics.selectionAsync().catch(() => {});
-                        setSelectedId(variant.id);
-                        setError(null);
+                        toggleSpot(variant.id);
                       }}
                     />
                   ))}
@@ -555,8 +597,8 @@ export function LiveBreakSpotGridSheet({
             <View style={styles.summaryCard}>
               <SummaryRow
                 icon="pricetag-outline"
-                label="Spot price"
-                value={selected ? fmtMoney(spotPrice) : '—'}
+                label={selectionCount > 1 ? `Spot prices (${selectionCount})` : 'Spot price'}
+                value={selectionCount > 0 ? fmtMoney(spotPrice) : '—'}
               />
               <SummaryRow
                 icon="cube-outline"
@@ -579,20 +621,24 @@ export function LiveBreakSpotGridSheet({
           <View style={styles.stickyBar}>
             <View style={styles.totalCol}>
               <LiveRoomText style={styles.totalLabel}>Total due</LiveRoomText>
-              <LiveRoomText style={styles.totalValue}>{selected ? fmtMoney(totalDue) : '—'}</LiveRoomText>
+              <LiveRoomText style={styles.totalValue}>
+                {selectionCount > 0 ? fmtMoney(totalDue) : '—'}
+              </LiveRoomText>
             </View>
             <View style={styles.payCol}>
               <HoldToBidButton
                 label={
-                  selected
+                  selectionCount > 0
                     ? isRandom
                       ? `Hold to buy · vault reveal · ${fmtMoney(chargeNow)}`
-                      : `Hold to buy · ${fmtMoney(chargeNow)}`
+                      : selectionCount > 1
+                        ? `Hold to buy · ${selectionCount} spots · ${fmtMoney(chargeNow)}`
+                        : `Hold to buy · ${fmtMoney(chargeNow)}`
                     : isRandom
                       ? 'Hold to buy'
-                      : 'Select a spot'
+                      : 'Select spots'
                 }
-                disabled={!selected || allSold}
+                disabled={selectionCount === 0 || allSold}
                 busy={busy}
                 onHoldStart={() => {
                   if (!accessToken?.trim()) {

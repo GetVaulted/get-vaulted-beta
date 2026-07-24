@@ -1421,7 +1421,10 @@ model LiveItemVariantPurchase {
   /// Wheel-assigned team/division label (random assignment mode).
   revealedLabel           String?
   revealedAbbr            String?
-  fulfillmentOrderId      String?                       @unique
+  /// Shared id when multiple spots are paid in one checkout (one Order / one PaymentIntent).
+  batchId                 String?
+  /// Shared across a batch; not unique so N purchases can point at one Order.
+  fulfillmentOrderId      String?
   fulfillmentOrder        Order?                        @relation("VariantPurchaseFulfillmentOrder", fields: [fulfillmentOrderId], references: [id], onDelete: SetNull)
   createdAt               DateTime                      @default(now())
 
@@ -1432,6 +1435,8 @@ model LiveItemVariantPurchase {
   @@index([variantId, paymentStatus])
   @@index([liveRoomId, createdAt])
   @@index([buyerId, createdAt])
+  @@index([batchId])
+  @@index([fulfillmentOrderId])
 }
 
 /// Unresolved live-show payment failure — blocks buyer commerce in-room until paid or cleared.
@@ -1726,7 +1731,7 @@ model Order {
   sellerShipFromAddressId    String?
   sellerShipFromAddress      Address?                   @relation("OrderSellerShipFromAddress", fields: [sellerShipFromAddressId], references: [id], onDelete: SetNull)
   liveShippingSessionItem    LiveShippingSessionItem?
-  variantPurchaseFulfillment LiveItemVariantPurchase?   @relation("VariantPurchaseFulfillmentOrder")
+  variantPurchaseFulfillment LiveItemVariantPurchase[]  @relation("VariantPurchaseFulfillmentOrder")
   breakSpotFulfillment       BreakSpot?                 @relation("BreakSpotFulfillmentOrder")
   inventoryHolds             LiveAuctionInventoryHold[]
   layaway                    Layaway?

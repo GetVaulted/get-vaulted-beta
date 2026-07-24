@@ -31,6 +31,7 @@ const ORPHAN_PI_KINDS: ReadonlySet<string> = new Set([
   "pay_order_saved_pm",
   LIVE_BUY_NOW_PI_KIND,
   "variant_purchase_saved_pm",
+  "variant_batch_purchase_saved_pm",
   "break_spot_saved_pm",
 ]);
 
@@ -247,6 +248,30 @@ async function reconcilePaymentIntents(
           `ORPHAN succeeded PaymentIntent ${pi.id} (kind=${kind}, purchaseId=${purchaseId}) has no local LiveItemVariantPurchase`,
         );
         continue;
+      }
+    } else if (kind === "variant_batch_purchase_saved_pm") {
+      const batchId = pi.metadata?.batchId?.trim() || null;
+      if (batchId) {
+        const purchase = await prisma.liveItemVariantPurchase.findFirst({
+          where: { batchId },
+          select: { id: true },
+        });
+        if (!purchase) {
+          report.orphans.push({
+            category: "payment_intent",
+            stripeId: pi.id,
+            kind,
+            orderId: null,
+            issue:
+              "Stripe PaymentIntent succeeded for a multi-spot variant batch but no matching LiveItemVariantPurchase exists — needs manual admin recovery.",
+          });
+          await logReconcileResult(pi.id, "payment_intent.succeeded", false, "orphan_no_local_variant_batch");
+          reportCronAnomaly(
+            "stripe-reconcile",
+            `ORPHAN succeeded PaymentIntent ${pi.id} (kind=${kind}, batchId=${batchId}) has no local LiveItemVariantPurchase`,
+          );
+          continue;
+        }
       }
     }
 

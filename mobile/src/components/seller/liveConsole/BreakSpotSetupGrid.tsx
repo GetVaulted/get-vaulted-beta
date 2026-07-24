@@ -3,11 +3,13 @@ import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   isLightSpotAccent,
+  liveBreakVariantIsSold,
   spotAccentColor,
   teamAbbrForVariant,
   type LiveBreakVariantDraft,
 } from '../../../lib/liveBreakPresets';
 import { formatUsdInput, parseUsdInput } from '../../../lib/liveAuctionPricing';
+import { formatSoldSpotBuyerLabel } from '../../../lib/liveVariantSpotBoard';
 import { colors, radii, spacing } from '../../../theme';
 
 type Props = {
@@ -15,10 +17,16 @@ type Props = {
   spots: LiveBreakVariantDraft[];
   onChange: (next: LiveBreakVariantDraft[]) => void;
   disabled?: boolean;
-  /** Hide sold spots when editing a live/queued item. */
+  /** Hide sold spots when editing a live/queued item. Prefer locking; hide is legacy. */
   hideSold?: boolean;
   soldSpotIds?: Set<string>;
 };
+
+function spotIsSold(spot: LiveBreakVariantDraft, soldSpotIds?: Set<string>): boolean {
+  if (spot.soldOut) return true;
+  if (spot.id && soldSpotIds?.has(spot.id)) return true;
+  return false;
+}
 
 function fmtMoney(n: number) {
   return `$${formatUsdInput(n)}`;
@@ -36,6 +44,7 @@ export function breakSpotsFromItemVariants(
       status: string;
       color?: string | null;
       sortOrder?: number;
+      buyerUsername?: string | null;
     }>;
   },
 ): LiveBreakVariantDraft[] | null {
@@ -44,15 +53,20 @@ export function breakSpotsFromItemVariants(
   return item.variants
     .slice()
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-    .map((v, sortOrder) => ({
-      id: v.id,
-      label: v.label,
-      priceUsd: v.priceUsd,
-      quantityInitial: 1,
-      sortOrder,
-      color: v.color ?? '',
-      isHot: v.isHot,
-    }));
+    .map((v, sortOrder) => {
+      const soldOut = liveBreakVariantIsSold(v);
+      return {
+        id: v.id,
+        label: v.label,
+        priceUsd: v.priceUsd,
+        quantityInitial: 1,
+        sortOrder,
+        color: v.color ?? '',
+        isHot: soldOut ? false : v.isHot,
+        soldOut,
+        buyerUsername: soldOut ? v.buyerUsername ?? null : null,
+      };
+    });
 }
 
 export function BreakSpotSetupGrid({
@@ -68,30 +82,35 @@ export function BreakSpotSetupGrid({
   const [priceDraft, setPriceDraft] = useState('');
 
   const visibleSpots = useMemo(() => {
-    if (!hideSold) return spots.map((spot, index) => ({ spot, index }));
     return spots
-      .map((spot, index) => ({ spot, index }))
-      .filter(({ spot }) => !spot.id || !soldSpotIds?.has(spot.id));
+      .map((spot, index) => ({ spot, index, sold: spotIsSold(spot, soldSpotIds) }))
+      .filter(({ sold }) => !(hideSold && sold));
   }, [hideSold, soldSpotIds, spots]);
 
-  const pinnedCount = spots.filter((s) => s.isHot).length;
+  const openSpots = useMemo(
+    () => spots.filter((s) => !spotIsSold(s, soldSpotIds)),
+    [soldSpotIds, spots],
+  );
+  const pinnedCount = openSpots.filter((s) => s.isHot).length;
 
   const applyBaseToAll = (raw: string) => {
     const parsed = parseUsdInput(raw);
     if (parsed == null) return;
-    onChange(spots.map((s) => ({ ...s, priceUsd: parsed })));
+    onChange(spots.map((s) => (spotIsSold(s, soldSpotIds) ? s : { ...s, priceUsd: parsed })));
   };
 
   const updateSpot = (index: number, patch: Partial<LiveBreakVariantDraft>) => {
+    if (spotIsSold(spots[index] ?? { soldOut: true }, soldSpotIds)) return;
     onChange(spots.map((s, i) => (i === index ? { ...s, ...patch } : s)));
   };
 
   const togglePin = (index: number) => {
+    if (spotIsSold(spots[index] ?? { soldOut: true }, soldSpotIds)) return;
     updateSpot(index, { isHot: !spots[index]?.isHot });
   };
 
   const openEditor = (index: number) => {
-    if (disabled) return;
+    if (disabled || spotIsSold(spots[index] ?? { soldOut: true }, soldSpotIds)) return;
     setSelectedIndex(index);
     setPriceDraft(formatUsdInput(spots[index]?.priceUsd ?? 0));
   };
@@ -105,13 +124,15 @@ export function BreakSpotSetupGrid({
     setPriceDraft('');
   };
 
+  const firstOpenPrice = openSpots[0]?.priceUsd ?? spots[0]?.priceUsd ?? 0;
+
   return (
     <View style={styles.wrap}>
       <View style={styles.toolbar}>
         <Text style={styles.toolbarTitle}>
-          {isDivision ? '8 divisions' : '32 teams'} · {pinnedCount} pinned
+          {openSpots.length} open {isDivision ? 'divisions' : 'teams'} · {pinnedCount} pinned
         </Text>
-        <Text style={styles.toolbarHint}>Tap a spot to set price · Pin to feature for buyers</Text>
+        <Text style={styles.toolbarHint}>Tap an open spot to set price · Pin to feature for buyers</Text>
       </View>
 
       <ScrollView
@@ -120,39 +141,59 @@ export function BreakSpotSetupGrid({
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {visibleSpots.map(({ spot, index }) => {
+        {visibleSpots.map(({ spot, index, sold }) => {
           const accent = spotAccentColor(spot.label, spot.color, isDivision);
           const lightText = isLightSpotAccent(accent);
           const abbr = !isDivision ? teamAbbrForVariant(spot.label, spot.color) : null;
           const selected = selectedIndex === index;
           return (
-            <View key={`${spot.label}-${index}`} style={[styles.cellWrap, isDivision ? styles.cellDivision : styles.cellTeam]}>
+            <View key={`${spot.id ?? spot.label}-${index}`} style={[styles.cellWrap, isDivision ? styles.cellDivision : styles.cellTeam]}>
               <Pressable
-                style={[styles.cell, selected && styles.cellSelected]}
+                style={[styles.cell, selected && styles.cellSelected, sold && styles.cellSold]}
                 onPress={() => openEditor(index)}
-                disabled={disabled}
+                disabled={disabled || sold}
               >
-                <LinearGradient colors={[accent, `${accent}CC`]} style={styles.cellGradient}>
+                <LinearGradient
+                  colors={sold ? ['rgba(40,40,44,0.95)', 'rgba(24,24,28,0.98)'] : [accent, `${accent}CC`]}
+                  style={styles.cellGradient}
+                >
                   {abbr ? (
-                    <Text style={[styles.abbr, lightText && styles.textDark]}>{abbr}</Text>
+                    <Text style={[styles.abbr, lightText && !sold && styles.textDark, sold && styles.textSold]}>
+                      {abbr}
+                    </Text>
                   ) : (
-                    <Text style={[styles.divisionLabel, lightText && styles.textDark]} numberOfLines={2}>
+                    <Text
+                      style={[styles.divisionLabel, lightText && !sold && styles.textDark, sold && styles.textSold]}
+                      numberOfLines={2}
+                    >
                       {spot.label}
                     </Text>
                   )}
-                  <Text style={[styles.price, lightText && styles.textDarkMuted]}>{fmtMoney(spot.priceUsd)}</Text>
+                  {sold ? (
+                    <Text style={styles.soldBuyer} numberOfLines={1}>
+                      {formatSoldSpotBuyerLabel(spot.buyerUsername)}
+                    </Text>
+                  ) : (
+                    <Text style={[styles.price, lightText && styles.textDarkMuted]}>{fmtMoney(spot.priceUsd)}</Text>
+                  )}
                 </LinearGradient>
               </Pressable>
-              <Pressable
-                style={[styles.pinBtn, spot.isHot && styles.pinBtnActive]}
-                onPress={() => togglePin(index)}
-                disabled={disabled}
-                accessibilityLabel={spot.isHot ? 'Unpin spot' : 'Pin spot for buyers'}
-              >
-                <Text style={[styles.pinBtnText, spot.isHot && styles.pinBtnTextActive]}>
-                  {spot.isHot ? 'Pinned' : 'Pin'}
-                </Text>
-              </Pressable>
+              {!sold ? (
+                <Pressable
+                  style={[styles.pinBtn, spot.isHot && styles.pinBtnActive]}
+                  onPress={() => togglePin(index)}
+                  disabled={disabled}
+                  accessibilityLabel={spot.isHot ? 'Unpin spot' : 'Pin spot for buyers'}
+                >
+                  <Text style={[styles.pinBtnText, spot.isHot && styles.pinBtnTextActive]}>
+                    {spot.isHot ? 'Pinned' : 'Pin'}
+                  </Text>
+                </Pressable>
+              ) : (
+                <View style={styles.soldBadge}>
+                  <Text style={styles.soldBadgeTxt}>Sold</Text>
+                </View>
+              )}
             </View>
           );
         })}
@@ -182,10 +223,10 @@ export function BreakSpotSetupGrid({
 
       <Pressable
         style={[styles.applyAll, disabled && styles.applyAllOff]}
-        onPress={() => applyBaseToAll(priceDraft || formatUsdInput(spots[0]?.priceUsd ?? 0))}
-        disabled={disabled}
+        onPress={() => applyBaseToAll(priceDraft || formatUsdInput(firstOpenPrice))}
+        disabled={disabled || openSpots.length === 0}
       >
-        <Text style={styles.applyAllTxt}>Apply first spot price to all</Text>
+        <Text style={styles.applyAllTxt}>Apply price to all open spots</Text>
       </Pressable>
     </View>
   );
@@ -203,6 +244,7 @@ const styles = StyleSheet.create({
   cellTeam: { width: '23%', minWidth: 74, flexGrow: 1 },
   cellDivision: { width: '47%', minWidth: 140, flexGrow: 1 },
   cell: { borderRadius: radii.md, overflow: 'hidden' },
+  cellSold: { opacity: 0.92 },
   cellSelected: {
     borderWidth: 2,
     borderColor: colors.gold,
@@ -216,8 +258,10 @@ const styles = StyleSheet.create({
   abbr: { fontSize: 14, fontWeight: '900', color: '#fff' },
   divisionLabel: { fontSize: 12, fontWeight: '900', color: '#fff', lineHeight: 15 },
   price: { marginTop: 4, fontSize: 10, fontWeight: '800', color: 'rgba(255,255,255,0.78)' },
+  soldBuyer: { marginTop: 4, fontSize: 9, fontWeight: '800', color: 'rgba(134,239,172,0.85)' },
   textDark: { color: '#111' },
   textDarkMuted: { color: 'rgba(17,17,17,0.72)' },
+  textSold: { color: 'rgba(255,255,255,0.42)' },
   pinBtn: {
     position: 'absolute',
     top: 4,
@@ -245,6 +289,27 @@ const styles = StyleSheet.create({
   },
   pinBtnTextActive: {
     color: colors.gold,
+  },
+  soldBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    minWidth: 36,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: radii.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  soldBadgeTxt: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.45)',
   },
   editor: {
     borderRadius: radii.md,

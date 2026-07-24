@@ -3,16 +3,11 @@ import { maybeMarkVariantBreakReady } from "@/lib/live-item-variant-break";
 import { idleVariantSpotCommerceReset } from "@/lib/live-variant-spot-commerce";
 import { prisma } from "@/lib/prisma";
 import {
-  emitLiveRoomMessagesRefetch,
   emitLiveRoomQueueItemsChanged,
   emitPurchaseCompleted,
 } from "@/lib/realtime-emit-server";
 import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 import { normalizeUsernameForStorage } from "@/lib/username-policy";
-
-function formatMoney(n: number) {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
-}
 
 type Body = {
   /** Buyer account username (with or without @). */
@@ -157,19 +152,18 @@ export async function POST(
         select: { id: true },
       });
 
+      const remainingOpen = await tx.liveItemVariant.count({
+        where: {
+          liveRoomItemId: itemId,
+          status: { not: "sold_out" },
+          quantityRemaining: { gt: 0 },
+        },
+      });
+
       const roomWrite = await tx.liveRoom.update({
         where: { id: liveRoomId },
         data: { roomVersion: { increment: 1 } },
         select: { roomVersion: true },
-      });
-
-      await tx.liveRoomMessage.create({
-        data: {
-          liveRoomId,
-          senderId: room.sellerId,
-          body: `Host marked “${variant.label}” sold to @${buyer.username} for ${formatMoney(totalUsd)} (manual).`,
-          messageType: "system",
-        },
       });
 
       return {
@@ -179,12 +173,12 @@ export async function POST(
         totalUsd,
         roomVersion: roomWrite.roomVersion,
         sellerId: room.sellerId,
+        itemSoldOut: remainingOpen === 0,
       };
     });
 
     await maybeMarkVariantBreakReady(itemId, liveRoomId, result.sellerId);
     emitLiveRoomQueueItemsChanged(liveRoomId);
-    emitLiveRoomMessagesRefetch(liveRoomId);
     emitPurchaseCompleted(liveRoomId, itemId, {
       roomVersion: result.roomVersion,
       winnerUsername: result.buyerUsername,
@@ -193,7 +187,7 @@ export async function POST(
       itemTitle: result.label,
       orderId: result.purchaseId,
       paymentStatus: "paid",
-      itemSoldOut: true,
+      itemSoldOut: result.itemSoldOut,
     });
 
     return NextResponse.json({

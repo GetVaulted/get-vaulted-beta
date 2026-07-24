@@ -319,7 +319,9 @@ export function serializeLiveRoomMessage(
     body: deleted ? "[message removed]" : row.body,
     messageType: row.messageType,
     createdAt: row.createdAt.toISOString(),
-    mentions: deleted ? [] : mentions,
+    mentions: deleted
+      ? []
+      : mentions.filter((m) => m.userId !== row.senderId),
   };
 }
 

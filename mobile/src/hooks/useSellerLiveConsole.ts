@@ -385,14 +385,14 @@ export function useSellerLiveConsole({
   const onSaveBreakSpots = (itemId: string, spots: LiveBreakVariantDraft[]) => {
     void run(async () => {
       const updates = spots
-        .filter((s): s is LiveBreakVariantDraft & { id: string } => Boolean(s.id))
+        .filter((s): s is LiveBreakVariantDraft & { id: string } => Boolean(s.id) && !s.soldOut)
         .map((s) => ({
           id: s.id,
           priceUsd: s.priceUsd,
           isHot: s.isHot === true,
         }));
       if (updates.length === 0) {
-        Alert.alert('Edit break', 'No spots to update.');
+        Alert.alert('Edit break', 'No open spots to update.');
         return;
       }
       await patchLiveItemVariants(accessToken, roomId, itemId, updates);
@@ -425,6 +425,28 @@ export function useSellerLiveConsole({
           variantId: args.variantId,
           username: args.username,
         });
+        const buyerUsername = result.buyerUsername.replace(/^@+/, '');
+        const markVariantSold = (item: LiveRoomItemRow): LiveRoomItemRow => {
+          if (item.id !== args.itemId || !item.variants?.length) return item;
+          return {
+            ...item,
+            itemVersion: (item.itemVersion ?? 0) + 1,
+            variants: item.variants.map((v) =>
+              v.id === args.variantId
+                ? {
+                    ...v,
+                    quantityRemaining: 0,
+                    status: 'sold_out',
+                    isHot: false,
+                    buyerUsername,
+                    soldCount: (v.soldCount ?? 0) + 1,
+                  }
+                : v,
+            ),
+          };
+        };
+        setItems((prev) => prev.map(markVariantSold));
+        setActiveItem((prev) => (prev ? markVariantSold(prev) : prev));
         invalidateHostConsoleCache(roomId);
         await reload({ force: true });
         Alert.alert('Marked sold', `${result.label} → @${result.buyerUsername}`);
@@ -435,7 +457,11 @@ export function useSellerLiveConsole({
   };
 
   const openPricingEditor = (item: LiveRoomItemRow) => {
-    setPricingEditItem(item);
+    const fresh =
+      (activeItem?.id === item.id ? activeItem : null) ??
+      items.find((row) => row.id === item.id) ??
+      item;
+    setPricingEditItem(fresh);
   };
 
   const pricingEditIsBreak = pricingEditItem != null && isVariantSalesFormat(pricingEditItem.salesFormat);

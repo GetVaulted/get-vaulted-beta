@@ -9,17 +9,24 @@ export function createLiveVariantPurchaseIdempotencyKey(variantId: string): stri
   return `lv_purchase_${variantId}_${bucket}`;
 }
 
+export function createLiveVariantBatchPurchaseIdempotencyKey(variantIds: string[]): string {
+  const bucket = Math.floor(Date.now() / 30_000);
+  const sorted = [...variantIds].sort().join('_').slice(0, 80);
+  return `lv_batch_${sorted}_${bucket}`;
+}
+
 export type LiveVariantPurchaseResult =
-  | { ok: true; paid: true; purchaseId?: string }
+  | { ok: true; paid: true; purchaseId?: string; batchId?: string; purchaseIds?: string[]; labels?: string[] }
   | {
       ok: true;
       requiresAction: true;
       purchaseId: string;
+      batchId?: string;
       clientSecret: string;
       paymentIntentId: string;
       publishableKey?: string;
     }
-  | { ok: true; processing: true; purchaseId: string; paymentIntentId: string }
+  | { ok: true; processing: true; purchaseId: string; batchId?: string; paymentIntentId: string }
   | {
       ok: false;
       error: string;
@@ -35,6 +42,9 @@ type PurchasePayload = {
   error?: string;
   paid?: boolean;
   purchaseId?: string;
+  batchId?: string;
+  purchaseIds?: string[];
+  labels?: string[];
   signInUrl?: string;
   code?: string;
   paymentFailed?: boolean;
@@ -83,23 +93,40 @@ function mapPurchaseResponse(res: Response, payload: PurchasePayload): LiveVaria
     };
   }
   if (payload.paid) {
-    return { ok: true, paid: true, purchaseId: payload.purchaseId };
+    return {
+      ok: true,
+      paid: true,
+      purchaseId: payload.purchaseId ?? payload.purchaseIds?.[0],
+      batchId: payload.batchId,
+      purchaseIds: payload.purchaseIds,
+      labels: payload.labels,
+    };
   }
-  if (payload.requiresAction && payload.clientSecret && payload.purchaseId && payload.paymentIntentId) {
+  if (payload.requiresAction && payload.clientSecret && payload.paymentIntentId) {
+    const purchaseId = payload.purchaseId ?? payload.purchaseIds?.[0];
+    if (!purchaseId && !payload.batchId) {
+      return { ok: false, error: 'Unexpected checkout response.', status: 500 };
+    }
     return {
       ok: true,
       requiresAction: true,
-      purchaseId: payload.purchaseId,
+      purchaseId: purchaseId ?? payload.batchId!,
+      batchId: payload.batchId,
       clientSecret: payload.clientSecret,
       paymentIntentId: payload.paymentIntentId,
       publishableKey: payload.publishableKey,
     };
   }
-  if (payload.processing && payload.purchaseId && payload.paymentIntentId) {
+  if (payload.processing && payload.paymentIntentId) {
+    const purchaseId = payload.purchaseId ?? payload.purchaseIds?.[0];
+    if (!purchaseId && !payload.batchId) {
+      return { ok: false, error: 'Unexpected checkout response.', status: 500 };
+    }
     return {
       ok: true,
       processing: true,
-      purchaseId: payload.purchaseId,
+      purchaseId: purchaseId ?? payload.batchId!,
+      batchId: payload.batchId,
       paymentIntentId: payload.paymentIntentId,
     };
   }
@@ -167,6 +194,71 @@ export async function syncLiveItemVariantPurchase(args: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ action: 'sync', purchaseId: args.purchaseId }),
+    },
+    { timeoutMs: VARIANT_PURCHASE_TIMEOUT_MS },
+  );
+
+  let payload: PurchasePayload = {};
+  try {
+    payload = (await res.json()) as PurchasePayload;
+  } catch {
+    /* ignore */
+  }
+
+  return mapPurchaseResponse(res, payload);
+}
+
+export async function purchaseLiveItemVariantBatch(args: {
+  accessToken: string;
+  liveRoomId: string;
+  itemId: string;
+  variantIds: string[];
+  idempotencyKey?: string;
+  paymentMethodId?: string;
+}): Promise<LiveVariantPurchaseResult> {
+  const res = await fetchWebApiMobile(
+    `/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/items/${encodeURIComponent(args.itemId)}/variants/batch-purchase`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${args.accessToken}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key':
+          args.idempotencyKey ?? createLiveVariantBatchPurchaseIdempotencyKey(args.variantIds),
+      },
+      body: JSON.stringify({
+        variantIds: args.variantIds,
+        paymentMethodId: args.paymentMethodId,
+      }),
+    },
+    { timeoutMs: VARIANT_PURCHASE_TIMEOUT_MS },
+  );
+
+  let payload: PurchasePayload = {};
+  try {
+    payload = (await res.json()) as PurchasePayload;
+  } catch {
+    /* ignore */
+  }
+
+  return mapPurchaseResponse(res, payload);
+}
+
+export async function syncLiveItemVariantPurchaseBatch(args: {
+  accessToken: string;
+  liveRoomId: string;
+  itemId: string;
+  batchId: string;
+}): Promise<LiveVariantPurchaseResult> {
+  const res = await fetchWebApiMobile(
+    `/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/items/${encodeURIComponent(args.itemId)}/variants/batch-purchase`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${args.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ action: 'sync', batchId: args.batchId }),
     },
     { timeoutMs: VARIANT_PURCHASE_TIMEOUT_MS },
   );

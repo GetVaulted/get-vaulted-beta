@@ -59,7 +59,14 @@ export function HostEditBreakSpotsModal({ open, item, busy = false, onClose, onS
     }
     setSpots(variantsToDrafts(item));
     setBasePrice("");
-  }, [item?.id, open]);
+  }, [
+    item?.id,
+    open,
+    // Refresh sold/open state when host marks spots sold while the editor can reopen.
+    item?.variants
+      ?.map((v) => `${v.id}:${v.quantityRemaining}:${v.status}:${v.priceUsd}:${v.isHot ? 1 : 0}`)
+      .join("|"),
+  ]);
 
   const boardLabel = item ? variantBuyerSelectLabel(item.salesFormat) : "Teams";
   const openCount = spots.filter((s) => !s.sold).length;
@@ -79,14 +86,15 @@ export function HostEditBreakSpotsModal({ open, item, busy = false, onClose, onS
   const setSpotPrice = (id: string, raw: string) => {
     const parsed = parseUsd(raw);
     if (parsed == null) return;
-    setSpots((prev) => prev.map((s) => (s.id === id ? { ...s, priceUsd: parsed } : s)));
+    setSpots((prev) => prev.map((s) => (s.id === id && !s.sold ? { ...s, priceUsd: parsed } : s)));
   };
 
   const save = () => {
     if (!item) return;
     const updates = spots
-      .filter((s) => s.id)
+      .filter((s) => s.id && !s.sold)
       .map((s) => ({ id: s.id, priceUsd: s.priceUsd, isHot: s.isHot }));
+    if (updates.length === 0) return;
     onSave(item.id, updates);
   };
 

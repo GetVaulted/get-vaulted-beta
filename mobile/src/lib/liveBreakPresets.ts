@@ -9,7 +9,18 @@ export type LiveBreakVariantDraft = {
   isHot?: boolean;
   /** Present when editing an existing queued item. */
   id?: string;
+  /** Sold spots stay visible but are not editable. */
+  soldOut?: boolean;
+  buyerUsername?: string | null;
 };
+
+export function liveBreakVariantIsSold(v: {
+  quantityRemaining?: number | null;
+  status?: string | null;
+}): boolean {
+  const qty = typeof v.quantityRemaining === 'number' ? v.quantityRemaining : null;
+  return (qty != null && qty <= 0) || v.status === 'sold_out';
+}
 
 export const NFL_TEAMS: { abbr: string; name: string }[] = [
   { abbr: 'ARI', name: 'Cardinals' },

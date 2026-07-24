@@ -159,7 +159,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
       systemEvent: m.systemEvent,
       readAt: m.readAt?.toISOString() ?? null,
       createdAt: m.createdAt.toISOString(),
-      mentions: mentionMap.get(m.id) ?? [],
+      mentions: (mentionMap.get(m.id) ?? []).filter((mention) => mention.userId !== m.senderId),
     })),
     hasMore,
     nextCursor,

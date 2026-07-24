@@ -53,4 +53,9 @@ describe("segmentMessageWithMentions", () => {
       { type: "text", value: "!" },
     ]);
   });
+
+  it("keeps unresolved @handles as plain text", () => {
+    const segments = segmentMessageWithMentions("Hi @nobody!", []);
+    expect(segments).toEqual([{ type: "text", value: "Hi @nobody!" }]);
+  });
 });
