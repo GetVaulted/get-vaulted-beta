@@ -217,8 +217,8 @@ export function resolveSurfaceTransportPlan(input: {
   /**
    * True once the current re-entry attempt tried HLS and it never reached first-frame within the
    * watchdog window. When set, the planner stops preferring the (proven-unplayable) HLS mirror and
-   * forces the WebRTC surface instead — even after a Stage leave. Presence of a `playbackUrl` is
-   * NOT proof HLS is playable.
+   * forces the WebRTC surface instead — except after a buyer Stage leave, where WebRTC rejoin is
+   * blocked (poisoned singleton). Presence of a `playbackUrl` is NOT proof HLS is playable.
    */
   hlsStalled?: boolean;
 }): ActiveTransportPlan {
@@ -227,14 +227,16 @@ export function resolveSurfaceTransportPlan(input: {
   const hlsAttachable = shouldAttachHlsPlayback(input.stream.streamHealth, input.stream.playbackUrl);
 
   if (input.isActive && eligible) {
+    // Post-leave: stay on HLS when the mirror exists — never force Stage rejoin. `hlsStalled` used
+    // to override this and remount WebRTC after background leave, which start/stops forever on a
+    // poisoned IVS Stage singleton until the app is force-closed.
+    if (rejoinBlocked && hlsAttachable) {
+      return { transport: 'hls', armUpgrade: false };
+    }
     // HLS was tried this attempt and never painted — do not keep preferring a dead mirror. Fall
     // over to a fresh WebRTC surface (the caller remounts the native view for a clean binding).
     if (input.hlsStalled) {
       return { transport: 'webrtc', armUpgrade: false };
-    }
-    // Post-leave: stay on HLS when the mirror exists — do not upgrade back to poisoned WebRTC.
-    if (rejoinBlocked && hlsAttachable) {
-      return { transport: 'hls', armUpgrade: false };
     }
     if (input.hybridEnabled && hlsAttachable && !input.alreadyUpgraded) {
       return { transport: 'hls', armUpgrade: true };

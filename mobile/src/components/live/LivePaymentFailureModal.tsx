@@ -19,6 +19,7 @@ import {
   PAYMENT_RECOVERY_SUBTITLE,
 } from '../../lib/livePaymentFailureCopy';
 import { colors, spacing } from '../../theme';
+import { withLivePlaybackCommerceHold } from '../../lib/livePlaybackCommerceHold';
 import { LiveRoomText } from './LiveRoomText';
 import { WalletSheet } from '../wallet/WalletSheet';
 
@@ -136,7 +137,9 @@ export function LivePaymentFailureModal({
           return true;
         }
         if (result.ok && 'requiresAction' in result && result.requiresAction) {
-          const conf = await confirmPayment(result.clientSecret, { paymentMethodType: 'Card' });
+          const conf = await withLivePlaybackCommerceHold(() =>
+            confirmPayment(result.clientSecret, { paymentMethodType: 'Card' }),
+          );
           if (conf.error) {
             const msg = mapLivePaymentFailureMessage(conf.error.message, conf.error.code);
             setStatusLine(msg);

@@ -32,6 +32,7 @@ import {
 } from '../lib/liveStreamPlayback';
 import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
 import { shouldCommitLiveBackgroundAfterDwell } from '../lib/livePlaybackAppState';
+import { isLivePlaybackCommerceHoldActive } from '../lib/livePlaybackCommerceHold';
 
 export type LivePlaybackMode = 'active' | 'prefetch' | 'off';
 
@@ -204,6 +205,8 @@ export function useLiveStagePlayback(args: {
       // Only upgrade the still-settled foreground show. If the user swiped away (mode !== active)
       // the mode effect already reset the latch and this is a no-op.
       if (playbackModeRef.current !== 'active') return;
+      // Background leave latches rejoin — upgrading would remount a poisoned Stage singleton.
+      if (isBuyerStageWebrtcRejoinBlocked()) return;
       webrtcUpgradedRef.current = true;
       lastAttachKeyRef.current = '';
       setPlayerFatal(false);
@@ -399,12 +402,27 @@ export function useLiveStagePlayback(args: {
 
   // Abandon a stalled HLS attempt and force a fresh WebRTC subscriber surface. Called by the
   // first-frame watchdog. No-op if the attempt already advanced or if this room can't do WebRTC.
+  // After a buyer Stage leave (home swipe), never force WebRTC — remount thrash is worse than a
+  // slow HLS reload.
   const forceWebrtcFallback = useCallback(
     (attemptId: number) => {
       if (playbackAttemptIdRef.current !== attemptId) return;
       if (videoHasDataRef.current) return;
       const safe = streamRef.current;
       if (safe?.streamPaused) return;
+      if (isBuyerStageWebrtcRejoinBlocked()) {
+        hlsStalledRef.current = false;
+        lastAttachKeyRef.current = '';
+        setPlayerFatal(false);
+        setVideoHasData(false);
+        applyTransport('none');
+        void fetchStream();
+        viewerLifecycleLog('playback_fallback_skipped_rejoin_blocked', {
+          roomId: args.roomId,
+          attemptId,
+        });
+        return;
+      }
       if (!safe || !shouldUseStageWebrtcPlayback(safe, false, args.accessToken)) {
         viewerLifecycleLog('playback_fallback_unavailable', {
           roomId: args.roomId,
@@ -428,7 +446,7 @@ export function useLiveStagePlayback(args: {
         to: 'webrtc',
       });
     },
-    [applyTransport, args.accessToken, args.roomId, showReconnectingUi],
+    [applyTransport, args.accessToken, args.roomId, fetchStream, showReconnectingUi],
   );
 
   const retry = useCallback(() => {
@@ -588,6 +606,19 @@ export function useLiveStagePlayback(args: {
       void fetchStream();
       return;
     }
+    // Buyer already left Stage this session (home swipe / suspend): metadata + HLS only.
+    // Clearing the latch + forcing WebRTC here is what made the feed start/stop until force-close.
+    if (isBuyerStageWebrtcRejoinBlocked()) {
+      webrtcUpgradedRef.current = false;
+      hlsStalledRef.current = false;
+      lastAttachKeyRef.current = '';
+      cancelWebrtcUpgrade();
+      if (args.playbackMode === 'active') beginPlaybackAttempt('refresh_nonce_hls');
+      transportRef.current = 'none';
+      applyTransport('none');
+      void fetchStream();
+      return;
+    }
     clearBackoff();
     retryRef.current = 0;
     lastAttachKeyRef.current = '';
@@ -696,6 +727,12 @@ export function useLiveStagePlayback(args: {
     let backgroundAtMs: number | null = null;
     const onAppState = (next: AppStateStatus) => {
       if (next === 'background') {
+        // Stripe PaymentSheet / confirmPayment reports background on Android — not a home leave.
+        if (isLivePlaybackCommerceHoldActive()) {
+          clearBackoff();
+          cancelWebrtcUpgrade();
+          return;
+        }
         backgroundAtMs = Date.now();
         clearBackoff();
         cancelWebrtcUpgrade();
@@ -708,6 +745,11 @@ export function useLiveStagePlayback(args: {
       }
       const dwellMs = backgroundAtMs != null ? Date.now() - backgroundAtMs : 0;
       backgroundAtMs = null;
+      // Checkout returned: keep existing transport (do not park HLS / leave latch).
+      if (isLivePlaybackCommerceHoldActive()) {
+        void fetchStream();
+        return;
+      }
       // Brief exit→return: keep the existing Stage session — hard remount crashes native IVS.
       if (!shouldCommitLiveBackgroundAfterDwell(dwellMs)) {
         void fetchStream();
@@ -721,14 +763,15 @@ export function useLiveStagePlayback(args: {
       webrtcFailedRef.current = false;
       webrtcFailoverCountRef.current = 0;
       noVideoSinceRef.current = null;
+      // Committed background leaves Stage (see LiveStagePlayback suspend). Never remount WebRTC
+      // here — that start/stops on a poisoned singleton until force-close. Park on HLS instead.
+      webrtcUpgradedRef.current = false;
+      hlsStalledRef.current = false;
+      cancelWebrtcUpgrade();
       showReconnectingUi();
       beginPlaybackAttempt('appstate_active');
-      if (transportRef.current === 'webrtc') {
-        setWebrtcSubscribeEpoch((n) => n + 1);
-      } else {
-        transportRef.current = 'none';
-        applyTransport('none');
-      }
+      transportRef.current = 'none';
+      applyTransport('none');
       void fetchStream().finally(() => {
         if (!cancelled) hideReconnectingUi();
       });
@@ -767,11 +810,14 @@ export function useLiveStagePlayback(args: {
       setPlayerFatal(false);
       setPlayerRetryCount(0);
       beginPlaybackAttempt('no_video_recover');
-      if (transportRef.current === 'webrtc') {
-        setWebrtcSubscribeEpoch((n) => n + 1);
-      } else {
+      // Post-leave: reload HLS only — do not remount Stage.
+      if (isBuyerStageWebrtcRejoinBlocked() || transportRef.current !== 'webrtc') {
+        webrtcUpgradedRef.current = false;
+        hlsStalledRef.current = false;
         transportRef.current = 'none';
         applyTransport('none');
+      } else {
+        setWebrtcSubscribeEpoch((n) => n + 1);
       }
       void fetchStream();
     }, LIVE_PLAYBACK_HEALTH_MS);
@@ -886,8 +932,10 @@ export function useLiveStagePlayback(args: {
       webrtcFailoverCountRef.current += exhausted ? 2 : 1;
       setVideoHasData(false);
       hideReconnectingUi();
-      if (webrtcFailoverCountRef.current >= 2) {
+      if (isBuyerStageWebrtcRejoinBlocked() || webrtcFailoverCountRef.current >= 2) {
         webrtcFailedRef.current = true;
+        webrtcUpgradedRef.current = false;
+        hlsStalledRef.current = false;
         applyTransport('hls');
         lastAttachKeyRef.current = '';
         setVideoHasData(false);

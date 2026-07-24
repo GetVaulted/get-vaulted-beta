@@ -332,7 +332,7 @@ export function useMobileStageSubscribe(args: {
         void teardownBuyerStage('effect_cleanup');
       }
     };
-  }, [args.active, args.accessToken, args.roomId, args.refreshNonce, args.subscribeEpoch]);
+  }, [args.active, args.accessToken, args.roomId, args.subscribeEpoch]);
 
   return { phase, connectionState, remoteVideo };
 }

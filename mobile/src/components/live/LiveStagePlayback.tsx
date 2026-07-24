@@ -19,6 +19,7 @@ import {
   resolveScheduledPrereleasePhase,
 } from '../../lib/liveStreamScheduled';
 import { LIVE_BACKGROUND_SUSPEND_DWELL_MS } from '../../lib/livePlaybackAppState';
+import { isLivePlaybackCommerceHoldActive } from '../../lib/livePlaybackCommerceHold';
 import { liveStageContentFitForStreamMode } from '../../lib/liveRoomViewport';
 import { viewerLifecycleLog } from '../../lib/viewerLifecycleLog';
 import { colors, spacing } from '../../theme';
@@ -130,14 +131,28 @@ export function LiveStagePlayback({
   const [webrtcReady, setWebrtcReady] = useState(false);
   // Debounced: brief exit→return must not leave Stage (native crash). Only true after dwell.
   const [stageMediaSuspended, setStageMediaSuspended] = useState(false);
-  // Bumped only after a committed background suspend + return. iOS can detach the native Stage
-  // surface while truly backgrounded; remounting recovers black video without racing quick flickers.
-  const [surfaceResumeNonce, setSurfaceResumeNonce] = useState(0);
+  // After a committed background leave, keep Stage subscribe off until playback parks on HLS.
+  // Clearing suspend while transport is still `webrtc` would rejoin the poisoned singleton.
+  const [blockStageAfterBackgroundLeave, setBlockStageAfterBackgroundLeave] = useState(false);
   const prevAppStateRef = useRef<AppStateStatus>(AppState.currentState);
   const suspendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didCommitSuspendRef = useRef(false);
   const mainVideoRef = useRef<VideoView>(null);
   const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce, roomVisitNonce });
+
+  useEffect(() => {
+    if (!blockStageAfterBackgroundLeave) return;
+    if (playback.transport !== 'webrtc') {
+      setBlockStageAfterBackgroundLeave(false);
+    }
+  }, [blockStageAfterBackgroundLeave, playback.transport]);
+
+  // Host Play after the buyer backgrounded: allow Stage again once pause clears.
+  useEffect(() => {
+    if (realtimeStreamPaused === false) {
+      setBlockStageAfterBackgroundLeave(false);
+    }
+  }, [realtimeStreamPaused]);
 
   useEffect(() => {
     if (realtimeStreamPaused == null) return;
@@ -314,9 +329,19 @@ export function LiveStagePlayback({
       if (next === 'background') {
         // Debounce: quick exit→return must not leave Stage (native IVS crash on remount).
         clearSuspendTimer();
+        // Stripe PaymentSheet / 3DS is another Android Activity → AppState background.
+        // Do not leave Stage while the buyer is mid-checkout.
+        if (isLivePlaybackCommerceHoldActive()) {
+          viewerLifecycleLog('commerce_hold_skip_suspend', { roomId });
+          return;
+        }
         suspendTimerRef.current = setTimeout(() => {
           suspendTimerRef.current = null;
           if (prevAppStateRef.current !== 'background') return;
+          if (isLivePlaybackCommerceHoldActive()) {
+            viewerLifecycleLog('commerce_hold_skip_suspend', { roomId, at: 'timer' });
+            return;
+          }
           didCommitSuspendRef.current = true;
           setStageMediaSuspended(true);
         }, LIVE_BACKGROUND_SUSPEND_DWELL_MS);
@@ -328,9 +353,10 @@ export function LiveStagePlayback({
         const wasSuspended = didCommitSuspendRef.current;
         didCommitSuspendRef.current = false;
         setStageMediaSuspended(false);
-        // Remount native surface only after a real suspend — not every inactive→active flash.
+        // After a committed background leave, do NOT remount Stage / re-activate WebRTC.
+        // Playback parks on HLS; block Stage until transport is no longer webrtc.
         if (wasSuspended && prev !== 'active') {
-          setSurfaceResumeNonce((n) => n + 1);
+          setBlockStageAfterBackgroundLeave(true);
         }
       }
     });
@@ -573,11 +599,10 @@ export function LiveStagePlayback({
         <StageSubscriberVideo
           roomId={roomId}
           accessToken={accessToken}
-          active={useWebrtc && !stageMediaSuspended}
+          active={useWebrtc && !stageMediaSuspended && !blockStageAfterBackgroundLeave}
           hostPaused={streamPaused}
           refreshNonce={refreshNonce}
           subscribeEpoch={playback.webrtcSubscribeEpoch}
-          foregroundResumeNonce={surfaceResumeNonce}
           contentFit={contentFit}
           onConnected={handleWebrtcConnected}
           onFailed={playback.onWebrtcFailed}

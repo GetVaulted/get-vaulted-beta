@@ -35,6 +35,7 @@ import {
 } from './walletCardFieldStyle';
 import { usePaymentFormLightAppearance } from './usePaymentFormLightAppearance';
 import { paymentMethodIdFromSetupIntent } from '../../lib/walletPaymentMethodFinalize';
+import { withLivePlaybackCommerceHold } from '../../lib/livePlaybackCommerceHold';
 import { walletPaymentSetupStyles as ps } from './walletPaymentSetupStyles';
 import {
   catalogEntryIcon,
@@ -444,30 +445,32 @@ function WalletPaymentSetupInner({
     setInitError(null);
     setAndroidSheetOpening(true);
     try {
-      const { error: initSheetError } = await initPaymentSheet({
-        merchantDisplayName: LIVE_PREMIUM_WALLET_TITLE,
-        setupIntentClientSecret: payload.clientSecret,
-        returnURL: `${STRIPE_URL_SCHEME}://stripe-redirect`,
-        allowsDelayedPaymentMethods: false,
+      return await withLivePlaybackCommerceHold(async () => {
+        const { error: initSheetError } = await initPaymentSheet({
+          merchantDisplayName: LIVE_PREMIUM_WALLET_TITLE,
+          setupIntentClientSecret: payload.clientSecret,
+          returnURL: `${STRIPE_URL_SCHEME}://stripe-redirect`,
+          allowsDelayedPaymentMethods: false,
+        });
+        if (initSheetError) {
+          setInitError(mapLivePaymentFailureMessage(initSheetError.message, initSheetError.code));
+          return 'failed';
+        }
+        const { error: presentError } = await presentPaymentSheet();
+        if (presentError) {
+          if (presentError.code === 'Canceled') return 'cancelled';
+          setInitError(mapLivePaymentFailureMessage(presentError.message, presentError.code));
+          return 'failed';
+        }
+        const retrieved = await retrieveSetupIntent(payload.clientSecret);
+        if (retrieved.error) {
+          setInitError(mapLivePaymentFailureMessage(retrieved.error.message, retrieved.error.code));
+          return 'failed';
+        }
+        const paymentMethodId = paymentMethodIdFromSetupIntent(retrieved.setupIntent);
+        await completeSavedPaymentMethod(paymentMethodId);
+        return 'saved';
       });
-      if (initSheetError) {
-        setInitError(mapLivePaymentFailureMessage(initSheetError.message, initSheetError.code));
-        return 'failed';
-      }
-      const { error: presentError } = await presentPaymentSheet();
-      if (presentError) {
-        if (presentError.code === 'Canceled') return 'cancelled';
-        setInitError(mapLivePaymentFailureMessage(presentError.message, presentError.code));
-        return 'failed';
-      }
-      const retrieved = await retrieveSetupIntent(payload.clientSecret);
-      if (retrieved.error) {
-        setInitError(mapLivePaymentFailureMessage(retrieved.error.message, retrieved.error.code));
-        return 'failed';
-      }
-      const paymentMethodId = paymentMethodIdFromSetupIntent(retrieved.setupIntent);
-      await completeSavedPaymentMethod(paymentMethodId);
-      return 'saved';
     } finally {
       setBusy(false);
       setAndroidSheetOpening(false);
@@ -488,43 +491,45 @@ function WalletPaymentSetupInner({
     setBusy(true);
     setInitError(null);
     try {
-      const { error, setupIntent } = await confirmPlatformPaySetupIntent(payload.clientSecret, {
-        applePay:
-          Platform.OS === 'ios' && payload.applePayEnabled !== false
-            ? {
-                merchantCountryCode: payload.merchantCountryCode ?? 'US',
-                currencyCode: 'USD',
-                cartItems: [
-                  {
-                    label: 'Save payment method',
-                    amount: '0.00',
-                    paymentType: PlatformPay.PaymentType.Immediate,
-                  },
-                ],
-              }
-            : undefined,
-        googlePay:
-          Platform.OS === 'android' &&
-          NATIVE_GOOGLE_PAY_ENABLED &&
-          payload.googlePayEnabled !== false
-            ? {
-                merchantCountryCode: payload.merchantCountryCode ?? 'US',
-                currencyCode: 'USD',
-                testEnv: __DEV__,
-              }
-            : undefined,
+      return await withLivePlaybackCommerceHold(async () => {
+        const { error, setupIntent } = await confirmPlatformPaySetupIntent(payload.clientSecret, {
+          applePay:
+            Platform.OS === 'ios' && payload.applePayEnabled !== false
+              ? {
+                  merchantCountryCode: payload.merchantCountryCode ?? 'US',
+                  currencyCode: 'USD',
+                  cartItems: [
+                    {
+                      label: 'Save payment method',
+                      amount: '0.00',
+                      paymentType: PlatformPay.PaymentType.Immediate,
+                    },
+                  ],
+                }
+              : undefined,
+          googlePay:
+            Platform.OS === 'android' &&
+            NATIVE_GOOGLE_PAY_ENABLED &&
+            payload.googlePayEnabled !== false
+              ? {
+                  merchantCountryCode: payload.merchantCountryCode ?? 'US',
+                  currencyCode: 'USD',
+                  testEnv: __DEV__,
+                }
+              : undefined,
+        });
+        if (error) {
+          if (error.code === 'Canceled') return { outcome: 'cancelled' as const };
+          setInitError(mapLivePaymentFailureMessage(error.message, error.code));
+          return { outcome: 'failed' as const };
+        }
+        const paymentMethodId = paymentMethodIdFromSetupIntent(setupIntent);
+        if (!paymentMethodId) {
+          setInitError('Could not read saved wallet details. Try again.');
+          return { outcome: 'failed' as const };
+        }
+        return { outcome: 'saved' as const, paymentMethodId };
       });
-      if (error) {
-        if (error.code === 'Canceled') return { outcome: 'cancelled' };
-        setInitError(mapLivePaymentFailureMessage(error.message, error.code));
-        return { outcome: 'failed' };
-      }
-      const paymentMethodId = paymentMethodIdFromSetupIntent(setupIntent);
-      if (!paymentMethodId) {
-        setInitError('Could not read saved wallet details. Try again.');
-        return { outcome: 'failed' };
-      }
-      return { outcome: 'saved', paymentMethodId };
     } finally {
       setBusy(false);
     }
@@ -610,20 +615,22 @@ function WalletPaymentSetupInner({
     if (busy) return;
     setBusy(true);
     try {
-      const { error: stripeError } = await confirmSetupIntent(payload.clientSecret, {
-        paymentMethodType: 'Card',
+      await withLivePlaybackCommerceHold(async () => {
+        const { error: stripeError } = await confirmSetupIntent(payload.clientSecret, {
+          paymentMethodType: 'Card',
+        });
+        if (stripeError) {
+          setInitError(mapLivePaymentFailureMessage(stripeError.message, stripeError.code));
+          return;
+        }
+        const retrieved = await retrieveSetupIntent(payload.clientSecret);
+        if (retrieved.error) {
+          setInitError(mapLivePaymentFailureMessage(retrieved.error.message, retrieved.error.code));
+          return;
+        }
+        const paymentMethodId = paymentMethodIdFromSetupIntent(retrieved.setupIntent);
+        await completeSavedPaymentMethod(paymentMethodId, { animateSuccess: true });
       });
-      if (stripeError) {
-        setInitError(mapLivePaymentFailureMessage(stripeError.message, stripeError.code));
-        return;
-      }
-      const retrieved = await retrieveSetupIntent(payload.clientSecret);
-      if (retrieved.error) {
-        setInitError(mapLivePaymentFailureMessage(retrieved.error.message, retrieved.error.code));
-        return;
-      }
-      const paymentMethodId = paymentMethodIdFromSetupIntent(retrieved.setupIntent);
-      await completeSavedPaymentMethod(paymentMethodId, { animateSuccess: true });
     } finally {
       setBusy(false);
     }

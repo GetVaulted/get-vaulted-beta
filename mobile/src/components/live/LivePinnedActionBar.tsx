@@ -38,6 +38,7 @@ import {
 } from '../../lib/liveAuctionLotPhase';
 import { logLiveBidButtonPress, mustUseLiveBidFlow, isActiveBuyNowBuyerItem } from '../../lib/liveCommerceRouting';
 import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
+import { withLivePlaybackCommerceHold } from '../../lib/livePlaybackCommerceHold';
 import { logBidControl } from '../../lib/bidControlLog';
 import { mergeBuyerSnapshotForOptimisticBid } from '../../lib/liveRoomBuyerSnapshotMerge';
 import { liveAuctionMinBidUsd } from '../../lib/liveAuctionBidMath';
@@ -1110,7 +1111,9 @@ export function LivePinnedActionBar({
         return;
       }
       if ('requiresAction' in res) {
-        const conf = await confirmPayment(res.clientSecret, { paymentMethodType: 'Card' });
+        const conf = await withLivePlaybackCommerceHold(() =>
+          confirmPayment(res.clientSecret, { paymentMethodType: 'Card' }),
+        );
         if (conf.error) {
           Alert.alert('Payment verification failed', mapLivePaymentFailureMessage(conf.error.message, conf.error.code));
           return;

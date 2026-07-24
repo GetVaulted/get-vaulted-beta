@@ -26,6 +26,7 @@ import {
 } from '../../api/liveVariantPurchaseRepository';
 import { isWalletIncompleteError } from '../../lib/buyerWalletErrors';
 import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
+import { withLivePlaybackCommerceHold } from '../../lib/livePlaybackCommerceHold';
 import { formatSoldSpotBuyerLabel } from '../../lib/liveVariantSpotBoard';
 import {
   isLightSpotAccent,
@@ -432,7 +433,9 @@ export function LiveBreakSpotGridSheet({
         return;
       }
       if ('requiresAction' in res) {
-        const conf = await confirmPayment(res.clientSecret, { paymentMethodType: 'Card' });
+        const conf = await withLivePlaybackCommerceHold(() =>
+          confirmPayment(res.clientSecret, { paymentMethodType: 'Card' }),
+        );
         if (conf.error) {
           const msg = mapLivePaymentFailureMessage(conf.error.message, conf.error.code);
           setError(msg);

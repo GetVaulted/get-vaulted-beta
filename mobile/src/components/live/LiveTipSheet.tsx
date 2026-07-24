@@ -28,6 +28,7 @@ import {
 } from '../../api/liveTipsRepository';
 import { colors, radii, spacing } from '../../theme';
 import { formatTipPaymentMethodLabel } from './liveTipPayment';
+import { withLivePlaybackCommerceHold } from '../../lib/livePlaybackCommerceHold';
 
 type Props = {
   visible: boolean;
@@ -119,7 +120,9 @@ export function LiveTipSheet({
         paymentMethodId: selectedPmId,
       });
       if ('requiresAction' in result) {
-        const conf = await confirmPayment(result.clientSecret, { paymentMethodType: 'Card' });
+        const conf = await withLivePlaybackCommerceHold(() =>
+          confirmPayment(result.clientSecret, { paymentMethodType: 'Card' }),
+        );
         if (conf.error) {
           onError(conf.error.message ?? 'Payment confirmation failed.');
           return;

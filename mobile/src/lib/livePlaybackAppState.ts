@@ -59,6 +59,18 @@ export function shouldSuspendLiveStageMedia(appState: AppStateStatus): boolean {
 }
 
 /**
+ * Same as `shouldSuspendLiveStageMedia`, but never suspend while Stripe PaymentSheet /
+ * confirmPayment has a commerce hold (Android reports `background` for that Activity).
+ */
+export function shouldSuspendLiveStageMediaWhileCommerceHold(
+  appState: AppStateStatus,
+  commerceHoldActive: boolean,
+): boolean {
+  if (commerceHoldActive) return false;
+  return shouldSuspendLiveStageMedia(appState);
+}
+
+/**
  * Host publish: pause only on true background (home / app switcher), not on iOS `inactive`
  * (Control Center, notification banners, brief overlays). Background pause mirrors the Pause
  * button so buyers see Host Paused and the host avoids native Stage crashes on return.

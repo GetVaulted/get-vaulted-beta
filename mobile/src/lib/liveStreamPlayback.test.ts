@@ -268,9 +268,8 @@ describe('liveStreamPlayback', () => {
       ).toEqual({ transport: 'webrtc', armUpgrade: false });
     });
 
-    it('forces WebRTC when a stalled HLS attempt never reached first frame — even post-leave', () => {
+    it('keeps HLS after Stage leave even when HLS is stalled — forced WebRTC remount thrash', () => {
       markBuyerStageSubscribeTornDown();
-      // Without hlsStalled, the post-leave plan prefers the HLS mirror...
       expect(
         resolveSurfaceTransportPlan({
           stream: liveStageStream,
@@ -281,7 +280,7 @@ describe('liveStreamPlayback', () => {
           alreadyUpgraded: false,
         }),
       ).toEqual({ transport: 'hls', armUpgrade: false });
-      // ...but once that HLS attempt is proven unplayable, fall over to a fresh WebRTC surface.
+      // Post-leave + hlsStalled must NOT force WebRTC (black Stage rejoin loop after home swipe).
       expect(
         resolveSurfaceTransportPlan({
           stream: liveStageStream,
@@ -292,7 +291,7 @@ describe('liveStreamPlayback', () => {
           alreadyUpgraded: false,
           hlsStalled: true,
         }),
-      ).toEqual({ transport: 'webrtc', armUpgrade: false });
+      ).toEqual({ transport: 'hls', armUpgrade: false });
     });
 
     it('host Play clears the Stage leave latch so WebRTC upgrade is allowed again', () => {
