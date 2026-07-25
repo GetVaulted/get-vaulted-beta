@@ -391,7 +391,7 @@ export function LiveBreakSpotGridSheet({
             batchId: purchaseRes.batchId,
           });
         }
-        if (purchaseRes.ok && 'purchaseId' in purchaseRes) {
+        if (purchaseRes.ok && 'purchaseId' in purchaseRes && purchaseRes.purchaseId) {
           return syncLiveItemVariantPurchase({
             accessToken,
             liveRoomId: roomId,
