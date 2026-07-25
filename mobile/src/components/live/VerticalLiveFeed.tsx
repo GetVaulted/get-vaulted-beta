@@ -100,7 +100,7 @@ import {
   computeLiveStageSafeInsets,
   computeLiveTopReserve,
   computeGiveawaySideTabTop,
-  liveStageContentFitForStreamMode,
+  liveStageContentFitForPlayback,
   logLiveStageLayoutDebug,
   type LiveStageContainer,
 } from '../../lib/liveRoomViewport';
@@ -691,7 +691,10 @@ function LiveSlide({
       layoutHeight: stageContainer.layoutHeight,
       offsetLeft: stageContainer.offsetLeft,
       offsetTop: stageContainer.offsetTop,
-      contentFit: liveStageContentFitForStreamMode(broadcastGate.streamMode),
+      contentFit: liveStageContentFitForPlayback({
+        streamMode: broadcastGate.streamMode,
+        transport: broadcastGate.streamMode === 'channel_hls' ? 'hls' : 'webrtc',
+      }),
     });
   }, [isActive, stream.id, stageContainer, screenHeight, broadcastGate.streamMode]);
 

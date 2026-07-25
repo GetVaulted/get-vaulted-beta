@@ -7,6 +7,7 @@ import {
   LIVE_STAGE_ASPECT,
   LIVE_STAGE_CONTENT_FIT,
   liveStageContentFitForStreamMode,
+  liveStageContentFitForPlayback,
 } from './liveRoomViewport';
 
 describe('computeLiveStageContainer', () => {
@@ -29,6 +30,18 @@ describe('computeLiveStageContainer', () => {
     expect(liveStageContentFitForStreamMode('channel_hls')).toBe('contain');
     expect(liveStageContentFitForStreamMode('stage_webrtc')).toBe('cover');
     expect(liveStageContentFitForStreamMode(null)).toBe('cover');
+  });
+
+  it('uses contain for Stage→HLS mirrors even when streamMode is still stage_webrtc', () => {
+    expect(
+      liveStageContentFitForPlayback({ streamMode: 'stage_webrtc', transport: 'hls' }),
+    ).toBe('contain');
+    expect(
+      liveStageContentFitForPlayback({ streamMode: 'stage_webrtc', transport: 'webrtc' }),
+    ).toBe('cover');
+    expect(
+      liveStageContentFitForPlayback({ streamMode: 'channel_hls', transport: 'hls' }),
+    ).toBe('contain');
   });
 
   it('scales uniformly and centers horizontally when the frame exceeds viewport height', () => {

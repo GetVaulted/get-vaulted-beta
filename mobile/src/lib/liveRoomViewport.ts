@@ -2,14 +2,18 @@
 export const LIVE_STAGE_ASPECT = 9 / 16;
 
 /**
- * Default fit for phone Stage (portrait camera ≈ 9:16).
- * OBS / channel HLS is usually landscape — use {@link liveStageContentFitForStreamMode}.
+ * Default fit for phone Stage WebRTC (portrait camera ≈ 9:16).
+ * OBS / channel HLS and Stage→HLS mirrors are usually landscape — use
+ * {@link liveStageContentFitForPlayback}.
  */
 export const LIVE_STAGE_CONTENT_FIT = 'cover' as const;
 
 /**
- * Phone Stage (`stage_webrtc`) fills the 9:16 plate with cover.
+ * Phone Stage WebRTC (`stage_webrtc`) fills the 9:16 plate with cover.
  * OBS / RTMP (`channel_hls`) uses contain so landscape tables aren’t center-cropped (“zoomed”).
+ *
+ * Prefer {@link liveStageContentFitForPlayback} when the active transport is known — Stage rooms
+ * that fail over to HLS still report `streamMode: stage_webrtc` but the mirror is landscape.
  */
 export function liveStageContentFitForStreamMode(
   streamMode: string | null | undefined,
@@ -17,6 +21,21 @@ export function liveStageContentFitForStreamMode(
   const mode = typeof streamMode === 'string' ? streamMode.trim().toLowerCase() : '';
   if (mode === 'channel_hls') return 'contain';
   return 'cover';
+}
+
+/**
+ * Fit for the layer the buyer is actually watching.
+ * - HLS (OBS channel or Stage composition mirror) → contain (landscape, avoid crop-zoom)
+ * - WebRTC Stage → cover for phone portrait fill
+ */
+export function liveStageContentFitForPlayback(input: {
+  streamMode: string | null | undefined;
+  /** Active delivery: webrtc | hls | waiting | none */
+  transport: string | null | undefined;
+}): 'cover' | 'contain' {
+  const transport = typeof input.transport === 'string' ? input.transport.trim().toLowerCase() : '';
+  if (transport === 'hls') return 'contain';
+  return liveStageContentFitForStreamMode(input.streamMode);
 }
 
 export type LiveStageContainer = {

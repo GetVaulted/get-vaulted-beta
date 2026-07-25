@@ -86,8 +86,12 @@ export function shouldAttachHlsPlayback(streamHealth: string, playbackUrl: strin
 }
 
 /**
- * Phone Stage fills the 9:16 plate (`cover`).
+ * Phone Stage WebRTC fills the 9:16 plate (`cover`).
  * OBS / RTMP HLS is usually landscape — `contain` avoids center-crop “zoom”.
+ *
+ * Prefer {@link liveStageObjectFitForPlayback} when transport is known: Stage rooms that fail
+ * over to the composition HLS mirror still report `streamMode: stage_webrtc` but the mirror is
+ * landscape, so mode-only `cover` looks heavily zoomed (especially on Android failover).
  */
 export function liveStageObjectFitForStreamMode(
   streamMode: string | null | undefined,
@@ -95,6 +99,20 @@ export function liveStageObjectFitForStreamMode(
   const mode = typeof streamMode === "string" ? streamMode.trim().toLowerCase() : "";
   if (mode === "channel_hls") return "contain";
   return "cover";
+}
+
+/**
+ * Fit for the layer the buyer is actually watching.
+ * - HLS (OBS channel or Stage composition mirror) → contain
+ * - WebRTC Stage → cover for phone portrait fill
+ */
+export function liveStageObjectFitForPlayback(input: {
+  streamMode: string | null | undefined;
+  transport: string | null | undefined;
+}): "cover" | "contain" {
+  const transport = typeof input.transport === "string" ? input.transport.trim().toLowerCase() : "";
+  if (transport === "hls") return "contain";
+  return liveStageObjectFitForStreamMode(input.streamMode);
 }
 
 export function isOfflineLikeStreamHealth(streamHealth: string): boolean {

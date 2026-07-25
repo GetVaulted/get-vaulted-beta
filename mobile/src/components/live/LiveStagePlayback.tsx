@@ -21,7 +21,7 @@ import {
 } from '../../lib/liveStreamScheduled';
 import { LIVE_BACKGROUND_SUSPEND_DWELL_MS } from '../../lib/livePlaybackAppState';
 import { isLivePlaybackCommerceHoldActive } from '../../lib/livePlaybackCommerceHold';
-import { liveStageContentFitForStreamMode } from '../../lib/liveRoomViewport';
+import { liveStageContentFitForStreamMode, liveStageContentFitForPlayback } from '../../lib/liveRoomViewport';
 import { viewerLifecycleLog } from '../../lib/viewerLifecycleLog';
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
@@ -179,8 +179,17 @@ export function LiveStagePlayback({
   const streamPaused =
     playback.stream?.streamPaused === true || realtimeStreamPaused === true;
   const transport = playback.transport;
-  const contentFit =
+  // HLS (OBS + Stage composition mirrors) is almost always landscape — contain avoids crop-zoom.
+  // WebRTC Stage from a phone stays cover. Override wins for both layers.
+  const webrtcContentFit =
     contentFitOverride ?? liveStageContentFitForStreamMode(playback.stream?.streamMode);
+  const hlsContentFit =
+    contentFitOverride ??
+    liveStageContentFitForPlayback({
+      streamMode: playback.stream?.streamMode,
+      transport: 'hls',
+    });
+  const contentFit = transport === 'hls' ? hlsContentFit : webrtcContentFit;
   const viewerTransport = playback.viewerTransport;
   const reconnectFailed = playback.reconnectFailed;
 
@@ -633,7 +642,7 @@ export function LiveStagePlayback({
           refreshNonce={refreshNonce}
           subscribeEpoch={playback.webrtcSubscribeEpoch}
           foregroundResumeNonce={foregroundResumeNonce}
-          contentFit={contentFit}
+          contentFit={webrtcContentFit}
           onConnected={handleWebrtcConnected}
           onFailed={playback.onWebrtcFailed}
           onDisconnected={playback.onWebrtcDisconnected}
@@ -645,7 +654,7 @@ export function LiveStagePlayback({
           ref={mainVideoRef}
           player={player}
           style={styles.video}
-          contentFit={contentFit}
+          contentFit={hlsContentFit}
           nativeControls={false}
           allowsPictureInPicture={LIVE_PICTURE_IN_PICTURE_ENABLED}
           startsPictureInPictureAutomatically={false}

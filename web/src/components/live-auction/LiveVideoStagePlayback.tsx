@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Hls from "hls.js";
 import {
   isLiveStreamSignal,
-  liveStageObjectFitForStreamMode,
+  liveStageObjectFitForPlayback,
   parseBuyerSafeStreamPayload,
   preferHlsOverWebrtcOnClient,
   preferNativeHlsElementPlayback,
@@ -902,7 +902,7 @@ export function LiveVideoStagePlayback({
     return resolveScheduledPrereleasePhase(Date.now(), scheduledStartMs, roomLifecycleLive);
   }, [roomLifecycleLive, hydrated, scheduledStartMs, tick]);
 
-  const liveVideoObjectFit = liveStageObjectFitForStreamMode(streamMode);
+  const liveVideoObjectFit = liveStageObjectFitForPlayback({ streamMode, transport });
   const liveVideoFitClass =
     liveVideoObjectFit === "contain"
       ? "absolute inset-0 h-full w-full object-contain object-center opacity-[0.97]"
