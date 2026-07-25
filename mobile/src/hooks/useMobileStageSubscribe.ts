@@ -33,12 +33,20 @@ export type MobileStageSubscribePhase = 'idle' | 'connecting' | 'connected' | 'f
 
 async function teardownBuyerStage(
   reason: string,
-  opts?: { /** True only for committed home/background leave — never for feed swipe. */ latchRejoin?: boolean },
+  opts?: {
+    /** True only for committed home/background leave — never for feed swipe. */
+    latchRejoin?: boolean;
+    roomId?: string;
+  },
 ): Promise<void> {
   if (opts?.latchRejoin) {
-    markBuyerStageSubscribeTornDown();
+    markBuyerStageSubscribeTornDown(opts.roomId);
   }
-  viewerLifecycleLog('stage_teardown', { reason, latchRejoin: Boolean(opts?.latchRejoin) });
+  viewerLifecycleLog('stage_teardown', {
+    reason,
+    latchRejoin: Boolean(opts?.latchRejoin),
+    roomId: opts?.roomId ?? null,
+  });
   await leaveStageSerialized(() => leaveStage());
   viewerLifecycleLog('cleanup_completed', { reason });
 }
@@ -159,6 +167,7 @@ export function useMobileStageSubscribe(args: {
       if (hadJoin) {
         void teardownBuyerStage('active_false', {
           latchRejoin: Boolean(cbRef.current.latchRejoinOnLeave),
+          roomId: cbRef.current.roomId,
         });
       }
       return;
@@ -205,6 +214,7 @@ export function useMobileStageSubscribe(args: {
       viewerLifecycleLog('player_error', { roomId: args.roomId, reason });
       void teardownBuyerStage(`fail_${reason}`, {
         latchRejoin: Boolean(cbRef.current.latchRejoinOnLeave),
+        roomId: cbRef.current.roomId,
       });
       cbRef.current.onFailed(reason);
     };
@@ -316,6 +326,7 @@ export function useMobileStageSubscribe(args: {
         if (cancelled) {
           await teardownBuyerStage('cancelled_after_join', {
             latchRejoin: Boolean(cbRef.current.latchRejoinOnLeave),
+            roomId: cbRef.current.roomId,
           });
           return;
         }
@@ -347,6 +358,7 @@ export function useMobileStageSubscribe(args: {
       if (hadJoin) {
         void teardownBuyerStage('effect_cleanup', {
           latchRejoin: Boolean(cbRef.current.latchRejoinOnLeave),
+          roomId: cbRef.current.roomId,
         });
       }
     };

@@ -230,7 +230,7 @@ describe('liveStreamPlayback', () => {
     });
 
     it('after Stage leave, active show stays on HLS and does not re-arm WebRTC upgrade', () => {
-      markBuyerStageSubscribeTornDown();
+      markBuyerStageSubscribeTornDown('room_a');
       expect(
         resolveSurfaceTransportPlan({
           stream: liveStageStream,
@@ -239,6 +239,7 @@ describe('liveStreamPlayback', () => {
           accessToken: 'jwt',
           hybridEnabled: true,
           alreadyUpgraded: false,
+          roomId: 'room_a',
         }),
       ).toEqual({ transport: 'hls', armUpgrade: false });
       // Even if a previous visit had already upgraded, do not go back to WebRTC when HLS exists.
@@ -250,12 +251,13 @@ describe('liveStreamPlayback', () => {
           accessToken: 'jwt',
           hybridEnabled: true,
           alreadyUpgraded: true,
+          roomId: 'room_a',
         }),
       ).toEqual({ transport: 'hls', armUpgrade: false });
     });
 
     it('after Stage leave with no HLS mirror, WebRTC is still allowed', () => {
-      markBuyerStageSubscribeTornDown();
+      markBuyerStageSubscribeTornDown('room_a');
       expect(
         resolveSurfaceTransportPlan({
           stream: { ...liveStageStream, playbackUrl: null },
@@ -264,12 +266,13 @@ describe('liveStreamPlayback', () => {
           accessToken: 'jwt',
           hybridEnabled: true,
           alreadyUpgraded: false,
+          roomId: 'room_a',
         }),
       ).toEqual({ transport: 'webrtc', armUpgrade: false });
     });
 
     it('keeps HLS after Stage leave even when HLS is stalled — forced WebRTC remount thrash', () => {
-      markBuyerStageSubscribeTornDown();
+      markBuyerStageSubscribeTornDown('room_a');
       expect(
         resolveSurfaceTransportPlan({
           stream: liveStageStream,
@@ -278,6 +281,7 @@ describe('liveStreamPlayback', () => {
           accessToken: 'jwt',
           hybridEnabled: true,
           alreadyUpgraded: false,
+          roomId: 'room_a',
         }),
       ).toEqual({ transport: 'hls', armUpgrade: false });
       // Post-leave + hlsStalled must NOT force WebRTC (black Stage rejoin loop after home swipe).
@@ -290,15 +294,16 @@ describe('liveStreamPlayback', () => {
           hybridEnabled: true,
           alreadyUpgraded: false,
           hlsStalled: true,
+          roomId: 'room_a',
         }),
       ).toEqual({ transport: 'hls', armUpgrade: false });
     });
 
     it('host Play clears the Stage leave latch so WebRTC upgrade is allowed again', () => {
-      markBuyerStageSubscribeTornDown();
-      expect(isBuyerStageWebrtcRejoinBlocked()).toBe(true);
-      clearBuyerStageSubscribeTornDown();
-      expect(isBuyerStageWebrtcRejoinBlocked()).toBe(false);
+      markBuyerStageSubscribeTornDown('room_a');
+      expect(isBuyerStageWebrtcRejoinBlocked('room_a')).toBe(true);
+      clearBuyerStageSubscribeTornDown('room_a');
+      expect(isBuyerStageWebrtcRejoinBlocked('room_a')).toBe(false);
       expect(
         resolveSurfaceTransportPlan({
           stream: liveStageStream,
@@ -307,6 +312,24 @@ describe('liveStreamPlayback', () => {
           accessToken: 'jwt',
           hybridEnabled: true,
           alreadyUpgraded: false,
+          roomId: 'room_a',
+        }),
+      ).toEqual({ transport: 'hls', armUpgrade: true });
+    });
+
+    it('does not poison a different show after one room was background-latched', () => {
+      markBuyerStageSubscribeTornDown('room_a');
+      expect(isBuyerStageWebrtcRejoinBlocked('room_a')).toBe(true);
+      expect(isBuyerStageWebrtcRejoinBlocked('room_b')).toBe(false);
+      expect(
+        resolveSurfaceTransportPlan({
+          stream: liveStageStream,
+          isActive: true,
+          webrtcFailed: false,
+          accessToken: 'jwt',
+          hybridEnabled: true,
+          alreadyUpgraded: false,
+          roomId: 'room_b',
         }),
       ).toEqual({ transport: 'hls', armUpgrade: true });
     });

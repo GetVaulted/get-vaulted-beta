@@ -126,9 +126,9 @@ export function LiveStagePlayback({
   const isForeground = mode === 'active';
   // Neighbors (prefetch) keep their HLS mirror warm so switching to them is instant.
   const hlsWarm = mode === 'active' || mode === 'prefetch';
-  // Set true once the WebRTC surface actually paints; drives the seamless HLS->WebRTC swap on the
-  // settled show. Reset whenever this surface stops using WebRTC.
-  const [webrtcReady, setWebrtcReady] = useState(false);
+  // Set true once Stage reports a remote stream — join OK, NOT proof of painted pixels.
+  // HLS stays visible whenever attachable so a black Stage surface cannot blank the feed.
+  const [webrtcJoined, setWebrtcJoined] = useState(false);
   // Debounced: brief exit→return must not leave Stage (native crash). Only true after dwell.
   const [stageMediaSuspended, setStageMediaSuspended] = useState(false);
   // After a committed background leave, keep Stage subscribe off until playback parks on HLS.
@@ -197,19 +197,19 @@ export function LiveStagePlayback({
   // leave-latches buyers onto a dead HLS mirror and "Waiting for host video" after Play.
   const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
   const hlsAttachable = Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
-  // Hold the HLS mirror on the settled show through the WebRTC upgrade until WebRTC paints, so the
-  // swap has no black "connecting" gap. Neighbors buffer HLS muted+hidden for instant switching.
-  const webrtcUpgradeHold = useWebrtc && !webrtcReady && !streamPaused;
+  // Hold the HLS mirror on the settled show through the WebRTC upgrade until HLS has painted
+  // (or forever as a safety underlay). Neighbors buffer HLS muted+hidden for instant switching.
+  const webrtcUpgradeHold = useWebrtc && !playback.videoHasData && !streamPaused;
   const attachHls =
-    !streamPaused && hlsAttachable && ((transport === 'hls' && hlsWarm) || webrtcUpgradeHold);
+    !streamPaused && hlsAttachable && ((transport === 'hls' && hlsWarm) || webrtcUpgradeHold || (transport === 'webrtc' && hlsAttachable));
 
   useEffect(() => {
-    if (!useWebrtc || !isForeground) setWebrtcReady(false);
+    if (!useWebrtc || !isForeground) setWebrtcJoined(false);
   }, [useWebrtc, isForeground]);
 
-  // New room in the pager: never keep the prior show's "WebRTC painted" flag (it hid HLS forever).
+  // New room in the pager: never keep the prior show's Stage join flag.
   useEffect(() => {
-    setWebrtcReady(false);
+    setWebrtcJoined(false);
   }, [roomId]);
 
   useEffect(() => {
@@ -221,9 +221,13 @@ export function LiveStagePlayback({
   }, [isForeground, mode, roomId, transport]);
 
   const handleWebrtcConnected = useCallback(() => {
-    setWebrtcReady(true);
-    playback.onVideoReady();
-  }, [playback.onVideoReady]);
+    // Stage "connected" + remote stream in the participant list ≠ painted pixels. Never mark
+    // video ready here — that hid HLS and left buyers on a black Stage until force-close.
+    setWebrtcJoined(true);
+    if (!hlsAttachable) {
+      playback.onVideoReady();
+    }
+  }, [hlsAttachable, playback.onVideoReady]);
 
   const hlsPlayerSetup = (p: VideoPlayer) => {
     p.loop = false;
@@ -273,12 +277,14 @@ export function LiveStagePlayback({
 
   useEffect(() => {
     if (!attachHls) return;
-    player.muted = muted;
-    player.volume = muted ? 0 : 1;
+    // Prefer Stage audio when joined (lower latency) but keep HLS video as the visible safety net.
+    const muteForWebrtcAudio = webrtcJoined && useWebrtc && isForeground;
+    player.muted = muted || muteForWebrtcAudio;
+    player.volume = muted || muteForWebrtcAudio ? 0 : 1;
     // Only the foreground surface takes exclusive audio focus. Warm neighbor buffers must not grab
     // `doNotMix`, or several muted background players fight the active player for the audio session.
     player.audioMixingMode = isForeground ? 'doNotMix' : 'mixWithOthers';
-  }, [attachHls, muted, isForeground, player]);
+  }, [attachHls, muted, isForeground, player, webrtcJoined, useWebrtc]);
 
   // WebRTC Stage audio ignores expo-video `muted` — apply the buyer mute toggle via the patched
   // Stage audio-output gate. Only the active WebRTC surface owns this; restore on teardown so a
@@ -450,9 +456,9 @@ export function LiveStagePlayback({
   }, [roomLifecycleLive, scheduledStartMs, tick]);
 
   const showWebrtcLayer = useWebrtc && surface !== 'error';
-  // Render the HLS VideoView only when it's the visible surface: on the foreground show, and only
-  // until WebRTC actually paints. Neighbors keep `attachHls` (buffering) but never render a view.
-  const showHlsLayer = attachHls && isForeground && !webrtcReady && surface !== 'error';
+  // Always render HLS on the foreground when attachable — Stage connect must never hide the mirror.
+  // HLS sits above WebRTC in the tree so black Stage cannot blank the buyer.
+  const showHlsLayer = attachHls && isForeground && surface !== 'error';
   const showVideoLayer = showWebrtcLayer || showHlsLayer;
   const teaserUrl = typeof teaserVideoUrl === 'string' ? teaserVideoUrl.trim() : '';
   const showTeaserLayer =
@@ -656,7 +662,7 @@ export function LiveStagePlayback({
                 ? 'off'
                 : viewerTransport === 'failed'
                   ? 'failed'
-                  : webrtcReady
+                  : webrtcJoined
                     ? 'joined'
                     : 'joining'
             }`}

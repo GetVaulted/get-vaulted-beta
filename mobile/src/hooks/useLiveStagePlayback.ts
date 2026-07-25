@@ -50,6 +50,7 @@ function applyStreamToTransport(args: {
   hybridEnabled: boolean;
   alreadyUpgraded: boolean;
   hlsStalled: boolean;
+  roomId: string;
   lastAttachKeyRef: React.MutableRefObject<string>;
   applyTransport: (next: LivePlaybackTransport) => void;
   setPlayerFatal: (v: boolean) => void;
@@ -65,6 +66,7 @@ function applyStreamToTransport(args: {
     hybridEnabled: args.hybridEnabled,
     alreadyUpgraded: args.alreadyUpgraded,
     hlsStalled: args.hlsStalled,
+    roomId: args.roomId,
   });
 
   if (plan.armUpgrade) {
@@ -206,7 +208,7 @@ export function useLiveStagePlayback(args: {
       // the mode effect already reset the latch and this is a no-op.
       if (playbackModeRef.current !== 'active') return;
       // Background leave latches rejoin — upgrading would remount a poisoned Stage singleton.
-      if (isBuyerStageWebrtcRejoinBlocked()) return;
+      if (isBuyerStageWebrtcRejoinBlocked(args.roomId)) return;
       webrtcUpgradedRef.current = true;
       lastAttachKeyRef.current = '';
       setPlayerFatal(false);
@@ -317,10 +319,11 @@ export function useLiveStagePlayback(args: {
         hybridEnabled,
         alreadyUpgraded: webrtcUpgradedRef.current,
         hlsStalled,
+        roomId: args.roomId,
       });
 
       // Full playback plan for the second (and every) room visit — see required investigation.
-      const rejoinBlocked = isBuyerStageWebrtcRejoinBlocked();
+      const rejoinBlocked = isBuyerStageWebrtcRejoinBlocked(args.roomId);
       const webrtcEligible = shouldUseStageWebrtcPlayback(
         safe,
         webrtcFailedRef.current,
@@ -372,6 +375,7 @@ export function useLiveStagePlayback(args: {
         hybridEnabled,
         alreadyUpgraded: webrtcUpgradedRef.current,
         hlsStalled,
+        roomId: args.roomId,
         lastAttachKeyRef,
         applyTransport,
         setPlayerFatal,
@@ -410,7 +414,7 @@ export function useLiveStagePlayback(args: {
       if (videoHasDataRef.current) return;
       const safe = streamRef.current;
       if (safe?.streamPaused) return;
-      if (isBuyerStageWebrtcRejoinBlocked()) {
+      if (isBuyerStageWebrtcRejoinBlocked(args.roomId)) {
         hlsStalledRef.current = false;
         lastAttachKeyRef.current = '';
         setPlayerFatal(false);
@@ -453,6 +457,7 @@ export function useLiveStagePlayback(args: {
     const id = beginPlaybackAttempt('manual_retry');
     invalidateBuyerLiveStreamCache(args.roomId);
     invalidateViewerStageToken(args.roomId);
+    clearBuyerStageSubscribeTornDown(args.roomId);
     clearBackoff();
     retryRef.current = 0;
     setPlayerRetryCount(0);
@@ -545,7 +550,7 @@ export function useLiveStagePlayback(args: {
       return;
     }
     // Host tapped Play: stay on the same Stage subscribe when possible.
-    clearBuyerStageSubscribeTornDown();
+    clearBuyerStageSubscribeTornDown(args.roomId);
     invalidateBuyerLiveStreamCache(args.roomId);
     invalidateViewerStageToken(args.roomId);
     clearBackoff();
@@ -609,7 +614,7 @@ export function useLiveStagePlayback(args: {
     // Buyer already left Stage this session (home swipe / suspend): metadata + HLS only.
     // Keep warm HLS if already attached — do not park to `none` (that killed show→show buffers
     // when this effect incorrectly re-ran on playbackMode changes).
-    if (isBuyerStageWebrtcRejoinBlocked()) {
+    if (isBuyerStageWebrtcRejoinBlocked(args.roomId)) {
       webrtcUpgradedRef.current = false;
       hlsStalledRef.current = false;
       cancelWebrtcUpgrade();
@@ -635,7 +640,7 @@ export function useLiveStagePlayback(args: {
     setVideoHasData(false);
     hideReconnectingUi();
     // Host Play after pause: always allow WebRTC again (pause teardown sets the block latch).
-    clearBuyerStageSubscribeTornDown();
+    clearBuyerStageSubscribeTornDown(args.roomId);
     hlsStalledRef.current = true;
     if (playbackModeRef.current === 'active') beginPlaybackAttempt('refresh_nonce');
     hlsStalledRef.current = true;
@@ -814,19 +819,28 @@ export function useLiveStagePlayback(args: {
       setPlayerFatal(false);
       setPlayerRetryCount(0);
       beginPlaybackAttempt('no_video_recover');
-      // Post-leave: reload HLS only — do not remount Stage.
-      if (isBuyerStageWebrtcRejoinBlocked() || transportRef.current !== 'webrtc') {
-        webrtcUpgradedRef.current = false;
-        hlsStalledRef.current = false;
-        transportRef.current = 'none';
-        applyTransport('none');
-      } else {
+      // Always remount: drop to none so HLS replace / WebRTC plan runs again. Never idle forever.
+      webrtcUpgradedRef.current = false;
+      hlsStalledRef.current = false;
+      cancelWebrtcUpgrade();
+      transportRef.current = 'none';
+      applyTransport('none');
+      if (!isBuyerStageWebrtcRejoinBlocked(args.roomId)) {
         setWebrtcSubscribeEpoch((n) => n + 1);
       }
       void fetchStream();
     }, LIVE_PLAYBACK_HEALTH_MS);
     return () => clearInterval(id);
-  }, [applyTransport, args.playbackMode, beginPlaybackAttempt, fetchStream, stream, videoHasData]);
+  }, [
+    applyTransport,
+    args.playbackMode,
+    args.roomId,
+    beginPlaybackAttempt,
+    cancelWebrtcUpgrade,
+    fetchStream,
+    stream,
+    videoHasData,
+  ]);
 
   // Re-entry first-frame watchdog. Keyed on the attempt (not the 2.5s stream poll) so its timers run
   // to completion. Fires: 3s → log slow; 6s → abandon a stalled HLS attempt and force the WebRTC
@@ -936,7 +950,7 @@ export function useLiveStagePlayback(args: {
       webrtcFailoverCountRef.current += exhausted ? 2 : 1;
       setVideoHasData(false);
       hideReconnectingUi();
-      if (isBuyerStageWebrtcRejoinBlocked() || webrtcFailoverCountRef.current >= 2) {
+      if (isBuyerStageWebrtcRejoinBlocked(args.roomId) || webrtcFailoverCountRef.current >= 2) {
         webrtcFailedRef.current = true;
         webrtcUpgradedRef.current = false;
         hlsStalledRef.current = false;

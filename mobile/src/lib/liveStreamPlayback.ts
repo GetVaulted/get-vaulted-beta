@@ -130,41 +130,48 @@ export function isStageWebrtcEnabled(): boolean {
 }
 
 /**
- * Process-wide latch: after a **committed background** Stage leave, do not rejoin WebRTC for the
- * rest of the app session — stay on HLS instead.
+ * Room-scoped latch: after a **committed background** Stage leave for a room, prefer HLS for
+ * **that room only** — do not poison every later show in the process.
  *
- * Why: the Stage SDK is a process-wide singleton. Leave → rejoin after the OS backgrounds the app
- * often reconnects audio with a permanently black native video surface. JS then treats
- * “stream in list” as painted and hides the working HLS mirror forever.
- *
- * Show→show feed swipes must **not** set this latch — they still `leaveStage` so the next room can
- * hybrid HLS→WebRTC, but latching blocked that upgrade and left buyers on cold Stage HLS mirrors
- * until they force-closed the app.
+ * Why: the Stage SDK is a process-wide singleton. Leave → rejoin after OS background often
+ * reconnects audio with a black native video surface. Scoping by roomId lets show→show swipe
+ * keep hybrid HLS→WebRTC on the next seller.
  */
-let buyerStageSubscribeTornDown = false;
+const buyerStageSubscribeTornDownRooms = new Set<string>();
 
-/** Call after a committed background Stage leave. Idempotent. */
-export function markBuyerStageSubscribeTornDown(): void {
-  buyerStageSubscribeTornDown = true;
+function normalizeLatchRoomId(roomId: string | undefined | null): string | null {
+  const id = typeof roomId === 'string' ? roomId.trim() : '';
+  return id || null;
+}
+
+/** Call after a committed background Stage leave for this room. Idempotent. */
+export function markBuyerStageSubscribeTornDown(roomId?: string | null): void {
+  const id = normalizeLatchRoomId(roomId);
+  if (id) buyerStageSubscribeTornDownRooms.add(id);
 }
 
 /**
- * Host Resume / Play: clear the process-wide "never rejoin WebRTC" latch.
- * Without this, leave-app pause → remote video lost → leaveStage → buyers are stuck on a
- * dead HLS mirror and show "Waiting for host video" forever after the host taps Play.
+ * Host Resume / Play, or leaving a room: clear the latch for one room (or all when omitted).
  */
-export function clearBuyerStageSubscribeTornDown(): void {
-  buyerStageSubscribeTornDown = false;
+export function clearBuyerStageSubscribeTornDown(roomId?: string | null): void {
+  const id = normalizeLatchRoomId(roomId);
+  if (!id) {
+    buyerStageSubscribeTornDownRooms.clear();
+    return;
+  }
+  buyerStageSubscribeTornDownRooms.delete(id);
 }
 
-/** True after the first buyer Stage leave in this process — WebRTC rejoin is blocked. */
-export function isBuyerStageWebrtcRejoinBlocked(): boolean {
-  return buyerStageSubscribeTornDown;
+/** True when this room's Stage leave latched WebRTC rejoin (other rooms unaffected). */
+export function isBuyerStageWebrtcRejoinBlocked(roomId?: string | null): boolean {
+  const id = normalizeLatchRoomId(roomId);
+  if (!id) return buyerStageSubscribeTornDownRooms.size > 0;
+  return buyerStageSubscribeTornDownRooms.has(id);
 }
 
 /** Test-only reset. */
 export function resetBuyerStageSubscribeTornDownForTests(): void {
-  buyerStageSubscribeTornDown = false;
+  buyerStageSubscribeTornDownRooms.clear();
 }
 
 /**
@@ -198,9 +205,10 @@ export type ActiveTransportPlan =
  * - Active + WebRTC-eligible: preview HLS instantly and arm the dwell upgrade — unless already
  *   upgraded this visit, hybrid is off, or there is no HLS mirror to preview (then go straight to
  *   WebRTC, matching the legacy behavior).
- * - After a buyer `leaveStage` in this process: prefer the HLS mirror and do **not** re-arm the
- *   WebRTC upgrade (native leave→rejoin often reconnects audio with a black video surface). If
- *   there is no HLS URL, WebRTC is still allowed — black is better than no attempt.
+ * - After a buyer background `leaveStage` for **this room**: prefer the HLS mirror and do **not**
+ *   re-arm the WebRTC upgrade (native leave→rejoin often reconnects audio with a black video
+ *   surface). If there is no HLS URL, WebRTC is still allowed — black is better than no attempt.
+ *   Other rooms are unaffected (latch is room-scoped).
  * - Neighbor (prefetch) + WebRTC-eligible: buffer the HLS mirror when hybrid is on (so switching to
  *   it is instant); otherwise stay 'waiting' (no media) like before. Neighbors never join WebRTC —
  *   the IVS Real-Time Stage SDK is a process-wide singleton, so only the settled show subscribes.
@@ -213,15 +221,18 @@ export function resolveSurfaceTransportPlan(input: {
   accessToken?: string;
   hybridEnabled: boolean;
   alreadyUpgraded: boolean;
+  /** Room id for the room-scoped post-background WebRTC latch. */
+  roomId?: string | null;
   /**
    * True once the current re-entry attempt tried HLS and it never reached first-frame within the
    * watchdog window. When set, the planner stops preferring the (proven-unplayable) HLS mirror and
-   * forces the WebRTC surface instead — except after a buyer Stage leave, where WebRTC rejoin is
-   * blocked (poisoned singleton). Presence of a `playbackUrl` is NOT proof HLS is playable.
+   * forces the WebRTC surface instead — except after a buyer Stage leave for this room, where
+   * WebRTC rejoin is blocked (poisoned singleton). Presence of a `playbackUrl` is NOT proof HLS is
+   * playable.
    */
   hlsStalled?: boolean;
 }): ActiveTransportPlan {
-  const rejoinBlocked = isBuyerStageWebrtcRejoinBlocked();
+  const rejoinBlocked = isBuyerStageWebrtcRejoinBlocked(input.roomId);
   const eligible = shouldUseStageWebrtcPlayback(input.stream, input.webrtcFailed, input.accessToken);
   const hlsAttachable = shouldAttachHlsPlayback(input.stream.streamHealth, input.stream.playbackUrl);
 
