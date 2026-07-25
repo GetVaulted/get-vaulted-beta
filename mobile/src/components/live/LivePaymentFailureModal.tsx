@@ -60,7 +60,9 @@ export function LivePaymentFailureModal({
 
   const reasonLine = cardSaved ? null : mapLivePaymentFailureMessage(failure.failureReason);
   const shippingRecovery = isShippingAddressRecoveryFailure(failure.failureReason);
-  const walletInitialStep = shippingRecovery ? ('shipping' as const) : ('main' as const);
+  // Card declines jump straight into New card; shipping failures open the address step.
+  const walletInitialStep = shippingRecovery ? ('shipping' as const) : ('payment' as const);
+  const openPaymentSetupOnMount = !shippingRecovery;
 
   useEffect(() => {
     onBlockerActiveChange?.(visible && !walletOpen);
@@ -304,6 +306,7 @@ export function LivePaymentFailureModal({
           roomId={roomId}
           recoveryMode
           initialStep={walletInitialStep}
+          openPaymentSetupOnMount={openPaymentSetupOnMount}
           onPaymentMethodSaved={handlePaymentMethodSaved}
           onActiveChange={(active) => {
             if (active) onWalletOverlayChange?.(true);

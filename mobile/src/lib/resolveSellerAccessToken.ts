@@ -58,6 +58,7 @@ export async function fetchWebApiMobileWithSellerAuth(
   path: string,
   accessToken: string,
   init?: RequestInit,
+  options?: { timeoutMs?: number },
 ): Promise<Response> {
   const token = await resolveSellerAccessToken(accessToken);
   const buildHeaders = (bearer: string) => ({
@@ -66,7 +67,7 @@ export async function fetchWebApiMobileWithSellerAuth(
     ...init?.headers,
   });
 
-  let res = await fetchWebApiMobile(path, { ...init, headers: buildHeaders(token) });
+  let res = await fetchWebApiMobile(path, { ...init, headers: buildHeaders(token) }, options);
   if (res.status !== 401) return res;
 
   await ensureSupabaseReady();
@@ -81,8 +82,12 @@ export async function fetchWebApiMobileWithSellerAuth(
     return res;
   }
 
-  return fetchWebApiMobile(path, {
-    ...init,
-    headers: buildHeaders(refreshed.data.session.access_token.trim()),
-  });
+  return fetchWebApiMobile(
+    path,
+    {
+      ...init,
+      headers: buildHeaders(refreshed.data.session.access_token.trim()),
+    },
+    options,
+  );
 }

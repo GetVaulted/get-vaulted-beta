@@ -7,6 +7,7 @@ import { setStageAudioOutputEnabled } from 'expo-realtime-ivs-broadcast';
 import { useLiveStagePlayback, type LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import { useHlsLiveEdgeSeek } from '../../hooks/useHlsLiveEdgeSeek';
 import {
+  isBuyerStageWebrtcRejoinBlocked,
   resolveLivePlaybackSurfaceState,
   shouldAttachHlsPlayback,
 } from '../../lib/liveStreamPlayback';
@@ -126,14 +127,16 @@ export function LiveStagePlayback({
   const isForeground = mode === 'active';
   // Neighbors (prefetch) keep their HLS mirror warm so switching to them is instant.
   const hlsWarm = mode === 'active' || mode === 'prefetch';
-  // Set true once Stage reports a remote stream — join OK, NOT proof of painted pixels.
-  // HLS stays visible whenever attachable so a black Stage surface cannot blank the feed.
-  const [webrtcJoined, setWebrtcJoined] = useState(false);
+  // Set true once Stage reports a remote stream + we remount the native surface.
+  // HLS stays under that surface until then so cold Stage→HLS mirrors don't blank the buyer.
+  const [webrtcReady, setWebrtcReady] = useState(false);
   // Debounced: brief exit→return must not leave Stage (native crash). Only true after dwell.
   const [stageMediaSuspended, setStageMediaSuspended] = useState(false);
-  // After a committed background leave, keep Stage subscribe off until playback parks on HLS.
-  // Clearing suspend while transport is still `webrtc` would rejoin the poisoned singleton.
+  // After a committed background leave, keep Stage subscribe off until playback parks on HLS
+  // (or the first-frame watchdog clears the latch and remounts WebRTC).
   const [blockStageAfterBackgroundLeave, setBlockStageAfterBackgroundLeave] = useState(false);
+  // Remount ExpoIVSRemoteStreamView after OS background — reusing the same native surface stays black.
+  const [foregroundResumeNonce, setForegroundResumeNonce] = useState(0);
   const prevAppStateRef = useRef<AppStateStatus>(AppState.currentState);
   const suspendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didCommitSuspendRef = useRef(false);
@@ -142,10 +145,21 @@ export function LiveStagePlayback({
 
   useEffect(() => {
     if (!blockStageAfterBackgroundLeave) return;
-    if (playback.transport !== 'webrtc') {
+    // Parked on HLS/none, first frame painted, or watchdog cleared the leave latch for remount.
+    if (
+      playback.transport !== 'webrtc' ||
+      playback.videoHasData ||
+      !isBuyerStageWebrtcRejoinBlocked(roomId)
+    ) {
       setBlockStageAfterBackgroundLeave(false);
     }
-  }, [blockStageAfterBackgroundLeave, playback.transport]);
+  }, [
+    blockStageAfterBackgroundLeave,
+    playback.transport,
+    playback.videoHasData,
+    playback.webrtcSubscribeEpoch,
+    roomId,
+  ]);
 
   // Host Play after the buyer backgrounded: allow Stage again once pause clears.
   useEffect(() => {
@@ -197,19 +211,21 @@ export function LiveStagePlayback({
   // leave-latches buyers onto a dead HLS mirror and "Waiting for host video" after Play.
   const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
   const hlsAttachable = Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
-  // Hold the HLS mirror on the settled show through the WebRTC upgrade until HLS has painted
-  // (or forever as a safety underlay). Neighbors buffer HLS muted+hidden for instant switching.
-  const webrtcUpgradeHold = useWebrtc && !playback.videoHasData && !streamPaused;
+  // Hold the HLS mirror under WebRTC until Stage connects (and as a cold-mirror safety net while
+  // waiting for first paint). Neighbors buffer HLS muted+hidden for instant switching.
+  const webrtcUpgradeHold = useWebrtc && !webrtcReady && !streamPaused;
   const attachHls =
-    !streamPaused && hlsAttachable && ((transport === 'hls' && hlsWarm) || webrtcUpgradeHold || (transport === 'webrtc' && hlsAttachable));
+    !streamPaused &&
+    hlsAttachable &&
+    ((transport === 'hls' && hlsWarm) || webrtcUpgradeHold || (useWebrtc && !playback.videoHasData));
 
   useEffect(() => {
-    if (!useWebrtc || !isForeground) setWebrtcJoined(false);
+    if (!useWebrtc || !isForeground) setWebrtcReady(false);
   }, [useWebrtc, isForeground]);
 
-  // New room in the pager: never keep the prior show's Stage join flag.
+  // New room in the pager: never keep the prior show's "WebRTC painted" flag (it hid HLS forever).
   useEffect(() => {
-    setWebrtcJoined(false);
+    setWebrtcReady(false);
   }, [roomId]);
 
   useEffect(() => {
@@ -221,13 +237,12 @@ export function LiveStagePlayback({
   }, [isForeground, mode, roomId, transport]);
 
   const handleWebrtcConnected = useCallback(() => {
-    // Stage "connected" + remote stream in the participant list ≠ painted pixels. Never mark
-    // video ready here — that hid HLS and left buyers on a black Stage until force-close.
-    setWebrtcJoined(true);
-    if (!hlsAttachable) {
-      playback.onVideoReady();
-    }
-  }, [hlsAttachable, playback.onVideoReady]);
+    // Remote participant + stream present. Remounted surface (subscribeEpoch / foregroundResumeNonce)
+    // is the in-app equivalent of force-quit for a black IVS view. Clear waiting so buyers aren't
+    // stuck on "Waiting for host video" when Stage is live and HLS is still cold.
+    setWebrtcReady(true);
+    playback.onVideoReady();
+  }, [playback.onVideoReady]);
 
   const hlsPlayerSetup = (p: VideoPlayer) => {
     p.loop = false;
@@ -277,14 +292,15 @@ export function LiveStagePlayback({
 
   useEffect(() => {
     if (!attachHls) return;
-    // Prefer Stage audio when joined (lower latency) but keep HLS video as the visible safety net.
-    const muteForWebrtcAudio = webrtcJoined && useWebrtc && isForeground;
+    // Prefer Stage audio when joined (lower latency) but keep HLS video as the visible safety net
+    // until webrtcReady flips the layer order.
+    const muteForWebrtcAudio = webrtcReady && useWebrtc && isForeground;
     player.muted = muted || muteForWebrtcAudio;
     player.volume = muted || muteForWebrtcAudio ? 0 : 1;
     // Only the foreground surface takes exclusive audio focus. Warm neighbor buffers must not grab
     // `doNotMix`, or several muted background players fight the active player for the audio session.
     player.audioMixingMode = isForeground ? 'doNotMix' : 'mixWithOthers';
-  }, [attachHls, muted, isForeground, player, webrtcJoined, useWebrtc]);
+  }, [attachHls, muted, isForeground, player, webrtcReady, useWebrtc]);
 
   // WebRTC Stage audio ignores expo-video `muted` — apply the buyer mute toggle via the patched
   // Stage audio-output gate. Only the active WebRTC surface owns this; restore on teardown so a
@@ -364,10 +380,11 @@ export function LiveStagePlayback({
         const wasSuspended = didCommitSuspendRef.current;
         didCommitSuspendRef.current = false;
         setStageMediaSuspended(false);
-        // After a committed background leave, do NOT remount Stage / re-activate WebRTC.
-        // Playback parks on HLS; block Stage until transport is no longer webrtc.
+        // After a committed background leave, do NOT remount Stage immediately.
+        // Playback parks on HLS; the first-frame watchdog clears the latch if HLS never paints.
         if (wasSuspended && prev !== 'active') {
           setBlockStageAfterBackgroundLeave(true);
+          setForegroundResumeNonce((n) => n + 1);
         }
       }
     });
@@ -456,9 +473,9 @@ export function LiveStagePlayback({
   }, [roomLifecycleLive, scheduledStartMs, tick]);
 
   const showWebrtcLayer = useWebrtc && surface !== 'error';
-  // Always render HLS on the foreground when attachable — Stage connect must never hide the mirror.
-  // HLS sits above WebRTC in the tree so black Stage cannot blank the buyer.
-  const showHlsLayer = attachHls && isForeground && surface !== 'error';
+  // Keep HLS on top until Stage connects. Once webrtcReady, Stage is the visible layer (HLS may
+  // still attach underneath until first paint for failover). Neighbors never render a VideoView.
+  const showHlsLayer = attachHls && isForeground && !webrtcReady && surface !== 'error';
   const showVideoLayer = showWebrtcLayer || showHlsLayer;
   const teaserUrl = typeof teaserVideoUrl === 'string' ? teaserVideoUrl.trim() : '';
   const showTeaserLayer =
@@ -615,6 +632,7 @@ export function LiveStagePlayback({
           latchRejoinOnLeave={stageMediaSuspended || blockStageAfterBackgroundLeave}
           refreshNonce={refreshNonce}
           subscribeEpoch={playback.webrtcSubscribeEpoch}
+          foregroundResumeNonce={foregroundResumeNonce}
           contentFit={contentFit}
           onConnected={handleWebrtcConnected}
           onFailed={playback.onWebrtcFailed}
@@ -662,7 +680,7 @@ export function LiveStagePlayback({
                 ? 'off'
                 : viewerTransport === 'failed'
                   ? 'failed'
-                  : webrtcJoined
+                  : webrtcReady
                     ? 'joined'
                     : 'joining'
             }`}

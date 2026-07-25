@@ -219,7 +219,7 @@ export function VaultWalletSheet({
     () => recoveryMode && openPaymentSetupOnMount,
   );
   const [paymentSetupStartWith, setPaymentSetupStartWith] = useState<'picker' | 'card' | 'wallet'>(
-    'picker',
+    () => (recoveryMode && openPaymentSetupOnMount ? 'card' : 'picker'),
   );
   const [addressFormDraft, setAddressFormDraft] = useState<CreateShippingAddressInput>(EMPTY_ADDRESS);
   const [addressFormEditing, setAddressFormEditing] = useState(false);
@@ -303,7 +303,10 @@ export function VaultWalletSheet({
       openSeedAppliedRef.current = true;
     }
     setStep(recoveryMode ? initialStep : 'main');
-    if (recoveryMode && openPaymentSetupOnMount) setPaymentSetupOpen(true);
+    if (recoveryMode && openPaymentSetupOnMount) {
+      setPaymentSetupStartWith('card');
+      setPaymentSetupOpen(true);
+    }
     void loadRef.current();
   }, [visible, recoveryMode, initialStep, openPaymentSetupOnMount, initialReadiness]);
 
@@ -1034,12 +1037,9 @@ export function VaultWalletSheet({
               accessToken={accessToken}
               startWith={paymentSetupStartWith}
               onClose={() => {
-                if (recoveryMode) {
-                  onClose();
-                  return;
-                }
                 setPaymentSetupOpen(false);
                 setPaymentSetupStartWith('picker');
+                if (recoveryMode) setStep('payment');
               }}
               onSaved={(paymentMethodId) => {
                 void loadWalletData();

@@ -202,16 +202,13 @@ export type ActiveTransportPlan =
  * Decide the transport for a single playback surface (one show/page).
  *
  * Hybrid model:
- * - Active + WebRTC-eligible: preview HLS instantly and arm the dwell upgrade — unless already
- *   upgraded this visit, hybrid is off, or there is no HLS mirror to preview (then go straight to
- *   WebRTC, matching the legacy behavior).
- * - After a buyer background `leaveStage` for **this room**: prefer the HLS mirror and do **not**
- *   re-arm the WebRTC upgrade (native leave→rejoin often reconnects audio with a black video
- *   surface). If there is no HLS URL, WebRTC is still allowed — black is better than no attempt.
- *   Other rooms are unaffected (latch is room-scoped).
- * - Neighbor (prefetch) + WebRTC-eligible: buffer the HLS mirror when hybrid is on (so switching to
- *   it is instant); otherwise stay 'waiting' (no media) like before. Neighbors never join WebRTC —
- *   the IVS Real-Time Stage SDK is a process-wide singleton, so only the settled show subscribes.
+ * - Active + WebRTC-eligible: join Stage **immediately** for near-instant first paint. The view
+ *   layer may still hold an HLS underlay while WebRTC connects. (Older builds previewed cold
+ *   Stage→HLS mirrors first — those often lag 5–15s, so "instant HLS" was slower than WebRTC.)
+ * - Neighbors still buffer HLS when hybrid is on so show→show swipe has a warm mirror.
+ * - After a buyer background `leaveStage` for **this room**: prefer the HLS mirror first. If that
+ *   mirror stalls (`hlsStalled`), allow one WebRTC remount (caller clears the room latch) — staying
+ *   on a dead HLS forever forces buyers to force-quit.
  * - Not WebRTC-eligible (channel_hls, guest, failed-over, offline): attach HLS when available.
  */
 export function resolveSurfaceTransportPlan(input: {
@@ -226,9 +223,7 @@ export function resolveSurfaceTransportPlan(input: {
   /**
    * True once the current re-entry attempt tried HLS and it never reached first-frame within the
    * watchdog window. When set, the planner stops preferring the (proven-unplayable) HLS mirror and
-   * forces the WebRTC surface instead — except after a buyer Stage leave for this room, where
-   * WebRTC rejoin is blocked (poisoned singleton). Presence of a `playbackUrl` is NOT proof HLS is
-   * playable.
+   * forces the WebRTC surface instead. Presence of a `playbackUrl` is NOT proof HLS is playable.
    */
   hlsStalled?: boolean;
 }): ActiveTransportPlan {
@@ -237,20 +232,16 @@ export function resolveSurfaceTransportPlan(input: {
   const hlsAttachable = shouldAttachHlsPlayback(input.stream.streamHealth, input.stream.playbackUrl);
 
   if (input.isActive && eligible) {
-    // Post-leave: stay on HLS when the mirror exists — never force Stage rejoin. `hlsStalled` used
-    // to override this and remount WebRTC after background leave, which start/stops forever on a
-    // poisoned IVS Stage singleton until the app is force-closed.
-    if (rejoinBlocked && hlsAttachable) {
+    // Post-leave: try HLS first while the mirror may still be warm. If it already stalled this
+    // attempt, fall through to WebRTC (caller clears the room latch before remounting).
+    if (rejoinBlocked && hlsAttachable && !input.hlsStalled) {
       return { transport: 'hls', armUpgrade: false };
     }
-    // HLS was tried this attempt and never painted — do not keep preferring a dead mirror. Fall
-    // over to a fresh WebRTC surface (the caller remounts the native view for a clean binding).
+    // HLS was tried this attempt and never painted — do not keep preferring a dead mirror.
     if (input.hlsStalled) {
       return { transport: 'webrtc', armUpgrade: false };
     }
-    if (input.hybridEnabled && hlsAttachable && !input.alreadyUpgraded) {
-      return { transport: 'hls', armUpgrade: true };
-    }
+    // Stage rooms: WebRTC immediately. Neighbors still warm HLS via the !isActive branch.
     return { transport: 'webrtc', armUpgrade: false };
   }
 

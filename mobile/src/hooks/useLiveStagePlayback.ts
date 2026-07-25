@@ -338,11 +338,9 @@ export function useLiveStagePlayback(args: {
             ? 'post_leave_prefer_hls'
             : webrtcEligible && !hlsAttachable
               ? 'no_hls_url_go_webrtc'
-              : webrtcEligible && hybridEnabled && plan.armUpgrade
-                ? 'hls_preview_arm_webrtc_upgrade'
-                : plan.transport === 'webrtc'
-                  ? 'webrtc'
-                  : `transport_${plan.transport}`;
+              : plan.transport === 'webrtc'
+                ? 'webrtc_first'
+                : `transport_${plan.transport}`;
       viewerLifecycleLog('viewer_playback_plan', {
         showId: args.roomId,
         roomVisitNonce: args.roomVisitNonce ?? null,
@@ -414,18 +412,14 @@ export function useLiveStagePlayback(args: {
       if (videoHasDataRef.current) return;
       const safe = streamRef.current;
       if (safe?.streamPaused) return;
+      // Post-background latch preferred HLS first. If that mirror never painted, clear the latch
+      // and remount Stage once — otherwise buyers stay on "Waiting…" until force-quit.
       if (isBuyerStageWebrtcRejoinBlocked(args.roomId)) {
-        hlsStalledRef.current = false;
-        lastAttachKeyRef.current = '';
-        setPlayerFatal(false);
-        setVideoHasData(false);
-        applyTransport('none');
-        void fetchStream();
-        viewerLifecycleLog('playback_fallback_skipped_rejoin_blocked', {
+        clearBuyerStageSubscribeTornDown(args.roomId);
+        viewerLifecycleLog('playback_fallback_cleared_rejoin_latch', {
           roomId: args.roomId,
           attemptId,
         });
-        return;
       }
       if (!safe || !shouldUseStageWebrtcPlayback(safe, false, args.accessToken)) {
         viewerLifecycleLog('playback_fallback_unavailable', {
@@ -433,6 +427,14 @@ export function useLiveStagePlayback(args: {
           attemptId,
           reason: safe ? 'not_webrtc_eligible' : 'no_stream',
         });
+        // Stay on / re-attach HLS when WebRTC isn't an option.
+        hlsStalledRef.current = false;
+        lastAttachKeyRef.current = '';
+        setPlayerFatal(false);
+        if (transportRef.current !== 'hls') {
+          applyTransport('hls');
+        }
+        void fetchStream();
         return;
       }
       hlsStalledRef.current = true;
@@ -611,9 +613,8 @@ export function useLiveStagePlayback(args: {
       void fetchStream();
       return;
     }
-    // Buyer already left Stage this session (home swipe / suspend): metadata + HLS only.
-    // Keep warm HLS if already attached — do not park to `none` (that killed show→show buffers
-    // when this effect incorrectly re-ran on playbackMode changes).
+    // Buyer already left Stage this session (home swipe / suspend): try HLS first.
+    // Do not clear the latch here — the first-frame watchdog clears it if HLS stalls.
     if (isBuyerStageWebrtcRejoinBlocked(args.roomId)) {
       webrtcUpgradedRef.current = false;
       hlsStalledRef.current = false;
@@ -692,12 +693,19 @@ export function useLiveStagePlayback(args: {
       return undefined;
     }
 
-    // Focus / re-entry: never trust stale cache or latches from the previous visit.
+    // Focus / re-entry: keep warm prefetch when available — wipe only Stage token if expired.
+    // Invalidating stream+token on every off→active forced a cold GET and made discovery opens slow.
     if (prevMode === 'off') {
       viewerLifecycleLog('screen_focused', { roomId: args.roomId, mode: args.playbackMode });
       viewerLifecycleLog('viewer_initialization_started', { roomId: args.roomId });
-      invalidateBuyerLiveStreamCache(args.roomId);
-      invalidateViewerStageToken(args.roomId);
+      const cached = peekCachedBuyerLiveStream(args.roomId);
+      const cacheAge = peekBuyerLiveStreamCacheAgeMs(args.roomId);
+      if (!cached || cacheAge == null || cacheAge > 15_000) {
+        invalidateBuyerLiveStreamCache(args.roomId);
+      }
+      if (!peekPrefetchedViewerStageToken(args.roomId)) {
+        invalidateViewerStageToken(args.roomId);
+      }
       webrtcUpgradedRef.current = false;
       webrtcFailedRef.current = false;
       webrtcFailoverCountRef.current = 0;
