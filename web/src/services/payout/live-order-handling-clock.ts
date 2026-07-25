@@ -51,7 +51,7 @@ export function excessiveShippingDelayOrderWhere(
       {
         liveShippingSessionId: null,
         breakSpotFulfillment: { is: null },
-        variantPurchaseFulfillment: { is: null },
+        variantPurchaseFulfillment: { none: {} },
         createdAt: { lt: delayCutoff },
       },
       // Live shipping session: clock from show end.
@@ -69,7 +69,7 @@ export function excessiveShippingDelayOrderWhere(
       // PYT / variant fulfillment without a session row.
       {
         variantPurchaseFulfillment: {
-          is: { liveRoom: liveShowEndedBeforeCutoff },
+          some: { liveRoom: liveShowEndedBeforeCutoff },
         },
       },
     ],
