@@ -2435,7 +2435,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       className={`fixed inset-x-0 bottom-0 top-[var(--site-header-offset)] z-40 flex min-h-0 flex-col overflow-hidden bg-black text-sm leading-normal text-zinc-100 ${vaultModeRootClass(vaultMode)}`}
     >
       {hostPaymentFailures.length > 0 ? (
-        <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[61] w-[min(92vw,28rem)] -translate-x-1/2 px-2">
+        <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[70] w-[min(92vw,28rem)] -translate-x-1/2 px-2">
           <div className="pointer-events-auto rounded-2xl border border-rose-500/35 bg-rose-950/70 px-3 py-2 text-[11px] leading-snug text-rose-50 shadow-lg backdrop-blur-xl ring-1 ring-rose-400/25">
             <p className="font-bold uppercase tracking-wide text-rose-200">Payment failed — commerce blocked</p>
             {hostPaymentFailures.slice(0, 3).map((f) => (
@@ -2493,7 +2493,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         </div>
       ) : null}
 
-      {hostCompanionMode ? (
+      {hostCompanionMode && !hostPaymentFailures.length ? (
         <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[63] w-[min(92vw,30rem)] -translate-x-1/2 px-2">
           <div className="pointer-events-auto rounded-2xl border border-emerald-500/30 bg-emerald-950/70 px-3 py-2.5 text-[12px] leading-snug text-emerald-50 shadow-[0_16px_50px_-24px_rgba(0,0,0,0.9)] backdrop-blur-xl ring-1 ring-emerald-400/20">
             <p className="font-bold uppercase tracking-wide text-emerald-200">Phone is the camera</p>
