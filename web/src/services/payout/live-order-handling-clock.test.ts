@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  excessiveShippingDelayOrderWhere,
   isOrderPastExcessiveShippingDelay,
   resolveOrderHandlingClockStartAt,
 } from "@/services/payout/live-order-handling-clock";
@@ -82,5 +83,22 @@ describe("live-order-handling-clock", () => {
         delayDays: 7,
       }),
     ).toBe(true);
+  });
+
+  it("uses to-many filters for variantPurchaseFulfillment in Prisma where", () => {
+    const where = excessiveShippingDelayOrderWhere("seller_1", new Date("2026-07-18T12:00:00.000Z"));
+    const marketplaceBranch = where.OR?.[0] as {
+      variantPurchaseFulfillment?: { none?: object; is?: unknown };
+    };
+    const variantBranch = where.OR?.[3] as {
+      variantPurchaseFulfillment?: { some?: object; is?: unknown };
+    };
+
+    expect(marketplaceBranch.variantPurchaseFulfillment).toEqual({ none: {} });
+    expect(marketplaceBranch.variantPurchaseFulfillment).not.toHaveProperty("is");
+    expect(variantBranch.variantPurchaseFulfillment).toMatchObject({
+      some: { liveRoom: expect.objectContaining({ endedAt: expect.anything() }) },
+    });
+    expect(variantBranch.variantPurchaseFulfillment).not.toHaveProperty("is");
   });
 });

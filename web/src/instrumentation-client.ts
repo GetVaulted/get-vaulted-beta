@@ -6,6 +6,21 @@ import * as Sentry from "@sentry/nextjs";
  */
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN?.trim();
 
+/** Meta/Android in-app WebView bridge teardown — not first-party code. */
+function isAndroidInAppBrowserBridgeNoise(event: Sentry.ErrorEvent): boolean {
+  const frames =
+    event.exception?.values?.flatMap((v) => v.stacktrace?.frames ?? []) ?? [];
+  if (
+    frames.some((f) =>
+      /navigation_performance_logger_android/i.test(f.filename ?? f.abs_path ?? ""),
+    )
+  ) {
+    return true;
+  }
+  const message = event.exception?.values?.[0]?.value ?? event.message ?? "";
+  return /Java object is gone/i.test(message);
+}
+
 if (dsn) {
   Sentry.init({
     dsn,
@@ -20,6 +35,15 @@ if (dsn) {
       httpHeaders: { request: false, response: false },
       httpBodies: [],
       queryParams: false, // Supabase email links carry access/recovery tokens in query/hash.
+    },
+    ignoreErrors: [
+      // Android System WebView / Facebook·Instagram in-app browser native bridge race.
+      "Error invoking postMessage: Java object is gone",
+      /Java object is gone/i,
+    ],
+    beforeSend(event) {
+      if (isAndroidInAppBrowserBridgeNoise(event)) return null;
+      return event;
     },
     replaysSessionSampleRate: 0,
     replaysOnErrorSampleRate: 0.1,
