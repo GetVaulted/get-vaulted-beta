@@ -145,21 +145,36 @@ export async function GET(req: Request) {
       take: limit,
     });
 
-    // Match mobile discovery: live first (viewers desc), then scheduled soonest-first.
+    // Seller HQ (includeEnded): live → scheduled → ended.
+    // Discovery (no ended): live first, then scheduled soonest-first.
+    // Bugfix: ended rooms used to sort by scheduledStartAt ASC with scheduled rooms, so dozens of
+    // old ended shows buried brand-new scheduled rooms past the top-of-list slice.
     const sorted = [...rows].sort((a, b) => {
-      const aLive = a.status === "live" ? 1 : 0;
-      const bLive = b.status === "live" ? 1 : 0;
-      if (bLive !== aLive) return bLive - aLive;
-      if (aLive && bLive) {
+      const rank = (status: string) => {
+        if (status === "live") return 0;
+        if (status === "scheduled") return 1;
+        return 2; // ended / other
+      };
+      const ra = rank(a.status);
+      const rb = rank(b.status);
+      if (ra !== rb) return ra - rb;
+
+      if (ra === 0) {
         const viewerDelta = (b.viewerCount ?? 0) - (a.viewerCount ?? 0);
         if (viewerDelta !== 0) return viewerDelta;
         return b.updatedAt.getTime() - a.updatedAt.getTime();
       }
-      const aStart = a.scheduledStartAt?.getTime() ?? Number.POSITIVE_INFINITY;
-      const bStart = b.scheduledStartAt?.getTime() ?? Number.POSITIVE_INFINITY;
-      const aMs = Number.isFinite(aStart) ? aStart : Number.POSITIVE_INFINITY;
-      const bMs = Number.isFinite(bStart) ? bStart : Number.POSITIVE_INFINITY;
-      if (aMs !== bMs) return aMs - bMs;
+
+      if (ra === 1) {
+        const aStart = a.scheduledStartAt?.getTime() ?? Number.POSITIVE_INFINITY;
+        const bStart = b.scheduledStartAt?.getTime() ?? Number.POSITIVE_INFINITY;
+        const aMs = Number.isFinite(aStart) ? aStart : Number.POSITIVE_INFINITY;
+        const bMs = Number.isFinite(bStart) ? bStart : Number.POSITIVE_INFINITY;
+        if (aMs !== bMs) return aMs - bMs;
+        return b.updatedAt.getTime() - a.updatedAt.getTime();
+      }
+
+      // Ended: most recently updated first so the list isn't dominated by ancient shows.
       return b.updatedAt.getTime() - a.updatedAt.getTime();
     });
 

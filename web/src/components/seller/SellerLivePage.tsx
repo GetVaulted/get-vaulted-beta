@@ -966,6 +966,14 @@ export function SellerLivePage() {
     );
   }
 
+  const featuredRooms = useMemo(() => {
+    // Always surface live + scheduled first so Console is reachable before go-live.
+    // Then a few recent ended shows — don't let 30+ ended rooms hide the active ones.
+    const active = rooms.filter((r) => r.status === "live" || r.status === "scheduled");
+    const ended = rooms.filter((r) => r.status !== "live" && r.status !== "scheduled");
+    return [...active, ...ended.slice(0, Math.max(0, 8 - active.length))];
+  }, [rooms]);
+
   const selected = rooms.find((r) => r.id === selectedId);
 
   const typeCards: {
@@ -1048,7 +1056,7 @@ export function SellerLivePage() {
                 </p>
               ) : (
                 <ul className="space-y-2">
-                  {rooms.slice(0, 6).map((r) => (
+                  {featuredRooms.map((r) => (
                     <li
                       key={`top-${r.id}`}
                       className={`rounded-xl border px-3 py-2.5 transition ${
@@ -1088,6 +1096,12 @@ export function SellerLivePage() {
                     </li>
                   ))}
                 </ul>
+                {rooms.length > featuredRooms.length ? (
+                  <p className="mt-2 text-[10px] text-zinc-600">
+                    Showing live &amp; upcoming first · {rooms.length - featuredRooms.length} older ended show
+                    {rooms.length - featuredRooms.length === 1 ? "" : "s"} in Manage below
+                  </p>
+                ) : null}
               )}
             </section>
 
