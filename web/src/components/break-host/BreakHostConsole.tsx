@@ -1908,7 +1908,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
 
   if (!data) {
     return (
-      <div className="relative z-40 flex min-h-[calc(100svh-var(--site-header-offset))] w-full flex-col bg-[#050508]">
+      <div className="fixed inset-x-0 bottom-0 top-[var(--site-header-offset)] z-40 flex flex-col overflow-hidden bg-[#050508]">
         <div className="shrink-0 border-b border-zinc-800 bg-zinc-950/95 px-3 py-3">
           <div className="h-3 w-40 animate-pulse rounded bg-white/[0.06] motion-reduce:animate-none" />
           <div className="mt-2 h-6 w-[min(80%,20rem)] animate-pulse rounded bg-white/[0.05] motion-reduce:animate-none" />
@@ -2518,7 +2518,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
 
   return (
     <div
-      className={`relative z-40 flex w-full flex-col bg-black text-sm leading-normal text-zinc-100 ${vaultModeRootClass(vaultMode)}`}
+      className={`fixed inset-x-0 bottom-0 top-[var(--site-header-offset)] z-40 flex min-h-0 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain bg-black text-sm leading-normal text-zinc-100 ${vaultModeRootClass(vaultMode)}`}
       data-seller-host-console
     >
       {hostPaymentFailures.length > 0 ? (
@@ -2596,8 +2596,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         </div>
       ) : null}
 
-      {/* Viewport-tall stage workspace; page itself can scroll so content can sit below. */}
-      <div className="relative flex h-[calc(100svh-var(--site-header-offset))] min-h-[40rem] flex-col overflow-hidden p-1 sm:p-1.5 min-[1400px]:p-0">
+      {/* First screen: stage fills the fixed console; root overflow-y-auto scrolls to content below. */}
+      <div className="relative flex h-full min-h-full w-full shrink-0 flex-col p-1 sm:p-1.5 min-[1400px]:p-0">
         {/* Desktop — 3-column command center (chat + lineup | 9:16 stage | stats) */}
         <div className="relative hidden min-h-0 flex-1 flex-col overflow-hidden min-[1400px]:flex">
           <SellerConsoleActionBar
@@ -2640,7 +2640,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
               </div>
             </aside>
 
-            <div className="relative flex min-h-0 min-w-0 flex-col bg-black">
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-black">
               <LiveVideoStage {...hostStageProps} />
               <SellerGoLiveSetupPanel
                 visible={
@@ -2725,6 +2725,20 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
           </div>
         </div>
       </div>
+
+      {/* Scroll target under the live stage — add host tools here. */}
+      <section
+        data-host-console-below
+        className="relative z-[1] w-full shrink-0 border-t border-white/[0.08] bg-zinc-950 px-4 py-10 pb-[max(2.5rem,env(safe-area-inset-bottom))] min-[1400px]:px-6"
+      >
+        <div className="mx-auto max-w-6xl">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">Below stage</p>
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-zinc-400">
+            Scroll past the live feed to reach this area. Tell us what belongs here (stats, chat, lineup, etc.) and we&apos;ll
+            move it into popups or panels below.
+          </p>
+        </div>
+      </section>
 
       {hostLineupOpen ? (
         <div
