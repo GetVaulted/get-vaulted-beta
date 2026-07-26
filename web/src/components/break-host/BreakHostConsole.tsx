@@ -2731,14 +2731,14 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         data-host-console-below
         className="relative z-[1] w-full shrink-0 border-t border-white/[0.08] bg-zinc-950 px-3 py-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] min-[1400px]:px-5"
       >
-        <div className="mx-auto grid max-w-6xl gap-3 min-[800px]:grid-cols-[minmax(11rem,15rem)_minmax(0,1fr)_minmax(12rem,16rem)]">
+        <div className="mx-auto grid max-w-6xl items-start gap-3 min-[800px]:grid-cols-[minmax(11rem,15rem)_minmax(0,1fr)_minmax(12rem,16rem)]">
           <LiveShowSalesTile
             summary={data.sellerSummary ?? null}
             loading={!data.sellerSummary && !sellerSummaryRefreshError}
             refreshError={sellerSummaryRefreshError}
           />
           <HostRecentSalesTile rows={data.recentSales ?? []} maxRows={8} />
-          <div className="min-[1400px]:block">
+          <div className="hidden min-[1400px]:block">
             <SellerConsoleStatsPanel
               viewerCount={viewerCount}
               streamTimerDisplay={streamTimerDisplay}
