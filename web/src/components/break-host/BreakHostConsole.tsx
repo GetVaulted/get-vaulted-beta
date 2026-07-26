@@ -1908,7 +1908,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
 
   if (!data) {
     return (
-      <div className="fixed inset-x-0 bottom-0 top-[var(--site-header-offset)] z-40 flex flex-col overflow-hidden bg-[#050508]">
+      <div className="relative z-40 flex min-h-[calc(100svh-var(--site-header-offset))] w-full flex-col bg-[#050508]">
         <div className="shrink-0 border-b border-zinc-800 bg-zinc-950/95 px-3 py-3">
           <div className="h-3 w-40 animate-pulse rounded bg-white/[0.06] motion-reduce:animate-none" />
           <div className="mt-2 h-6 w-[min(80%,20rem)] animate-pulse rounded bg-white/[0.05] motion-reduce:animate-none" />
@@ -2518,7 +2518,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
 
   return (
     <div
-      className={`fixed inset-x-0 bottom-0 top-[var(--site-header-offset)] z-40 flex min-h-0 flex-col overflow-hidden bg-black text-sm leading-normal text-zinc-100 ${vaultModeRootClass(vaultMode)}`}
+      className={`relative z-40 flex w-full flex-col bg-black text-sm leading-normal text-zinc-100 ${vaultModeRootClass(vaultMode)}`}
+      data-seller-host-console
     >
       {hostPaymentFailures.length > 0 ? (
         <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[70] w-[min(92vw,28rem)] -translate-x-1/2 px-2">
@@ -2595,7 +2596,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         </div>
       ) : null}
 
-      <div className="relative flex min-h-0 flex-1 flex-col p-1 sm:p-1.5 min-[1400px]:p-0">
+      {/* Viewport-tall stage workspace; page itself can scroll so content can sit below. */}
+      <div className="relative flex h-[calc(100svh-var(--site-header-offset))] min-h-[40rem] flex-col overflow-hidden p-1 sm:p-1.5 min-[1400px]:p-0">
         {/* Desktop — 3-column command center (chat + lineup | 9:16 stage | stats) */}
         <div className="relative hidden min-h-0 flex-1 flex-col overflow-hidden min-[1400px]:flex">
           <SellerConsoleActionBar
