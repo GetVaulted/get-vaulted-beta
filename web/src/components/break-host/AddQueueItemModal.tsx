@@ -8,6 +8,12 @@ import { buildRandomVariantsFromPreset, buildVariantsFromPreset, type VariantDra
 import { LiveItemVariantBuilder } from "@/components/live-auction/LiveItemVariantBuilder";
 import { resolveLiveHostDefaultShippingProfileId } from "@/lib/live-show-category-shipping-profile";
 import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
+import {
+  fetchLiveRoomShopInventory,
+  fetchPriorLiveRoomsForCopy,
+  type LiveShopInventoryListing,
+  type PriorLiveRoomOption,
+} from "@/lib/live-room-control-client";
 import { RANDOM_BREAK_SALE_TYPES_ENABLED } from "../../../../shared/live-break-feature-flags";
 
 export type AddQueueItemCloseReason = "cancel" | "success" | "escape";
@@ -47,6 +53,10 @@ type Props = {
   onRequestClose: (reason: AddQueueItemCloseReason) => void;
   onSubmitAuction: (payload: AddQueueItemAuctionPayload) => Promise<boolean>;
   onSubmitGiveaway?: (payload: AddQueueItemGiveawayPayload) => Promise<boolean>;
+  /** Pull one or more seller shop listings into the current room queue. */
+  onSubmitFromShop?: (listingIds: string[]) => Promise<boolean>;
+  /** Clone unsold queue rows from a prior room. */
+  onImportFromPriorRoom?: (sourceRoomId: string) => Promise<boolean>;
 };
 
 const ALLOWED_CLOSE: AddQueueItemCloseReason[] = ["cancel", "success", "escape"];
@@ -56,6 +66,7 @@ const THUMBNAIL_MAX_FILE_BYTES = 20 * 1024 * 1024;
 type SaleCategory = "teams_divisions" | "auction" | "buy_now";
 type BreakSaleType = "pyt" | "pyd" | "random_pyt" | "random_pyd";
 type SaleType = "auction" | "buy_now" | BreakSaleType;
+type AddSourceTab = "new" | "shop" | "copy";
 
 const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
   {
@@ -108,8 +119,11 @@ export function AddQueueItemModal({
   onRequestClose,
   onSubmitAuction,
   onSubmitGiveaway,
+  onSubmitFromShop,
+  onImportFromPriorRoom,
 }: Props) {
   const [mounted, setMounted] = useState(false);
+  const [addSource, setAddSource] = useState<AddSourceTab>("new");
   const [title, setTitle] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [imageUploading, setImageUploading] = useState(false);
@@ -129,6 +143,15 @@ export function AddQueueItemModal({
   const [formError, setFormError] = useState<string | null>(null);
   const [spotVariants, setSpotVariants] = useState<VariantDraftInput[]>([]);
   const [spotsCustomized, setSpotsCustomized] = useState(false);
+  const [shopListings, setShopListings] = useState<LiveShopInventoryListing[]>([]);
+  const [shopLoading, setShopLoading] = useState(false);
+  const [shopError, setShopError] = useState<string | null>(null);
+  const [shopQuery, setShopQuery] = useState("");
+  const [selectedShopIds, setSelectedShopIds] = useState<string[]>([]);
+  const [priorRooms, setPriorRooms] = useState<PriorLiveRoomOption[]>([]);
+  const [priorLoading, setPriorLoading] = useState(false);
+  const [priorError, setPriorError] = useState<string | null>(null);
+  const [selectedPriorRoomId, setSelectedPriorRoomId] = useState("");
   const wasOpenRef = useRef(false);
   const imageFileRef = useRef<HTMLInputElement>(null);
 
@@ -138,6 +161,7 @@ export function AddQueueItemModal({
 
   useEffect(() => {
     if (open && !wasOpenRef.current) {
+      setAddSource("new");
       setTitle("");
       setImageUrl("");
       setImageUploading(false);
@@ -154,9 +178,57 @@ export function AddQueueItemModal({
       setSelectedProfileId("");
       setSpotVariants([]);
       setSpotsCustomized(false);
+      setShopListings([]);
+      setShopError(null);
+      setShopQuery("");
+      setSelectedShopIds([]);
+      setPriorRooms([]);
+      setPriorError(null);
+      setSelectedPriorRoomId("");
     }
     wasOpenRef.current = open;
   }, [mode, open]);
+
+  useEffect(() => {
+    if (!open || !liveRoomId.trim() || addSource !== "shop") return;
+    let cancelled = false;
+    setShopLoading(true);
+    setShopError(null);
+    void fetchLiveRoomShopInventory(liveRoomId).then((res) => {
+      if (cancelled) return;
+      setShopLoading(false);
+      if (!res.ok) {
+        setShopError(res.error);
+        setShopListings([]);
+        return;
+      }
+      setShopListings(res.data.listings);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [addSource, liveRoomId, open]);
+
+  useEffect(() => {
+    if (!open || !liveRoomId.trim() || addSource !== "copy") return;
+    let cancelled = false;
+    setPriorLoading(true);
+    setPriorError(null);
+    void fetchPriorLiveRoomsForCopy(liveRoomId).then((res) => {
+      if (cancelled) return;
+      setPriorLoading(false);
+      if (!res.ok) {
+        setPriorError(res.error);
+        setPriorRooms([]);
+        return;
+      }
+      setPriorRooms(res.data.rooms);
+      setSelectedPriorRoomId((prev) => prev || res.data.rooms[0]?.id || "");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [addSource, liveRoomId, open]);
 
   useEffect(() => {
     if (!open || !liveRoomId.trim()) return;
@@ -402,6 +474,28 @@ export function AddQueueItemModal({
     title,
   ]);
 
+  const handleSubmitFromShop = useCallback(async () => {
+    if (!onSubmitFromShop) return;
+    setFormError(null);
+    if (selectedShopIds.length === 0) {
+      setFormError("Select at least one item from your shop.");
+      return;
+    }
+    const ok = await onSubmitFromShop(selectedShopIds);
+    if (ok) requestClose("success", onRequestClose);
+  }, [onRequestClose, onSubmitFromShop, selectedShopIds]);
+
+  const handleImportFromPrior = useCallback(async () => {
+    if (!onImportFromPriorRoom) return;
+    setFormError(null);
+    if (!selectedPriorRoomId.trim()) {
+      setFormError("Pick a previous show to copy from.");
+      return;
+    }
+    const ok = await onImportFromPriorRoom(selectedPriorRoomId.trim());
+    if (ok) requestClose("success", onRequestClose);
+  }, [onImportFromPriorRoom, onRequestClose, selectedPriorRoomId]);
+
   if (!mounted || !open || !mode) return null;
 
   if (mode === "giveaway" || mode === "buyers_giveaway") {
@@ -561,6 +655,182 @@ export function AddQueueItemModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-5">
+          <div className="mb-4 grid grid-cols-3 gap-1.5 rounded-xl border border-white/10 bg-[#0c0c10] p-1">
+            {(
+              [
+                { id: "new" as const, label: SELLER_CONSOLE.addSourceNew },
+                { id: "shop" as const, label: SELLER_CONSOLE.addSourceShop },
+                { id: "copy" as const, label: SELLER_CONSOLE.addSourceCopyShow },
+              ] as const
+            ).map((tab) => {
+              const on = addSource === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    setAddSource(tab.id);
+                    setFormError(null);
+                  }}
+                  className={`rounded-lg px-2 py-2 text-[11px] font-bold uppercase tracking-wide transition ${
+                    on ? "bg-gold/20 text-gold-bright ring-1 ring-gold/35" : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {addSource === "shop" ? (
+            <div>
+              <p className="mb-3 text-sm text-zinc-500">{SELLER_CONSOLE.addSourceShopHint}</p>
+              <input
+                value={shopQuery}
+                onChange={(e) => setShopQuery(e.target.value)}
+                placeholder="Search your shop…"
+                className="mb-3 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
+              />
+              {shopLoading ? <p className="text-sm text-zinc-500">Loading shop inventory…</p> : null}
+              {shopError ? <p className="text-xs text-rose-300">{shopError}</p> : null}
+              {!shopLoading && !shopError && shopListings.length === 0 ? (
+                <p className="text-sm text-zinc-500">
+                  No reusable shop items yet. Add inventory under Seller HQ → Live show, then pull them in here.
+                </p>
+              ) : null}
+              <ul className="space-y-2">
+                {shopListings
+                  .filter((row) => {
+                    const q = shopQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    return row.title.toLowerCase().includes(q);
+                  })
+                  .map((row) => {
+                    const selected = selectedShopIds.includes(row.id);
+                    const disabled = !row.available && !selected;
+                    const priceLabel =
+                      row.buyingFormat === "auction"
+                        ? `Start $${Math.round(row.startingBidUsd ?? row.priceUsd ?? 0)}`
+                        : `$${Math.round(row.priceUsd ?? 0)}`;
+                    return (
+                      <li key={row.id}>
+                        <button
+                          type="button"
+                          disabled={disabled || busy}
+                          onClick={() => {
+                            setSelectedShopIds((prev) =>
+                              prev.includes(row.id) ? prev.filter((id) => id !== row.id) : [...prev, row.id],
+                            );
+                          }}
+                          className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition ${
+                            selected
+                              ? "border-gold/40 bg-gold/10"
+                              : disabled
+                                ? "border-white/5 bg-white/[0.02] opacity-50"
+                                : "border-white/10 bg-[#0c0c10] hover:border-white/20"
+                          }`}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={row.imageUrl} alt="" className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold text-zinc-100">{row.title}</span>
+                            <span className="mt-0.5 block text-[11px] text-zinc-500">
+                              {row.inventoryChannel === "live_show" ? "Live show" : "Marketplace"} · {priceLabel}
+                              {row.alreadyInQueue ? " · Already in lineup" : ""}
+                              {row.inventoryHeld ? " · Held in checkout" : ""}
+                            </span>
+                          </span>
+                          <span
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] ${
+                              selected ? "border-gold bg-gold text-black" : "border-white/20 text-transparent"
+                            }`}
+                          >
+                            ✓
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+              </ul>
+              {formError ? <p className="mt-3 text-xs text-rose-300">{formError}</p> : null}
+              <div className="mt-5 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => requestClose("cancel", onRequestClose)}
+                  className="flex-1 rounded-lg border border-white/12 py-2 text-sm font-semibold text-zinc-200 hover:bg-white/[0.06]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || selectedShopIds.length === 0 || !onSubmitFromShop}
+                  onClick={() => void handleSubmitFromShop()}
+                  className="flex-1 rounded-lg bg-gold/25 py-2 text-sm font-bold text-gold-bright ring-1 ring-gold/35 hover:bg-gold/30 disabled:opacity-50"
+                >
+                  Add {selectedShopIds.length || ""} to lineup
+                </button>
+              </div>
+            </div>
+          ) : addSource === "copy" ? (
+            <div>
+              <p className="mb-3 text-sm text-zinc-500">{SELLER_CONSOLE.addSourceCopyHint}</p>
+              {priorLoading ? <p className="text-sm text-zinc-500">Loading prior shows…</p> : null}
+              {priorError ? <p className="text-xs text-rose-300">{priorError}</p> : null}
+              {!priorLoading && !priorError && priorRooms.length === 0 ? (
+                <p className="text-sm text-zinc-500">No prior shows found to copy from.</p>
+              ) : null}
+              <ul className="space-y-2">
+                {priorRooms.map((room) => {
+                  const selected = selectedPriorRoomId === room.id;
+                  return (
+                    <li key={room.id}>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setSelectedPriorRoomId(room.id)}
+                        className={`flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left transition ${
+                          selected
+                            ? "border-gold/40 bg-gold/10"
+                            : "border-white/10 bg-[#0c0c10] hover:border-white/20"
+                        }`}
+                      >
+                        <span>
+                          <span className="block text-sm font-semibold text-zinc-100">{room.title || "Untitled show"}</span>
+                          <span className="mt-0.5 block text-[11px] uppercase tracking-wide text-zinc-500">
+                            {room.status}
+                          </span>
+                        </span>
+                        <span
+                          className={`h-3.5 w-3.5 rounded-full border ${
+                            selected ? "border-gold bg-gold" : "border-white/25"
+                          }`}
+                        />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              {formError ? <p className="mt-3 text-xs text-rose-300">{formError}</p> : null}
+              <div className="mt-5 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => requestClose("cancel", onRequestClose)}
+                  className="flex-1 rounded-lg border border-white/12 py-2 text-sm font-semibold text-zinc-200 hover:bg-white/[0.06]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || !selectedPriorRoomId || !onImportFromPriorRoom}
+                  onClick={() => void handleImportFromPrior()}
+                  className="flex-1 rounded-lg bg-gold/25 py-2 text-sm font-bold text-gold-bright ring-1 ring-gold/35 hover:bg-gold/30 disabled:opacity-50"
+                >
+                  Copy unsold lineup
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
           <p className="mb-4 text-sm text-zinc-500">Title, photo, price, and quantity — ready in seconds.</p>
 
           <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Title</label>
@@ -772,6 +1042,8 @@ export function AddQueueItemModal({
               Save to show
             </button>
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>,

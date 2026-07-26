@@ -20,6 +20,7 @@ import type { SellerReloadOptions } from '../../../hooks/sellerReloadOptions';
 import { openStripeConnectDashboard } from '../../../lib/openStripeConnectDashboard';
 import { colors, radii, spacing } from '../../../theme';
 import { hq } from './hqStyles';
+import { SellerPayoutPreferenceCard } from './SellerPayoutPreferenceCard';
 import { SellerPayoutTierCard } from './SellerPayoutTierCard';
 import {
   StudioPrimaryButton,
@@ -137,8 +138,11 @@ export function SellerRevenuePanel({
 
   return (
     <View style={styles.wrap}>
+      <SellerPayoutPreferenceCard accessToken={accessToken} />
+
       <Text style={styles.intro}>
-        Track available balance, pending funds, and payout timing — all powered by Stripe Connect.
+        Track available balance, pending funds, and payout timing. Stripe Connect balances appear below when that rail
+        is selected; PayPal payouts send after your release gates.
       </Text>
 
       <View style={[styles.hero, hq.goldCard]}>

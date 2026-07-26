@@ -22,6 +22,7 @@ import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller
 import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
 import { useMobileStagePublish } from '../hooks/useMobileStagePublish';
 import { shouldClearStreamPausedAfterHostResume } from '../lib/livePlaybackAppState';
+import { isLiveRoomBroadcastOnAir } from '../lib/liveRoomBroadcastOnAir';
 import { formatIvsObsIngestUrl } from '../lib/ivsObsIngestUrl';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
@@ -330,6 +331,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
 
   // Force-quit / cold reopen: room still live but Stage remounted idle → one resumeShow.
   // Do NOT auto-run when phase is paused (host tapped Pause / leave-app — they tap Resume).
+  // Do NOT auto-run when another device already owns a healthy on-air stream (companion mode).
   const autoResumeRef = useRef(false);
   useEffect(() => {
     if (loading || !token || !room || !stageWebrtcEnabled) return;
@@ -338,7 +340,23 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     if (!stagePublish.localPreviewReady) return;
     if (busy === 'start' || busy === 'end' || busy === 'refresh') return;
     if (autoResumeRef.current) return;
+    // Wait for stream status so we can tell companion (already on-air) from crash recovery (offline).
+    if (!stream) return;
     autoResumeRef.current = true;
+
+    const roomOnAir = isLiveRoomBroadcastOnAir({
+      status: room.status,
+      streamHealth: stream.streamHealth ?? 'offline',
+      streamPaused: stream.streamPaused,
+      streamMode: stream.streamMode,
+      streamStartedAt: stream.streamStartedAt,
+      streamEndedAt: stream.streamEndedAt,
+    });
+    if (roomOnAir) {
+      // Companion: keep this device as command center; don't fight the publishing device for Stage.
+      return;
+    }
+
     void onResumeBroadcast();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once per live room open
   }, [
@@ -350,6 +368,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     stagePublish.phase,
     stagePublish.localPreviewReady,
     busy,
+    stream,
   ]);
 
   // Heal stuck streamPaused while the host is actually publishing (buyers otherwise sit on Host paused).

@@ -8,11 +8,17 @@ import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { stripeOffSessionPaymentIntentOptions } from "@/lib/stripe-payment-method-config";
 import { orderTaxUpdateData } from "@/lib/sales-tax-order";
 import {
-  connectPaymentIntentTransferData,
+  connectOrPlatformHeldPaymentIntentTransferData,
   resolveConnectPaymentTaxPlan,
 } from "@/lib/sales-tax-charge";
 import { resolveCheckoutApplicationFeeCents, resolveLiveRoomIdForOrder } from "@/lib/live-show-gmv";
 import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
+import {
+  liveSavedCardSellerReady,
+  resolveLiveSellerDestinationAccount,
+  resolveLiveSellerPayoutProcessor,
+  sellerStripeCollectSelect,
+} from "@/lib/seller-stripe-collect-ready";
 import {
   finalizeLiveBuyNowPurchaseComplete,
   refreshBuyerShippingOnOrderIfIncomplete,
@@ -253,7 +259,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     where: { id: args.orderId, buyerId: args.buyerId },
     include: {
       listing: { select: { id: true, buyingFormat: true, status: true, isCompanyListing: true } },
-      seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true } },
+      seller: { select: sellerStripeCollectSelect },
       liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
     },
   });
@@ -288,7 +294,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     return { outcome: "error", code: "ORDER_NOT_ELIGIBLE_SAVED_CARD" };
   }
 
-  if (!row.seller.stripeAccountId || !row.seller.stripeOnboardingComplete) {
+  if (!liveSavedCardSellerReady(row.seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY" };
   }
 
@@ -413,8 +419,9 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
           listingId: row.listingId,
           ...taxPlan.metadata,
         },
-        ...connectPaymentIntentTransferData({
-          destinationAccountId: row.seller.stripeAccountId,
+        ...connectOrPlatformHeldPaymentIntentTransferData({
+          sellerPayoutProcessor: resolveLiveSellerPayoutProcessor(row.seller),
+          destinationAccountId: resolveLiveSellerDestinationAccount(row.seller),
           applicationFeeCents: feeCents,
           sellerTransferCents: taxPlan.sellerTransferCents,
           processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
@@ -679,7 +686,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
     where: { id: args.orderId, buyerId: args.buyerId },
     include: {
       listing: { select: { id: true, buyingFormat: true, status: true, isCompanyListing: true } },
-      seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true } },
+      seller: { select: sellerStripeCollectSelect },
       liveShippingSession: { select: { liveShowId: true } },
     },
   });
@@ -689,7 +696,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
   if (row.listing.buyingFormat !== "buy_now" || row.listing.status !== "active") {
     return { outcome: "error", code: "ORDER_NOT_ELIGIBLE_SAVED_CARD" };
   }
-  if (!row.seller.stripeAccountId || !row.seller.stripeOnboardingComplete) {
+  if (!liveSavedCardSellerReady(row.seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY" };
   }
 
@@ -803,8 +810,9 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
           userId: args.buyerId,
           ...taxPlan.metadata,
         },
-        ...connectPaymentIntentTransferData({
-          destinationAccountId: row.seller.stripeAccountId,
+        ...connectOrPlatformHeldPaymentIntentTransferData({
+          sellerPayoutProcessor: resolveLiveSellerPayoutProcessor(row.seller),
+          destinationAccountId: resolveLiveSellerDestinationAccount(row.seller),
           applicationFeeCents: feeCents,
           sellerTransferCents: taxPlan.sellerTransferCents,
           processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
@@ -883,7 +891,7 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
     where: { id: args.orderId, buyerId: args.buyerId },
     include: {
       listing: { select: { id: true, buyingFormat: true, status: true, isCompanyListing: true } },
-      seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true } },
+      seller: { select: sellerStripeCollectSelect },
       liveShippingSession: { select: { liveShowId: true } },
     },
   });
@@ -893,7 +901,7 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
   if (row.listing.buyingFormat !== "buy_now" || row.listing.status !== "active") {
     return { outcome: "error", code: "ORDER_NOT_ELIGIBLE_SAVED_CARD" };
   }
-  if (!row.seller.stripeAccountId || !row.seller.stripeOnboardingComplete) {
+  if (!liveSavedCardSellerReady(row.seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY" };
   }
 
@@ -1009,8 +1017,9 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
           userId: args.buyerId,
           ...taxPlan.metadata,
         },
-        ...connectPaymentIntentTransferData({
-          destinationAccountId: row.seller.stripeAccountId,
+        ...connectOrPlatformHeldPaymentIntentTransferData({
+          sellerPayoutProcessor: resolveLiveSellerPayoutProcessor(row.seller),
+          destinationAccountId: resolveLiveSellerDestinationAccount(row.seller),
           applicationFeeCents: feeCents,
           sellerTransferCents: taxPlan.sellerTransferCents,
           processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,

@@ -52,6 +52,10 @@ export type AdminFinanceSummary = {
   /** Platform application fees collected on sales (not net of Stripe processing). */
   netRevenueUsd: number | null;
   sellerPayoutsUsd: number | null;
+  /** Seller payouts on Stripe Connect rail (destination charges). */
+  sellerPayoutsStripeUsd: number | null;
+  /** Seller payouts on PayPal rail (platform-held then PayPal Payouts). */
+  sellerPayoutsPayPalUsd: number | null;
   pendingPayoutsUsd: number | null;
   refundedOrders: number | null;
   /** TODO: Wire from Stripe Disputes API — count from seller metrics proxy until then. */
@@ -75,6 +79,7 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
       payoutReserveAmountCents: true,
       shippingLabelCostCents: true,
       shippingLabelCostReversedCents: true,
+      sellerPayoutProcessor: true,
       listing: { select: { isCompanyListing: true } },
       liveShippingSession: {
         select: {
@@ -96,6 +101,8 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
   let platformFeesUsd = 0;
   let processingFeesUsd = 0;
   let sellerPayoutsUsd = 0;
+  let sellerPayoutsStripeUsd = 0;
+  let sellerPayoutsPayPalUsd = 0;
   let pendingPayoutsUsd = 0;
 
   for (const o of paidOrders) {
@@ -115,7 +122,10 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
     const sellerNet = item - feeUsd - Math.max(0, o.payoutReserveAmountCents) / 100 + shippingUsd - labelCostUsd;
 
     if (o.payoutStatus === "paid_out") {
-      sellerPayoutsUsd += Math.max(0, sellerNet);
+      const net = Math.max(0, sellerNet);
+      sellerPayoutsUsd += net;
+      if (o.sellerPayoutProcessor === "PAYPAL") sellerPayoutsPayPalUsd += net;
+      else sellerPayoutsStripeUsd += net;
     } else if (o.payoutStatus !== "blocked" && o.payoutStatus !== "manual_review") {
       pendingPayoutsUsd += Math.max(0, sellerNet);
     }
@@ -137,6 +147,7 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
   const chargebacksDisputes = metricsAgg._sum.unresolvedDisputeCount ?? 0;
   notes.push("Stripe processing fees are paid by sellers on Connect — not deducted from platform net.");
   notes.push("Chargeback/dispute count sums seller unresolved disputes — not full Stripe dispute history.");
+  notes.push("Seller payouts are split by sellerPayoutProcessor (Stripe Connect vs PayPal Payouts).");
 
   return {
     gmvUsd: Math.round(gmvUsd * 100) / 100,
@@ -145,6 +156,8 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
     processingFeesEstimated: true,
     netRevenueUsd: Math.round(platformFeesUsd * 100) / 100,
     sellerPayoutsUsd: Math.round(sellerPayoutsUsd * 100) / 100,
+    sellerPayoutsStripeUsd: Math.round(sellerPayoutsStripeUsd * 100) / 100,
+    sellerPayoutsPayPalUsd: Math.round(sellerPayoutsPayPalUsd * 100) / 100,
     pendingPayoutsUsd: Math.round(pendingPayoutsUsd * 100) / 100,
     refundedOrders,
     chargebacksDisputes,

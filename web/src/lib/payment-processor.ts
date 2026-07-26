@@ -115,6 +115,17 @@ export function orderPaymentProcessorLabel(processor: PaymentProcessor): string 
   return processor === "PAYPAL_VENMO" ? "PayPal / Venmo" : "Stripe";
 }
 
+export function sellerPayoutProcessorLabel(processor: SellerPayoutProcessor): string {
+  return processor === "PAYPAL" ? "PayPal" : "Stripe Connect";
+}
+
 export function shouldUseStripeConnectPayout(processor: PaymentProcessor): boolean {
   return processor === "STRIPE";
+}
+
+/** Buyer charge stays on platform when seller payout rail is PayPal. */
+export function shouldUsePlatformHeldStripeCharge(
+  sellerPayoutProcessor: SellerPayoutProcessor,
+): boolean {
+  return sellerPayoutProcessor === "PAYPAL";
 }

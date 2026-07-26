@@ -216,10 +216,19 @@ export async function initializeOrderPayoutOnPayment(orderId: string): Promise<v
 
   const seller = await prisma.user.findUnique({
     where: { id: order.sellerId },
-    select: { payoutReservePercent: true },
+    select: {
+      payoutReservePercent: true,
+      preferredSellerPayoutProcessor: true,
+      stripeAccountId: true,
+      stripeOnboardingComplete: true,
+      paypalPayoutEmail: true,
+      paypalPayoutVerifiedAt: true,
+    },
   });
   if (!seller) return;
 
+  const { effectiveSellerPayoutProcessor } = await import("@/lib/seller-payout-rail");
+  const sellerPayoutProcessor = effectiveSellerPayoutProcessor(seller);
   const reserveCents = Math.round(Math.max(0, order.itemPriceUsd) * 100 * (seller.payoutReservePercent / 100));
 
   await prisma.order.update({
@@ -227,6 +236,8 @@ export async function initializeOrderPayoutOnPayment(orderId: string): Promise<v
     data: {
       payoutStatus: OrderPayoutStatus.held,
       payoutReserveAmountCents: reserveCents,
+      sellerPayoutProcessor,
+      paymentProcessor: "STRIPE",
     },
   });
 
@@ -236,7 +247,10 @@ export async function initializeOrderPayoutOnPayment(orderId: string): Promise<v
     action: "order_payout_initialized",
     previousStatus: OrderPayoutStatus.pending,
     newStatus: OrderPayoutStatus.held,
-    reason: "payment_confirmed_awaiting_delivery",
+    reason:
+      sellerPayoutProcessor === "PAYPAL"
+        ? "payment_confirmed_awaiting_delivery_paypal_rail"
+        : "payment_confirmed_awaiting_delivery",
   });
 
   const { recalculateSellerPayoutTier } = await import("@/services/payout/recalculate-seller-payout-tier");

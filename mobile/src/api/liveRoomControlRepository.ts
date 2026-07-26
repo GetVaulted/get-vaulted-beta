@@ -90,7 +90,7 @@ export async function createLiveRoomQueueItem(
   roomId: string,
   input: {
     title: string;
-    imageUrl: string;
+    imageUrl?: string;
     salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
     listingId?: string | null;
     quantity?: number | null;
@@ -112,14 +112,18 @@ export async function createLiveRoomQueueItem(
 ): Promise<string> {
   const body: Record<string, unknown> = {
     title: input.title.trim(),
-    imageUrl: input.imageUrl.trim(),
-    salesFormat: input.salesFormat ?? 'auction',
+    imageUrl: input.imageUrl?.trim() ?? '',
     listingId: input.listingId ?? null,
     quantity: input.quantity ?? 1,
     startingBidUsd: input.startingBidUsd ?? null,
     reservePriceUsd: input.reservePriceUsd ?? null,
     priceUsd: input.priceUsd ?? null,
   };
+  if (input.salesFormat) {
+    body.salesFormat = input.salesFormat;
+  } else if (!input.listingId) {
+    body.salesFormat = 'auction';
+  }
   if (input.variantAssignmentMode) {
     body.variantAssignmentMode = input.variantAssignmentMode;
   }
@@ -145,6 +149,86 @@ export async function createLiveRoomQueueItem(
   const id = (j as { id?: string } | null)?.id?.trim();
   if (!id) throw new Error('Queue item saved but the server did not return an id. Pull to refresh.');
   return id;
+}
+
+export type LiveShopInventoryListing = {
+  id: string;
+  title: string;
+  imageUrl: string;
+  priceUsd: number | null;
+  startingBidUsd: number | null;
+  buyingFormat: string;
+  status: string;
+  inventoryChannel: 'marketplace' | 'live_show';
+  alreadyInQueue: boolean;
+  inventoryHeld: boolean;
+  available: boolean;
+};
+
+export async function fetchLiveRoomShopInventory(
+  accessToken: string,
+  roomId: string,
+): Promise<LiveShopInventoryListing[]> {
+  const res = await controlFetch(
+    `/api/live-rooms/${encodeURIComponent(roomId)}/shop-inventory`,
+    accessToken,
+  );
+  let j: { listings?: LiveShopInventoryListing[]; error?: string } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+  return Array.isArray(j.listings) ? j.listings : [];
+}
+
+export type PriorLiveRoomOption = {
+  id: string;
+  title: string;
+  status: string;
+};
+
+export async function fetchPriorLiveRoomsForCopy(
+  accessToken: string,
+  currentRoomId: string,
+): Promise<PriorLiveRoomOption[]> {
+  const res = await controlFetch(`/api/live-rooms?mine=1&includeEnded=1&limit=40`, accessToken);
+  let j: { rooms?: PriorLiveRoomOption[]; error?: string } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+  return (Array.isArray(j.rooms) ? j.rooms : []).filter((r) => r.id && r.id !== currentRoomId);
+}
+
+export async function importLiveRoomItemsFromRoom(
+  accessToken: string,
+  roomId: string,
+  sourceRoomId: string,
+): Promise<{ imported: number; skipped: number; sourceTitle?: string }> {
+  const res = await controlFetch(
+    `/api/live-rooms/${encodeURIComponent(roomId)}/items/import-from-room`,
+    accessToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({ sourceRoomId }),
+    },
+  );
+  let j: { imported?: number; skipped?: number; sourceTitle?: string; error?: string } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+  return {
+    imported: typeof j.imported === 'number' ? j.imported : 0,
+    skipped: typeof j.skipped === 'number' ? j.skipped : 0,
+    sourceTitle: j.sourceTitle,
+  };
 }
 
 export async function patchLiveRoomItem(

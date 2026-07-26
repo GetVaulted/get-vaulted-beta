@@ -30,6 +30,7 @@ import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from '../.
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import { liveRoomChatOpen } from '../../../lib/liveRoomChatPolicy';
 import { isLiveRoomBroadcastOnAir } from '../../../lib/liveRoomBroadcastOnAir';
+import { resolveHostVideoFeedStatus } from '../../../lib/hostVideoFeedStatus';
 import { useLiveRoomChat } from '../../../hooks/useLiveRoomChat';
 import { resolvePinnedModeratorUsername } from '../../../lib/resolvePinnedModeratorUsername';
 import { useLiveRoomModeration } from '../../../hooks/useLiveRoomModeration';
@@ -181,19 +182,46 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   }, [host.room?.showNotes, roomId]);
 
   const roomLive = host.room?.status === 'live';
-  const streamOnAir =
+  const localPublishing =
     host.broadcastPhase === 'live' ||
     host.broadcastPhase === 'paused' ||
-    host.broadcastPhase === 'starting';
-  const broadcastOnAir = useMemo(() => {
+    host.broadcastPhase === 'starting' ||
+    host.broadcastPhase === 'stopping';
+  const roomBroadcastOnAir = useMemo(() => {
     if (!roomLive) return false;
-    if (host.stageWebrtcEnabled) return streamOnAir;
     return isLiveRoomBroadcastOnAir({
       status: 'live',
       streamHealth: host.stream?.streamHealth ?? 'offline',
       streamPaused: host.stream?.streamPaused,
+      streamMode: host.stream?.streamMode,
+      streamStartedAt: host.stream?.streamStartedAt,
+      streamEndedAt: host.stream?.streamEndedAt,
     });
-  }, [host.stageWebrtcEnabled, host.stream, roomLive, streamOnAir]);
+  }, [host.stream, roomLive]);
+  /** Commerce gate: this device publishing OR another device already on air (companion). */
+  const broadcastOnAir = roomLive && (localPublishing || roomBroadcastOnAir);
+  /** Room is live from another device; this phone is queue / start-auction only. */
+  const hostCompanionMode = roomBroadcastOnAir && !localPublishing;
+  /** Header pill — buyer-facing video, not just room status. */
+  const videoFeed = useMemo(
+    () =>
+      resolveHostVideoFeedStatus({
+        roomStatus: host.room?.status ?? 'scheduled',
+        broadcastPhase: host.broadcastPhase,
+        streamPaused: host.stream?.streamPaused,
+        companionMode: hostCompanionMode,
+        roomBroadcastOnAir,
+        streamHealth: host.stream?.streamHealth,
+      }),
+    [
+      host.broadcastPhase,
+      host.room?.status,
+      host.stream?.streamHealth,
+      host.stream?.streamPaused,
+      hostCompanionMode,
+      roomBroadcastOnAir,
+    ],
+  );
 
   const console = useSellerLiveConsole({
     accessToken,
@@ -717,13 +745,24 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         </View>
       ) : null}
 
+      {hostCompanionMode && !host.roomError ? (
+        <View
+          style={[styles.companionBanner, { top: headerPaddingTop + sellerHeaderBlockHeight(windowWidth) + 8 }]}
+          pointerEvents="box-none"
+        >
+          <Text style={styles.companionTitle}>{SELLER_CONSOLE.companionBannerTitle}</Text>
+          <Text style={styles.companionBody}>{SELLER_CONSOLE.companionBannerBody}</Text>
+        </View>
+      ) : null}
+
       <SellerLiveOverlayHeader
         paddingTop={headerPaddingTop}
         hostName={hostName}
         hostAvatarUrl={hostAvatarUrl}
         streamTitle={streamTitle}
         viewerCount={console.viewerCount}
-        streamOnAir={broadcastOnAir}
+        streamOnAir={videoFeed.videoOnAir}
+        videoFeed={videoFeed}
         liveStartedAt={roomLive ? host.room?.startedAt ?? null : null}
         onBack={() => {
           if (navigation.canGoBack()) {
@@ -752,6 +791,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
             broadcastPhase={host.broadcastPhase}
             roomStatus={roomStatus}
             streamOnAir={broadcastOnAir}
+            companionMode={hostCompanionMode}
             canStartRoom={canStart}
             stageEnabled={host.stageWebrtcEnabled}
             cameraReady={host.cameraPermissionState === 'granted'}
@@ -765,10 +805,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
             onPauseStream={host.onPauseBroadcast}
             onResumeStream={host.onResumeBroadcast}
             streamPaused={host.stream?.streamPaused === true}
-            showCameraFlip={host.stageWebrtcEnabled && host.showCameraPreview}
+            showCameraFlip={host.stageWebrtcEnabled && host.showCameraPreview && !hostCompanionMode}
             cameraFlipDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
             onFlipCamera={host.onFlipCamera}
-            showMicMute={host.stageWebrtcEnabled && host.showCameraPreview}
+            showMicMute={host.stageWebrtcEnabled && host.showCameraPreview && !hostCompanionMode}
             micMuted={host.microphoneMuted}
             micMuteDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
             onToggleMicMute={host.onToggleMicMute}
@@ -1206,6 +1246,32 @@ const styles = StyleSheet.create({
     left: spacing.sm,
     right: spacing.sm,
     zIndex: 20,
+  },
+  companionBanner: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    zIndex: 18,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(52,211,153,0.35)',
+    backgroundColor: 'rgba(6,46,36,0.88)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  companionTitle: {
+    color: '#6ee7b7',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  companionBody: {
+    marginTop: 4,
+    color: 'rgba(236,253,245,0.92)',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
   },
   previewHint: {
     position: 'absolute',

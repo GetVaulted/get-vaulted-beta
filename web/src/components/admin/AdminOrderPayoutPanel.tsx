@@ -11,6 +11,9 @@ type Props = {
   payoutHoldUntil: string | null;
   payoutReserveAmountCents: number;
   payoutMethod: string;
+  sellerPayoutProcessor?: string | null;
+  processorTransferId?: string | null;
+  paypalPayoutStatus?: string | null;
   payoutEvaluation: {
     sellerEligible: boolean;
     instantPayoutAllowed: boolean;
@@ -29,6 +32,9 @@ export function AdminOrderPayoutPanel({
   payoutHoldUntil,
   payoutReserveAmountCents,
   payoutMethod,
+  sellerPayoutProcessor,
+  processorTransferId,
+  paypalPayoutStatus,
   payoutEvaluation,
   onUpdated,
 }: Props) {
@@ -89,6 +95,16 @@ export function AdminOrderPayoutPanel({
         <div>
           <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Method</p>
           <p className="mt-1 capitalize text-zinc-100">{payoutMethod.replace(/_/g, " ")}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Payout processor</p>
+          <p className="mt-1 text-zinc-100">{sellerPayoutProcessor ?? "STRIPE"}</p>
+          {processorTransferId ? (
+            <p className="mt-0.5 break-all font-mono text-[10px] text-zinc-500">{processorTransferId}</p>
+          ) : null}
+          {paypalPayoutStatus ? (
+            <p className="mt-0.5 text-[10px] text-zinc-500">PayPal status: {paypalPayoutStatus}</p>
+          ) : null}
         </div>
         <div>
           <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Reserve / hold</p>

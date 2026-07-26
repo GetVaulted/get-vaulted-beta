@@ -20,6 +20,19 @@ export type PlatformShippingProfileSeed = {
 
 export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
   {
+    slug: "letter_envelope",
+    name: "Letter Envelope",
+    /** Light #10-style envelope — First-Class letter band when weight stays low. */
+    defaultWeightOz: 2,
+    defaultLengthIn: 9.5,
+    defaultWidthIn: 4.125,
+    defaultHeightIn: 0.25,
+    packageType: "envelope",
+    bundleAllowed: true,
+    requiresSeparatePackage: false,
+    sortOrder: 0,
+  },
+  {
     slug: "trading_cards",
     name: "Trading Cards",
     defaultWeightOz: 4,
@@ -29,7 +42,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "poly_mailer",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 0,
+    sortOrder: 1,
   },
   {
     slug: "graded_card",
@@ -41,7 +54,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "bubble_mailer",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 1,
+    sortOrder: 2,
   },
   {
     slug: "card_lot",
@@ -53,7 +66,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "box",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 2,
+    sortOrder: 3,
   },
   {
     slug: "jersey",
@@ -65,7 +78,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "poly_mailer",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 3,
+    sortOrder: 4,
   },
   {
     slug: "mini_helmet",
@@ -77,7 +90,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "box",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 4,
+    sortOrder: 5,
   },
   {
     slug: "full_size_helmet",
@@ -89,7 +102,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "box",
     bundleAllowed: false,
     requiresSeparatePackage: true,
-    sortOrder: 5,
+    sortOrder: 6,
   },
   {
     slug: "speedflex_helmet",
@@ -101,7 +114,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "box",
     bundleAllowed: false,
     requiresSeparatePackage: true,
-    sortOrder: 6,
+    sortOrder: 7,
   },
   {
     slug: "sneakers",
@@ -113,7 +126,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "box",
     bundleAllowed: false,
     requiresSeparatePackage: true,
-    sortOrder: 7,
+    sortOrder: 8,
   },
   {
     slug: "watch",
@@ -125,7 +138,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "small_box",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 8,
+    sortOrder: 9,
   },
   {
     slug: "funko_collectible",
@@ -137,7 +150,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "box",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 9,
+    sortOrder: 10,
   },
   {
     slug: "custom",
@@ -149,7 +162,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 10,
+    sortOrder: 11,
   },
 ];
 
@@ -157,6 +170,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
 export function suggestShippingProfileSlugForCategory(category: string | null | undefined): string {
   const c = (category ?? "").trim().toLowerCase();
   if (!c) return "trading_cards";
+  if (c.includes("letter") || c.includes("envelope") || c.includes("document")) return "letter_envelope";
   if (c.includes("graded") || c.includes("slab")) return "graded_card";
   if (c.includes("mini") && c.includes("helmet")) return "mini_helmet";
   if (c.includes("speedflex")) return "speedflex_helmet";

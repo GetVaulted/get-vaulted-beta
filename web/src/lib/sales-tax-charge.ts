@@ -159,6 +159,35 @@ export function connectPaymentIntentTransferData(args: {
   };
 }
 
+/**
+ * When seller payout rail is PayPal, omit Connect transfer so the charge stays on the platform.
+ * Otherwise apply standard destination-charge transfer params.
+ */
+export function connectOrPlatformHeldPaymentIntentTransferData(args: {
+  sellerPayoutProcessor: "STRIPE" | "PAYPAL";
+  destinationAccountId: string | null;
+  applicationFeeCents: number;
+  sellerTransferCents: number | null;
+  processingFeeCents?: number;
+  referralCreditAppliedCents?: number;
+  maxSellerTransferCents?: number;
+}): {
+  application_fee_amount?: number;
+  transfer_data?: { destination: string; amount?: number };
+} {
+  if (args.sellerPayoutProcessor === "PAYPAL" || !args.destinationAccountId?.trim()) {
+    return {};
+  }
+  return connectPaymentIntentTransferData({
+    destinationAccountId: args.destinationAccountId.trim(),
+    applicationFeeCents: args.applicationFeeCents,
+    sellerTransferCents: args.sellerTransferCents,
+    processingFeeCents: args.processingFeeCents,
+    referralCreditAppliedCents: args.referralCreditAppliedCents,
+    maxSellerTransferCents: args.maxSellerTransferCents,
+  });
+}
+
 export function fullRefundAmountCents(order: {
   itemPriceUsd: number;
   shippingPriceUsd: number;

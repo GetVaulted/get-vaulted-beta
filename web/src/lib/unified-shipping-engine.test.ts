@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  PLATFORM_SHIPPING_PROFILE_SEEDS,
   computeLiveBuyerShippingCharge,
   computeShowShippingLiability,
   filterShippoRatesUspsUps,
@@ -41,6 +42,9 @@ describe("unified-shipping-engine", () => {
     expect(suggestShippingProfileSlugForCategory("Graded Slabs")).toBe("graded_card");
     expect(suggestShippingProfileSlugForCategory("Hobby Break")).toBe("trading_cards");
     expect(suggestShippingProfileSlugForCategory("Team Lot")).toBe("card_lot");
+    expect(suggestShippingProfileSlugForCategory("Letter mail")).toBe("letter_envelope");
+    expect(suggestShippingProfileSlugForCategory("Document envelope")).toBe("letter_envelope");
+    expect(PLATFORM_SHIPPING_PROFILE_SEEDS.some((p) => p.slug === "letter_envelope")).toBe(true);
   });
 
   it("resolves profile dimensions with custom overrides", () => {

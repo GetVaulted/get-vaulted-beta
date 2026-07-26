@@ -29,4 +29,10 @@ export const SELLER_CONSOLE = {
   saleCategoryTeamsDivisions: 'Teams/Divisions',
   saleCategoryAuction: 'Auction',
   saleCategoryBuyNow: 'Buy Now',
+  /** Add-item modal — inventory source tabs */
+  addSourceNew: 'New item',
+  addSourceShop: 'From my shop',
+  addSourceCopyShow: 'Copy last show',
+  addSourceShopHint: 'Pull Live show or Marketplace inventory into this lineup.',
+  addSourceCopyHint: 'Clone unsold lots from a previous show.',
 } as const;

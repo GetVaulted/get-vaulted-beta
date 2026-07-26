@@ -48,6 +48,9 @@ export async function getSellerPublishListingIssues(
     select: {
       stripeAccountId: true,
       stripeOnboardingComplete: true,
+      preferredSellerPayoutProcessor: true,
+      paypalPayoutEmail: true,
+      paypalPayoutVerifiedAt: true,
       defaultShipFromAddressId: true,
       shipFromName: true,
       shipFromStreet: true,
@@ -72,23 +75,33 @@ export async function getSellerPublishListingIssues(
     return ["Seller account not found."];
   }
 
-  if (stripeRequired) {
-    const hasStripeAccount = Boolean(user.stripeAccountId?.trim());
-    if (!hasStripeAccount) {
-      issues.push("Connect Stripe payouts under Account → Seller.");
-    } else {
-      let onboardingComplete = Boolean(user.stripeOnboardingComplete);
-      if (!onboardingComplete) {
-        try {
-          const stripe = getStripe();
-          const account = await stripe.accounts.retrieve(user.stripeAccountId!);
-          onboardingComplete = stripeRequirementsClear(account);
-        } catch {
-          // Keep fallback state from DB if Stripe retrieval fails.
-        }
+  const { isSellerPayoutRailReady, sellerPayoutRailNotReadyMessage, sellerUsesPayPalPayout } =
+    await import("@/lib/seller-payout-rail");
+  const { isPayPalSellerPayoutsEnabled } = await import("@/lib/paypal");
+
+  if (stripeRequired || isPayPalSellerPayoutsEnabled()) {
+    if (sellerUsesPayPalPayout(user)) {
+      if (!isSellerPayoutRailReady(user)) {
+        issues.push(sellerPayoutRailNotReadyMessage(user));
       }
-      if (!onboardingComplete) {
-        issues.push("Finish Stripe onboarding (submit required details and clear pending verification).");
+    } else if (stripeRequired) {
+      const hasStripeAccount = Boolean(user.stripeAccountId?.trim());
+      if (!hasStripeAccount) {
+        issues.push("Connect Stripe payouts under Account → Seller.");
+      } else {
+        let onboardingComplete = Boolean(user.stripeOnboardingComplete);
+        if (!onboardingComplete) {
+          try {
+            const stripe = getStripe();
+            const account = await stripe.accounts.retrieve(user.stripeAccountId!);
+            onboardingComplete = stripeRequirementsClear(account);
+          } catch {
+            // Keep fallback state from DB if Stripe retrieval fails.
+          }
+        }
+        if (!onboardingComplete) {
+          issues.push("Finish Stripe onboarding (submit required details and clear pending verification).");
+        }
       }
     }
   }

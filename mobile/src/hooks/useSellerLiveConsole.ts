@@ -12,6 +12,7 @@ import {
 import {
   createLiveRoomQueueItem,
   deleteLiveRoomQueueItem,
+  importLiveRoomItemsFromRoom,
   manualAssignLiveItemVariant,
   patchLiveItemVariants,
   patchLiveRoomItem,
@@ -352,6 +353,88 @@ export function useSellerLiveConsole({
     })();
   };
 
+  const onSubmitFromShop = (listingIds: string[]) => {
+    if (busy) {
+      Alert.alert('Add to show', 'Still saving the previous change. Try again in a moment.');
+      return;
+    }
+    if (roomStatus === 'ended') {
+      Alert.alert('Add to show', 'This show has ended. You cannot add queue items.');
+      return;
+    }
+    setBusy(true);
+    setConsoleError(null);
+    void (async () => {
+      try {
+        let added = 0;
+        const errors: string[] = [];
+        for (const listingId of listingIds) {
+          try {
+            await createLiveRoomQueueItem(accessToken, roomId, {
+              title: '',
+              listingId,
+            });
+            added += 1;
+          } catch (e) {
+            errors.push(e instanceof Error ? e.message : 'Could not add item.');
+          }
+        }
+        invalidateHostConsoleCache(roomId);
+        await reload({ force: true });
+        if (added === 0) {
+          Alert.alert('From my shop', errors[0] ?? 'Could not add shop items.');
+          return;
+        }
+        setInventoryOpen(false);
+        onAfterAddLot?.();
+        if (errors.length) {
+          Alert.alert('From my shop', `Added ${added}. ${errors.length} skipped.`);
+        }
+      } catch (e) {
+        const sanitized = sanitizeLiveError(e, 'console');
+        setConsoleError(sanitized);
+        Alert.alert('From my shop', sanitized.userMessage);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
+
+  const onImportFromPriorRoom = (sourceRoomId: string) => {
+    if (busy) {
+      Alert.alert('Copy last show', 'Still saving the previous change. Try again in a moment.');
+      return;
+    }
+    if (roomStatus === 'ended') {
+      Alert.alert('Copy last show', 'This show has ended. You cannot add queue items.');
+      return;
+    }
+    setBusy(true);
+    setConsoleError(null);
+    void (async () => {
+      try {
+        const result = await importLiveRoomItemsFromRoom(accessToken, roomId, sourceRoomId);
+        invalidateHostConsoleCache(roomId);
+        await reload({ force: true });
+        setInventoryOpen(false);
+        onAfterAddLot?.();
+        const label = result.sourceTitle?.trim() || 'prior show';
+        Alert.alert(
+          'Copy last show',
+          result.skipped > 0
+            ? `Copied ${result.imported} from ${label} (${result.skipped} already in lineup).`
+            : `Copied ${result.imported} from ${label}.`,
+        );
+      } catch (e) {
+        const sanitized = sanitizeLiveError(e, 'console');
+        setConsoleError(sanitized);
+        Alert.alert('Copy last show', sanitized.userMessage);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
+
   const onSaveQueuePricing = (itemId: string, values: QuickLiveLotValues) => {
     void run(async () => {
       const existing =
@@ -599,6 +682,8 @@ export function useSellerLiveConsole({
     onMarkSoldLiveTeam,
     markSoldBusy,
     onQuickAddLot,
+    onSubmitFromShop,
+    onImportFromPriorRoom,
     consoleError,
     chatMessages,
     loadOnce,

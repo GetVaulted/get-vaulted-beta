@@ -134,6 +134,15 @@ export function AdminOrderLedgerDrawer({
             />
             <Row label="Stripe net" value={moneyCents(r.sections?.stripe?.stripeNetCents)} />
             <Row label="Transfer ID" value={r.stripeTransferId ?? "—"} />
+            <Row label="Payout processor" value={r.sellerPayoutProcessor ?? "STRIPE"} />
+            <Row label="Processor transfer / PayPal id" value={r.processorTransferId ?? "—"} />
+            <Row
+              label="PayPal payout fee"
+              value={
+                r.paypalPayoutFeeCents != null ? `$${(r.paypalPayoutFeeCents / 100).toFixed(2)}` : "—"
+              }
+            />
+            <Row label="PayPal payout status" value={r.paypalPayoutStatus ?? "—"} />
             <Row
               label="Transfer amount"
               value={moneyCents(r.sellerTransferCents?.cents)}

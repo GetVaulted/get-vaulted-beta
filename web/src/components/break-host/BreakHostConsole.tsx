@@ -81,6 +81,7 @@ import {
   deleteLiveRoomItem,
   finalizeOverdueLiveAuctions,
   appendLiveItemSupplementalVariants,
+  importLiveRoomItemsFromRoom,
   patchLiveItemVariants,
   patchLiveRoomAction,
   patchLiveRoomItemStatus,
@@ -1452,6 +1453,77 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     [load, roomId, router],
   );
 
+  const handleSubmitFromShop = useCallback(
+    async (listingIds: string[]): Promise<boolean> => {
+      setBusy(true);
+      setToast(null);
+      try {
+        let added = 0;
+        const errors: string[] = [];
+        for (const listingId of listingIds) {
+          const res = await createLiveRoomItem(roomId, {
+            title: "",
+            listingId,
+          });
+          if (!res.ok) {
+            errors.push(res.error);
+            continue;
+          }
+          added += 1;
+        }
+        await load();
+        router.refresh();
+        if (added === 0) {
+          setToast(errors[0] ?? "Could not add shop items.");
+          return false;
+        }
+        setToast(
+          errors.length
+            ? `Added ${added} from shop (${errors.length} skipped).`
+            : `Added ${added} from shop — pin from the queue when ready.`,
+        );
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.trim() : "";
+        setToast(msg ? `Could not add from shop (${msg}).` : "Could not add from shop.");
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, roomId, router],
+  );
+
+  const handleImportFromPriorRoom = useCallback(
+    async (sourceRoomId: string): Promise<boolean> => {
+      setBusy(true);
+      setToast(null);
+      try {
+        const res = await importLiveRoomItemsFromRoom(roomId, sourceRoomId);
+        if (!res.ok) {
+          setToast(res.error);
+          return false;
+        }
+        await load();
+        router.refresh();
+        const label = res.data.sourceTitle?.trim() || "prior show";
+        setToast(
+          res.data.skipped > 0
+            ? `Copied ${res.data.imported} from ${label} (${res.data.skipped} already in lineup).`
+            : `Copied ${res.data.imported} from ${label}.`,
+        );
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.trim() : "";
+        setToast(msg ? `Could not copy lineup (${msg}).` : "Could not copy lineup.");
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, roomId, router],
+  );
+
   const runGiveawayAction = useCallback(
     async (giveawayId: string, action: "open_entries" | "close_entries" | "cancel" | "draw") => {
       setBusy(true);
@@ -2790,6 +2862,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         onRequestClose={handleQueueAddModalClose}
         onSubmitAuction={handleSubmitAuctionAdd}
         onSubmitGiveaway={handleSubmitGiveawayAdd}
+        onSubmitFromShop={handleSubmitFromShop}
+        onImportFromPriorRoom={handleImportFromPriorRoom}
       />
 
       <LiveRoomShareSheet

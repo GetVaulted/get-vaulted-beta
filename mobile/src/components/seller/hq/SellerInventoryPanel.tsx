@@ -87,7 +87,10 @@ export function SellerInventoryPanel({
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.intro}>Separate lanes for marketplace storefront and live show queue.</Text>
+      <Text style={styles.intro}>
+        Separate lanes for marketplace storefront and live show stock. Live show items stay in your shop so you can pull
+        them into any go-live from Add inventory → From my shop.
+      </Text>
 
       <View style={styles.channelRow}>
         {CHANNEL_TABS.map((ch) => {

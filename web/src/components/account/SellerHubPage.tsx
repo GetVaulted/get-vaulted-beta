@@ -9,6 +9,7 @@ import { SellerShipFromSetupCard } from "@/components/account/SellerShipFromSetu
 import { StripeOnboardingEmbed } from "@/components/seller/StripeOnboardingEmbed";
 import { SellerHubNav } from "@/components/seller/obs/SellerHubNav";
 import { useSellerSetupState } from "@/hooks/useSellerSetupState";
+import { SellerPayoutPreferenceCard } from "@/components/account/SellerPayoutPreferenceCard";
 import { SELLER_OBS_PATH } from "@/lib/obs-seller-paths";
 import { hasCompleteSellerShipFrom } from "@/lib/seller-shipping-readiness";
 import { SELLER_SETUP_PATH } from "@/lib/seller-setup-state";
@@ -528,6 +529,10 @@ export function SellerHubPage() {
             >
               All settings
             </Link>
+          </div>
+
+          <div className="mb-4">
+            <SellerPayoutPreferenceCard />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">

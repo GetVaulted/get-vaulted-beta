@@ -116,6 +116,8 @@ export function SellerLiveConsolePanel({
         roomId={roomId}
         onClose={() => c.setInventoryOpen(false)}
         onSubmit={c.onQuickAddLot}
+        onSubmitFromShop={c.onSubmitFromShop}
+        onImportFromPriorRoom={c.onImportFromPriorRoom}
         busy={c.busy}
       />
       <EditQueueItemPricingModal

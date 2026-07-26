@@ -261,6 +261,34 @@ export function connectCheckoutPaymentIntentData(args: {
   };
 }
 
+/** Omit Connect transfer when seller payout rail is PayPal (platform-held charge). */
+export function connectOrPlatformHeldCheckoutPaymentIntentData(args: {
+  sellerPayoutProcessor: "STRIPE" | "PAYPAL";
+  destinationAccountId: string | null;
+  applicationFeeCents: number;
+  sellerTransferCents: number | null;
+  metadata: Record<string, string>;
+  processingFeeCents?: number;
+  referralCreditAppliedCents?: number;
+  maxSellerTransferCents?: number;
+}): Pick<
+  Stripe.Checkout.SessionCreateParams.PaymentIntentData,
+  "application_fee_amount" | "transfer_data" | "metadata"
+> {
+  if (args.sellerPayoutProcessor === "PAYPAL" || !args.destinationAccountId?.trim()) {
+    return { metadata: args.metadata };
+  }
+  return connectCheckoutPaymentIntentData({
+    destinationAccountId: args.destinationAccountId.trim(),
+    applicationFeeCents: args.applicationFeeCents,
+    sellerTransferCents: args.sellerTransferCents,
+    metadata: args.metadata,
+    processingFeeCents: args.processingFeeCents,
+    referralCreditAppliedCents: args.referralCreditAppliedCents,
+    maxSellerTransferCents: args.maxSellerTransferCents,
+  });
+}
+
 function checkoutAutomaticTaxFields(): CheckoutTaxSessionFields["automatic_tax"] {
   return { enabled: true, liability: { type: "self" } };
 }

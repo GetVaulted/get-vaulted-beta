@@ -104,6 +104,7 @@ export async function chargeSellerForLabelCost(
         stripePaymentIntentId: true,
         stripeTransferId: true,
         paymentProcessor: true,
+        sellerPayoutProcessor: true,
         shippingLabelCostReversedCents: true,
         shippingLabelCostReversalId: true,
         shippingLabelCostChargedShippoTransactionId: true,
@@ -253,6 +254,39 @@ export async function chargeSellerForLabelCost(
       orderId: order.id,
       replacesShippoTransactionId: replacesTx,
     });
+  }
+
+  if (order.sellerPayoutProcessor === "PAYPAL") {
+    // Platform-held PayPal rail: net label cost from upcoming PayPal payout (no Connect reversal).
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${order.id} FOR UPDATE`;
+      await tx.shipmentLabelFinance.update({
+        where: { id: finance.id },
+        data: {
+          sellerClawbackCents: labelCostCents,
+          sellerClawbackReversalId: `paypal-net:${shippoTx}`,
+          clawbackIdempotencyKey,
+          clawbackFailedAt: null,
+          clawbackFailureDetail: null,
+        },
+      });
+      await recalculateOrderLabelFinanceSummary(order.id, tx);
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          shippingLabelCostReversedCents: {
+            increment: labelCostCents,
+          },
+          shippingLabelCostChargedShippoTransactionId: shippoTx,
+        },
+      });
+    });
+    return {
+      ok: true,
+      reversedCents: labelCostCents,
+      reversalId: `paypal-net:${shippoTx}`,
+      skipped: false,
+    };
   }
 
   if (order.paymentProcessor !== "STRIPE" || !order.stripePaymentIntentId?.trim()) {

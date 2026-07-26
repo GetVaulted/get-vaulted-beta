@@ -46,6 +46,8 @@ export type HostStreamPayload = {
   streamProvider: string;
   streamHealth: string;
   streamPaused?: boolean;
+  /** `stage_webrtc` | `channel_hls` — used for on-air / companion gating. */
+  streamMode?: string | null;
   playbackUrl: string | null;
   streamStartedAt: string | null;
   streamEndedAt: string | null;

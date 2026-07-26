@@ -39,6 +39,8 @@ import { syncOrderShippingFromLiveSessionTx } from "@/services/shipping/live-com
 import { prisma } from "@/lib/prisma";
 import {
   liveSavedCardSellerReady,
+  resolveLiveSellerDestinationAccount,
+  resolveLiveSellerPayoutProcessor,
   sellerStripeCollectSelect,
 } from "@/lib/seller-stripe-collect-ready";
 import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
@@ -51,7 +53,7 @@ import {
   isDefiniteStripeCardDecline,
 } from "@/lib/stripe-charge-order-saved-pm";
 import {
-  connectPaymentIntentTransferData,
+  connectOrPlatformHeldPaymentIntentTransferData,
   resolveConnectPaymentTaxPlan,
 } from "@/lib/sales-tax-charge";
 import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
@@ -427,7 +429,8 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
   if (!liveSavedCardSellerReady(seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY", message: "Seller payouts are not ready." };
   }
-  const destinationAccount = seller!.stripeAccountId!.trim();
+  const sellerPayoutProcessor = resolveLiveSellerPayoutProcessor(seller);
+  const destinationAccount = resolveLiveSellerDestinationAccount(seller);
 
   let pmId: string | null;
   try {
@@ -534,7 +537,8 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
           ...taxCharge.metadata,
         },
         description: `Live spot: ${purchase.variant.label}`,
-        ...connectPaymentIntentTransferData({
+        ...connectOrPlatformHeldPaymentIntentTransferData({
+          sellerPayoutProcessor,
           destinationAccountId: destinationAccount,
           applicationFeeCents: feeCents,
           sellerTransferCents: taxCharge.sellerTransferCents,
@@ -556,6 +560,10 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
       where: { id: purchase.id },
       data: { stripePaymentIntentId: intent.id },
     });
+    await prisma.order.update({
+      where: { id: fulfillment.orderId },
+      data: { sellerPayoutProcessor, paymentProcessor: "STRIPE" },
+    });
 
     const mapped = mapPaymentIntentOutcome(intent);
     if (mapped?.outcome === "paid") {
@@ -571,7 +579,7 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
       amountCents,
       customerId,
       paymentMethodId: pmId,
-      destinationAccount: destinationAccount,
+      destinationAccount: destinationAccount ?? "platform",
     });
   }
 }
@@ -849,7 +857,8 @@ export async function chargeLiveItemVariantPurchaseBatchWithSavedCard(args: {
   if (!liveSavedCardSellerReady(seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY", message: "Seller payouts are not ready." };
   }
-  const destinationAccount = seller!.stripeAccountId!.trim();
+  const sellerPayoutProcessor = resolveLiveSellerPayoutProcessor(seller);
+  const destinationAccount = resolveLiveSellerDestinationAccount(seller);
 
   let pmId: string | null;
   try {
@@ -956,7 +965,8 @@ export async function chargeLiveItemVariantPurchaseBatchWithSavedCard(args: {
           ...taxCharge.metadata,
         },
         description: formatVariantBatchOrderTitle(pending.map((p) => p.variant.label)),
-        ...connectPaymentIntentTransferData({
+        ...connectOrPlatformHeldPaymentIntentTransferData({
+          sellerPayoutProcessor,
           destinationAccountId: destinationAccount,
           applicationFeeCents: feeCents,
           sellerTransferCents: taxCharge.sellerTransferCents,
@@ -978,6 +988,10 @@ export async function chargeLiveItemVariantPurchaseBatchWithSavedCard(args: {
       where: { batchId: args.batchId },
       data: { stripePaymentIntentId: intent.id },
     });
+    await prisma.order.update({
+      where: { id: fulfillment.orderId },
+      data: { sellerPayoutProcessor, paymentProcessor: "STRIPE" },
+    });
 
     const mapped = mapPaymentIntentOutcome(intent);
     if (mapped?.outcome === "paid") {
@@ -993,7 +1007,7 @@ export async function chargeLiveItemVariantPurchaseBatchWithSavedCard(args: {
       amountCents,
       customerId,
       paymentMethodId: pmId,
-      destinationAccount: destinationAccount,
+      destinationAccount: destinationAccount ?? "platform",
     });
   }
 }
@@ -1201,7 +1215,8 @@ export async function chargeBreakSpotWithSavedCard(args: {
   if (!liveSavedCardSellerReady(seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY", message: "Seller payouts are not ready." };
   }
-  const breakDestinationAccount = seller!.stripeAccountId!.trim();
+  const sellerPayoutProcessor = resolveLiveSellerPayoutProcessor(seller);
+  const breakDestinationAccount = resolveLiveSellerDestinationAccount(seller);
 
   let pmId: string | null;
   try {
@@ -1303,7 +1318,8 @@ export async function chargeBreakSpotWithSavedCard(args: {
           ...taxCharge.metadata,
         },
         description: `Break spot: ${spot.spotLabel}`,
-        ...connectPaymentIntentTransferData({
+        ...connectOrPlatformHeldPaymentIntentTransferData({
+          sellerPayoutProcessor,
           destinationAccountId: breakDestinationAccount,
           applicationFeeCents: feeCents,
           sellerTransferCents: taxCharge.sellerTransferCents,
@@ -1325,6 +1341,10 @@ export async function chargeBreakSpotWithSavedCard(args: {
       where: { id: spot.id },
       data: { stripePaymentIntentId: intent.id, breakPaymentStatus: "pending_payment" },
     });
+    await prisma.order.update({
+      where: { id: fulfillment.orderId },
+      data: { sellerPayoutProcessor, paymentProcessor: "STRIPE" },
+    });
 
     const mapped = mapPaymentIntentOutcome(intent);
     if (mapped?.outcome === "paid") {
@@ -1339,7 +1359,7 @@ export async function chargeBreakSpotWithSavedCard(args: {
       amountCents,
       customerId,
       paymentMethodId: pmId,
-      destinationAccount: breakDestinationAccount,
+      destinationAccount: breakDestinationAccount ?? "platform",
     });
   }
 }

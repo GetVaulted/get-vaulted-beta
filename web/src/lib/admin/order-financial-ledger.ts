@@ -50,6 +50,11 @@ export type OrderLedgerInput = {
   stripeApplicationFeeCents: number | null;
   stripeNetCents: number | null;
   stripeTransferId: string | null;
+  /** Seller payout rail for this order (STRIPE Connect vs PAYPAL). */
+  sellerPayoutProcessor?: string | null;
+  processorTransferId?: string | null;
+  paypalPayoutFeeCents?: number | null;
+  paypalPayoutStatus?: string | null;
   stripeTaxCalculationId: string | null;
   stripeTaxTransactionId: string | null;
   stripeTaxTransactionReversalId: string | null;
@@ -162,6 +167,10 @@ export type OrderFinancialLedger = {
   stripeChargeId: string | null;
   stripeBalanceTransactionId: string | null;
   stripeTransferId: string | null;
+  sellerPayoutProcessor: string | null;
+  processorTransferId: string | null;
+  paypalPayoutFeeCents: number | null;
+  paypalPayoutStatus: string | null;
   stripeTaxCalculationId: string | null;
   stripeTaxTransactionId: string | null;
 
@@ -534,6 +543,10 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
     stripeChargeId: input.stripeChargeId,
     stripeBalanceTransactionId: input.stripeBalanceTransactionId,
     stripeTransferId: input.stripeTransferId,
+    sellerPayoutProcessor: input.sellerPayoutProcessor ?? "STRIPE",
+    processorTransferId: input.processorTransferId ?? null,
+    paypalPayoutFeeCents: input.paypalPayoutFeeCents ?? null,
+    paypalPayoutStatus: input.paypalPayoutStatus ?? null,
     stripeTaxCalculationId: input.stripeTaxCalculationId,
     stripeTaxTransactionId: input.stripeTaxTransactionId,
 
@@ -573,6 +586,10 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
         payoutReserveCents: input.payoutReserveAmountCents,
         finalSellerProceedsCents: sellerFinalNetCents,
         payoutStatus: input.payoutStatus,
+        sellerPayoutProcessor: input.sellerPayoutProcessor ?? "STRIPE",
+        processorTransferId: input.processorTransferId ?? null,
+        paypalPayoutFeeCents: input.paypalPayoutFeeCents ?? null,
+        paypalPayoutStatus: input.paypalPayoutStatus ?? null,
       },
       platform: {
         platformFeeEarnedCents: platformEarnedRevenueCents,

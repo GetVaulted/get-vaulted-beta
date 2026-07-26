@@ -538,6 +538,14 @@ model User {
   suspendedAt                   DateTime?
   /// Stripe Connect Express / Standard connected account id (`acct_...`).
   stripeAccountId               String?
+  /// Seller preference: Stripe Connect (default) vs PayPal Payouts at release.
+  preferredSellerPayoutProcessor SellerPayoutProcessor      @default(STRIPE)
+  /// PayPal email that receives seller payouts when preference is PAYPAL.
+  paypalPayoutEmail             String?
+  /// Set when the PayPal payout email is confirmed / linked for payouts.
+  paypalPayoutVerifiedAt        DateTime?
+  /// Optional PayPal merchant / payer id after OAuth link.
+  paypalMerchantId              String?
   /// True when Stripe reports charges enabled and payouts ready for selling.
   stripeOnboardingComplete      Boolean                     @default(false)
   /// Mirrors Stripe Account.charges_enabled (Connect).
@@ -1723,6 +1731,10 @@ model Order {
   processorCustomerId        String?
   processorTransferId        String?
   sellerPayoutProcessor      SellerPayoutProcessor      @default(STRIPE)
+  /// PayPal Payouts fee (cents) when seller rail is PAYPAL; null when unused or unknown.
+  paypalPayoutFeeCents       Int?
+  /// Async PayPal payout lifecycle: pending | success | failed | returned | unclaimed.
+  paypalPayoutStatus         String?
   walletPaymentMethodId      String?
   /// When set (auction win unpaid), buyer must pay before this instant or the order expires.
   paymentDeadlineAt          DateTime?
@@ -2066,6 +2078,12 @@ model LiveShippingSessionItem {
 /// non-2xx response) to reclaim and reprocess; it is kept forever on success so later replays
 /// of an already-completed event are skipped. See `web/src/app/api/stripe/webhook/route.ts`.
 model ProcessedStripeEvent {
+  id          String   @id
+  processedAt DateTime @default(now())
+}
+
+/// Idempotency for PayPal webhook event ids (payout batch / item notifications).
+model ProcessedPayPalEvent {
   id          String   @id
   processedAt DateTime @default(now())
 }

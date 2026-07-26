@@ -40,6 +40,8 @@ type Props = {
   broadcastPhase: MobileHostBroadcastPhase;
   roomStatus: 'scheduled' | 'live' | 'ended';
   streamOnAir?: boolean;
+  /** Room already broadcasting from another device — don't fight for the camera. */
+  companionMode?: boolean;
   canStartRoom: boolean;
   stageEnabled: boolean;
   cameraReady: boolean;
@@ -72,6 +74,7 @@ export function SellerConsoleActionBar({
   broadcastPhase,
   roomStatus,
   canStartRoom,
+  companionMode = false,
   stageEnabled,
   cameraReady,
   broadcastBusy,
@@ -92,6 +95,7 @@ export function SellerConsoleActionBar({
   // On-air = broadcasting (or mid-stop). Also keep controls while the room is live but Stage
   // remounted idle — otherwise private/live hosts lose Play when cameraReady flickers false.
   const broadcastOnAir =
+    companionMode ||
     broadcastPhase === 'live' ||
     broadcastPhase === 'paused' ||
     broadcastPhase === 'stopping' ||
@@ -241,6 +245,7 @@ export function SellerConsoleActionBar({
               phase={broadcastPhase}
               roomStatus={roomStatus}
               streamPaused={streamPaused}
+              companionMode={companionMode}
               stageEnabled={stageEnabled}
               cameraReady={cameraReady}
               busy={broadcastBusy}

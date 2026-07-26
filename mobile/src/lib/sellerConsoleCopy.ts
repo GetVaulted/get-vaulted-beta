@@ -36,4 +36,16 @@ export const SELLER_CONSOLE = {
   saleCategoryTeamsDivisions: 'Teams/Divisions',
   saleCategoryAuction: 'Auction',
   saleCategoryBuyNow: 'Buy Now',
+  /** Add-item modal — inventory source tabs */
+  addSourceNew: 'New item',
+  addSourceShop: 'From my shop',
+  addSourceCopyShow: 'Copy last show',
+  addSourceShopHint: 'Pull Live show or Marketplace inventory into this lineup.',
+  addSourceCopyHint: 'Clone unsold lots from a previous show.',
+  /** Companion host — another device owns the camera. */
+  companionBannerTitle: 'Live on another device',
+  companionBannerBody:
+    'Camera is publishing from your other device. Use this phone for queue, pricing, and start auction — buyers keep that stream.',
+  companionLiveBadge: 'Live elsewhere',
+  companionTakeOverCamera: 'Use this camera',
 } as const;

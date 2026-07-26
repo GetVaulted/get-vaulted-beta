@@ -29,13 +29,19 @@ import {
   logIgnoredMarketplacePaymentIntentWebhook,
 } from "@/lib/stripe-payment-intent-webhook";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import {
+  liveSavedCardSellerReady,
+  resolveLiveSellerDestinationAccount,
+  resolveLiveSellerPayoutProcessor,
+  sellerStripeCollectSelect,
+} from "@/lib/seller-stripe-collect-ready";
 import { buildOrderTaxPersistFields } from "@/lib/sales-tax-order";
 import { recordTaxDestinationVolumeOnOrderPaid } from "@/lib/sales-tax-reporting";
 import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
 import {
   buildCheckoutTaxSessionFields,
   buildMarketplaceCheckoutTaxBundle,
-  connectCheckoutPaymentIntentData,
+  connectOrPlatformHeldCheckoutPaymentIntentData,
   loadSellerShipFromForTax,
   fetchCheckoutSessionTax,
   fetchPaymentIntentTax,
@@ -708,7 +714,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
         moderationRemovedAt: true,
         isCompanyListing: true,
         seller: {
-          select: { stripeAccountId: true, stripeOnboardingComplete: true, trustapUserId: true },
+          select: { ...sellerStripeCollectSelect, trustapUserId: true },
         },
       },
     });
@@ -760,7 +766,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
     }
 
     if (!rowUseEscrow) {
-      if (!listingRow.seller.stripeAccountId || !listingRow.seller.stripeOnboardingComplete) {
+      if (!liveSavedCardSellerReady(listingRow.seller)) {
         throw new Error("SELLER_NOT_READY");
       }
     }
@@ -1088,8 +1094,9 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
           liveRoomItemId: liveRoomItemId ?? "",
           ...taxBundle.metadata,
         },
-        payment_intent_data: connectCheckoutPaymentIntentData({
-          destinationAccountId: listing.seller.stripeAccountId!,
+        payment_intent_data: connectOrPlatformHeldCheckoutPaymentIntentData({
+          sellerPayoutProcessor: resolveLiveSellerPayoutProcessor(listing.seller),
+          destinationAccountId: resolveLiveSellerDestinationAccount(listing.seller),
           applicationFeeCents: feeCents,
           sellerTransferCents: taxBundle.sellerTransferCents,
           processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(expectedSubtotalCents) : 0,
@@ -1196,7 +1203,7 @@ export async function createPayOrderCheckoutSession(args: {
     },
     include: {
       listing: { select: { id: true, title: true, sellerId: true, isCompanyListing: true } },
-      seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true, trustapUserId: true } },
+      seller: { select: { ...sellerStripeCollectSelect, trustapUserId: true } },
       liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
     },
   });
@@ -1227,7 +1234,7 @@ export async function createPayOrderCheckoutSession(args: {
       where: { id: order.id, buyerId: args.buyerId },
       include: {
         listing: { select: { id: true, title: true, sellerId: true, isCompanyListing: true } },
-        seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true, trustapUserId: true } },
+        seller: { select: { ...sellerStripeCollectSelect, trustapUserId: true } },
         liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
       },
     });
@@ -1258,7 +1265,7 @@ export async function createPayOrderCheckoutSession(args: {
       },
       include: {
         listing: { select: { id: true, title: true, sellerId: true, isCompanyListing: true } },
-        seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true, trustapUserId: true } },
+        seller: { select: { ...sellerStripeCollectSelect, trustapUserId: true } },
         liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
       },
     });
@@ -1319,7 +1326,7 @@ export async function createPayOrderCheckoutSession(args: {
   }
 
   const stripe = getStripe();
-  if (!order.seller.stripeAccountId || !order.seller.stripeOnboardingComplete) throw new Error("SELLER_NOT_READY");
+  if (!liveSavedCardSellerReady(order.seller)) throw new Error("SELLER_NOT_READY");
 
   const payOrderCredit = await applyReferralCreditForPayOrder(
     order,
@@ -1396,8 +1403,9 @@ export async function createPayOrderCheckoutSession(args: {
         buyerId: args.buyerId,
         ...taxBundle.metadata,
       },
-      payment_intent_data: connectCheckoutPaymentIntentData({
-        destinationAccountId: order.seller.stripeAccountId,
+      payment_intent_data: connectOrPlatformHeldCheckoutPaymentIntentData({
+        sellerPayoutProcessor: resolveLiveSellerPayoutProcessor(order.seller),
+        destinationAccountId: resolveLiveSellerDestinationAccount(order.seller),
         applicationFeeCents: feeCents,
         sellerTransferCents: taxBundle.sellerTransferCents,
         processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(expectedSubtotalCents) : 0,
@@ -1472,9 +1480,9 @@ export async function createBreakSpotCheckoutSession(args: {
 
   const seller = await prisma.user.findUnique({
     where: { id: spot.liveRoom.sellerId },
-    select: { stripeAccountId: true, stripeOnboardingComplete: true },
+    select: sellerStripeCollectSelect,
   });
-  if (!seller?.stripeAccountId || !seller.stripeOnboardingComplete) throw new Error("SELLER_NOT_READY");
+  if (!liveSavedCardSellerReady(seller)) throw new Error("SELLER_NOT_READY");
 
   const priceUsd = spot.priceUsd;
   const feeCents = await resolveCheckoutApplicationFeeCents({
@@ -1488,6 +1496,9 @@ export async function createBreakSpotCheckoutSession(args: {
     buyerId: args.userId,
     collectShippingAddress: true,
   });
+
+  const sellerPayoutProcessor = resolveLiveSellerPayoutProcessor(seller);
+  const destinationAccountId = resolveLiveSellerDestinationAccount(seller);
 
   const session = await stripe.checkout.sessions.create(
     {
@@ -1503,12 +1514,15 @@ export async function createBreakSpotCheckoutSession(args: {
         userId: args.userId,
       },
       payment_intent_data: {
-        // Seller absorbs Stripe processing (2.9% + $0.30). Tax is added by Stripe at checkout
-        // (automatic_tax) so it isn't known here — estimate processing on the spot subtotal.
-        application_fee_amount:
-          feeCents + (feeCents > 0 ? estimateStripeProcessingFeeCents(Math.round(priceUsd * 100)) : 0),
-        transfer_data: { destination: seller.stripeAccountId },
-        metadata: { breakSpotId: spot.id, kind: "break_spot" },
+        ...connectOrPlatformHeldCheckoutPaymentIntentData({
+          sellerPayoutProcessor,
+          destinationAccountId,
+          applicationFeeCents: feeCents,
+          sellerTransferCents: null,
+          processingFeeCents:
+            feeCents > 0 ? estimateStripeProcessingFeeCents(Math.round(priceUsd * 100)) : 0,
+          metadata: { breakSpotId: spot.id, kind: "break_spot" },
+        }),
       },
       line_items: [
         {

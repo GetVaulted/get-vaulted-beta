@@ -21,6 +21,12 @@ import {
   liveHostDefaultProfileId,
   liveHostShippingProfileOptions,
 } from '../../../api/liveHostShippingRepository';
+import {
+  fetchLiveRoomShopInventory,
+  fetchPriorLiveRoomsForCopy,
+  type LiveShopInventoryListing,
+  type PriorLiveRoomOption,
+} from '../../../api/liveRoomControlRepository';
 import { uploadListingImageViaWeb } from '../../../api/webListingsRepository';
 import {
   breakSpotCountForSaleType,
@@ -45,6 +51,7 @@ const THUMBNAIL_MAX_BYTES = 20 * 1024 * 1024;
 
 type SaleCategory = 'teams_divisions' | 'auction' | 'buy_now';
 type BreakSaleType = 'pyt' | 'pyd' | 'random_pyt' | 'random_pyd';
+type AddSourceTab = 'new' | 'shop' | 'copy';
 
 const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
   {
@@ -91,6 +98,8 @@ export function AddInventoryModal({
   busy,
   onClose,
   onSubmit,
+  onSubmitFromShop,
+  onImportFromPriorRoom,
 }: {
   visible: boolean;
   accessToken: string;
@@ -98,9 +107,12 @@ export function AddInventoryModal({
   busy?: boolean;
   onClose: () => void;
   onSubmit: (payload: QuickLiveLotSubmitPayload, options?: QuickLiveLotSubmitOptions) => void;
+  onSubmitFromShop?: (listingIds: string[]) => void;
+  onImportFromPriorRoom?: (sourceRoomId: string) => void;
 }) {
   const insets = useSafeAreaInsets();
   const keyboardInset = useKeyboardInset();
+  const [addSource, setAddSource] = useState<AddSourceTab>('new');
   const [draft, setDraft] = useState<QuickLiveLotInput>(emptyQuickLiveLotInput());
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -111,8 +123,18 @@ export function AddInventoryModal({
   const [profileOptions, setProfileOptions] = useState<{ id: string; name: string; isDefault?: boolean }[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [profileOptionsAreSeller, setProfileOptionsAreSeller] = useState(true);
+  const [shopListings, setShopListings] = useState<LiveShopInventoryListing[]>([]);
+  const [shopLoading, setShopLoading] = useState(false);
+  const [shopError, setShopError] = useState<string | null>(null);
+  const [shopQuery, setShopQuery] = useState('');
+  const [selectedShopIds, setSelectedShopIds] = useState<string[]>([]);
+  const [priorRooms, setPriorRooms] = useState<PriorLiveRoomOption[]>([]);
+  const [priorLoading, setPriorLoading] = useState(false);
+  const [priorError, setPriorError] = useState<string | null>(null);
+  const [selectedPriorRoomId, setSelectedPriorRoomId] = useState('');
 
   const resetDraft = () => {
+    setAddSource('new');
     setDraft(emptyQuickLiveLotInput());
     setSpotDrafts([]);
     setSpotsCustomized(false);
@@ -121,6 +143,13 @@ export function AddInventoryModal({
     setImageUploading(false);
     setImageError(null);
     setSelectedProfileId('');
+    setShopListings([]);
+    setShopError(null);
+    setShopQuery('');
+    setSelectedShopIds([]);
+    setPriorRooms([]);
+    setPriorError(null);
+    setSelectedPriorRoomId('');
   };
 
   useEffect(() => {
@@ -141,6 +170,53 @@ export function AddInventoryModal({
   useEffect(() => {
     if (visible) resetDraft();
   }, [visible]);
+
+  useEffect(() => {
+    if (!visible || !accessToken.trim() || !roomId.trim() || addSource !== 'shop') return;
+    let cancelled = false;
+    setShopLoading(true);
+    setShopError(null);
+    void fetchLiveRoomShopInventory(accessToken, roomId)
+      .then((rows) => {
+        if (cancelled) return;
+        setShopListings(rows);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setShopError(e instanceof Error ? e.message : 'Could not load shop inventory.');
+        setShopListings([]);
+      })
+      .finally(() => {
+        if (!cancelled) setShopLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, addSource, roomId, visible]);
+
+  useEffect(() => {
+    if (!visible || !accessToken.trim() || !roomId.trim() || addSource !== 'copy') return;
+    let cancelled = false;
+    setPriorLoading(true);
+    setPriorError(null);
+    void fetchPriorLiveRoomsForCopy(accessToken, roomId)
+      .then((rooms) => {
+        if (cancelled) return;
+        setPriorRooms(rooms);
+        setSelectedPriorRoomId((prev) => prev || rooms[0]?.id || '');
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setPriorError(e instanceof Error ? e.message : 'Could not load prior shows.');
+        setPriorRooms([]);
+      })
+      .finally(() => {
+        if (!cancelled) setPriorLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, addSource, roomId, visible]);
 
   useEffect(() => {
     if (!isPickBreakLotSaleType(draft.saleType)) {
@@ -269,6 +345,161 @@ export function AddInventoryModal({
             contentContainerStyle={styles.scrollContent}
           >
             <Text style={styles.title}>Add to show</Text>
+            <View style={styles.sourceTabs}>
+              {(
+                [
+                  { id: 'new' as const, label: SELLER_CONSOLE.addSourceNew },
+                  { id: 'shop' as const, label: SELLER_CONSOLE.addSourceShop },
+                  { id: 'copy' as const, label: SELLER_CONSOLE.addSourceCopyShow },
+                ] as const
+              ).map((tab) => {
+                const on = addSource === tab.id;
+                return (
+                  <Pressable
+                    key={tab.id}
+                    style={[styles.sourceTab, on && styles.sourceTabOn]}
+                    onPress={() => setAddSource(tab.id)}
+                    disabled={busy}
+                  >
+                    <Text style={[styles.sourceTabTxt, on && styles.sourceTabTxtOn]} numberOfLines={1}>
+                      {tab.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {addSource === 'shop' ? (
+              <>
+                <Text style={styles.sub}>{SELLER_CONSOLE.addSourceShopHint}</Text>
+                <TextInput
+                  value={shopQuery}
+                  onChangeText={setShopQuery}
+                  placeholder="Search your shop…"
+                  placeholderTextColor={colors.textMuted}
+                  style={styles.input}
+                  editable={!busy}
+                />
+                {shopLoading ? <ActivityIndicator color={colors.gold} style={{ marginVertical: 12 }} /> : null}
+                {shopError ? <Text style={styles.errorTxt}>{shopError}</Text> : null}
+                {!shopLoading && !shopError && shopListings.length === 0 ? (
+                  <Text style={styles.sub}>
+                    No reusable shop items yet. Add inventory under Seller HQ → Live show, then pull them in here.
+                  </Text>
+                ) : null}
+                {shopListings
+                  .filter((row) => {
+                    const q = shopQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    return row.title.toLowerCase().includes(q);
+                  })
+                  .map((row) => {
+                    const selected = selectedShopIds.includes(row.id);
+                    const disabled = (!row.available && !selected) || Boolean(busy);
+                    const priceLabel =
+                      row.buyingFormat === 'auction'
+                        ? `Start $${Math.round(row.startingBidUsd ?? row.priceUsd ?? 0)}`
+                        : `$${Math.round(row.priceUsd ?? 0)}`;
+                    return (
+                      <Pressable
+                        key={row.id}
+                        style={[styles.shopRow, selected && styles.shopRowOn, disabled && styles.primaryOff]}
+                        onPress={() => {
+                          if (disabled && !selected) return;
+                          setSelectedShopIds((prev) =>
+                            prev.includes(row.id) ? prev.filter((id) => id !== row.id) : [...prev, row.id],
+                          );
+                        }}
+                        disabled={disabled && !selected}
+                      >
+                        <Image source={{ uri: row.imageUrl }} style={styles.shopThumb} contentFit="cover" />
+                        <View style={styles.shopMeta}>
+                          <Text style={styles.shopTitle} numberOfLines={2}>
+                            {row.title}
+                          </Text>
+                          <Text style={styles.shopSub} numberOfLines={2}>
+                            {row.inventoryChannel === 'live_show' ? 'Live show' : 'Marketplace'} · {priceLabel}
+                            {row.alreadyInQueue ? ' · Already in lineup' : ''}
+                            {row.inventoryHeld ? ' · Held in checkout' : ''}
+                          </Text>
+                        </View>
+                        <Ionicons
+                          name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+                          size={22}
+                          color={selected ? colors.gold : colors.textMuted}
+                        />
+                      </Pressable>
+                    );
+                  })}
+                <Pressable
+                  style={[
+                    styles.primary,
+                    (busy || selectedShopIds.length === 0 || !onSubmitFromShop) && styles.primaryOff,
+                  ]}
+                  onPress={() => {
+                    if (!onSubmitFromShop || selectedShopIds.length === 0) {
+                      Alert.alert('From my shop', 'Select at least one item.');
+                      return;
+                    }
+                    onSubmitFromShop(selectedShopIds);
+                  }}
+                  disabled={busy || selectedShopIds.length === 0 || !onSubmitFromShop}
+                >
+                  <Text style={styles.primaryTxt}>
+                    {busy ? 'Adding…' : `Add ${selectedShopIds.length || ''} to lineup`}
+                  </Text>
+                </Pressable>
+              </>
+            ) : addSource === 'copy' ? (
+              <>
+                <Text style={styles.sub}>{SELLER_CONSOLE.addSourceCopyHint}</Text>
+                {priorLoading ? <ActivityIndicator color={colors.gold} style={{ marginVertical: 12 }} /> : null}
+                {priorError ? <Text style={styles.errorTxt}>{priorError}</Text> : null}
+                {!priorLoading && !priorError && priorRooms.length === 0 ? (
+                  <Text style={styles.sub}>No prior shows found to copy from.</Text>
+                ) : null}
+                {priorRooms.map((room) => {
+                  const selected = selectedPriorRoomId === room.id;
+                  return (
+                    <Pressable
+                      key={room.id}
+                      style={[styles.shopRow, selected && styles.shopRowOn]}
+                      onPress={() => setSelectedPriorRoomId(room.id)}
+                      disabled={busy}
+                    >
+                      <View style={styles.shopMeta}>
+                        <Text style={styles.shopTitle} numberOfLines={2}>
+                          {room.title || 'Untitled show'}
+                        </Text>
+                        <Text style={styles.shopSub}>{room.status}</Text>
+                      </View>
+                      <Ionicons
+                        name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={22}
+                        color={selected ? colors.gold : colors.textMuted}
+                      />
+                    </Pressable>
+                  );
+                })}
+                <Pressable
+                  style={[
+                    styles.primary,
+                    (busy || !selectedPriorRoomId || !onImportFromPriorRoom) && styles.primaryOff,
+                  ]}
+                  onPress={() => {
+                    if (!onImportFromPriorRoom || !selectedPriorRoomId) {
+                      Alert.alert('Copy last show', 'Pick a previous show to copy from.');
+                      return;
+                    }
+                    onImportFromPriorRoom(selectedPriorRoomId);
+                  }}
+                  disabled={busy || !selectedPriorRoomId || !onImportFromPriorRoom}
+                >
+                  <Text style={styles.primaryTxt}>{busy ? 'Copying…' : 'Copy unsold lineup'}</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
             <Text style={styles.sub}>Title, photo, pricing, and quantity — queue as many lots as you need.</Text>
 
             <Text style={styles.fieldLbl}>Title</Text>
@@ -416,6 +647,8 @@ export function AddInventoryModal({
                 <Text style={styles.primaryTxt}>{busy ? 'Saving…' : 'Save to show'}</Text>
               </Pressable>
             </View>
+              </>
+            )}
           </ScrollView>
         </View>
       </View>
@@ -446,6 +679,48 @@ const styles = StyleSheet.create({
   scrollContent: { padding: spacing.md, paddingTop: spacing.xs, gap: spacing.sm },
   title: { fontSize: 20, fontWeight: '900', color: colors.textPrimary },
   sub: { fontSize: 13, color: colors.textMuted, marginBottom: spacing.xs },
+  sourceTabs: {
+    flexDirection: 'row',
+    gap: 6,
+    padding: 4,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    marginBottom: spacing.xs,
+  },
+  sourceTab: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: radii.sm,
+    alignItems: 'center',
+  },
+  sourceTabOn: {
+    backgroundColor: 'rgba(212,175,55,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.4)',
+  },
+  sourceTabTxt: { fontSize: 10, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase' },
+  sourceTabTxtOn: { color: colors.gold },
+  shopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 10,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  shopRowOn: {
+    borderColor: 'rgba(212,175,55,0.45)',
+    backgroundColor: 'rgba(212,175,55,0.1)',
+  },
+  shopThumb: { width: 48, height: 48, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.06)' },
+  shopMeta: { flex: 1, minWidth: 0 },
+  shopTitle: { fontSize: 14, fontWeight: '800', color: colors.textPrimary },
+  shopSub: { marginTop: 2, fontSize: 11, color: colors.textMuted },
   fieldLbl: {
     fontSize: 10,
     fontWeight: '700',

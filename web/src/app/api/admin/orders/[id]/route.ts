@@ -120,6 +120,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       payoutMethod: order.payoutMethod,
       payoutReserveAmountCents: order.payoutReserveAmountCents,
       payoutHoldUntil: order.payoutHoldUntil?.toISOString() ?? null,
+      paymentProcessor: order.paymentProcessor,
+      sellerPayoutProcessor: order.sellerPayoutProcessor,
+      processorTransferId: order.processorTransferId,
+      paypalPayoutFeeCents: order.paypalPayoutFeeCents,
+      paypalPayoutStatus: order.paypalPayoutStatus,
+      stripeTransferId: order.stripeTransferId,
       buyer: order.buyer,
       seller: order.seller,
       listing: {

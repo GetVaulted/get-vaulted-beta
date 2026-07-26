@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { MobileHostBroadcastPhase } from '../../../hooks/useMobileStagePublish';
 import { confirmEndLive, confirmStartLive } from '../../../lib/sellerBroadcastConfirm';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
@@ -10,6 +10,8 @@ type Props = {
   roomStatus: 'scheduled' | 'live' | 'ended';
   /** Server Host paused flag — show Play even if phase briefly still says live. */
   streamPaused?: boolean;
+  /** Another device owns the camera — show companion chrome instead of Stop/Resume fight. */
+  companionMode?: boolean;
   stageEnabled: boolean;
   cameraReady: boolean;
   busy: boolean;
@@ -27,6 +29,7 @@ export function SellerBroadcastControl({
   phase,
   roomStatus,
   streamPaused = false,
+  companionMode = false,
   stageEnabled,
   cameraReady,
   busy,
@@ -43,6 +46,48 @@ export function SellerBroadcastControl({
   const roomEnded = roomStatus === 'ended';
   const roomLive = roomStatus === 'live';
   const isOnAir = phase === 'live' || phase === 'paused' || stopping;
+  const iconSize = headerCompact ? 15 : compact ? 18 : 20;
+  const btnSize = headerCompact ? 32 : compact ? 44 : 48;
+
+  if (
+    companionMode &&
+    phase !== 'live' &&
+    phase !== 'paused' &&
+    phase !== 'starting' &&
+    phase !== 'stopping'
+  ) {
+    return (
+      <View style={styles.row}>
+        <View
+          style={[styles.companionBadge, { height: btnSize, paddingHorizontal: headerCompact ? 8 : 10 }]}
+          accessibilityLabel={SELLER_CONSOLE.companionLiveBadge}
+        >
+          <View style={styles.companionDot} />
+          {!headerCompact ? (
+            <Text style={styles.companionTxt} numberOfLines={1}>
+              {SELLER_CONSOLE.companionLiveBadge}
+            </Text>
+          ) : null}
+        </View>
+        <Pressable
+          style={[
+            styles.takeOver,
+            { width: headerCompact ? undefined : btnSize + 36, height: btnSize, paddingHorizontal: headerCompact ? 8 : 10 },
+            (!cameraReady || busy) && styles.disabled,
+          ]}
+          onPress={() => {
+            if (!cameraReady || busy) return;
+            confirmStartLive(onStart);
+          }}
+          disabled={!cameraReady || busy}
+          accessibilityLabel={SELLER_CONSOLE.companionTakeOverCamera}
+        >
+          <Ionicons name="videocam-outline" size={iconSize} color="#ecfdf5" />
+        </Pressable>
+      </View>
+    );
+  }
+
   // Live room + idle (process remount / failed warm Play): still show Stop + Resume — do not
   // hide the whole control when cameraReady is briefly false (private shows hit this often).
   const needsLiveRecovery = roomLive && (phase === 'idle' || phase === 'starting' || streamPaused);
@@ -57,8 +102,6 @@ export function SellerBroadcastControl({
       (roomLive && (phase === 'idle' || phase === 'starting')));
   const showPause = showStop && phase === 'live' && !streamPaused && !showResume && Boolean(onPause);
   const starting = busy && (phase === 'idle' || phase === 'starting');
-  const iconSize = headerCompact ? 15 : compact ? 18 : 20;
-  const btnSize = headerCompact ? 32 : compact ? 44 : 48;
 
   const onPrimaryPress = () => {
     if (showStop) {
@@ -173,6 +216,38 @@ const styles = StyleSheet.create({
   },
   stopCompact: {
     borderColor: 'rgba(244,63,94,0.45)',
+  },
+  companionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(52,211,153,0.4)',
+    backgroundColor: 'rgba(6,46,36,0.75)',
+    paddingHorizontal: 10,
+  },
+  companionDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#6ee7b7',
+  },
+  companionTxt: {
+    maxWidth: 88,
+    color: '#ecfdf5',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  takeOver: {
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   disabled: { opacity: 0.55 },
 });

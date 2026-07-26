@@ -46,6 +46,10 @@ type OrderPayload = {
   payoutHoldUntil: string | null;
   payoutReserveAmountCents: number;
   payoutMethod: string;
+  sellerPayoutProcessor?: string | null;
+  processorTransferId?: string | null;
+  paypalPayoutStatus?: string | null;
+  paypalPayoutFeeCents?: number | null;
   shippingChargedCents: number | null;
   shippingLabelCostCents: number | null;
   shippingLabelCostReversedCents: number;
@@ -323,6 +327,9 @@ export function AdminOrderDetailPage() {
         payoutHoldUntil={data.payoutHoldUntil}
         payoutReserveAmountCents={data.payoutReserveAmountCents}
         payoutMethod={data.payoutMethod}
+        sellerPayoutProcessor={data.sellerPayoutProcessor}
+        processorTransferId={data.processorTransferId}
+        paypalPayoutStatus={data.paypalPayoutStatus}
         payoutEvaluation={data.payoutEvaluation}
         onUpdated={() => void load()}
       />

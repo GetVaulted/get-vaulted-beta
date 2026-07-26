@@ -58,6 +58,8 @@ const orderSelect = {
   fundsReleasedAt: true,
   labelCreatedAt: true,
   carrierAcceptedAt: true,
+  sellerPayoutProcessor: true,
+  processorTransferId: true,
   listing: { select: { isCompanyListing: true } },
   liveShippingSession: {
     select: {
@@ -223,6 +225,7 @@ async function finalizeOrderPayoutRelease(
     escrowReleasePaused: boolean;
     listingId: string;
     fundsReleasedAt: Date | null;
+    sellerPayoutProcessor?: "STRIPE" | "PAYPAL";
   },
   recordInstantUsd?: number,
 ): Promise<void> {
@@ -248,6 +251,11 @@ async function finalizeOrderPayoutRelease(
       escrowStatus: order.escrowStatus,
       escrowReleasePaused: order.escrowReleasePaused,
     });
+  } else if (order.sellerPayoutProcessor === "PAYPAL") {
+    const { releaseSellerPayPalPayout } = await import("@/services/payout/paypal-seller-payout");
+    const paypal = await releaseSellerPayPalPayout(orderId);
+    released = paypal.ok;
+    if (!released) return;
   } else {
     released = true;
   }
