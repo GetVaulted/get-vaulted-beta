@@ -950,6 +950,15 @@ export function SellerLivePage() {
     },
   });
 
+  // Must stay above loading early-returns (Rules of Hooks).
+  const featuredRooms = useMemo(() => {
+    // Always surface live + scheduled first so Console is reachable before go-live.
+    // Then a few recent ended shows — don't let 30+ ended rooms hide the active ones.
+    const active = rooms.filter((r) => r.status === "live" || r.status === "scheduled");
+    const ended = rooms.filter((r) => r.status !== "live" && r.status !== "scheduled");
+    return [...active, ...ended.slice(0, Math.max(0, 8 - active.length))];
+  }, [rooms]);
+
   if (status === "loading" || status === "unauthenticated" || sellerGateLoading) {
     return (
       <main className="relative flex min-h-screen w-full flex-1 flex-col bg-zinc-950">
@@ -965,14 +974,6 @@ export function SellerLivePage() {
       </main>
     );
   }
-
-  const featuredRooms = useMemo(() => {
-    // Always surface live + scheduled first so Console is reachable before go-live.
-    // Then a few recent ended shows — don't let 30+ ended rooms hide the active ones.
-    const active = rooms.filter((r) => r.status === "live" || r.status === "scheduled");
-    const ended = rooms.filter((r) => r.status !== "live" && r.status !== "scheduled");
-    return [...active, ...ended.slice(0, Math.max(0, 8 - active.length))];
-  }, [rooms]);
 
   const selected = rooms.find((r) => r.id === selectedId);
 
