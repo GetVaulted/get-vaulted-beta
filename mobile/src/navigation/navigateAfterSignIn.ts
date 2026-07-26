@@ -41,6 +41,9 @@ async function goHomeOrNotificationPermission(
  * username confirmation screen — never send them straight to Home in that case.
  * When push permission is not granted, send them through NotificationPermission
  * (signup + next login) before Home.
+ *
+ * Fail closed: if we cannot load setup status, send them to CompleteProfileSetup.
+ * That screen re-checks and forwards home when setup is already done.
  */
 export async function navigateAfterSignIn(
   navigation: AfterSignInNavigation,
@@ -58,7 +61,9 @@ export async function navigateAfterSignIn(
       needsSetup = status.needsSetup;
     }
   } catch {
-    // If status check fails, fall through to the normal post-auth destination.
+    // Do not skip username setup on a flaky status call — Apple/Google users would
+    // otherwise land in the app with an auto-allocated username and never confirm it.
+    needsSetup = true;
   }
 
   if (needsSetup) {

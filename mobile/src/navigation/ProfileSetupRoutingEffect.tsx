@@ -24,14 +24,13 @@ export function ProfileSetupRoutingEffect() {
     if (route === 'CompleteProfileSetup') return;
 
     const cached = cacheRef.current?.userId === user.id ? cacheRef.current : null;
+    // Fresh check when cache is missing, or when leaving setup / landing on Home while
+    // cache still thinks setup is required (covers "just completed" vs "raced away").
+    const shouldRefresh = !cached || cached.needsSetup;
+    if (!shouldRefresh) return;
 
     inFlightRef.current = true;
     try {
-      // Fresh check when cache is missing, or when leaving setup / landing on Home while
-      // cache still thinks setup is required (covers "just completed" vs "raced away").
-      const shouldRefresh = !cached || cached.needsSetup;
-      if (!shouldRefresh) return;
-
       const status = await fetchProfileSetupStatus(session.access_token);
       cacheRef.current = { userId: user.id, needsSetup: status.needsSetup };
       if (!status.needsSetup) return;
@@ -45,7 +44,16 @@ export function ProfileSetupRoutingEffect() {
         }),
       );
     } catch {
-      // Transient API errors should not trap the user; setup screen can still be opened manually.
+      // Fail closed: do not leave OAuth users on MainTabs with an unconfirmed username.
+      cacheRef.current = { userId: user.id, needsSetup: true };
+      if (!rootNavigationRef.isReady()) return;
+      if (rootNavigationRef.getCurrentRoute()?.name === 'CompleteProfileSetup') return;
+      rootNavigationRef.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'CompleteProfileSetup' }],
+        }),
+      );
     } finally {
       inFlightRef.current = false;
     }

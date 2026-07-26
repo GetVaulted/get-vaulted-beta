@@ -511,7 +511,9 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
 
   const finishIntroRouting = useCallback(() => {
     if (userRef.current) {
-      navigation.replace('MainTabs', { screen: 'Home' });
+      // Must run the same setup gate as Apple/Google sign-in — do not jump to MainTabs
+      // with an auto-allocated username (usernameChosenAt still null).
+      void navigateAfterSignIn(navigation);
     } else {
       beginAuthContinuity();
     }
@@ -532,7 +534,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
       })
     ) {
       autoAdvancedAfterRecoveryRef.current = true;
-      navigation.replace('MainTabs', { screen: 'Home' });
+      void navigateAfterSignIn(navigation);
     }
   }, [user, navigation]);
 

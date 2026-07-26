@@ -37,7 +37,12 @@ async function redirectIfNextAuthSessionExists(
     secret: process.env.NEXTAUTH_SECRET,
   });
   if (!token?.sub) return null;
-  return redirectWithForwardedHost(request, returnTo);
+  const row = await prisma.user.findUnique({
+    where: { id: token.sub },
+    select: { usernameChosenAt: true },
+  });
+  const dest = row?.usernameChosenAt == null ? profileSetupReturnTo(returnTo) : returnTo;
+  return redirectWithForwardedHost(request, dest);
 }
 
 function profileSetupReturnTo(returnTo: string): string {
