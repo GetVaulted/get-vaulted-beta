@@ -2652,22 +2652,31 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             </div>
 
             <aside className="flex min-h-0 flex-col overflow-hidden border-l border-white/[0.08] bg-zinc-950/95">
-              {hostInventoryRail}
-              {hostTeamBoardOpen ? (
-                <div className="shrink-0 border-t border-white/[0.08] p-2">
-                  <TeamBoardHostPanel
-                    league={teamBoardData?.state.league ?? "nba"}
-                    tileCount={teamBoardData?.teams.length}
-                    collapsed={hostTeamBoardCollapsed}
-                    disabled={teamBoardBusy || room.status === "ended"}
-                    onToggleCollapsed={minimizeHostTeamBoardPanel}
-                    onExpandCollapsed={expandHostTeamBoardPanel}
-                    onClose={closeHostTeamBoardPanel}
-                  >
-                    {hostTeamBoardPanelBody}
-                  </TeamBoardHostPanel>
-                </div>
-              ) : null}
+              {/* Fill only to the bottom of the video (spacer mirrors the timer strip under the stage). */}
+              <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+                {hostInventoryRail}
+                {hostTeamBoardOpen ? (
+                  <div className="shrink-0 border-t border-white/[0.08] p-2">
+                    <TeamBoardHostPanel
+                      league={teamBoardData?.state.league ?? "nba"}
+                      tileCount={teamBoardData?.teams.length}
+                      collapsed={hostTeamBoardCollapsed}
+                      disabled={teamBoardBusy || room.status === "ended"}
+                      onToggleCollapsed={minimizeHostTeamBoardPanel}
+                      onExpandCollapsed={expandHostTeamBoardPanel}
+                      onClose={closeHostTeamBoardPanel}
+                    >
+                      {hostTeamBoardPanelBody}
+                    </TeamBoardHostPanel>
+                  </div>
+                ) : null}
+              </div>
+              <div
+                className="pointer-events-none invisible shrink-0 select-none border-t border-transparent px-2 py-2"
+                aria-hidden
+              >
+                {hostDesktopItemOverlay}
+              </div>
             </aside>
           </div>
         </div>

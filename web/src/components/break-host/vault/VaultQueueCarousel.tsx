@@ -111,8 +111,8 @@ export function VaultQueueCarousel({
         }`;
 
   return (
-    <div className={lineup ? "space-y-2.5" : compact ? "space-y-2" : "space-y-3"}>
-      <div className={lineup ? "live-stage-lineup-tabs flex gap-0.5 p-0.5" : "flex flex-wrap gap-1"}>
+    <div className={lineup ? "flex h-full min-h-0 flex-col gap-2.5" : compact ? "space-y-2" : "space-y-3"}>
+      <div className={`shrink-0 ${lineup ? "live-stage-lineup-tabs flex gap-0.5 p-0.5" : "flex flex-wrap gap-1"}`}>
         {(
           [
             { id: "auction" as const, label: "Auction" },
@@ -138,7 +138,7 @@ export function VaultQueueCarousel({
           type="button"
           disabled={busy}
           onClick={onAddAuction}
-          className={`w-full font-bold text-amber-100 disabled:opacity-50 ${
+          className={`w-full shrink-0 font-bold text-amber-100 disabled:opacity-50 ${
             lineup
               ? "rounded-lg border border-amber-400/20 bg-amber-500/10 py-1.5 text-[9px] uppercase tracking-wide hover:bg-amber-500/18"
               : `rounded-lg border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 ring-1 ring-amber-400/20 hover:from-amber-500/25 ${
@@ -155,7 +155,7 @@ export function VaultQueueCarousel({
           type="button"
           disabled={busy}
           onClick={onAddAuction}
-          className={`w-full font-bold text-amber-100 disabled:opacity-50 ${
+          className={`w-full shrink-0 font-bold text-amber-100 disabled:opacity-50 ${
             lineup
               ? "rounded-lg border border-amber-400/20 bg-amber-500/10 py-1.5 text-[9px] uppercase tracking-wide hover:bg-amber-500/18"
               : `rounded-lg border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 ring-1 ring-amber-400/20 hover:from-amber-500/25 ${
@@ -168,30 +168,40 @@ export function VaultQueueCarousel({
       ) : null}
 
       {isGiveawayTab(tab) ? (
-        <VaultGiveawayLane
-          kind={tab === "giveaway" ? "open" : "buyers"}
-          giveaways={giveawayRows}
-          busy={busy}
-          lineup={lineup}
-          onAdd={() => onAddGiveaway?.()}
-          onOpenEntries={(id) => onGiveawayOpenEntries?.(id)}
-          onCloseEntries={(id) => onGiveawayCloseEntries?.(id)}
-          onDraw={(id) => onGiveawayDraw?.(id)}
-          onCancel={(id) => onGiveawayCancel?.(id)}
-          onDelete={(id) => onGiveawayDelete?.(id)}
-          onTimerExpired={onGiveawayTimerExpired}
-        />
+        <div className={lineup ? "min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]" : undefined}>
+          <VaultGiveawayLane
+            kind={tab === "giveaway" ? "open" : "buyers"}
+            giveaways={giveawayRows}
+            busy={busy}
+            lineup={lineup}
+            onAdd={() => onAddGiveaway?.()}
+            onOpenEntries={(id) => onGiveawayOpenEntries?.(id)}
+            onCloseEntries={(id) => onGiveawayCloseEntries?.(id)}
+            onDraw={(id) => onGiveawayDraw?.(id)}
+            onCancel={(id) => onGiveawayCancel?.(id)}
+            onDelete={(id) => onGiveawayDelete?.(id)}
+            onTimerExpired={onGiveawayTimerExpired}
+          />
+        </div>
       ) : null}
 
       {(tab === "auction" || tab === "bin" || tab === "sold") && visible.length === 0 ? (
-        <p className="rounded-xl border border-zinc-800/80 bg-black/30 py-8 text-center text-[11px] text-zinc-600">No lots in this lane yet.</p>
+        <div
+          className={
+            lineup
+              ? "flex min-h-0 flex-1 items-center justify-center rounded-xl border border-zinc-800/80 bg-black/30 px-3 text-center text-[11px] text-zinc-600"
+              : "rounded-xl border border-zinc-800/80 bg-black/30 py-8 text-center text-[11px] text-zinc-600"
+          }
+        >
+          No lots in this lane yet.
+        </div>
       ) : null}
 
-      {!isGiveawayTab(tab) ? (
+      {!isGiveawayTab(tab) && visible.length > 0 ? (
       <div
         className={
           lineup
-            ? "flex flex-col gap-1.5"
+            ? "flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overscroll-contain [scrollbar-width:thin]"
             : "-mx-1 flex gap-2 overflow-x-auto overflow-y-visible pb-2 pt-1 [scrollbar-width:thin]"
         }
       >
