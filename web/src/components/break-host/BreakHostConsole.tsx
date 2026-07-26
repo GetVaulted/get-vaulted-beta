@@ -2448,13 +2448,12 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     thumbnailUrl: room.thumbnailUrl ?? null,
     hostSellerId: room.sellerId,
     onBack: () => router.push("/seller/live"),
-    actionOverlay: activeBoardRow ? hostDesktopItemOverlay : null,
+    actionOverlay: null,
     mobileActionOverlay: activeBoardRow ? hostMobileItemOverlay : null,
     compactActionOverlay: false,
     cinematicActionOverlay: false,
-    // Keep the auction control bar a compact card centered under the 9:16 video instead of a
-    // full-width strip across the empty stage.
-    centeredActionOverlay: true,
+    // Desktop auction timer/controls sit under the video (not over the feed).
+    centeredActionOverlay: false,
     ambientBleed: true,
     stageEnergyScore: roomEnergy.score,
     vaultMode,
@@ -2512,6 +2511,9 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     layout: "fillHeight" as const,
     stageEdgeRail: undefined,
     compactActionOverlay: false,
+    centeredActionOverlay: true,
+    actionOverlay: activeBoardRow ? hostDesktopItemOverlay : null,
+    mobileActionOverlay: activeBoardRow ? hostMobileItemOverlay : null,
   };
 
   const hostPaymentFailures = data?.sellerUnresolvedPaymentFailures ?? [];
@@ -2600,7 +2602,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
 
       {/* First screen: stage fills the fixed console; root overflow-y-auto scrolls to content below. */}
       <div className="relative flex h-full min-h-full w-full shrink-0 flex-col p-1 sm:p-1.5 min-[1400px]:p-0">
-        {/* Desktop — 3-column command center (chat + lineup | 9:16 stage | stats) */}
+        {/* Desktop — chat | stage + auction timer | shop queue */}
         <div className="relative hidden min-h-0 flex-1 flex-col overflow-hidden min-[1400px]:flex">
           <SellerConsoleActionBar
             onShare={() => void handleShareRoom()}
@@ -2616,69 +2618,56 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             streamTimerDisplay={streamTimerDisplay}
             viewerCount={viewerCount}
           />
-          <div className="grid min-h-0 flex-1 grid-cols-[minmax(300px,24vw)_minmax(0,1fr)_minmax(260px,18vw)]">
-            <aside className="flex min-h-0 flex-col border-r border-white/[0.08] bg-zinc-950/95">
-              {/* Chat first / majority height — sellers were missing it cramped under stats on the right */}
-              <div className="min-h-0 flex-[1.35] overflow-hidden border-b border-white/[0.08]">
-                {hostLiveChatPanel}
-              </div>
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                {hostInventoryRail}
-                {hostTeamBoardOpen ? (
-                  <div className="shrink-0 border-t border-white/[0.08] p-2">
-                    <TeamBoardHostPanel
-                      league={teamBoardData?.state.league ?? "nba"}
-                      tileCount={teamBoardData?.teams.length}
-                      collapsed={hostTeamBoardCollapsed}
-                      disabled={teamBoardBusy || room.status === "ended"}
-                      onToggleCollapsed={minimizeHostTeamBoardPanel}
-                      onExpandCollapsed={expandHostTeamBoardPanel}
-                      onClose={closeHostTeamBoardPanel}
-                    >
-                      {hostTeamBoardPanelBody}
-                    </TeamBoardHostPanel>
-                  </div>
-                ) : null}
-              </div>
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,22vw)_minmax(0,1fr)_minmax(300px,24vw)]">
+            <aside className="flex min-h-0 flex-col overflow-hidden border-r border-white/[0.08] bg-zinc-950/95">
+              {hostLiveChatPanel}
             </aside>
 
             <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-black">
-              <LiveVideoStage {...hostStageProps} />
-              <SellerGoLiveSetupPanel
-                visible={
-                  !hostCompanionMode &&
-                  room.status !== "live" &&
-                  webcamBroadcast.phase !== "live" &&
-                  webcamBroadcast.phase !== "starting"
-                }
-                phase={webcamBroadcast.phase}
-                error={webcamBroadcast.previewError ?? webcamBroadcast.error}
-                previewStream={webcamBroadcast.previewStream}
-                devices={webcamBroadcast.devices}
-                selectedVideoDeviceId={webcamBroadcast.selectedVideoDeviceId}
-                selectedAudioDeviceId={webcamBroadcast.selectedAudioDeviceId}
-                onVideoDevice={handlePreviewVideoDevice}
-                onAudioDevice={handlePreviewAudioDevice}
-                onObs={() => setObsSetupModalOpen(true)}
-                onGoLive={handleGoLive}
-                busy={busy}
-              />
+              <div className="relative min-h-0 flex-1">
+                <LiveVideoStage {...hostStageProps} />
+                <SellerGoLiveSetupPanel
+                  visible={
+                    !hostCompanionMode &&
+                    room.status !== "live" &&
+                    webcamBroadcast.phase !== "live" &&
+                    webcamBroadcast.phase !== "starting"
+                  }
+                  phase={webcamBroadcast.phase}
+                  error={webcamBroadcast.previewError ?? webcamBroadcast.error}
+                  previewStream={webcamBroadcast.previewStream}
+                  devices={webcamBroadcast.devices}
+                  selectedVideoDeviceId={webcamBroadcast.selectedVideoDeviceId}
+                  selectedAudioDeviceId={webcamBroadcast.selectedAudioDeviceId}
+                  onVideoDevice={handlePreviewVideoDevice}
+                  onAudioDevice={handlePreviewAudioDevice}
+                  onObs={() => setObsSetupModalOpen(true)}
+                  onGoLive={handleGoLive}
+                  busy={busy}
+                />
+              </div>
+              <div className="shrink-0 border-t border-amber-400/15 bg-zinc-950/95 px-2 py-2">
+                {hostDesktopItemOverlay}
+              </div>
             </div>
 
-            <aside className="flex min-h-0 flex-col overflow-y-auto border-l border-white/[0.08] bg-zinc-950/95">
-              <SellerConsoleStatsPanel
-                viewerCount={viewerCount}
-                streamTimerDisplay={streamTimerDisplay}
-                connectionLabel={realtimeConnectionStatus}
-                connectionOk={realtimeConnectionStatus === "Connected"}
-                roomEnergyScore={roomEnergy.score}
-                roomEnergyLevel={roomEnergy.level}
-                recentSales={data.recentSales ?? []}
-                feeTier={data.feeTier ?? null}
-                sellerSummary={data.sellerSummary ?? null}
-                sellerSummaryLoading={!data.sellerSummary && !sellerSummaryRefreshError}
-                sellerSummaryRefreshError={sellerSummaryRefreshError}
-              />
+            <aside className="flex min-h-0 flex-col overflow-hidden border-l border-white/[0.08] bg-zinc-950/95">
+              {hostInventoryRail}
+              {hostTeamBoardOpen ? (
+                <div className="shrink-0 border-t border-white/[0.08] p-2">
+                  <TeamBoardHostPanel
+                    league={teamBoardData?.state.league ?? "nba"}
+                    tileCount={teamBoardData?.teams.length}
+                    collapsed={hostTeamBoardCollapsed}
+                    disabled={teamBoardBusy || room.status === "ended"}
+                    onToggleCollapsed={minimizeHostTeamBoardPanel}
+                    onExpandCollapsed={expandHostTeamBoardPanel}
+                    onClose={closeHostTeamBoardPanel}
+                  >
+                    {hostTeamBoardPanelBody}
+                  </TeamBoardHostPanel>
+                </div>
+              ) : null}
             </aside>
           </div>
         </div>
@@ -2728,18 +2717,33 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         </div>
       </div>
 
-      {/* Show sales under the stage — fixed tile height; list scrolls inside (last 8). */}
+      {/* Show sales + quick stats under the stage — fixed tile heights; list scrolls inside. */}
       <section
         data-host-console-below
         className="relative z-[1] w-full shrink-0 border-t border-white/[0.08] bg-zinc-950 px-3 py-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] min-[1400px]:px-5"
       >
-        <div className="mx-auto grid max-w-6xl gap-3 min-[800px]:grid-cols-[minmax(11rem,15rem)_minmax(0,1fr)]">
+        <div className="mx-auto grid max-w-6xl gap-3 min-[800px]:grid-cols-[minmax(11rem,15rem)_minmax(0,1fr)_minmax(12rem,16rem)]">
           <LiveShowSalesTile
             summary={data.sellerSummary ?? null}
             loading={!data.sellerSummary && !sellerSummaryRefreshError}
             refreshError={sellerSummaryRefreshError}
           />
           <HostRecentSalesTile rows={data.recentSales ?? []} maxRows={8} />
+          <div className="min-[1400px]:block">
+            <SellerConsoleStatsPanel
+              viewerCount={viewerCount}
+              streamTimerDisplay={streamTimerDisplay}
+              connectionLabel={realtimeConnectionStatus}
+              connectionOk={realtimeConnectionStatus === "Connected"}
+              roomEnergyScore={roomEnergy.score}
+              roomEnergyLevel={roomEnergy.level}
+              recentSales={data.recentSales ?? []}
+              feeTier={data.feeTier ?? null}
+              sellerSummary={data.sellerSummary ?? null}
+              sellerSummaryLoading={!data.sellerSummary && !sellerSummaryRefreshError}
+              sellerSummaryRefreshError={sellerSummaryRefreshError}
+            />
+          </div>
         </div>
       </section>
 
