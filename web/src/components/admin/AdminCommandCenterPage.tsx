@@ -17,28 +17,44 @@ type Overview = {
   activeLayaways: number;
   sellersPendingPayoutReview: number;
   suspendedUsers: number;
+  onlineNow: number;
+  onlineByPlatform: { ios: number; android: number; web: number };
   finance: { gmvUsd: number | null; platformFeesUsd: number | null; pendingPayoutsUsd: number | null };
   updatedAt: string;
 };
+
+const ONLINE_REFRESH_MS = 30_000;
 
 export function AdminCommandCenterPage() {
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { quiet?: boolean }) => {
+    if (!opts?.quiet) setLoading(true);
     try {
       const res = await fetch("/api/admin/overview", { cache: "no-store" });
       if (!res.ok) return;
       setData((await res.json()) as Overview);
     } finally {
-      setLoading(false);
+      if (!opts?.quiet) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void load({ quiet: true });
+    }, ONLINE_REFRESH_MS);
+    return () => window.clearInterval(id);
+  }, [load]);
+
+  const by = data?.onlineByPlatform;
+  const onlineHint = by
+    ? `iOS ${by.ios} · Android ${by.android} · Web ${by.web} · last 2 min`
+    : "Signed-in, last 2 min";
 
   return (
     <AdminCommandShell
@@ -56,6 +72,12 @@ export function AdminCommandCenterPage() {
         <>
           <AdminMetricStrip
             metrics={[
+              {
+                label: "Online now",
+                value: data?.onlineNow ?? 0,
+                hint: onlineHint,
+                tone: "gold",
+              },
               { label: "Live shows", value: data?.liveActive ?? 0, href: "/admin/live-shows", tone: "gold" },
               { label: "Scheduled shows", value: data?.liveScheduled ?? 0, href: "/admin/live-shows" },
               { label: "Open reports", value: data?.openReports ?? 0, href: "/admin/trust", tone: "warn" },

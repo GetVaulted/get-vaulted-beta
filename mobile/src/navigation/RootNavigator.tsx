@@ -38,6 +38,7 @@ import { colors } from '../theme';
 import { rootNavigationRef } from './rootNavigationRef';
 import { AuthSessionRoutingEffect } from './AuthSessionRoutingEffect';
 import { ProfileSetupRoutingEffect } from './ProfileSetupRoutingEffect';
+import { AppPresenceHeartbeatEffect } from './AppPresenceHeartbeatEffect';
 import { AccountSwitchEffect } from './AccountSwitchEffect';
 import { navigationLinking } from './linkingConfig';
 
@@ -169,6 +170,7 @@ export function RootNavigator() {
     <NavigationContainer ref={rootNavigationRef} theme={theme} linking={navigationLinking}>
       <AuthSessionRoutingEffect />
       <ProfileSetupRoutingEffect />
+      <AppPresenceHeartbeatEffect />
       <AccountSwitchEffect />
       <MarketplaceReviewPromptEffect />
       <PushRegistrationEffect />

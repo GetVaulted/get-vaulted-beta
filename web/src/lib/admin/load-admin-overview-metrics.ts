@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { loadAdminFinanceSummary } from "@/lib/admin/admin-finance-aggregates";
+import { loadOnlinePresenceSummary, type OnlinePresenceSummary } from "@/lib/app-presence";
 
 export type AdminOverviewMetrics = {
   liveActive: number;
@@ -11,6 +12,8 @@ export type AdminOverviewMetrics = {
   activeLayaways: number;
   sellersPendingPayoutReview: number;
   suspendedUsers: number;
+  onlineNow: number;
+  onlineByPlatform: OnlinePresenceSummary["onlineByPlatform"];
   finance: {
     gmvUsd: number | null;
     platformFeesUsd: number | null;
@@ -30,6 +33,7 @@ export async function loadAdminOverviewMetrics(): Promise<AdminOverviewMetrics> 
     activeLayaways,
     sellersPendingPayoutReview,
     suspendedUsers,
+    online,
     finance,
   ] = await Promise.all([
     prisma.liveRoom.count({ where: { status: "live" } }),
@@ -50,6 +54,7 @@ export async function loadAdminOverviewMetrics(): Promise<AdminOverviewMetrics> 
       },
     }),
     prisma.user.count({ where: { suspendedAt: { not: null } } }),
+    loadOnlinePresenceSummary(),
     loadAdminFinanceSummary(),
   ]);
 
@@ -63,6 +68,8 @@ export async function loadAdminOverviewMetrics(): Promise<AdminOverviewMetrics> 
     activeLayaways,
     sellersPendingPayoutReview,
     suspendedUsers,
+    onlineNow: online.onlineNow,
+    onlineByPlatform: online.onlineByPlatform,
     finance: {
       gmvUsd: finance.gmvUsd,
       platformFeesUsd: finance.platformFeesUsd,

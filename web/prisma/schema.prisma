@@ -48,6 +48,13 @@ enum UserRole {
   admin
 }
 
+/// Client platform reporting signed-in app presence heartbeats.
+enum AppPresencePlatform {
+  ios
+  android
+  web
+}
+
 enum LiveRoomType {
   auction
   sale
@@ -705,6 +712,21 @@ model User {
   sellerShippingProfiles             SellerShippingProfile[]
   notificationBroadcastsSent         NotificationBroadcast[]     @relation("NotificationBroadcastCreatedBy")
   referralCredits                    ReferralCredit[]            @relation("ReferralCreditOwner")
+  appPresence                        UserAppPresence[]
+}
+
+/// Signed-in foreground heartbeat for admin “online now” (one row per user + platform).
+model UserAppPresence {
+  id         String              @id @default(cuid())
+  userId     String
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform   AppPresencePlatform
+  lastSeenAt DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  @@unique([userId, platform])
+  @@index([lastSeenAt])
+  @@index([platform, lastSeenAt])
 }
 
 /// Single-use email verification OTP for signup (hashed at rest; expires).
