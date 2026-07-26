@@ -1984,6 +1984,16 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       Number.isFinite(Date.parse(activeBoardRow.item.auctionEndsAt)) &&
       Date.parse(activeBoardRow.item.auctionEndsAt) > syncedWallTimeMs(hostClockSkewMs),
   );
+
+  // While an auction is running, lock PC lineup selection to the DB-active lot so the console
+  // matches phone/buyer view (no “selected but not pinned” confusion mid-bid).
+  useEffect(() => {
+    if (!biddingWindowStillRunningHost) return;
+    const activeId = activeBoardRow?.item.id;
+    if (!activeId) return;
+    setSelectedQueueItemId((prev) => (prev === activeId ? prev : activeId));
+  }, [biddingWindowStillRunningHost, activeBoardRow?.item.id]);
+
   void auctionTickHost;
   const hostAuctionCountdownLabel =
     activeBoardRow?.item.biddingOpen &&

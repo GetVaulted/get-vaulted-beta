@@ -184,9 +184,8 @@ export function LiveVideoStage({
     : cinematicActionOverlay
       ? "live-stage-hud-suspended bottom-4 left-1/2 w-[min(920px,calc(100%-3rem))] -translate-x-1/2"
       : centeredActionOverlay
-        ? // Compact HUD overlaid on the bottom-center of the 9:16 video. Capped just under the
-          // plate width (~540px at 1080p) so it floats on the video and never spans the stage.
-          "bottom-4 left-1/2 w-[min(500px,calc(100%-2rem))] -translate-x-1/2"
+        ? // Host auction HUD — wide enough for lot title + winning bidder + timer (phone parity).
+          "bottom-4 left-1/2 w-[min(560px,calc(100%-1.5rem))] -translate-x-1/2"
         : compactActionOverlay
           ? "bottom-2 left-2 right-14"
           : "bottom-4 left-4 right-4";
