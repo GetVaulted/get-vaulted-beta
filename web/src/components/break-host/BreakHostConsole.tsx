@@ -2595,7 +2595,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       ) : null}
 
       <div className="relative flex min-h-0 flex-1 flex-col p-1 sm:p-1.5 min-[1400px]:p-0">
-        {/* Desktop — 3-column command center (lineup | 9:16 stage | stats + chat) */}
+        {/* Desktop — 3-column command center (chat + lineup | 9:16 stage | stats) */}
         <div className="relative hidden min-h-0 flex-1 flex-col overflow-hidden min-[1400px]:flex">
           <SellerConsoleActionBar
             onShare={() => void handleShareRoom()}
@@ -2611,24 +2611,30 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             streamTimerDisplay={streamTimerDisplay}
             viewerCount={viewerCount}
           />
-          <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,22vw)_minmax(0,1fr)_minmax(280px,20vw)]">
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(300px,24vw)_minmax(0,1fr)_minmax(260px,18vw)]">
             <aside className="flex min-h-0 flex-col border-r border-white/[0.08] bg-zinc-950/95">
-              {hostInventoryRail}
-              {hostTeamBoardOpen ? (
-                <div className="shrink-0 border-t border-white/[0.08] p-2">
-                  <TeamBoardHostPanel
-                    league={teamBoardData?.state.league ?? "nba"}
-                    tileCount={teamBoardData?.teams.length}
-                    collapsed={hostTeamBoardCollapsed}
-                    disabled={teamBoardBusy || room.status === "ended"}
-                    onToggleCollapsed={minimizeHostTeamBoardPanel}
-                    onExpandCollapsed={expandHostTeamBoardPanel}
-                    onClose={closeHostTeamBoardPanel}
-                  >
-                    {hostTeamBoardPanelBody}
-                  </TeamBoardHostPanel>
-                </div>
-              ) : null}
+              {/* Chat first / majority height — sellers were missing it cramped under stats on the right */}
+              <div className="min-h-0 flex-[1.35] overflow-hidden border-b border-white/[0.08]">
+                {hostLiveChatPanel}
+              </div>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                {hostInventoryRail}
+                {hostTeamBoardOpen ? (
+                  <div className="shrink-0 border-t border-white/[0.08] p-2">
+                    <TeamBoardHostPanel
+                      league={teamBoardData?.state.league ?? "nba"}
+                      tileCount={teamBoardData?.teams.length}
+                      collapsed={hostTeamBoardCollapsed}
+                      disabled={teamBoardBusy || room.status === "ended"}
+                      onToggleCollapsed={minimizeHostTeamBoardPanel}
+                      onExpandCollapsed={expandHostTeamBoardPanel}
+                      onClose={closeHostTeamBoardPanel}
+                    >
+                      {hostTeamBoardPanelBody}
+                    </TeamBoardHostPanel>
+                  </div>
+                ) : null}
+              </div>
             </aside>
 
             <div className="relative flex min-h-0 min-w-0 flex-col bg-black">
@@ -2654,7 +2660,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
               />
             </div>
 
-            <aside className="flex min-h-0 flex-col border-l border-white/[0.08] bg-zinc-950/95">
+            <aside className="flex min-h-0 flex-col overflow-y-auto border-l border-white/[0.08] bg-zinc-950/95">
               <SellerConsoleStatsPanel
                 viewerCount={viewerCount}
                 streamTimerDisplay={streamTimerDisplay}
@@ -2668,7 +2674,6 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
                 sellerSummaryLoading={!data.sellerSummary && !sellerSummaryRefreshError}
                 sellerSummaryRefreshError={sellerSummaryRefreshError}
               />
-              <div className="min-h-0 flex-1 overflow-hidden">{hostLiveChatPanel}</div>
             </aside>
           </div>
         </div>
