@@ -2439,6 +2439,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     isLive: roomStatusKey === "live",
     roomStatus: room.status as LiveRoomStatus,
     liveRoomId: roomId,
+    /** Host is always signed in — enable Stage WebRTC so companion PC isn't stuck on laggy HLS. */
+    viewerAuthenticated: true,
     streamPlaybackRefreshNonce,
     scheduledStartAt: room.scheduledStartAt ?? null,
     thumbnailUrl: room.thumbnailUrl ?? null,
