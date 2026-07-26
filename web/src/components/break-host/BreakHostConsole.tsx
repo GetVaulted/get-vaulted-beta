@@ -943,6 +943,18 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     });
   }, [data]);
 
+  // While an auction is running, lock PC lineup selection to the DB-active lot so the console
+  // matches phone/buyer view (no “selected but not pinned” confusion mid-bid).
+  // Must stay above loading early-returns (Rules of Hooks).
+  useEffect(() => {
+    const active = data?.queueItems?.find((q) => q.item.status === "active")?.item;
+    if (!active?.biddingOpen || isVariantSalesFormat(active.salesFormat)) return;
+    if (!active.auctionEndsAt) return;
+    const ends = Date.parse(active.auctionEndsAt);
+    if (!Number.isFinite(ends) || ends <= syncedWallTimeMs(hostClockSkewMs)) return;
+    setSelectedQueueItemId((prev) => (prev === active.id ? prev : active.id));
+  }, [data?.queueItems, hostClockSkewMs]);
+
   useRealtimeRoomSubscription({
     liveRoomId: roomId,
     enabled: Boolean(roomId),
@@ -1984,16 +1996,6 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       Number.isFinite(Date.parse(activeBoardRow.item.auctionEndsAt)) &&
       Date.parse(activeBoardRow.item.auctionEndsAt) > syncedWallTimeMs(hostClockSkewMs),
   );
-
-  // While an auction is running, lock PC lineup selection to the DB-active lot so the console
-  // matches phone/buyer view (no “selected but not pinned” confusion mid-bid).
-  useEffect(() => {
-    if (!biddingWindowStillRunningHost) return;
-    const activeId = activeBoardRow?.item.id;
-    if (!activeId) return;
-    setSelectedQueueItemId((prev) => (prev === activeId ? prev : activeId));
-  }, [biddingWindowStillRunningHost, activeBoardRow?.item.id]);
-
   void auctionTickHost;
   const hostAuctionCountdownLabel =
     activeBoardRow?.item.biddingOpen &&
