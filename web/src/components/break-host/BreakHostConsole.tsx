@@ -2579,19 +2579,6 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         </div>
       ) : null}
 
-      {hostCompanionMode && !hostPaymentFailures.length ? (
-        <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[63] w-[min(92vw,30rem)] -translate-x-1/2 px-2">
-          <div className="pointer-events-auto rounded-2xl border border-emerald-500/30 bg-emerald-950/70 px-3 py-2.5 text-[12px] leading-snug text-emerald-50 shadow-[0_16px_50px_-24px_rgba(0,0,0,0.9)] backdrop-blur-xl ring-1 ring-emerald-400/20">
-            <p className="font-bold uppercase tracking-wide text-emerald-200">Phone is the camera</p>
-            <p className="mt-1 text-emerald-50/90">
-              You&apos;re live from another device. Use this console for queue, pricing, and chat — buyers keep the phone
-              stream. Tap <span className="font-semibold">Use PC camera</span> only if you want this computer to take over
-              publishing.
-            </p>
-          </div>
-        </div>
-      ) : null}
-
       {webcamBroadcast.error && !hostCompanionMode && webcamBroadcast.phase === "idle" ? (
         <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[63] w-[min(92vw,30rem)] -translate-x-1/2 px-2">
           <div className="pointer-events-auto rounded-2xl border border-rose-500/35 bg-rose-950/75 px-3 py-2.5 text-[12px] leading-snug text-rose-50 shadow-[0_16px_50px_-24px_rgba(0,0,0,0.9)] backdrop-blur-xl ring-1 ring-rose-400/25">
