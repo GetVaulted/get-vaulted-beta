@@ -9,6 +9,7 @@ function row(item: Partial<LiveRoomItemDTO>) {
       salesFormat: "auction",
       biddingOpen: false,
       auctionEndsAt: null,
+      lastHighBidderId: null,
       ...item,
     } as LiveRoomItemDTO,
   };
@@ -28,7 +29,7 @@ describe("hostPinLotBlocked", () => {
     ).toBe(true);
   });
 
-  it("does not block after the auction timer has elapsed", () => {
+  it("still blocks after the timer elapses until bidding/settle clears", () => {
     const now = Date.parse("2026-07-10T18:02:00.000Z");
     expect(
       hostPinLotBlocked(
@@ -37,6 +38,29 @@ describe("hostPinLotBlocked", () => {
           auctionEndsAt: "2026-07-10T18:01:00.000Z",
         }),
         now,
+      ),
+    ).toBe(true);
+  });
+
+  it("blocks while a high bidder is pending settle even if biddingOpen is false", () => {
+    expect(
+      hostPinLotBlocked(
+        row({
+          biddingOpen: false,
+          lastHighBidderId: "buyer-1",
+          auctionEndsAt: null,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("allows pin when the lot is idle with no winner", () => {
+    expect(
+      hostPinLotBlocked(
+        row({
+          biddingOpen: false,
+          lastHighBidderId: null,
+        }),
       ),
     ).toBe(false);
   });
@@ -48,6 +72,7 @@ describe("hostPinLotBlocked", () => {
           salesFormat: "variant_selection",
           biddingOpen: true,
           auctionEndsAt: "2026-07-10T18:01:00.000Z",
+          lastHighBidderId: "buyer-1",
         }),
         Date.parse("2026-07-10T18:00:00.000Z"),
       ),
