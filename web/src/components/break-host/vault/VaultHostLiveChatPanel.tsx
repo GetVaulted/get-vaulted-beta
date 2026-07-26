@@ -248,7 +248,7 @@ export function VaultHostLiveChatPanel({
             ref={chatScroll.ref}
             onScroll={chatScroll.onScroll}
             data-testid="host-live-chat-messages"
-            className={`chat-messages min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch] touch-pan-y ${msgListClass}`}
+            className={`chat-messages flex min-h-0 flex-1 flex-col justify-end overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch] touch-pan-y ${msgListClass}`}
           >
             {visibleMessages.length === 0 ? (
               <p className="py-8 text-center text-xs font-medium text-zinc-500">No chat messages yet.</p>
