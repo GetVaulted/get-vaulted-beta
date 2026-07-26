@@ -45,6 +45,8 @@ vi.mock("@/services/shipping/live-commerce-shipping-settlement", () => ({
 vi.mock("@/lib/seller-stripe-collect-ready", () => ({
   liveSavedCardSellerReady: vi.fn().mockReturnValue(true),
   sellerStripeCollectSelect: {},
+  resolveLiveSellerPayoutProcessor: vi.fn().mockReturnValue("STRIPE"),
+  resolveLiveSellerDestinationAccount: vi.fn().mockReturnValue("acct_test_1"),
 }));
 vi.mock("@/lib/stripe-customer", () => ({
   assertPaymentMethodOwnedByUser: vi.fn().mockResolvedValue(undefined),

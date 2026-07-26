@@ -81,7 +81,7 @@ describe('LiveBreakSpotGridSheet QA safeguards', () => {
   it('blocks sold spots and updates picker title with selection', () => {
     expect(sheet).toContain('disabled={soldOut}');
     expect(sheet).toContain('if (!variantIsAvailable(variant)) return');
-    expect(sheet).toContain('${pickerBaseLabel}: ${selected.label}');
+    expect(sheet).toContain('${pickerBaseLabel}: ${selectedVariants[0]!.label}');
   });
 
   it('marks sold-out variants unavailable for tap', () => {
