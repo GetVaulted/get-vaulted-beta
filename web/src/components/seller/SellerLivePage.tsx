@@ -1055,53 +1055,55 @@ export function SellerLivePage() {
                   No shows yet. Create one below and it will appear here for quick access and management.
                 </p>
               ) : (
-                <ul className="space-y-2">
-                  {featuredRooms.map((r) => (
-                    <li
-                      key={`top-${r.id}`}
-                      className={`rounded-xl border px-3 py-2.5 transition ${
-                        selectedId === r.id
-                          ? "border-gold/40 bg-gold/[0.08]"
-                          : "border-white/[0.08] bg-zinc-950/50 hover:border-white/20"
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedId(r.id)}
-                          className="min-w-0 text-left"
-                        >
-                          <p className="truncate text-sm font-semibold text-zinc-100">{r.title}</p>
-                          <p className="mt-0.5 text-[10px] uppercase tracking-wide text-zinc-500">
-                            {r.roomType} · {r.status}
-                            {r.discoveryVisibility === "private" ? " · private" : ""}
-                            {r.scheduledStartAt ? ` · ${formatScheduledStartFromIso(r.scheduledStartAt)}` : ""}
-                          </p>
-                        </button>
-                        <div className="flex items-center gap-2">
-                          <Link
-                            href={`/live/${encodeURIComponent(r.id)}`}
-                            className="rounded-lg border border-white/12 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-zinc-200 hover:bg-white/[0.06]"
+                <>
+                  <ul className="space-y-2">
+                    {featuredRooms.map((r) => (
+                      <li
+                        key={`top-${r.id}`}
+                        className={`rounded-xl border px-3 py-2.5 transition ${
+                          selectedId === r.id
+                            ? "border-gold/40 bg-gold/[0.08]"
+                            : "border-white/[0.08] bg-zinc-950/50 hover:border-white/20"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedId(r.id)}
+                            className="min-w-0 text-left"
                           >
-                            Open
-                          </Link>
-                          <Link
-                            href={`/seller/live/${encodeURIComponent(r.id)}/console`}
-                            className="rounded-lg border border-violet-500/35 bg-violet-950/25 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-violet-200 hover:bg-violet-950/40"
-                          >
-                            Console
-                          </Link>
+                            <p className="truncate text-sm font-semibold text-zinc-100">{r.title}</p>
+                            <p className="mt-0.5 text-[10px] uppercase tracking-wide text-zinc-500">
+                              {r.roomType} · {r.status}
+                              {r.discoveryVisibility === "private" ? " · private" : ""}
+                              {r.scheduledStartAt ? ` · ${formatScheduledStartFromIso(r.scheduledStartAt)}` : ""}
+                            </p>
+                          </button>
+                          <div className="flex items-center gap-2">
+                            <Link
+                              href={`/live/${encodeURIComponent(r.id)}`}
+                              className="rounded-lg border border-white/12 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-zinc-200 hover:bg-white/[0.06]"
+                            >
+                              Open
+                            </Link>
+                            <Link
+                              href={`/seller/live/${encodeURIComponent(r.id)}/console`}
+                              className="rounded-lg border border-violet-500/35 bg-violet-950/25 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-violet-200 hover:bg-violet-950/40"
+                            >
+                              Console
+                            </Link>
+                          </div>
                         </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-                {rooms.length > featuredRooms.length ? (
-                  <p className="mt-2 text-[10px] text-zinc-600">
-                    Showing live &amp; upcoming first · {rooms.length - featuredRooms.length} older ended show
-                    {rooms.length - featuredRooms.length === 1 ? "" : "s"} in Manage below
-                  </p>
-                ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                  {rooms.length > featuredRooms.length ? (
+                    <p className="mt-2 text-[10px] text-zinc-600">
+                      Showing live &amp; upcoming first · {rooms.length - featuredRooms.length} older ended show
+                      {rooms.length - featuredRooms.length === 1 ? "" : "s"} in Manage below
+                    </p>
+                  ) : null}
+                </>
               )}
             </section>
 
