@@ -28,6 +28,8 @@ import {
 import { AddQueueItemModal, type AddQueueItemAuctionPayload, type AddQueueItemCloseReason, type AddQueueItemGiveawayPayload } from "@/components/break-host/AddQueueItemModal";
 import { VaultQueueDrawer } from "@/components/break-host/vault/VaultQueueDrawer";
 import { HostVariantCommerceStage } from "@/components/break-host/HostVariantCommerceStage";
+import { HostRecentSalesTile } from "@/components/break-host/HostRecentSalesTile";
+import { LiveShowSalesTile } from "@/components/break-host/LiveShowSalesTile";
 import { ExternalFulfillmentNotice } from "@/components/shipping/ExternalFulfillmentNotice";
 import { HostAddSupplementalModal } from "@/components/break-host/HostAddSupplementalModal";
 import { HostEditBreakSpotsModal, variantItemForSpotEditor } from "@/components/break-host/HostEditBreakSpotsModal";
@@ -2726,17 +2728,18 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         </div>
       </div>
 
-      {/* Scroll target under the live stage — add host tools here. */}
+      {/* Show sales under the stage — fixed tile height; list scrolls inside (last 8). */}
       <section
         data-host-console-below
-        className="relative z-[1] w-full shrink-0 border-t border-white/[0.08] bg-zinc-950 px-4 py-10 pb-[max(2.5rem,env(safe-area-inset-bottom))] min-[1400px]:px-6"
+        className="relative z-[1] w-full shrink-0 border-t border-white/[0.08] bg-zinc-950 px-3 py-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] min-[1400px]:px-5"
       >
-        <div className="mx-auto max-w-6xl">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">Below stage</p>
-          <p className="mt-2 max-w-xl text-sm leading-relaxed text-zinc-400">
-            Scroll past the live feed to reach this area. Tell us what belongs here (stats, chat, lineup, etc.) and we&apos;ll
-            move it into popups or panels below.
-          </p>
+        <div className="mx-auto grid max-w-6xl gap-3 min-[800px]:grid-cols-[minmax(11rem,15rem)_minmax(0,1fr)]">
+          <LiveShowSalesTile
+            summary={data.sellerSummary ?? null}
+            loading={!data.sellerSummary && !sellerSummaryRefreshError}
+            refreshError={sellerSummaryRefreshError}
+          />
+          <HostRecentSalesTile rows={data.recentSales ?? []} maxRows={8} />
         </div>
       </section>
 
