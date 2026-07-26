@@ -29,6 +29,10 @@ export type LiveRoomItemRow = {
   sortOrder: number;
   salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
   variantAssignmentMode?: 'pick' | 'random';
+  /** ISO — all spots sold; host can begin break. */
+  variantBreakReadyAt?: string | null;
+  /** ISO — host started the physical break / rip. */
+  variantBreakBeganAt?: string | null;
   randomSpotClaims?: { label: string; buyerUsername: string }[];
   variants?: {
     id: string;

@@ -511,6 +511,8 @@ export function LiveBreakSpotGridSheet({
     void checkout();
   };
 
+  const rosterMode = allSold;
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -518,11 +520,19 @@ export function LiveBreakSpotGridSheet({
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
           <View style={styles.headerRow}>
             <View style={styles.headerCopy}>
-              <LiveRoomText style={styles.checkoutHeading}>Checkout</LiveRoomText>
-              <View style={styles.securityRow}>
-                <Ionicons name="lock-closed" size={10} color="rgba(255,255,255,0.42)" />
-                <LiveRoomText style={styles.securityLine}>Secure checkout · encrypted by Stripe</LiveRoomText>
-              </View>
+              <LiveRoomText style={styles.checkoutHeading}>
+                {rosterMode ? (isDivisionBreak ? 'Division roster' : 'Team roster') : 'Checkout'}
+              </LiveRoomText>
+              {rosterMode ? (
+                <LiveRoomText style={styles.securityLine}>
+                  All spots sold · see who got each {isDivisionBreak ? 'division' : 'team'}
+                </LiveRoomText>
+              ) : (
+                <View style={styles.securityRow}>
+                  <Ionicons name="lock-closed" size={10} color="rgba(255,255,255,0.42)" />
+                  <LiveRoomText style={styles.securityLine}>Secure checkout · encrypted by Stripe</LiveRoomText>
+                </View>
+              )}
             </View>
             <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={10} accessibilityLabel="Close">
               <Ionicons name="close" size={20} color="rgba(255,255,255,0.78)" />
@@ -549,29 +559,35 @@ export function LiveBreakSpotGridSheet({
                 <LiveRoomText style={styles.productTitle} numberOfLines={2}>
                   {title}
                 </LiveRoomText>
-                <LiveRoomText style={styles.productPrice}>{fmtMoney(unitPrice)}</LiveRoomText>
+                {!rosterMode ? (
+                  <LiveRoomText style={styles.productPrice}>{fmtMoney(unitPrice)}</LiveRoomText>
+                ) : null}
                 <LiveRoomText style={styles.remainingMeta}>
-                  {allSold
-                    ? 'All spots sold'
+                  {rosterMode
+                    ? `Break in progress · ${pickerVariants.length} ${isDivisionBreak ? 'divisions' : 'teams'}`
                     : `${spotSummary.available} spot${spotSummary.available === 1 ? '' : 's'} remaining`}
                 </LiveRoomText>
               </View>
             </View>
 
             <View style={styles.pickerSection}>
-              <LiveRoomText style={styles.pickerTitle}>{pickerTitle}</LiveRoomText>
-              <LiveRoomText style={styles.pickerHint}>
-                {isRandom
-                  ? 'Hold to buy — Vault Reveal assigns your team from what’s left'
-                  : selectionCount > 0
-                    ? walletReady
-                      ? selectionCount > 1
-                        ? `Hold to buy to pay ${fmtMoney(chargeNow)} for ${selectionCount} spots — shipping and tax below`
-                        : `Hold to buy to pay ${fmtMoney(chargeNow)} now — spot, shipping, and tax below`
-                      : `Confirm ${isDivisionBreak ? 'division' : 'team'}, then hold to buy to checkout`
-                    : `Tap ${isDivisionBreak ? 'divisions' : 'teams'} to multi-select, then checkout`}
+              <LiveRoomText style={styles.pickerTitle}>
+                {rosterMode ? (isDivisionBreak ? 'Who got each division' : 'Who got each team') : pickerTitle}
               </LiveRoomText>
-              {isRandom ? (
+              <LiveRoomText style={styles.pickerHint}>
+                {rosterMode
+                  ? 'Sold roster — stays available while the host runs the break'
+                  : isRandom
+                    ? 'Hold to buy — Vault Reveal assigns your team from what’s left'
+                    : selectionCount > 0
+                      ? walletReady
+                        ? selectionCount > 1
+                          ? `Hold to buy to pay ${fmtMoney(chargeNow)} for ${selectionCount} spots — shipping and tax below`
+                          : `Hold to buy to pay ${fmtMoney(chargeNow)} now — spot, shipping, and tax below`
+                        : `Confirm ${isDivisionBreak ? 'division' : 'team'}, then hold to buy to checkout`
+                      : `Tap ${isDivisionBreak ? 'divisions' : 'teams'} to multi-select, then checkout`}
+              </LiveRoomText>
+              {isRandom && !rosterMode ? (
                 <View style={styles.randomRevealCard}>
                   <LiveRoomText style={styles.randomRevealKicker}>Vault Reveal</LiveRoomText>
                   <LiveRoomText style={styles.randomRevealBody}>
@@ -584,10 +600,10 @@ export function LiveBreakSpotGridSheet({
                     <TeamPill
                       key={variant.id}
                       variant={variant}
-                      selected={selectedIds.includes(variant.id)}
+                      selected={!rosterMode && selectedIds.includes(variant.id)}
                       wide={isDivisionBreak}
                       onSelect={() => {
-                        if (!variantIsAvailable(variant)) return;
+                        if (rosterMode || !variantIsAvailable(variant)) return;
                         void Haptics.selectionAsync().catch(() => {});
                         toggleSpot(variant.id);
                       }}
@@ -597,30 +613,35 @@ export function LiveBreakSpotGridSheet({
               )}
             </View>
 
-            <View style={styles.summaryCard}>
-              <SummaryRow
-                icon="pricetag-outline"
-                label={selectionCount > 1 ? `Spot prices (${selectionCount})` : 'Spot price'}
-                value={selectionCount > 0 ? fmtMoney(spotPrice) : '—'}
-              />
-              <SummaryRow
-                icon="cube-outline"
-                label="Shipping"
-                value={shippingSummaryValue}
-              />
-              <SummaryRow
-                icon="receipt-outline"
-                label="Taxes"
-                value={taxSummaryValue}
-              />
-            </View>
-            {effectivePreview?.taxNote ? (
-              <LiveRoomText style={styles.previewNote}>{effectivePreview.taxNote}</LiveRoomText>
+            {!rosterMode ? (
+              <>
+                <View style={styles.summaryCard}>
+                  <SummaryRow
+                    icon="pricetag-outline"
+                    label={selectionCount > 1 ? `Spot prices (${selectionCount})` : 'Spot price'}
+                    value={selectionCount > 0 ? fmtMoney(spotPrice) : '—'}
+                  />
+                  <SummaryRow
+                    icon="cube-outline"
+                    label="Shipping"
+                    value={shippingSummaryValue}
+                  />
+                  <SummaryRow
+                    icon="receipt-outline"
+                    label="Taxes"
+                    value={taxSummaryValue}
+                  />
+                </View>
+                {effectivePreview?.taxNote ? (
+                  <LiveRoomText style={styles.previewNote}>{effectivePreview.taxNote}</LiveRoomText>
+                ) : null}
+              </>
             ) : null}
 
             {error ? <LiveRoomText style={styles.error}>{error}</LiveRoomText> : null}
           </ScrollView>
 
+          {!rosterMode ? (
           <View style={styles.stickyBar}>
             <View style={styles.totalCol}>
               <LiveRoomText style={styles.totalLabel}>Total due</LiveRoomText>
@@ -659,6 +680,13 @@ export function LiveBreakSpotGridSheet({
               />
             </View>
           </View>
+          ) : (
+            <View style={styles.stickyBar}>
+              <Pressable style={styles.rosterDoneBtn} onPress={onClose} accessibilityRole="button">
+                <LiveRoomText style={styles.rosterDoneTxt}>Done</LiveRoomText>
+              </Pressable>
+            </View>
+          )}
         </View>
       </View>
     </Modal>
@@ -1085,6 +1113,23 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,255,255,0.08)',
     backgroundColor: '#0b0b10',
+  },
+  rosterDoneBtn: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(212,175,55,0.14)',
+  },
+  rosterDoneTxt: {
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: '#f5e6a8',
   },
   totalCol: {
     minWidth: 88,

@@ -1515,12 +1515,16 @@ export function LiveSaleRoom({
     hostSellerId: sellerId,
     onBack: () => router.back(),
     centerOverlay:
-      isHost && activeHasVariants && activeDb ? (
+      activeHasVariants && activeDb ? (
         <LiveVariantSpotBoard
           item={activeDb}
-          hostMode
+          hostMode={isHost}
           onPinVariant={
-            activeDb.status === "active" && !isRandomVariantAssignment(activeDb.variantAssignmentMode)
+            isHost &&
+            activeDb.status === "active" &&
+            !isRandomVariantAssignment(activeDb.variantAssignmentMode) &&
+            !activeDb.variantBreakReadyAt &&
+            !activeDb.variantBreakBeganAt
               ? handleHostPinLiveVariant
               : undefined
           }

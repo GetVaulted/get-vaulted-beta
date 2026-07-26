@@ -40,7 +40,14 @@ export function LiveVariantSpotBoard({
 
   const rows = buildVariantSpotDisplayRows(item, item.randomSpotClaims ?? []);
   const available = rows.filter((r) => !r.sold).length;
-  const boardLabel = variantBuyerSelectLabel(item.salesFormat);
+  const breakRoster =
+    available <= 0 || Boolean(item.variantBreakReadyAt) || Boolean(item.variantBreakBeganAt);
+  const boardLabel = breakRoster
+    ? item.variantBreakBeganAt
+      ? "Break roster"
+      : "Sold roster"
+    : variantBuyerSelectLabel(item.salesFormat);
+  const canHostEdit = hostMode && !breakRoster;
 
   if (hostMode && minimized) {
     return (
@@ -48,10 +55,12 @@ export function LiveVariantSpotBoard({
         <div className="min-w-0 flex-1">
           <p className="truncate text-[10px] font-bold text-zinc-200">{item.title}</p>
           <p className="text-[9px] font-semibold text-emerald-300/90">
-            {available} open · {rows.length} spots
+            {breakRoster
+              ? `${rows.length} teams · tap Expand to view buyers`
+              : `${available} open · ${rows.length} spots`}
           </p>
         </div>
-        {onAddSupplemental ? (
+        {canHostEdit && onAddSupplemental ? (
           <button
             type="button"
             disabled={hostBusy}
@@ -81,13 +90,17 @@ export function LiveVariantSpotBoard({
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200/80">{boardLabel}</p>
           <p className="mt-0.5 truncate text-xs font-bold text-white">{item.title}</p>
           <p className="mt-0.5 text-[10px] font-semibold text-zinc-500">
-            {available} open · {rows.length - available} sold
-            {hostMode && onPinVariant ? " · use Pin on a team to feature it for buyers" : ""}
+            {breakRoster
+              ? item.variantBreakBeganAt
+                ? `Break in progress · ${rows.length} teams with buyers`
+                : `All spots sold · ${rows.length} teams with buyers`
+              : `${available} open · ${rows.length - available} sold`}
+            {canHostEdit && onPinVariant ? " · use Pin on a team to feature it for buyers" : ""}
           </p>
         </div>
         {hostMode ? (
           <div className="flex shrink-0 items-center gap-1">
-            {onEditSpots ? (
+            {canHostEdit && onEditSpots ? (
               <button
                 type="button"
                 disabled={hostBusy}
@@ -97,7 +110,7 @@ export function LiveVariantSpotBoard({
                 Edit prices
               </button>
             ) : null}
-            {onAddSupplemental ? (
+            {canHostEdit && onAddSupplemental ? (
               <button
                 type="button"
                 disabled={hostBusy}
@@ -120,7 +133,7 @@ export function LiveVariantSpotBoard({
         ) : null}
       </div>
 
-      <div className="mt-3 flex max-h-[min(36vh,280px)] flex-wrap gap-2 overflow-y-auto pr-0.5">
+      <div className="mt-3 flex max-h-[min(42vh,320px)] flex-wrap gap-2 overflow-y-auto pr-0.5">
         {rows.map((r) => {
           const pinned = r.isHot && !r.sold;
           const canPin = hostSpotBoardPinEnabled({
@@ -131,7 +144,7 @@ export function LiveVariantSpotBoard({
           });
           const tileClass = `relative min-w-[5.5rem] max-w-[48%] flex-grow rounded-full border px-3 py-2 ${
             r.sold
-              ? "border-dashed border-white/15 bg-white/[0.015] opacity-70"
+              ? "border-emerald-400/25 bg-emerald-950/25"
               : pinned
                 ? "border-amber-300/70 bg-amber-500/15 ring-1 ring-amber-300/40"
                 : r.isHot
@@ -151,8 +164,8 @@ export function LiveVariantSpotBoard({
                 </span>
               ) : null}
               <div className="flex items-start justify-between gap-1">
-                <p className={`text-xs font-bold ${r.sold ? "text-zinc-500 line-through" : "text-zinc-100"}`}>{r.label}</p>
-                {hostMode && onToggleHot && r.variantId && !onPinVariant ? (
+                <p className={`text-xs font-bold ${r.sold ? "text-zinc-100" : "text-zinc-100"}`}>{r.label}</p>
+                {canHostEdit && onToggleHot && r.variantId && !onPinVariant ? (
                   <button
                     type="button"
                     onClick={() => onToggleHot(r.variantId!, !r.isHot)}
@@ -164,7 +177,7 @@ export function LiveVariantSpotBoard({
                 ) : null}
               </div>
               <div className="mt-0.5 flex items-center justify-between gap-2">
-                <p className={`font-mono text-[10px] font-bold ${r.sold ? "text-emerald-300/80" : "text-zinc-500"}`}>
+                <p className={`font-mono text-[10px] font-bold ${r.sold ? "text-emerald-200" : "text-zinc-500"}`}>
                   {r.sold ? formatSoldSpotBuyerLabel(r.buyerUsername) : fmtMoney(r.priceUsd)}
                 </p>
                 {canPin && r.variantId ? (

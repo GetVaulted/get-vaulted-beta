@@ -308,6 +308,24 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     }
     prevActiveVariantItemRef.current = item?.id ?? null;
   }, [console.activeItem]);
+
+  // Keep the sold PYT/PYD roster up for the host while the break runs.
+  useEffect(() => {
+    const item = console.activeItem;
+    if (!item || !isVariantSalesFormat(item.salesFormat)) return;
+    const variants = item.variants ?? [];
+    const allSpotsSold =
+      variants.length > 0 &&
+      variants.every((v) => v.quantityRemaining <= 0 || v.status === 'sold_out');
+    if (item.variantBreakReadyAt || item.variantBreakBeganAt || allSpotsSold) {
+      setTeamsBoardOpen(true);
+    }
+  }, [
+    console.activeItem?.id,
+    console.activeItem?.variantBreakReadyAt,
+    console.activeItem?.variantBreakBeganAt,
+    console.activeItem?.variants,
+  ]);
   const salesAttentionCount = useMemo(() => {
     const failedSales = console.recentSales.filter((r) => r.paymentTone === 'retry').length;
     return console.paymentFailures.length + failedSales;

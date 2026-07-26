@@ -247,18 +247,28 @@ export function SellerBreakSpotBoardSheet({
           <View style={styles.headerRow}>
             <View style={styles.headerCopy}>
               <LiveRoomText style={styles.sheetTitle}>
-                {isDivisionBreak ? 'Division board' : 'Team board'}
+                {openCount === 0
+                  ? isDivisionBreak
+                    ? 'Division roster'
+                    : 'Team roster'
+                  : isDivisionBreak
+                    ? 'Division board'
+                    : 'Team board'}
               </LiveRoomText>
               <LiveRoomText style={styles.itemTitle} numberOfLines={2}>
                 {item.displayTitle?.trim() || item.title}
               </LiveRoomText>
               <LiveRoomText style={styles.spotsMeta}>
-                {openCount} open · {soldCount} sold
-                {canMarkSold
-                  ? ' · tap a team, enter buyer username, mark sold'
-                  : canPinTeams
-                    ? ' · use Pin on a team to feature it for buyers'
-                    : ''}
+                {openCount === 0
+                  ? `Break roster · ${soldCount} teams with buyers`
+                  : `${openCount} open · ${soldCount} sold`}
+                {openCount === 0
+                  ? ' · stays up while you rip'
+                  : canMarkSold
+                    ? ' · tap a team, enter buyer username, mark sold'
+                    : canPinTeams
+                      ? ' · use Pin on a team to feature it for buyers'
+                      : ''}
               </LiveRoomText>
             </View>
             <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={10}>

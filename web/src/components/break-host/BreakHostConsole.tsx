@@ -504,6 +504,19 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     prevActiveVariantItemRef.current = item?.id ?? null;
   }, [activeBoardRow?.item]);
 
+  // Keep the PYT/PYD board expanded as a sold roster while break is ready / in progress.
+  useEffect(() => {
+    const item = activeBoardRow?.item;
+    if (!item || !isVariantSalesFormat(item.salesFormat)) return;
+    if (item.variantBreakReadyAt || item.variantBreakBeganAt) {
+      setHostCommerceMinimized(false);
+    }
+  }, [
+    activeBoardRow?.item?.id,
+    activeBoardRow?.item?.variantBreakReadyAt,
+    activeBoardRow?.item?.variantBreakBeganAt,
+  ]);
+
   useEffect(() => {
     const row = activeBoardRow;
     if (!row?.item.biddingOpen || !row.item.auctionEndsAt) return undefined;

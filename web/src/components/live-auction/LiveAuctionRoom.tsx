@@ -1815,12 +1815,16 @@ export function LiveAuctionRoom({
 
   const videoStageCenterOverlay =
     teamBoardOverlay ??
-    (isHost && activeHasVariants && activeDbItem ? (
+    (activeHasVariants && activeDbItem ? (
       <LiveVariantSpotBoard
         item={activeDbItem}
-        hostMode
+        hostMode={isHost}
         onPinVariant={
-          activeDbItem.status === "active" && !isRandomVariantAssignment(activeDbItem.variantAssignmentMode)
+          isHost &&
+          activeDbItem.status === "active" &&
+          !isRandomVariantAssignment(activeDbItem.variantAssignmentMode) &&
+          !activeDbItem.variantBreakReadyAt &&
+          !activeDbItem.variantBreakBeganAt
             ? handleHostPinLiveVariant
             : undefined
         }
