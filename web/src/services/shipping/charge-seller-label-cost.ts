@@ -27,7 +27,10 @@ function expandTransferId(raw: unknown): string | null {
   return null;
 }
 
-/** Resolve the Connect transfer created by a destination-charge PaymentIntent. */
+/**
+ * Resolve the Connect transfer created by a destination-charge PaymentIntent.
+ * Prefer charge.transfer; fall back to transfers list filtered by source_transaction (charge id).
+ */
 export async function resolveStripeTransferIdForPaymentIntent(
   paymentIntentId: string,
 ): Promise<string | null> {
@@ -36,15 +39,40 @@ export async function resolveStripeTransferIdForPaymentIntent(
   const pi = await stripe.paymentIntents.retrieve(paymentIntentId, {
     expand: ["latest_charge.transfer"],
   });
+
+  let chargeId: string | null = null;
+  let fromCharge: string | null = null;
+
   const latestCharge = pi.latest_charge;
-  if (!latestCharge || typeof latestCharge === "string") {
-    if (typeof latestCharge === "string") {
-      const charge = await stripe.charges.retrieve(latestCharge, { expand: ["transfer"] });
-      return expandTransferId(charge.transfer);
-    }
+  if (typeof latestCharge === "string" && latestCharge.startsWith("ch_")) {
+    chargeId = latestCharge;
+    const charge = await stripe.charges.retrieve(latestCharge, { expand: ["transfer"] });
+    fromCharge = expandTransferId(charge.transfer);
+  } else if (latestCharge && typeof latestCharge === "object") {
+    chargeId = latestCharge.id?.startsWith("ch_") ? latestCharge.id : null;
+    fromCharge = expandTransferId(latestCharge.transfer);
+  }
+
+  if (fromCharge) return fromCharge;
+
+  // Destination charges sometimes omit expanded transfer on the charge; look up by source charge.
+  if (!chargeId) return null;
+  try {
+    const bySource = await stripe.transfers.list({
+      limit: 20,
+      // Stripe Transfer list supports source_transaction for destination-charge auto transfers.
+      source_transaction: chargeId,
+    } as Parameters<typeof stripe.transfers.list>[0] & { source_transaction: string });
+    const hit = bySource.data.find((t) => typeof t.id === "string" && t.id.startsWith("tr_"));
+    return hit?.id ?? null;
+  } catch (e) {
+    console.warn("[resolveStripeTransferIdForPaymentIntent] source_transaction lookup failed", {
+      paymentIntentId,
+      chargeId,
+      error: e instanceof Error ? e.message : String(e),
+    });
     return null;
   }
-  return expandTransferId(latestCharge.transfer);
 }
 
 export type ChargeSellerLabelCostArgs = {
@@ -417,7 +445,7 @@ export async function chargeSellerForLabelCost(
       ok: false,
       code: "REVERSAL_FAILED",
       error:
-        "Label was purchased, but we could not deduct the carrier cost from your payout (Stripe balance may be insufficient). Support has been notified.",
+        `Label was purchased, but Stripe could not reverse $${(labelCostCents / 100).toFixed(2)} from the seller transfer (${transferId}). ${message.slice(0, 280)}`,
     };
   }
 }

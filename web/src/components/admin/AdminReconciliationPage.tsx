@@ -274,17 +274,37 @@ export function AdminReconciliationPage() {
       const res = await fetch(`/api/admin/orders/${encodeURIComponent(id)}/retry-label-cost`, {
         method: "POST",
       });
-      const body = await res.json();
-      if (!res.ok) alert(body.error ?? body.code ?? "Retry failed");
-      else {
-        alert(
-          body.skipped
-            ? `Already reversed (${body.reversalId})`
-            : `Reversed ${body.reversedCents}¢ → ${body.reversalId}`,
-        );
-        void load();
-        if (ledgerOpen) void openOrderLedger(id);
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        skipped?: boolean;
+        reversedCents?: number;
+        reversalId?: string | null;
+        error?: string;
+        code?: string;
+        reason?: string;
+      };
+      if (!res.ok) {
+        const detail = [body.code, body.error].filter(Boolean).join(" — ");
+        alert(detail || `Retry failed (HTTP ${res.status}). Check Netlify logs for label_cost_retry_failed.`);
+        return;
       }
+      if (body.skipped) {
+        alert(
+          body.reason
+            ? `Skipped: ${body.reason}`
+            : `Already reversed (${body.reversalId ?? "no reversal id"})`,
+        );
+      } else {
+        alert(
+          `Clawed back ${body.reversedCents ?? 0}¢` +
+            (body.reversalId ? ` → ${body.reversalId}` : "") +
+            ". Refresh the ledger if the variance is still showing.",
+        );
+      }
+      void load();
+      if (ledgerOpen) void openOrderLedger(id);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Retry failed — network or server error.");
     } finally {
       setRetryBusy(null);
     }
