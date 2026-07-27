@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { canSellerCreateShippingLabel, isIncompleteOrderShipping } from "@/lib/order-shipping-guards";
 import { refreshBuyerShippingOnOrderIfIncomplete } from "@/lib/live-buy-now-purchase";
 import { prisma } from "@/lib/prisma";
+import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
 import { fulfillOrderShippingAfterPayment } from "@/services/shipping";
 import { parseCreateLabelRequestBody } from "@/lib/shippo-label-format";
 import { SELLER_SHIPPO_CONTACT_MISSING, BUYER_SHIPPO_CONTACT_MISSING } from "@/lib/shippo-label-contacts";
@@ -14,16 +14,14 @@ export const runtime = "nodejs";
  * Seller-triggered Shippo label purchase for a paid order.
  */
 export async function POST(req: Request, ctx: { params: Promise<{ orderId: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await resolveAccountSellerUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   const { orderId: raw } = await ctx.params;
   const orderId = decodeURIComponent(raw);
 
   const order = await prisma.order.findFirst({
-    where: { id: orderId, sellerId: session.user.id },
+    where: { id: orderId, sellerId: auth.userId },
     select: {
       id: true,
       paymentStatus: true,
