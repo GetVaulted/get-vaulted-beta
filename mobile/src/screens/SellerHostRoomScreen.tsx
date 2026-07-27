@@ -22,7 +22,7 @@ import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller
 import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
 import { useMobileStagePublish } from '../hooks/useMobileStagePublish';
 import { shouldClearStreamPausedAfterHostResume } from '../lib/livePlaybackAppState';
-import { isLiveRoomBroadcastOnAir } from '../lib/liveRoomBroadcastOnAir';
+import { isLiveRoomRemotePublisherActive } from '../lib/liveRoomBroadcastOnAir';
 import { formatIvsObsIngestUrl } from '../lib/ivsObsIngestUrl';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
@@ -344,7 +344,8 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     if (!stream) return;
     autoResumeRef.current = true;
 
-    const roomOnAir = isLiveRoomBroadcastOnAir({
+    // Strong publisher signal only — soft Stage warm-up must not block crash auto-resume.
+    const remotePublisherActive = isLiveRoomRemotePublisherActive({
       status: room.status,
       streamHealth: stream.streamHealth ?? 'offline',
       streamPaused: stream.streamPaused,
@@ -352,7 +353,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       streamStartedAt: stream.streamStartedAt,
       streamEndedAt: stream.streamEndedAt,
     });
-    if (roomOnAir) {
+    if (remotePublisherActive) {
       // Companion: keep this device as command center; don't fight the publishing device for Stage.
       return;
     }

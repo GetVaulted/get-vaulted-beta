@@ -292,6 +292,7 @@ export function SellerBreakSpotBoardSheet({
   const selectedUnavailable = Boolean(selectedRow?.unavailable);
 
   const parsedAmount = (() => {
+    if (selectedUnavailable) return 0;
     const raw = amountText.trim().replace(/[^0-9.]/g, '');
     if (!raw) return null;
     const n = Number(raw);
@@ -305,9 +306,8 @@ export function SellerBreakSpotBoardSheet({
         onMarkSold &&
         selectedRow?.variantId &&
         username.trim().replace(/^@+/, '').length >= 3 &&
-        settlementMethod &&
-        parsedAmount != null &&
-        (!isZeroSale || zeroReason),
+        (selectedUnavailable ||
+          (settlementMethod && parsedAmount != null && (!isZeroSale || zeroReason))),
     ) && !markSoldBusy;
 
   return (
@@ -412,7 +412,7 @@ export function SellerBreakSpotBoardSheet({
               </LiveRoomText>
               {selectedUnavailable ? (
                 <LiveRoomText style={styles.fieldHint}>
-                  Bring this team back, or record a supp sale with the buyer’s username below.
+                  Supp is already paid — pick the buyer. Logs as $0 (no platform fee).
                 </LiveRoomText>
               ) : null}
               <UsernameMentionPicker
@@ -429,50 +429,54 @@ export function SellerBreakSpotBoardSheet({
               <LiveRoomText style={styles.fieldHint}>
                 Type a username and tap a match from the list.
               </LiveRoomText>
-              <TextInput
-                style={styles.usernameInput}
-                value={amountText}
-                onChangeText={setAmountText}
-                placeholder="Amount paid ($0 = free/comp)"
-                placeholderTextColor="rgba(255,255,255,0.35)"
-                keyboardType="decimal-pad"
-                editable={Boolean(selectedRow) && !markSoldBusy}
-                returnKeyType="done"
-              />
-              <LiveRoomText style={styles.fieldHint}>How did they pay you?</LiveRoomText>
-              <View style={styles.chipRow}>
-                {SETTLEMENT_METHODS.map((m) => {
-                  const on = settlementMethod === m.id;
-                  return (
-                    <Pressable
-                      key={m.id}
-                      style={[styles.chip, on && styles.chipOn, (!selectedRow || markSoldBusy) && styles.markSoldBtnOff]}
-                      disabled={!selectedRow || markSoldBusy}
-                      onPress={() => setSettlementMethod(m.id)}
-                    >
-                      <LiveRoomText style={[styles.chipTxt, on && styles.chipTxtOn]}>{m.label}</LiveRoomText>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              {isZeroSale ? (
+              {!selectedUnavailable ? (
                 <>
-                  <LiveRoomText style={styles.fieldHint}>Why is this $0?</LiveRoomText>
+                  <TextInput
+                    style={styles.usernameInput}
+                    value={amountText}
+                    onChangeText={setAmountText}
+                    placeholder="Amount paid ($0 = free/comp)"
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                    keyboardType="decimal-pad"
+                    editable={Boolean(selectedRow) && !markSoldBusy}
+                    returnKeyType="done"
+                  />
+                  <LiveRoomText style={styles.fieldHint}>How did they pay you?</LiveRoomText>
                   <View style={styles.chipRow}>
-                    {ZERO_REASONS.map((r) => {
-                      const on = zeroReason === r.id;
+                    {SETTLEMENT_METHODS.map((m) => {
+                      const on = settlementMethod === m.id;
                       return (
                         <Pressable
-                          key={r.id}
-                          style={[styles.chip, on && styles.chipOn, markSoldBusy && styles.markSoldBtnOff]}
-                          disabled={markSoldBusy}
-                          onPress={() => setZeroReason(r.id)}
+                          key={m.id}
+                          style={[styles.chip, on && styles.chipOn, (!selectedRow || markSoldBusy) && styles.markSoldBtnOff]}
+                          disabled={!selectedRow || markSoldBusy}
+                          onPress={() => setSettlementMethod(m.id)}
                         >
-                          <LiveRoomText style={[styles.chipTxt, on && styles.chipTxtOn]}>{r.label}</LiveRoomText>
+                          <LiveRoomText style={[styles.chipTxt, on && styles.chipTxtOn]}>{m.label}</LiveRoomText>
                         </Pressable>
                       );
                     })}
                   </View>
+                  {isZeroSale ? (
+                    <>
+                      <LiveRoomText style={styles.fieldHint}>Why is this $0?</LiveRoomText>
+                      <View style={styles.chipRow}>
+                        {ZERO_REASONS.map((r) => {
+                          const on = zeroReason === r.id;
+                          return (
+                            <Pressable
+                              key={r.id}
+                              style={[styles.chip, on && styles.chipOn, markSoldBusy && styles.markSoldBtnOff]}
+                              disabled={markSoldBusy}
+                              onPress={() => setZeroReason(r.id)}
+                            >
+                              <LiveRoomText style={[styles.chipTxt, on && styles.chipTxtOn]}>{r.label}</LiveRoomText>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </>
+                  ) : null}
                 </>
               ) : null}
               <TextInput
@@ -484,7 +488,7 @@ export function SellerBreakSpotBoardSheet({
                 editable={Boolean(selectedRow) && !markSoldBusy}
                 returnKeyType="done"
               />
-              {!isZeroSale && parsedAmount != null ? (
+              {!selectedUnavailable && !isZeroSale && parsedAmount != null ? (
                 <LiveRoomText style={styles.feeHint}>
                   You’ll owe Get Vaulted the live platform fee on {fmtMoney(parsedAmount)} after marking sold.
                 </LiveRoomText>
@@ -493,7 +497,21 @@ export function SellerBreakSpotBoardSheet({
                 style={[styles.markSoldBtn, !canSubmit && styles.markSoldBtnOff]}
                 disabled={!canSubmit}
                 onPress={() => {
-                  if (!selectedRow?.variantId || !canSubmit || parsedAmount == null || !settlementMethod) return;
+                  if (!selectedRow?.variantId || !canSubmit) return;
+                  if (selectedUnavailable) {
+                    void onMarkSold({
+                      variantId: selectedRow.variantId,
+                      username: username.trim(),
+                      label: selectedRow.label,
+                      priceUsd: 0,
+                      settlementMethod: 'other',
+                      zeroReason: 'other',
+                      note: note.trim() || 'Supp purchase',
+                      restoreIfUnavailable: true,
+                    });
+                    return;
+                  }
+                  if (parsedAmount == null || !settlementMethod) return;
                   void onMarkSold({
                     variantId: selectedRow.variantId,
                     username: username.trim(),
@@ -502,7 +520,6 @@ export function SellerBreakSpotBoardSheet({
                     settlementMethod,
                     ...(isZeroSale && zeroReason ? { zeroReason } : {}),
                     ...(note.trim() ? { note: note.trim() } : {}),
-                    ...(selectedUnavailable ? { restoreIfUnavailable: true } : {}),
                   });
                 }}
               >
@@ -546,7 +563,7 @@ export function SellerBreakSpotBoardSheet({
               ) : null}
               {selectedUnavailable ? (
                 <LiveRoomText style={styles.retireHint}>
-                  Supp sold brings the team back and records the buyer. Bring back alone re-opens it for an in-app buy.
+                  Supp sold assigns the buyer at $0 (supp already paid). Bring back alone re-opens the team with no sale.
                 </LiveRoomText>
               ) : onRetireTeam ? (
                 <LiveRoomText style={styles.retireHint}>

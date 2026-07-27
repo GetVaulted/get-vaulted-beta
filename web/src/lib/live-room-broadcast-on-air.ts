@@ -41,3 +41,13 @@ export function isLiveRoomBroadcastOnAir(room: LiveRoomBroadcastGate): boolean {
   if (isLiveStreamDisconnectConfirmed(room)) return false;
   return true;
 }
+
+/**
+ * Strong signal that another device is actually publishing buyer-facing video.
+ * Soft commerce warm-up (`stage_webrtc` / offline grace) must not count as companion/elsewhere.
+ */
+export function isLiveRoomRemotePublisherActive(room: LiveRoomBroadcastGate): boolean {
+  if (room.status !== "live") return false;
+  if (room.streamPaused === true) return false;
+  return isLiveStreamSignal(room.streamHealth);
+}

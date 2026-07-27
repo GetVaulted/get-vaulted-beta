@@ -41,7 +41,7 @@ describe('resolveHostVideoFeedStatus', () => {
     ).toEqual({ kind: 'paused', label: 'Paused', videoOnAir: false });
   });
 
-  it('shows Live elsewhere in companion mode', () => {
+  it('shows Live elsewhere only when companion + remote publisher', () => {
     expect(
       resolveHostVideoFeedStatus({
         roomStatus: 'live',
@@ -54,14 +54,14 @@ describe('resolveHostVideoFeedStatus', () => {
     ).toEqual({ kind: 'elsewhere', label: 'Live elsewhere', videoOnAir: true });
   });
 
-  it('shows No video when room is live but nothing is publishing', () => {
+  it('shows No video when alone with soft Stage warm-up (not elsewhere)', () => {
     expect(
       resolveHostVideoFeedStatus({
         roomStatus: 'live',
         broadcastPhase: 'idle',
         streamPaused: false,
         companionMode: false,
-        roomBroadcastOnAir: false,
+        roomBroadcastOnAir: true,
         streamHealth: 'offline',
       }),
     ).toEqual({ kind: 'offline', label: 'No video', videoOnAir: false });

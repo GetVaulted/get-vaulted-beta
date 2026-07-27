@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isLiveRoomBroadcastOnAir,
+  isLiveRoomRemotePublisherActive,
   isLiveStreamDisconnectConfirmed,
 } from "@/lib/live-room-broadcast-on-air";
 
@@ -43,6 +44,25 @@ describe("isLiveRoomBroadcastOnAir", () => {
       isLiveRoomBroadcastOnAir({
         status: "live",
         streamHealth: "offline",
+        streamPaused: false,
+        streamMode: "stage_webrtc",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat Stage warm-up offline as a remote publisher (companion / elsewhere)", () => {
+    expect(
+      isLiveRoomRemotePublisherActive({
+        status: "live",
+        streamHealth: "offline",
+        streamPaused: false,
+        streamMode: "stage_webrtc",
+      }),
+    ).toBe(false);
+    expect(
+      isLiveRoomRemotePublisherActive({
+        status: "live",
+        streamHealth: "live",
         streamPaused: false,
         streamMode: "stage_webrtc",
       }),

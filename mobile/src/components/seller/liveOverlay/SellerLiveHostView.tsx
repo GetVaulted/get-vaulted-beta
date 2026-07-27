@@ -29,7 +29,7 @@ import { SellerLiveStreamBackdrop } from './SellerLiveStreamBackdrop';
 import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from '../../../hooks/useMobileStagePublish';
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import { liveRoomChatOpen } from '../../../lib/liveRoomChatPolicy';
-import { isLiveRoomBroadcastOnAir } from '../../../lib/liveRoomBroadcastOnAir';
+import { isLiveRoomBroadcastOnAir, isLiveRoomRemotePublisherActive } from '../../../lib/liveRoomBroadcastOnAir';
 import { resolveHostVideoFeedStatus } from '../../../lib/hostVideoFeedStatus';
 import { useLiveRoomChat } from '../../../hooks/useLiveRoomChat';
 import { resolvePinnedModeratorUsername } from '../../../lib/resolvePinnedModeratorUsername';
@@ -200,8 +200,20 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   }, [host.stream, roomLive]);
   /** Commerce gate: this device publishing OR another device already on air (companion). */
   const broadcastOnAir = roomLive && (localPublishing || roomBroadcastOnAir);
+  /** Another device is actually publishing — not soft Stage warm-up / stale offline grace. */
+  const remotePublisherActive = useMemo(() => {
+    if (!roomLive) return false;
+    return isLiveRoomRemotePublisherActive({
+      status: 'live',
+      streamHealth: host.stream?.streamHealth ?? 'offline',
+      streamPaused: host.stream?.streamPaused,
+      streamMode: host.stream?.streamMode,
+      streamStartedAt: host.stream?.streamStartedAt,
+      streamEndedAt: host.stream?.streamEndedAt,
+    });
+  }, [host.stream, roomLive]);
   /** Room is live from another device; this phone is queue / start-auction only. */
-  const hostCompanionMode = roomBroadcastOnAir && !localPublishing;
+  const hostCompanionMode = remotePublisherActive && !localPublishing;
   /** Header pill — buyer-facing video, not just room status. */
   const videoFeed = useMemo(
     () =>

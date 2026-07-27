@@ -44,6 +44,17 @@ export function isLiveRoomBroadcastOnAir(room: LiveRoomBroadcastGate): boolean {
   return true;
 }
 
+/**
+ * Strong signal that another device is actually publishing buyer-facing video.
+ * Do NOT use the soft commerce warm-up (`stage_webrtc` / default-true) — that falsely
+ * marks a lone host phone as “Live elsewhere” when Stage hasn’t started yet.
+ */
+export function isLiveRoomRemotePublisherActive(room: LiveRoomBroadcastGate): boolean {
+  if (room.status !== 'live') return false;
+  if (room.streamPaused === true) return false;
+  return isLiveStreamSignal(room.streamHealth);
+}
+
 export const LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR =
   'The host stream is offline. Purchases and bids are paused until they reconnect.';
 
