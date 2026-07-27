@@ -22,6 +22,8 @@ const DEFAULT_CHECKS: SellerReadinessChecks = {
   stripeChargesEnabled: false,
   stripePayoutSubmitted: false,
   hasShipFromAddress: false,
+  paypalPayoutReady: false,
+  preferredSellerPayoutProcessor: "STRIPE",
 };
 
 export type NavSellerStatus = "idle" | "loading" | "onboarded" | "not_onboarded";

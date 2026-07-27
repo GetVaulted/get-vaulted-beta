@@ -12,7 +12,12 @@ export function resolveSellerWizardStep(input: {
   const checks = input.checks;
   const payoutsDone = isPayoutSetupSubmitted(checks);
   const shippingDone = Boolean(checks?.hasShipFromAddress);
-  const started = Boolean(checks?.hasStripeAccount || checks?.hasShipFromAddress);
+  const started = Boolean(
+    checks?.hasStripeAccount ||
+      checks?.hasShipFromAddress ||
+      checks?.paypalPayoutReady ||
+      checks?.preferredSellerPayoutProcessor === 'PAYPAL',
+  );
 
   if (!started && !payoutsDone) return 1;
   if (!payoutsDone) return 2;

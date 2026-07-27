@@ -2,6 +2,11 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import { isEscrowConfigured, isEscrowFeaturesEnabled } from "@/lib/escrow-config";
 import type { LiveShowReadiness, LiveShowReadinessChecks } from "@/lib/live-show-readiness-types";
 import { prisma } from "@/lib/prisma";
+import {
+  effectiveSellerPayoutProcessor,
+  isSellerPayoutRailReady,
+  sellerPayoutRailNotReadyMessage,
+} from "@/lib/seller-payout-rail";
 import { hasCompleteSellerShipFrom, sellerNeedsShipFromPhoneOnly } from "@/lib/seller-shipping-readiness";
 import { isShippoConfigured } from "@/lib/shippo";
 import { isStripeConfigured } from "@/lib/stripe";
@@ -34,9 +39,10 @@ function listingRowHasShippingProfile(row: {
 type ReadinessDb = Pick<PrismaClient, "user" | "listing">;
 
 /**
- * Enforces seller setup before starting a live show (Stripe payouts, Shippo labels, ship-from, listing shipping profile, alternate checkout seller link when that path is on).
+ * Enforces seller setup before starting a live show (payouts, Shippo labels, ship-from,
+ * listing shipping profile, alternate checkout seller link when that path is on).
  *
- * When Stripe or Shippo env is not configured (typical local dev), those gates are skipped — same pattern as seller Stripe publish / payout gates.
+ * Sellers on the PayPal payout rail skip Stripe Connect when their PayPal email is verified.
  */
 export async function getSellerLiveReadiness(
   sellerId: string,
@@ -52,6 +58,9 @@ export async function getSellerLiveReadiness(
       stripeChargesEnabled: true,
       stripePayoutsEnabled: true,
       stripeRequirementsDue: true,
+      preferredSellerPayoutProcessor: true,
+      paypalPayoutEmail: true,
+      paypalPayoutVerifiedAt: true,
       defaultShipFromAddressId: true,
       shipFromStreet: true,
       shipFromCity: true,
@@ -80,6 +89,8 @@ export async function getSellerLiveReadiness(
         hasStripeAccount: false,
         stripeChargesEnabled: false,
         stripePayoutSubmitted: false,
+        paypalPayoutReady: false,
+        preferredSellerPayoutProcessor: "STRIPE",
         hasShippoConfigured: isShippoConfigured(),
         hasShipFromAddress: false,
         alternateCheckoutSellerReady: false,
@@ -88,15 +99,23 @@ export async function getSellerLiveReadiness(
     };
   }
 
-  const stripeRequired = isStripeConfigured();
+  const preferred = effectiveSellerPayoutProcessor(user);
+  const payoutRail = {
+    preferredSellerPayoutProcessor: user.preferredSellerPayoutProcessor,
+    stripeAccountId: user.stripeAccountId,
+    stripeOnboardingComplete: Boolean(user.stripeOnboardingComplete),
+    paypalPayoutEmail: user.paypalPayoutEmail,
+    paypalPayoutVerifiedAt: user.paypalPayoutVerifiedAt,
+  };
+  const paypalPayoutReady = preferred === "PAYPAL" && isSellerPayoutRailReady(payoutRail);
+
+  const stripeRequired = isStripeConfigured() && preferred === "STRIPE";
   const hasStripeAccount = Boolean(user.stripeAccountId?.trim());
-  /**
-   * Mirrors Stripe onboarding completion (details submitted + no currently_due / pending_verification requirements),
-   * synchronized from Stripe webhooks/status checks. Required to go live / publish.
-   */
-  const stripeChargesEnabled = !stripeRequired || Boolean(user.stripeOnboardingComplete);
+  const stripeChargesEnabled =
+    paypalPayoutReady || !stripeRequired || Boolean(user.stripeOnboardingComplete);
   const requirementsSnap = parseRequirementsDue(user.stripeRequirementsDue);
   const stripePayoutSubmitted =
+    paypalPayoutReady ||
     !stripeRequired ||
     isStripePayoutSetupSubmitted({
       hasStripeAccount,
@@ -108,7 +127,6 @@ export async function getSellerLiveReadiness(
     });
 
   const hasShippoConfigured = isShippoConfigured();
-  // Address fields unlock Seller HQ; contact phone is still required to go live / buy labels.
   const hasShipFromAddress =
     hasCompleteSellerShipFrom(user) || sellerNeedsShipFromPhoneOnly(user);
   const hasShipFromPhone = hasCompleteSellerShipFrom(user);
@@ -129,21 +147,22 @@ export async function getSellerLiveReadiness(
   );
 
   const checks: LiveShowReadinessChecks = {
-    hasStripeAccount: !stripeRequired || hasStripeAccount,
+    hasStripeAccount: paypalPayoutReady || !stripeRequired || hasStripeAccount,
     stripeChargesEnabled,
     stripePayoutSubmitted,
+    paypalPayoutReady,
+    preferredSellerPayoutProcessor: preferred,
     hasShippoConfigured,
     hasShipFromAddress,
     alternateCheckoutSellerReady: !alternateCheckoutSellerRequired || alternateCheckoutSellerLinked,
     hasAtLeastOneListingWithShippingProfile,
   };
 
-  /**
-   * Requirement rule:
-   * - Only payouts setup + shipping address block going live.
-   * - Everything else is optional (recommended).
-   */
-  if (stripeRequired) {
+  if (preferred === "PAYPAL") {
+    if (!paypalPayoutReady) {
+      issues.push(sellerPayoutRailNotReadyMessage(payoutRail));
+    }
+  } else if (stripeRequired) {
     if (!hasStripeAccount) {
       issues.push("Set up payouts so buyers can purchase from your live room.");
     } else if (!user.stripeOnboardingComplete) {
@@ -162,10 +181,10 @@ export async function getSellerLiveReadiness(
   }
 
   if (alternateCheckoutSellerRequired && !alternateCheckoutSellerLinked) {
-    issues.push("Complete high-value checkout seller setup before going live (link the seller account in admin/tools).");
+    issues.push(
+      "Complete high-value checkout seller setup before going live (link the seller account in admin/tools).",
+    );
   }
 
-  const canGoLive = issues.length === 0;
-
-  return { canGoLive, issues, checks };
+  return { canGoLive: issues.length === 0, issues, checks };
 }

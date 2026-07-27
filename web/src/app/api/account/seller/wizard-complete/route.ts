@@ -5,7 +5,7 @@ import { refreshSellerStripeFromStripeApi } from "@/lib/refresh-seller-stripe-fr
 import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
 import { prisma } from "@/lib/prisma";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
-import { isRequiredSellerSetupComplete } from "@/lib/seller-setup-state";
+import { isPayoutSetupSubmitted, isRequiredSellerSetupComplete } from "@/lib/seller-setup-state";
 import { isStripeConfigured } from "@/lib/stripe";
 import { isStripePayoutSetupSubmittedFromAccount } from "@/lib/stripe-payout-submitted";
 
@@ -70,9 +70,17 @@ export async function POST(req: Request) {
   };
   if (!isRequiredSellerSetupComplete(checks)) {
     const missing: string[] = [];
-    if (!checks.hasStripeAccount) missing.push("connect Stripe payouts");
-    if (!checks.stripePayoutSubmitted && !checks.stripeChargesEnabled) {
-      missing.push("submit Stripe payout details (open Continue Stripe if anything is still due)");
+    if (!isPayoutSetupSubmitted(checks)) {
+      if (checks.preferredSellerPayoutProcessor === "PAYPAL") {
+        missing.push("add and verify your PayPal payout email");
+      } else {
+        missing.push("connect Stripe payouts or choose PayPal and verify your email");
+        if (!checks.hasStripeAccount) {
+          /* covered by message above */
+        } else if (!checks.stripePayoutSubmitted && !checks.stripeChargesEnabled) {
+          missing.push("submit Stripe payout details (open Continue Stripe if anything is still due)");
+        }
+      }
     }
     if (!checks.hasShipFromAddress) missing.push("add your ship-from address");
     const detail = missing.length ? ` Still needed: ${missing.join("; ")}.` : "";
@@ -101,7 +109,7 @@ export async function POST(req: Request) {
   if (firstCompletion) {
     const handle = existing?.username?.trim() || "seller";
     const email = existing?.email?.trim() || "unknown";
-    const verified = checks.stripeChargesEnabled;
+    const verified = checks.paypalPayoutReady || checks.stripeChargesEnabled;
     scheduleNotifyAdmins({
       type: "admin_seller_onboarded",
       title: "Seller onboarding complete",

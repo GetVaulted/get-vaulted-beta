@@ -14,6 +14,8 @@ const EMPTY_READINESS: LiveShowReadiness = {
     hasStripeAccount: false,
     stripeChargesEnabled: false,
     stripePayoutSubmitted: false,
+    paypalPayoutReady: false,
+    preferredSellerPayoutProcessor: "STRIPE",
     hasShippoConfigured: false,
     hasShipFromAddress: false,
     alternateCheckoutSellerReady: false,

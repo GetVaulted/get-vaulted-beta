@@ -3,8 +3,11 @@ export type LiveShowReadinessChecks = {
   stripeChargesEnabled: boolean;
   /** Hosted Connect submitted; pending_verification OK for wizard / HQ unlock. */
   stripePayoutSubmitted: boolean;
-  hasShippoConfigured: boolean;
   hasShipFromAddress: boolean;
+  /** Seller chose PayPal and verified payout email — satisfies payout gate without Stripe. */
+  paypalPayoutReady: boolean;
+  preferredSellerPayoutProcessor: "STRIPE" | "PAYPAL";
+  hasShippoConfigured: boolean;
   /** When high-value alternate checkout is required for live, seller must have linked the provider account (DB field). */
   alternateCheckoutSellerReady: boolean;
   hasAtLeastOneListingWithShippingProfile: boolean;

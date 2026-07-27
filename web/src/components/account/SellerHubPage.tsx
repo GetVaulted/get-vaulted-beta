@@ -49,6 +49,8 @@ type LiveReadinessChecks = {
   hasStripeAccount: boolean;
   stripeChargesEnabled: boolean;
   stripePayoutSubmitted?: boolean;
+  paypalPayoutReady?: boolean;
+  preferredSellerPayoutProcessor?: "STRIPE" | "PAYPAL";
   hasShippoConfigured: boolean;
   hasShipFromAddress: boolean;
   alternateCheckoutSellerReady: boolean;
@@ -158,6 +160,8 @@ export function SellerHubPage() {
       hasStripeAccount: false,
       stripeChargesEnabled: false,
       stripePayoutSubmitted: false,
+      paypalPayoutReady: false,
+      preferredSellerPayoutProcessor: "STRIPE",
       hasShippoConfigured: false,
       hasShipFromAddress: false,
       alternateCheckoutSellerReady: false,
@@ -258,6 +262,8 @@ export function SellerHubPage() {
             hasStripeAccount: false,
             stripeChargesEnabled: false,
             stripePayoutSubmitted: false,
+            paypalPayoutReady: false,
+            preferredSellerPayoutProcessor: "STRIPE",
             hasShippoConfigured: false,
             hasShipFromAddress: false,
             alternateCheckoutSellerReady: false,

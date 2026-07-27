@@ -18,6 +18,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { patchSellerProfile, patchSellerShipFrom } from '../../api/sellerAccountRepository';
+import {
+  fetchSellerPayoutPreference,
+  updateSellerPayoutPreference,
+} from '../../api/sellerPayoutPreferenceRepository';
 import { uploadMyAvatar } from '../../api/profilesRepository';
 import { persistProfileAvatarEverywhere } from '../../lib/profileAvatarSync';
 import { useAuth } from '../../auth/AuthContext';
@@ -28,6 +32,7 @@ import {
   payoutReconcileMessage,
   sellerShouldContinueStripeOnboarding,
 } from '../../lib/seller-stripe-connect-status';
+import { isPayoutSetupSubmitted } from '../../lib/seller-setup-state';
 import {
   resolveSellerWizardStep,
   SELLER_WIZARD_TOTAL_STEPS,
@@ -85,6 +90,11 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const [payoutError, setPayoutError] = useState<string | null>(null);
   const [payoutNotice, setPayoutNotice] = useState<string | null>(null);
   const [payoutContinueStripe, setPayoutContinueStripe] = useState(false);
+  const [payoutRail, setPayoutRail] = useState<'STRIPE' | 'PAYPAL'>('STRIPE');
+  const [paypalEnabled, setPaypalEnabled] = useState(false);
+  const [paypalEmail, setPaypalEmail] = useState('');
+  const [paypalReady, setPaypalReady] = useState(false);
+  const [paypalBusy, setPaypalBusy] = useState(false);
   const [startSetupBusy, setStartSetupBusy] = useState(false);
   const stripeReturnRef = useRef(false);
   const stripeReturnClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -155,6 +165,52 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
       if (stripeReturnClearTimerRef.current) clearTimeout(stripeReturnClearTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    void (async () => {
+      const pref = await fetchSellerPayoutPreference(token);
+      if (cancelled || !pref) return;
+      setPaypalEnabled(pref.paypalSellerPayoutsEnabled);
+      setPaypalEmail(pref.paypalPayoutEmail ?? '');
+      setPaypalReady(Boolean(pref.paypalPayoutVerifiedAt));
+      if (pref.preferredSellerPayoutProcessor === 'PAYPAL' || pref.paypalPayoutVerifiedAt) {
+        setPayoutRail('PAYPAL');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const patchPaypalPreference = useCallback(
+    async (body: {
+      preferredSellerPayoutProcessor?: 'STRIPE' | 'PAYPAL';
+      paypalPayoutEmail?: string | null;
+      verifyPayPalEmail?: boolean;
+    }) => {
+      if (!token || paypalBusy) return false;
+      setPaypalBusy(true);
+      setPayoutError(null);
+      try {
+        const res = await updateSellerPayoutPreference(token, body);
+        if (!res.ok) {
+          setPayoutError(res.error);
+          return false;
+        }
+        setPaypalEmail(res.data.paypalPayoutEmail ?? '');
+        setPaypalReady(Boolean(res.data.paypalPayoutVerifiedAt));
+        if (res.data.preferredSellerPayoutProcessor === 'PAYPAL') setPayoutRail('PAYPAL');
+        if (res.data.preferredSellerPayoutProcessor === 'STRIPE') setPayoutRail('STRIPE');
+        await setup.refetchSilent();
+        return true;
+      } finally {
+        setPaypalBusy(false);
+      }
+    },
+    [token, paypalBusy, setup],
+  );
 
   useEffect(() => {
     if (step === 2) stripeReturnRef.current = false;
@@ -373,9 +429,12 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const wizardDataLoading = setup.phase === 'loading' || !stepReady;
 
   const checks = setup.checks;
-  const payoutsDone = isWizardPayoutStepComplete(checks, stripeConnect.status);
+  const payoutsDone =
+    isWizardPayoutStepComplete(checks, stripeConnect.status) ||
+    paypalReady ||
+    isPayoutSetupSubmitted(checks);
   const progressPct = Math.round((step / SELLER_WIZARD_TOTAL_STEPS) * 100);
-  const payoutStepLoading = payoutBusy || payoutReconciling;
+  const payoutStepLoading = payoutBusy || payoutReconciling || paypalBusy;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.sm, paddingBottom: insets.bottom + spacing.md }]}>
@@ -421,7 +480,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
               {[
                 ['Listings', 'Buy-now and auction inventory'],
                 ['Live selling', 'Host shows and run breaks'],
-                ['Payouts', 'Stripe-powered seller payouts'],
+                ['Payouts', 'Stripe or PayPal seller payouts'],
                 ['Seller HQ', 'Command center for sales'],
               ].map(([label, desc]) => (
                 <View key={label} style={styles.unlockRow}>
@@ -446,33 +505,70 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
             <>
               <Text style={styles.title}>Payout setup</Text>
               <Text style={styles.body}>
-                Connect Stripe once to receive marketplace and live-sale payouts. Listing and going live unlock after
-                payout setup is complete.
+                Choose how you get paid. Buyers still pay with card or wallet — this only controls where your seller
+                earnings go.
               </Text>
-              {[
-                ['Why Stripe', 'Verifies identity and links your payout destination securely.'],
-                ['How payouts work', 'Earnings appear in Seller HQ and pay out on Stripe’s schedule after sales clear.'],
-                ['Instant payouts', 'May be available after delivery confirmation and good standing.'],
-                ['Limits', 'Disputes, chargebacks, fraud, or policy issues can delay instant payouts.'],
-              ].map(([label, desc]) => (
-                <View key={label} style={styles.infoRow}>
-                  <Text style={styles.unlockTitle}>{label}</Text>
-                  <Text style={styles.unlockDesc}>{desc}</Text>
+              {paypalEnabled ? (
+                <View style={styles.railRow}>
+                  <Pressable
+                    disabled={payoutStepLoading}
+                    onPress={() => {
+                      setPayoutRail('STRIPE');
+                      void patchPaypalPreference({ preferredSellerPayoutProcessor: 'STRIPE' });
+                    }}
+                    style={[styles.railChoice, payoutRail === 'STRIPE' && styles.railChoiceSelected]}
+                  >
+                    <Text style={styles.unlockTitle}>Stripe Connect</Text>
+                    <Text style={styles.unlockDesc}>Bank payouts via Stripe</Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={payoutStepLoading}
+                    onPress={() => {
+                      setPayoutRail('PAYPAL');
+                      void patchPaypalPreference({ preferredSellerPayoutProcessor: 'PAYPAL' });
+                    }}
+                    style={[styles.railChoice, payoutRail === 'PAYPAL' && styles.railChoiceSelected]}
+                  >
+                    <Text style={styles.unlockTitle}>PayPal</Text>
+                    <Text style={styles.unlockDesc}>Payouts to your PayPal email</Text>
+                  </Pressable>
                 </View>
-              ))}
-              {payoutStepLoading ? (
+              ) : null}
+              {payoutsDone ? (
+                <View style={styles.successBox}>
+                  <Text style={styles.successIcon}>✓</Text>
+                  <Text style={styles.successTitle}>Payouts connected</Text>
+                  <Text style={styles.successSub}>
+                    {paypalReady || checks?.paypalPayoutReady
+                      ? 'PayPal email verified — ready for seller payouts.'
+                      : 'Stripe is linked and ready for seller payouts.'}
+                  </Text>
+                </View>
+              ) : payoutRail === 'PAYPAL' && paypalEnabled ? (
+                <View style={styles.paypalBlock}>
+                  <Text style={styles.fieldLabel}>PayPal payout email</Text>
+                  <TextInput
+                    value={paypalEmail}
+                    onChangeText={setPaypalEmail}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="email-address"
+                    placeholder="you@paypal.com"
+                    placeholderTextColor={colors.textMuted}
+                    style={styles.input}
+                  />
+                  <Text style={styles.unlockDesc}>
+                    Use the email on your PayPal account. Verify to confirm — Get Vaulted sends seller earnings there
+                    when orders clear payout.
+                  </Text>
+                </View>
+              ) : payoutStepLoading ? (
                 <View style={styles.reconcileBox}>
                   <ActivityIndicator color={colors.gold} />
                   <Text style={styles.reconcileText}>Confirming payout setup…</Text>
                   <Pressable onPress={cancelPayoutReconcile} hitSlop={8}>
                     <Text style={styles.link}>Cancel</Text>
                   </Pressable>
-                </View>
-              ) : payoutsDone ? (
-                <View style={styles.successBox}>
-                  <Text style={styles.successIcon}>✓</Text>
-                  <Text style={styles.successTitle}>Payouts connected</Text>
-                  <Text style={styles.successSub}>Stripe is linked and ready for seller payouts.</Text>
                 </View>
               ) : (
                 <View style={styles.dashedBox}>
@@ -482,7 +578,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                   </Text>
                 </View>
               )}
-              {payoutNotice ? (
+              {payoutNotice && payoutRail === 'STRIPE' ? (
                 <View style={styles.noticeBox}>
                   <Text style={styles.noticeText}>{payoutNotice}</Text>
                   <View style={styles.errorActions}>
@@ -511,23 +607,40 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                 onBack={goBack}
                 primaryLabel={
                   payoutStepLoading
-                    ? 'Confirming…'
+                    ? 'Saving…'
                     : payoutsDone
                       ? 'Continue'
-                      : payoutBusy
-                        ? 'Opening…'
-                        : payoutContinueStripe
-                          ? 'Continue Stripe setup'
-                          : 'Connect payouts'
+                      : payoutRail === 'PAYPAL' && paypalEnabled
+                        ? 'Verify PayPal email'
+                        : payoutBusy
+                          ? 'Opening…'
+                          : payoutContinueStripe
+                            ? 'Continue Stripe setup'
+                            : 'Connect Stripe'
                 }
                 onPrimary={() => {
                   if (payoutsDone) {
                     setStep(3);
                     return;
                   }
+                  if (payoutRail === 'PAYPAL' && paypalEnabled) {
+                    void patchPaypalPreference({
+                      preferredSellerPayoutProcessor: 'PAYPAL',
+                      paypalPayoutEmail: paypalEmail,
+                      verifyPayPalEmail: true,
+                    }).then((ok) => {
+                      if (ok) setStep(3);
+                    });
+                    return;
+                  }
                   void openPayouts();
                 }}
-                primaryDisabled={payoutStepLoading || (!setup.stripePlatformConfigured && !payoutsDone)}
+                primaryDisabled={
+                  payoutStepLoading ||
+                  (payoutRail === 'PAYPAL' && paypalEnabled
+                    ? !paypalEmail.trim()
+                    : !setup.stripePlatformConfigured && !payoutsDone)
+                }
               />
             </>
           ) : null}
@@ -873,6 +986,26 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     borderColor: 'rgba(255,255,255,0.1)',
     backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  railRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  railChoice: {
+    flex: 1,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    padding: spacing.md,
+    gap: 4,
+  },
+  railChoiceSelected: {
+    borderColor: 'rgba(201,162,39,0.55)',
+    backgroundColor: 'rgba(201,162,39,0.1)',
+  },
+  paypalBlock: {
+    gap: spacing.sm,
   },
   successBox: {
     padding: spacing.lg,
