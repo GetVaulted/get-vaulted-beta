@@ -1,4 +1,5 @@
 import type { PaymentProcessor, SellerPayoutProcessor, WalletPaymentMethodType } from "@/generated/prisma/client";
+import { isStripeWalletOptionalMethodEnabled } from "@/lib/stripe-payment-method-config";
 
 export type { PaymentProcessor, SellerPayoutProcessor, WalletPaymentMethodType };
 
@@ -68,9 +69,9 @@ export function defaultWalletCapabilities(stripeConfigured: boolean): WalletCapa
     card: stripeConfigured,
     applePay: stripeConfigured,
     googlePay: stripeConfigured,
-    link: stripeConfigured && process.env.STRIPE_WALLET_LINK_ENABLED === "true",
-    cashAppPay: stripeConfigured && process.env.STRIPE_WALLET_CASH_APP_ENABLED === "true",
-    amazonPay: stripeConfigured && process.env.STRIPE_WALLET_AMAZON_PAY_ENABLED === "true",
+    link: stripeConfigured && isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_LINK_ENABLED"),
+    cashAppPay: stripeConfigured && isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_CASH_APP_ENABLED"),
+    amazonPay: stripeConfigured && isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_AMAZON_PAY_ENABLED"),
     paypal: false,
     venmo: isWalletVenmoEnabled(),
   };

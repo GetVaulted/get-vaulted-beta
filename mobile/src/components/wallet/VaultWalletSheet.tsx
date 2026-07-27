@@ -717,26 +717,39 @@ export function VaultWalletSheet({
         )}
 
         <LiveRoomText style={t.liveSectionLabel}>New payment method</LiveRoomText>
-        <Pressable style={t.newCardBtn} onPress={() => openPaymentSetup('card')}>
-          <Ionicons name="card-outline" size={18} color="#f4f2ec" />
-          <LiveRoomText style={t.newCardBtnText}>New card</LiveRoomText>
+        <Pressable style={t.newCardBtn} onPress={() => openPaymentSetup('picker')}>
+          <Ionicons name="add-circle-outline" size={18} color="#f4f2ec" />
+          <LiveRoomText style={t.newCardBtnText}>Add payment method</LiveRoomText>
         </Pressable>
 
         <LiveRoomText style={t.liveSectionLabel}>Accepted on live</LiveRoomText>
         <View style={t.detailCard}>
           {liveMethods.map((entry, idx) => (
-            <View
+            <Pressable
               key={entry.id}
               style={[t.liveMethodRow, idx === liveMethods.length - 1 && t.liveMethodRowLast]}
+              onPress={() => {
+                if (entry.id === 'apple_pay' || entry.id === 'google_pay') {
+                  openPaymentSetup('wallet');
+                  return;
+                }
+                if (entry.id === 'card') {
+                  openPaymentSetup('card');
+                  return;
+                }
+                // Cash App / Link / Amazon Pay / Venmo — full method picker (not card-only).
+                openPaymentSetup('picker');
+              }}
             >
               <View style={t.pmIcon}>
                 <Ionicons name={catalogEntryIcon(entry.id)} size={18} color={colors.gold} />
               </View>
               <View style={{ flex: 1 }}>
                 <LiveRoomText style={t.detailTitle}>{entry.label}</LiveRoomText>
-                <LiveRoomText style={t.detailBody}>Instant checkout for bids & buy-now</LiveRoomText>
+                <LiveRoomText style={t.detailBody}>Tap to add · Instant checkout for bids & buy-now</LiveRoomText>
               </View>
-            </View>
+              <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
+            </Pressable>
           ))}
         </View>
         <LiveRoomText style={t.hintText}>

@@ -42,10 +42,12 @@ describe("stripe-payment-method-config", () => {
     expect(paymentMethodTypesIncludeBnpl(types)).toBe(false);
   });
 
-  it("wallet setup intent defaults to card only until optional methods are enabled", () => {
+  it("wallet setup intent includes optional instant methods by default", () => {
     const { payment_method_types } = stripeSetupIntentPaymentOptions();
     expect(paymentMethodTypesIncludeBnpl(payment_method_types)).toBe(false);
-    expect(payment_method_types).toEqual(["card"]);
+    expect(payment_method_types).toEqual(
+      expect.arrayContaining(["card", "link", "cashapp", "amazon_pay"]),
+    );
   });
 
   it("off-session recovery PaymentIntent excludes BNPL for live and marketplace", () => {

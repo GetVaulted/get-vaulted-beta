@@ -32,11 +32,24 @@ export async function POST(req: Request) {
   try {
     const customerId = await ensureStripeCustomerIdForUser(auth.userId);
     const stripe = getStripe();
-    const setupIntent = await stripe.setupIntents.create({
-      customer: customerId,
-      ...stripeSetupIntentPaymentOptions(),
-      usage: "off_session",
-    });
+    let setupIntent;
+    try {
+      setupIntent = await stripe.setupIntents.create({
+        customer: customerId,
+        ...stripeSetupIntentPaymentOptions(),
+        usage: "off_session",
+      });
+    } catch (firstErr) {
+      // Dashboard may not have Cash App / Link / Amazon Pay enabled yet — still allow card + Apple Pay.
+      console.warn("[setup-intent] optional wallet methods rejected; falling back to card", {
+        error: firstErr instanceof Error ? firstErr.message : String(firstErr),
+      });
+      setupIntent = await stripe.setupIntents.create({
+        customer: customerId,
+        payment_method_types: ["card"],
+        usage: "off_session",
+      });
+    }
     const clientSecret = setupIntent.client_secret;
     if (!clientSecret) {
       return NextResponse.json({ error: "Could not start card setup." }, { status: 500 });

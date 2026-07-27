@@ -143,12 +143,18 @@ export function stripeCheckoutSessionPaymentOptions(lane: CommercePaymentLane): 
   return { payment_method_types: checkoutPaymentMethodTypesForLane(lane) };
 }
 
-/** Optional wallet add flows — off by default until enabled in Stripe Dashboard + env. */
+/** Optional wallet add flows — off only when explicitly disabled (Cash App / Link / Amazon Pay). */
+export function isStripeWalletOptionalMethodEnabled(envKey: string): boolean {
+  return process.env[envKey] !== "false";
+}
+
 export function walletOptionalPaymentMethodTypes(): StripeCheckoutPaymentMethodType[] {
   const types: StripeCheckoutPaymentMethodType[] = [];
-  if (process.env.STRIPE_WALLET_LINK_ENABLED === "true") types.push("link");
-  if (process.env.STRIPE_WALLET_CASH_APP_ENABLED === "true") types.push("cashapp");
-  if (process.env.STRIPE_WALLET_AMAZON_PAY_ENABLED === "true") types.push("amazon_pay");
+  // Default ON so Live/Vault Wallet show Cash App / Link / Amazon Pay once Stripe Dashboard allows them.
+  // Set STRIPE_WALLET_*_ENABLED=false to hide.
+  if (isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_LINK_ENABLED")) types.push("link");
+  if (isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_CASH_APP_ENABLED")) types.push("cashapp");
+  if (isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_AMAZON_PAY_ENABLED")) types.push("amazon_pay");
   return types;
 }
 
