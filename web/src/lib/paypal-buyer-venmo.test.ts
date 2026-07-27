@@ -53,6 +53,26 @@ describe("paypal-buyer-venmo helpers", () => {
     expect(parsed.message).toContain("Merchant not allowed");
   });
 
+  it("includes field path in PayPal error messages", async () => {
+    const { parsePayPalErrorBody } = await import("@/lib/paypal-buyer-venmo");
+    const parsed = parsePayPalErrorBody(
+      JSON.stringify({
+        name: "INVALID_REQUEST",
+        debug_id: "dbg1",
+        details: [
+          {
+            field: "/payment_source/venmo/attributes/vault/usage_pattern",
+            issue: "INCOMPATIBLE_PARAMETER_VALUE",
+            description: "The value of a field is incompatible.",
+          },
+        ],
+      }),
+    );
+    expect(parsed.issue).toBe("INCOMPATIBLE_PARAMETER_VALUE");
+    expect(parsed.field).toBe("/payment_source/venmo/attributes/vault/usage_pattern");
+    expect(parsed.message).toContain("usage_pattern");
+  });
+
   it("builds a checkoutnow fallback URL for Venmo orders", async () => {
     process.env.PAYPAL_MODE = "live";
     const { venmoCheckoutUrlForOrder } = await import("@/lib/paypal-buyer-venmo");
