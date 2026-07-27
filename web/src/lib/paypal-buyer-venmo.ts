@@ -67,11 +67,48 @@ export function verifyVenmoSetupState(args: {
 type PayPalLink = { href?: string; rel?: string; method?: string };
 
 function approveHrefFromLinks(links: PayPalLink[] | undefined): string | null {
-  const approve = links?.find((l) => (l.rel ?? "").toLowerCase() === "approve");
+  const approve = links?.find((l) => {
+    const rel = (l.rel ?? "").toLowerCase();
+    return rel === "approve" || rel === "payer-action";
+  });
   const href = approve?.href?.trim();
   return href || null;
 }
 
+export function parsePayPalErrorBody(rawText: string): {
+  issue: string | null;
+  debugId: string | null;
+  message: string | null;
+} {
+  try {
+    const json = JSON.parse(rawText) as {
+      name?: string;
+      message?: string;
+      debug_id?: string;
+      details?: Array<{ issue?: string; description?: string }>;
+    };
+    const issue = json.details?.[0]?.issue?.trim() || json.name?.trim() || null;
+    return {
+      issue,
+      debugId: json.debug_id?.trim() || null,
+      message: json.details?.[0]?.description?.trim() || json.message?.trim() || null,
+    };
+  } catch {
+    return { issue: null, debugId: null, message: null };
+  }
+}
+
+/** Venmo only supports vaulting during a purchase — we charge then refund this amount. */
+export function venmoLinkVerificationAmountUsd(): number {
+  const raw = Number(process.env.PAYPAL_VENMO_VERIFY_AMOUNT_USD ?? "1");
+  if (!Number.isFinite(raw) || raw < 0.01) return 1;
+  return Math.round(raw * 100) / 100;
+}
+
+/**
+ * Start Venmo linking via Orders API (save-during-purchase).
+ * PayPal does not support Venmo on setup-tokens / purchase-later.
+ */
 export async function createBuyerVenmoSetupAuthorization(args: {
   userId: string;
   /** When true, callback redirects to the mobile app scheme after vaulting. */
@@ -98,39 +135,56 @@ export async function createBuyerVenmoSetupAuthorization(args: {
   returnUrl.searchParams.set("sig", sig);
   if (args.mobileReturn) returnUrl.searchParams.set("mobile", "1");
 
-  const token = await getPayPalAccessToken();
-  const requestId = `gv-venmo-setup-${user.id}-${Date.now()}`.slice(0, 64);
+  const cancelUrl = `${siteOrigin()}/account/payment-methods?venmo=cancelled${
+    args.mobileReturn ? "&mobile=1" : ""
+  }`;
 
-  const body: Record<string, unknown> = {
+  const amount = venmoLinkVerificationAmountUsd().toFixed(2);
+  const token = await getPayPalAccessToken();
+  const requestId = `gv-venmo-link-${user.id}-${Date.now()}`.slice(0, 64);
+
+  const vaultAttrs: Record<string, unknown> = {
+    store_in_vault: "ON_SUCCESS",
+    usage_type: "MERCHANT",
+    usage_pattern: "IMMEDIATE",
+  };
+  if (user.paypalBuyerCustomerId?.trim()) {
+    vaultAttrs.customer = { id: user.paypalBuyerCustomerId.trim() };
+  }
+
+  const body = {
+    intent: "CAPTURE",
+    purchase_units: [
+      {
+        reference_id: `venmo-link-${user.id}`.slice(0, 127),
+        custom_id: user.id.slice(0, 127),
+        description: "Get Vaulted Venmo verification (refunded)",
+        amount: { currency_code: "USD", value: amount },
+      },
+    ],
     payment_source: {
       venmo: {
-        description: "Get Vaulted live wins & checkout",
-        usage_pattern: "IMMEDIATE",
-        usage_type: "MERCHANT",
-        customer_type: "CONSUMER",
         experience_context: {
           brand_name: "Get Vaulted",
           shipping_preference: "NO_SHIPPING",
+          user_action: "PAY_NOW",
           return_url: returnUrl.toString(),
-          cancel_url: args.mobileReturn
-            ? "getvaulted://wallet?venmo=cancelled"
-            : `${siteOrigin()}/account/payment-methods?venmo=cancelled`,
+          cancel_url: cancelUrl,
+        },
+        attributes: {
+          vault: vaultAttrs,
         },
       },
     },
   };
-  if (user.paypalBuyerCustomerId?.trim()) {
-    body.customer = { id: user.paypalBuyerCustomerId.trim() };
-  } else {
-    body.customer = { merchant_customer_id: user.id.slice(0, 64) };
-  }
 
-  const res = await fetch(`${paypalApiBase()}/v3/vault/setup-tokens`, {
+  const res = await fetch(`${paypalApiBase()}/v2/checkout/orders`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       "PayPal-Request-Id": requestId,
+      Prefer: "return=representation",
     },
     body: JSON.stringify(body),
   });
@@ -138,7 +192,6 @@ export async function createBuyerVenmoSetupAuthorization(args: {
   let json: {
     id?: string;
     status?: string;
-    customer?: { id?: string };
     links?: PayPalLink[];
   } = {};
   try {
@@ -147,32 +200,83 @@ export async function createBuyerVenmoSetupAuthorization(args: {
     /* empty */
   }
   if (!res.ok) {
-    throw new Error(`VENMO_SETUP_FAILED:${res.status}:${rawText.slice(0, 300)}`);
+    const parsed = parsePayPalErrorBody(rawText);
+    throw new Error(
+      `VENMO_SETUP_FAILED:${res.status}:${parsed.issue || "UNKNOWN"}:${parsed.debugId || ""}:${rawText.slice(0, 400)}`,
+    );
   }
-  const setupTokenId = json.id?.trim();
-  if (!setupTokenId) {
-    throw new Error(`VENMO_SETUP_FAILED:missing_setup_token:${rawText.slice(0, 200)}`);
+  const orderId = json.id?.trim();
+  if (!orderId) {
+    throw new Error(`VENMO_SETUP_FAILED:missing_order:${rawText.slice(0, 200)}`);
   }
   const authorizeUrl = approveHrefFromLinks(json.links);
   if (!authorizeUrl) {
-    throw new Error("VENMO_SETUP_FAILED:missing_approve_url");
+    throw new Error(`VENMO_SETUP_FAILED:missing_approve_url:${rawText.slice(0, 300)}`);
   }
 
   await prisma.user.update({
     where: { id: user.id },
     data: {
-      venmoPendingSetupTokenId: setupTokenId,
+      venmoPendingSetupTokenId: orderId,
       venmoPendingSetupNonce: nonce,
       venmoPendingSetupMobile: Boolean(args.mobileReturn),
-      ...(json.customer?.id?.trim()
-        ? { paypalBuyerCustomerId: json.customer.id.trim() }
-        : {}),
     },
   });
 
-  return { authorizeUrl, setupTokenId };
+  return { authorizeUrl, setupTokenId: orderId };
 }
 
+type VenmoOrderJson = {
+  id?: string;
+  status?: string;
+  payment_source?: {
+    venmo?: {
+      user_name?: string;
+      attributes?: { vault?: { id?: string; status?: string; customer?: { id?: string } } };
+      attribute?: { vault?: { id?: string; status?: string; customer?: { id?: string } } };
+    };
+  };
+  purchase_units?: Array<{
+    payments?: { captures?: Array<{ id?: string; status?: string }> };
+  }>;
+};
+
+function extractVenmoVault(json: VenmoOrderJson): {
+  vaultId: string | null;
+  customerId: string | null;
+  username: string | null;
+  captureId: string | null;
+} {
+  const venmo = json.payment_source?.venmo;
+  const vault = venmo?.attributes?.vault ?? venmo?.attribute?.vault;
+  return {
+    vaultId: vault?.id?.trim() || null,
+    customerId: vault?.customer?.id?.trim() || null,
+    username: venmo?.user_name?.trim() || null,
+    captureId: json.purchase_units?.[0]?.payments?.captures?.[0]?.id?.trim() || null,
+  };
+}
+
+async function refundPayPalCapture(accessToken: string, captureId: string): Promise<void> {
+  const res = await fetch(`${paypalApiBase()}/v2/payments/captures/${encodeURIComponent(captureId)}/refund`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      "PayPal-Request-Id": `gv-venmo-refund-${captureId}`.slice(0, 64),
+    },
+    body: "{}",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    console.warn("[venmo] verification refund failed", { captureId, status: res.status, body: text.slice(0, 300) });
+  }
+}
+
+/**
+ * Finish Venmo linking after PayPal redirect — capture verification order, store vault id, refund $1.
+ * `setupTokenId` is the PayPal Order id from createBuyerVenmoSetupAuthorization.
+ */
 export async function completeBuyerVenmoSetupFromToken(args: {
   userId: string;
   setupTokenId: string;
@@ -189,61 +293,86 @@ export async function completeBuyerVenmoSetupFromToken(args: {
   });
   if (!user) throw new Error("USER_NOT_FOUND");
 
-  const setupTokenId = args.setupTokenId.trim();
-  if (
-    user.venmoPendingSetupTokenId?.trim() &&
-    user.venmoPendingSetupTokenId.trim() !== setupTokenId
-  ) {
-    // Allow completing the pending token or an explicitly signed token from the callback.
-  }
+  const orderId = args.setupTokenId.trim() || user.venmoPendingSetupTokenId?.trim() || "";
+  if (!orderId) throw new Error("VENMO_VAULT_FAILED:missing_order");
 
   const accessToken = await getPayPalAccessToken();
-  const requestId = `gv-venmo-vault-${user.id}-${Date.now()}`.slice(0, 64);
-  const res = await fetch(`${paypalApiBase()}/v3/vault/payment-tokens`, {
+  const requestId = `gv-venmo-complete-${user.id}-${Date.now()}`.slice(0, 64);
+
+  const capRes = await fetch(`${paypalApiBase()}/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
       "PayPal-Request-Id": requestId,
+      Prefer: "return=representation",
     },
-    body: JSON.stringify({
-      payment_source: {
-        token: {
-          id: setupTokenId,
-          type: "SETUP_TOKEN",
-        },
-      },
-    }),
+    body: "{}",
   });
-  const rawText = await res.text();
-  let json: {
-    id?: string;
-    customer?: { id?: string };
-    payment_source?: { venmo?: { user_name?: string } };
-  } = {};
+  const rawText = await capRes.text();
+  let json: VenmoOrderJson = {};
   try {
-    json = JSON.parse(rawText) as typeof json;
+    json = JSON.parse(rawText) as VenmoOrderJson;
   } catch {
     /* empty */
   }
-  if (!res.ok) {
-    throw new Error(`VENMO_VAULT_FAILED:${res.status}:${rawText.slice(0, 300)}`);
-  }
-  const paymentTokenId = json.id?.trim();
-  if (!paymentTokenId) {
-    throw new Error(`VENMO_VAULT_FAILED:missing_payment_token:${rawText.slice(0, 200)}`);
+
+  // Idempotent: already captured → GET order
+  if (!capRes.ok) {
+    const getRes = await fetch(`${paypalApiBase()}/v2/checkout/orders/${encodeURIComponent(orderId)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const getText = await getRes.text();
+    try {
+      json = JSON.parse(getText) as VenmoOrderJson;
+    } catch {
+      /* empty */
+    }
+    if (!getRes.ok || (json.status ?? "").toUpperCase() !== "COMPLETED") {
+      const parsed = parsePayPalErrorBody(rawText || getText);
+      throw new Error(
+        `VENMO_VAULT_FAILED:${capRes.status}:${parsed.issue || "CAPTURE_FAILED"}:${parsed.debugId || ""}:${(rawText || getText).slice(0, 400)}`,
+      );
+    }
   }
 
-  const username = json.payment_source?.venmo?.user_name?.trim() || null;
-  const paymentMethodId = venmoWalletPaymentMethodId(paymentTokenId);
+  let { vaultId, customerId, username, captureId } = extractVenmoVault(json);
+  if (!vaultId) {
+    // Vault webhook may lag — brief poll
+    for (let i = 0; i < 3 && !vaultId; i++) {
+      await new Promise((r) => setTimeout(r, 800));
+      const getRes = await fetch(`${paypalApiBase()}/v2/checkout/orders/${encodeURIComponent(orderId)}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const getText = await getRes.text();
+      try {
+        json = JSON.parse(getText) as VenmoOrderJson;
+      } catch {
+        continue;
+      }
+      ({ vaultId, customerId, username, captureId } = extractVenmoVault(json));
+    }
+  }
+
+  if (captureId) {
+    await refundPayPalCapture(accessToken, captureId);
+  }
+
+  if (!vaultId) {
+    throw new Error(
+      "VENMO_VAULT_FAILED:missing_vault_id:PayPal captured but did not return a vault id yet. Ensure Save PayPal and Venmo is approved on the Business account, then retry.",
+    );
+  }
+
+  const paymentMethodId = venmoWalletPaymentMethodId(vaultId);
 
   await prisma.user.update({
     where: { id: user.id },
     data: {
-      venmoPaymentTokenId: paymentTokenId,
+      venmoPaymentTokenId: vaultId,
       venmoUsername: username,
       venmoVaultedAt: new Date(),
-      paypalBuyerCustomerId: json.customer?.id?.trim() || user.paypalBuyerCustomerId,
+      paypalBuyerCustomerId: customerId || user.paypalBuyerCustomerId,
       buyerDefaultWalletPaymentMethodId: paymentMethodId,
       venmoPendingSetupTokenId: null,
       venmoPendingSetupNonce: null,

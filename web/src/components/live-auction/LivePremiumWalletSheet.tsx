@@ -183,9 +183,14 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId: _liveRoomId,
         authorizeUrl?: string;
         paymentMethodId?: string;
         error?: string;
+        issue?: string;
+        debugId?: string;
       };
       if (!res.ok) {
-        setVenmoError(j.error ?? "Venmo linking is not available yet.");
+        const detail = [j.error, j.issue ? `(${j.issue})` : null, j.debugId ? `debug ${j.debugId}` : null]
+          .filter(Boolean)
+          .join(" ");
+        setVenmoError(detail || "Venmo linking is not available yet.");
         return;
       }
       if (typeof j.authorizeUrl === "string" && j.authorizeUrl.trim()) {

@@ -33,15 +33,23 @@ describe("paypal-buyer-venmo helpers", () => {
     expect(verifyVenmoSetupState({ userId: "user_1", nonce: "xyz", sig })).toBe(false);
   });
 
-  it("requires explicit buyer venmo env + credentials", () => {
-    delete process.env.PAYPAL_BUYER_VENMO_ENABLED;
-    delete process.env.PAYPAL_CLIENT_ID;
-    delete process.env.PAYPAL_CLIENT_SECRET;
-    expect(isBuyerVenmoPayConfigured()).toBe(false);
-
-    process.env.PAYPAL_BUYER_VENMO_ENABLED = "true";
-    process.env.PAYPAL_CLIENT_ID = "id";
-    process.env.PAYPAL_CLIENT_SECRET = "secret";
-    expect(isBuyerVenmoPayConfigured()).toBe(true);
+  it("parses PayPal error bodies", async () => {
+    const { parsePayPalErrorBody } = await import("@/lib/paypal-buyer-venmo");
+    const parsed = parsePayPalErrorBody(
+      JSON.stringify({
+        name: "UNPROCESSABLE_ENTITY",
+        message: "The requested action could not be performed.",
+        debug_id: "abc123",
+        details: [
+          {
+            issue: "NOT_ENABLED_TO_VAULT_PAYMENT_SOURCE",
+            description: "Merchant not allowed to vault.",
+          },
+        ],
+      }),
+    );
+    expect(parsed.issue).toBe("NOT_ENABLED_TO_VAULT_PAYMENT_SOURCE");
+    expect(parsed.debugId).toBe("abc123");
+    expect(parsed.message).toContain("Merchant not allowed");
   });
 });

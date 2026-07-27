@@ -209,11 +209,12 @@ export async function startBuyerVenmoSetup(accessToken: string | undefined): Pro
     paymentMethodId?: string;
     error?: string;
     code?: string;
+    issue?: string;
+    debugId?: string;
   };
   if (!res.ok) {
-    throw new Error(
-      typeof j.error === 'string' ? j.error : 'Venmo linking is not available yet.',
-    );
+    const detail = [j.error, j.issue ? `(${j.issue})` : null].filter(Boolean).join(' ');
+    throw new Error(detail || 'Venmo linking is not available yet.');
   }
   return {
     authorizeUrl: typeof j.authorizeUrl === 'string' ? j.authorizeUrl : undefined,
