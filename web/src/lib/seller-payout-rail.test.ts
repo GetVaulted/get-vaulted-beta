@@ -16,6 +16,23 @@ describe("seller-payout-rail", () => {
     process.env.PAYPAL_SELLER_PAYOUTS_ENABLED = prev;
   });
 
+  it("enables PayPal rail when credentials exist even without explicit flag", async () => {
+    const prev = process.env.PAYPAL_SELLER_PAYOUTS_ENABLED;
+    const id = process.env.PAYPAL_CLIENT_ID;
+    const secret = process.env.PAYPAL_CLIENT_SECRET;
+    delete process.env.PAYPAL_SELLER_PAYOUTS_ENABLED;
+    process.env.PAYPAL_CLIENT_ID = "id";
+    process.env.PAYPAL_CLIENT_SECRET = "secret";
+    const { isPayPalSellerPayoutsEnabled } = await import("@/lib/paypal");
+    expect(isPayPalSellerPayoutsEnabled()).toBe(true);
+    expect(
+      effectiveSellerPayoutProcessor({ preferredSellerPayoutProcessor: "PAYPAL" }),
+    ).toBe("PAYPAL");
+    process.env.PAYPAL_SELLER_PAYOUTS_ENABLED = prev;
+    process.env.PAYPAL_CLIENT_ID = id;
+    process.env.PAYPAL_CLIENT_SECRET = secret;
+  });
+
   it("treats PayPal preference as ready only with verified email", () => {
     const prev = process.env.PAYPAL_SELLER_PAYOUTS_ENABLED;
     const id = process.env.PAYPAL_CLIENT_ID;

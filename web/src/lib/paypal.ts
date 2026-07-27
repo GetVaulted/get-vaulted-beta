@@ -12,8 +12,13 @@ export type PayPalPayoutItemResult = {
   rawStatus: string;
 };
 
+/**
+ * Seller PayPal payout rail. On when credentials are present unless explicitly disabled.
+ * Set PAYPAL_SELLER_PAYOUTS_ENABLED=false to force off; =true is optional when creds exist.
+ */
 export function isPayPalSellerPayoutsEnabled(): boolean {
-  return process.env.PAYPAL_SELLER_PAYOUTS_ENABLED === "true" && paypalCredentialsConfigured();
+  if (process.env.PAYPAL_SELLER_PAYOUTS_ENABLED === "false") return false;
+  return paypalCredentialsConfigured();
 }
 
 /** Create a single-item PayPal payout to a seller email. Idempotent via sender_batch_id. */

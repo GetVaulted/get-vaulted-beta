@@ -794,7 +794,8 @@ function WalletPaymentSetupBody({
 
   return (
     <View style={shellStyle}>
-      <SafeAreaView style={panelStyle} edges={embedded ? ['top', 'bottom'] : ['top']}>
+      {/* Embedded (Vault Wallet sheet) already has bottom safe padding from the parent. */}
+      <SafeAreaView style={panelStyle} edges={embedded ? [] : ['top']}>
         {loading ? (
           <PaymentSetupLoader onClose={onClose} />
         ) : error || !payload ? (

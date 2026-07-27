@@ -1043,44 +1043,65 @@ export function VaultWalletSheet({
         }
         statusBarTranslucent
       >
-        {paymentSetupOpen ? (
-          <View style={[t.sheet, { flex: 1, paddingBottom: safeBottom, maxHeight: sheetMaxHeight }]}>
-            <WalletPaymentSetupPanel
-              active={paymentSetupOpen}
-              accessToken={accessToken}
-              startWith={paymentSetupStartWith}
-              onClose={() => {
-                setPaymentSetupOpen(false);
-                setPaymentSetupStartWith('picker');
-                if (recoveryMode) setStep('payment');
-              }}
-              onSaved={(paymentMethodId) => {
-                void loadWalletData();
-                setPaymentSetupOpen(false);
-                setPaymentSetupStartWith('picker');
-                setStep('payment');
-                onPaymentMethodSaved?.(paymentMethodId);
-              }}
-            />
-          </View>
-        ) : (
         <View style={t.backdrop}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={recoveryMode ? undefined : step === 'main' ? onClose : undefined}
-            accessibilityLabel="Dismiss Vault Wallet"
-          />
-          <KeyboardAvoidingView
-            style={{ maxHeight: sheetMaxHeight, width: '100%' }}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          >
-            <View style={[t.sheet, { paddingBottom: safeBottom }]}>
-              <View style={t.handle} />
-              {renderStep()}
-            </View>
-          </KeyboardAvoidingView>
+          {paymentSetupOpen ? (
+            <>
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={
+                  recoveryMode
+                    ? undefined
+                    : () => {
+                        setPaymentSetupOpen(false);
+                        setPaymentSetupStartWith('picker');
+                      }
+                }
+                accessibilityLabel="Dismiss payment setup"
+              />
+              <KeyboardAvoidingView
+                style={{ maxHeight: sheetMaxHeight, width: '100%' }}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              >
+                <View style={[t.sheet, { paddingBottom: safeBottom, maxHeight: sheetMaxHeight }]}>
+                  <WalletPaymentSetupPanel
+                    active={paymentSetupOpen}
+                    accessToken={accessToken}
+                    startWith={paymentSetupStartWith}
+                    onClose={() => {
+                      setPaymentSetupOpen(false);
+                      setPaymentSetupStartWith('picker');
+                      if (recoveryMode) setStep('payment');
+                    }}
+                    onSaved={(paymentMethodId) => {
+                      void loadWalletData();
+                      setPaymentSetupOpen(false);
+                      setPaymentSetupStartWith('picker');
+                      setStep('payment');
+                      onPaymentMethodSaved?.(paymentMethodId);
+                    }}
+                  />
+                </View>
+              </KeyboardAvoidingView>
+            </>
+          ) : (
+            <>
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={recoveryMode ? undefined : step === 'main' ? onClose : undefined}
+                accessibilityLabel="Dismiss Vault Wallet"
+              />
+              <KeyboardAvoidingView
+                style={{ maxHeight: sheetMaxHeight, width: '100%' }}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              >
+                <View style={[t.sheet, { paddingBottom: safeBottom }]}>
+                  <View style={t.handle} />
+                  {renderStep()}
+                </View>
+              </KeyboardAvoidingView>
+            </>
+          )}
         </View>
-        )}
       </Modal>
     </>
   );
