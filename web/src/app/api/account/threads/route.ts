@@ -104,6 +104,7 @@ export async function GET(req: Request) {
         offerId: t.offerId,
         orderId: t.orderId,
         liveRoomId: t.liveRoomId,
+        tradeOfferId: ctx.tradeOfferId ?? null,
         otherUserId: other.id,
         otherUsername: other.username,
         otherAvatarUrl: other.image,

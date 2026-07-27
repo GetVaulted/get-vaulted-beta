@@ -2087,6 +2087,34 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         });
         return;
       }
+
+      if (kind === "trade_cash") {
+        const tradeOfferId = session.metadata?.tradeOfferId;
+        const payerUserId = session.metadata?.payerUserId;
+        if (!tradeOfferId || !payerUserId) return;
+        const { finalizeTradeCashPaid } = await import("@/lib/trade-cash-checkout");
+        await finalizeTradeCashPaid({
+          tradeOfferId,
+          payerUserId,
+          checkoutSessionId: session.id,
+          paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null,
+        });
+        return;
+      }
+
+      if (kind === "trade_deposit") {
+        const tradeOfferId = session.metadata?.tradeOfferId;
+        const payerUserId = session.metadata?.payerUserId;
+        if (!tradeOfferId || !payerUserId) return;
+        const { finalizeTradeDepositPaid } = await import("@/lib/trade-deposit-checkout");
+        await finalizeTradeDepositPaid({
+          tradeOfferId,
+          payerUserId,
+          checkoutSessionId: session.id,
+          paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null,
+        });
+        return;
+      }
       break;
     }
     case "checkout.session.expired": {

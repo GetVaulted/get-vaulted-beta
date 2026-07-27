@@ -1,13 +1,30 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { TradeActionBar } from "@/components/trade/TradeActionBar";
+import { TradeAdminEscrowActions } from "@/components/trade/TradeAdminEscrowActions";
+import { TradeCashPayButton } from "@/components/trade/TradeCashPayButton";
+import { TradeDepositPayButton } from "@/components/trade/TradeDepositPayButton";
+import { TradeDisputeButton } from "@/components/trade/TradeDisputeButton";
+import { TradeFulfillmentActions } from "@/components/trade/TradeFulfillmentActions";
+import { TradeOfferConversationButton } from "@/components/trade/TradeOfferConversationButton";
 import { TradePlatformFeePayButton } from "@/components/trade/TradePlatformFeePayButton";
 import { TradeStatusTimeline } from "@/components/trade/TradeStatusTimeline";
 import { TradeValueSummary } from "@/components/trade/TradeValueSummary";
 import { getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { GET_VAULTED_TRADE_PLATFORM_FEE_USD } from "@/lib/trade-platform-fee";
-import { expireOfferIfNeeded, formatMoney } from "@/lib/trade-offers";
+import {
+  resolveTradeSecurityDepositUsd,
+  tradeRequiresSecurityDeposit,
+} from "@/lib/trade-security-deposit";
+import { expireOfferIfNeeded, formatMoney, resolveTradeCashParties } from "@/lib/trade-offers";
+import { isTradeCashHeld } from "@/lib/trade-cash-escrow";
+import {
+  TRADE_AFTER_ACCEPT_NOTE,
+  TRADE_CASH_SETTLEMENT_NOTE,
+  TRADE_FULFILLMENT_NOTE,
+  TRADE_HUB_ALIGNED_NOTE,
+} from "@/lib/trade-trust-copy";
 
 export const dynamic = "force-dynamic";
 
@@ -16,10 +33,13 @@ export default async function TradeOfferDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ fee?: string }>;
+  searchParams?: Promise<{ fee?: string; cash?: string; deposit?: string }>;
 }) {
   const { id } = await params;
-  const feeFlash = (await searchParams)?.fee;
+  const sp = await searchParams;
+  const feeFlash = sp?.fee;
+  const cashFlash = sp?.cash;
+  const depositFlash = sp?.deposit;
   const session = await getServerSessionSafe();
   if (!session?.user?.id) {
     redirect(`/signin?returnTo=${encodeURIComponent(`/trade/${encodeURIComponent(id)}`)}`);
@@ -84,6 +104,51 @@ export default async function TradeOfferDetailPage({
     ? Boolean(fresh.recipientPlatformFeePaidAt)
     : Boolean(fresh.proposerPlatformFeePaidAt);
   const cashTotal = Math.max(0, fresh.proposerCashUsd) + Math.max(0, fresh.recipientCashUsd);
+  const cashSides = resolveTradeCashParties({
+    proposerId: fresh.proposerId,
+    recipientId: fresh.recipientId,
+    proposerCashUsd: fresh.proposerCashUsd,
+    recipientCashUsd: fresh.recipientCashUsd,
+  });
+  const viewerIsCashPayer = Boolean(cashSides && cashSides.payerUserId === session.user.id);
+  const cashPayeeUsername =
+    cashSides?.payeeUserId === fresh.proposerId
+      ? fresh.proposer.username
+      : cashSides?.payeeUserId === fresh.recipientId
+        ? fresh.recipient.username
+        : null;
+
+  const viewerLabelUrl = viewerIsProposer ? fresh.proposerLabelUrl : fresh.recipientLabelUrl;
+  const viewerTrackingNumber = viewerIsProposer
+    ? fresh.proposerTrackingNumber
+    : fresh.recipientTrackingNumber;
+  const viewerLabelReady = Boolean(
+    viewerIsProposer
+      ? fresh.proposerLabelPurchasedAt || fresh.proposerLabelUrl
+      : fresh.recipientLabelPurchasedAt || fresh.recipientLabelUrl,
+  );
+  const viewerShippedAt = viewerIsProposer ? fresh.proposerShippedAt : fresh.recipientShippedAt;
+  const viewerReceivedAt = viewerIsProposer ? fresh.proposerReceivedAt : fresh.recipientReceivedAt;
+  const partnerShippedAt = viewerIsProposer ? fresh.recipientShippedAt : fresh.proposerShippedAt;
+  const partnerReceivedAt = viewerIsProposer ? fresh.recipientReceivedAt : fresh.proposerReceivedAt;
+  const partnerTrackingNumber = viewerIsProposer
+    ? fresh.recipientTrackingNumber
+    : fresh.proposerTrackingNumber;
+  const partnerTrackingUrl = viewerIsProposer ? fresh.recipientTrackingUrl : fresh.proposerTrackingUrl;
+  const requiresDeposit = tradeRequiresSecurityDeposit(fresh);
+  const depositAmountUsd = resolveTradeSecurityDepositUsd({
+    proposerCashUsd: fresh.proposerCashUsd,
+    recipientCashUsd: fresh.recipientCashUsd,
+    proposerItemsValueUsd: offeredValue,
+    recipientItemsValueUsd: requestedValue,
+    securityDepositCents: fresh.securityDepositCents,
+  });
+  const viewerDepositPaid = viewerIsProposer
+    ? Boolean(fresh.proposerDepositPaidAt)
+    : Boolean(fresh.recipientDepositPaidAt);
+  const partnerDepositPaid = viewerIsProposer
+    ? Boolean(fresh.recipientDepositPaidAt)
+    : Boolean(fresh.proposerDepositPaidAt);
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
@@ -95,10 +160,7 @@ export default async function TradeOfferDetailPage({
             @{fresh.proposer.username} ↔ @{fresh.recipient.username} · Status:{" "}
             <span className="font-semibold text-zinc-200">{fresh.status}</span>
           </p>
-          <p className="mt-1 text-xs text-zinc-500">
-            This page is the source of truth for items, cash, and offer status. Coordinate fulfillment details with your
-            counterparty using the contact method you already trust.
-          </p>
+          <p className="mt-1 text-xs text-zinc-500">{TRADE_HUB_ALIGNED_NOTE}</p>
           {fresh.expiresAt ? (
             <p className="mt-1 text-xs text-zinc-500">Expires {new Date(fresh.expiresAt).toLocaleString()}</p>
           ) : null}
@@ -126,6 +188,50 @@ export default async function TradeOfferDetailPage({
         {feeFlash === "cancelled" ? (
           <p className="mt-4 rounded-xl border border-amber-300/25 bg-amber-950/20 px-4 py-3 text-sm font-medium text-amber-100">
             Checkout cancelled — you can pay the platform fee anytime from this page.
+          </p>
+        ) : null}
+        {cashFlash === "paid" ? (
+          <p className="mt-4 rounded-xl border border-emerald-300/25 bg-emerald-950/20 px-4 py-3 text-sm font-medium text-emerald-100">
+            Trade cash payment received. Thank you.
+          </p>
+        ) : null}
+        {cashFlash === "cancelled" ? (
+          <p className="mt-4 rounded-xl border border-amber-300/25 bg-amber-950/20 px-4 py-3 text-sm font-medium text-amber-100">
+            Cash checkout cancelled — you can pay anytime from this page.
+          </p>
+        ) : null}
+        {depositFlash === "paid" ? (
+          <p className="mt-4 rounded-xl border border-emerald-300/25 bg-emerald-950/20 px-4 py-3 text-sm font-medium text-emerald-100">
+            Security deposit received. It will be refunded when both of you confirm receipt.
+          </p>
+        ) : null}
+        {depositFlash === "cancelled" ? (
+          <p className="mt-4 rounded-xl border border-amber-300/25 bg-amber-950/20 px-4 py-3 text-sm font-medium text-amber-100">
+            Deposit checkout cancelled — you can pay anytime from this page.
+          </p>
+        ) : null}
+        {fresh.status === "disputed" ? (
+          <p className="mt-4 rounded-xl border border-rose-300/25 bg-rose-950/20 px-4 py-3 text-sm font-medium text-rose-100">
+            Dispute open{fresh.disputeReason ? `: ${fresh.disputeReason}` : "."} Shipping confirmations and cash
+            release are paused until Get Vaulted resolves it.
+          </p>
+        ) : null}
+
+        {cashTotal > 0 && (fresh.status === "accepted" || fresh.status === "completed" || fresh.status === "disputed") ? (
+          <p className="mt-4 rounded-xl border border-white/[0.08] bg-[#09090c]/85 px-4 py-3 text-sm text-zinc-300">
+            Trade cash ({formatMoney(cashTotal)}):{" "}
+            {!fresh.cashPaidAt
+              ? "not paid yet"
+              : fresh.cashRefundedAt
+                ? "refunded to payer"
+                : fresh.cashReleasedAt
+                  ? "released to payee"
+                  : isTradeCashHeld(fresh)
+                    ? "held by Get Vaulted until both confirm receipt"
+                    : "recorded"}
+            {fresh.cashReleaseError ? (
+              <span className="mt-1 block text-xs text-amber-200/90">{fresh.cashReleaseError}</span>
+            ) : null}
           </p>
         ) : null}
 
@@ -173,9 +279,10 @@ export default async function TradeOfferDetailPage({
             <p className="mt-2 text-sm text-zinc-300">{fresh.messageToRecipient}</p>
           </section>
         ) : null}
-        {fresh.status === "accepted" || fresh.status === "completed" ? (
+        {fresh.status === "accepted" || fresh.status === "completed" || fresh.status === "disputed" ? (
           <section className="mt-4 rounded-2xl border border-gold/25 bg-[#0a0a0d]/90 p-4">
             <p className="text-sm font-semibold text-gold-bright">After accept — costs</p>
+            <p className="mt-2 text-xs leading-relaxed text-zinc-400">{TRADE_AFTER_ACCEPT_NOTE}</p>
             <ul className="mt-2 space-y-1.5 text-xs text-zinc-400">
               <li>
                 One Stripe charge per party: ${GET_VAULTED_TRADE_PLATFORM_FEE_USD.toFixed(2)} Get Vaulted fee + your
@@ -184,48 +291,88 @@ export default async function TradeOfferDetailPage({
               </li>
               {cashTotal > 0 ? (
                 <li>
-                  Cash on this trade: {formatMoney(cashTotal)} — settle off-platform, or pay on Get Vaulted later
-                  (Stripe card fees apply on-platform).
+                  Cash on this trade: {formatMoney(cashTotal)}.
+                  {fresh.cashPaidAt
+                    ? fresh.cashReleasedAt
+                      ? " Paid and released to payee."
+                      : fresh.cashRefundedAt
+                        ? " Paid then refunded."
+                        : " Paid — held by Get Vaulted until both confirm receipt."
+                    : ` ${TRADE_CASH_SETTLEMENT_NOTE}`}
                 </li>
               ) : (
-                <li>No cash on this trade.</li>
+                <li>
+                  Straight trade (no cash) — each side pays a {formatMoney(depositAmountUsd)} refundable
+                  security deposit (25% of higher-side value, $100–$500)
+                  {requiresDeposit
+                    ? viewerDepositPaid
+                      ? partnerDepositPaid
+                        ? " · both deposits paid"
+                        : " · waiting on partner deposit"
+                      : " · your deposit due before mark shipped"
+                    : ""}
+                  .
+                </li>
               )}
             </ul>
-            {isParticipant ? (
+            {isParticipant && fresh.status !== "disputed" ? (
               <div className="mt-4 space-y-3">
                 <TradePlatformFeePayButton offerId={fresh.id} alreadyPaid={viewerFeePaid} />
-                {viewerIsProposer && fresh.proposerLabelUrl ? (
-                  <a
-                    href={fresh.proposerLabelUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex text-sm font-semibold text-gold-bright hover:underline"
-                  >
-                    Download your shipping label
-                    {fresh.proposerTrackingNumber ? ` · ${fresh.proposerTrackingNumber}` : ""}
-                  </a>
+                {requiresDeposit ? (
+                  <TradeDepositPayButton
+                    offerId={fresh.id}
+                    amountUsd={depositAmountUsd}
+                    alreadyPaid={viewerDepositPaid}
+                  />
                 ) : null}
-                {!viewerIsProposer && fresh.recipientLabelUrl ? (
-                  <a
-                    href={fresh.recipientLabelUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex text-sm font-semibold text-gold-bright hover:underline"
-                  >
-                    Download your shipping label
-                    {fresh.recipientTrackingNumber ? ` · ${fresh.recipientTrackingNumber}` : ""}
-                  </a>
+                {viewerIsCashPayer && cashSides ? (
+                  <TradeCashPayButton
+                    offerId={fresh.id}
+                    amountUsd={cashSides.amountUsd}
+                    payeeUsername={cashPayeeUsername}
+                    alreadyPaid={Boolean(fresh.cashPaidAt)}
+                  />
                 ) : null}
+                <p className="text-[11px] text-zinc-500">{TRADE_FULFILLMENT_NOTE}</p>
+                <TradeFulfillmentActions
+                  offerId={fresh.id}
+                  canMarkShipped={
+                    viewerLabelReady &&
+                    !viewerShippedAt &&
+                    (!requiresDeposit || viewerDepositPaid)
+                  }
+                  alreadyShipped={Boolean(viewerShippedAt)}
+                  canConfirmReceived={Boolean(partnerShippedAt) && !viewerReceivedAt}
+                  alreadyReceived={Boolean(viewerReceivedAt)}
+                  completed={fresh.status === "completed"}
+                  viewerLabelUrl={viewerLabelUrl}
+                  viewerTrackingNumber={viewerTrackingNumber}
+                  partnerTrackingNumber={partnerTrackingNumber}
+                  partnerTrackingUrl={partnerTrackingUrl}
+                  partnerShipped={Boolean(partnerShippedAt)}
+                  partnerReceived={Boolean(partnerReceivedAt)}
+                />
+              </div>
+            ) : null}
+            {isParticipant && fresh.status === "accepted" ? (
+              <div className="mt-4">
+                <TradeDisputeButton offerId={fresh.id} />
               </div>
             ) : null}
           </section>
         ) : null}
+        {isAdmin ? <TradeAdminEscrowActions offerId={fresh.id} /> : null}
         <section className="mt-4 rounded-2xl border border-white/[0.08] bg-[#09090c]/85 p-4">
-          <p className="text-sm font-semibold text-zinc-100">Coordination</p>
+          <p className="text-sm font-semibold text-zinc-100">Trade chat</p>
           <p className="mt-1 text-xs text-zinc-500">
-            Use email or another channel you both use today. The offer timeline and status on this page stay
-            authoritative for what was agreed in Get Vaulted.
+            Message your counterparty about shipping and handoff. The offer timeline and status on this page stay
+            authoritative for items, cash, and acceptance — chat never changes the deal terms.
           </p>
+          {isParticipant ? (
+            <div className="mt-3">
+              <TradeOfferConversationButton offerId={fresh.id} conversationId={fresh.conversationId} />
+            </div>
+          ) : null}
         </section>
         <div className="mt-4">
           <TradeStatusTimeline

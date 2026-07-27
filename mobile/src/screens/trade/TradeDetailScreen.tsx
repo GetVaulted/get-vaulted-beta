@@ -23,7 +23,13 @@ import { listingToTradeItem } from '../../trade/listingToTradeItem';
 import { TRADE_STATUS_LABEL, TRADE_STATUS_ORDER, tradeStatusIndex } from '../../lib/tradeStatusLabels';
 import { TradeStatusBadge } from '../../components/trade/TradeStatusBadge';
 import { navigateAuthLogin, navigateAuthSignUp } from '../../navigation/rootNavigationRef';
+import { openMessageThread } from '../../navigation/openMessages';
 import { openContactSupport, openDispute, openUserProfile, openWriteReview } from '../../navigation/openPlatform';
+import { ensureTradeConversationViaWeb, confirmTradeReceivedViaWeb, isWebTradeApiConfigured, markTradeShippedViaWeb, openTradeDisputeViaWeb } from '../../api/tradeOffersWebApi';
+import { TRADE_AFTER_ACCEPT_NOTE, TRADE_CASH_SETTLEMENT_NOTE, TRADE_FULFILLMENT_NOTE, resolveMobileTradeSecurityDepositUsd } from '../../data/tradeTrustCopy';
+import { isTradeCashCheckoutStatus, resolveMobileTradeCashParties } from '../../lib/tradeCashParties';
+import { TradeCashPayButton } from '../../components/trade/TradeCashPayButton';
+import { TradeDepositPayButton } from '../../components/trade/TradeDepositPayButton';
 
 type Props = NativeStackScreenProps<TradeCenterStackParamList, 'TradeDetail'>;
 
@@ -77,8 +83,26 @@ export function TradeDetailScreen({ navigation, route }: Props) {
   const partner = offer.sender_id === uid ? offer.recipient : offer.sender;
   const partnerHandle = partner.username ? `@${partner.username}` : partner.display_name ?? 'Partner';
   const idx = tradeStatusIndex(offer.status);
-  const showLabels = ['labels_generated', 'shipped', 'delivered', 'completed'].includes(offer.status);
-  const showLabelError = offer.status === 'label_error';
+  const viewerIsProposer = offer.sender_id === uid;
+  const mine = viewerIsProposer ? offer.proposer_fulfillment : offer.recipient_fulfillment;
+  const theirs = viewerIsProposer ? offer.recipient_fulfillment : offer.proposer_fulfillment;
+  const hasWebFulfillment = Boolean(mine?.label_url || mine?.label_purchased_at || theirs?.label_url || theirs?.tracking_number);
+  const showLabels =
+    ['labels_generated', 'shipped', 'delivered', 'completed', 'accepted'].includes(offer.status) &&
+    (labels.length > 0 || hasWebFulfillment);
+  const showLabelError = offer.status === 'label_error' || Boolean(mine?.label_error_message);
+  const showFulfillmentActions =
+    ['accepted', 'completed'].includes(offer.status) && isWebTradeApiConfigured() && offer.status !== 'disputed';
+  const canMarkShipped = Boolean(
+    (mine?.label_purchased_at || mine?.label_url) &&
+      !mine?.shipped_at &&
+      offer.status === 'accepted' &&
+      (Math.abs(offer.cash_difference) > 0 ||
+        (viewerIsProposer
+          ? Boolean(offer.proposer_deposit_paid_at)
+          : Boolean(offer.recipient_deposit_paid_at))),
+  );
+  const canConfirmReceived = Boolean(theirs?.shipped_at && !mine?.received_at && offer.status === 'accepted');
 
   const openLabel = (url: string | null) => {
     if (!url) {
@@ -86,6 +110,71 @@ export function TradeDetailScreen({ navigation, route }: Props) {
       return;
     }
     void Linking.openURL(url);
+  };
+
+  const onMarkShipped = () => {
+    void (async () => {
+      try {
+        await markTradeShippedViaWeb(tradeId);
+        await reload();
+      } catch (e) {
+        Alert.alert('Mark shipped', e instanceof Error ? e.message : 'Could not update.');
+      }
+    })();
+  };
+
+  const onConfirmReceived = () => {
+    void (async () => {
+      try {
+        const res = await confirmTradeReceivedViaWeb(tradeId);
+        await reload();
+        if (res.completed) {
+          Alert.alert('Trade completed', 'Both sides confirmed receipt. Held cash (if any) is released to the payee.');
+        }
+      } catch (e) {
+        Alert.alert('Confirm received', e instanceof Error ? e.message : 'Could not update.');
+      }
+    })();
+  };
+
+  const onOpenDispute = () => {
+    if (!isWebTradeApiConfigured() || offer.status !== 'accepted') {
+      openDispute({ contextType: 'trade', referenceId: tradeId });
+      return;
+    }
+    const submit = (reason: string) => {
+      void (async () => {
+        try {
+          await openTradeDisputeViaWeb(tradeId, reason);
+          await reload();
+          Alert.alert('Dispute opened', 'Fulfillment and cash release are paused until Get Vaulted resolves this.');
+        } catch (e) {
+          Alert.alert('Dispute', e instanceof Error ? e.message : 'Could not open dispute.');
+        }
+      })();
+    };
+    if (typeof Alert.prompt === 'function') {
+      Alert.prompt(
+        'Open dispute',
+        'Describe the issue. Any held trade cash stays held until resolved.',
+        (text) => {
+          const reason = (text ?? '').trim();
+          if (reason.length < 8) {
+            Alert.alert('Dispute', 'Please enter at least 8 characters.');
+            return;
+          }
+          submit(reason);
+        },
+        'plain-text',
+      );
+      return;
+    }
+    Alert.alert('Open dispute', 'Any held trade cash stays held until Get Vaulted resolves this.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Wrong / missing item', onPress: () => submit('Wrong or missing item received') },
+      { text: 'Never shipped', onPress: () => submit('Partner never shipped or tracking is inactive') },
+      { text: 'Other issue', onPress: () => submit('Other trade fulfillment issue — need support review') },
+    ]);
   };
 
   return (
@@ -96,6 +185,19 @@ export function TradeDetailScreen({ navigation, route }: Props) {
           <Text style={styles.pipeTitle}>Status</Text>
           <TradeStatusBadge status={offer.status} />
         </View>
+
+        {offer.status === 'disputed' ? (
+          <View style={styles.errorCard}>
+            <Ionicons name="shield-outline" size={22} color="#f0a8a8" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.errorTitle}>Dispute open</Text>
+              <Text style={styles.errorBody}>
+                Shipping confirmations and cash release are paused until Get Vaulted resolves this. Items are not in
+                platform custody.
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.timeline}>
           {steps.map((s, i) => {
@@ -157,21 +259,88 @@ export function TradeDetailScreen({ navigation, route }: Props) {
           <>
             <Text style={styles.section}>Shipping & tracking</Text>
             <Text style={styles.shipLead}>
-              Each party pays $2.99 plus their own outbound shipping. Download label PDFs from Shippo when ready.
+              Each party pays $2.99 plus their own outbound shipping. Download label PDFs when ready, then mark shipped
+              and confirm receipt.
             </Text>
-            {labels.map((L) => (
-                <ShipCard
-                  key={L.id}
-                  title={L.user_id === uid ? 'Your outbound label' : 'Their label (reference)'}
-                  tracking={L.tracking_number ?? '—'}
-                  shipBy={L.ship_by_date ? `Ship by ${L.ship_by_date}` : 'See Shippo ETA'}
-                  instructions="Use branded packaging · photo document handoff."
-                  carrier={L.carrier ?? '—'}
-                  status={L.status}
-                  onDownload={() => openLabel(L.label_url)}
-                />
-              ))}
+            {labels.length > 0
+              ? labels.map((L) => (
+                  <ShipCard
+                    key={L.id}
+                    title={L.user_id === uid ? 'Your outbound label' : 'Their label (reference)'}
+                    tracking={L.tracking_number ?? '—'}
+                    shipBy={L.ship_by_date ? `Ship by ${L.ship_by_date}` : 'See Shippo ETA'}
+                    instructions="Use branded packaging · photo document handoff."
+                    carrier={L.carrier ?? '—'}
+                    status={L.status}
+                    onDownload={() => openLabel(L.label_url)}
+                  />
+                ))
+              : null}
+            {labels.length === 0 && hasWebFulfillment ? (
+              <>
+                {mine?.label_url || mine?.tracking_number ? (
+                  <ShipCard
+                    title="Your outbound label"
+                    tracking={mine?.tracking_number ?? '—'}
+                    shipBy={mine?.shipped_at ? 'Marked shipped' : 'Ship with this label'}
+                    instructions={TRADE_FULFILLMENT_NOTE}
+                    carrier="Shippo"
+                    status={mine?.shipped_at ? 'shipped' : 'ready'}
+                    onDownload={() => openLabel(mine?.label_url ?? null)}
+                  />
+                ) : null}
+                {theirs?.tracking_number || theirs?.tracking_url ? (
+                  <ShipCard
+                    title="Partner package"
+                    tracking={theirs?.tracking_number ?? '—'}
+                    shipBy={theirs?.shipped_at ? 'Partner marked shipped' : 'Label ready'}
+                    instructions="Track their outbound package here."
+                    carrier="Shippo"
+                    status={theirs?.shipped_at ? 'shipped' : 'ready'}
+                    onDownload={() => {
+                      if (theirs?.tracking_url) void Linking.openURL(theirs.tracking_url);
+                      else Alert.alert('Tracking', theirs?.tracking_number ?? 'No tracking URL yet.');
+                    }}
+                  />
+                ) : null}
+              </>
+            ) : null}
           </>
+        ) : null}
+
+        {showFulfillmentActions ? (
+          <View style={styles.fulfillCard}>
+            <Text style={styles.section}>Fulfillment</Text>
+            <Text style={styles.shipLead}>{TRADE_FULFILLMENT_NOTE}</Text>
+            {offer.status === 'completed' ? (
+              <Text style={styles.fulfillDone}>Trade completed — both sides confirmed receipt.</Text>
+            ) : (
+              <View style={styles.fulfillBtns}>
+                {mine?.shipped_at ? (
+                  <Text style={styles.fulfillDone}>You marked shipped.</Text>
+                ) : (
+                  <Pressable
+                    style={[styles.fulfillBtn, !canMarkShipped && styles.fulfillBtnDisabled]}
+                    disabled={!canMarkShipped}
+                    onPress={onMarkShipped}
+                  >
+                    <Text style={styles.fulfillBtnTxt}>Mark shipped</Text>
+                  </Pressable>
+                )}
+                {mine?.received_at ? (
+                  <Text style={styles.fulfillDone}>You confirmed receipt.</Text>
+                ) : (
+                  <Pressable
+                    style={[styles.fulfillBtnPrimary, !canConfirmReceived && styles.fulfillBtnDisabled]}
+                    disabled={!canConfirmReceived}
+                    onPress={onConfirmReceived}
+                  >
+                    <Text style={styles.fulfillBtnPrimaryTxt}>Confirm received</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+          </View>
         ) : null}
 
         <View style={styles.kpi}>
@@ -181,7 +350,87 @@ export function TradeDetailScreen({ navigation, route }: Props) {
           <Text style={styles.kpiVal}>
             {offer.cash_difference >= 0 ? '+' : ''}${offer.cash_difference.toFixed(2)}
           </Text>
+          {Math.abs(offer.cash_difference) > 0 ? (
+            <Text style={[styles.shipLead, { marginTop: spacing.sm, marginBottom: 0 }]}>
+              {offer.cash_paid_at ? 'Cash paid on Get Vaulted.' : TRADE_CASH_SETTLEMENT_NOTE}
+            </Text>
+          ) : null}
         </View>
+
+        {(() => {
+          const cashSides = resolveMobileTradeCashParties(offer);
+          const offeredValue = offer.offered.reduce((s, i) => s + (i.price || 0), 0);
+          const requestedValue = offer.requested.price || 0;
+          const depositAmountUsd = resolveMobileTradeSecurityDepositUsd({
+            cashDifference: offer.cash_difference,
+            offeredValueUsd: offeredValue,
+            requestedValueUsd: requestedValue,
+            securityDepositCents: offer.security_deposit_cents,
+          });
+          const requiresDeposit = depositAmountUsd != null;
+          const viewerDepositPaid = viewerIsProposer
+            ? Boolean(offer.proposer_deposit_paid_at)
+            : Boolean(offer.recipient_deposit_paid_at);
+          const canPayCash =
+            Boolean(cashSides) &&
+            isTradeCashCheckoutStatus(offer.status) &&
+            cashSides!.payerUserId === uid;
+          return (
+            <>
+              {requiresDeposit && depositAmountUsd != null && ['accepted', 'completed'].includes(offer.status) ? (
+                <TradeDepositPayButton
+                  offerId={tradeId}
+                  amountUsd={depositAmountUsd}
+                  alreadyPaid={viewerDepositPaid}
+                  onPaid={() => void reload()}
+                />
+              ) : null}
+              {canPayCash && cashSides ? (
+                <TradeCashPayButton
+                  offerId={tradeId}
+                  amountUsd={cashSides.amountUsd}
+                  payeeHandle={
+                    (cashSides.payeeUserId === offer.sender_id ? offer.sender : offer.recipient).username
+                      ? `@${(cashSides.payeeUserId === offer.sender_id ? offer.sender : offer.recipient).username}`
+                      : (cashSides.payeeUserId === offer.sender_id ? offer.sender : offer.recipient)
+                          .display_name
+                  }
+                  alreadyPaid={Boolean(offer.cash_paid_at)}
+                  onPaid={() => void reload()}
+                />
+              ) : null}
+            </>
+          );
+        })()}
+
+        <Pressable
+          style={styles.primaryChat}
+          onPress={() => {
+            void (async () => {
+              try {
+                if (offer.conversation_id) {
+                  openMessageThread(undefined, offer.conversation_id);
+                  return;
+                }
+                if (!isWebTradeApiConfigured()) {
+                  Alert.alert('Trade chat', 'Connect to Get Vaulted web API to message about this trade.');
+                  return;
+                }
+                const { threadId } = await ensureTradeConversationViaWeb(tradeId);
+                openMessageThread(undefined, threadId);
+                await reload();
+              } catch (e) {
+                Alert.alert('Trade chat', e instanceof Error ? e.message : 'Could not open chat.');
+              }
+            })();
+          }}
+        >
+          <Ionicons name="chatbubbles-outline" size={18} color={colors.background} />
+          <Text style={styles.primaryChatTxt}>
+            {offer.conversation_id ? 'Open trade chat' : 'Message about this trade'}
+          </Text>
+        </Pressable>
+        <Text style={styles.chatHint}>{TRADE_AFTER_ACCEPT_NOTE}</Text>
 
         <Pressable
           style={styles.link}
@@ -201,7 +450,7 @@ export function TradeDetailScreen({ navigation, route }: Props) {
           <Text style={styles.linkTxt}>Contact support</Text>
         </Pressable>
 
-        <Pressable style={styles.link} onPress={() => openDispute({ contextType: 'trade', referenceId: tradeId })}>
+        <Pressable style={styles.link} onPress={onOpenDispute}>
           <Ionicons name="shield-outline" size={18} color={colors.live} />
           <Text style={[styles.linkTxt, { color: colors.live }]}>Open dispute</Text>
         </Pressable>
@@ -377,6 +626,57 @@ const styles = StyleSheet.create({
   },
   kpiLbl: { color: colors.textMuted, fontSize: 12 },
   kpiVal: { color: colors.textPrimary, fontSize: 18, fontWeight: '800', marginTop: 4 },
+  primaryChat: {
+    marginTop: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.gold,
+  },
+  primaryChatTxt: { color: colors.background, fontWeight: '800', fontSize: 15 },
+  chatHint: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
   link: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm },
   linkTxt: { color: colors.gold, fontWeight: '700', fontSize: 14 },
+  fulfillCard: {
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: spacing.sm,
+  },
+  fulfillBtns: { gap: spacing.sm, marginTop: spacing.sm },
+  fulfillBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceElevated,
+  },
+  fulfillBtnPrimary: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: 'rgba(46,160,90,0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(46,160,90,0.45)',
+  },
+  fulfillBtnDisabled: { opacity: 0.45 },
+  fulfillBtnTxt: { color: colors.textPrimary, fontWeight: '800', fontSize: 14 },
+  fulfillBtnPrimaryTxt: { color: '#b6f0c8', fontWeight: '800', fontSize: 14 },
+  fulfillDone: { color: '#b6f0c8', fontWeight: '700', fontSize: 14 },
 });

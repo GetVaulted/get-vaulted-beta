@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image, StyleSheet, Text, View } from 'react-native';
+import { TRADE_HERO_CHIPS, TRADE_HERO_SUB } from '../../data/tradeTrustCopy';
 import { colors, radii, spacing } from '../../theme';
 
 const HERO_IMAGE =
@@ -24,18 +25,15 @@ export function TradeCenterHero() {
       />
       <View style={styles.inner}>
         <View style={styles.kickerRow}>
-          <Ionicons name="shield-checkmark" size={14} color={colors.gold} />
-          <Text style={styles.kicker}>Secure collector network</Text>
+          <Ionicons name="swap-horizontal" size={14} color={colors.gold} />
+          <Text style={styles.kicker}>Collector trades</Text>
         </View>
         <Text style={styles.title}>Trade Center</Text>
-        <Text style={styles.sub}>
-          Verified inventory, protected labels, and private vault-to-vault deals — built for trusted collector
-          trading.
-        </Text>
+        <Text style={styles.sub}>{TRADE_HERO_SUB}</Text>
         <View style={styles.chips}>
-          <Chip label="Protected offers" />
-          <Chip label="Vault verified" />
-          <Chip label="Deal rooms" />
+          {TRADE_HERO_CHIPS.map((label) => (
+            <Chip key={label} label={label} />
+          ))}
         </View>
       </View>
     </View>

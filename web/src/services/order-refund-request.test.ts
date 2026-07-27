@@ -2,6 +2,8 @@ import Stripe from "stripe";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/notifications", () => ({ createNotification: vi.fn().mockResolvedValue(undefined) }));
+const scheduleNotifyAdmins = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/admin/notify-admins", () => ({ scheduleNotifyAdmins }));
 vi.mock("@/lib/seller-commerce-event", () => ({
   SELLER_COMMERCE_KIND: {
     orderRefunded: "order_refunded",
@@ -51,6 +53,7 @@ vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
 import { createNotification } from "@/lib/notifications";
 import {
+  buyerEscalateRefundRequest,
   createBuyerRefundRequest,
   executeOrderRefund,
   sellerConfirmReturnReceived,
@@ -826,5 +829,49 @@ describe("marketplace cancel request", () => {
       }),
     ).rejects.toMatchObject({ code: "REASON_REQUIRED" });
     expect(stripeRefundsCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("buyerEscalateRefundRequest", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("notifies the seller and admins when a denied refund is escalated", async () => {
+    const order = returnEligibleOrder();
+    prismaMock.order.findUnique.mockResolvedValue(order);
+    prismaMock.orderRefundRequest.findFirst.mockResolvedValue(
+      fullRefundRequestRow({
+        id: "req_esc_1",
+        orderId: order.id,
+        kind: "return",
+        status: "seller_denied",
+      }),
+    );
+    prismaMock.orderRefundRequest.findUniqueOrThrow.mockResolvedValue(
+      fullRefundRequestRow({
+        id: "req_esc_1",
+        orderId: order.id,
+        kind: "return",
+        status: "escalated",
+      }),
+    );
+
+    await buyerEscalateRefundRequest({ orderId: order.id, buyerId: order.buyerId });
+
+    expect(createNotificationMock).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({
+        userId: order.sellerId,
+        type: "order_refund_escalated",
+      }),
+    );
+    expect(scheduleNotifyAdmins).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "admin_refund_escalated",
+        href: "/admin/refund-requests",
+        dedupeKey: "refund-escalated:req_esc_1",
+      }),
+    );
   });
 });

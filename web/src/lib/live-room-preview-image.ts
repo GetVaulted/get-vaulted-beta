@@ -36,10 +36,12 @@ function categoryPreviewImage(category: string | null | undefined): string {
 export type LiveRoomPreviewImageInput = {
   thumbnailUrl?: string | null;
   firstItemImageUrl?: string | null;
+  /** Host profile photo — used before generic category stock art (mobile scheduled-card parity). */
+  sellerAvatarUrl?: string | null;
   category?: string | null;
 };
 
-/** uploaded thumbnail → first listing/queue image → category art → branded placeholder */
+/** uploaded thumbnail → first listing/queue image → host avatar → category art → branded placeholder */
 export function resolveLiveRoomPreviewImage(
   input: LiveRoomPreviewImageInput,
   siteBase = publicSiteBaseUrl(),
@@ -48,5 +50,7 @@ export function resolveLiveRoomPreviewImage(
   if (thumb) return thumb;
   const item = resolveLiveRoomMediaUrl(input.firstItemImageUrl, siteBase);
   if (item) return item;
+  const avatar = resolveLiveRoomMediaUrl(input.sellerAvatarUrl, siteBase);
+  if (avatar) return avatar;
   return categoryPreviewImage(input.category);
 }

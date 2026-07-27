@@ -16,7 +16,9 @@ import {
   isWebTradeApiConfigured,
 } from '../../api/tradeOffersWebApi';
 import { TradeStatusBadge } from '../../components/trade/TradeStatusBadge';
+import { TradeCashPayButton } from '../../components/trade/TradeCashPayButton';
 import { tradeFeeCentsForTier } from '../../lib/tradeFeeAmounts';
+import { isTradeCashCheckoutStatus, resolveMobileTradeCashParties } from '../../lib/tradeCashParties';
 
 type Props = NativeStackScreenProps<TradeCenterStackParamList, 'TradeCheckout'>;
 
@@ -56,6 +58,19 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
   const amountCents = tradeFeeCentsForTier(offer.shipping_weight_tier);
   const webOk = isWebTradeApiConfigured();
   const netlifyOk = Boolean(getNetlifyFunctionsBase());
+  const cashSides = resolveMobileTradeCashParties(offer);
+  const viewerIsCashPayer = Boolean(user?.id && cashSides && cashSides.payerUserId === user.id);
+  const cashPayee =
+    cashSides?.payeeUserId === offer.sender_id
+      ? offer.sender
+      : cashSides?.payeeUserId === offer.recipient_id
+        ? offer.recipient
+        : null;
+  const cashPayeeHandle = cashPayee?.username
+    ? `@${cashPayee.username}`
+    : cashPayee?.display_name ?? null;
+  const showCashPay =
+    viewerIsCashPayer && cashSides && isTradeCashCheckoutStatus(offer.status);
 
   const pay = async () => {
     if (!user) {
@@ -171,9 +186,19 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
           </Pressable>
         )}
 
+        {showCashPay && cashSides ? (
+          <TradeCashPayButton
+            offerId={offer.id}
+            amountUsd={cashSides.amountUsd}
+            payeeHandle={cashPayeeHandle}
+            alreadyPaid={Boolean(offer.cash_paid_at)}
+            onPaid={() => void reload()}
+          />
+        ) : null}
+
         <Text style={styles.hintFoot}>
           Stripe will show $2.99 plus your outbound label rate as one payment. Your label is purchased automatically
-          after payment.
+          after payment. Optional trade cash is a separate checkout if you are the party adding cash.
         </Text>
 
         <View style={{ height: spacing.xxxl }} />

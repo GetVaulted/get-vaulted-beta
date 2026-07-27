@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  browserCanLoadHlsJsBundle,
   liveStageObjectFitForStreamMode,
   liveStageObjectFitForPlayback,
   parseBuyerSafeStreamPayload,
@@ -76,6 +77,13 @@ describe("live-stream-playback", () => {
       userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile",
     });
     expect(preferNativeHlsElementPlayback()).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it("browserCanLoadHlsJsBundle is false without window and true when optional chaining parses", () => {
+    expect(browserCanLoadHlsJsBundle()).toBe(false);
+    vi.stubGlobal("window", {});
+    expect(browserCanLoadHlsJsBundle()).toBe(true);
     vi.unstubAllGlobals();
   });
 

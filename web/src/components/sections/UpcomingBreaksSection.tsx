@@ -7,6 +7,7 @@ import { SectionHeading } from "@/components/sections/SectionHeading";
 import { useLiveMarketplaceEnabled } from "@/components/providers/LiveMarketplaceGateProvider";
 import { LIVE_DISCOVERY_WINDOW_EVENT } from "@/lib/live-discovery-realtime";
 import type { LiveRoomListApiRow } from "@/lib/live-room-directory-mapper";
+import { resolveLiveNowCardImageUrl } from "@/lib/live-room-directory-mapper";
 
 function scheduledCardProps(row: LiveRoomListApiRow) {
   const iso = row.scheduledStartAt;
@@ -30,7 +31,7 @@ function scheduledCardProps(row: LiveRoomListApiRow) {
     price: 0,
     priceLabel: "View room",
     seed: row.id,
-    imageUrl: row.thumbnailUrl?.trim() || undefined,
+    imageUrl: resolveLiveNowCardImageUrl(row),
     href: `/live/${encodeURIComponent(row.id)}`,
   };
 }

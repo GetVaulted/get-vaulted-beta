@@ -76,6 +76,15 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       body: `The buyer opened a dispute on the escrow order for “${title}”. Payout is on hold until it's resolved.`,
       href: `/account/sales/${encodeURIComponent(order.id)}`,
     });
+
+    const { scheduleNotifyAdmins } = await import("@/lib/admin/notify-admins");
+    scheduleNotifyAdmins({
+      type: "admin_escrow_dispute",
+      title: "Escrow dispute opened",
+      body: `Buyer opened a dispute on “${title.slice(0, 120)}”.`,
+      href: `/admin/orders/${encodeURIComponent(order.id)}`,
+      dedupeKey: `escrow-dispute:${order.id}`,
+    });
   }
 
   // TODO: Notify external payment provider dispute API when endpoint is confirmed.

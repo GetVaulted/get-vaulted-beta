@@ -74,6 +74,23 @@ export function preferNativeHlsElementPlayback(): boolean {
   return isIosLikePlaybackClient();
 }
 
+/**
+ * hls.js 1.6 ships optional chaining in its prebundled dist. Loading that chunk on engines that
+ * cannot parse `?.` throws a global `SyntaxError: Unexpected token '.'` (Sentry `/live/:id`) —
+ * `import().catch` does not swallow script-parse failures. Gate the dynamic import on this check.
+ */
+export function browserCanLoadHlsJsBundle(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    // Parse-only probe — must not appear as literal `?.` in our own shipped sources if we ever
+    // target the same ancient engines; Function body is fine because we never execute this path
+    // on those engines after the throw.
+    return new Function("return ({x:1})?.x === 1")() === true;
+  } catch {
+    return false;
+  }
+}
+
 export function isLiveStreamSignal(streamHealth: string): boolean {
   const h = streamHealth.toLowerCase();
   return h === "live" || h === "connecting";

@@ -11,6 +11,7 @@ type Overview = {
   liveActive: number;
   liveScheduled: number;
   openReports: number;
+  openSupportTickets: number;
   pendingListings: number;
   flaggedListings: number;
   openOrders: number;
@@ -81,6 +82,12 @@ export function AdminCommandCenterPage() {
               { label: "Live shows", value: data?.liveActive ?? 0, href: "/admin/live-shows", tone: "gold" },
               { label: "Scheduled shows", value: data?.liveScheduled ?? 0, href: "/admin/live-shows" },
               { label: "Open reports", value: data?.openReports ?? 0, href: "/admin/trust", tone: "warn" },
+              {
+                label: "Open support tickets",
+                value: data?.openSupportTickets ?? 0,
+                href: "/admin/support-tickets",
+                tone: "warn",
+              },
               { label: "Pending listings", value: data?.pendingListings ?? 0, href: "/admin/moderation" },
               { label: "GMV (recent paid)", value: data?.finance?.gmvUsd ?? null, hint: "Item subtotal, paid orders sample", tone: "gold" },
               { label: "Platform fees", value: data?.finance?.platformFeesUsd ?? null, href: "/admin/finance" },

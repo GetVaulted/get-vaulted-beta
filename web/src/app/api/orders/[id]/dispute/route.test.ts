@@ -11,6 +11,9 @@ vi.mock("@/lib/escrow-audit-log", () => ({ logEscrowStatusTransition }));
 const createNotification = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock("@/lib/notifications", () => ({ createNotification }));
 
+const scheduleNotifyAdmins = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/admin/notify-admins", () => ({ scheduleNotifyAdmins }));
+
 const prismaMock = vi.hoisted(() => ({
   order: {
     findFirst: vi.fn(),
@@ -65,6 +68,13 @@ describe("POST /api/orders/[id]/dispute", () => {
     // The body should reference the listing so the seller knows which order is disputed.
     const call = createNotification.mock.calls[0][1] as { body: string };
     expect(call.body).toContain("Vintage Card");
+    expect(scheduleNotifyAdmins).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "admin_escrow_dispute",
+        href: `/admin/orders/${encodeURIComponent("ord_1")}`,
+        dedupeKey: "escrow-dispute:ord_1",
+      }),
+    );
   });
 
   it("logs the escrow status transition audit entry alongside the notification", async () => {
@@ -88,6 +98,7 @@ describe("POST /api/orders/[id]/dispute", () => {
 
     expect(res.status).toBe(200);
     expect(createNotification).not.toHaveBeenCalled();
+    expect(scheduleNotifyAdmins).not.toHaveBeenCalled();
     expect(logEscrowStatusTransition).not.toHaveBeenCalled();
   });
 

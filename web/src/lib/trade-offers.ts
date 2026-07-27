@@ -18,6 +18,32 @@ export function summarizeCash(proposerCashUsd: number, recipientCashUsd: number)
   return "No cash adjustment";
 }
 
+/** Who pays / receives optional trade cash (one direction only). */
+export function resolveTradeCashParties(args: {
+  proposerId: string;
+  recipientId: string;
+  proposerCashUsd: number;
+  recipientCashUsd: number;
+}): { amountUsd: number; payerUserId: string; payeeUserId: string } | null {
+  const proposerCash = Math.max(0, Number(args.proposerCashUsd) || 0);
+  const recipientCash = Math.max(0, Number(args.recipientCashUsd) || 0);
+  if (proposerCash > 0 && recipientCash <= 0) {
+    return {
+      amountUsd: proposerCash,
+      payerUserId: args.proposerId,
+      payeeUserId: args.recipientId,
+    };
+  }
+  if (recipientCash > 0 && proposerCash <= 0) {
+    return {
+      amountUsd: recipientCash,
+      payerUserId: args.recipientId,
+      payeeUserId: args.proposerId,
+    };
+  }
+  return null;
+}
+
 export function formatMoney(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
@@ -113,6 +139,10 @@ export function formatTradeEventNote(type: string, note: string | null): string 
     }
     return `Platform fee paid · $${amount.toFixed(2)}`;
   }
+  if (type === "cash_paid") {
+    const amount = typeof obj.amountUsd === "number" ? obj.amountUsd : null;
+    return amount != null ? `Trade cash paid · $${amount.toFixed(2)}` : "Trade cash paid";
+  }
   if (type === "shipping_label_purchased") {
     const tracking = typeof obj.trackingNumber === "string" ? obj.trackingNumber : null;
     return tracking ? `Shipping label purchased · ${tracking}` : "Shipping label purchased";
@@ -120,6 +150,40 @@ export function formatTradeEventNote(type: string, note: string | null): string 
   if (type === "shipping_label_failed") {
     const err = typeof obj.error === "string" ? obj.error : null;
     return err ? `Label purchase failed · ${err}` : "Label purchase failed";
+  }
+  if (type === "party_shipped") {
+    const tracking = typeof obj.trackingNumber === "string" ? obj.trackingNumber : null;
+    return tracking ? `Marked shipped · ${tracking}` : "Marked shipped";
+  }
+  if (type === "party_received") return "Confirmed receipt of partner package";
+  if (type === "offer_completed") return "Trade completed — both sides confirmed receipt";
+  if (type === "dispute_opened") {
+    const reason = typeof obj.reason === "string" ? obj.reason : null;
+    return reason ? `Dispute opened · ${reason}` : "Dispute opened";
+  }
+  if (type === "cash_released") {
+    const amount = typeof obj.amountUsd === "number" ? obj.amountUsd : null;
+    return amount != null ? `Trade cash released · $${amount.toFixed(2)}` : "Trade cash released";
+  }
+  if (type === "cash_refunded") {
+    const amount = typeof obj.amountUsd === "number" ? obj.amountUsd : null;
+    return amount != null ? `Trade cash refunded · $${amount.toFixed(2)}` : "Trade cash refunded";
+  }
+  if (type === "dispute_resolved") {
+    const action = typeof obj.action === "string" ? obj.action : null;
+    return action ? `Dispute resolved · ${action.replace(/_/g, " ")}` : "Dispute resolved";
+  }
+  if (type === "deposit_paid") {
+    const amount = typeof obj.amountUsd === "number" ? obj.amountUsd : null;
+    return amount != null
+      ? `Security deposit paid · $${amount.toFixed(2)} (refundable)`
+      : "Security deposit paid (refundable)";
+  }
+  if (type === "deposit_refunded") {
+    const amount = typeof obj.amountUsd === "number" ? obj.amountUsd : null;
+    return amount != null
+      ? `Security deposit refunded · $${amount.toFixed(2)}`
+      : "Security deposit refunded";
   }
 
   return null;

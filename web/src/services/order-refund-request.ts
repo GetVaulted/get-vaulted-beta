@@ -403,6 +403,15 @@ export async function buyerEscalateRefundRequest(args: { orderId: string; buyerI
     href: `/account/sales/${encodeURIComponent(order.id)}`,
   });
 
+  const { scheduleNotifyAdmins } = await import("@/lib/admin/notify-admins");
+  scheduleNotifyAdmins({
+    type: "admin_refund_escalated",
+    title: "Refund escalated to support",
+    body: `Buyer escalated a ${req.kind} refund for “${lt}”.`,
+    href: "/admin/refund-requests",
+    dedupeKey: `refund-escalated:${req.id}`,
+  });
+
   const updated = await prisma.orderRefundRequest.findUniqueOrThrow({ where: { id: req.id } });
   return serializeOrderRefundRequest(updated);
 }

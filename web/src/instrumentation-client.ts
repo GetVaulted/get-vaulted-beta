@@ -21,6 +21,20 @@ function isAndroidInAppBrowserBridgeNoise(event: Sentry.ErrorEvent): boolean {
   return /Java object is gone/i.test(message);
 }
 
+/**
+ * hls.js prebundle uses `?.`; ancient browsers throw SyntaxError while evaluating the chunk.
+ * We gate the dynamic import client-side; keep this filter for cached tabs / race loads.
+ */
+function isLegacyHlsJsParseNoise(event: Sentry.ErrorEvent): boolean {
+  const ex = event.exception?.values?.[0];
+  if (!ex || ex.type !== "SyntaxError") return false;
+  if (!/Unexpected token ['"]\.['"]/i.test(ex.value ?? "")) return false;
+  const frames = ex.stacktrace?.frames ?? [];
+  return frames.some((f) =>
+    /\/_next\/static\/chunks\//i.test(f.filename ?? f.abs_path ?? ""),
+  );
+}
+
 if (dsn) {
   Sentry.init({
     dsn,
@@ -43,6 +57,7 @@ if (dsn) {
     ],
     beforeSend(event) {
       if (isAndroidInAppBrowserBridgeNoise(event)) return null;
+      if (isLegacyHlsJsParseNoise(event)) return null;
       return event;
     },
     replaysSessionSampleRate: 0,

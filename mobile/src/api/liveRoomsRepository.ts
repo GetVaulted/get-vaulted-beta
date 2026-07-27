@@ -412,6 +412,7 @@ function previewImageForRow(row: LiveRoomApiRow, category: CategoryId): string {
   return resolveLiveRoomPreviewImage({
     thumbnailUrl: row.thumbnailUrl,
     firstItemImageUrl: row.firstItemImageUrl,
+    sellerAvatarUrl: row.sellerAvatarUrl,
     category,
   });
 }

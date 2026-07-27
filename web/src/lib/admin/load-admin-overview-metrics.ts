@@ -6,6 +6,7 @@ export type AdminOverviewMetrics = {
   liveActive: number;
   liveScheduled: number;
   openReports: number;
+  openSupportTickets: number;
   pendingListings: number;
   flaggedListings: number;
   openOrders: number;
@@ -27,6 +28,7 @@ export async function loadAdminOverviewMetrics(): Promise<AdminOverviewMetrics> 
     liveActive,
     liveScheduled,
     openReports,
+    openSupportTickets,
     pendingListings,
     flaggedListings,
     openOrders,
@@ -39,6 +41,7 @@ export async function loadAdminOverviewMetrics(): Promise<AdminOverviewMetrics> 
     prisma.liveRoom.count({ where: { status: "live" } }),
     prisma.liveRoom.count({ where: { status: "scheduled" } }),
     prisma.report.count({ where: { status: { in: ["open", "reviewing"] } } }),
+    prisma.supportTicket.count({ where: { status: { in: ["submitted", "in_progress"] } } }),
     prisma.listing.count({
       where: { status: "active", moderationRemovedAt: null, adminReviewedAt: null },
     }),
@@ -62,6 +65,7 @@ export async function loadAdminOverviewMetrics(): Promise<AdminOverviewMetrics> 
     liveActive,
     liveScheduled,
     openReports,
+    openSupportTickets,
     pendingListings,
     flaggedListings,
     openOrders,

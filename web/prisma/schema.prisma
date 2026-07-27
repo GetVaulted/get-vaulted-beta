@@ -511,6 +511,7 @@ enum TradeOfferStatus {
   countered
   accepted
   completed
+  disputed
   declined
   cancelled
   expired
@@ -529,8 +530,18 @@ enum TradeOfferEventType {
   offer_cancelled
   offer_expired
   platform_fee_paid
+  cash_paid
   shipping_label_purchased
   shipping_label_failed
+  party_shipped
+  party_received
+  offer_completed
+  dispute_opened
+  cash_released
+  cash_refunded
+  dispute_resolved
+  deposit_paid
+  deposit_refunded
 }
 
 model User {
@@ -988,10 +999,37 @@ model TradeOffer {
   status             TradeOfferStatus @default(pending)
   proposerCashUsd    Float            @default(0)
   recipientCashUsd   Float            @default(0)
+  /// When the cash adder paid the on-platform trade cash Checkout (Stripe). Held by platform until release.
+  cashPaidAt         DateTime?
+  cashCheckoutSessionId String?
+  cashPaymentIntentId   String?
+  /// When held trade cash was transferred to the payee (after both confirm receipt or admin release).
+  cashReleasedAt     DateTime?
+  cashTransferId     String?
+  /// When held trade cash was refunded to the payer (dispute / admin).
+  cashRefundedAt     DateTime?
+  cashRefundId       String?
+  cashReleaseError   String?
+  /// Participant opened a cash/fulfillment dispute — freezes completion and cash release.
+  disputedAt         DateTime?
+  disputeOpenedByUserId String?
+  disputeReason      String?
+  /// Refundable security deposit (straight / $0-cash trades). Platform-held until both confirm or admin refunds.
+  proposerDepositPaidAt DateTime?
+  recipientDepositPaidAt DateTime?
+  proposerDepositCheckoutSessionId String?
+  recipientDepositCheckoutSessionId String?
+  proposerDepositPaymentIntentId String?
+  recipientDepositPaymentIntentId String?
+  proposerDepositRefundedAt DateTime?
+  recipientDepositRefundedAt DateTime?
+  proposerDepositRefundId String?
+  recipientDepositRefundId String?
+  /// Locked refundable deposit amount (cents) for both parties — set on first deposit checkout.
+  securityDepositCents Int?
   messageToRecipient String?
-  // Future hook only: optional trade-linked conversation id.
-  // MVP keeps chat disabled; structured offer state + timeline are authoritative.
-  // Any future messaging must remain participant-scoped from the trade detail page.
+  // Optional trade-linked conversation id (participant-scoped from the trade detail page).
+  // Structured offer state + timeline remain authoritative for terms.
   conversationId     String?
   expiresAt          DateTime?
   /// When the proposer paid the $2.99 Get Vaulted platform fee.
@@ -1019,6 +1057,12 @@ model TradeOffer {
   recipientLabelPurchasedAt DateTime?
   proposerLabelErrorMessage String?
   recipientLabelErrorMessage String?
+  /// When this party marked their outbound package as shipped.
+  proposerShippedAt DateTime?
+  recipientShippedAt DateTime?
+  /// When this party confirmed they received the counterparty's package.
+  proposerReceivedAt DateTime?
+  recipientReceivedAt DateTime?
   /// Optional parcel tier for outbound quotes (defaults to cards_slabs).
   shippingWeightTier String?
   createdAt          DateTime         @default(now())

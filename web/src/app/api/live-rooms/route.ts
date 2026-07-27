@@ -200,6 +200,7 @@ export async function GET(req: Request) {
       const previewImageUrl = resolveLiveRoomPreviewImage({
         thumbnailUrl: r.thumbnailUrl,
         firstItemImageUrl,
+        sellerAvatarUrl: r.seller?.image,
         category: r.category,
       });
       return {

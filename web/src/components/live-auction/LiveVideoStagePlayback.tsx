@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Hls from "hls.js";
 import {
+  browserCanLoadHlsJsBundle,
   isLiveStreamSignal,
   liveStageObjectFitForPlayback,
   parseBuyerSafeStreamPayload,
@@ -379,6 +380,19 @@ export function LiveVideoStagePlayback({
       if (useNativeHlsFirst) {
         if (epoch !== attachEpochRef.current) return;
         attachNativeHls();
+        return;
+      }
+
+      // Never fetch the hls.js chunk on engines that cannot parse optional chaining — script
+      // evaluation throws a global SyntaxError that Sentry reports even when import() is awaited.
+      if (!browserCanLoadHlsJsBundle()) {
+        if (epoch !== attachEpochRef.current) return;
+        if (canNativeHls) {
+          attachNativeHls();
+          return;
+        }
+        setDebugEngine("none");
+        setPlayerFatal(true);
         return;
       }
 

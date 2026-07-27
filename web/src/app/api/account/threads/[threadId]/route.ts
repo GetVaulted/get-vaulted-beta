@@ -141,6 +141,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
       offerId: thread.offerId,
       orderId: thread.orderId,
       liveRoomId: thread.liveRoomId,
+      tradeOfferId: ctxLabel.tradeOfferId ?? null,
       otherUserId: other.id,
       otherUsername: other.username,
       otherAvatarUrl: other.image,

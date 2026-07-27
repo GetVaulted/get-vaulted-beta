@@ -19,6 +19,8 @@ const CATEGORY_PREVIEW: Record<string, string> = {
 export type LiveRoomPreviewImageInput = {
   thumbnailUrl?: string | null;
   firstItemImageUrl?: string | null;
+  /** Host profile photo — used before generic category stock art (scheduled-card parity). */
+  sellerAvatarUrl?: string | null;
   category?: CategoryId | string | null;
 };
 
@@ -51,12 +53,14 @@ export function resolveLiveRoomMediaUrl(url: string | null | undefined): string 
   return resolveListingImageUrl(url ?? undefined);
 }
 
-/** uploaded thumbnail → first listing/queue image → category art → branded placeholder */
+/** uploaded thumbnail → first listing/queue image → host avatar → category art → branded placeholder */
 export function resolveLiveRoomPreviewImage(input: LiveRoomPreviewImageInput): string {
   const thumb = resolveLiveRoomMediaUrl(input.thumbnailUrl);
   if (thumb) return thumb;
   const item = resolveLiveRoomMediaUrl(input.firstItemImageUrl);
   if (item) return item;
+  const avatar = resolveLiveRoomMediaUrl(input.sellerAvatarUrl);
+  if (avatar) return avatar;
   return categoryPreviewImage(input.category);
 }
 
