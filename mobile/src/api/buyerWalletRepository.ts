@@ -191,8 +191,7 @@ export async function createBuyerSetupIntent(
 }
 
 /**
- * Start Venmo linking. Backend should return `{ authorizeUrl }` when ready;
- * until then the route returns 501 VENMO_BACKEND_PENDING.
+ * Start Venmo linking (PayPal Orders save-during-purchase).
  */
 export async function startBuyerVenmoSetup(accessToken: string | undefined): Promise<{
   authorizeUrl?: string;
@@ -204,17 +203,28 @@ export async function startBuyerVenmoSetup(accessToken: string | undefined): Pro
     method: 'POST',
     body: JSON.stringify({ mobileReturn: true }),
   });
-  const j = (await res.json().catch(() => ({}))) as {
+  const raw = await res.text();
+  let j: {
     authorizeUrl?: string;
     paymentMethodId?: string;
     error?: string;
     code?: string;
     issue?: string;
     debugId?: string;
-  };
+  } = {};
+  try {
+    j = JSON.parse(raw) as typeof j;
+  } catch {
+    /* non-JSON body */
+  }
   if (!res.ok) {
-    const detail = [j.error, j.issue ? `(${j.issue})` : null].filter(Boolean).join(' ');
-    throw new Error(detail || 'Venmo linking is not available yet.');
+    const detail = [j.error, j.issue ? `(${j.issue})` : null, j.debugId ? `debug ${j.debugId}` : null]
+      .filter(Boolean)
+      .join(' ');
+    if (detail) throw new Error(detail);
+    throw new Error(
+      `Venmo linking failed (HTTP ${res.status}). ${raw.replace(/\s+/g, ' ').trim().slice(0, 180) || 'Empty response from server — redeploy may still be in progress.'}`,
+    );
   }
   return {
     authorizeUrl: typeof j.authorizeUrl === 'string' ? j.authorizeUrl : undefined,

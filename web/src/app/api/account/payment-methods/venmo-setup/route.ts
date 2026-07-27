@@ -6,6 +6,8 @@ import {
   isBuyerVenmoPayConfigured,
   VenmoSetupError,
 } from "@/lib/paypal-buyer-venmo";
+import { apiErrorResponseFromUnknown, isPrismaMissingSchemaError } from "@/lib/prisma-api-error-response";
+import { paypalCredentialsConfigured } from "@/lib/paypal-auth";
 
 type Body = { mobileReturn?: unknown };
 
@@ -29,8 +31,13 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error:
-          "Venmo pay is not configured yet. Enable PayPal buyer Venmo vaulting (PAYPAL_BUYER_VENMO_ENABLED + PayPal client credentials) and turn on Save payment methods / Venmo in the PayPal Dashboard.",
+          "Venmo pay is not configured on the server. Set PAYPAL_BUYER_VENMO_ENABLED=true and PayPal Client ID/Secret, then redeploy.",
         code: "VENMO_NOT_CONFIGURED",
+        diagnostics: {
+          buyerVenmoFlag: (process.env.PAYPAL_BUYER_VENMO_ENABLED ?? "").trim() || null,
+          paypalCredentialsPresent: paypalCredentialsConfigured(),
+          paypalMode: (process.env.PAYPAL_MODE ?? "sandbox").trim().toLowerCase(),
+        },
       },
       { status: 503 },
     );
@@ -54,6 +61,16 @@ export async function POST(req: Request) {
     if (e instanceof Error && e.message === "USER_NOT_FOUND") {
       return NextResponse.json({ error: "Account not found." }, { status: 404 });
     }
+
+    if (isPrismaMissingSchemaError(e)) {
+      console.error("[venmo-setup] prisma schema", e);
+      return apiErrorResponseFromUnknown(e, {
+        error: "Could not start Venmo linking.",
+        code: "VENMO_SETUP_FAILED",
+        status: 503,
+      });
+    }
+
     console.error("[venmo-setup]", e);
 
     if (e instanceof VenmoSetupError) {
@@ -79,9 +96,10 @@ export async function POST(req: Request) {
       );
     }
 
+    const msg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json(
       {
-        error: "Could not start Venmo linking. Try again in a moment.",
+        error: `Could not start Venmo linking: ${msg.slice(0, 180)}`,
         code: "VENMO_SETUP_FAILED",
       },
       { status: 502 },

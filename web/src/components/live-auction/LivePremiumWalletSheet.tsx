@@ -179,18 +179,27 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId: _liveRoomId,
         headers: { "Content-Type": "application/json" },
         body: "{}",
       });
-      const j = (await res.json().catch(() => ({}))) as {
+      const raw = await res.text();
+      let j: {
         authorizeUrl?: string;
         paymentMethodId?: string;
         error?: string;
         issue?: string;
         debugId?: string;
-      };
+      } = {};
+      try {
+        j = JSON.parse(raw) as typeof j;
+      } catch {
+        /* non-JSON */
+      }
       if (!res.ok) {
         const detail = [j.error, j.issue ? `(${j.issue})` : null, j.debugId ? `debug ${j.debugId}` : null]
           .filter(Boolean)
           .join(" ");
-        setVenmoError(detail || "Venmo linking is not available yet.");
+        setVenmoError(
+          detail ||
+            `Venmo linking failed (HTTP ${res.status}). ${raw.replace(/\s+/g, " ").trim().slice(0, 160) || "Empty server response."}`,
+        );
         return;
       }
       if (typeof j.authorizeUrl === "string" && j.authorizeUrl.trim()) {

@@ -13,7 +13,9 @@ export function paypalCredentialsConfigured(): boolean {
 
 /** Buyer Venmo vault/charge — requires explicit opt-in + PayPal REST credentials. */
 export function isBuyerVenmoPayConfigured(): boolean {
-  return process.env.PAYPAL_BUYER_VENMO_ENABLED === "true" && paypalCredentialsConfigured();
+  const flag = (process.env.PAYPAL_BUYER_VENMO_ENABLED ?? "").trim().toLowerCase();
+  const enabled = flag === "true" || flag === "1" || flag === "yes";
+  return enabled && paypalCredentialsConfigured();
 }
 
 let cachedToken: { accessToken: string; expiresAtMs: number } | null = null;
