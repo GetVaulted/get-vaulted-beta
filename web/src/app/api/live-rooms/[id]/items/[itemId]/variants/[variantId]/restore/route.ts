@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
-import { maybeMarkVariantBreakReady } from "@/lib/live-item-variant-break";
-import { idleVariantSpotCommerceReset } from "@/lib/live-variant-spot-commerce";
 import { prisma } from "@/lib/prisma";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 
 /**
- * Host team board: mark a PYT/PYD team unavailable without recording a sale.
- * Keeps the team on the board as not available. Does not create a purchase,
- * bump soldCount, or inflate Show sales.
+ * Host team board: bring an unavailable (removed) team back so it can sell again —
+ * e.g. a late supplemental / "supp" run for that team with buyer username.
+ * Does not create a sale by itself; host can then Mark sold / Supp sold.
  */
 export async function POST(
   req: Request,
@@ -24,7 +22,7 @@ export async function POST(
     const result = await prisma.$transaction(async (tx) => {
       const room = await tx.liveRoom.findUnique({
         where: { id: liveRoomId },
-        select: { id: true, sellerId: true, status: true },
+        select: { id: true, status: true },
       });
       if (!room || (room.status !== "live" && room.status !== "scheduled")) {
         throw Object.assign(new Error("ROOM_NOT_EDITABLE"), { code: "ROOM_NOT_EDITABLE" });
@@ -36,8 +34,8 @@ export async function POST(
           id: true,
           status: true,
           salesFormat: true,
-          biddingOpen: true,
-          auctionVariantId: true,
+          variantBreakReadyAt: true,
+          variantBreakBeganAt: true,
         },
       });
       if (!item) throw Object.assign(new Error("ITEM_NOT_FOUND"), { code: "ITEM_NOT_FOUND" });
@@ -50,53 +48,63 @@ export async function POST(
 
       const variant = await tx.liveItemVariant.findFirst({
         where: { id: variantId, liveRoomItemId: itemId },
-        select: { id: true, label: true, status: true, quantityRemaining: true },
+        select: {
+          id: true,
+          label: true,
+          status: true,
+          quantityInitial: true,
+          quantityRemaining: true,
+        },
       });
       if (!variant) throw Object.assign(new Error("VARIANT_NOT_FOUND"), { code: "VARIANT_NOT_FOUND" });
-      if (variant.status === "removed") {
-        return { label: variant.label, alreadyRemoved: true, sellerId: room.sellerId };
-      }
-      if (variant.status === "sold_out" || variant.quantityRemaining <= 0) {
-        throw Object.assign(new Error("ALREADY_SOLD"), { code: "ALREADY_SOLD" });
+
+      if (variant.status !== "removed") {
+        if (variant.status === "sold_out" || variant.quantityRemaining <= 0) {
+          throw Object.assign(new Error("ALREADY_SOLD"), { code: "ALREADY_SOLD" });
+        }
+        return {
+          label: variant.label,
+          alreadyOpen: true,
+          quantityRemaining: variant.quantityRemaining,
+        };
       }
 
+      const qty = Math.max(1, variant.quantityInitial || 1);
       await tx.liveItemVariant.update({
         where: { id: variantId },
         data: {
-          status: "removed",
-          quantityRemaining: 0,
+          status: "available",
+          quantityRemaining: qty,
           isHot: false,
-          // Do NOT increment soldCount — this is not a sale.
         },
       });
 
-      if (item.biddingOpen && item.auctionVariantId === variantId) {
-        await tx.liveRoomItem.update({
-          where: { id: itemId },
-          data: { ...idleVariantSpotCommerceReset(), itemVersion: { increment: 1 } },
-        });
-      } else {
-        await tx.liveRoomItem.update({
-          where: { id: itemId },
-          data: { itemVersion: { increment: 1 } },
-        });
-      }
+      // Re-opening a spot means the break is no longer "all sold" — clear ready unless rip already started.
+      const clearBreakReady =
+        item.variantBreakReadyAt != null && item.variantBreakBeganAt == null
+          ? { variantBreakReadyAt: null as Date | null }
+          : {};
+
+      await tx.liveRoomItem.update({
+        where: { id: itemId },
+        data: { ...clearBreakReady, itemVersion: { increment: 1 } },
+      });
 
       await tx.liveRoom.update({
         where: { id: liveRoomId },
         data: { roomVersion: { increment: 1 } },
       });
 
-      return { label: variant.label, alreadyRemoved: false, sellerId: room.sellerId };
+      return { label: variant.label, alreadyOpen: false, quantityRemaining: qty };
     });
 
-    await maybeMarkVariantBreakReady(itemId, liveRoomId, result.sellerId);
     emitLiveRoomQueueItemsChanged(liveRoomId);
 
     return NextResponse.json({
       ok: true,
       label: result.label,
-      alreadyRemoved: result.alreadyRemoved,
+      alreadyOpen: result.alreadyOpen,
+      quantityRemaining: result.quantityRemaining,
     });
   } catch (e) {
     const code =
@@ -108,7 +116,7 @@ export async function POST(
       );
     }
     if (code === "ROOM_NOT_EDITABLE") {
-      return NextResponse.json({ error: "Room must be live or scheduled to remove teams." }, { status: 409 });
+      return NextResponse.json({ error: "Room must be live or scheduled to restore teams." }, { status: 409 });
     }
     if (code === "ITEM_NOT_FOUND" || code === "VARIANT_NOT_FOUND") {
       return NextResponse.json({ error: "Team not found." }, { status: 404 });
@@ -116,7 +124,7 @@ export async function POST(
     if (code === "ITEM_UNAVAILABLE" || code === "NOT_TEAM_BOARD") {
       return NextResponse.json({ error: "This lot cannot be edited from the team board." }, { status: 409 });
     }
-    console.error("[variants/retire]", e);
-    return NextResponse.json({ error: "Could not remove team from board." }, { status: 500 });
+    console.error("[variants/restore]", e);
+    return NextResponse.json({ error: "Could not bring team back." }, { status: 500 });
   }
 }

@@ -99,7 +99,7 @@ export function isActiveVariantBuyerItem(snap: LiveRoomBuyerSnapshot | null | un
 }
 
 export function variantIsAvailable(v: LiveItemVariantSnapshot): boolean {
-  return v.quantityRemaining > 0 && v.status !== 'sold_out';
+  return v.quantityRemaining > 0 && v.status !== 'sold_out' && v.status !== 'removed';
 }
 
 /**

@@ -1212,6 +1212,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         visible={teamsBoardOpen}
         onClose={() => setTeamsBoardOpen(false)}
         item={displayItem}
+        accessToken={accessToken}
         canPinTeams={Boolean(
           displayItem?.status === 'active' &&
             displayItem.variantAssignmentMode !== 'random' &&
@@ -1237,7 +1238,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         markSoldBusy={console.markSoldBusy || console.busy}
         onMarkSold={
           displayItem
-            ? ({ variantId, username, priceUsd, settlementMethod, zeroReason, note, label }) =>
+            ? ({ variantId, username, priceUsd, settlementMethod, zeroReason, note, label, restoreIfUnavailable }) =>
                 console.onMarkSoldLiveTeam({
                   itemId: displayItem.id,
                   variantId,
@@ -1247,6 +1248,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
                   settlementMethod,
                   zeroReason,
                   note,
+                  restoreIfUnavailable,
                 })
             : undefined
         }
@@ -1254,6 +1256,16 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
           displayItem
             ? ({ variantId, label }) =>
                 console.onRetireLiveTeam({
+                  itemId: displayItem.id,
+                  variantId,
+                  label,
+                })
+            : undefined
+        }
+        onRestoreTeam={
+          displayItem
+            ? ({ variantId, label }) =>
+                console.onRestoreLiveTeam({
                   itemId: displayItem.id,
                   variantId,
                   label,

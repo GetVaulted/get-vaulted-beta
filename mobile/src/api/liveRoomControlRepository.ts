@@ -386,6 +386,32 @@ export async function retireLiveItemVariant(args: {
   return { label: j.label?.trim() || 'Team' };
 }
 
+/** Host team board: bring an unavailable team back (e.g. for a late supp sale). */
+export async function restoreLiveItemVariant(args: {
+  accessToken: string;
+  roomId: string;
+  itemId: string;
+  variantId: string;
+}): Promise<{ label: string; quantityRemaining: number; alreadyOpen: boolean }> {
+  const res = await controlFetch(
+    `/api/live-rooms/${encodeURIComponent(args.roomId)}/items/${encodeURIComponent(args.itemId)}/variants/${encodeURIComponent(args.variantId)}/restore`,
+    args.accessToken,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+  let j: { error?: string; label?: string; quantityRemaining?: number; alreadyOpen?: boolean } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+  return {
+    label: j.label?.trim() || 'Team',
+    quantityRemaining: typeof j.quantityRemaining === 'number' ? j.quantityRemaining : 1,
+    alreadyOpen: Boolean(j.alreadyOpen),
+  };
+}
+
 export async function deleteLiveRoomQueueItem(
   accessToken: string,
   roomId: string,

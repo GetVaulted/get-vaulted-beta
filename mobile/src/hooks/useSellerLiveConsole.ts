@@ -15,6 +15,7 @@ import {
   deleteLiveRoomQueueItem,
   importLiveRoomItemsFromRoom,
   manualAssignLiveItemVariant,
+  restoreLiveItemVariant,
   retireLiveItemVariant,
   patchLiveItemVariants,
   patchLiveRoomItem,
@@ -509,10 +510,19 @@ export function useSellerLiveConsole({
     settlementMethod: string;
     zeroReason?: string;
     note?: string;
+    restoreIfUnavailable?: boolean;
   }) => {
     void run(async () => {
       setMarkSoldBusy(true);
       try {
+        if (args.restoreIfUnavailable) {
+          await restoreLiveItemVariant({
+            accessToken,
+            roomId,
+            itemId: args.itemId,
+            variantId: args.variantId,
+          });
+        }
         const result = await manualAssignLiveItemVariant({
           accessToken,
           roomId,
@@ -549,10 +559,11 @@ export function useSellerLiveConsole({
         invalidateHostConsoleCache(roomId);
         await reload({ force: true });
 
+        const soldTitle = args.restoreIfUnavailable ? 'Supp sold' : 'Marked sold';
         if (result.platformFeeDue && result.purchaseId) {
           const feeUsd = (result.platformFeeCents / 100).toFixed(2);
           Alert.alert(
-            'Marked sold',
+            soldTitle,
             `${result.label} → @${result.buyerUsername} · $${result.totalUsd.toFixed(2)}\n\nPlatform fee due: $${feeUsd}`,
             [
               { text: 'Pay later', style: 'cancel' },
@@ -585,7 +596,7 @@ export function useSellerLiveConsole({
           );
         } else {
           Alert.alert(
-            'Marked sold',
+            soldTitle,
             `${result.label} → @${result.buyerUsername}${
               result.totalUsd < 0.01 ? ' · $0 (no platform fee)' : ` · $${result.totalUsd.toFixed(2)}`
             }`,
@@ -629,7 +640,49 @@ export function useSellerLiveConsole({
         setActiveItem((prev) => (prev ? markVariantRemoved(prev) : prev));
         invalidateHostConsoleCache(roomId);
         await reload({ force: true });
-        Alert.alert('Removed from board', `${result.label} was removed — not counted as a sale.`);
+        Alert.alert('Marked unavailable', `${result.label} stays on the board as unavailable — not counted as a sale.`);
+      } finally {
+        setMarkSoldBusy(false);
+      }
+    });
+  };
+
+  const onRestoreLiveTeam = (args: { itemId: string; variantId: string; label: string }) => {
+    void run(async () => {
+      setMarkSoldBusy(true);
+      try {
+        const result = await restoreLiveItemVariant({
+          accessToken,
+          roomId,
+          itemId: args.itemId,
+          variantId: args.variantId,
+        });
+        const markVariantRestored = (item: LiveRoomItemRow): LiveRoomItemRow => {
+          if (item.id !== args.itemId || !item.variants?.length) return item;
+          return {
+            ...item,
+            itemVersion: (item.itemVersion ?? 0) + 1,
+            variants: item.variants.map((v) =>
+              v.id === args.variantId
+                ? {
+                    ...v,
+                    quantityRemaining: result.quantityRemaining,
+                    status: 'available',
+                    isHot: false,
+                    buyerUsername: null,
+                  }
+                : v,
+            ),
+          };
+        };
+        setItems((prev) => prev.map(markVariantRestored));
+        setActiveItem((prev) => (prev ? markVariantRestored(prev) : prev));
+        invalidateHostConsoleCache(roomId);
+        await reload({ force: true });
+        Alert.alert(
+          'Brought back',
+          `${result.label} is open again — record a supp sold with the buyer’s username, or let them buy in-app.`,
+        );
       } finally {
         setMarkSoldBusy(false);
       }
@@ -778,6 +831,7 @@ export function useSellerLiveConsole({
     pinningVariantId,
     onMarkSoldLiveTeam,
     onRetireLiveTeam,
+    onRestoreLiveTeam,
     markSoldBusy,
     onQuickAddLot,
     onSubmitFromShop,

@@ -27,7 +27,7 @@ import {
 import { isWalletIncompleteError } from '../../lib/buyerWalletErrors';
 import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
 import { withLivePlaybackCommerceHold } from '../../lib/livePlaybackCommerceHold';
-import { formatSoldSpotBuyerLabel } from '../../lib/liveVariantSpotBoard';
+import { formatSoldSpotBuyerLabel, formatUnavailableSpotLabel } from '../../lib/liveVariantSpotBoard';
 import {
   isLightSpotAccent,
   spotAccentColor,
@@ -777,7 +777,9 @@ function TeamPill({
         </LiveRoomText>
       ) : (
         <LiveRoomText style={styles.pillSoldMeta} numberOfLines={1}>
-          {formatSoldSpotBuyerLabel(variant.buyerUsername)}
+          {variant.status === 'removed'
+            ? formatUnavailableSpotLabel()
+            : formatSoldSpotBuyerLabel(variant.buyerUsername)}
         </LiveRoomText>
       )}
     </Pressable>

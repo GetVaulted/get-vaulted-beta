@@ -13,6 +13,8 @@ export type VariantSpotDisplayRow = {
   label: string;
   priceUsd: number;
   sold: boolean;
+  /** Host retired the team — still on the board, not for sale (not a sale). */
+  unavailable: boolean;
   buyerUsername: string | null;
   isHot: boolean;
   variantId?: string;
@@ -21,6 +23,10 @@ export type VariantSpotDisplayRow = {
 export function formatSoldSpotBuyerLabel(buyerUsername: string | null | undefined): string {
   const username = buyerUsername?.trim().replace(/^@+/, "");
   return username ? `@${username}` : "Sold";
+}
+
+export function formatUnavailableSpotLabel(): string {
+  return "Unavailable";
 }
 
 export function buildVariantSpotDisplayRows(
@@ -46,24 +52,27 @@ export function buildVariantSpotDisplayRows(
         label,
         priceUsd: price,
         sold: buyer != null,
+        unavailable: false,
         buyerUsername: buyer,
         isHot: false,
       };
     });
   }
 
-  return item.variants.filter((v) => v.status !== "removed").map((v) => rowFromVariant(v));
+  return item.variants.map((v) => rowFromVariant(v));
 }
 
 function rowFromVariant(v: LiveItemVariantDTO): VariantSpotDisplayRow {
-  const sold = v.status !== "removed" && (v.quantityRemaining <= 0 || v.status === "sold_out");
+  const unavailable = v.status === "removed";
+  const sold = !unavailable && (v.quantityRemaining <= 0 || v.status === "sold_out");
   return {
     id: v.id,
     label: v.label,
     priceUsd: v.priceUsd,
     sold,
+    unavailable,
     buyerUsername: sold ? v.buyerUsername?.trim()?.replace(/^@+/, "") ?? null : null,
-    isHot: v.isHot,
+    isHot: !unavailable && v.isHot,
     variantId: v.id,
   };
 }

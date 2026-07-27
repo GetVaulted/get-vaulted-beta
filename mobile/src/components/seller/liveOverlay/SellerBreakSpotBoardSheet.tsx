@@ -17,6 +17,7 @@ import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
 import {
   summarizeVariantSpotBoard,
   formatSoldSpotBuyerLabel,
+  formatUnavailableSpotLabel,
   type VariantSpotDisplayRow,
 } from '../../../lib/liveVariantSpotBoard';
 import {
@@ -27,11 +28,13 @@ import {
 } from '../../../lib/liveBreakPresets';
 import { colors, radii, spacing } from '../../../theme';
 import { LiveRoomText } from '../../live/LiveRoomText';
+import { UsernameMentionPicker } from '../../mentions/UsernameMentionPicker';
 
 type Props = {
   visible: boolean;
   onClose: () => void;
   item: LiveRoomItemRow | null;
+  accessToken?: string;
   /** When true, host can tap an open team to pin it for buyers. */
   canPinTeams?: boolean;
   pinningVariantId?: string | null;
@@ -50,9 +53,13 @@ type Props = {
     settlementMethod: string;
     zeroReason?: string;
     note?: string;
+    /** When true, restore unavailable team first then record the off-platform sale (supp). */
+    restoreIfUnavailable?: boolean;
   }) => void | Promise<void>;
-  /** Remove team from board without counting a sale / Show sales amount. */
+  /** Mark team unavailable on the board without counting a sale / Show sales amount. */
   onRetireTeam?: (args: { variantId: string; label: string }) => void | Promise<void>;
+  /** Bring an unavailable team back so it can sell again (e.g. late supp). */
+  onRestoreTeam?: (args: { variantId: string; label: string }) => void | Promise<void>;
 };
 
 const SETTLEMENT_METHODS: { id: string; label: string }[] = [
@@ -110,14 +117,16 @@ function SpotTile({
   onSelect?: () => void;
 }) {
   const sold = row.sold;
-  const pinned = row.isHot && !sold;
+  const unavailable = row.unavailable;
+  const closed = sold || unavailable;
+  const pinned = row.isHot && !closed;
   const accent = spotAccentColor(row.label ?? '', row.color, isDivisionBreak);
   const lightAccent = isLightSpotAccent(accent);
   const abbr = isDivisionBreak
     ? formatDivisionReelAbbr(row.label ?? '')
     : teamAbbrForVariant(row.label, row.color);
-  const textPrimary = sold ? 'rgba(255,255,255,0.42)' : lightAccent ? '#111' : '#fff';
-  const textSecondary = sold
+  const textPrimary = closed ? 'rgba(255,255,255,0.42)' : lightAccent ? '#111' : '#fff';
+  const textSecondary = closed
     ? 'rgba(255,255,255,0.28)'
     : lightAccent
       ? 'rgba(0,0,0,0.62)'
@@ -128,18 +137,19 @@ function SpotTile({
       style={[
         styles.spotTile,
         compact && styles.spotTileCompact,
-        { width: tileWidth, borderLeftColor: sold ? 'rgba(255,255,255,0.12)' : accent },
+        { width: tileWidth, borderLeftColor: closed ? 'rgba(255,255,255,0.12)' : accent },
         sold && styles.spotTileSold,
+        unavailable && styles.spotTileUnavailable,
         pinned && styles.spotTilePinned,
         selected && !sold && styles.spotTileSelected,
-        !sold && { backgroundColor: lightAccent ? `${accent}ee` : `${accent}33` },
+        !closed && { backgroundColor: lightAccent ? `${accent}ee` : `${accent}33` },
       ]}
     >
       {pinned ? (
         <View style={styles.pinnedBadge}>
           <LiveRoomText style={styles.pinnedBadgeText}>PINNED</LiveRoomText>
         </View>
-      ) : row.isHot && !sold ? (
+      ) : row.isHot && !closed ? (
         <View style={styles.hotBadge}>
           <LiveRoomText style={styles.hotBadgeText}>HOT</LiveRoomText>
         </View>
@@ -169,6 +179,10 @@ function SpotTile({
         <LiveRoomText style={styles.buyerTag} numberOfLines={1}>
           {formatSoldSpotBuyerLabel(row.buyerUsername)}
         </LiveRoomText>
+      ) : unavailable ? (
+        <LiveRoomText style={styles.unavailableTag} numberOfLines={1}>
+          {formatUnavailableSpotLabel()}
+        </LiveRoomText>
       ) : (
         <View style={styles.spotFooter}>
           <LiveRoomText style={[styles.priceTag, { color: textSecondary }]}>{fmtMoney(row.priceUsd)}</LiveRoomText>
@@ -196,7 +210,9 @@ function SpotTile({
       onPress={onSelect}
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      accessibilityLabel={`Select ${row.label}`}
+      accessibilityLabel={
+        unavailable ? `Select unavailable ${row.label} for supp` : `Select ${row.label}`
+      }
     >
       {body}
     </Pressable>
@@ -207,6 +223,7 @@ export function SellerBreakSpotBoardSheet({
   visible,
   onClose,
   item,
+  accessToken,
   canPinTeams = false,
   pinningVariantId = null,
   onPinTeam,
@@ -214,6 +231,7 @@ export function SellerBreakSpotBoardSheet({
   markSoldBusy = false,
   onMarkSold,
   onRetireTeam,
+  onRestoreTeam,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
@@ -269,8 +287,9 @@ export function SellerBreakSpotBoardSheet({
 
   if (!item || !board || !isVariantSalesFormat(item.salesFormat)) return null;
 
-  const { rows, openCount, soldCount } = board;
+  const { rows, openCount, soldCount, unavailableCount } = board;
   const selectedRow = rows.find((r) => r.variantId === selectedVariantId && !r.sold) ?? null;
+  const selectedUnavailable = Boolean(selectedRow?.unavailable);
 
   const parsedAmount = (() => {
     const raw = amountText.trim().replace(/[^0-9.]/g, '');
@@ -318,12 +337,16 @@ export function SellerBreakSpotBoardSheet({
               </LiveRoomText>
               <LiveRoomText style={styles.spotsMeta}>
                 {openCount === 0
-                  ? `Break roster · ${soldCount} teams with buyers`
-                  : `${openCount} open · ${soldCount} sold`}
+                  ? `Break roster · ${soldCount} sold${unavailableCount ? ` · ${unavailableCount} unavailable` : ''}`
+                  : `${openCount} open · ${soldCount} sold${
+                      unavailableCount ? ` · ${unavailableCount} unavailable` : ''
+                    }`}
                 {openCount === 0
-                  ? ' · stays up while you rip'
+                  ? unavailableCount
+                    ? ' · tap an unavailable team to bring back for a supp'
+                    : ' · stays up while you rip'
                   : canMarkSold
-                    ? ' · tap a team to mark sold or remove without a sale'
+                    ? ' · tap a team to mark sold, unavailable, or bring back for a supp'
                     : canPinTeams
                       ? ' · use Pin on a team to feature it for buyers'
                       : ''}
@@ -341,8 +364,13 @@ export function SellerBreakSpotBoardSheet({
             keyboardShouldPersistTaps="handled"
           >
             {rows.map((row) => {
-              const canPin = Boolean(canPinTeams && onPinTeam && row.variantId && !row.sold);
-              const canSelect = Boolean(canMarkSold && onMarkSold && row.variantId && !row.sold);
+              const canPin = Boolean(canPinTeams && onPinTeam && row.variantId && !row.sold && !row.unavailable);
+              const canSelect = Boolean(
+                canMarkSold &&
+                  row.variantId &&
+                  !row.sold &&
+                  (row.unavailable ? onRestoreTeam || onMarkSold : onMarkSold),
+              );
               return (
                 <SpotTile
                   key={row.id}
@@ -377,20 +405,30 @@ export function SellerBreakSpotBoardSheet({
             <View style={styles.markSoldPanel}>
               <LiveRoomText style={styles.markSoldLabel}>
                 {selectedRow
-                  ? `Mark sold off-platform · ${selectedRow.label}`
+                  ? selectedUnavailable
+                    ? `Supp purchase · ${selectedRow.label}`
+                    : `Mark sold off-platform · ${selectedRow.label}`
                   : 'Select a team above'}
               </LiveRoomText>
-              <TextInput
-                style={styles.usernameInput}
+              {selectedUnavailable ? (
+                <LiveRoomText style={styles.fieldHint}>
+                  Bring this team back, or record a supp sale with the buyer’s username below.
+                </LiveRoomText>
+              ) : null}
+              <UsernameMentionPicker
                 value={username}
                 onChangeText={setUsername}
+                accessToken={accessToken}
+                plainUsernameSearch
+                onSelectUser={(user) => setUsername(user.username)}
                 placeholder="@buyer_username"
-                placeholderTextColor="rgba(255,255,255,0.35)"
-                autoCapitalize="none"
-                autoCorrect={false}
                 editable={Boolean(selectedRow) && !markSoldBusy}
                 returnKeyType="next"
+                style={styles.usernameInput}
               />
+              <LiveRoomText style={styles.fieldHint}>
+                Type a username and tap a match from the list.
+              </LiveRoomText>
               <TextInput
                 style={styles.usernameInput}
                 value={amountText}
@@ -464,16 +502,34 @@ export function SellerBreakSpotBoardSheet({
                     settlementMethod,
                     ...(isZeroSale && zeroReason ? { zeroReason } : {}),
                     ...(note.trim() ? { note: note.trim() } : {}),
+                    ...(selectedUnavailable ? { restoreIfUnavailable: true } : {}),
                   });
                 }}
               >
                 {markSoldBusy ? (
                   <ActivityIndicator color="#111" />
                 ) : (
-                  <LiveRoomText style={styles.markSoldBtnTxt}>Mark sold</LiveRoomText>
+                  <LiveRoomText style={styles.markSoldBtnTxt}>
+                    {selectedUnavailable ? 'Supp sold' : 'Mark sold'}
+                  </LiveRoomText>
                 )}
               </Pressable>
-              {onRetireTeam ? (
+              {selectedUnavailable && onRestoreTeam ? (
+                <Pressable
+                  style={[styles.retireBtn, markSoldBusy && styles.markSoldBtnOff]}
+                  disabled={markSoldBusy}
+                  onPress={() => {
+                    if (!selectedRow?.variantId || markSoldBusy) return;
+                    void onRestoreTeam({
+                      variantId: selectedRow.variantId,
+                      label: selectedRow.label,
+                    });
+                  }}
+                >
+                  <LiveRoomText style={styles.retireBtnTxt}>Bring back (no sale yet)</LiveRoomText>
+                </Pressable>
+              ) : null}
+              {!selectedUnavailable && onRetireTeam ? (
                 <Pressable
                   style={[styles.retireBtn, (!selectedRow || markSoldBusy) && styles.markSoldBtnOff]}
                   disabled={!selectedRow || markSoldBusy}
@@ -485,12 +541,17 @@ export function SellerBreakSpotBoardSheet({
                     });
                   }}
                 >
-                  <LiveRoomText style={styles.retireBtnTxt}>Remove from board</LiveRoomText>
+                  <LiveRoomText style={styles.retireBtnTxt}>Mark unavailable</LiveRoomText>
                 </Pressable>
               ) : null}
-              {onRetireTeam ? (
+              {selectedUnavailable ? (
                 <LiveRoomText style={styles.retireHint}>
-                  Remove takes the team off without counting a sale or Show sales amount.
+                  Supp sold brings the team back and records the buyer. Bring back alone re-opens it for an in-app buy.
+                </LiveRoomText>
+              ) : onRetireTeam ? (
+                <LiveRoomText style={styles.retireHint}>
+                  Keeps the team on the board as unavailable — no sale, no Show sales amount. Tap later to bring back for a
+                  supp.
                 </LiveRoomText>
               ) : null}
             </View>
@@ -581,6 +642,10 @@ const styles = StyleSheet.create({
   },
   spotTileCompact: { minHeight: 56, paddingVertical: 6 },
   spotTileSold: { opacity: 0.72 },
+  spotTileUnavailable: {
+    opacity: 0.62,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
   spotTilePinned: {
     borderColor: colors.gold,
   },
@@ -632,6 +697,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: 'rgba(52,211,153,0.9)',
   },
+  unavailableTag: {
+    marginTop: 6,
+    fontSize: 10,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.45)',
+  },
   spotFooter: {
     marginTop: 6,
     flexDirection: 'row',
@@ -658,6 +729,8 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(255,255,255,0.1)',
     paddingTop: spacing.sm,
     gap: 8,
+    zIndex: 40,
+    elevation: 8,
   },
   markSoldLabel: {
     fontSize: 12,

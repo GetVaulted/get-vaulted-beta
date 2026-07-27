@@ -9,6 +9,8 @@ export type VariantSpotDisplayRow = {
   label: string;
   priceUsd: number;
   sold: boolean;
+  /** Host retired the team — still on the board, not for sale (not a sale). */
+  unavailable: boolean;
   buyerUsername: string | null;
   isHot: boolean;
   variantId?: string;
@@ -18,6 +20,10 @@ export type VariantSpotDisplayRow = {
 export function formatSoldSpotBuyerLabel(buyerUsername: string | null | undefined): string {
   const username = buyerUsername?.trim().replace(/^@+/, '');
   return username ? `@${username}` : 'Sold';
+}
+
+export function formatUnavailableSpotLabel(): string {
+  return 'Unavailable';
 }
 
 export function buildVariantSpotDisplayRows(
@@ -48,6 +54,7 @@ export function buildVariantSpotDisplayRows(
         label,
         priceUsd: price,
         sold: buyer != null,
+        unavailable: false,
         buyerUsername: buyer,
         isHot: false,
         color: spotColorKeyForPoolLabel(label, salesFormat),
@@ -55,27 +62,28 @@ export function buildVariantSpotDisplayRows(
     });
   }
 
-  return item.variants
-    .filter((v) => !liveBreakVariantIsRemoved(v))
-    .map((v) => {
-      const sold = liveBreakVariantIsSold(v);
-      return {
-        id: v.id,
-        label: v.label,
-        priceUsd: v.priceUsd,
-        sold,
-        buyerUsername: sold ? v.buyerUsername?.trim()?.replace(/^@+/, '') ?? null : null,
-        isHot: v.isHot,
-        variantId: v.id,
-        color: v.color ?? null,
-      };
-    });
+  return item.variants.map((v) => {
+    const unavailable = liveBreakVariantIsRemoved(v);
+    const sold = !unavailable && liveBreakVariantIsSold(v);
+    return {
+      id: v.id,
+      label: v.label,
+      priceUsd: v.priceUsd,
+      sold,
+      unavailable,
+      buyerUsername: sold ? v.buyerUsername?.trim()?.replace(/^@+/, '') ?? null : null,
+      isHot: !unavailable && v.isHot,
+      variantId: v.id,
+      color: v.color ?? null,
+    };
+  });
 }
 
 export type VariantSpotBoardSummary = {
   rows: VariantSpotDisplayRow[];
   openCount: number;
   soldCount: number;
+  unavailableCount: number;
 };
 
 /**
@@ -93,19 +101,21 @@ export function summarizeVariantSpotBoard(
   },
 ): VariantSpotBoardSummary {
   const rows = buildVariantSpotDisplayRows(item);
-  if (rows.length === 0) return { rows, openCount: 0, soldCount: 0 };
+  if (rows.length === 0) return { rows, openCount: 0, soldCount: 0, unavailableCount: 0 };
 
   if (isRandomVariantAssignment(item.variantAssignmentMode)) {
     const poolVariant = item.variants?.[0];
     const authoritativeRemaining = poolVariant?.quantityRemaining;
     if (typeof authoritativeRemaining === 'number' && Number.isFinite(authoritativeRemaining)) {
       const openCount = Math.max(0, Math.min(rows.length, authoritativeRemaining));
-      return { rows, openCount, soldCount: rows.length - openCount };
+      return { rows, openCount, soldCount: rows.length - openCount, unavailableCount: 0 };
     }
   }
 
   const soldCount = rows.filter((r) => r.sold).length;
-  return { rows, openCount: rows.length - soldCount, soldCount };
+  const unavailableCount = rows.filter((r) => r.unavailable).length;
+  const openCount = rows.filter((r) => !r.sold && !r.unavailable).length;
+  return { rows, openCount, soldCount, unavailableCount };
 }
 
 /** Merge a live random-reveal assignment into host item state (no server deploy required). */
