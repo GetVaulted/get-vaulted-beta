@@ -3,6 +3,7 @@ import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { ensureStripeCustomerIdForUser } from "@/lib/stripe-customer";
 import { getStripe, getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
 import { isWalletVenmoEnabled } from "@/lib/payment-processor";
+import { isBuyerVenmoPayConfigured } from "@/lib/paypal-auth";
 import { stripeSetupIntentPaymentOptions } from "@/lib/stripe-payment-method-config";
 
 /**
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
       cashAppPayEnabled: paymentMethodTypes.includes("cashapp"),
       amazonPayEnabled: paymentMethodTypes.includes("amazon_pay"),
       paypalEnabled: false,
-      venmoEnabled: isWalletVenmoEnabled(),
+      venmoEnabled: isWalletVenmoEnabled() && isBuyerVenmoPayConfigured(),
       paymentMethodTypes,
     });
   } catch (e) {

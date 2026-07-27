@@ -576,6 +576,18 @@ model User {
   stripeVerificationStatus      String?
   /// Stripe Customer id (`cus_...`) for buyer saved payment methods (auction / checkout).
   stripeCustomerId              String?
+  /// PayPal vault customer id when buyer linked Venmo / PayPal wallet.
+  paypalBuyerCustomerId         String?
+  /// Vaulted Venmo payment token id (PayPal `/v3/vault/payment-tokens`).
+  venmoPaymentTokenId           String?
+  venmoUsername                 String?
+  venmoVaultedAt                DateTime?
+  /// Pending Venmo setup token while buyer completes PayPal/Venmo approval.
+  venmoPendingSetupTokenId      String?
+  venmoPendingSetupNonce        String?
+  venmoPendingSetupMobile       Boolean                     @default(false)
+  /// Preferred wallet instrument: Stripe `pm_…` or `venmo_<tokenId>`.
+  buyerDefaultWalletPaymentMethodId String?
   /// Seller ship-from (origin) for Shippo label purchase.
   shipFromName                  String?
   shipFromStreet                String?

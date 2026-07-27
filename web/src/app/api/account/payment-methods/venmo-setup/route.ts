@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { isWalletVenmoEnabled } from "@/lib/payment-processor";
+import {
+  createBuyerVenmoSetupAuthorization,
+  isBuyerVenmoPayConfigured,
+} from "@/lib/paypal-buyer-venmo";
+
+type Body = { mobileReturn?: unknown };
 
 /**
- * Start Venmo buyer linking for Vault Wallet / Live.
- *
- * UI already calls this when the buyer picks Venmo. Finish the PayPal/Venmo backend here.
- *
- * Expected success response (implement when ready):
- *   { authorizeUrl: string }  — client opens this to complete Venmo auth
- * Optional later:
- *   { paymentMethodId: string, brand?: string, last4?: string } — if linking completes in-API
+ * Start Venmo buyer linking for Vault Wallet / Live (PayPal vault setup token).
+ * Success: `{ authorizeUrl }` — client opens Venmo/PayPal approval.
  */
 export async function POST(req: Request) {
   const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
@@ -23,13 +23,43 @@ export async function POST(req: Request) {
     );
   }
 
-  // TODO: Wire PayPal/Venmo buyer linking (OAuth / billing agreement) and return authorizeUrl.
-  void auth.userId;
-  return NextResponse.json(
-    {
-      error: "Venmo linking is not configured on the server yet.",
-      code: "VENMO_BACKEND_PENDING",
-    },
-    { status: 501 },
-  );
+  if (!isBuyerVenmoPayConfigured()) {
+    return NextResponse.json(
+      {
+        error:
+          "Venmo pay is not configured yet. Enable PayPal buyer Venmo vaulting (PAYPAL_BUYER_VENMO_ENABLED + PayPal client credentials) and turn on Save payment methods / Venmo in the PayPal Dashboard.",
+        code: "VENMO_NOT_CONFIGURED",
+      },
+      { status: 503 },
+    );
+  }
+
+  let body: Body = {};
+  try {
+    body = (await req.json()) as Body;
+  } catch {
+    /* empty ok */
+  }
+  const mobileReturn = body.mobileReturn === true;
+
+  try {
+    const { authorizeUrl, setupTokenId } = await createBuyerVenmoSetupAuthorization({
+      userId: auth.userId,
+      mobileReturn,
+    });
+    return NextResponse.json({ authorizeUrl, setupTokenId });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (msg === "USER_NOT_FOUND") {
+      return NextResponse.json({ error: "Account not found." }, { status: 404 });
+    }
+    console.error("[venmo-setup]", e);
+    return NextResponse.json(
+      {
+        error: "Could not start Venmo linking. Check PayPal Venmo vaulting is enabled for this app.",
+        code: "VENMO_SETUP_FAILED",
+      },
+      { status: 502 },
+    );
+  }
 }

@@ -202,7 +202,7 @@ export async function startBuyerVenmoSetup(accessToken: string | undefined): Pro
   if (!accessToken?.trim()) throw new Error('Sign in to connect Venmo.');
   const res = await fetchWebApiAuthed('/api/account/payment-methods/venmo-setup', accessToken, {
     method: 'POST',
-    body: '{}',
+    body: JSON.stringify({ mobileReturn: true }),
   });
   const j = (await res.json().catch(() => ({}))) as {
     authorizeUrl?: string;

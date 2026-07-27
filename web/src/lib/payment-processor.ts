@@ -1,5 +1,6 @@
 import type { PaymentProcessor, SellerPayoutProcessor, WalletPaymentMethodType } from "@/generated/prisma/client";
 import { isStripeWalletOptionalMethodEnabled } from "@/lib/stripe-payment-method-config";
+import { isBuyerVenmoPayConfigured } from "@/lib/paypal-auth";
 
 export type { PaymentProcessor, SellerPayoutProcessor, WalletPaymentMethodType };
 
@@ -73,7 +74,8 @@ export function defaultWalletCapabilities(stripeConfigured: boolean): WalletCapa
     cashAppPay: stripeConfigured && isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_CASH_APP_ENABLED"),
     amazonPay: stripeConfigured && isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_AMAZON_PAY_ENABLED"),
     paypal: false,
-    venmo: isWalletVenmoEnabled(),
+    /** Shown when UI flag is on; linking requires PAYPAL_BUYER_VENMO_ENABLED + credentials. */
+    venmo: isWalletVenmoEnabled() && isBuyerVenmoPayConfigured(),
   };
 }
 

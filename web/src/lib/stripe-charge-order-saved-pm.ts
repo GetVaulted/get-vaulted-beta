@@ -2,8 +2,9 @@ import Stripe from "stripe";
 import { OrderPaymentMethod } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
-import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
+import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId, getBuyerPreferredWalletPaymentMethodId } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
+import { chargeOrderWithVaultedVenmo, isVenmoWalletPaymentMethodId } from "@/lib/paypal-buyer-venmo";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { stripeOffSessionPaymentIntentOptions } from "@/lib/stripe-payment-method-config";
 import { orderTaxUpdateData } from "@/lib/sales-tax-order";
@@ -491,12 +492,64 @@ export async function chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard(args: {
 }): Promise<ChargeOrderSavedPmOutcome> {
   const row = await prisma.order.findFirst({
     where: { id: args.orderId, buyerId: args.buyerId },
-    select: { paymentLabel: true, paymentStatus: true },
+    select: {
+      paymentLabel: true,
+      paymentStatus: true,
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
+      taxUsd: true,
+      totalUsd: true,
+      listing: { select: { title: true } },
+    },
   });
   if (!row) return { outcome: "error", code: "ORDER_NOT_FOUND" };
   if (row.paymentStatus === PAYMENT_PAID) return { outcome: "paid" };
 
   const explicitPm = args.paymentMethodId?.trim() ?? "";
+  const preferred =
+    (isStripePaymentMethodId(explicitPm) || isVenmoWalletPaymentMethodId(explicitPm)
+      ? explicitPm
+      : null) ??
+    (isStripePaymentMethodId(row.paymentLabel) || isVenmoWalletPaymentMethodId(row.paymentLabel)
+      ? row.paymentLabel!.trim()
+      : null) ??
+    (await getBuyerPreferredWalletPaymentMethodId(args.buyerId));
+
+  if (preferred && isVenmoWalletPaymentMethodId(preferred)) {
+    await syncLiveBundledShippingOnOrder(args.orderId);
+    await refreshBuyerShippingOnOrderIfIncomplete(args.orderId);
+    const fresh = await prisma.order.findUniqueOrThrow({
+      where: { id: args.orderId },
+      select: { itemPriceUsd: true, shippingPriceUsd: true, taxUsd: true, totalUsd: true },
+    });
+    const amountUsd =
+      typeof fresh.totalUsd === "number" && fresh.totalUsd > 0
+        ? fresh.totalUsd
+        : fresh.itemPriceUsd + fresh.shippingPriceUsd + (fresh.taxUsd ?? 0);
+    const charged = await chargeOrderWithVaultedVenmo({
+      buyerId: args.buyerId,
+      orderId: args.orderId,
+      amountUsd,
+      description: row.listing?.title ?? `Order ${args.orderId}`,
+    });
+    if (charged.outcome !== "paid") {
+      return { outcome: "error", code: charged.code };
+    }
+    await prisma.order.updateMany({
+      where: { id: args.orderId, buyerId: args.buyerId, paymentStatus: { not: PAYMENT_PAID } },
+      data: {
+        paymentLabel: preferred,
+        paymentProcessor: "PAYPAL_VENMO",
+        walletPaymentMethodType: "venmo",
+        walletPaymentMethodId: preferred,
+        processorPaymentId: charged.processorPaymentId,
+        sellerPayoutProcessor: "PAYPAL",
+      },
+    });
+    await finalizeStripeMarketplaceOrderPaid(args.orderId, null, null);
+    return { outcome: "paid", paymentIntentId: charged.processorPaymentId };
+  }
+
   const current = row.paymentLabel?.trim() ?? "";
   // Prefer the explicit (recovery) PM, then any valid stored PM, then the buyer's default card.
   const pmId = isStripePaymentMethodId(explicitPm)

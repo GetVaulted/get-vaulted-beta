@@ -210,7 +210,7 @@ async function tryReleaseEscrowInstantPayout(order: {
 export async function initializeOrderPayoutOnPayment(orderId: string): Promise<void> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { id: true, sellerId: true, payoutStatus: true, itemPriceUsd: true },
+    select: { id: true, sellerId: true, payoutStatus: true, itemPriceUsd: true, paymentProcessor: true },
   });
   if (!order || order.payoutStatus !== OrderPayoutStatus.pending) return;
 
@@ -228,7 +228,9 @@ export async function initializeOrderPayoutOnPayment(orderId: string): Promise<v
   if (!seller) return;
 
   const { effectiveSellerPayoutProcessor } = await import("@/lib/seller-payout-rail");
-  const sellerPayoutProcessor = effectiveSellerPayoutProcessor(seller);
+  // Venmo/PayPal buyer charges land on the platform PayPal balance — settle sellers via PayPal rail.
+  const sellerPayoutProcessor =
+    order.paymentProcessor === "PAYPAL_VENMO" ? "PAYPAL" : effectiveSellerPayoutProcessor(seller);
   const reserveCents = Math.round(Math.max(0, order.itemPriceUsd) * 100 * (seller.payoutReservePercent / 100));
 
   await prisma.order.update({
@@ -237,7 +239,7 @@ export async function initializeOrderPayoutOnPayment(orderId: string): Promise<v
       payoutStatus: OrderPayoutStatus.held,
       payoutReserveAmountCents: reserveCents,
       sellerPayoutProcessor,
-      paymentProcessor: "STRIPE",
+      paymentProcessor: order.paymentProcessor === "PAYPAL_VENMO" ? "PAYPAL_VENMO" : "STRIPE",
     },
   });
 

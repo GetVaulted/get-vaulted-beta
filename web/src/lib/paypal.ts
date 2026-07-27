@@ -1,7 +1,9 @@
 /**
  * PayPal Payouts API client for seller payout rail (v1).
- * Buyer checkout remains Stripe; this only sends seller net after release gates.
+ * Buyer checkout remains Stripe by default; Venmo buyer vault is in paypal-buyer-venmo.ts.
  */
+
+import { getPayPalAccessToken, paypalApiBase, paypalCredentialsConfigured } from "@/lib/paypal-auth";
 
 export type PayPalPayoutItemResult = {
   batchId: string;
@@ -11,51 +13,7 @@ export type PayPalPayoutItemResult = {
 };
 
 export function isPayPalSellerPayoutsEnabled(): boolean {
-  return (
-    process.env.PAYPAL_SELLER_PAYOUTS_ENABLED === "true" &&
-    Boolean(process.env.PAYPAL_CLIENT_ID?.trim()) &&
-    Boolean(process.env.PAYPAL_CLIENT_SECRET?.trim())
-  );
-}
-
-function paypalApiBase(): string {
-  const mode = (process.env.PAYPAL_MODE ?? "sandbox").toLowerCase();
-  return mode === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
-}
-
-let cachedToken: { accessToken: string; expiresAtMs: number } | null = null;
-
-async function getPayPalAccessToken(): Promise<string> {
-  const now = Date.now();
-  if (cachedToken && cachedToken.expiresAtMs > now + 30_000) {
-    return cachedToken.accessToken;
-  }
-  const clientId = process.env.PAYPAL_CLIENT_ID?.trim();
-  const clientSecret = process.env.PAYPAL_CLIENT_SECRET?.trim();
-  if (!clientId || !clientSecret) {
-    throw new Error("PAYPAL_NOT_CONFIGURED");
-  }
-  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-  const res = await fetch(`${paypalApiBase()}/v1/oauth2/token`, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${auth}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: "grant_type=client_credentials",
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`PAYPAL_AUTH_FAILED:${res.status}:${body.slice(0, 200)}`);
-  }
-  const json = (await res.json()) as { access_token?: string; expires_in?: number };
-  if (!json.access_token) throw new Error("PAYPAL_AUTH_FAILED:missing_token");
-  const expiresIn = Math.max(60, Number(json.expires_in ?? 3600));
-  cachedToken = {
-    accessToken: json.access_token,
-    expiresAtMs: now + expiresIn * 1000,
-  };
-  return json.access_token;
+  return process.env.PAYPAL_SELLER_PAYOUTS_ENABLED === "true" && paypalCredentialsConfigured();
 }
 
 /** Create a single-item PayPal payout to a seller email. Idempotent via sender_batch_id. */
