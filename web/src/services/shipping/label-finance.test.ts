@@ -45,7 +45,15 @@ describe("label-finance helpers", () => {
         shippoTransactionId: "tx_a",
         labelCostCents: 1751,
       }),
-    ).toBe("label_clawback_ord_1_tx_a_1751");
+    ).toBe("label_clawback_tx_a_1751");
+    // Same Shippo label on a sibling order must reuse the same Stripe idempotency key.
+    expect(
+      buildLabelClawbackIdempotencyKey({
+        orderId: "ord_sibling",
+        shippoTransactionId: "tx_a",
+        labelCostCents: 1751,
+      }),
+    ).toBe("label_clawback_tx_a_1751");
     expect(
       buildLabelCreditIdempotencyKey({
         orderId: "ord_1",

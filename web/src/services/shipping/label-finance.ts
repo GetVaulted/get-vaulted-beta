@@ -53,7 +53,10 @@ export function buildLabelClawbackIdempotencyKey(args: {
   shippoTransactionId: string;
   labelCostCents: number;
 }): string {
-  return `label_clawback_${args.orderId}_${args.shippoTransactionId}_${args.labelCostCents}`;
+  // Key by Shippo transaction (not order). Bundled live sessions share one label across many
+  // orders — including orderId would allow double Stripe reversals for the same label.
+  void args.orderId;
+  return `label_clawback_${args.shippoTransactionId}_${args.labelCostCents}`;
 }
 
 export function buildLabelCreditIdempotencyKey(args: {

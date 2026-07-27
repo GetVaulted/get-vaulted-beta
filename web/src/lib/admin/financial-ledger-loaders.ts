@@ -79,6 +79,7 @@ const orderLedgerSelect = {
         select: { completedSalesGmvUsd: true, finalSalesGmvUsd: true, status: true },
       },
       packages: { select: { labelCostCents: true, orderId: true } },
+      _count: { select: { orders: true } },
     },
   },
   shipmentPackages: { select: { labelCostCents: true } },
@@ -107,10 +108,20 @@ type OrderRow = Prisma.OrderGetPayload<{ select: typeof orderLedgerSelect }>;
 
 function toLedgerInput(o: OrderRow): OrderLedgerInput {
   const liveShow = o.liveShippingSession?.liveShow ?? null;
-  const packageLabel =
+  const sessionOrderCount = o.liveShippingSession?._count?.orders ?? 0;
+  const ownsBundledLabelCost =
+    (o.shippingLabelCostCents != null && o.shippingLabelCostCents > 0) || o.labelFinances.length > 0;
+  // Bundled live sessions put the same package label on every sibling in the UI. Only the debit
+  // order (or the order with label-finance rows) owns that cost for reconciliation — otherwise
+  // every sibling looks like a -$6 exception and ops may retry clawback multiple times.
+  const rawPackageLabel =
     o.shipmentPackages.find((p) => p.labelCostCents != null)?.labelCostCents ??
     o.liveShippingSession?.packages.find((p) => p.labelCostCents != null)?.labelCostCents ??
     null;
+  const packageLabel =
+    sessionOrderCount > 1 && !ownsBundledLabelCost && o.shippingLabelCostCents === 0
+      ? null
+      : rawPackageLabel;
   const override = effectiveSellerPlatformFeePercentOverride({
     percent: o.seller.sellerPlatformFeePercentOverride,
     expiresAt: o.seller.sellerPlatformFeeOverrideExpiresAt,

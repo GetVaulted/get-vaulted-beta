@@ -32,6 +32,19 @@ const prismaMock = vi.hoisted(() => {
         if (pair) return financeStore.rows.get(financeStore.key(pair.orderId, pair.shippoTransactionId)) ?? null;
         return null;
       }),
+      findFirst: vi.fn(async ({ where }: any) => {
+        const txId = where?.shippoTransactionId;
+        if (!txId) return null;
+        for (const row of financeStore.rows.values()) {
+          if (row.shippoTransactionId !== txId) continue;
+          if (where.sellerClawbackReversalId?.not != null && !row.sellerClawbackReversalId) continue;
+          if (where.sellerClawbackCents?.gt != null && !(row.sellerClawbackCents > where.sellerClawbackCents.gt)) {
+            continue;
+          }
+          return row;
+        }
+        return null;
+      }),
       count: vi.fn(async () => financeStore.rows.size),
       create: vi.fn(async ({ data }: any) => {
         const row = {
@@ -160,7 +173,7 @@ describe("chargeSellerForLabelCost", () => {
       "tr_1",
       expect.objectContaining({ amount: 548 }),
       expect.objectContaining({
-        idempotencyKey: "label_clawback_ord_1_shippo_tx_1_548",
+        idempotencyKey: "label_clawback_shippo_tx_1_548",
       }),
     );
     const stored = financeStore.rows.get(financeStore.key("ord_1", "shippo_tx_1"));

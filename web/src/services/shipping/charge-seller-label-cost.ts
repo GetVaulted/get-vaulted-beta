@@ -157,6 +157,29 @@ export async function chargeSellerForLabelCost(
       };
     }
 
+    // Bundled live shipping: one Shippo label may appear on many session orders. Never reverse twice.
+    const priorClawback = await tx.shipmentLabelFinance.findFirst({
+      where: {
+        shippoTransactionId: shippoTx,
+        sellerClawbackReversalId: { not: null },
+        sellerClawbackCents: { gt: 0 },
+      },
+      select: {
+        orderId: true,
+        sellerClawbackCents: true,
+        sellerClawbackReversalId: true,
+      },
+    });
+    if (priorClawback?.sellerClawbackReversalId) {
+      return {
+        kind: "already_charged_elsewhere" as const,
+        order,
+        priorOrderId: priorClawback.orderId,
+        reversedCents: priorClawback.sellerClawbackCents,
+        reversalId: priorClawback.sellerClawbackReversalId,
+      };
+    }
+
     const priorCount = await tx.shipmentLabelFinance.count({
       where: {
         orderId: order.id,
@@ -223,6 +246,22 @@ export async function chargeSellerForLabelCost(
     return {
       ok: true,
       reversedCents: prepared.summary.shippingLabelCostReversedCents,
+      reversalId: prepared.reversalId,
+      skipped: true,
+    };
+  }
+
+  if (prepared.kind === "already_charged_elsewhere") {
+    console.info("[label_cost_charge_skipped_shippo_already_clawed]", {
+      orderId: args.orderId,
+      shippoTransactionId: shippoTx,
+      clawedOnOrderId: prepared.priorOrderId,
+      reversalId: prepared.reversalId,
+      reversedCents: prepared.reversedCents,
+    });
+    return {
+      ok: true,
+      reversedCents: prepared.reversedCents,
       reversalId: prepared.reversalId,
       skipped: true,
     };

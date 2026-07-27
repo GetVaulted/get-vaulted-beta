@@ -292,12 +292,17 @@ export function AdminReconciliationPage() {
         alert(
           body.reason
             ? `Skipped: ${body.reason}`
-            : `Already reversed (${body.reversalId ?? "no reversal id"})`,
+            : body.reversalId
+              ? `Already clawed back for this Shippo label (${body.reversalId}). Seller was not charged again.`
+              : "Skipped — no new seller charge.",
         );
       } else {
         alert(
           `Clawed back ${body.reversedCents ?? 0}¢` +
             (body.reversalId ? ` → ${body.reversalId}` : "") +
+            (Array.isArray((body as { chargedAgainstOrderIds?: string[] }).chargedAgainstOrderIds)
+              ? ` (order ${(body as { chargedAgainstOrderIds: string[] }).chargedAgainstOrderIds.join(", ")})`
+              : "") +
             ". Refresh the ledger if the variance is still showing.",
         );
       }

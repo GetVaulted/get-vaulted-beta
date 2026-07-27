@@ -295,5 +295,10 @@ async function resolveLabelClawbackTargets(order: {
     });
   }
 
-  return targets;
+  // One Shippo label → one clawback target (never N sibling retries for the same tx).
+  const byTx = new Map<string, ChargeTarget>();
+  for (const t of targets) {
+    if (!byTx.has(t.shippoTransactionId)) byTx.set(t.shippoTransactionId, t);
+  }
+  return [...byTx.values()];
 }
