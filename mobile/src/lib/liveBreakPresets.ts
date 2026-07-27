@@ -18,8 +18,13 @@ export function liveBreakVariantIsSold(v: {
   quantityRemaining?: number | null;
   status?: string | null;
 }): boolean {
+  if (v.status === 'removed') return false;
   const qty = typeof v.quantityRemaining === 'number' ? v.quantityRemaining : null;
   return (qty != null && qty <= 0) || v.status === 'sold_out';
+}
+
+export function liveBreakVariantIsRemoved(v: { status?: string | null }): boolean {
+  return v.status === 'removed';
 }
 
 export const NFL_TEAMS: { abbr: string; name: string }[] = [

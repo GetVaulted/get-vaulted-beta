@@ -309,6 +309,28 @@ export async function manualAssignLiveItemVariant(args: {
   };
 }
 
+/** Host team board: remove a team without recording a sale or Show sales amount. */
+export async function retireLiveItemVariant(args: {
+  accessToken: string;
+  roomId: string;
+  itemId: string;
+  variantId: string;
+}): Promise<{ label: string }> {
+  const res = await controlFetch(
+    `/api/live-rooms/${encodeURIComponent(args.roomId)}/items/${encodeURIComponent(args.itemId)}/variants/${encodeURIComponent(args.variantId)}/retire`,
+    args.accessToken,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+  let j: { error?: string; label?: string } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+  return { label: j.label?.trim() || 'Team' };
+}
+
 export async function deleteLiveRoomQueueItem(
   accessToken: string,
   roomId: string,

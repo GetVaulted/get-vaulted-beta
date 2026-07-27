@@ -130,6 +130,8 @@ enum LiveItemVariantStatus {
   available
   reserved
   sold_out
+  /// Host removed team from the board without a sale (not counted in Show sales).
+  removed
 }
 
 enum LiveItemVariantPurchaseStatus {

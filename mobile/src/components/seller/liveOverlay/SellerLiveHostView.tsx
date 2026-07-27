@@ -1246,6 +1246,16 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
                 })
             : undefined
         }
+        onRetireTeam={
+          displayItem
+            ? ({ variantId, label }) =>
+                console.onRetireLiveTeam({
+                  itemId: displayItem.id,
+                  variantId,
+                  label,
+                })
+            : undefined
+        }
       />
       <LiveSpotTakenCelebration
         celebration={spotCelebration}

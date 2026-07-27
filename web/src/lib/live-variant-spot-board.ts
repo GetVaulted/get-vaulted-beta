@@ -52,11 +52,11 @@ export function buildVariantSpotDisplayRows(
     });
   }
 
-  return item.variants.map((v) => rowFromVariant(v));
+  return item.variants.filter((v) => v.status !== "removed").map((v) => rowFromVariant(v));
 }
 
 function rowFromVariant(v: LiveItemVariantDTO): VariantSpotDisplayRow {
-  const sold = v.quantityRemaining <= 0 || v.status === "sold_out";
+  const sold = v.status !== "removed" && (v.quantityRemaining <= 0 || v.status === "sold_out");
   return {
     id: v.id,
     label: v.label,

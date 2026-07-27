@@ -43,6 +43,8 @@ type Props = {
   canMarkSold?: boolean;
   markSoldBusy?: boolean;
   onMarkSold?: (args: { variantId: string; username: string; label: string }) => void | Promise<void>;
+  /** Remove team from board without counting a sale / Show sales amount. */
+  onRetireTeam?: (args: { variantId: string; label: string }) => void | Promise<void>;
 };
 
 function fmtMoney(n: number) {
@@ -187,6 +189,7 @@ export function SellerBreakSpotBoardSheet({
   canMarkSold = false,
   markSoldBusy = false,
   onMarkSold,
+  onRetireTeam,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
@@ -265,7 +268,7 @@ export function SellerBreakSpotBoardSheet({
                 {openCount === 0
                   ? ' · stays up while you rip'
                   : canMarkSold
-                    ? ' · tap a team, enter buyer username, mark sold'
+                    ? ' · tap a team to mark sold or remove without a sale'
                     : canPinTeams
                       ? ' · use Pin on a team to feature it for buyers'
                       : ''}
@@ -310,7 +313,7 @@ export function SellerBreakSpotBoardSheet({
           {canMarkSold && onMarkSold ? (
             <View style={styles.markSoldPanel}>
               <LiveRoomText style={styles.markSoldLabel}>
-                {selectedRow ? `Mark sold · ${selectedRow.label}` : 'Select a team above'}
+                {selectedRow ? `Selected · ${selectedRow.label}` : 'Select a team above'}
               </LiveRoomText>
               <TextInput
                 style={styles.usernameInput}
@@ -341,6 +344,26 @@ export function SellerBreakSpotBoardSheet({
                   <LiveRoomText style={styles.markSoldBtnTxt}>Mark sold</LiveRoomText>
                 )}
               </Pressable>
+              {onRetireTeam ? (
+                <Pressable
+                  style={[styles.retireBtn, (!selectedRow || markSoldBusy) && styles.markSoldBtnOff]}
+                  disabled={!selectedRow || markSoldBusy}
+                  onPress={() => {
+                    if (!selectedRow?.variantId || markSoldBusy) return;
+                    void onRetireTeam({
+                      variantId: selectedRow.variantId,
+                      label: selectedRow.label,
+                    });
+                  }}
+                >
+                  <LiveRoomText style={styles.retireBtnTxt}>Remove from board</LiveRoomText>
+                </Pressable>
+              ) : null}
+              {onRetireTeam ? (
+                <LiveRoomText style={styles.retireHint}>
+                  Remove takes the team off without counting a sale or Show sales amount.
+                </LiveRoomText>
+              ) : null}
             </View>
           ) : null}
         </View>
@@ -532,4 +555,19 @@ const styles = StyleSheet.create({
   },
   markSoldBtnOff: { opacity: 0.45 },
   markSoldBtnTxt: { fontWeight: '900', color: '#111', fontSize: 15 },
+  retireBtn: {
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  retireBtnTxt: { fontWeight: '700', color: 'rgba(255,255,255,0.85)', fontSize: 14 },
+  retireHint: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.45)',
+    textAlign: 'center',
+  },
 });

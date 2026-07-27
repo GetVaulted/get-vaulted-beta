@@ -146,8 +146,11 @@ export function summarizeVariantSpots(variants: VariantSpotRow[] | undefined | n
   }
   let available = 0;
   let sold = 0;
+  let activeSpotCount = 0;
   const prices: number[] = [];
   for (const v of variants) {
+    if (v.status === "removed") continue;
+    activeSpotCount += 1;
     sold += Math.max(0, v.soldCount ?? 0);
     const soldOut = v.quantityRemaining <= 0 || v.status === "sold_out";
     if (!soldOut) {
@@ -158,7 +161,7 @@ export function summarizeVariantSpots(variants: VariantSpotRow[] | undefined | n
   return {
     available,
     sold,
-    spotCount: variants.length,
+    spotCount: activeSpotCount,
     fromPriceUsd: prices.length ? Math.min(...prices) : null,
   };
 }
@@ -169,10 +172,12 @@ export function isVariantPurchaseItem(
   return Boolean(item && isVariantSalesFormat(item.salesFormat) && (item.variants?.length ?? 0) > 0);
 }
 
-/** True when every variant row is sold out (team break ready). */
+/** True when every non-removed variant row is sold out (team break ready). */
 export function allVariantSpotsSold(variants: VariantSpotRow[] | undefined | null): boolean {
   if (!variants?.length) return false;
-  return variants.every((v) => v.quantityRemaining <= 0 || v.status === "sold_out");
+  const active = variants.filter((v) => v.status !== "removed");
+  if (!active.length) return false;
+  return active.every((v) => v.quantityRemaining <= 0 || v.status === "sold_out");
 }
 
 export type VariantPinRow = {
@@ -186,7 +191,7 @@ export type VariantPinRow = {
 };
 
 export function variantIsAvailable(v: { quantityRemaining: number; status: string }): boolean {
-  return v.quantityRemaining > 0 && v.status !== "sold_out";
+  return v.quantityRemaining > 0 && v.status !== "sold_out" && v.status !== "removed";
 }
 
 export function hostSpotBoardPinEnabled(args: {

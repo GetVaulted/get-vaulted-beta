@@ -14,6 +14,7 @@ import {
   deleteLiveRoomQueueItem,
   importLiveRoomItemsFromRoom,
   manualAssignLiveItemVariant,
+  retireLiveItemVariant,
   patchLiveItemVariants,
   patchLiveRoomItem,
   type LiveRoomItemRow,
@@ -539,6 +540,45 @@ export function useSellerLiveConsole({
     });
   };
 
+  const onRetireLiveTeam = (args: { itemId: string; variantId: string; label: string }) => {
+    void run(async () => {
+      setMarkSoldBusy(true);
+      try {
+        const result = await retireLiveItemVariant({
+          accessToken,
+          roomId,
+          itemId: args.itemId,
+          variantId: args.variantId,
+        });
+        const markVariantRemoved = (item: LiveRoomItemRow): LiveRoomItemRow => {
+          if (item.id !== args.itemId || !item.variants?.length) return item;
+          return {
+            ...item,
+            itemVersion: (item.itemVersion ?? 0) + 1,
+            variants: item.variants.map((v) =>
+              v.id === args.variantId
+                ? {
+                    ...v,
+                    quantityRemaining: 0,
+                    status: 'removed',
+                    isHot: false,
+                    buyerUsername: null,
+                  }
+                : v,
+            ),
+          };
+        };
+        setItems((prev) => prev.map(markVariantRemoved));
+        setActiveItem((prev) => (prev ? markVariantRemoved(prev) : prev));
+        invalidateHostConsoleCache(roomId);
+        await reload({ force: true });
+        Alert.alert('Removed from board', `${result.label} was removed — not counted as a sale.`);
+      } finally {
+        setMarkSoldBusy(false);
+      }
+    });
+  };
+
   const openPricingEditor = (item: LiveRoomItemRow) => {
     const fresh =
       (activeItem?.id === item.id ? activeItem : null) ??
@@ -680,6 +720,7 @@ export function useSellerLiveConsole({
     onPinLiveTeam,
     pinningVariantId,
     onMarkSoldLiveTeam,
+    onRetireLiveTeam,
     markSoldBusy,
     onQuickAddLot,
     onSubmitFromShop,

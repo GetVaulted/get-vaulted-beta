@@ -1,4 +1,4 @@
-import { NFL_DIVISIONS, NFL_TEAMS, liveBreakVariantIsSold, spotColorKeyForPoolLabel } from './liveBreakPresets';
+import { NFL_DIVISIONS, NFL_TEAMS, liveBreakVariantIsRemoved, liveBreakVariantIsSold, spotColorKeyForPoolLabel } from './liveBreakPresets';
 import { isRandomVariantAssignment, isVariantSalesFormat } from './liveItemVariant';
 import type { LiveRoomItemRow } from '../api/liveRoomControlRepository';
 
@@ -55,19 +55,21 @@ export function buildVariantSpotDisplayRows(
     });
   }
 
-  return item.variants.map((v) => {
-    const sold = liveBreakVariantIsSold(v);
-    return {
-      id: v.id,
-      label: v.label,
-      priceUsd: v.priceUsd,
-      sold,
-      buyerUsername: sold ? v.buyerUsername?.trim()?.replace(/^@+/, '') ?? null : null,
-      isHot: v.isHot,
-      variantId: v.id,
-      color: v.color ?? null,
-    };
-  });
+  return item.variants
+    .filter((v) => !liveBreakVariantIsRemoved(v))
+    .map((v) => {
+      const sold = liveBreakVariantIsSold(v);
+      return {
+        id: v.id,
+        label: v.label,
+        priceUsd: v.priceUsd,
+        sold,
+        buyerUsername: sold ? v.buyerUsername?.trim()?.replace(/^@+/, '') ?? null : null,
+        isHot: v.isHot,
+        variantId: v.id,
+        color: v.color ?? null,
+      };
+    });
 }
 
 export type VariantSpotBoardSummary = {
