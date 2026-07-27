@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-import { createTradeDepositCheckoutViaWeb, isWebTradeApiConfigured } from '../api/tradeOffersWebApi';
-import { colors, radii, spacing } from '../theme';
+import { createTradeDepositCheckoutViaWeb, isWebTradeApiConfigured } from '../../api/tradeOffersWebApi';
+import { colors, radii, spacing } from '../../theme';
 
 /** Pay refundable security deposit (straight / $0-cash trades). */
 export function TradeDepositPayButton({

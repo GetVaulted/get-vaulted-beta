@@ -353,7 +353,7 @@ export function AccountPaymentMethodsPage() {
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Account</p>
           <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground">Wallet</h1>
           <p className="mt-1 max-w-2xl text-sm text-zinc-500">
-            Add a card and shipping address once — used for live shows, auction wins, and checkout.
+            Add a payment method and shipping address once — used for live shows, auction wins, and checkout.
           </p>
           <div className="mt-4">
             <AccountOrdersNav active="payments" mode="buyer" />
@@ -453,7 +453,7 @@ export function AccountPaymentMethodsPage() {
               onClick={() => void submitCard()}
               className="mt-4 flex h-11 w-full max-w-sm items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright text-sm font-bold text-zinc-950 disabled:opacity-60"
             >
-              {formBusy ? "Saving…" : "Save card"}
+              {formBusy ? "Saving…" : "Save payment method"}
             </button>
           </section>
         ) : null}

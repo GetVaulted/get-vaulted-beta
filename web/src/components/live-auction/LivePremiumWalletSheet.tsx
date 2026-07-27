@@ -93,6 +93,8 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId: _liveRoomId,
   const [paymentMethods, setPaymentMethods] = useState<PmRow[]>([]);
   const [promoDraft, setPromoDraft] = useState("");
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
+  const [venmoBusy, setVenmoBusy] = useState(false);
+  const [venmoError, setVenmoError] = useState<string | null>(null);
 
   const defaultAddress = useMemo(
     () => addresses.find((a) => a.isDefault) ?? addresses[0] ?? null,
@@ -165,6 +167,43 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId: _liveRoomId,
     setStep("shipping");
     void reload();
   };
+
+  const startVenmoSetup = useCallback(async () => {
+    setVenmoBusy(true);
+    setVenmoError(null);
+    setSaveNotice(null);
+    try {
+      const res = await fetch("/api/account/payment-methods/venmo-setup", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        authorizeUrl?: string;
+        paymentMethodId?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        setVenmoError(j.error ?? "Venmo linking is not available yet.");
+        return;
+      }
+      if (typeof j.authorizeUrl === "string" && j.authorizeUrl.trim()) {
+        window.location.assign(j.authorizeUrl.trim());
+        return;
+      }
+      if (typeof j.paymentMethodId === "string" && j.paymentMethodId.trim()) {
+        setSaveNotice("Venmo connected.");
+        void reload();
+        return;
+      }
+      setVenmoError("Venmo linking did not return a next step.");
+    } catch {
+      setVenmoError("Could not start Venmo linking.");
+    } finally {
+      setVenmoBusy(false);
+    }
+  }, [reload]);
 
   if (!open) return null;
 
@@ -365,12 +404,24 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId: _liveRoomId,
                   type="button"
                   onClick={() => {
                     setSaveNotice(null);
+                    setVenmoError(null);
                     setStep("add_card");
                   }}
                   className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/18 bg-white/[0.04] py-3 text-sm font-extrabold text-zinc-100"
                 >
-                  Add card here
+                  Add card / Cash App
                 </button>
+                {wallet?.capabilities?.venmo ? (
+                  <button
+                    type="button"
+                    disabled={venmoBusy}
+                    onClick={() => void startVenmoSetup()}
+                    className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-white/18 bg-white/[0.04] py-3 text-sm font-extrabold text-zinc-100 disabled:opacity-60"
+                  >
+                    {venmoBusy ? "Starting Venmo…" : "Connect Venmo"}
+                  </button>
+                ) : null}
+                {venmoError ? <p className="mt-2 text-xs font-medium text-rose-300">{venmoError}</p> : null}
                 <p className="mb-2 mt-5 text-[11px] font-extrabold uppercase tracking-wide text-zinc-500">
                   Accepted on live
                 </p>

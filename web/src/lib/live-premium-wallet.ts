@@ -7,6 +7,7 @@ export type LiveWalletCapabilities = {
   cashAppPay?: boolean;
   amazonPay?: boolean;
   paypal?: boolean;
+  venmo?: boolean;
 } | null;
 
 function showOnWeb(entry: WalletMethodCatalogEntry): boolean {
@@ -22,6 +23,7 @@ export function liveAcceptedWalletMethods(capabilities?: LiveWalletCapabilities)
     if (entry.id === "link" && !capabilities?.link) return false;
     if (entry.id === "cash_app_pay" && !capabilities?.cashAppPay) return false;
     if (entry.id === "amazon_pay" && !capabilities?.amazonPay) return false;
+    if (entry.id === "venmo" && !capabilities?.venmo) return false;
     return true;
   });
 }

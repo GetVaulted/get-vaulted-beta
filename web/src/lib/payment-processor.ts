@@ -2,7 +2,7 @@ import type { PaymentProcessor, SellerPayoutProcessor, WalletPaymentMethodType }
 
 export type { PaymentProcessor, SellerPayoutProcessor, WalletPaymentMethodType };
 
-/** Stripe-supported wallet methods we expose in Vault Wallet (Venmo is Phase 2 / PayPal path). */
+/** Stripe-supported wallet methods we expose in Vault Wallet (Venmo is a separate PayPal path). */
 export const STRIPE_WALLET_METHOD_TYPES: WalletPaymentMethodType[] = [
   "card",
   "apple_pay",
@@ -11,6 +11,11 @@ export const STRIPE_WALLET_METHOD_TYPES: WalletPaymentMethodType[] = [
   "cash_app_pay",
   "paypal",
 ];
+
+/** Buyer Venmo option in Vault Wallet / Live. Backend link lives at POST /api/account/payment-methods/venmo-setup. */
+export function isWalletVenmoEnabled(): boolean {
+  return process.env.WALLET_VENMO_ENABLED !== "false";
+}
 
 export type WalletCapabilities = {
   stripeConfigured: boolean;
@@ -21,7 +26,7 @@ export type WalletCapabilities = {
   cashAppPay: boolean;
   amazonPay: boolean;
   paypal: boolean;
-  /** Phase 2 — separate PayPal/Venmo processor, not Stripe Connect. */
+  /** PayPal/Venmo buyer rail — UI option; linking completed via venmo-setup API. */
   venmo: boolean;
 };
 
@@ -67,7 +72,7 @@ export function defaultWalletCapabilities(stripeConfigured: boolean): WalletCapa
     cashAppPay: stripeConfigured && process.env.STRIPE_WALLET_CASH_APP_ENABLED === "true",
     amazonPay: stripeConfigured && process.env.STRIPE_WALLET_AMAZON_PAY_ENABLED === "true",
     paypal: false,
-    venmo: false,
+    venmo: isWalletVenmoEnabled(),
   };
 }
 

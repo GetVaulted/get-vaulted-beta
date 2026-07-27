@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-import { createTradeCashCheckoutViaWeb, isWebTradeApiConfigured } from '../api/tradeOffersWebApi';
-import { colors, radii, spacing } from '../theme';
+import { createTradeCashCheckoutViaWeb, isWebTradeApiConfigured } from '../../api/tradeOffersWebApi';
+import { colors, radii, spacing } from '../../theme';
 
 /** Pay optional trade cash via Stripe (separate from fee + label). */
 export function TradeCashPayButton({

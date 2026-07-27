@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { ensureStripeCustomerIdForUser } from "@/lib/stripe-customer";
 import { getStripe, getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
+import { isWalletVenmoEnabled } from "@/lib/payment-processor";
 import { stripeSetupIntentPaymentOptions } from "@/lib/stripe-payment-method-config";
 
 /**
- * Creates a SetupIntent so the buyer can add a card to their Stripe Customer (off-session usage for wins).
+ * Creates a SetupIntent so the buyer can add a card / Cash App / other wallet PM
+ * to their Stripe Customer (off-session usage for live wins).
  */
 export async function POST(req: Request) {
   // Buyer wallet setup — skip Connect sibling sync (extra DB work on every mobile auth).
@@ -52,7 +54,7 @@ export async function POST(req: Request) {
       cashAppPayEnabled: paymentMethodTypes.includes("cashapp"),
       amazonPayEnabled: paymentMethodTypes.includes("amazon_pay"),
       paypalEnabled: false,
-      venmoEnabled: false,
+      venmoEnabled: isWalletVenmoEnabled(),
       paymentMethodTypes,
     });
   } catch (e) {

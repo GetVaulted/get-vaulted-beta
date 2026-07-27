@@ -4,6 +4,8 @@ import {
   stripePmTypeToWalletType,
   type BuyerWalletPaymentMethodDTO,
 } from "@/lib/payment-processor";
+import { isLiveEligibleStripePaymentMethodType } from "@/lib/stripe-payment-method-config";
+import type Stripe from "stripe";
 
 export type BuyerCardPaymentMethodRow = {
   id: string;
@@ -84,6 +86,16 @@ export async function listBuyerCardPaymentMethods(userId: string): Promise<Buyer
 
 const WALLET_PM_STRIPE_TYPES = ["card", "link", "cashapp", "amazon_pay", "paypal"] as const;
 
+function isUsableLivePaymentMethod(pm: Stripe.PaymentMethod): boolean {
+  if (!isLiveEligibleStripePaymentMethodType(pm.type)) return false;
+  if (pm.type === "card") {
+    const expMonth = pm.card?.exp_month ?? 0;
+    const expYear = pm.card?.exp_year ?? 0;
+    return !isCardExpired(expMonth, expYear);
+  }
+  return true;
+}
+
 async function resolveDefaultPaymentMethodId(customerId: string): Promise<string | null> {
   const stripe = getStripe();
   const customer = await stripe.customers.retrieve(customerId, {
@@ -97,15 +109,21 @@ async function resolveDefaultPaymentMethodId(customerId: string): Promise<string
     const id = (dpm as { id: string }).id;
     if (typeof id === "string" && id.startsWith("pm_")) defaultId = id;
   }
-  if (defaultId) return defaultId;
+  if (defaultId) {
+    try {
+      const pm = await stripe.paymentMethods.retrieve(defaultId);
+      if (isUsableLivePaymentMethod(pm)) return defaultId;
+    } catch {
+      /* fall through to first usable wallet PM */
+    }
+  }
 
-  const cards = await stripe.paymentMethods.list({ customer: customerId, type: "card" });
-  const valid = cards.data.find((pm) => {
-    const expMonth = pm.card?.exp_month ?? 0;
-    const expYear = pm.card?.exp_year ?? 0;
-    return !isCardExpired(expMonth, expYear);
-  });
-  return valid?.id ?? cards.data[0]?.id ?? null;
+  for (const pmType of WALLET_PM_STRIPE_TYPES) {
+    const list = await stripe.paymentMethods.list({ customer: customerId, type: pmType });
+    const valid = list.data.find((pm) => isUsableLivePaymentMethod(pm));
+    if (valid) return valid.id;
+  }
+  return null;
 }
 
 /** All saved wallet payment methods on the Stripe Customer (cards, Link, Cash App, PayPal). */
@@ -173,15 +191,19 @@ export async function detachBuyerPaymentMethod(userId: string, paymentMethodId: 
   await stripe.paymentMethods.detach(paymentMethodId);
 }
 
-/** True when Stripe is off (local dev) or the buyer has at least one saved card on their Customer. */
+/**
+ * True when Stripe is off (local dev) or the buyer has a live-eligible saved PM
+ * (card, Cash App Pay, Link, or Amazon Pay).
+ */
 export async function buyerHasCardOnFileForLiveBidding(userId: string): Promise<boolean> {
   if (!isStripeConfigured()) return true;
-  const cards = await listBuyerCardPaymentMethods(userId);
-  return cards.length > 0;
+  const pmId = await getBuyerDefaultCardPaymentMethodId(userId);
+  return pmId != null;
 }
 
 /**
- * Stripe Customer default card PM when set; otherwise the first saved card from the Customer.
+ * Stripe Customer default live-eligible PM when set; otherwise the first usable
+ * card / Cash App / Link / Amazon Pay on the Customer.
  * Used to charge live auction wins when `Order.paymentLabel` is still the placeholder `"auction"`.
  */
 export async function getBuyerDefaultCardPaymentMethodId(userId: string): Promise<string | null> {
@@ -192,23 +214,7 @@ export async function getBuyerDefaultCardPaymentMethodId(userId: string): Promis
   });
   const customerId = user?.stripeCustomerId?.trim();
   if (!customerId) return null;
-
-  const defaultId = await resolveDefaultPaymentMethodId(customerId);
-  if (!defaultId) return null;
-
-  const stripe = getStripe();
-  try {
-    const pm = await stripe.paymentMethods.retrieve(defaultId);
-    const expMonth = pm.card?.exp_month ?? 0;
-    const expYear = pm.card?.exp_year ?? 0;
-    if (!isCardExpired(expMonth, expYear)) return defaultId;
-  } catch {
-    /* fall through */
-  }
-
-  const cards = await listBuyerCardPaymentMethods(userId);
-  const valid = cards.find((card) => !isCardExpired(card.expMonth, card.expYear));
-  return valid?.id ?? cards[0]?.id ?? null;
+  return resolveDefaultPaymentMethodId(customerId);
 }
 
 /**

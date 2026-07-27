@@ -13,7 +13,9 @@ import {
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -25,6 +27,7 @@ import {
   createBuyerSetupIntent,
   finalizeBuyerPaymentMethodSetup,
   FinalizePaymentMethodError,
+  startBuyerVenmoSetup,
   type BuyerSetupIntentPayload,
 } from '../../api/buyerWalletRepository';
 import { colors, spacing } from '../../theme';
@@ -167,6 +170,14 @@ function methodPickerSubtitle(entryId: string): string {
       return 'One-tap checkout on this device';
     case 'card':
       return 'Visa, Mastercard, Amex, and more';
+    case 'cash_app_pay':
+      return 'Pay with Cash App — saved for live wins';
+    case 'venmo':
+      return 'Pay with Venmo — saved for live wins';
+    case 'link':
+      return 'Stripe Link — fast checkout';
+    case 'amazon_pay':
+      return 'Pay with Amazon — saved for live';
     default:
       return 'Instant checkout for live & marketplace';
   }
@@ -177,22 +188,26 @@ function LivePaymentMethodPicker({
   onClose,
   onPickCard,
   onPickWallet,
+  onPickStripeSheet,
+  onPickVenmo,
 }: {
   payload: BuyerSetupIntentPayload;
   onClose: () => void;
   onPickCard: () => void;
   onPickWallet: () => void;
+  onPickStripeSheet: () => void;
+  onPickVenmo: () => void;
 }) {
   const platform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
   const capabilities = {
     link: payload.linkEnabled === true,
     cashAppPay: payload.cashAppPayEnabled === true,
     amazonPay: payload.amazonPayEnabled === true,
-    paypal: false,
+    paypal: payload.paypalEnabled === true,
+    venmo: payload.venmoEnabled !== false,
   };
   const methods = liveAcceptedWalletMethods(platform, capabilities)
     .filter((entry) => {
-      if (entry.id === 'cash_app_pay' || entry.id === 'amazon_pay' || entry.id === 'link') return false;
       if (entry.id === 'google_pay' && platform === 'android' && !NATIVE_GOOGLE_PAY_ENABLED) return false;
       return true;
     })
@@ -216,7 +231,9 @@ function LivePaymentMethodPicker({
               ? onPickCard
               : entry.id === 'apple_pay' || entry.id === 'google_pay'
                 ? onPickWallet
-                : onPickWallet;
+                : entry.id === 'venmo'
+                  ? onPickVenmo
+                  : onPickStripeSheet;
           const showFastestBadge =
             (entry.id === 'apple_pay' && platform === 'ios' && payload.applePayEnabled !== false) ||
             (entry.id === 'google_pay' && platform === 'android' && NATIVE_GOOGLE_PAY_ENABLED);
@@ -439,7 +456,8 @@ function WalletPaymentSetupInner({
     onSaved(finalizedPaymentMethodId);
   }, [accessToken, finishSaved, onSaved, payload.clientSecret]);
 
-  const presentAndroidPaymentSheet = useCallback(async (): Promise<'saved' | 'cancelled' | 'failed'> => {
+  /** PaymentSheet for card (Android) and redirect wallets (Cash App, Link, Amazon Pay). */
+  const presentStripePaymentSheet = useCallback(async (): Promise<'saved' | 'cancelled' | 'failed'> => {
     if (busy) return 'failed';
     setBusy(true);
     setInitError(null);
@@ -559,11 +577,11 @@ function WalletPaymentSetupInner({
     if (!androidCardSheetAutoRef.current || busy) return;
     androidCardSheetAutoRef.current = false;
     void (async () => {
-      const result = await presentAndroidPaymentSheet();
+      const result = await presentStripePaymentSheet();
       if (result === 'cancelled') onClose();
       if (result === 'failed') setShowPicker(true);
     })();
-  }, [busy, onClose, presentAndroidPaymentSheet]);
+  }, [busy, onClose, presentStripePaymentSheet]);
 
   useEffect(() => {
     if (!walletAutoPresentRef.current || busy || useManualCard || showPicker) return;
@@ -602,14 +620,51 @@ function WalletPaymentSetupInner({
     setShowPicker(false);
     if (androidPaymentSheet) {
       void (async () => {
-        const result = await presentAndroidPaymentSheet();
+        const result = await presentStripePaymentSheet();
         if (result === 'cancelled') setShowPicker(true);
         if (result === 'failed') setShowPicker(true);
       })();
       return;
     }
     setUseManualCard(true);
-  }, [androidPaymentSheet, presentAndroidPaymentSheet]);
+  }, [androidPaymentSheet, presentStripePaymentSheet]);
+
+  const openStripeWalletSheet = useCallback(() => {
+    if (busy) return;
+    setInitError(null);
+    setShowPicker(false);
+    void (async () => {
+      const result = await presentStripePaymentSheet();
+      if (result === 'cancelled' || result === 'failed') setShowPicker(true);
+    })();
+  }, [busy, presentStripePaymentSheet]);
+
+  const openVenmoSetup = useCallback(() => {
+    if (busy) return;
+    setInitError(null);
+    void (async () => {
+      setBusy(true);
+      try {
+        const result = await startBuyerVenmoSetup(accessToken);
+        if (result.authorizeUrl) {
+          await Linking.openURL(result.authorizeUrl);
+          return;
+        }
+        if (result.paymentMethodId?.startsWith('pm_') || result.paymentMethodId) {
+          onSaved(result.paymentMethodId);
+          return;
+        }
+        Alert.alert('Venmo', 'Venmo linking did not return a next step. Try again later.');
+      } catch (e) {
+        Alert.alert(
+          'Venmo',
+          e instanceof Error ? e.message : 'Venmo linking is not available yet.',
+        );
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [accessToken, busy, onSaved]);
 
   const saveManualCard = async () => {
     if (busy) return;
@@ -656,6 +711,8 @@ function WalletPaymentSetupInner({
         onClose={onClose}
         onPickCard={openManualCard}
         onPickWallet={openNativeWallet}
+        onPickStripeSheet={openStripeWalletSheet}
+        onPickVenmo={openVenmoSetup}
       />
     );
   }

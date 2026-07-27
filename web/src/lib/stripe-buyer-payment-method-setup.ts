@@ -91,15 +91,32 @@ export async function finalizeBuyerPaymentMethod(args: {
     detachExpiredCards: true,
   });
 
-  const brandRaw = pm.card?.brand ?? pm.type ?? "card";
-  const brand = brandRaw.slice(0, 1).toUpperCase() + brandRaw.slice(1);
+  const brandRaw =
+    pm.type === "cashapp"
+      ? "Cash App"
+      : pm.type === "link"
+        ? "Link"
+        : pm.type === "amazon_pay"
+          ? "Amazon Pay"
+          : (pm.card?.brand ?? pm.type ?? "card");
+  const brand =
+    pm.type === "cashapp" || pm.type === "link" || pm.type === "amazon_pay"
+      ? brandRaw
+      : brandRaw.slice(0, 1).toUpperCase() + brandRaw.slice(1);
+
+  const last4 =
+    pm.type === "cashapp"
+      ? pm.cashapp?.cashtag?.replace("$", "").slice(-4) || "····"
+      : pm.type === "link"
+        ? pm.link?.email?.slice(-4) || "····"
+        : (pm.card?.last4 ?? "0000");
 
   return {
     paymentMethodId: pm.id,
     expMonth: pm.card?.exp_month ?? 0,
     expYear: pm.card?.exp_year ?? 0,
     brand,
-    last4: pm.card?.last4 ?? "0000",
+    last4,
   };
 }
 

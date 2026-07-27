@@ -185,8 +185,39 @@ export async function createBuyerSetupIntent(
     cashAppPayEnabled: j.cashAppPayEnabled === true,
     amazonPayEnabled: j.amazonPayEnabled === true,
     paypalEnabled: j.paypalEnabled === true,
-    venmoEnabled: j.venmoEnabled === true,
+    venmoEnabled: j.venmoEnabled !== false,
     paymentMethodTypes: Array.isArray(j.paymentMethodTypes) ? j.paymentMethodTypes : ['card'],
+  };
+}
+
+/**
+ * Start Venmo linking. Backend should return `{ authorizeUrl }` when ready;
+ * until then the route returns 501 VENMO_BACKEND_PENDING.
+ */
+export async function startBuyerVenmoSetup(accessToken: string | undefined): Promise<{
+  authorizeUrl?: string;
+  paymentMethodId?: string;
+}> {
+  requireApiBase();
+  if (!accessToken?.trim()) throw new Error('Sign in to connect Venmo.');
+  const res = await fetchWebApiAuthed('/api/account/payment-methods/venmo-setup', accessToken, {
+    method: 'POST',
+    body: '{}',
+  });
+  const j = (await res.json().catch(() => ({}))) as {
+    authorizeUrl?: string;
+    paymentMethodId?: string;
+    error?: string;
+    code?: string;
+  };
+  if (!res.ok) {
+    throw new Error(
+      typeof j.error === 'string' ? j.error : 'Venmo linking is not available yet.',
+    );
+  }
+  return {
+    authorizeUrl: typeof j.authorizeUrl === 'string' ? j.authorizeUrl : undefined,
+    paymentMethodId: typeof j.paymentMethodId === 'string' ? j.paymentMethodId : undefined,
   };
 }
 
