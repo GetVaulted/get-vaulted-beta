@@ -1237,12 +1237,16 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         markSoldBusy={console.markSoldBusy || console.busy}
         onMarkSold={
           displayItem
-            ? ({ variantId, username }) =>
+            ? ({ variantId, username, priceUsd, settlementMethod, zeroReason, note, label }) =>
                 console.onMarkSoldLiveTeam({
                   itemId: displayItem.id,
                   variantId,
                   username,
-                  label: '',
+                  label,
+                  priceUsd,
+                  settlementMethod,
+                  zeroReason,
+                  note,
                 })
             : undefined
         }

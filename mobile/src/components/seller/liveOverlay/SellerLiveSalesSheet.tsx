@@ -16,7 +16,9 @@ import type {
   HostRecentSaleRow,
   HostSellerShowSummary,
 } from '../../../api/liveHostRepository';
+import { createOffPlatformPlatformFeeCheckout } from '../../../api/liveRoomControlRepository';
 import { cancelHostPaymentFailure } from '../../../api/livePaymentFailureRepository';
+import { openStripeCheckoutSession } from '../../../lib/openStripeCheckoutSession';
 import { colors, radii, spacing } from '../../../theme';
 
 function fmtUsd(n: number) {
@@ -74,11 +76,41 @@ export function SellerLiveSalesSheet({
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
   const [cancelBusyId, setCancelBusyId] = useState<string | null>(null);
+  const [feeBusyId, setFeeBusyId] = useState<string | null>(null);
 
   const needsAttention = useMemo(
     () =>
-      paymentFailures.length + recentSales.filter((r) => r.paymentTone === 'retry').length,
+      paymentFailures.length +
+      recentSales.filter((r) => r.paymentTone === 'retry' || (r.platformFeeDueUsd ?? 0) > 0).length,
     [paymentFailures.length, recentSales],
+  );
+
+  const onPayPlatformFee = useCallback(
+    async (row: HostRecentSaleRow) => {
+      const purchaseId = row.purchaseId?.trim();
+      if (!purchaseId || feeBusyId) return;
+      setFeeBusyId(row.id);
+      try {
+        const checkout = await createOffPlatformPlatformFeeCheckout({
+          accessToken,
+          roomId,
+          purchaseId,
+        });
+        if (checkout.alreadyPaid) {
+          onToast?.('Platform fee already paid');
+          await onRefresh();
+          return;
+        }
+        if (!checkout.url) throw new Error('Could not start fee checkout.');
+        await openStripeCheckoutSession(checkout.url);
+        await onRefresh();
+      } catch (e) {
+        onToast?.(e instanceof Error ? e.message : 'Could not open fee payment.');
+      } finally {
+        setFeeBusyId(null);
+      }
+    },
+    [accessToken, feeBusyId, onRefresh, onToast, roomId],
   );
 
   const onPullRefresh = useCallback(async () => {
@@ -219,6 +251,7 @@ export function SellerLiveSalesSheet({
               ) : (
                 recentSales.map((r) => {
                   const badge = toneStyle(r.paymentTone);
+                  const feeDue = (r.platformFeeDueUsd ?? 0) > 0;
                   return (
                     <View key={r.id} style={styles.saleRow}>
                       <View style={styles.saleBody}>
@@ -232,6 +265,21 @@ export function SellerLiveSalesSheet({
                           </Text>
                         ) : null}
                         <Text style={styles.saleAmount}>{fmtUsd(r.amountUsd)}</Text>
+                        {feeDue ? (
+                          <Pressable
+                            style={[styles.feePayBtn, feeBusyId === r.id && styles.feePayBtnBusy]}
+                            disabled={feeBusyId === r.id}
+                            onPress={() => void onPayPlatformFee(r)}
+                          >
+                            {feeBusyId === r.id ? (
+                              <ActivityIndicator color="#111" size="small" />
+                            ) : (
+                              <Text style={styles.feePayBtnTxt}>
+                                Pay fee {fmtUsd(r.platformFeeDueUsd!)}
+                              </Text>
+                            )}
+                          </Pressable>
+                        ) : null}
                       </View>
                       <View style={[styles.badge, badge.wrap]}>
                         <Text style={[styles.badgeTxt, badge.text]}>{r.statusLabel}</Text>
@@ -424,6 +472,22 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.78)',
     marginTop: 4,
     fontVariant: ['tabular-nums'],
+  },
+  feePayBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    borderRadius: radii.sm,
+    backgroundColor: colors.gold,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    minWidth: 110,
+    alignItems: 'center',
+  },
+  feePayBtnBusy: { opacity: 0.7 },
+  feePayBtnTxt: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#111',
   },
   badge: {
     borderRadius: radii.sm,

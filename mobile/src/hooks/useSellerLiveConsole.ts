@@ -11,6 +11,7 @@ import {
 } from '../api/liveHostRepository';
 import {
   createLiveRoomQueueItem,
+  createOffPlatformPlatformFeeCheckout,
   deleteLiveRoomQueueItem,
   importLiveRoomItemsFromRoom,
   manualAssignLiveItemVariant,
@@ -19,6 +20,7 @@ import {
   patchLiveRoomItem,
   type LiveRoomItemRow,
 } from '../api/liveRoomControlRepository';
+import { openStripeCheckoutSession } from '../lib/openStripeCheckoutSession';
 import type { QuickLiveLotSubmitPayload, QuickLiveLotSubmitOptions } from '../components/seller/liveConsole/AddInventoryModal';
 import type { QuickLiveLotValues } from '../lib/liveAuctionPricing';
 import type { LiveBreakVariantDraft } from '../lib/liveBreakPresets';
@@ -498,7 +500,16 @@ export function useSellerLiveConsole({
     });
   };
 
-  const onMarkSoldLiveTeam = (args: { itemId: string; variantId: string; username: string; label: string }) => {
+  const onMarkSoldLiveTeam = (args: {
+    itemId: string;
+    variantId: string;
+    username: string;
+    label: string;
+    priceUsd: number;
+    settlementMethod: string;
+    zeroReason?: string;
+    note?: string;
+  }) => {
     void run(async () => {
       setMarkSoldBusy(true);
       try {
@@ -508,6 +519,10 @@ export function useSellerLiveConsole({
           itemId: args.itemId,
           variantId: args.variantId,
           username: args.username,
+          priceUsd: args.priceUsd,
+          settlementMethod: args.settlementMethod,
+          zeroReason: args.zeroReason,
+          note: args.note,
         });
         const buyerUsername = result.buyerUsername.replace(/^@+/, '');
         const markVariantSold = (item: LiveRoomItemRow): LiveRoomItemRow => {
@@ -533,7 +548,49 @@ export function useSellerLiveConsole({
         setActiveItem((prev) => (prev ? markVariantSold(prev) : prev));
         invalidateHostConsoleCache(roomId);
         await reload({ force: true });
-        Alert.alert('Marked sold', `${result.label} → @${result.buyerUsername}`);
+
+        if (result.platformFeeDue && result.purchaseId) {
+          const feeUsd = (result.platformFeeCents / 100).toFixed(2);
+          Alert.alert(
+            'Marked sold',
+            `${result.label} → @${result.buyerUsername} · $${result.totalUsd.toFixed(2)}\n\nPlatform fee due: $${feeUsd}`,
+            [
+              { text: 'Pay later', style: 'cancel' },
+              {
+                text: 'Pay fee now',
+                onPress: () => {
+                  void (async () => {
+                    try {
+                      const checkout = await createOffPlatformPlatformFeeCheckout({
+                        accessToken,
+                        roomId,
+                        purchaseId: result.purchaseId,
+                      });
+                      if (checkout.alreadyPaid) {
+                        Alert.alert('Fee already paid', `$${checkout.feeUsd.toFixed(2)} platform fee is settled.`);
+                        return;
+                      }
+                      if (!checkout.url) throw new Error('Could not start fee checkout.');
+                      await openStripeCheckoutSession(checkout.url);
+                    } catch (e) {
+                      Alert.alert(
+                        'Fee checkout',
+                        e instanceof Error ? e.message : 'Could not open fee payment.',
+                      );
+                    }
+                  })();
+                },
+              },
+            ],
+          );
+        } else {
+          Alert.alert(
+            'Marked sold',
+            `${result.label} → @${result.buyerUsername}${
+              result.totalUsd < 0.01 ? ' · $0 (no platform fee)' : ` · $${result.totalUsd.toFixed(2)}`
+            }`,
+          );
+        }
       } finally {
         setMarkSoldBusy(false);
       }

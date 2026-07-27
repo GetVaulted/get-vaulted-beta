@@ -275,15 +275,27 @@ export async function patchLiveItemVariants(
   if (!res.ok) throw new Error(apiErrorMessage(res, j));
 }
 
-/** Host team board: mark a PYT/PYD team sold and attach the buyer's username (no Stripe charge). */
+/** Host team board: mark a PYT/PYD team sold via off-platform settlement (seller owes platform fee). */
 export async function manualAssignLiveItemVariant(args: {
   accessToken: string;
   roomId: string;
   itemId: string;
   variantId: string;
   username: string;
-  priceUsd?: number;
-}): Promise<{ buyerUsername: string; label: string; totalUsd: number }> {
+  priceUsd: number;
+  settlementMethod: string;
+  zeroReason?: string;
+  note?: string;
+}): Promise<{
+  buyerUsername: string;
+  label: string;
+  totalUsd: number;
+  purchaseId: string;
+  platformFeeCents: number;
+  platformFeePercent: number;
+  platformFeeStatus: string;
+  platformFeeDue: boolean;
+}> {
   const res = await controlFetch(
     `/api/live-rooms/${encodeURIComponent(args.roomId)}/items/${encodeURIComponent(args.itemId)}/variants/${encodeURIComponent(args.variantId)}/manual-assign`,
     args.accessToken,
@@ -291,11 +303,24 @@ export async function manualAssignLiveItemVariant(args: {
       method: 'POST',
       body: JSON.stringify({
         username: args.username,
-        ...(typeof args.priceUsd === 'number' ? { priceUsd: args.priceUsd } : {}),
+        priceUsd: args.priceUsd,
+        settlementMethod: args.settlementMethod,
+        ...(args.zeroReason ? { zeroReason: args.zeroReason } : {}),
+        ...(args.note?.trim() ? { note: args.note.trim() } : {}),
       }),
     },
   );
-  let j: { error?: string; buyerUsername?: string; label?: string; totalUsd?: number } = {};
+  let j: {
+    error?: string;
+    buyerUsername?: string;
+    label?: string;
+    totalUsd?: number;
+    purchaseId?: string;
+    platformFeeCents?: number;
+    platformFeePercent?: number;
+    platformFeeStatus?: string;
+    platformFeeDue?: boolean;
+  } = {};
   try {
     j = (await res.json()) as typeof j;
   } catch {
@@ -306,6 +331,36 @@ export async function manualAssignLiveItemVariant(args: {
     buyerUsername: j.buyerUsername?.trim() || args.username.replace(/^@+/, ''),
     label: j.label?.trim() || 'Team',
     totalUsd: typeof j.totalUsd === 'number' ? j.totalUsd : 0,
+    purchaseId: j.purchaseId?.trim() || '',
+    platformFeeCents: typeof j.platformFeeCents === 'number' ? j.platformFeeCents : 0,
+    platformFeePercent: typeof j.platformFeePercent === 'number' ? j.platformFeePercent : 0,
+    platformFeeStatus: j.platformFeeStatus?.trim() || 'waived',
+    platformFeeDue: Boolean(j.platformFeeDue),
+  };
+}
+
+/** Host pays Get Vaulted platform fee for an off-platform mark-sold sale. */
+export async function createOffPlatformPlatformFeeCheckout(args: {
+  accessToken: string;
+  roomId: string;
+  purchaseId: string;
+}): Promise<{ url: string | null; alreadyPaid: boolean; feeUsd: number }> {
+  const res = await controlFetch(
+    `/api/live-rooms/${encodeURIComponent(args.roomId)}/off-platform-fees/${encodeURIComponent(args.purchaseId)}/checkout`,
+    args.accessToken,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+  let j: { error?: string; url?: string | null; alreadyPaid?: boolean; feeUsd?: number } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+  return {
+    url: typeof j.url === 'string' && j.url.trim() ? j.url.trim() : null,
+    alreadyPaid: Boolean(j.alreadyPaid),
+    feeUsd: typeof j.feeUsd === 'number' ? j.feeUsd : 0,
   };
 }
 

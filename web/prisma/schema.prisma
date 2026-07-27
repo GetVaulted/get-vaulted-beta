@@ -141,6 +141,31 @@ enum LiveItemVariantPurchaseStatus {
   cancelled
 }
 
+/// How the buyer paid the seller outside Get Vaulted (host-recorded).
+enum OffPlatformSettlementMethod {
+  venmo
+  paypal
+  cash_app
+  cash
+  zelle
+  other
+}
+
+/// Required when an off-platform mark-sold is recorded at $0.
+enum OffPlatformZeroReason {
+  giveaway
+  comp
+  mistake
+  other
+}
+
+/// Platform fee owed by the seller for an off-platform sale.
+enum OffPlatformPlatformFeeStatus {
+  unpaid
+  paid
+  waived
+}
+
 enum LiveRoomPaymentFailureStatus {
   payment_failed
   recovery_pending
@@ -1516,6 +1541,18 @@ model LiveItemVariantPurchase {
   /// Shared across a batch; not unique so N purchases can point at one Order.
   fulfillmentOrderId      String?
   fulfillmentOrder        Order?                        @relation("VariantPurchaseFulfillmentOrder", fields: [fulfillmentOrderId], references: [id], onDelete: SetNull)
+  /// Host-recorded sale settled outside Get Vaulted (Venmo / Cash App / etc.).
+  settlementChannel       String?
+  offPlatformMethod       OffPlatformSettlementMethod?
+  offPlatformZeroReason   OffPlatformZeroReason?
+  offPlatformNote         String?
+  /// Platform fee the seller owes Get Vaulted for this off-platform sale (USD cents).
+  platformFeeCents        Int?
+  platformFeePercent      Float?
+  platformFeeStatus       OffPlatformPlatformFeeStatus?
+  platformFeePaidAt       DateTime?
+  platformFeeCheckoutSessionId String?
+  platformFeePaymentIntentId   String?
   createdAt               DateTime                      @default(now())
 
   /// Hard DB-level backstop against the random-reveal pool draw racing two concurrent purchases
@@ -1527,6 +1564,7 @@ model LiveItemVariantPurchase {
   @@index([buyerId, createdAt])
   @@index([batchId])
   @@index([fulfillmentOrderId])
+  @@index([platformFeeStatus, createdAt])
 }
 
 /// Unresolved live-show payment failure — blocks buyer commerce in-room until paid or cleared.

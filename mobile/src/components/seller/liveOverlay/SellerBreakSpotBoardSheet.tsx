@@ -37,15 +37,39 @@ type Props = {
   pinningVariantId?: string | null;
   onPinTeam?: (variantId: string) => void;
   /**
-   * Host auction / break board: select a team, enter the buyer's username, mark sold.
-   * (Records the sale to that account — does not charge Stripe.)
+   * Host auction / break board: select a team, enter buyer + off-platform settlement details, mark sold.
+   * (Does not charge the buyer on Stripe — seller pays platform fee separately when amount > $0.)
    */
   canMarkSold?: boolean;
   markSoldBusy?: boolean;
-  onMarkSold?: (args: { variantId: string; username: string; label: string }) => void | Promise<void>;
+  onMarkSold?: (args: {
+    variantId: string;
+    username: string;
+    label: string;
+    priceUsd: number;
+    settlementMethod: string;
+    zeroReason?: string;
+    note?: string;
+  }) => void | Promise<void>;
   /** Remove team from board without counting a sale / Show sales amount. */
   onRetireTeam?: (args: { variantId: string; label: string }) => void | Promise<void>;
 };
+
+const SETTLEMENT_METHODS: { id: string; label: string }[] = [
+  { id: 'venmo', label: 'Venmo' },
+  { id: 'paypal', label: 'PayPal' },
+  { id: 'cash_app', label: 'Cash App' },
+  { id: 'cash', label: 'Cash' },
+  { id: 'zelle', label: 'Zelle' },
+  { id: 'other', label: 'Other' },
+];
+
+const ZERO_REASONS: { id: string; label: string }[] = [
+  { id: 'giveaway', label: 'Giveaway' },
+  { id: 'comp', label: 'Comp' },
+  { id: 'mistake', label: 'Mistake' },
+  { id: 'other', label: 'Other' },
+];
 
 function fmtMoney(n: number) {
   return `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
@@ -195,6 +219,10 @@ export function SellerBreakSpotBoardSheet({
   const { width: windowWidth } = useWindowDimensions();
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [username, setUsername] = useState('');
+  const [amountText, setAmountText] = useState('');
+  const [settlementMethod, setSettlementMethod] = useState<string | null>(null);
+  const [zeroReason, setZeroReason] = useState<string | null>(null);
+  const [note, setNote] = useState('');
 
   const isDivisionBreak = item?.salesFormat === 'team_break';
   const grid = useMemo(
@@ -202,16 +230,28 @@ export function SellerBreakSpotBoardSheet({
     [windowWidth, isDivisionBreak],
   );
 
+  const resetMarkSoldForm = (prefillAmount?: number | null) => {
+    setUsername('');
+    setSettlementMethod(null);
+    setZeroReason(null);
+    setNote('');
+    setAmountText(
+      typeof prefillAmount === 'number' && Number.isFinite(prefillAmount) && prefillAmount >= 0
+        ? String(prefillAmount)
+        : '',
+    );
+  };
+
   useEffect(() => {
     if (!visible) {
       setSelectedVariantId(null);
-      setUsername('');
+      resetMarkSoldForm();
     }
   }, [visible]);
 
   useEffect(() => {
     setSelectedVariantId(null);
-    setUsername('');
+    resetMarkSoldForm();
   }, [item?.id]);
 
   const board = useMemo(() => {
@@ -223,7 +263,7 @@ export function SellerBreakSpotBoardSheet({
     if (!selectedVariantId || !board) return;
     if (!board.rows.some((r) => r.variantId === selectedVariantId && !r.sold)) {
       setSelectedVariantId(null);
-      setUsername('');
+      resetMarkSoldForm();
     }
   }, [board, selectedVariantId]);
 
@@ -232,9 +272,24 @@ export function SellerBreakSpotBoardSheet({
   const { rows, openCount, soldCount } = board;
   const selectedRow = rows.find((r) => r.variantId === selectedVariantId && !r.sold) ?? null;
 
+  const parsedAmount = (() => {
+    const raw = amountText.trim().replace(/[^0-9.]/g, '');
+    if (!raw) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return Math.round(n * 100) / 100;
+  })();
+  const isZeroSale = parsedAmount != null && parsedAmount < 0.01;
   const canSubmit =
-    Boolean(canMarkSold && onMarkSold && selectedRow?.variantId && username.trim().replace(/^@+/, '').length >= 3) &&
-    !markSoldBusy;
+    Boolean(
+      canMarkSold &&
+        onMarkSold &&
+        selectedRow?.variantId &&
+        username.trim().replace(/^@+/, '').length >= 3 &&
+        settlementMethod &&
+        parsedAmount != null &&
+        (!isZeroSale || zeroReason),
+    ) && !markSoldBusy;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -302,7 +357,15 @@ export function SellerBreakSpotBoardSheet({
                   canSelect={canSelect}
                   onSelect={
                     canSelect
-                      ? () => setSelectedVariantId(row.variantId === selectedVariantId ? null : row.variantId!)
+                      ? () => {
+                          if (row.variantId === selectedVariantId) {
+                            setSelectedVariantId(null);
+                            resetMarkSoldForm();
+                            return;
+                          }
+                          setSelectedVariantId(row.variantId!);
+                          resetMarkSoldForm(row.priceUsd);
+                        }
                       : undefined
                   }
                 />
@@ -313,7 +376,9 @@ export function SellerBreakSpotBoardSheet({
           {canMarkSold && onMarkSold ? (
             <View style={styles.markSoldPanel}>
               <LiveRoomText style={styles.markSoldLabel}>
-                {selectedRow ? `Selected · ${selectedRow.label}` : 'Select a team above'}
+                {selectedRow
+                  ? `Mark sold off-platform · ${selectedRow.label}`
+                  : 'Select a team above'}
               </LiveRoomText>
               <TextInput
                 style={styles.usernameInput}
@@ -324,17 +389,81 @@ export function SellerBreakSpotBoardSheet({
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={Boolean(selectedRow) && !markSoldBusy}
+                returnKeyType="next"
+              />
+              <TextInput
+                style={styles.usernameInput}
+                value={amountText}
+                onChangeText={setAmountText}
+                placeholder="Amount paid ($0 = free/comp)"
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                keyboardType="decimal-pad"
+                editable={Boolean(selectedRow) && !markSoldBusy}
                 returnKeyType="done"
               />
+              <LiveRoomText style={styles.fieldHint}>How did they pay you?</LiveRoomText>
+              <View style={styles.chipRow}>
+                {SETTLEMENT_METHODS.map((m) => {
+                  const on = settlementMethod === m.id;
+                  return (
+                    <Pressable
+                      key={m.id}
+                      style={[styles.chip, on && styles.chipOn, (!selectedRow || markSoldBusy) && styles.markSoldBtnOff]}
+                      disabled={!selectedRow || markSoldBusy}
+                      onPress={() => setSettlementMethod(m.id)}
+                    >
+                      <LiveRoomText style={[styles.chipTxt, on && styles.chipTxtOn]}>{m.label}</LiveRoomText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {isZeroSale ? (
+                <>
+                  <LiveRoomText style={styles.fieldHint}>Why is this $0?</LiveRoomText>
+                  <View style={styles.chipRow}>
+                    {ZERO_REASONS.map((r) => {
+                      const on = zeroReason === r.id;
+                      return (
+                        <Pressable
+                          key={r.id}
+                          style={[styles.chip, on && styles.chipOn, markSoldBusy && styles.markSoldBtnOff]}
+                          disabled={markSoldBusy}
+                          onPress={() => setZeroReason(r.id)}
+                        >
+                          <LiveRoomText style={[styles.chipTxt, on && styles.chipTxtOn]}>{r.label}</LiveRoomText>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : null}
+              <TextInput
+                style={styles.usernameInput}
+                value={note}
+                onChangeText={setNote}
+                placeholder="Optional note"
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                editable={Boolean(selectedRow) && !markSoldBusy}
+                returnKeyType="done"
+              />
+              {!isZeroSale && parsedAmount != null ? (
+                <LiveRoomText style={styles.feeHint}>
+                  You’ll owe Get Vaulted the live platform fee on {fmtMoney(parsedAmount)} after marking sold.
+                </LiveRoomText>
+              ) : null}
               <Pressable
                 style={[styles.markSoldBtn, !canSubmit && styles.markSoldBtnOff]}
                 disabled={!canSubmit}
                 onPress={() => {
-                  if (!selectedRow?.variantId || !canSubmit) return;
+                  if (!selectedRow?.variantId || !canSubmit || parsedAmount == null || !settlementMethod) return;
                   void onMarkSold({
                     variantId: selectedRow.variantId,
                     username: username.trim(),
                     label: selectedRow.label,
+                    priceUsd: parsedAmount,
+                    settlementMethod,
+                    ...(isZeroSale && zeroReason ? { zeroReason } : {}),
+                    ...(note.trim() ? { note: note.trim() } : {}),
                   });
                 }}
               >
@@ -555,6 +684,36 @@ const styles = StyleSheet.create({
   },
   markSoldBtnOff: { opacity: 0.45 },
   markSoldBtnTxt: { fontWeight: '900', color: '#111', fontSize: 15 },
+  fieldHint: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.55)',
+    marginTop: 2,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  chip: {
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  chipOn: {
+    borderColor: colors.gold,
+    backgroundColor: 'rgba(212,175,55,0.18)',
+  },
+  chipTxt: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.75)' },
+  chipTxtOn: { color: colors.gold },
+  feeHint: {
+    fontSize: 11,
+    color: 'rgba(212,175,55,0.85)',
+    textAlign: 'center',
+  },
   retireBtn: {
     borderRadius: radii.md,
     borderWidth: StyleSheet.hairlineWidth,

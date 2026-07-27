@@ -381,6 +381,8 @@ export type HostRecentSaleRow = {
   statusLabel: string;
   occurredAt: string;
   spotLabel?: string | null;
+  platformFeeDueUsd?: number | null;
+  purchaseId?: string | null;
 };
 
 export type HostPaymentFailureRow = {
@@ -410,7 +412,23 @@ function parseRecentSaleRow(raw: unknown): HostRecentSaleRow | null {
   const statusLabel = typeof o.statusLabel === 'string' ? o.statusLabel : paymentTone;
   const occurredAt = typeof o.occurredAt === 'string' ? o.occurredAt : new Date().toISOString();
   const spotLabel = typeof o.spotLabel === 'string' ? o.spotLabel : null;
-  return { id, kind, buyerUsername, amountUsd, paymentTone, statusLabel, occurredAt, spotLabel };
+  const platformFeeDueUsd =
+    typeof o.platformFeeDueUsd === 'number' && Number.isFinite(o.platformFeeDueUsd)
+      ? o.platformFeeDueUsd
+      : null;
+  const purchaseId = typeof o.purchaseId === 'string' ? o.purchaseId.trim() : null;
+  return {
+    id,
+    kind,
+    buyerUsername,
+    amountUsd,
+    paymentTone,
+    statusLabel,
+    occurredAt,
+    spotLabel,
+    platformFeeDueUsd,
+    purchaseId,
+  };
 }
 
 function parsePaymentFailureRow(raw: unknown): HostPaymentFailureRow | null {

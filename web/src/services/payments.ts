@@ -2088,6 +2088,22 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         return;
       }
 
+      if (kind === "off_platform_platform_fee") {
+        const purchaseId = session.metadata?.purchaseId;
+        const sellerUserId = session.metadata?.sellerUserId;
+        if (!purchaseId || !sellerUserId) return;
+        const { finalizeOffPlatformPlatformFeePaid } = await import(
+          "@/lib/off-platform-platform-fee-checkout"
+        );
+        await finalizeOffPlatformPlatformFeePaid({
+          purchaseId,
+          sellerUserId,
+          checkoutSessionId: session.id,
+          paymentIntentId: pi ?? null,
+        });
+        return;
+      }
+
       if (kind === "trade_cash") {
         const tradeOfferId = session.metadata?.tradeOfferId;
         const payerUserId = session.metadata?.payerUserId;

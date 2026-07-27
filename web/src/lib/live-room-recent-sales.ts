@@ -28,6 +28,9 @@ export type HostRecentSaleRowDTO = {
   occurredAt: string;
   /** Team/division assigned on random reveal, or PYT/PYD spot label. */
   spotLabel?: string | null;
+  /** Off-platform sale: unpaid platform fee owed by the host. */
+  platformFeeDueUsd?: number | null;
+  purchaseId?: string | null;
 };
 
 function toneFromVariantPaymentStatus(ps: string): { paymentTone: HostRecentSaleRowDTO["paymentTone"]; statusLabel: string } {
@@ -154,6 +157,10 @@ type VariantPurchaseWithBuyer = {
   createdAt: Date;
   revealedLabel: string | null;
   fulfillmentOrderId: string | null;
+  settlementChannel: string | null;
+  offPlatformMethod: string | null;
+  platformFeeCents: number | null;
+  platformFeeStatus: string | null;
   buyer: Pick<User, "username"> | null;
   variant: {
     label: string;
@@ -168,21 +175,34 @@ function mapVariantPurchase(
   if (vp.paymentStatus === "cancelled") return null;
   const { paymentTone, statusLabel } = toneFromVariantPaymentStatus(vp.paymentStatus);
   const spotLabel = vp.revealedLabel?.trim() || vp.variant.label;
+  const offPlatform = vp.settlementChannel === "off_platform";
+  const feeDueUsd =
+    offPlatform && vp.platformFeeStatus === "unpaid" && (vp.platformFeeCents ?? 0) > 0
+      ? (vp.platformFeeCents ?? 0) / 100
+      : null;
+  let label = statusLabel;
+  if (vp.paymentStatus === "paid" && vp.revealedLabel) {
+    label = "Revealed";
+  } else if (vp.paymentStatus === "pending_payment") {
+    label = "Processing";
+  } else if (offPlatform && vp.paymentStatus === "paid") {
+    if (feeDueUsd != null) label = "Off-platform · fee due";
+    else if (vp.platformFeeStatus === "paid") label = "Off-platform · fee paid";
+    else if (vp.platformFeeStatus === "waived") label = "Off-platform · $0";
+    else label = "Off-platform";
+  }
   return {
     id: `variant_purchase:${vp.id}`,
     kind: "variant_purchase",
     itemTitle: itemDisplayTitle(vp.variant.liveRoomItem, spotLabel),
     buyerUsername: vp.buyer?.username?.trim() || "buyer",
     amountUsd: resolveChargeUsdFromFulfillmentOrderMap(vp.totalUsd, vp.fulfillmentOrderId, orderChargeUsdById),
-    paymentTone,
-    statusLabel:
-      vp.paymentStatus === "paid" && vp.revealedLabel
-        ? "Revealed"
-        : vp.paymentStatus === "pending_payment"
-          ? "Processing"
-          : statusLabel,
+    paymentTone: feeDueUsd != null ? "pending" : paymentTone,
+    statusLabel: label,
     occurredAt: (vp.paidAt ?? vp.createdAt).toISOString(),
     spotLabel,
+    platformFeeDueUsd: feeDueUsd,
+    purchaseId: offPlatform ? vp.id : null,
   };
 }
 

@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { maybeMarkVariantBreakReady } from "@/lib/live-item-variant-break";
 import { idleVariantSpotCommerceReset } from "@/lib/live-variant-spot-commerce";
+import {
+  computeOffPlatformPlatformFee,
+  normalizeOffPlatformSaleAmountUsd,
+  parseOffPlatformSettlementMethod,
+  parseOffPlatformZeroReason,
+} from "@/lib/off-platform-settlement";
+import { recordLiveShowCompletedSaleTx } from "@/lib/live-show-gmv";
 import { prisma } from "@/lib/prisma";
 import {
   emitLiveRoomQueueItemsChanged,
@@ -12,13 +19,19 @@ import { normalizeUsernameForStorage } from "@/lib/username-policy";
 type Body = {
   /** Buyer account username (with or without @). */
   username?: string;
-  /** Optional override; defaults to the variant's list price. */
+  /** Declared amount the buyer paid the seller off-platform. Required. */
   priceUsd?: number;
+  /** How the buyer paid (Venmo, Cash App, cash, etc.). Required. */
+  settlementMethod?: string;
+  /** Required when priceUsd is $0. */
+  zeroReason?: string;
+  /** Optional host note (e.g. Venmo handle confirmation). */
+  note?: string;
 };
 
 /**
- * Host team board: select a PYT/PYD team, mark it sold, and record the buyer's username.
- * Does not charge Stripe — for auction wins settled off the auto-charge path or cash/manual sales.
+ * Host team board: mark sold for an off-platform settlement (Venmo / PayPal / cash / etc.).
+ * Does not charge the buyer on Stripe. Seller owes Get Vaulted the live platform fee on amount > $0.
  */
 export async function POST(
   req: Request,
@@ -44,6 +57,32 @@ export async function POST(
     return NextResponse.json({ error: "Enter the buyer’s username." }, { status: 400 });
   }
 
+  const settlementMethod = parseOffPlatformSettlementMethod(body.settlementMethod);
+  if (!settlementMethod) {
+    return NextResponse.json(
+      { error: "Select how the buyer paid (Venmo, PayPal, Cash App, cash, Zelle, or other)." },
+      { status: 400 },
+    );
+  }
+
+  const amountUsd = normalizeOffPlatformSaleAmountUsd(body.priceUsd);
+  if (amountUsd == null) {
+    return NextResponse.json({ error: "Enter the sale amount (use 0 for a free/comp)." }, { status: 400 });
+  }
+
+  const zeroReason = amountUsd < 0.01 ? parseOffPlatformZeroReason(body.zeroReason) : null;
+  if (amountUsd < 0.01 && !zeroReason) {
+    return NextResponse.json(
+      { error: "For a $0 sale, choose a reason (giveaway, comp, mistake, or other)." },
+      { status: 400 },
+    );
+  }
+
+  const note =
+    typeof body.note === "string" && body.note.trim()
+      ? body.note.trim().slice(0, 280)
+      : null;
+
   const buyer = await prisma.user.findFirst({
     where: { username: { equals: username, mode: "insensitive" }, suspendedAt: null },
     select: { id: true, username: true },
@@ -55,16 +94,18 @@ export async function POST(
     );
   }
 
-  const priceOverride =
-    typeof body.priceUsd === "number" && Number.isFinite(body.priceUsd) && body.priceUsd >= 0
-      ? Math.round(body.priceUsd * 100) / 100
-      : null;
-
   try {
     const result = await prisma.$transaction(async (tx) => {
       const room = await tx.liveRoom.findUnique({
         where: { id: liveRoomId },
-        select: { id: true, sellerId: true, status: true, roomVersion: true },
+        select: {
+          id: true,
+          sellerId: true,
+          status: true,
+          roomVersion: true,
+          completedSalesGmvUsd: true,
+          seller: { select: { sellerPlatformFeePercentOverride: true } },
+        },
       });
       if (!room || room.status !== "live") {
         throw Object.assign(new Error("ROOM_NOT_LIVE"), { code: "ROOM_NOT_LIVE" });
@@ -94,15 +135,21 @@ export async function POST(
         select: { id: true, label: true, priceUsd: true, quantityRemaining: true, status: true },
       });
       if (!variant) throw Object.assign(new Error("VARIANT_NOT_FOUND"), { code: "VARIANT_NOT_FOUND" });
-      if (variant.quantityRemaining < 1 || variant.status === "sold_out") {
+      if (variant.quantityRemaining < 1 || variant.status === "sold_out" || variant.status === "removed") {
         throw Object.assign(new Error("SOLD_OUT"), { code: "SOLD_OUT" });
       }
 
-      const unitPriceUsd = priceOverride ?? variant.priceUsd;
+      const unitPriceUsd = amountUsd;
       const totalUsd = unitPriceUsd;
+      const fee = computeOffPlatformPlatformFee({
+        saleAmountUsd: totalUsd,
+        liveShowId: liveRoomId,
+        liveShowCompletedGmvUsd: room.completedSalesGmvUsd,
+        sellerPlatformFeePercentOverride: room.seller.sellerPlatformFeePercentOverride,
+      });
 
       const updated = await tx.liveItemVariant.updateMany({
-        where: { id: variantId, quantityRemaining: { gte: 1 } },
+        where: { id: variantId, quantityRemaining: { gte: 1 }, status: { not: "removed" } },
         data: {
           quantityRemaining: { decrement: 1 },
           soldCount: { increment: 1 },
@@ -124,7 +171,6 @@ export async function POST(
         });
       }
 
-      // If this team was mid-auction, close the timer so buyers stop bidding on it.
       if (item.biddingOpen && item.auctionVariantId === variantId) {
         await tx.liveRoomItem.update({
           where: { id: itemId },
@@ -148,14 +194,25 @@ export async function POST(
           totalUsd,
           paymentStatus: "paid",
           paidAt: new Date(),
+          settlementChannel: "off_platform",
+          offPlatformMethod: settlementMethod,
+          offPlatformZeroReason: zeroReason,
+          offPlatformNote: note,
+          platformFeeCents: fee.feeCents,
+          platformFeePercent: fee.feePercent,
+          platformFeeStatus: fee.feeStatus,
         },
         select: { id: true },
       });
 
+      if (totalUsd >= 0.01) {
+        await recordLiveShowCompletedSaleTx(tx, liveRoomId, totalUsd);
+      }
+
       const remainingOpen = await tx.liveItemVariant.count({
         where: {
           liveRoomItemId: itemId,
-          status: { not: "sold_out" },
+          status: { notIn: ["sold_out", "removed"] },
           quantityRemaining: { gt: 0 },
         },
       });
@@ -171,6 +228,9 @@ export async function POST(
         label: variant.label,
         buyerUsername: buyer.username,
         totalUsd,
+        platformFeeCents: fee.feeCents,
+        platformFeePercent: fee.feePercent,
+        platformFeeStatus: fee.feeStatus,
         roomVersion: roomWrite.roomVersion,
         sellerId: room.sellerId,
         itemSoldOut: remainingOpen === 0,
@@ -196,6 +256,10 @@ export async function POST(
       buyerUsername: result.buyerUsername,
       label: result.label,
       totalUsd: result.totalUsd,
+      platformFeeCents: result.platformFeeCents,
+      platformFeePercent: result.platformFeePercent,
+      platformFeeStatus: result.platformFeeStatus,
+      platformFeeDue: result.platformFeeStatus === "unpaid" && result.platformFeeCents > 0,
     });
   } catch (e) {
     const code =
