@@ -656,10 +656,11 @@ function WalletPaymentSetupInner({
         }
         Alert.alert('Venmo', 'Venmo linking did not return a next step. Try again later.');
       } catch (e) {
-        Alert.alert(
-          'Venmo',
-          e instanceof Error ? e.message : 'Venmo linking is not available yet.',
-        );
+        const msg =
+          e instanceof Error && e.message.trim()
+            ? e.message
+            : 'Could not start Venmo linking. Try again, or connect Venmo on the website wallet for a clearer error.';
+        Alert.alert('Venmo', msg);
       } finally {
         setBusy(false);
       }
