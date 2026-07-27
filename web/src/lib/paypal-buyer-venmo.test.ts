@@ -52,4 +52,12 @@ describe("paypal-buyer-venmo helpers", () => {
     expect(parsed.debugId).toBe("abc123");
     expect(parsed.message).toContain("Merchant not allowed");
   });
+
+  it("builds a checkoutnow fallback URL for Venmo orders", async () => {
+    process.env.PAYPAL_MODE = "live";
+    const { venmoCheckoutUrlForOrder } = await import("@/lib/paypal-buyer-venmo");
+    expect(venmoCheckoutUrlForOrder("ORDER123")).toBe(
+      "https://www.paypal.com/checkoutnow?token=ORDER123",
+    );
+  });
 });
