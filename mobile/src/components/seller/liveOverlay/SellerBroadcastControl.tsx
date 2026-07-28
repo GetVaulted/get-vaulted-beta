@@ -102,6 +102,7 @@ export function SellerBroadcastControl({
       (roomLive && (phase === 'idle' || phase === 'starting')));
   const showPause = showStop && phase === 'live' && !streamPaused && !showResume && Boolean(onPause);
   const starting = busy && (phase === 'idle' || phase === 'starting');
+  const resuming = Boolean(busy && showResume);
 
   const onPrimaryPress = () => {
     if (showStop) {
@@ -147,7 +148,11 @@ export function SellerBroadcastControl({
           disabled={stopping || busy}
           accessibilityLabel={SELLER_CONSOLE.resumeStream}
         >
-          <Ionicons name="play" size={iconSize} color="#fde68a" />
+          {resuming ? (
+            <ActivityIndicator color="#fde68a" size="small" />
+          ) : (
+            <Ionicons name="play" size={iconSize} color="#fde68a" />
+          )}
         </Pressable>
       ) : null}
       <Pressable
@@ -161,7 +166,7 @@ export function SellerBroadcastControl({
         disabled={primaryDisabled}
         accessibilityLabel={showStop ? SELLER_CONSOLE.stopStream : SELLER_CONSOLE.startStream}
       >
-        {starting || stopping ? (
+        {starting || stopping || (busy && !showResume && showStop) ? (
           <ActivityIndicator color={showStop ? '#fecdd3' : '#0a0a0a'} size="small" />
         ) : (
           <Ionicons

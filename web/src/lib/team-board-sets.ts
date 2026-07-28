@@ -1,6 +1,13 @@
-export type TeamBoardLeagueKey = "nfl" | "nba" | "mlb";
+export type TeamBoardLeagueKey = "nfl" | "nba" | "mlb" | "nhl";
 
-export const TEAM_BOARD_LEAGUES: TeamBoardLeagueKey[] = ["nfl", "nba", "mlb"];
+export const TEAM_BOARD_LEAGUES: TeamBoardLeagueKey[] = ["nfl", "nba", "mlb", "nhl"];
+
+export const TEAM_BOARD_LEAGUE_LABELS: Record<TeamBoardLeagueKey, string> = {
+  nfl: "NFL",
+  nba: "NBA",
+  mlb: "MLB",
+  nhl: "NHL",
+};
 
 /** Uppercase abbreviations shown on the team board overlay. */
 export const TEAM_BOARD_SETS: Record<TeamBoardLeagueKey, readonly string[]> = {
@@ -73,6 +80,7 @@ export const TEAM_BOARD_SETS: Record<TeamBoardLeagueKey, readonly string[]> = {
   mlb: [
     "ARI",
     "ATL",
+    "ATH",
     "BAL",
     "BOS",
     "CHC",
@@ -100,6 +108,40 @@ export const TEAM_BOARD_SETS: Record<TeamBoardLeagueKey, readonly string[]> = {
     "TEX",
     "TOR",
     "WSH",
+  ],
+  nhl: [
+    "ANA",
+    "BOS",
+    "BUF",
+    "CGY",
+    "CAR",
+    "CHI",
+    "COL",
+    "CBJ",
+    "DAL",
+    "DET",
+    "EDM",
+    "FLA",
+    "LA",
+    "MIN",
+    "MTL",
+    "NSH",
+    "NJ",
+    "NYI",
+    "NYR",
+    "OTT",
+    "PHI",
+    "PIT",
+    "SJ",
+    "SEA",
+    "STL",
+    "TB",
+    "TOR",
+    "UTA",
+    "VAN",
+    "VGK",
+    "WSH",
+    "WPG",
   ],
 };
 
@@ -175,6 +217,7 @@ export const TEAM_BOARD_DISPLAY_NAMES: Record<TeamBoardLeagueKey, Record<string,
   mlb: {
     ARI: "Diamondbacks",
     ATL: "Braves",
+    ATH: "Athletics",
     BAL: "Orioles",
     BOS: "Red Sox",
     CHC: "Cubs",
@@ -203,6 +246,40 @@ export const TEAM_BOARD_DISPLAY_NAMES: Record<TeamBoardLeagueKey, Record<string,
     TOR: "Blue Jays",
     WSH: "Nationals",
   },
+  nhl: {
+    ANA: "Ducks",
+    BOS: "Bruins",
+    BUF: "Sabres",
+    CGY: "Flames",
+    CAR: "Hurricanes",
+    CHI: "Blackhawks",
+    COL: "Avalanche",
+    CBJ: "Blue Jackets",
+    DAL: "Stars",
+    DET: "Red Wings",
+    EDM: "Oilers",
+    FLA: "Panthers",
+    LA: "Kings",
+    MIN: "Wild",
+    MTL: "Canadiens",
+    NSH: "Predators",
+    NJ: "Devils",
+    NYI: "Islanders",
+    NYR: "Rangers",
+    OTT: "Senators",
+    PHI: "Flyers",
+    PIT: "Penguins",
+    SJ: "Sharks",
+    SEA: "Kraken",
+    STL: "Blues",
+    TB: "Lightning",
+    TOR: "Maple Leafs",
+    UTA: "Mammoth",
+    VAN: "Canucks",
+    VGK: "Golden Knights",
+    WSH: "Capitals",
+    WPG: "Jets",
+  },
 };
 
 export function teamBoardDisplayName(league: TeamBoardLeagueKey, abbr: string): string {
@@ -219,20 +296,24 @@ export function isValidTeamForLeague(
   abbr: string,
   opts?: { allowMisc?: boolean },
 ): boolean {
-  if (league !== "nfl" && league !== "nba" && league !== "mlb") return false;
+  if (league !== "nfl" && league !== "nba" && league !== "mlb" && league !== "nhl") return false;
   const a = normalizeTeamAbbr(abbr);
   if (opts?.allowMisc && league === "nfl" && a === "MISC") return true;
   return TEAM_BOARD_SETS[league].includes(a);
 }
 
 export function parseTeamBoardLeague(v: string): TeamBoardLeagueKey | null {
-  if (v === "nfl" || v === "nba" || v === "mlb") return v;
+  if (v === "nfl" || v === "nba" || v === "mlb" || v === "nhl") return v;
   return null;
 }
 
-/** Table layout: NFL 8×4 (32 teams), NBA/MLB 6×5 (30 teams). */
+/** Table layout: NFL/NHL 8×4 (32 teams), NBA/MLB 6×5 (30 teams). */
 export function teamBoardTableColumnCount(league: TeamBoardLeagueKey): 6 | 8 {
-  return league === "nfl" ? 8 : 6;
+  return league === "nba" || league === "mlb" ? 6 : 8;
+}
+
+export function teamBoardSpotCount(league: TeamBoardLeagueKey): number {
+  return TEAM_BOARD_SETS[league].length;
 }
 
 export function teamBoardLeagueKey(league: string): TeamBoardLeagueKey {

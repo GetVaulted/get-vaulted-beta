@@ -828,6 +828,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
             broadcastBusy={
               host.busy === 'start' ||
               host.busy === 'end' ||
+              host.busy === 'refresh' ||
               host.cameraPermissionState === 'requesting'
             }
             onGoLive={onGoLive}

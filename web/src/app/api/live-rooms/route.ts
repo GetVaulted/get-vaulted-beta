@@ -403,7 +403,7 @@ export async function POST(req: Request) {
     const p = parseTeamBoardLeague(rawLg);
     if (!p) {
       return NextResponse.json(
-        { error: "Break rooms require teamBoardLeague (nfl, nba, or mlb)." },
+        { error: "Break rooms require teamBoardLeague (nfl, nba, mlb, or nhl)." },
         { status: 400 },
       );
     }

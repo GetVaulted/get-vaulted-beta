@@ -3,7 +3,13 @@ import { Prisma } from "@/generated/prisma/client";
 import type { LiveItemSalesFormat, LiveItemVariantAssignmentMode } from "@/generated/prisma/client";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { prisma } from "@/lib/prisma";
-import { NFL_DIVISIONS_PRESET, NFL_TEAMS_PRESET } from "@/lib/live-item-variant-presets";
+import {
+  LIVE_ITEM_VARIANT_PRESETS,
+  NFL_DIVISIONS_PRESET,
+  NFL_TEAMS_PRESET,
+  parseLiveBoardPack,
+  type LiveBoardPackId,
+} from "@/lib/live-item-variant-presets";
 import { emitVaultRevealSpin } from "@/lib/realtime-emit-server";
 import { formatDivisionReelAbbr, VAULT_REVEAL_DEFAULT_DURATION_MS } from "@/lib/vault-reveal-spin";
 
@@ -23,14 +29,39 @@ export function isRandomVariantAssignment(mode: LiveItemVariantAssignmentMode | 
   return mode === "random";
 }
 
-export function randomPoolForSalesFormat(format: LiveItemSalesFormat): RandomPoolEntry[] {
+/** Resolve league pack from the random pool variant `color` (`nba_teams`, `nhl_teams`, …). */
+export function boardPackFromVariantColor(color: string | null | undefined): LiveBoardPackId {
+  const raw = (color ?? "").trim().toLowerCase();
+  if (raw.endsWith("_teams")) {
+    return parseLiveBoardPack(raw.replace(/_teams$/, ""));
+  }
+  return "nfl";
+}
+
+export function randomPoolForSalesFormat(
+  format: LiveItemSalesFormat,
+  boardPack: LiveBoardPackId = "nfl",
+): RandomPoolEntry[] {
   if (format === "team_break") {
     return NFL_DIVISIONS_PRESET.map((d) => ({
       label: d.label,
       abbr: formatDivisionReelAbbr(d.label),
     }));
   }
-  return NFL_TEAMS_PRESET.map((t) => ({ label: t.label, abbr: t.abbr ?? t.label }));
+  const presetKey = `${boardPack}_teams` as keyof typeof LIVE_ITEM_VARIANT_PRESETS;
+  const options = LIVE_ITEM_VARIANT_PRESETS[presetKey]?.options ?? NFL_TEAMS_PRESET;
+  return options.map((t) => ({ label: t.label, abbr: t.abbr ?? t.label }));
+}
+
+type Db = typeof prisma | TransactionClient;
+
+async function resolveBoardPackForItem(db: Db, liveRoomItemId: string): Promise<LiveBoardPackId> {
+  const variant = await db.liveItemVariant.findFirst({
+    where: { liveRoomItemId },
+    orderBy: { sortOrder: "asc" },
+    select: { color: true },
+  });
+  return boardPackFromVariantColor(variant?.color);
 }
 
 function pickIndex(seed: string, max: number): number {
@@ -39,8 +70,6 @@ function pickIndex(seed: string, max: number): number {
   const n = Number.parseInt(hex, 16);
   return Number.isFinite(n) ? n % max : 0;
 }
-
-type Db = typeof prisma | TransactionClient;
 
 async function assignedLabelsForItem(db: Db, liveRoomItemId: string): Promise<Set<string>> {
   const assigned = await db.liveItemVariantPurchase.findMany({
@@ -64,10 +93,13 @@ export async function remainingRandomPoolCount(args: {
   liveRoomItemId: string;
   salesFormat: LiveItemSalesFormat;
   db?: Db;
+  boardPack?: LiveBoardPackId;
 }): Promise<number> {
-  const pool = randomPoolForSalesFormat(args.salesFormat);
+  const db = args.db ?? prisma;
+  const boardPack = args.boardPack ?? (await resolveBoardPackForItem(db, args.liveRoomItemId));
+  const pool = randomPoolForSalesFormat(args.salesFormat, boardPack);
   if (pool.length === 0) return 0;
-  const taken = await assignedLabelsForItem(args.db ?? prisma, args.liveRoomItemId);
+  const taken = await assignedLabelsForItem(db, args.liveRoomItemId);
   return pool.filter((p) => !taken.has(p.label.trim().toLowerCase())).length;
 }
 
@@ -92,8 +124,10 @@ export async function executeRandomVariantRevealOnPurchase(args: {
   buyerUsername: string;
   itemTitle: string;
   salesFormat: LiveItemSalesFormat;
+  boardPack?: LiveBoardPackId;
 }): Promise<{ label: string; abbr: string } | null> {
-  const pool = randomPoolForSalesFormat(args.salesFormat);
+  const boardPack = args.boardPack ?? (await resolveBoardPackForItem(prisma, args.liveRoomItemId));
+  const pool = randomPoolForSalesFormat(args.salesFormat, boardPack);
   if (pool.length === 0) return null;
 
   for (let attempt = 0; attempt < MAX_DRAW_ATTEMPTS; attempt++) {

@@ -40,7 +40,15 @@ import {
   type QuickLiveLotInput,
   type QuickLiveLotValues,
 } from '../../../lib/liveAuctionPricing';
-import type { LiveBreakVariantDraft } from '../../../lib/liveBreakPresets';
+import {
+  BOARD_PACK_LABELS,
+  DEFAULT_LIVE_BOARD_PACK,
+  LIVE_BOARD_PACKS,
+  boardPackSupportsDivisions,
+  boardPackTeamCount,
+  type LiveBoardPackId,
+  type LiveBreakVariantDraft,
+} from '../../../lib/liveBreakPresets';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { RANDOM_BREAK_SALE_TYPES_ENABLED } from '../../../../../shared/live-break-feature-flags';
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
@@ -65,15 +73,18 @@ const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
 
 const BREAK_VARIANTS: { id: BreakSaleType; label: string; sub: string }[] = [
   { id: 'pyt', label: 'PYT', sub: 'Pick your team' },
-  { id: 'pyd', label: 'PYD', sub: 'Pick division' },
-  { id: 'random_pyt', label: 'Random Teams', sub: '32 · vault reveal' },
-  { id: 'random_pyd', label: 'Random Divisions', sub: '8 · vault reveal' },
+  { id: 'pyd', label: 'PYD', sub: 'Pick division · NFL' },
+  { id: 'random_pyt', label: 'Random Teams', sub: 'Vault reveal' },
+  { id: 'random_pyd', label: 'Random Divisions', sub: '8 · NFL' },
 ];
 
-/** Sale-type picker options actually shown to sellers — random breaks stay in `BREAK_VARIANTS` but are hidden while disabled. */
-const VISIBLE_BREAK_VARIANTS = RANDOM_BREAK_SALE_TYPES_ENABLED
-  ? BREAK_VARIANTS
-  : BREAK_VARIANTS.filter((v) => v.id === 'pyt' || v.id === 'pyd');
+function visibleBreakVariants(boardPack: LiveBoardPackId) {
+  const base = RANDOM_BREAK_SALE_TYPES_ENABLED
+    ? BREAK_VARIANTS
+    : BREAK_VARIANTS.filter((v) => v.id === 'pyt' || v.id === 'pyd');
+  if (boardPackSupportsDivisions(boardPack)) return base;
+  return base.filter((v) => v.id === 'pyt' || v.id === 'random_pyt');
+}
 
 function saleCategoryForType(saleType: LiveLotSaleType): SaleCategory {
   if (saleType === 'buy_now') return 'buy_now';
@@ -120,6 +131,7 @@ export function AddInventoryModal({
   const [imageError, setImageError] = useState<string | null>(null);
   const [spotDrafts, setSpotDrafts] = useState<LiveBreakVariantDraft[]>([]);
   const [spotsCustomized, setSpotsCustomized] = useState(false);
+  const [boardPack, setBoardPack] = useState<LiveBoardPackId>(DEFAULT_LIVE_BOARD_PACK);
   const [profileOptions, setProfileOptions] = useState<{ id: string; name: string; isDefault?: boolean }[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [profileOptionsAreSeller, setProfileOptionsAreSeller] = useState(true);
@@ -138,6 +150,7 @@ export function AddInventoryModal({
     setDraft(emptyQuickLiveLotInput());
     setSpotDrafts([]);
     setSpotsCustomized(false);
+    setBoardPack(DEFAULT_LIVE_BOARD_PACK);
     setImageUri(null);
     setImageUrl(null);
     setImageUploading(false);
@@ -233,9 +246,10 @@ export function AddInventoryModal({
         saleType,
         basePrice,
         spotsCustomized,
+        boardPack,
       }),
     );
-  }, [draft.saleType, draft.price, spotsCustomized]);
+  }, [draft.saleType, draft.price, spotsCustomized, boardPack]);
 
   const setSaleType = (saleType: LiveLotSaleType) => {
     setDraft((prev) => ({ ...prev, saleType }));
@@ -243,8 +257,18 @@ export function AddInventoryModal({
     setSpotsCustomized(false);
   };
 
+  const setBoardPackAndReset = (pack: LiveBoardPackId) => {
+    setBoardPack(pack);
+    setSpotDrafts([]);
+    setSpotsCustomized(false);
+    if (!boardPackSupportsDivisions(pack) && (draft.saleType === 'pyd' || draft.saleType === 'random_pyd')) {
+      setDraft((prev) => ({ ...prev, saleType: 'pyt' }));
+    }
+  };
+
   const saleCategory = saleCategoryForType(draft.saleType);
   const breakSaleType: BreakSaleType = isBreakLotSaleType(draft.saleType) ? draft.saleType : 'pyt';
+  const breakOptions = visibleBreakVariants(boardPack);
 
   const setSaleCategory = (category: SaleCategory) => {
     if (category === 'auction') setSaleType('auction');
@@ -299,7 +323,7 @@ export function AddInventoryModal({
       Alert.alert('Photo required', 'Add one product photo before saving to the show.');
       return;
     }
-    const validated = validateQuickLiveLot({ ...draft, spotDrafts });
+    const validated = validateQuickLiveLot({ ...draft, spotDrafts, boardPack });
     if (!validated.ok) {
       Alert.alert('Add product', validated.message);
       return;
@@ -325,7 +349,7 @@ export function AddInventoryModal({
           : 'Buy-it-now price';
   const pricePlaceholder =
     draft.saleType === 'auction' ? '1' : draft.saleType === 'pyt' || draft.saleType === 'pyd' ? '25' : '25';
-  const breakSpots = breakSpotCountForSaleType(draft.saleType);
+  const breakSpots = breakSpotCountForSaleType(draft.saleType, boardPack);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
@@ -553,22 +577,47 @@ export function AddInventoryModal({
             </View>
 
             {saleCategory === 'teams_divisions' ? (
-              <View style={styles.saleTypeGrid}>
-                {VISIBLE_BREAK_VARIANTS.map((type) => {
-                  const active = draft.saleType === type.id;
-                  return (
-                    <Pressable
-                      key={type.id}
-                      style={[styles.saleTypeCard, active && styles.saleTypeCardActive]}
-                      onPress={() => setSaleType(type.id)}
-                      disabled={busy}
-                    >
-                      <Text style={[styles.saleTypeLabel, active && styles.saleTypeLabelActive]}>{type.label}</Text>
-                      <Text style={[styles.saleTypeSub, active && styles.saleTypeSubActive]}>{type.sub}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              <>
+                <Text style={styles.fieldLbl}>Board</Text>
+                <View style={styles.boardPackRow}>
+                  {LIVE_BOARD_PACKS.map((pack) => {
+                    const active = boardPack === pack.id;
+                    return (
+                      <Pressable
+                        key={pack.id}
+                        style={[styles.boardPackChip, active && styles.boardPackChipOn]}
+                        onPress={() => setBoardPackAndReset(pack.id)}
+                        disabled={busy}
+                      >
+                        <Text style={[styles.boardPackChipTxt, active && styles.boardPackChipTxtOn]}>{pack.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <View style={styles.saleTypeGrid}>
+                  {breakOptions.map((type) => {
+                    const active = draft.saleType === type.id;
+                    const teamCount = boardPackTeamCount(boardPack);
+                    const sub =
+                      type.id === 'random_pyt'
+                        ? `${teamCount} · vault reveal`
+                        : type.id === 'pyt'
+                          ? `${BOARD_PACK_LABELS[boardPack]} · ${teamCount} teams`
+                          : type.sub;
+                    return (
+                      <Pressable
+                        key={type.id}
+                        style={[styles.saleTypeCard, active && styles.saleTypeCardActive]}
+                        onPress={() => setSaleType(type.id)}
+                        disabled={busy}
+                      >
+                        <Text style={[styles.saleTypeLabel, active && styles.saleTypeLabelActive]}>{type.label}</Text>
+                        <Text style={[styles.saleTypeSub, active && styles.saleTypeSubActive]}>{sub}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
             ) : null}
 
             {isBreakLotSaleType(draft.saleType) ? (
@@ -775,6 +824,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   saleCategoryLabel: { fontSize: 12, fontWeight: '900', color: colors.textMuted },
+  boardPackRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
+  boardPackChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  boardPackChipOn: {
+    borderColor: 'rgba(212,175,55,0.55)',
+    backgroundColor: 'rgba(212,175,55,0.12)',
+  },
+  boardPackChipTxt: { fontSize: 13, fontWeight: '800', color: colors.textMuted },
+  boardPackChipTxtOn: { color: colors.gold },
   saleTypeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   saleTypeCard: {
     width: '47%',

@@ -25,9 +25,11 @@ export type TeamBoardChromeButtonProps = {
 
 export function TeamBoardChromeButton(props: TeamBoardChromeButtonProps) {
   const lg = props.league.toLowerCase();
-  const leagueKey: TeamBoardLeagueKey = lg === "nfl" || lg === "mlb" ? lg : "nba";
+  const leagueKey: TeamBoardLeagueKey =
+    lg === "nfl" || lg === "mlb" || lg === "nhl" || lg === "nba" ? lg : "nba";
   const tileCount = props.tileCount ?? TEAM_BOARD_SETS[leagueKey].length;
-  const leagueLabel = leagueKey === "nfl" ? "NFL" : leagueKey === "mlb" ? "MLB" : "NBA";
+  const leagueLabel =
+    leagueKey === "nfl" ? "NFL" : leagueKey === "mlb" ? "MLB" : leagueKey === "nhl" ? "NHL" : "NBA";
   const boardHint = `${leagueLabel} · ${tileCount} teams`;
 
   return (

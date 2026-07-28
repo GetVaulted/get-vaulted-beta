@@ -307,6 +307,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
 
   const onResumeBroadcast = async () => {
     if (!token) return;
+    if (busy === 'refresh' || busy === 'start') return;
     setBusy('refresh');
     setStreamWarning(null);
     try {

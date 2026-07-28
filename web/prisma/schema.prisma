@@ -218,6 +218,7 @@ enum TeamBoardLeague {
   nfl
   nba
   mlb
+  nhl
 }
 
 /// How marketplace order payment is collected.

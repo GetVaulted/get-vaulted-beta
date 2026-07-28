@@ -1,6 +1,16 @@
 export { liveAuctionMinBidUsd } from './liveAuctionBidMath';
 import { liveAuctionMinBidUsd } from './liveAuctionBidMath';
-import { buildPydVariants, buildPytVariants, buildRandomDivisionVariants, buildRandomTeamVariants, type LiveBreakVariantDraft } from './liveBreakPresets';
+import {
+  boardPackSupportsDivisions,
+  boardPackTeamCount,
+  buildPydVariants,
+  buildPytVariants,
+  buildRandomDivisionVariants,
+  buildRandomTeamVariants,
+  DEFAULT_LIVE_BOARD_PACK,
+  type LiveBoardPackId,
+  type LiveBreakVariantDraft,
+} from './liveBreakPresets';
 
 export type LiveLotSaleType = 'auction' | 'buy_now' | 'pyt' | 'pyd' | 'random_pyt' | 'random_pyd';
 
@@ -13,6 +23,8 @@ export type QuickLiveLotInput = {
   quantity: string;
   reservePrice: string;
   buyNowPrice: string;
+  /** League pack for PYT / random team boards (default NFL). */
+  boardPack?: LiveBoardPackId;
   /** Per-spot overrides for PYT/PYD (prices + pins). */
   spotDrafts?: LiveBreakVariantDraft[];
 };
@@ -27,6 +39,7 @@ export type QuickLiveLotValues = {
   salesFormat: LiveLotApiSalesFormat;
   variantAssignmentMode?: 'pick' | 'random';
   variants?: LiveBreakVariantDraft[];
+  boardPack?: LiveBoardPackId;
 };
 
 export function isBreakLotSaleType(saleType: LiveLotSaleType): saleType is 'pyt' | 'pyd' | 'random_pyt' | 'random_pyd' {
@@ -37,8 +50,11 @@ export function isPickBreakLotSaleType(saleType: LiveLotSaleType): saleType is '
   return saleType === 'pyt' || saleType === 'pyd';
 }
 
-export function breakSpotCountForSaleType(saleType: LiveLotSaleType): number {
-  if (saleType === 'pyt' || saleType === 'random_pyt') return 32;
+export function breakSpotCountForSaleType(
+  saleType: LiveLotSaleType,
+  boardPack: LiveBoardPackId = DEFAULT_LIVE_BOARD_PACK,
+): number {
+  if (saleType === 'pyt' || saleType === 'random_pyt') return boardPackTeamCount(boardPack);
   if (saleType === 'pyd' || saleType === 'random_pyd') return 8;
   return 0;
 }
@@ -49,12 +65,14 @@ export function syncPickBreakSpotDrafts(args: {
   saleType: 'pyt' | 'pyd';
   basePrice: number | null;
   spotsCustomized: boolean;
+  boardPack?: LiveBoardPackId;
 }): LiveBreakVariantDraft[] {
-  const expected = breakSpotCountForSaleType(args.saleType);
+  const pack = args.boardPack ?? DEFAULT_LIVE_BOARD_PACK;
+  const expected = breakSpotCountForSaleType(args.saleType, pack);
   if (args.basePrice == null) return args.prev.length === expected ? args.prev : [];
   if (args.prev.length !== expected) {
     return args.saleType === 'pyt'
-      ? buildPytVariants(args.basePrice)
+      ? buildPytVariants(args.basePrice, pack)
       : buildPydVariants(args.basePrice);
   }
   if (args.spotsCustomized) return args.prev;
@@ -149,6 +167,10 @@ export function validateQuickLiveLot(
   }
 
   if (input.saleType === 'pyt' || input.saleType === 'pyd') {
+    const pack = input.boardPack ?? DEFAULT_LIVE_BOARD_PACK;
+    if (input.saleType === 'pyd' && !boardPackSupportsDivisions(pack)) {
+      return { ok: false, message: 'Divisions are only available for NFL boards.' };
+    }
     const spotPrice = parseUsdInput(input.price);
     if (spotPrice == null) {
       return {
@@ -156,11 +178,12 @@ export function validateQuickLiveLot(
         message: input.saleType === 'pyt' ? 'Enter a price per team.' : 'Enter a price per division.',
       };
     }
+    const expected = breakSpotCountForSaleType(input.saleType, pack);
     const variants =
-      input.spotDrafts?.length === (input.saleType === 'pyt' ? 32 : 8)
+      input.spotDrafts?.length === expected
         ? input.spotDrafts
         : input.saleType === 'pyt'
-          ? buildPytVariants(spotPrice)
+          ? buildPytVariants(spotPrice, pack)
           : buildPydVariants(spotPrice);
     return {
       ok: true,
@@ -174,11 +197,16 @@ export function validateQuickLiveLot(
         salesFormat: input.saleType === 'pyt' ? 'variant_selection' : 'team_break',
         variantAssignmentMode: 'pick',
         variants: variants.map((v) => ({ ...v, isHot: v.isHot === true })),
+        boardPack: pack,
       },
     };
   }
 
   if (input.saleType === 'random_pyt' || input.saleType === 'random_pyd') {
+    const pack = input.boardPack ?? DEFAULT_LIVE_BOARD_PACK;
+    if (input.saleType === 'random_pyd' && !boardPackSupportsDivisions(pack)) {
+      return { ok: false, message: 'Divisions are only available for NFL boards.' };
+    }
     const spotPrice = parseUsdInput(input.price);
     if (spotPrice == null) {
       return {
@@ -199,8 +227,9 @@ export function validateQuickLiveLot(
         variantAssignmentMode: 'random',
         variants:
           input.saleType === 'random_pyt'
-            ? buildRandomTeamVariants(spotPrice)
+            ? buildRandomTeamVariants(spotPrice, pack)
             : buildRandomDivisionVariants(spotPrice),
+        boardPack: pack,
       },
     };
   }

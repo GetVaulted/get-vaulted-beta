@@ -3,7 +3,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -29,6 +32,8 @@ import {
 import { colors, radii, spacing } from '../../../theme';
 import { LiveRoomText } from '../../live/LiveRoomText';
 import { UsernameMentionPicker } from '../../mentions/UsernameMentionPicker';
+
+type SaleMode = 'cash' | 'supp';
 
 type Props = {
   visible: boolean;
@@ -241,6 +246,7 @@ export function SellerBreakSpotBoardSheet({
   const [settlementMethod, setSettlementMethod] = useState<string | null>(null);
   const [zeroReason, setZeroReason] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  const [saleMode, setSaleMode] = useState<SaleMode>('cash');
 
   const isDivisionBreak = item?.salesFormat === 'team_break';
   const grid = useMemo(
@@ -248,11 +254,12 @@ export function SellerBreakSpotBoardSheet({
     [windowWidth, isDivisionBreak],
   );
 
-  const resetMarkSoldForm = (prefillAmount?: number | null) => {
+  const resetMarkSoldForm = (prefillAmount?: number | null, mode: SaleMode = 'cash') => {
     setUsername('');
     setSettlementMethod(null);
     setZeroReason(null);
     setNote('');
+    setSaleMode(mode);
     setAmountText(
       typeof prefillAmount === 'number' && Number.isFinite(prefillAmount) && prefillAmount >= 0
         ? String(prefillAmount)
@@ -290,9 +297,12 @@ export function SellerBreakSpotBoardSheet({
   const { rows, openCount, soldCount, unavailableCount } = board;
   const selectedRow = rows.find((r) => r.variantId === selectedVariantId && !r.sold) ?? null;
   const selectedUnavailable = Boolean(selectedRow?.unavailable);
+  const isSuppSale = selectedUnavailable || saleMode === 'supp';
+  const buyerUsername = username.trim().replace(/^@+/, '');
+  const canSubmitUsername = buyerUsername.length >= 3;
 
   const parsedAmount = (() => {
-    if (selectedUnavailable) return 0;
+    if (isSuppSale) return 0;
     const raw = amountText.trim().replace(/[^0-9.]/g, '');
     if (!raw) return null;
     const n = Number(raw);
@@ -305,15 +315,26 @@ export function SellerBreakSpotBoardSheet({
       canMarkSold &&
         onMarkSold &&
         selectedRow?.variantId &&
-        username.trim().replace(/^@+/, '').length >= 3 &&
-        (selectedUnavailable ||
-          (settlementMethod && parsedAmount != null && (!isZeroSale || zeroReason))),
+        canSubmitUsername &&
+        (isSuppSale || (settlementMethod && parsedAmount != null && (!isZeroSale || zeroReason))),
     ) && !markSoldBusy;
+
+  const dismissKeyboard = () => Keyboard.dismiss();
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close team board" />
+      <KeyboardAvoidingView
+        style={styles.backdrop}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => {
+            dismissKeyboard();
+            onClose();
+          }}
+          accessibilityLabel="Close team board"
+        />
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
           <LinearGradient
             colors={['rgba(212,175,55,0.14)', 'rgba(10,10,14,0)']}
@@ -341,18 +362,21 @@ export function SellerBreakSpotBoardSheet({
                   : `${openCount} open · ${soldCount} sold${
                       unavailableCount ? ` · ${unavailableCount} unavailable` : ''
                     }`}
-                {openCount === 0
-                  ? unavailableCount
-                    ? ' · tap an unavailable team to bring back for a supp'
-                    : ' · stays up while you rip'
-                  : canMarkSold
-                    ? ' · tap a team to mark sold, unavailable, or bring back for a supp'
-                    : canPinTeams
-                      ? ' · use Pin on a team to feature it for buyers'
-                      : ''}
+                {canMarkSold
+                  ? ' · tap a team for Mark sold, Supp sold, or Mark unavailable'
+                  : canPinTeams
+                    ? ' · use Pin on a team to feature it for buyers'
+                    : ''}
               </LiveRoomText>
             </View>
-            <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={10}>
+            <Pressable
+              style={styles.closeBtn}
+              onPress={() => {
+                dismissKeyboard();
+                onClose();
+              }}
+              hitSlop={10}
+            >
               <Ionicons name="close" size={18} color="rgba(255,255,255,0.75)" />
             </Pressable>
           </View>
@@ -362,6 +386,8 @@ export function SellerBreakSpotBoardSheet({
             contentContainerStyle={[styles.gridContent, { gap: grid.gap }]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            onScrollBeginDrag={dismissKeyboard}
           >
             {rows.map((row) => {
               const canPin = Boolean(canPinTeams && onPinTeam && row.variantId && !row.sold && !row.unavailable);
@@ -386,13 +412,14 @@ export function SellerBreakSpotBoardSheet({
                   onSelect={
                     canSelect
                       ? () => {
+                          dismissKeyboard();
                           if (row.variantId === selectedVariantId) {
                             setSelectedVariantId(null);
                             resetMarkSoldForm();
                             return;
                           }
                           setSelectedVariantId(row.variantId!);
-                          resetMarkSoldForm(row.priceUsd);
+                          resetMarkSoldForm(row.priceUsd, row.unavailable ? 'supp' : 'cash');
                         }
                       : undefined
                   }
@@ -405,12 +432,40 @@ export function SellerBreakSpotBoardSheet({
             <View style={styles.markSoldPanel}>
               <LiveRoomText style={styles.markSoldLabel}>
                 {selectedRow
-                  ? selectedUnavailable
-                    ? `Supp purchase · ${selectedRow.label}`
-                    : `Mark sold off-platform · ${selectedRow.label}`
+                  ? isSuppSale
+                    ? `Supp sold · ${selectedRow.label}`
+                    : `Mark sold · ${selectedRow.label}`
                   : 'Select a team above'}
               </LiveRoomText>
-              {selectedUnavailable ? (
+              {selectedRow && !selectedUnavailable ? (
+                <View style={styles.chipRow}>
+                  <Pressable
+                    style={[styles.chip, saleMode === 'cash' && styles.chipOn, markSoldBusy && styles.markSoldBtnOff]}
+                    disabled={markSoldBusy}
+                    onPress={() => {
+                      dismissKeyboard();
+                      setSaleMode('cash');
+                    }}
+                  >
+                    <LiveRoomText style={[styles.chipTxt, saleMode === 'cash' && styles.chipTxtOn]}>
+                      Cash / Venmo
+                    </LiveRoomText>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.chip, saleMode === 'supp' && styles.chipOn, markSoldBusy && styles.markSoldBtnOff]}
+                    disabled={markSoldBusy}
+                    onPress={() => {
+                      dismissKeyboard();
+                      setSaleMode('supp');
+                    }}
+                  >
+                    <LiveRoomText style={[styles.chipTxt, saleMode === 'supp' && styles.chipTxtOn]}>
+                      Supp sold
+                    </LiveRoomText>
+                  </Pressable>
+                </View>
+              ) : null}
+              {isSuppSale ? (
                 <LiveRoomText style={styles.fieldHint}>
                   Supp is already paid — pick the buyer. Logs as $0 (no platform fee).
                 </LiveRoomText>
@@ -420,16 +475,19 @@ export function SellerBreakSpotBoardSheet({
                 onChangeText={setUsername}
                 accessToken={accessToken}
                 plainUsernameSearch
+                dismissKeyboardOnSelect
                 onSelectUser={(user) => setUsername(user.username)}
                 placeholder="@buyer_username"
                 editable={Boolean(selectedRow) && !markSoldBusy}
-                returnKeyType="next"
+                returnKeyType="done"
+                blurOnSubmit
+                onSubmitEditing={dismissKeyboard}
                 style={styles.usernameInput}
               />
               <LiveRoomText style={styles.fieldHint}>
-                Type a username and tap a match from the list.
+                Type a username and tap a match, or Done to dismiss the keyboard.
               </LiveRoomText>
-              {!selectedUnavailable ? (
+              {!isSuppSale ? (
                 <>
                   <TextInput
                     style={styles.usernameInput}
@@ -440,6 +498,8 @@ export function SellerBreakSpotBoardSheet({
                     keyboardType="decimal-pad"
                     editable={Boolean(selectedRow) && !markSoldBusy}
                     returnKeyType="done"
+                    blurOnSubmit
+                    onSubmitEditing={dismissKeyboard}
                   />
                   <LiveRoomText style={styles.fieldHint}>How did they pay you?</LiveRoomText>
                   <View style={styles.chipRow}>
@@ -450,7 +510,10 @@ export function SellerBreakSpotBoardSheet({
                           key={m.id}
                           style={[styles.chip, on && styles.chipOn, (!selectedRow || markSoldBusy) && styles.markSoldBtnOff]}
                           disabled={!selectedRow || markSoldBusy}
-                          onPress={() => setSettlementMethod(m.id)}
+                          onPress={() => {
+                            dismissKeyboard();
+                            setSettlementMethod(m.id);
+                          }}
                         >
                           <LiveRoomText style={[styles.chipTxt, on && styles.chipTxtOn]}>{m.label}</LiveRoomText>
                         </Pressable>
@@ -468,7 +531,10 @@ export function SellerBreakSpotBoardSheet({
                               key={r.id}
                               style={[styles.chip, on && styles.chipOn, markSoldBusy && styles.markSoldBtnOff]}
                               disabled={markSoldBusy}
-                              onPress={() => setZeroReason(r.id)}
+                              onPress={() => {
+                                dismissKeyboard();
+                                setZeroReason(r.id);
+                              }}
                             >
                               <LiveRoomText style={[styles.chipTxt, on && styles.chipTxtOn]}>{r.label}</LiveRoomText>
                             </Pressable>
@@ -487,8 +553,10 @@ export function SellerBreakSpotBoardSheet({
                 placeholderTextColor="rgba(255,255,255,0.35)"
                 editable={Boolean(selectedRow) && !markSoldBusy}
                 returnKeyType="done"
+                blurOnSubmit
+                onSubmitEditing={dismissKeyboard}
               />
-              {!selectedUnavailable && !isZeroSale && parsedAmount != null ? (
+              {!isSuppSale && !isZeroSale && parsedAmount != null ? (
                 <LiveRoomText style={styles.feeHint}>
                   You’ll owe Get Vaulted the live platform fee on {fmtMoney(parsedAmount)} after marking sold.
                 </LiveRoomText>
@@ -498,23 +566,24 @@ export function SellerBreakSpotBoardSheet({
                 disabled={!canSubmit}
                 onPress={() => {
                   if (!selectedRow?.variantId || !canSubmit) return;
-                  if (selectedUnavailable) {
+                  dismissKeyboard();
+                  if (isSuppSale) {
                     void onMarkSold({
                       variantId: selectedRow.variantId,
-                      username: username.trim(),
+                      username: buyerUsername,
                       label: selectedRow.label,
                       priceUsd: 0,
                       settlementMethod: 'other',
                       zeroReason: 'other',
                       note: note.trim() || 'Supp purchase',
-                      restoreIfUnavailable: true,
+                      ...(selectedUnavailable ? { restoreIfUnavailable: true } : {}),
                     });
                     return;
                   }
                   if (parsedAmount == null || !settlementMethod) return;
                   void onMarkSold({
                     variantId: selectedRow.variantId,
-                    username: username.trim(),
+                    username: buyerUsername,
                     label: selectedRow.label,
                     priceUsd: parsedAmount,
                     settlementMethod,
@@ -527,7 +596,7 @@ export function SellerBreakSpotBoardSheet({
                   <ActivityIndicator color="#111" />
                 ) : (
                   <LiveRoomText style={styles.markSoldBtnTxt}>
-                    {selectedUnavailable ? 'Supp sold' : 'Mark sold'}
+                    {isSuppSale ? 'Supp sold' : 'Mark sold'}
                   </LiveRoomText>
                 )}
               </Pressable>
@@ -537,6 +606,7 @@ export function SellerBreakSpotBoardSheet({
                   disabled={markSoldBusy}
                   onPress={() => {
                     if (!selectedRow?.variantId || markSoldBusy) return;
+                    dismissKeyboard();
                     void onRestoreTeam({
                       variantId: selectedRow.variantId,
                       label: selectedRow.label,
@@ -552,6 +622,7 @@ export function SellerBreakSpotBoardSheet({
                   disabled={!selectedRow || markSoldBusy}
                   onPress={() => {
                     if (!selectedRow?.variantId || markSoldBusy) return;
+                    dismissKeyboard();
                     void onRetireTeam({
                       variantId: selectedRow.variantId,
                       label: selectedRow.label,
@@ -561,20 +632,21 @@ export function SellerBreakSpotBoardSheet({
                   <LiveRoomText style={styles.retireBtnTxt}>Mark unavailable</LiveRoomText>
                 </Pressable>
               ) : null}
-              {selectedUnavailable ? (
+              {isSuppSale ? (
                 <LiveRoomText style={styles.retireHint}>
-                  Supp sold assigns the buyer at $0 (supp already paid). Bring back alone re-opens the team with no sale.
+                  Supp sold assigns the buyer at $0 (supp already paid).
+                  {selectedUnavailable ? ' Bring back alone re-opens the team with no sale.' : ''}
                 </LiveRoomText>
               ) : onRetireTeam ? (
                 <LiveRoomText style={styles.retireHint}>
-                  Keeps the team on the board as unavailable — no sale, no Show sales amount. Tap later to bring back for a
-                  supp.
+                  Mark unavailable keeps the team on the board with no sale. Use Supp sold when the buyer already paid
+                  into that team.
                 </LiveRoomText>
               ) : null}
             </View>
           ) : null}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

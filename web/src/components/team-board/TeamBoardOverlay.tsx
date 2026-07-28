@@ -17,7 +17,7 @@ type TeamBoardOverlayProps = {
   presentation?: "stage" | "embedded";
 };
 
-const LEAGUE_LABEL: Record<string, string> = { nfl: "NFL", nba: "NBA", mlb: "MLB" };
+const LEAGUE_LABEL: Record<string, string> = { nfl: "NFL", nba: "NBA", mlb: "MLB", nhl: "NHL" };
 
 function chunkTeams<T>(items: readonly T[], chunkSize: number): T[][] {
   const rows: T[][] = [];

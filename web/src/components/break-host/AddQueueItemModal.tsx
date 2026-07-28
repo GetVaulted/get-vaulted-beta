@@ -4,7 +4,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { compressImageFileToBlob } from "@/lib/listing-image-compress";
 import { uploadListingImageBlob } from "@/lib/upload-listing-image-client";
-import { buildRandomVariantsFromPreset, buildVariantsFromPreset, type VariantDraftInput } from "@/lib/live-item-variant-presets";
+import {
+  LIVE_BOARD_PACKS,
+  DEFAULT_LIVE_BOARD_PACK,
+  boardPackSupportsDivisions,
+  buildRandomVariantsFromPreset,
+  buildVariantsFromPreset,
+  parseLiveBoardPack,
+  teamsPresetIdForBoardPack,
+  type LiveBoardPackId,
+  type VariantDraftInput,
+} from "@/lib/live-item-variant-presets";
+import { TEAM_BOARD_LEAGUE_LABELS, teamBoardSpotCount } from "@/lib/team-board-sets";
 import { LiveItemVariantBuilder } from "@/components/live-auction/LiveItemVariantBuilder";
 import { resolveLiveHostDefaultShippingProfileId } from "@/lib/live-show-category-shipping-profile";
 import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
@@ -80,16 +91,18 @@ const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
 
 const BREAK_VARIANTS: { id: BreakSaleType; label: string; sub: string }[] = [
   { id: "pyt", label: "PYT", sub: "Pick your team" },
-  { id: "pyd", label: "PYD", sub: "Pick division" },
-  { id: "random_pyt", label: "Random Teams", sub: "32 · vault reveal" },
-  { id: "random_pyd", label: "Random Divisions", sub: "8 · vault reveal" },
+  { id: "pyd", label: "PYD", sub: "Pick division · NFL" },
+  { id: "random_pyt", label: "Random Teams", sub: "Vault reveal" },
+  { id: "random_pyd", label: "Random Divisions", sub: "8 · NFL" },
 ];
 
-/** Sale-type picker options actually shown to sellers — random breaks stay in `BREAK_VARIANTS` but are hidden while disabled. */
-const VISIBLE_BREAK_VARIANTS = RANDOM_BREAK_SALE_TYPES_ENABLED
-  ? BREAK_VARIANTS
-  : BREAK_VARIANTS.filter((v) => v.id === "pyt" || v.id === "pyd");
-
+function visibleBreakVariants(boardPack: LiveBoardPackId) {
+  const base = RANDOM_BREAK_SALE_TYPES_ENABLED
+    ? BREAK_VARIANTS
+    : BREAK_VARIANTS.filter((v) => v.id === "pyt" || v.id === "pyd");
+  if (boardPackSupportsDivisions(boardPack)) return base;
+  return base.filter((v) => v.id === "pyt" || v.id === "random_pyt");
+}
 function saleTypeForCategory(category: SaleCategory, breakVariant: BreakSaleType): SaleType {
   if (category === "auction") return "auction";
   if (category === "buy_now") return "buy_now";
@@ -131,6 +144,7 @@ export function AddQueueItemModal({
   const [saleCategory, setSaleCategory] = useState<SaleCategory>("auction");
   const [breakSaleType, setBreakSaleType] = useState<BreakSaleType>("pyt");
   const saleType = saleTypeForCategory(saleCategory, breakSaleType);
+  const [boardPack, setBoardPack] = useState<LiveBoardPackId>(DEFAULT_LIVE_BOARD_PACK);
   const [price, setPrice] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [queueDraftMisc, setQueueDraftMisc] = useState(false);
@@ -168,6 +182,7 @@ export function AddQueueItemModal({
       setImageError(null);
       setSaleCategory(mode === "bin" ? "buy_now" : "auction");
       setBreakSaleType("pyt");
+      setBoardPack(parseLiveBoardPack(teamBoardLeague) || DEFAULT_LIVE_BOARD_PACK);
       setPrice("");
       setQuantity("1");
       setQueueDraftMisc(false);
@@ -282,16 +297,17 @@ export function AddQueueItemModal({
       return;
     }
     const base = parseUsd(price);
-    const expected = saleType === "pyt" ? 32 : 8;
+    const expected = saleType === "pyt" ? teamBoardSpotCount(boardPack) : 8;
+    const teamsPreset = teamsPresetIdForBoardPack(boardPack);
     setSpotVariants((prev) => {
       if (base == null) return prev.length === expected ? prev : [];
       if (prev.length !== expected) {
-        return buildVariantsFromPreset(saleType === "pyt" ? "nfl_teams" : "nfl_divisions", base, 1);
+        return buildVariantsFromPreset(saleType === "pyt" ? teamsPreset : "nfl_divisions", base, 1);
       }
       if (spotsCustomized) return prev;
       return prev.map((spot) => ({ ...spot, priceUsd: base }));
     });
-  }, [price, saleType, spotsCustomized]);
+  }, [price, saleType, spotsCustomized, boardPack]);
 
   const handleSpotVariantsChange = useCallback((next: VariantDraftInput[]) => {
     setSpotVariants((prev) => {
@@ -360,14 +376,20 @@ export function AddQueueItemModal({
       : { shippingProfileId: selectedProfileId };
 
     if (saleType === "pyt" || saleType === "pyd") {
+      if (saleType === "pyd" && !boardPackSupportsDivisions(boardPack)) {
+        setFormError("Divisions are only available for NFL boards.");
+        return;
+      }
       if (parsedPrice == null) {
         setFormError(saleType === "pyt" ? "Enter a price per team." : "Enter a price per division.");
         return;
       }
+      const expected = saleType === "pyt" ? teamBoardSpotCount(boardPack) : 8;
+      const teamsPreset = teamsPresetIdForBoardPack(boardPack);
       const variants =
-        spotVariants.length === (saleType === "pyt" ? 32 : 8)
+        spotVariants.length === expected
           ? spotVariants
-          : buildVariantsFromPreset(saleType === "pyt" ? "nfl_teams" : "nfl_divisions", parsedPrice, 1);
+          : buildVariantsFromPreset(saleType === "pyt" ? teamsPreset : "nfl_divisions", parsedPrice, 1);
       const ok = await onSubmitAuction({
         title: trimmedTitle,
         imageUrl: imageUrl.trim(),
@@ -385,11 +407,15 @@ export function AddQueueItemModal({
     }
 
     if (saleType === "random_pyt" || saleType === "random_pyd") {
+      if (saleType === "random_pyd" && !boardPackSupportsDivisions(boardPack)) {
+        setFormError("Divisions are only available for NFL boards.");
+        return;
+      }
       if (parsedPrice == null) {
         setFormError(saleType === "random_pyt" ? "Enter a price per team." : "Enter a price per division.");
         return;
       }
-      const preset = saleType === "random_pyt" ? "nfl_teams" : "nfl_divisions";
+      const preset = saleType === "random_pyt" ? teamsPresetIdForBoardPack(boardPack) : "nfl_divisions";
       const ok = await onSubmitAuction({
         title: trimmedTitle,
         imageUrl: imageUrl.trim(),
@@ -439,7 +465,7 @@ export function AddQueueItemModal({
       ...profilePayload,
     });
     if (ok) requestClose("success", onRequestClose);
-  }, [imageUrl, onRequestClose, onSubmitAuction, price, profileOptionsAreSeller, quantity, queueDraftMisc, saleType, selectedProfileId, spotVariants, title]);
+  }, [boardPack, imageUrl, onRequestClose, onSubmitAuction, price, profileOptionsAreSeller, quantity, queueDraftMisc, saleType, selectedProfileId, spotVariants, title]);
 
   const handleSubmitGiveaway = useCallback(async () => {
     if (!onSubmitGiveaway || (mode !== "giveaway" && mode !== "buyers_giveaway")) return;
@@ -924,37 +950,78 @@ export function AddQueueItemModal({
           </div>
 
           {saleCategory === "teams_divisions" ? (
-            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {VISIBLE_BREAK_VARIANTS.map((type) => {
-                const active = breakSaleType === type.id;
-                return (
-                  <button
-                    key={type.id}
-                    type="button"
-                    onClick={() => {
-                      setBreakSaleType(type.id);
-                      setSpotVariants([]);
-                      setSpotsCustomized(false);
-                    }}
-                    className={`rounded-lg border px-3 py-2.5 text-left transition ${
-                      active
-                        ? "border-gold/45 bg-gold/15 text-gold-bright"
-                        : "border-white/12 bg-[#0c0c10] text-zinc-400 hover:bg-white/[0.04]"
-                    }`}
-                  >
-                    <span className="block text-sm font-bold">{type.label}</span>
-                    <span className="mt-0.5 block text-[11px] font-medium opacity-80">{type.sub}</span>
-                  </button>
-                );
-              })}
-            </div>
+            <>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {LIVE_BOARD_PACKS.map((pack) => {
+                  const active = boardPack === pack.id;
+                  return (
+                    <button
+                      key={pack.id}
+                      type="button"
+                      onClick={() => {
+                        setBoardPack(pack.id);
+                        setSpotVariants([]);
+                        setSpotsCustomized(false);
+                        if (!boardPackSupportsDivisions(pack.id) && (breakSaleType === "pyd" || breakSaleType === "random_pyd")) {
+                          setBreakSaleType("pyt");
+                        }
+                      }}
+                      className={`rounded-lg border px-3 py-2 text-sm font-bold transition ${
+                        active
+                          ? "border-gold/45 bg-gold/15 text-gold-bright"
+                          : "border-white/12 bg-[#0c0c10] text-zinc-400 hover:bg-white/[0.04]"
+                      }`}
+                    >
+                      {pack.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {visibleBreakVariants(boardPack).map((type) => {
+                  const active = breakSaleType === type.id;
+                  const teamCount = teamBoardSpotCount(boardPack);
+                  const sub =
+                    type.id === "random_pyt"
+                      ? `${teamCount} · vault reveal`
+                      : type.id === "pyt"
+                        ? `${TEAM_BOARD_LEAGUE_LABELS[boardPack]} · ${teamCount} teams`
+                        : type.sub;
+                  return (
+                    <button
+                      key={type.id}
+                      type="button"
+                      onClick={() => {
+                        setBreakSaleType(type.id);
+                        setSpotVariants([]);
+                        setSpotsCustomized(false);
+                      }}
+                      className={`rounded-lg border px-3 py-2.5 text-left transition ${
+                        active
+                          ? "border-gold/45 bg-gold/15 text-gold-bright"
+                          : "border-white/12 bg-[#0c0c10] text-zinc-400 hover:bg-white/[0.04]"
+                      }`}
+                    >
+                      <span className="block text-sm font-bold">{type.label}</span>
+                      <span className="mt-0.5 block text-[11px] font-medium opacity-80">{sub}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           ) : null}
 
           {isBreakSale ? (
             <p className="mt-3 rounded-lg border border-gold/20 bg-gold/5 px-3 py-2 text-xs text-zinc-300">
               {isRandomBreak
-                ? `Buyers purchase a spot — Vault Reveal assigns ${saleType === "random_pyt" ? "an NFL team" : "a division"} from what's left. Won spots leave the pool.`
-                : `Buyers pick from ${saleType === "pyt" ? "32 teams" : "8 divisions"}. Sold spots disappear from the board.`}
+                ? `Buyers purchase a spot — Vault Reveal assigns ${
+                    saleType === "random_pyt"
+                      ? `a ${TEAM_BOARD_LEAGUE_LABELS[boardPack]} team`
+                      : "a division"
+                  } from what's left. Won spots leave the pool.`
+                : `Buyers pick from ${
+                    saleType === "pyt" ? `${teamBoardSpotCount(boardPack)} teams` : "8 divisions"
+                  }. Sold spots disappear from the board.`}
             </p>
           ) : null}
 

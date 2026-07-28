@@ -137,7 +137,7 @@ type RoomPayload = {
   randomizationResult: string | null;
   lockPurchases: boolean;
   breakPaused: boolean;
-  teamBoardLeague: "nfl" | "nba" | "mlb";
+  teamBoardLeague: "nfl" | "nba" | "mlb" | "nhl";
   scheduledStartAt: string | null;
   /** When the seller started the live room (host console “Start stream”). */
   startedAt: string | null;

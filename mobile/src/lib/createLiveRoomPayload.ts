@@ -1,5 +1,5 @@
 export type BreakPricingMode = 'fixed' | 'auction' | 'hybrid';
-export type TeamBoardLeague = 'nfl' | 'nba' | 'mlb';
+export type TeamBoardLeague = 'nfl' | 'nba' | 'mlb' | 'nhl';
 export type CreateScheduleMode = 'now' | 'later';
 
 /** Mirrors `SellerLivePage.tsx` POST /api/live-rooms body assembly. */

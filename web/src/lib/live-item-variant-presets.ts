@@ -1,13 +1,27 @@
 /** Preset labels for fast variant / spot setup in live queue items. */
 
-import { TEAM_BOARD_SETS, TEAM_BOARD_DISPLAY_NAMES } from "@/lib/team-board-sets";
+import {
+  TEAM_BOARD_DISPLAY_NAMES,
+  TEAM_BOARD_LEAGUE_LABELS,
+  TEAM_BOARD_SETS,
+  teamBoardSpotCount,
+  type TeamBoardLeagueKey,
+} from "@/lib/team-board-sets";
 
-export type LiveItemVariantPresetId = "nfl_divisions" | "nfl_teams" | "custom";
+export type LiveBoardPackId = TeamBoardLeagueKey;
+
+export type LiveItemVariantPresetId =
+  | "nfl_divisions"
+  | "nfl_teams"
+  | "nba_teams"
+  | "mlb_teams"
+  | "nhl_teams"
+  | "custom";
 
 export type LiveItemVariantPresetOption = {
   label: string;
   sortOrder: number;
-  /** NFL team abbreviation when preset is nfl_teams. */
+  /** Team abbreviation when preset is a teams pack. */
   abbr?: string;
 };
 
@@ -22,11 +36,38 @@ export const NFL_DIVISIONS_PRESET: LiveItemVariantPresetOption[] = [
   { label: "NFC West", sortOrder: 7 },
 ];
 
-export const NFL_TEAMS_PRESET: LiveItemVariantPresetOption[] = TEAM_BOARD_SETS.nfl.map((abbr, sortOrder) => ({
-  label: TEAM_BOARD_DISPLAY_NAMES.nfl[abbr] ?? abbr,
-  sortOrder,
-  abbr,
-}));
+function teamsPresetForLeague(league: LiveBoardPackId): LiveItemVariantPresetOption[] {
+  return TEAM_BOARD_SETS[league].map((abbr, sortOrder) => ({
+    label: TEAM_BOARD_DISPLAY_NAMES[league][abbr] ?? abbr,
+    sortOrder,
+    abbr,
+  }));
+}
+
+export const NFL_TEAMS_PRESET: LiveItemVariantPresetOption[] = teamsPresetForLeague("nfl");
+export const NBA_TEAMS_PRESET: LiveItemVariantPresetOption[] = teamsPresetForLeague("nba");
+export const MLB_TEAMS_PRESET: LiveItemVariantPresetOption[] = teamsPresetForLeague("mlb");
+export const NHL_TEAMS_PRESET: LiveItemVariantPresetOption[] = teamsPresetForLeague("nhl");
+
+export const LIVE_BOARD_PACKS: { id: LiveBoardPackId; label: string }[] = (
+  ["nfl", "nba", "mlb", "nhl"] as const
+).map((id) => ({ id, label: TEAM_BOARD_LEAGUE_LABELS[id] }));
+
+export const DEFAULT_LIVE_BOARD_PACK: LiveBoardPackId = "nfl";
+
+/** Divisions (PYD) are NFL-only. */
+export function boardPackSupportsDivisions(pack: LiveBoardPackId): boolean {
+  return pack === "nfl";
+}
+
+export function teamsPresetIdForBoardPack(pack: LiveBoardPackId): Exclude<LiveItemVariantPresetId, "custom" | "nfl_divisions"> {
+  return `${pack}_teams` as Exclude<LiveItemVariantPresetId, "custom" | "nfl_divisions">;
+}
+
+export function parseLiveBoardPack(v: string | null | undefined): LiveBoardPackId {
+  if (v === "nba" || v === "mlb" || v === "nhl" || v === "nfl") return v;
+  return DEFAULT_LIVE_BOARD_PACK;
+}
 
 export const LIVE_ITEM_VARIANT_PRESETS: Record<
   Exclude<LiveItemVariantPresetId, "custom">,
@@ -39,6 +80,18 @@ export const LIVE_ITEM_VARIANT_PRESETS: Record<
   nfl_teams: {
     label: "NFL Teams (PYT)",
     options: NFL_TEAMS_PRESET,
+  },
+  nba_teams: {
+    label: "NBA Teams (PYT)",
+    options: NBA_TEAMS_PRESET,
+  },
+  mlb_teams: {
+    label: "MLB Teams (PYT)",
+    options: MLB_TEAMS_PRESET,
+  },
+  nhl_teams: {
+    label: "NHL Teams (PYT)",
+    options: NHL_TEAMS_PRESET,
   },
 };
 
@@ -53,14 +106,26 @@ export type VariantDraftInput = {
 };
 
 export function buildRandomVariantsFromPreset(
-  presetId: "nfl_teams" | "nfl_divisions",
+  presetId: Exclude<LiveItemVariantPresetId, "custom">,
   defaultPriceUsd: number,
 ): VariantDraftInput[] {
-  const count = presetId === "nfl_teams" ? 32 : 8;
-  const label = presetId === "nfl_teams" ? "Random NFL Team" : "Random NFL Division";
+  if (presetId === "nfl_divisions") {
+    return [
+      {
+        label: "Random NFL Division",
+        priceUsd: defaultPriceUsd,
+        quantityInitial: 8,
+        sortOrder: 0,
+        color: presetId,
+      },
+    ];
+  }
+  const pack = presetId.replace(/_teams$/, "") as LiveBoardPackId;
+  const count = teamBoardSpotCount(pack);
+  const leagueLabel = TEAM_BOARD_LEAGUE_LABELS[pack] ?? "NFL";
   return [
     {
-      label,
+      label: `Random ${leagueLabel} Team`,
       priceUsd: defaultPriceUsd,
       quantityInitial: count,
       sortOrder: 0,
@@ -202,7 +267,6 @@ export function hostSpotBoardPinEnabled(args: {
 }): boolean {
   return Boolean(args.hostMode && args.hasPinHandler && args.variantId && !args.sold);
 }
-
 
 /** Host-pinned spot shown to buyers (exclusive `isHot` on an available variant). */
 export function hostPinnedBuyerVariant(

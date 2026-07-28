@@ -639,10 +639,12 @@ export function useSellerLiveConsole({
         setItems((prev) => prev.map(markVariantRemoved));
         setActiveItem((prev) => (prev ? markVariantRemoved(prev) : prev));
         invalidateHostConsoleCache(roomId);
+        setMarkSoldBusy(false);
         await reload({ force: true });
         Alert.alert('Marked unavailable', `${result.label} stays on the board as unavailable — not counted as a sale.`);
-      } finally {
+      } catch (e) {
         setMarkSoldBusy(false);
+        throw e;
       }
     });
   };
@@ -678,13 +680,15 @@ export function useSellerLiveConsole({
         setItems((prev) => prev.map(markVariantRestored));
         setActiveItem((prev) => (prev ? markVariantRestored(prev) : prev));
         invalidateHostConsoleCache(roomId);
+        setMarkSoldBusy(false);
         await reload({ force: true });
         Alert.alert(
           'Brought back',
           `${result.label} is open again — record a supp sold with the buyer’s username, or let them buy in-app.`,
         );
-      } finally {
+      } catch (e) {
         setMarkSoldBusy(false);
+        throw e;
       }
     });
   };

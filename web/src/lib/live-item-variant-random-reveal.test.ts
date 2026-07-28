@@ -11,6 +11,9 @@ const prismaMock = vi.hoisted(() => ({
     findMany: vi.fn(),
     update: vi.fn(),
   },
+  liveItemVariant: {
+    findFirst: vi.fn().mockResolvedValue({ color: "nfl_teams" }),
+  },
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 

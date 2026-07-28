@@ -42,7 +42,7 @@ export type LiveRoomListApiRow = {
   sellerUsername: string;
   itemCount: number;
   activeItemTitle: string | null;
-  teamBoardLeague: "nfl" | "nba" | "mlb";
+  teamBoardLeague: "nfl" | "nba" | "mlb" | "nhl";
   tipRecipientMode?: "host" | "moderator";
   tipModeratorId?: string | null;
   tipModeratorUsername?: string | null;
