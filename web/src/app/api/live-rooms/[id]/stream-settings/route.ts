@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { emitStreamStatusChanged } from "@/lib/realtime-emit-server";
-import { ensureStageHlsCompositionActive } from "@/services/ivs";
+import {
+  cancelPausedBroadcastAwsTeardown,
+  ensureStageHlsCompositionActive,
+  schedulePausedBroadcastAwsTeardown,
+} from "@/services/ivs";
 import { requireHostAccess } from "../stream/_shared";
 
 type PatchBody = {
@@ -48,8 +52,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     select: { streamHealth: true, streamPaused: true, roomVersion: true },
   });
 
-  // Host Play: heal Stage→HLS composition so buyers who fall back to the mirror get video again.
-  if (!streamPaused) {
+  if (streamPaused) {
+    // After a short grace, stop Stage→HLS composition + channel ingest so overnight pause doesn't burn IVS.
+    schedulePausedBroadcastAwsTeardown(liveRoomId);
+  } else {
+    // Host Play: cancel any pending cut and heal Stage→HLS so share-link buyers get video again.
+    cancelPausedBroadcastAwsTeardown(liveRoomId);
     void ensureStageHlsCompositionActive(liveRoomId).catch(() => {});
   }
 

@@ -5,6 +5,7 @@ const hoisted = vi.hoisted(() => ({
   liveRoomFindUnique: vi.fn(),
   liveRoomUpdate: vi.fn(),
   compositionSend: vi.fn(),
+  channelSend: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -15,6 +16,14 @@ vi.mock("@/lib/prisma", () => ({
     },
   },
 }));
+
+vi.mock("@aws-sdk/client-ivs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@aws-sdk/client-ivs")>();
+  return {
+    ...actual,
+    IvsClient: vi.fn().mockImplementation(() => ({ send: hoisted.channelSend })),
+  };
+});
 
 vi.mock("@aws-sdk/client-ivs-realtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@aws-sdk/client-ivs-realtime")>();
@@ -82,8 +91,10 @@ describe("stage HLS composition (guest HLS mirror)", () => {
   it("ensureStageHlsCompositionActive leaves an ACTIVE mirror alone (anti-thrash)", async () => {
     const { ensureStageHlsCompositionActive } = await import("@/services/ivs");
     hoisted.liveRoomFindUnique.mockResolvedValueOnce({
+      status: "live",
       streamMode: "stage_webrtc",
       streamHealth: "live",
+      streamPaused: false,
       ivsCompositionArn: "arn:aws:ivs:us-east-1:123:composition/existing",
       ivsStageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
       ivsChannelArn: "arn:aws:ivs:us-east-1:123:channel/abc",
@@ -98,11 +109,29 @@ describe("stage HLS composition (guest HLS mirror)", () => {
     expect(hoisted.compositionSend).toHaveBeenCalledTimes(1);
   });
 
+  it("ensureStageHlsCompositionActive no-ops while the host stream is paused", async () => {
+    const { ensureStageHlsCompositionActive } = await import("@/services/ivs");
+    hoisted.liveRoomFindUnique.mockResolvedValueOnce({
+      status: "live",
+      streamMode: "stage_webrtc",
+      streamHealth: "live",
+      streamPaused: true,
+      ivsCompositionArn: null,
+      ivsStageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
+      ivsChannelArn: "arn:aws:ivs:us-east-1:123:channel/abc",
+      streamStartedAt: new Date(Date.now() - 60_000),
+    });
+    await ensureStageHlsCompositionActive("room_1");
+    expect(hoisted.compositionSend).not.toHaveBeenCalled();
+  });
+
   it("ensureStageHlsCompositionActive no-ops for non-stage broadcasts", async () => {
     const { ensureStageHlsCompositionActive } = await import("@/services/ivs");
     hoisted.liveRoomFindUnique.mockResolvedValueOnce({
+      status: "live",
       streamMode: "channel_hls",
       streamHealth: "live",
+      streamPaused: false,
       ivsCompositionArn: null,
       ivsStageArn: null,
       ivsChannelArn: "arn:aws:ivs:us-east-1:123:channel/abc",
@@ -114,8 +143,10 @@ describe("stage HLS composition (guest HLS mirror)", () => {
   it("ensureStageHlsCompositionActive retries a missing mirror while the room is live", async () => {
     const { ensureStageHlsCompositionActive } = await import("@/services/ivs");
     hoisted.liveRoomFindUnique.mockResolvedValueOnce({
+      status: "live",
       streamMode: "stage_webrtc",
       streamHealth: "live",
+      streamPaused: false,
       ivsCompositionArn: null,
       ivsStageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
       ivsChannelArn: "arn:aws:ivs:us-east-1:123:channel/abc",
@@ -154,6 +185,68 @@ describe("stage HLS composition (guest HLS mirror)", () => {
       data: { lastIvsError: "stage_composition_start_failed: AccessDeniedException" },
     });
   }, 45_000);
+
+  it("cutLiveBroadcastAwsBilling stops composition + channel ingest while paused without ending the room", async () => {
+    const { cutLiveBroadcastAwsBilling } = await import("@/services/ivs");
+    hoisted.liveRoomFindUnique
+      .mockResolvedValueOnce({
+        status: "live",
+        streamPaused: true,
+        streamMode: "stage_webrtc",
+        ivsStageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
+        ivsChannelArn: "arn:aws:ivs:us-east-1:123:channel/abc",
+      })
+      .mockResolvedValueOnce({
+        ivsCompositionArn: "arn:aws:ivs:us-east-1:123:composition/existing",
+      });
+    hoisted.compositionSend.mockResolvedValueOnce({});
+    hoisted.channelSend.mockResolvedValueOnce({});
+
+    await cutLiveBroadcastAwsBilling("room_1");
+
+    expect(hoisted.compositionSend).toHaveBeenCalledTimes(1);
+    expect(hoisted.channelSend).toHaveBeenCalledTimes(1);
+    expect(hoisted.liveRoomUpdate).toHaveBeenCalledWith({
+      where: { id: "room_1" },
+      data: { ivsCompositionArn: null },
+    });
+    expect(hoisted.liveRoomUpdate).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ streamHealth: "ended" }),
+      }),
+    );
+  });
+
+  it("cutLiveBroadcastAwsBilling skips when host is not paused and a publisher is still present", async () => {
+    const { cutLiveBroadcastAwsBilling } = await import("@/services/ivs");
+    hoisted.liveRoomFindUnique.mockResolvedValueOnce({
+      status: "live",
+      streamPaused: false,
+      streamMode: "stage_webrtc",
+      ivsStageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
+      ivsChannelArn: "arn:aws:ivs:us-east-1:123:channel/abc",
+    });
+    // ListParticipants (session) + ListParticipants (publishers)
+    hoisted.compositionSend
+      .mockResolvedValueOnce({ stageSessions: [{ sessionId: "sess_1" }] })
+      .mockResolvedValueOnce({ participants: [{ participantId: "p1" }] });
+
+    await cutLiveBroadcastAwsBilling("room_1");
+
+    expect(hoisted.channelSend).not.toHaveBeenCalled();
+    expect(hoisted.liveRoomUpdate).not.toHaveBeenCalled();
+  });
+
+  it("pauseAwsTeardownDelayMs defaults to 45s and honors LIVE_PAUSE_AWS_TEARDOWN_DELAY_MS", async () => {
+    const { pauseAwsTeardownDelayMs } = await import("@/services/ivs");
+    const prev = process.env.LIVE_PAUSE_AWS_TEARDOWN_DELAY_MS;
+    delete process.env.LIVE_PAUSE_AWS_TEARDOWN_DELAY_MS;
+    expect(pauseAwsTeardownDelayMs()).toBe(45_000);
+    process.env.LIVE_PAUSE_AWS_TEARDOWN_DELAY_MS = "0";
+    expect(pauseAwsTeardownDelayMs()).toBe(0);
+    if (prev === undefined) delete process.env.LIVE_PAUSE_AWS_TEARDOWN_DELAY_MS;
+    else process.env.LIVE_PAUSE_AWS_TEARDOWN_DELAY_MS = prev;
+  });
 });
 
 describe("ignoreChannelHealthDowngradeForActiveStage (Go Live race guard)", () => {

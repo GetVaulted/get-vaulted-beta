@@ -953,6 +953,7 @@ export async function reconcileStagePublisherHealth(roomId: string): Promise<"li
   if (publishers === null) return "unknown";
 
   if (publishers > 0) {
+    cancelPausedBroadcastAwsTeardown(roomId);
     await commitStagePublisherDerivedHealth(roomId, "live");
     return "live";
   }
@@ -962,6 +963,8 @@ export async function reconcileStagePublisherHealth(roomId: string): Promise<"li
   if (msSinceStart < 60_000) return "skip";
 
   await commitStagePublisherDerivedHealth(roomId, "connecting");
+  // No publisher past grace — schedule AWS cut so overnight abandoned shows stop billing.
+  schedulePausedBroadcastAwsTeardown(roomId);
   return "connecting";
 }
 
@@ -979,15 +982,19 @@ export async function ensureStageHlsCompositionActive(roomId: string): Promise<v
   const room = await prisma.liveRoom.findUnique({
     where: { id: roomId },
     select: {
+      status: true,
       streamMode: true,
       streamHealth: true,
+      streamPaused: true,
       ivsCompositionArn: true,
       ivsStageArn: true,
       ivsChannelArn: true,
       streamStartedAt: true,
     },
   });
-  if (!room || room.streamMode !== "stage_webrtc") return;
+  if (!room || room.status !== "live" || room.streamMode !== "stage_webrtc") return;
+  // Host paused / overnight hold — never restart the mirror (that was burning Input + Encode hours).
+  if (room.streamPaused === true) return;
   if (!room.ivsStageArn || !room.ivsChannelArn) return;
   const health = room.streamHealth?.toLowerCase();
   if (health !== "live" && health !== "connecting") return;
@@ -1047,8 +1054,21 @@ export async function stopStageComposition(roomId: string): Promise<void> {
   logIvsOpsServer("ivs_stage_composition_stop", { roomId });
 }
 
+/**
+ * How long after Pause / host-publisher-drop before we stop IVS composition + channel ingest.
+ * Short enough to stop overnight burn; long enough that brief home-button flickers don't thrash.
+ * Set `LIVE_PAUSE_AWS_TEARDOWN_DELAY_MS=0` for immediate cut (tests / ops).
+ */
+export function pauseAwsTeardownDelayMs(): number {
+  const raw = Number(process.env.LIVE_PAUSE_AWS_TEARDOWN_DELAY_MS);
+  if (Number.isFinite(raw) && raw >= 0) return Math.floor(raw);
+  return 45_000;
+}
+
 /** Delayed HLS teardown so a host phone fatal/retry doesn't black out buyers instantly. */
 const delayedCompositionStops = new Map<string, ReturnType<typeof setTimeout>>();
+/** Delayed AWS billing cut on pause / soft disconnect (composition + channel ingest). */
+const pausedBroadcastAwsTeardowns = new Map<string, ReturnType<typeof setTimeout>>();
 
 function cancelDelayedCompositionStop(roomId: string): void {
   const timer = delayedCompositionStops.get(roomId);
@@ -1057,12 +1077,95 @@ function cancelDelayedCompositionStop(roomId: string): void {
   delayedCompositionStops.delete(roomId);
 }
 
+export function cancelPausedBroadcastAwsTeardown(roomId: string): void {
+  const timer = pausedBroadcastAwsTeardowns.get(roomId);
+  if (!timer) return;
+  clearTimeout(timer);
+  pausedBroadcastAwsTeardowns.delete(roomId);
+}
+
+/**
+ * Stop Stage→HLS composition and best-effort StopStream on the channel so Input + Encode hours stop.
+ * Does NOT end the show or mark streamHealth=ended (pause / soft hold can still resume).
+ */
+export async function cutLiveBroadcastAwsBilling(roomId: string): Promise<void> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: {
+      status: true,
+      streamPaused: true,
+      streamMode: true,
+      ivsStageArn: true,
+      ivsChannelArn: true,
+    },
+  });
+  if (!room) return;
+
+  if (room.status === "ended") {
+    await stopStageComposition(roomId);
+    await stopChannelIngestBestEffort(roomId, room.ivsChannelArn);
+    return;
+  }
+  if (room.status !== "live") return;
+
+  // Host already back on Play with a publisher — leave AWS alone.
+  if (room.streamPaused !== true && room.streamMode === "stage_webrtc" && room.ivsStageArn) {
+    const publishers = await countStagePublishers(room.ivsStageArn);
+    if (publishers != null && publishers > 0) {
+      logIvsOpsServer("ivs_pause_aws_cut_skipped_publisher_present", { roomId });
+      return;
+    }
+  }
+
+  await stopStageComposition(roomId);
+  await stopChannelIngestBestEffort(roomId, room.ivsChannelArn);
+  logIvsOpsServer("ivs_pause_aws_billing_cut", {
+    roomId,
+    streamPaused: room.streamPaused === true,
+  });
+}
+
+async function stopChannelIngestBestEffort(roomId: string, channelArn: string | null | undefined): Promise<void> {
+  if (!channelArn?.trim()) return;
+  try {
+    const client = makeClient();
+    await client.send(new StopStreamCommand({ channelArn }));
+    logIvsOpsServer("ivs_channel_ingest_stopped", { roomId });
+  } catch {
+    /** Channel may already be offline. */
+  }
+}
+
+/**
+ * Schedule composition + channel ingest teardown after pause / publisher drop.
+ * Idempotent while a timer is pending (won't keep resetting the delay on every health poll).
+ */
+export function schedulePausedBroadcastAwsTeardown(roomId: string): void {
+  if (pausedBroadcastAwsTeardowns.has(roomId)) return;
+  const delayMs = pauseAwsTeardownDelayMs();
+  if (delayMs <= 0) {
+    void cutLiveBroadcastAwsBilling(roomId).catch((e) =>
+      console.error("[IVS_OPS] ivs_pause_aws_billing_cut_failure", roomId, e),
+    );
+    return;
+  }
+  const timer = setTimeout(() => {
+    pausedBroadcastAwsTeardowns.delete(roomId);
+    void cutLiveBroadcastAwsBilling(roomId).catch((e) =>
+      console.error("[IVS_OPS] ivs_pause_aws_billing_cut_failure", roomId, e),
+    );
+  }, delayMs);
+  pausedBroadcastAwsTeardowns.set(roomId, timer);
+  logIvsOpsServer("ivs_pause_aws_teardown_scheduled", { roomId, delayMs });
+}
+
 /**
  * Begin a host WebRTC Stage broadcast: provision the stage, mint a publish token, mark the room
  * live (stage mode), and kick off the optional HLS mirror. Returns the host's publish token.
  */
 export async function prepareHostStageSession(roomId: string, userId: string): Promise<StageToken> {
   cancelDelayedCompositionStop(roomId);
+  cancelPausedBroadcastAwsTeardown(roomId);
   const existing = await prisma.liveRoom.findUnique({
     where: { id: roomId },
     select: { ivsChannelArn: true, ivsPlaybackUrl: true },
@@ -1096,16 +1199,24 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
     cancelDelayedCompositionStop(roomId);
     const room = await prisma.liveRoom.findUnique({
       where: { id: roomId },
-      select: { ivsCompositionArn: true, ivsChannelArn: true, streamHealth: true, status: true },
+      select: {
+        ivsCompositionArn: true,
+        ivsChannelArn: true,
+        streamHealth: true,
+        streamPaused: true,
+        status: true,
+      },
     });
     if (!room || room.status !== "live") return;
+    if (room.streamPaused === true) return;
     // Promote health if the host already published during the delay.
     await reconcileStagePublisherHealth(roomId);
     const refreshed = await prisma.liveRoom.findUnique({
       where: { id: roomId },
-      select: { streamHealth: true, ivsCompositionArn: true, ivsChannelArn: true },
+      select: { streamHealth: true, streamPaused: true, ivsCompositionArn: true, ivsChannelArn: true },
     });
     if (!refreshed) return;
+    if (refreshed.streamPaused === true) return;
     if (refreshed.streamHealth !== "live" && refreshed.streamHealth !== "connecting") return;
     if (refreshed.ivsCompositionArn && refreshed.ivsChannelArn) {
       const { health: channelHealth } = await getStreamStatus(refreshed.ivsChannelArn);
@@ -1129,6 +1240,9 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
  * mark streamHealth ended — buyers treat that as "stream over" and go black even though the
  * show is still open. Host taps Go Live again to republish. Hard teardown runs only after
  * End Show sets room status to `ended` (or cancel/admin).
+ *
+ * Soft disconnect still schedules an AWS billing cut (composition + channel ingest) so overnight
+ * "left open" shows stop burning Input/Encode hours after a short grace.
  */
 export async function endHostStageSession(roomId: string): Promise<void> {
   const room = await prisma.liveRoom.findUnique({
@@ -1139,11 +1253,22 @@ export async function endHostStageSession(roomId: string): Promise<void> {
     cancelDelayedCompositionStop(roomId);
     // Soft disconnect: room stays live so host can Go Live again, but stop lying that video is up.
     await commitStagePublisherDerivedHealth(roomId, "connecting").catch(() => {});
+    schedulePausedBroadcastAwsTeardown(roomId);
     logIvsOpsServer("ivs_stage_broadcast_soft_disconnect", { roomId });
     return;
   }
 
+  cancelPausedBroadcastAwsTeardown(roomId);
   await stopStageComposition(roomId);
+  await stopChannelIngestBestEffort(
+    roomId,
+    (
+      await prisma.liveRoom.findUnique({
+        where: { id: roomId },
+        select: { ivsChannelArn: true },
+      })
+    )?.ivsChannelArn,
+  );
   const now = new Date();
   await prisma.liveRoom.update({
     where: { id: roomId },
