@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { isShippoConfigured, shippoCreateShipment, shippoListRates, shippoPurchaseRate } from "@/lib/shippo";
+import { shippoLabelTrackingExtra, withShippoParcelLabelTracking } from "@/lib/shippo-label-references";
 import { resolveShippoPurchaseLabel } from "@/lib/shippo-transaction-label";
 import { loadTradeParticipantShipAddress, toShippoAddressWithContact } from "@/lib/trade-shipping-quote";
 import { defaultTradeParcelForTier, normalizeTradeWeightTier } from "@/lib/trade-parcel-defaults";
@@ -160,10 +161,15 @@ async function purchaseFreshCheapestRate(
   if (!from || !to) return null;
 
   const parcel = defaultTradeParcelForTier(normalizeTradeWeightTier(shippingWeightTier));
+  const labelTracking = shippoLabelTrackingExtra({
+    username: to.username,
+    secondary: `Trade ${tradeOfferId.slice(0, 12)}`,
+  });
   const shipment = (await shippoCreateShipment({
     address_from: toShippoAddressWithContact(from),
-    address_to: toShippoAddressWithContact(to, { residential: true }),
-    parcels: [parcel],
+    address_to: toShippoAddressWithContact(to, { residential: true, labelUsername: to.username }),
+    parcels: [withShippoParcelLabelTracking(parcel, labelTracking)],
+    extra: labelTracking,
     async: false,
   })) as { object_id?: string; rates?: Array<{ object_id?: string; amount?: string | number }> };
 

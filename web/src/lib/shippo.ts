@@ -84,6 +84,7 @@ export async function shippoFetch<T>(path: string, init?: RequestInit): Promise<
 
 export type ShippoAddress = {
   name: string;
+  company?: string;
   street1: string;
   street2?: string;
   city: string;

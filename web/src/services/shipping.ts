@@ -13,6 +13,11 @@ import {
 import { isShippoConfigured, shippoCreateShipment, shippoListRates, shippoPurchaseRate, type ShippoAddress } from "@/lib/shippo";
 import { resolveMarketplaceQuoteParcel } from "@/lib/marketplace-parcel-defaults";
 import { shippoLabelFileTypeForPrintFormat, type SellerLabelPrintFormat } from "@/lib/shippo-label-format";
+import {
+  normalizeUsernameForShippoLabel,
+  shippoLabelTrackingExtra,
+  withShippoParcelLabelTracking,
+} from "@/lib/shippo-label-references";
 import { resolveShippoPurchaseLabel } from "@/lib/shippo-transaction-label";
 
 /**
@@ -70,7 +75,7 @@ export async function fulfillOrderShippingAfterPayment(
         },
       },
       buyer: {
-        select: { email: true },
+        select: { email: true, username: true },
       },
       buyerAddress: {
         select: { email: true, phone: true },
@@ -146,9 +151,11 @@ export async function fulfillOrderShippingAfterPayment(
     },
     sellerContact,
   );
+  const buyerUsernameRef = normalizeUsernameForShippoLabel(order.buyer.username);
   const addressTo: ShippoAddress = withShippoContact(
     {
       name: order.shipRecipientName,
+      ...(buyerUsernameRef ? { company: buyerUsernameRef } : {}),
       street1: order.shipAddress,
       city: order.shipCity,
       state: order.shipState,
@@ -157,6 +164,11 @@ export async function fulfillOrderShippingAfterPayment(
     },
     buyerContact,
   );
+
+  const labelTracking = shippoLabelTrackingExtra({
+    username: order.buyer.username,
+    secondary: `Order ${order.id.slice(0, 12)}`,
+  });
 
   const parcel = options?.manualParcel
     ? {
@@ -173,7 +185,8 @@ export async function fulfillOrderShippingAfterPayment(
     const shipment = (await shippoCreateShipment({
       address_from: addressFrom,
       address_to: addressTo,
-      parcels: [parcel],
+      parcels: [withShippoParcelLabelTracking(parcel, labelTracking)],
+      extra: labelTracking,
       async: false,
     })) as { object_id?: string };
 

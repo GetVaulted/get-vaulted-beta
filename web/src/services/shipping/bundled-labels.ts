@@ -30,6 +30,11 @@ import {
   shippoLabelFileTypeForPrintFormat,
   type SellerLabelPrintFormat,
 } from "@/lib/shippo-label-format";
+import {
+  normalizeUsernameForShippoLabel,
+  shippoLabelTrackingExtra,
+  withShippoParcelLabelTracking,
+} from "@/lib/shippo-label-references";
 import { PAYMENT_PAID } from "@/services/payments";
 import { LIVE_BUNDLED_SHIPPING_DESTINATION_KEY } from "@/services/shipping/live-shipping-pricing";
 import { buildSessionPackageGroups } from "@/services/shipping/live-shipping-quote";
@@ -253,7 +258,7 @@ export async function generateBundledShippoLabelForSession(
         orderBy: { createdAt: "asc" },
         include: {
           buyer: {
-            select: { email: true },
+            select: { email: true, username: true },
           },
           buyerAddress: {
             select: { email: true, phone: true },
@@ -391,6 +396,11 @@ export async function generateBundledShippoLabelForSession(
     throw new Error(BUYER_SHIPPO_CONTACT_MISSING);
   }
 
+  const buyerUsernameRef = normalizeUsernameForShippoLabel(firstOrder.buyer.username);
+  const labelTracking = shippoLabelTrackingExtra({
+    username: firstOrder.buyer.username,
+    secondary: eligible.length > 1 ? `Live · ${eligible.length} items` : "Live show",
+  });
   const addressFrom: ShippoAddress = withShippoContact(
     {
       name: from.shipFromName || "Seller",
@@ -405,6 +415,7 @@ export async function generateBundledShippoLabelForSession(
   const addressTo: ShippoAddress = withShippoContact(
     {
       name: first.shipRecipientName,
+      ...(buyerUsernameRef ? { company: buyerUsernameRef } : {}),
       street1: first.shipAddress,
       city: first.shipCity,
       state: first.shipState,
@@ -521,7 +532,8 @@ export async function generateBundledShippoLabelForSession(
       const shipment = (await shippoCreateShipment({
         address_from: addressFrom,
         address_to: addressTo,
-        parcels: [parcel],
+        parcels: [withShippoParcelLabelTracking(parcel, labelTracking)],
+        extra: labelTracking,
         async: false,
       })) as { object_id?: string };
 

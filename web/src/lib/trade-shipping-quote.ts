@@ -7,12 +7,19 @@ import {
   type ShippoParcel,
 } from "@/lib/shippo";
 import { normalizePhoneForShippo } from "@/lib/shippo-label-contacts";
+import {
+  normalizeUsernameForShippoLabel,
+  shippoLabelTrackingExtra,
+  withShippoParcelLabelTracking,
+} from "@/lib/shippo-label-references";
 import { toShippoQuoteAddress, type StructuredShipAddress } from "@/lib/shippo-quote-address";
 import { defaultTradeParcelForTier, normalizeTradeWeightTier } from "@/lib/trade-parcel-defaults";
 
 export type TradeShipAddress = StructuredShipAddress & {
   phone: string | null;
   email: string | null;
+  /** Get Vaulted username — printed on outbound labels for packing/tracking. */
+  username: string | null;
 };
 
 export type TradeOutboundShippingQuote = {
@@ -94,6 +101,7 @@ async function loadTradeParticipantShipAddress(userId: string): Promise<TradeShi
       country: addr.country,
       phone: normalizePhoneForShippo(addr.phone),
       email: addr.email?.trim() || user.email,
+      username: user.username?.trim() || null,
     };
   }
 
@@ -111,13 +119,16 @@ async function loadTradeParticipantShipAddress(userId: string): Promise<TradeShi
     country: user.shipFromCountry,
     phone: normalizePhoneForShippo(addr?.phone),
     email: addr?.email?.trim() || user.email,
+    username: user.username?.trim() || null,
   };
 }
 
-function toShippoAddressWithContact(addr: TradeShipAddress, opts?: { residential?: boolean }) {
+function toShippoAddressWithContact(addr: TradeShipAddress, opts?: { residential?: boolean; labelUsername?: string | null }) {
   const base = toShippoQuoteAddress(addr, opts);
   if (addr.phone) base.phone = addr.phone;
   if (addr.email) base.email = addr.email;
+  const company = normalizeUsernameForShippoLabel(opts?.labelUsername ?? addr.username);
+  if (company) base.company = company;
   return base;
 }
 
@@ -201,10 +212,15 @@ export async function fetchTradeOutboundShippingQuote(args: {
   }
 
   try {
+    const labelTracking = shippoLabelTrackingExtra({
+      username: to.username,
+      secondary: `Trade ${args.tradeOfferId.slice(0, 12)}`,
+    });
     const shipment = (await shippoCreateShipment({
       address_from: toShippoAddressWithContact(from),
-      address_to: toShippoAddressWithContact(to, { residential: true }),
-      parcels: [parcel],
+      address_to: toShippoAddressWithContact(to, { residential: true, labelUsername: to.username }),
+      parcels: [withShippoParcelLabelTracking(parcel, labelTracking)],
+      extra: labelTracking,
       async: false,
     })) as { object_id?: string; rates?: ShippoRateRow[] };
 
