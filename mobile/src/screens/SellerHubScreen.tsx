@@ -50,6 +50,7 @@ import { useSellerCommandCenterData } from '../hooks/useSellerCommandCenterData'
 import { useSellerInventory } from '../hooks/useSellerInventory';
 import { useSellerLayawaySummary } from '../hooks/useSellerLayawaySummary';
 import { useSellerOrdersSummary } from '../hooks/useSellerOrdersSummary';
+import { useSellerLiveShipping } from '../hooks/useSellerLiveShipping';
 import { useSellerLiveOrdersSummary } from '../hooks/useSellerLiveOrdersSummary';
 import { useSellerHQSync } from '../hooks/useSellerCommerceSync';
 import { useCanonicalUserId } from '../hooks/useCanonicalUserId';
@@ -80,6 +81,7 @@ export function SellerHubScreen() {
     layawaySummary.counts,
   );
   const ordersSummary = useSellerOrdersSummary(session?.access_token);
+  const liveShipping = useSellerLiveShipping(session?.access_token);
   const liveRoom = cmdData.liveRoom;
   const liveOrdersSummary = useSellerLiveOrdersSummary(session?.access_token, liveRoom?.id, {
     canonicalUserId,
@@ -312,9 +314,19 @@ export function SellerHubScreen() {
       case 'orders':
         return (
           <SellerHQOrdersPanel
+            accessToken={session?.access_token}
             orders={ordersSummary.orders}
             ordersLoading={ordersSummary.loading}
             ordersLoadedOnce={ordersSummary.loadedOnce}
+            liveShipping={liveShipping.dashboard}
+            liveShippingLoading={liveShipping.loading}
+            liveShippingLoadedOnce={liveShipping.loadedOnce}
+            onReloadShipQueue={async () => {
+              await Promise.all([
+                ordersSummary.reload({ silent: true }),
+                liveShipping.reload({ silent: true }),
+              ]);
+            }}
             liveOrders={liveOrdersSummary.orders}
             liveOrdersLoading={liveOrdersSummary.loading}
             liveOrdersLoadedOnce={liveOrdersSummary.loadedOnce}
@@ -481,6 +493,7 @@ export function SellerHubScreen() {
                 onRefresh={() =>
                   void pullRefresh(
                     () => ordersSummary.reload({ silent: true }),
+                    () => liveShipping.reload({ silent: true }),
                     () => layawaySummary.reload({ silent: true }),
                     () => liveOrdersSummary.reload({ silent: true }),
                   )

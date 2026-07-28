@@ -12,6 +12,9 @@ export type SellerSalesOrderRow = VaultOrderRow & {
   shippoTransactionId?: string | null;
   trackingNumber?: string | null;
   trackingUrl?: string | null;
+  shipCity?: string;
+  shipState?: string;
+  listingImageUrl?: string | null;
 };
 
 export type CreateSellerLabelResult =
@@ -165,6 +168,8 @@ function normalizeSellerSalesOrder(raw: Record<string, unknown>): SellerSalesOrd
 }
 
 function mapApiOrderToRow(o: SellerSalesApiOrder): SellerSalesOrderRow {
+  const thumb =
+    Array.isArray(o.listing?.images) && o.listing.images[0]?.url ? o.listing.images[0].url : null;
   return {
     id: o.id,
     listingId: o.listing?.id ?? '',
@@ -183,6 +188,9 @@ function mapApiOrderToRow(o: SellerSalesApiOrder): SellerSalesOrderRow {
     shippoTransactionId: o.shippoTransactionId ?? null,
     trackingNumber: o.trackingNumber ?? null,
     trackingUrl: o.trackingUrl ?? null,
+    shipCity: o.shipCity,
+    shipState: o.shipState,
+    listingImageUrl: thumb,
     totalCents: Math.round(o.totalUsd * 100),
     createdAt: o.createdAt,
   };
@@ -206,7 +214,7 @@ async function fetchSellerSalesList(accessToken: string): Promise<SellerSalesOrd
   return parseSellerSalesListBody(body);
 }
 
-/** Seller order detail — read-only on mobile; label purchase stays on web Seller Studio. */
+/** Seller order detail — same fulfillment APIs as web Seller Studio. */
 export async function fetchSellerSalesOrderById(
   accessToken: string,
   orderId: string,
@@ -291,11 +299,21 @@ export async function fetchSellerLiveShowOrders(
 export async function createSellerShippingLabel(
   accessToken: string,
   orderId: string,
+  opts?: {
+    manualParcel?: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
+    labelFormat?: 'thermal_4x6' | 'letter';
+  },
 ): Promise<CreateSellerLabelResult> {
   const res = await fetchWebApiAuthed(
     `/api/account/sales/${encodeURIComponent(orderId)}/create-label`,
     accessToken,
-    { method: 'POST' },
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        labelFormat: opts?.labelFormat ?? 'thermal_4x6',
+        ...(opts?.manualParcel ? { manualParcel: opts.manualParcel } : {}),
+      }),
+    },
   );
   const body = (await res.json().catch(() => null)) as {
     error?: string;
@@ -328,6 +346,26 @@ export async function createSellerShippingLabel(
     trackingNumber: body?.order?.trackingNumber ?? null,
     trackingUrl: body?.order?.trackingUrl ?? null,
   };
+}
+
+/** Mark order as dropped off / handed to carrier (pending carrier scan). */
+export async function markSellerOrderShipped(
+  accessToken: string,
+  orderId: string,
+  trackingNumber?: string | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await fetchWebApiAuthed(`/api/orders/${encodeURIComponent(orderId)}`, accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      markShipped: true,
+      ...(trackingNumber?.trim() ? { trackingNumber: trackingNumber.trim() } : {}),
+    }),
+  });
+  const body = (await res.json().catch(() => null)) as { error?: string; ok?: boolean } | null;
+  if (!res.ok) {
+    return { ok: false, error: body?.error ?? 'Could not mark order as shipped.' };
+  }
+  return { ok: true };
 }
 
 /** Re-fetch label URL + tracking from Shippo when the DB row is incomplete. */

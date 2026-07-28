@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { EscrowStatus, OrderPaymentMethod } from "@/generated/prisma/enums";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { prisma } from "@/lib/prisma";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import {
   ORDER_MUST_BE_PAID_BEFORE_FULFILLMENT,
@@ -10,11 +10,9 @@ import {
 } from "@/lib/order-shipping-guards";
 import { assertValidEscrowTransition } from "@/services/escrow/state-machine";
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
@@ -22,7 +20,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const order = await prisma.order.findFirst({
     where: {
       id,
-      OR: [{ buyerId: session.user.id }, { sellerId: session.user.id }],
+      OR: [{ buyerId: auth.userId }, { sellerId: auth.userId }],
     },
     include: {
       listing: {
@@ -53,10 +51,8 @@ function trimStr(s: unknown, max: number): string {
 
 /** Seller: mark shipped (optional tracking) or add/update tracking on shipped orders. */
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
@@ -69,7 +65,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   const order = await prisma.order.findFirst({
-    where: { id, sellerId: session.user.id },
+    where: { id, sellerId: auth.userId },
     select: {
       id: true,
       buyerId: true,
