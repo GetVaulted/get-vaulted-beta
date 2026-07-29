@@ -144,6 +144,58 @@ const PromoEntryScreen = lazyScreen(
   () => import('../screens/promo/PromoEntryScreen'),
   (m) => m.PromoEntryScreen,
 );
+const AdminOpsHomeScreen = lazyScreen(
+  () => import('../screens/admin/AdminOpsHomeScreen'),
+  (m) => m.AdminOpsHomeScreen,
+);
+const AdminLiveShowsScreen = lazyScreen(
+  () => import('../screens/admin/AdminLiveShowsScreen'),
+  (m) => m.AdminLiveShowsScreen,
+);
+const AdminSupportTicketsScreen = lazyScreen(
+  () => import('../screens/admin/AdminSupportTicketsScreen'),
+  (m) => m.AdminSupportTicketsScreen,
+);
+const AdminSupportTicketDetailScreen = lazyScreen(
+  () => import('../screens/admin/AdminSupportTicketDetailScreen'),
+  (m) => m.AdminSupportTicketDetailScreen,
+);
+const AdminTrustScreen = lazyScreen(
+  () => import('../screens/admin/AdminTrustScreen'),
+  (m) => m.AdminTrustScreen,
+);
+const AdminReportDetailScreen = lazyScreen(
+  () => import('../screens/admin/AdminReportDetailScreen'),
+  (m) => m.AdminReportDetailScreen,
+);
+const AdminFulfillmentScreen = lazyScreen(
+  () => import('../screens/admin/AdminFulfillmentScreen'),
+  (m) => m.AdminFulfillmentScreen,
+);
+const AdminOrderDetailScreen = lazyScreen(
+  () => import('../screens/admin/AdminOrderDetailScreen'),
+  (m) => m.AdminOrderDetailScreen,
+);
+const AdminModerationScreen = lazyScreen(
+  () => import('../screens/admin/AdminModerationScreen'),
+  (m) => m.AdminModerationScreen,
+);
+const AdminUsersScreen = lazyScreen(
+  () => import('../screens/admin/AdminUsersScreen'),
+  (m) => m.AdminUsersScreen,
+);
+const AdminNotificationsScreen = lazyScreen(
+  () => import('../screens/admin/AdminNotificationsScreen'),
+  (m) => m.AdminNotificationsScreen,
+);
+const AdminSellerRiskScreen = lazyScreen(
+  () => import('../screens/admin/AdminSellerRiskScreen'),
+  (m) => m.AdminSellerRiskScreen,
+);
+const AdminHealthScreen = lazyScreen(
+  () => import('../screens/admin/AdminHealthScreen'),
+  (m) => m.AdminHealthScreen,
+);
 
 const theme = {
   ...DarkTheme,
@@ -311,6 +363,19 @@ export function RootNavigator() {
             component={PromoEntryScreen}
             options={{ animation: 'slide_from_right', presentation: 'card' }}
           />
+          <Stack.Screen name="AdminOpsHome" component={AdminOpsHomeScreen} />
+          <Stack.Screen name="AdminLiveShows" component={AdminLiveShowsScreen} />
+          <Stack.Screen name="AdminSupportTickets" component={AdminSupportTicketsScreen} />
+          <Stack.Screen name="AdminSupportTicketDetail" component={AdminSupportTicketDetailScreen} />
+          <Stack.Screen name="AdminTrust" component={AdminTrustScreen} />
+          <Stack.Screen name="AdminReportDetail" component={AdminReportDetailScreen} />
+          <Stack.Screen name="AdminFulfillment" component={AdminFulfillmentScreen} />
+          <Stack.Screen name="AdminOrderDetail" component={AdminOrderDetailScreen} />
+          <Stack.Screen name="AdminModeration" component={AdminModerationScreen} />
+          <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
+          <Stack.Screen name="AdminNotifications" component={AdminNotificationsScreen} />
+          <Stack.Screen name="AdminSellerRisk" component={AdminSellerRiskScreen} />
+          <Stack.Screen name="AdminHealth" component={AdminHealthScreen} />
         </Stack.Navigator>
       </CreateListingDraftProvider>
     </NavigationContainer>

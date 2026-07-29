@@ -117,4 +117,18 @@ export type RootStackParamList = {
   SellerOrderDetail: { orderId: string };
   PromoEntry: { slug: string };
   VaultSearch: { initialQuery?: string } | undefined;
+  /** Platform admin Ops — gated by User.role === admin */
+  AdminOpsHome: undefined;
+  AdminLiveShows: undefined;
+  AdminSupportTickets: undefined;
+  AdminSupportTicketDetail: { ticketId: string };
+  AdminTrust: undefined;
+  AdminReportDetail: { reportId: string };
+  AdminFulfillment: undefined;
+  AdminOrderDetail: { orderId: string };
+  AdminModeration: undefined;
+  AdminUsers: undefined;
+  AdminNotifications: undefined;
+  AdminSellerRisk: undefined;
+  AdminHealth: undefined;
 };

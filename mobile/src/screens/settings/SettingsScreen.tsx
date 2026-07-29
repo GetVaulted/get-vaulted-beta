@@ -8,6 +8,7 @@ import { SettingsSectionHeader } from '../../components/settings/SettingsSection
 import { SettingsRow } from '../../components/platform/SettingsRow';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { useBuyerWalletReadiness } from '../../hooks/useBuyerWalletReadiness';
+import { useIsPlatformAdmin } from '../../hooks/useIsPlatformAdmin';
 import { useNotificationBadge } from '../../hooks/useNotificationBadge';
 import { useSellerSetupState } from '../../hooks/useSellerSetupState';
 import { buyerWalletStatusLabel } from '../../lib/buyerWalletReadinessDisplay';
@@ -17,6 +18,7 @@ import { LegalFooterLinks } from '../../components/legal/LegalFooterLinks';
 import { performSignOut, signOutSessionOptions } from '../../lib/signOutSession';
 import { sellerSetupMenuLabel } from '../../lib/seller-setup-state';
 import {
+  openAdminOps,
   openContactSupport,
   openHelpCenter,
   openMyOrders,
@@ -45,6 +47,7 @@ export function SettingsScreen({ navigation }: Props) {
   const setupPhase = setup.phase === 'loading' ? 'not_started' : setup.phase;
   const setupLabel = sellerSetupMenuLabel(setupPhase);
   const wallet = useBuyerWalletReadiness(session?.access_token, Boolean(session?.access_token));
+  const { isAdmin } = useIsPlatformAdmin(session?.access_token);
   const signOutOpts = signOutSessionOptions(user, session);
   const [pushBusy, setPushBusy] = useState(false);
 
@@ -199,6 +202,18 @@ export function SettingsScreen({ navigation }: Props) {
           icon="hand-left-outline"
           onPress={() => navigation.navigate('BlockedUsers')}
         />
+
+        {isAdmin ? (
+          <>
+            <SettingsSectionHeader title="Platform" />
+            <SettingsRow
+              label="Ops Command Center"
+              sub="Live shows, tickets, trust, orders, moderation"
+              icon="construct-outline"
+              onPress={() => openAdminOps(navigation)}
+            />
+          </>
+        ) : null}
 
         <SettingsSectionHeader title="Settings" />
         <SettingsRow

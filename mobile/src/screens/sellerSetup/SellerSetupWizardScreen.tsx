@@ -172,8 +172,8 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     void (async () => {
       const pref = await fetchSellerPayoutPreference(token);
       if (cancelled) return;
-      // Prefer server readiness flag from setup load so chooser isn't stuck off if preference GET fails.
-      const fromReadiness = setup.readiness?.checks?.paypalSellerPayoutsEnabled === true;
+      // Prefer setup checks flag so chooser isn't stuck off if preference GET fails.
+      const fromReadiness = setup.checks?.paypalSellerPayoutsEnabled === true;
       if (!pref) {
         if (fromReadiness) setPaypalEnabled(true);
         return;
@@ -188,7 +188,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [token, setup.readiness?.checks?.paypalSellerPayoutsEnabled]);
+  }, [token, setup.checks?.paypalSellerPayoutsEnabled]);
 
   const patchPaypalPreference = useCallback(
     async (body: {
