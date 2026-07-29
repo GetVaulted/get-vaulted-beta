@@ -298,7 +298,7 @@ export function AuthSignUpScreen({ navigation, route }: Props) {
           placeholder="Confirm password"
           visible={confirmVisible}
           onToggleVisible={() => setConfirmVisible((v) => !v)}
-          autoComplete="new-password"
+          autoComplete="off"
         />
 
         {err ? <Text style={styles.err}>{err}</Text> : null}
