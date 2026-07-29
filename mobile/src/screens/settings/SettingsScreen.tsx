@@ -14,6 +14,7 @@ import { useSellerSetupState } from '../../hooks/useSellerSetupState';
 import { buyerWalletStatusLabel } from '../../lib/buyerWalletReadinessDisplay';
 import { areDevToolsEnabled } from '../../lib/devTools';
 import { openLegalUrl } from '../../lib/openLegalUrl';
+import { openStoreListingForReview } from '../../lib/storeReview';
 import { LegalFooterLinks } from '../../components/legal/LegalFooterLinks';
 import { performSignOut, signOutSessionOptions } from '../../lib/signOutSession';
 import { sellerSetupMenuLabel } from '../../lib/seller-setup-state';
@@ -176,6 +177,14 @@ export function SettingsScreen({ navigation }: Props) {
         />
 
         <SettingsSectionHeader title="Legal & trust" />
+        <SettingsRow
+          label="Rate Get Vaulted"
+          sub="Leave a review on the App Store or Google Play"
+          icon="star-outline"
+          onPress={() => {
+            void openStoreListingForReview();
+          }}
+        />
         <SettingsRow
           label="Terms of Service"
           icon="document-text-outline"

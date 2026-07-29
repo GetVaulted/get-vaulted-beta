@@ -55,8 +55,17 @@ import {
 import { formatListingRatePrice, listingRateLabel } from '../../createListing/shippoRates';
 import { openStripeCheckoutSession } from '../../lib/openStripeCheckoutSession';
 import { MARKETPLACE_TEXT_PROPS } from '../../lib/marketplaceUiScale';
+import { maybeRequestStoreReview } from '../../lib/storeReview';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
+
+function afterSuccessfulCheckout(navigateToOrders: () => void) {
+  navigateToOrders();
+  // Native App Store / Play review sheet — OS may no-op; never blocks checkout.
+  setTimeout(() => {
+    void maybeRequestStoreReview('marketplace_checkout_paid');
+  }, 1200);
+}
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MarketplaceCheckout'>;
 
@@ -427,7 +436,7 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
         return;
       }
       if ('paid' in result) {
-        navigation.replace('BuyerOrders');
+        afterSuccessfulCheckout(() => navigation.replace('BuyerOrders'));
         return;
       }
       if ('requiresAction' in result) {
@@ -438,7 +447,7 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
         }
         const synced = await syncMarketplaceBuyNowPayment(token, result.orderId);
         if (synced.ok && 'paid' in synced) {
-          navigation.replace('BuyerOrders');
+          afterSuccessfulCheckout(() => navigation.replace('BuyerOrders'));
           return;
         }
         if (synced.ok && 'processing' in synced) {
