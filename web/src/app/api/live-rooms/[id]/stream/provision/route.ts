@@ -19,10 +19,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       where: { id },
       data: { streamMode: "channel_hls" },
     });
-    if (provisioned.channelArn || (await getStreamRow(id))?.ivsChannelArn) {
+    const arn = provisioned.channelArn || (await getStreamRow(id))?.ivsChannelArn;
+    if (arn) {
       const { ensureChannelLowLatencyMode } = await import("@/services/ivs");
-      const arn = (await getStreamRow(id))?.ivsChannelArn;
-      if (arn) void ensureChannelLowLatencyMode(arn).catch(() => {});
+      // Await so Connect OBS finishes with a LOW-latency channel (NORMAL = 10–30s buyer delay).
+      const ok = await ensureChannelLowLatencyMode(arn);
+      logIvsOpsServer("ivs_provision_latency_mode", { roomId: id, lowLatencyOk: ok });
     }
     const row = await getStreamRow(id);
     if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });

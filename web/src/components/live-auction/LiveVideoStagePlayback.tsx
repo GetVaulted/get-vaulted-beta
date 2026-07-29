@@ -71,22 +71,24 @@ const STREAM_WARMUP_GRACE_MS = 45_000;
 const HLS_LOW_LATENCY_CONFIG = {
   enableWorker: true,
   lowLatencyMode: true,
-  liveSyncDurationCount: 2,
-  liveMaxLatencyDurationCount: 4,
-  // Keep the live edge tight — large buffers add multi-second OBS/HLS delay for buyers.
-  backBufferLength: 12,
-  maxBufferLength: 12,
-  maxMaxBufferLength: 24,
+  // Stay ~1 segment behind live; larger counts add multi-second OBS delay.
+  liveSyncDurationCount: 1,
+  liveMaxLatencyDurationCount: 2,
+  // Catch up gently before seeking when the playlist advances.
+  maxLiveSyncPlaybackRate: 1.5,
+  backBufferLength: 4,
+  maxBufferLength: 4,
+  maxMaxBufferLength: 6,
 } as const;
 
-/** If playback drifts more than this far behind the live edge, snap forward toward live. */
-const LIVE_EDGE_DRIFT_THRESHOLD_S = 12;
-/** Land this many seconds behind the live edge after a corrective seek (small buffer). */
-const LIVE_EDGE_TARGET_OFFSET_S = 2;
+/** Seek when playback drifts more than this far behind the live edge. */
+const LIVE_EDGE_DRIFT_THRESHOLD_S = 3;
+/** Land this many seconds behind the live edge after a corrective seek. */
+const LIVE_EDGE_TARGET_OFFSET_S = 0.75;
 /** How often the live-edge correction loop runs while a stream is playing. */
-const LIVE_EDGE_TICK_MS = 5000;
+const LIVE_EDGE_TICK_MS = 1000;
 /** Minimum gap between corrective seeks so we never thrash the decoder. */
-const LIVE_EDGE_SEEK_COOLDOWN_MS = 8000;
+const LIVE_EDGE_SEEK_COOLDOWN_MS = 2500;
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -423,6 +425,20 @@ export function LiveVideoStagePlayback({
             setVideoHasData(true);
             tryPlay();
           });
+          const pinLiveEdge = (source: string) => {
+            const videoEl = videoRef.current;
+            if (!videoEl) return;
+            enforceLiveEdge({
+              el: videoEl,
+              hls,
+              roomId: liveRoomId,
+              source,
+              verbose: false,
+              lastSeekAtRef: lastLiveSeekAtRef,
+            });
+          };
+          hls.on(HlsCtor.Events.LEVEL_UPDATED, () => pinLiveEdge("level_updated"));
+          hls.on(HlsCtor.Events.FRAG_CHANGED, () => pinLiveEdge("frag_changed"));
           // Re-pin to the live edge on every playlist/segment update, not just once on attach.
           hls.on(HlsCtor.Events.ERROR, (_, data) => {
             if (!data.fatal) return;

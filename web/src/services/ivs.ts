@@ -144,14 +144,15 @@ export async function ensureChannelRecordingConfiguration(channelArn: string): P
   }
 }
 
-/** Force LOW latency on an existing channel when env is configured for LOW (OBS delay fix). */
+/** Force LOW latency on an existing channel when env is configured for LOW (OBS delay fix).
+ * Returns true when the channel is LOW after this call (already was, or was updated). */
 export async function ensureChannelLowLatencyMode(channelArn: string): Promise<boolean> {
   if (getEnv().latencyMode !== "LOW") return false;
   const client = makeClient();
   try {
     const current = await client.send(new GetChannelCommand({ arn: channelArn }));
     const existing = (current.channel?.latencyMode ?? "").toUpperCase();
-    if (existing === "LOW") return false;
+    if (existing === "LOW") return true;
     await client.send(
       new UpdateChannelCommand({
         arn: channelArn,
@@ -441,9 +442,15 @@ export async function syncLiveRoomStreamFromIvs(liveRoomId: string): Promise<Str
     actualLatencyMode: actualLatencyMode ?? "unknown",
     configuredLatencyMode: getEnv().latencyMode,
   });
-  // Older OBS channels may still be NORMAL (~10–30s delay). Nudge them to LOW when env asks for it.
+  // Older OBS channels may still be NORMAL (~10–30s delay). Await the upgrade so host Refresh /
+  // buyer sync actually flip the channel before the next playback attempt.
   if (actualLatencyMode && actualLatencyMode.toUpperCase() !== "LOW" && getEnv().latencyMode === "LOW") {
-    void ensureChannelLowLatencyMode(room.ivsChannelArn).catch(() => {});
+    const ok = await ensureChannelLowLatencyMode(room.ivsChannelArn);
+    logIvsOpsServer("ivs_channel_latency_upgrade_result", {
+      roomId: liveRoomId,
+      ok,
+      previousLatencyMode: actualLatencyMode,
+    });
   }
   const result = await commitLiveRoomStreamHealthFromIvs({ liveRoomId, newHealth: health, opSource: "sync_get_stream" });
   if (room.streamMode === "channel_hls" && (health === "live" || health === "connecting")) {

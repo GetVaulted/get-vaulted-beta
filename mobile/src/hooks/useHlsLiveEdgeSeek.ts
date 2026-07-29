@@ -2,11 +2,11 @@ import { useEffect, useRef } from 'react';
 import type { VideoPlayer } from 'expo-video';
 
 /** Seek when playback drifts more than this many seconds behind the live edge. */
-const LIVE_EDGE_DRIFT_THRESHOLD_S = 8;
+const LIVE_EDGE_DRIFT_THRESHOLD_S = 3;
 /** Stay this many seconds behind live after a corrective seek. */
-const LIVE_EDGE_TARGET_OFFSET_S = 2;
-const LIVE_EDGE_TICK_MS = 3_000;
-const LIVE_EDGE_SEEK_COOLDOWN_MS = 6_000;
+const LIVE_EDGE_TARGET_OFFSET_S = 0.75;
+const LIVE_EDGE_TICK_MS = 1_000;
+const LIVE_EDGE_SEEK_COOLDOWN_MS = 2_500;
 
 /**
  * Periodically nudges HLS playback toward the live edge (expo-video has no HLS.js low-latency mode).

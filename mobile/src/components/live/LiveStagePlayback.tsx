@@ -262,9 +262,9 @@ export function LiveStagePlayback({
     p.audioMixingMode = isForeground ? 'doNotMix' : 'mixWithOthers';
     p.staysActiveInBackground = LIVE_PICTURE_IN_PICTURE_ENABLED;
     p.bufferOptions = {
-      preferredForwardBufferDuration: 3,
+      preferredForwardBufferDuration: 1,
       waitsToMinimizeStalling: false,
-      minBufferForPlayback: 1,
+      minBufferForPlayback: 0.5,
     };
     try {
       p.play();
