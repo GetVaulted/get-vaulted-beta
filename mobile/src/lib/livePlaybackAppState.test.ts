@@ -159,10 +159,28 @@ describe('livePlaybackAppState', () => {
     ).toBe(false);
   });
 
-  it('prefers warm Play while minimized (same Stage session) over leave+rejoin', () => {
-    expect(shouldPreferWarmHostResume({ phase: 'paused', intentionalPause: true })).toBe(true);
-    expect(shouldPreferWarmHostResume({ phase: 'idle', intentionalPause: true })).toBe(false);
-    expect(shouldPreferWarmHostResume({ phase: 'paused', intentionalPause: false })).toBe(false);
+  it('prefers warm Play only for short minimize; overnight Pause forces cold rejoin', () => {
+    expect(
+      shouldPreferWarmHostResume({
+        phase: 'paused',
+        intentionalPause: true,
+        pauseDurationMs: 5_000,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreferWarmHostResume({
+        phase: 'paused',
+        intentionalPause: true,
+        pauseDurationMs: 60_000,
+      }),
+    ).toBe(false);
+    expect(shouldPreferWarmHostResume({ phase: 'paused', intentionalPause: true })).toBe(false);
+    expect(shouldPreferWarmHostResume({ phase: 'idle', intentionalPause: true, pauseDurationMs: 1_000 })).toBe(
+      false,
+    );
+    expect(
+      shouldPreferWarmHostResume({ phase: 'paused', intentionalPause: false, pauseDurationMs: 1_000 }),
+    ).toBe(false);
   });
 
   it('keeps toolbar Play visible on live rooms when Stage is idle/paused or streamPaused', () => {

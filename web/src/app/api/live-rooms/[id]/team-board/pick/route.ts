@@ -32,7 +32,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       items: {
         where: { status: "active" },
         take: 1,
-        select: { teamBoardMisc: true },
+        select: { teamBoardMisc: true, teamBoardNcaa: true },
       },
     },
   });
@@ -79,7 +79,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const league = room.teamBoardLeague ?? board.league;
   const allowMisc = league === "nfl" && room.items[0]?.teamBoardMisc === true;
-  if (!isValidTeamForLeague(league, teamAbbr, { allowMisc })) {
+  const allowNcaa = league === "nfl" && room.items[0]?.teamBoardNcaa === true;
+  if (!isValidTeamForLeague(league, teamAbbr, { allowMisc, allowNcaa })) {
     return NextResponse.json({ error: "Unknown team for this league." }, { status: 400 });
   }
 

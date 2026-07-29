@@ -12,7 +12,12 @@ import { projectBuyerQueueLineup, type LiveRoomLineupItemSnapshot } from '../lib
 
 export type { LiveRoomLineupItemSnapshot };
 
-export type LiveItemSalesFormat = 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
+export type LiveItemSalesFormat =
+  | 'auction'
+  | 'buy_now'
+  | 'variant_selection'
+  | 'team_break'
+  | 'player_selection';
 
 export type LiveItemVariantSnapshot = {
   id: string;
@@ -148,7 +153,13 @@ function apiErrorMessage(res: Response, body: unknown): string {
 }
 
 function parseSalesFormat(raw: unknown): LiveItemSalesFormat | null {
-  if (raw === 'auction' || raw === 'buy_now' || raw === 'variant_selection' || raw === 'team_break') {
+  if (
+    raw === 'auction' ||
+    raw === 'buy_now' ||
+    raw === 'variant_selection' ||
+    raw === 'team_break' ||
+    raw === 'player_selection'
+  ) {
     return raw;
   }
   return null;

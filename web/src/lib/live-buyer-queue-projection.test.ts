@@ -33,6 +33,8 @@ function baseItem(overrides: Partial<LiveRoomItemDTO> = {}): LiveRoomItemDTO {
     status: "queued",
     sortOrder: 0,
     teamBoardMisc: false,
+    teamBoardNcaa: false,
+    customRandomPoolLabels: null,
     itemVersion: 1,
     biddingOpen: false,
     auctionEndsAt: null,

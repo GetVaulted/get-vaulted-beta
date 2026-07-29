@@ -216,6 +216,9 @@ export const BOARD_PACK_TEAM_COLORS: Record<LiveBoardPackId, Record<string, stri
     TB: '#D50A0A',
     TEN: '#0C2340',
     WAS: '#5A1414',
+    MISC: '#52525b',
+    NCAA: '#7C2D12',
+    PLAYER: '#1e3a5f',
   },
   nba: {
     ATL: '#E03A3E',

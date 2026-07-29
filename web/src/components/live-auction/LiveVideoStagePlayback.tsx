@@ -73,9 +73,10 @@ const HLS_LOW_LATENCY_CONFIG = {
   lowLatencyMode: true,
   liveSyncDurationCount: 2,
   liveMaxLatencyDurationCount: 4,
-  backBufferLength: 30,
-  maxBufferLength: 30,
-  maxMaxBufferLength: 60,
+  // Keep the live edge tight — large buffers add multi-second OBS/HLS delay for buyers.
+  backBufferLength: 12,
+  maxBufferLength: 12,
+  maxMaxBufferLength: 24,
 } as const;
 
 /** If playback drifts more than this far behind the live edge, snap forward toward live. */

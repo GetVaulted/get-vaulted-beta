@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { MobileHostBroadcastPhase } from '../../../hooks/useMobileStagePublish';
-import { confirmEndLive, confirmStartLive } from '../../../lib/sellerBroadcastConfirm';
+import { confirmEndLive, confirmStartLive, confirmStartObsShow } from '../../../lib/sellerBroadcastConfirm';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii } from '../../../theme';
 
@@ -12,10 +12,14 @@ type Props = {
   streamPaused?: boolean;
   /** Another device owns the camera — show companion chrome instead of Stop/Resume fight. */
   companionMode?: boolean;
+  /** Room is on OBS / RTMP (`channel_hls`) — Start show must not open the phone camera. */
+  obsMode?: boolean;
   stageEnabled: boolean;
   cameraReady: boolean;
   busy: boolean;
   onStart: () => void;
+  /** Explicit phone-camera take-over (OBS / companion). Defaults to onStart. */
+  onTakeOverCamera?: () => void;
   onStop: () => void;
   onPause?: () => void;
   onResume?: () => void;
@@ -30,10 +34,12 @@ export function SellerBroadcastControl({
   roomStatus,
   streamPaused = false,
   companionMode = false,
+  obsMode = false,
   stageEnabled,
   cameraReady,
   busy,
   onStart,
+  onTakeOverCamera,
   onStop,
   onPause,
   onResume,
@@ -48,27 +54,59 @@ export function SellerBroadcastControl({
   const isOnAir = phase === 'live' || phase === 'paused' || stopping;
   const iconSize = headerCompact ? 15 : compact ? 18 : 20;
   const btnSize = headerCompact ? 32 : compact ? 44 : 48;
+  const takeOver = onTakeOverCamera ?? onStart;
+  const obsCommandCenter =
+    obsMode &&
+    !isOnAir &&
+    phase !== 'starting' &&
+    phase !== 'stopping';
 
+  // OBS path (or remote publisher): command center chrome — never auto-open this phone's camera.
   if (
-    companionMode &&
+    (companionMode || obsCommandCenter) &&
     phase !== 'live' &&
     phase !== 'paused' &&
     phase !== 'starting' &&
     phase !== 'stopping'
   ) {
+    const badgeLabel = obsMode ? SELLER_CONSOLE.obsLiveBadge : SELLER_CONSOLE.companionLiveBadge;
     return (
       <View style={styles.row}>
-        <View
-          style={[styles.companionBadge, { height: btnSize, paddingHorizontal: headerCompact ? 8 : 10 }]}
-          accessibilityLabel={SELLER_CONSOLE.companionLiveBadge}
-        >
-          <View style={styles.companionDot} />
-          {!headerCompact ? (
-            <Text style={styles.companionTxt} numberOfLines={1}>
-              {SELLER_CONSOLE.companionLiveBadge}
-            </Text>
-          ) : null}
-        </View>
+        {roomLive || obsMode ? (
+          <View
+            style={[styles.companionBadge, { height: btnSize, paddingHorizontal: headerCompact ? 8 : 10 }]}
+            accessibilityLabel={badgeLabel}
+          >
+            <View style={styles.companionDot} />
+            {!headerCompact ? (
+              <Text style={styles.companionTxt} numberOfLines={1}>
+                {badgeLabel}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+        {!roomLive && obsMode ? (
+          <Pressable
+            style={[
+              styles.play,
+              compact && styles.playCompact,
+              { width: headerCompact ? btnSize : undefined, height: btnSize, paddingHorizontal: headerCompact ? 0 : 12 },
+              busy && styles.disabled,
+            ]}
+            onPress={() => {
+              if (busy) return;
+              confirmStartObsShow(onStart);
+            }}
+            disabled={busy}
+            accessibilityLabel={SELLER_CONSOLE.goLive}
+          >
+            {busy ? (
+              <ActivityIndicator color="#0a0a0a" size="small" />
+            ) : (
+              <Ionicons name="play" size={iconSize} color="#0a0a0a" />
+            )}
+          </Pressable>
+        ) : null}
         <Pressable
           style={[
             styles.takeOver,
@@ -77,7 +115,7 @@ export function SellerBroadcastControl({
           ]}
           onPress={() => {
             if (!cameraReady || busy) return;
-            confirmStartLive(onStart);
+            confirmStartLive(takeOver);
           }}
           disabled={!cameraReady || busy}
           accessibilityLabel={SELLER_CONSOLE.companionTakeOverCamera}

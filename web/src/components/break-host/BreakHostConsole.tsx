@@ -40,6 +40,7 @@ import {
   resolveLiveAuctionHostStartLotPhase,
 } from "@/lib/live-auction-host-start";
 import { isLiveRoomBroadcastOnAir } from "@/lib/live-room-broadcast-on-air";
+import { isObsChannelHlsMode } from "@/lib/live-obs-channel-mode";
 import { canonicalLiveRoomUrl } from "@/lib/live-room-share-metadata";
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import {
@@ -917,6 +918,35 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     return () => clearInterval(t);
   }, [load, data?.room?.status]);
 
+  // OBS scheduled rooms: poll IVS sync so Start Streaming auto-starts commerce without Play.
+  useEffect(() => {
+    if (!roomId) return;
+    if (data?.room?.status !== "scheduled") return;
+    if (!isObsChannelHlsMode(data.room.streamMode)) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/stream?sync=1`, {
+          cache: "no-store",
+        });
+        if (!res.ok || cancelled) return;
+        const j = (await res.json().catch(() => ({}))) as { stream?: { streamHealth?: string } };
+        const health = (j.stream?.streamHealth ?? "").toLowerCase();
+        if (health === "live" || health === "connecting") {
+          void load({ lite: true });
+        }
+      } catch {
+        /* next tick */
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 8_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [roomId, data?.room?.status, data?.room?.streamMode, load]);
+
   useEffect(() => {
     void loadTeamBoard();
   }, [loadTeamBoard]);
@@ -1439,12 +1469,17 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const handleSubmitAuctionAdd = useCallback(
     async (payload: AddQueueItemAuctionPayload): Promise<boolean> => {
       const miscPayload =
-        hostDataRef.current?.room.teamBoardLeague === "nfl" ? { teamBoardMisc: payload.teamBoardMisc } : {};
+        hostDataRef.current?.room.teamBoardLeague === "nfl"
+          ? { teamBoardMisc: payload.teamBoardMisc, teamBoardNcaa: payload.teamBoardNcaa }
+          : {};
       const variantPayload = isVariantSalesFormat(payload.salesFormat)
         ? {
             salesFormat: payload.salesFormat,
             variants: payload.variants,
             variantAssignmentMode: payload.variantAssignmentMode ?? "pick",
+            ...(payload.customRandomPoolLabels?.length
+              ? { customRandomPoolLabels: payload.customRandomPoolLabels }
+              : {}),
           }
         : { salesFormat: payload.salesFormat };
       setBusy(true);
@@ -1706,15 +1741,27 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
    */
   const handleGoLive = useCallback(() => {
     setVaultCommandOpen(false);
+    // OBS / RTMP path: open the room only — PC webcam Go Live would steal buyers off OBS.
+    if (isObsChannelHlsMode(data?.room?.streamMode)) {
+      goLivePatchRequestedRef.current = true;
+      void patchRoom("start");
+      setToast("Show started — keep Start Streaming on in OBS. Video comes from OBS, not this camera.");
+      return;
+    }
     goLivePatchRequestedRef.current = true;
     void webcamBroadcast.start();
     void patchRoom("start");
-  }, [patchRoom, webcamBroadcast]);
+  }, [data?.room?.streamMode, patchRoom, webcamBroadcast]);
 
   // Preview only when this PC will be the camera. If the show is already on air from the phone,
   // stay in companion mode (no getUserMedia) so the console loads without a stream error.
+  // OBS / RTMP rooms never need a PC webcam preview — video comes from OBS.
   useEffect(() => {
     if (!data?.room) return;
+    if (isObsChannelHlsMode(data.room.streamMode)) {
+      webcamBroadcast.releasePreview();
+      return;
+    }
     const onAir = isLiveRoomBroadcastOnAir({
       status: data.room.status,
       streamHealth: data.room.streamHealth ?? "offline",
@@ -1737,6 +1784,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     data?.room?.status,
     data?.room?.streamHealth,
     data?.room?.streamPaused,
+    data?.room?.streamMode,
     webcamBroadcast.phase,
     webcamBroadcast.releasePreview,
     webcamBroadcast.startPreview,
@@ -1762,13 +1810,14 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const handleResumeStream = useCallback(() => {
     void (async () => {
       try {
+        // Republish first — clearing Host paused before camera is back leaves buyers on Waiting…
+        await webcamBroadcast.resume();
         const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/stream-settings`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ streamPaused: false }),
         });
         if (!res.ok) throw new Error("resume_failed");
-        await webcamBroadcast.resume();
         refreshHostStreamSurfaces();
       } catch {
         setToast("Could not resume stream.");

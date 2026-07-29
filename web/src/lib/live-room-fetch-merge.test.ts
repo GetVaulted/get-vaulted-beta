@@ -31,6 +31,8 @@ function item(id: string, itemVersion: number, patch: Partial<LiveRoomItemDTO> =
     status: patch.status ?? "active",
     sortOrder: patch.sortOrder ?? 0,
     teamBoardMisc: patch.teamBoardMisc ?? false,
+    teamBoardNcaa: patch.teamBoardNcaa ?? false,
+    customRandomPoolLabels: patch.customRandomPoolLabels ?? null,
     itemVersion,
     biddingOpen: patch.biddingOpen ?? false,
     auctionEndsAt: patch.auctionEndsAt ?? null,

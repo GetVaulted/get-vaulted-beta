@@ -19,6 +19,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       where: { id },
       data: { streamMode: "channel_hls" },
     });
+    if (provisioned.channelArn || (await getStreamRow(id))?.ivsChannelArn) {
+      const { ensureChannelLowLatencyMode } = await import("@/services/ivs");
+      const arn = (await getStreamRow(id))?.ivsChannelArn;
+      if (arn) void ensureChannelLowLatencyMode(arn).catch(() => {});
+    }
     const row = await getStreamRow(id);
     if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
 

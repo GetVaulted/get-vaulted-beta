@@ -33,8 +33,10 @@ import {
   emptyQuickLiveLotInput,
   isBreakLotSaleType,
   isPickBreakLotSaleType,
+  isPlayerBreakLotSaleType,
   parseUsdInput,
   syncPickBreakSpotDrafts,
+  syncPlayerPickSpotDrafts,
   validateQuickLiveLot,
   type LiveLotSaleType,
   type QuickLiveLotInput,
@@ -51,6 +53,10 @@ import {
 } from '../../../lib/liveBreakPresets';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { RANDOM_BREAK_SALE_TYPES_ENABLED } from '../../../../../shared/live-break-feature-flags';
+import {
+  parsePlayerSpotList,
+  PLAYER_SPOT_MAX,
+} from '../../../../../shared/live-player-spot-list';
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
 import { colors, radii, spacing } from '../../../theme';
 import { BreakSpotSetupGrid } from './BreakSpotSetupGrid';
@@ -58,14 +64,14 @@ import { BreakSpotSetupGrid } from './BreakSpotSetupGrid';
 const THUMBNAIL_MAX_BYTES = 20 * 1024 * 1024;
 
 type SaleCategory = 'teams_divisions' | 'auction' | 'buy_now';
-type BreakSaleType = 'pyt' | 'pyd' | 'random_pyt' | 'random_pyd';
+type BreakSaleType = 'pyt' | 'pyd' | 'pyp' | 'random_pyt' | 'random_pyd' | 'random_pyp';
 type AddSourceTab = 'new' | 'shop' | 'copy';
 
 const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
   {
     id: 'teams_divisions',
     label: SELLER_CONSOLE.saleCategoryTeamsDivisions,
-    sub: RANDOM_BREAK_SALE_TYPES_ENABLED ? 'Pick or random spots' : 'Pick your team or division',
+    sub: RANDOM_BREAK_SALE_TYPES_ENABLED ? 'Pick or random spots' : 'Teams, divisions, or players',
   },
   { id: 'auction', label: SELLER_CONSOLE.saleCategoryAuction, sub: 'Timed bidding' },
   { id: 'buy_now', label: SELLER_CONSOLE.saleCategoryBuyNow, sub: 'Fixed price' },
@@ -74,16 +80,20 @@ const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
 const BREAK_VARIANTS: { id: BreakSaleType; label: string; sub: string }[] = [
   { id: 'pyt', label: 'PYT', sub: 'Pick your team' },
   { id: 'pyd', label: 'PYD', sub: 'Pick division · NFL' },
+  { id: 'pyp', label: 'PYP', sub: 'Pick your player' },
   { id: 'random_pyt', label: 'Random Teams', sub: 'Vault reveal' },
   { id: 'random_pyd', label: 'Random Divisions', sub: '8 · NFL' },
+  { id: 'random_pyp', label: 'Random Players', sub: 'Vault reveal' },
 ];
 
 function visibleBreakVariants(boardPack: LiveBoardPackId) {
   const base = RANDOM_BREAK_SALE_TYPES_ENABLED
     ? BREAK_VARIANTS
-    : BREAK_VARIANTS.filter((v) => v.id === 'pyt' || v.id === 'pyd');
+    : BREAK_VARIANTS.filter((v) => v.id === 'pyt' || v.id === 'pyd' || v.id === 'pyp');
   if (boardPackSupportsDivisions(boardPack)) return base;
-  return base.filter((v) => v.id === 'pyt' || v.id === 'random_pyt');
+  return base.filter(
+    (v) => v.id === 'pyt' || v.id === 'pyp' || v.id === 'random_pyt' || v.id === 'random_pyp',
+  );
 }
 
 function saleCategoryForType(saleType: LiveLotSaleType): SaleCategory {
@@ -132,6 +142,8 @@ export function AddInventoryModal({
   const [spotDrafts, setSpotDrafts] = useState<LiveBreakVariantDraft[]>([]);
   const [spotsCustomized, setSpotsCustomized] = useState(false);
   const [boardPack, setBoardPack] = useState<LiveBoardPackId>(DEFAULT_LIVE_BOARD_PACK);
+  const [includeNcaaSpot, setIncludeNcaaSpot] = useState(false);
+  const [playerListText, setPlayerListText] = useState('');
   const [profileOptions, setProfileOptions] = useState<{ id: string; name: string; isDefault?: boolean }[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [profileOptionsAreSeller, setProfileOptionsAreSeller] = useState(true);
@@ -151,6 +163,8 @@ export function AddInventoryModal({
     setSpotDrafts([]);
     setSpotsCustomized(false);
     setBoardPack(DEFAULT_LIVE_BOARD_PACK);
+    setIncludeNcaaSpot(false);
+    setPlayerListText('');
     setImageUri(null);
     setImageUrl(null);
     setImageUploading(false);
@@ -239,6 +253,22 @@ export function AddInventoryModal({
     }
     const basePrice = parseUsdInput(draft.price);
     const saleType = draft.saleType;
+    if (saleType === 'pyp') {
+      const parsed = parsePlayerSpotList(playerListText);
+      if (!parsed.ok) {
+        setSpotDrafts([]);
+        return;
+      }
+      setSpotDrafts((prev) =>
+        syncPlayerPickSpotDrafts({
+          prev,
+          names: parsed.names,
+          basePrice,
+          spotsCustomized,
+        }),
+      );
+      return;
+    }
     if (saleType !== 'pyt' && saleType !== 'pyd') return;
     setSpotDrafts((prev) =>
       syncPickBreakSpotDrafts({
@@ -247,20 +277,25 @@ export function AddInventoryModal({
         basePrice,
         spotsCustomized,
         boardPack,
+        includeNcaaSpot,
       }),
     );
-  }, [draft.saleType, draft.price, spotsCustomized, boardPack]);
+  }, [draft.saleType, draft.price, spotsCustomized, boardPack, includeNcaaSpot, playerListText]);
 
   const setSaleType = (saleType: LiveLotSaleType) => {
     setDraft((prev) => ({ ...prev, saleType }));
     setSpotDrafts([]);
     setSpotsCustomized(false);
+    if (saleType !== 'pyt' && saleType !== 'random_pyt') {
+      setIncludeNcaaSpot(false);
+    }
   };
 
   const setBoardPackAndReset = (pack: LiveBoardPackId) => {
     setBoardPack(pack);
     setSpotDrafts([]);
     setSpotsCustomized(false);
+    if (pack !== 'nfl') setIncludeNcaaSpot(false);
     if (!boardPackSupportsDivisions(pack) && (draft.saleType === 'pyd' || draft.saleType === 'random_pyd')) {
       setDraft((prev) => ({ ...prev, saleType: 'pyt' }));
     }
@@ -323,7 +358,13 @@ export function AddInventoryModal({
       Alert.alert('Photo required', 'Add one product photo before saving to the show.');
       return;
     }
-    const validated = validateQuickLiveLot({ ...draft, spotDrafts, boardPack });
+    const validated = validateQuickLiveLot({
+      ...draft,
+      spotDrafts,
+      boardPack,
+      includeNcaaSpot: boardPack === 'nfl' && includeNcaaSpot,
+      playerListText,
+    });
     if (!validated.ok) {
       Alert.alert('Add product', validated.message);
       return;
@@ -339,17 +380,31 @@ export function AddInventoryModal({
     if (addAnother) resetDraft();
   };
 
+  const isPlayerBreak = isPlayerBreakLotSaleType(draft.saleType);
+  const playerListPreview = parsePlayerSpotList(playerListText);
   const priceLabel =
     draft.saleType === 'auction'
       ? 'Starting bid'
-      : draft.saleType === 'pyt'
+      : draft.saleType === 'pyt' || draft.saleType === 'random_pyt'
         ? 'Price per team'
-        : draft.saleType === 'pyd'
+        : draft.saleType === 'pyd' || draft.saleType === 'random_pyd'
           ? 'Price per division'
-          : 'Buy-it-now price';
+          : draft.saleType === 'pyp' || draft.saleType === 'random_pyp'
+            ? 'Price per player'
+            : 'Buy-it-now price';
   const pricePlaceholder =
-    draft.saleType === 'auction' ? '1' : draft.saleType === 'pyt' || draft.saleType === 'pyd' ? '25' : '25';
-  const breakSpots = breakSpotCountForSaleType(draft.saleType, boardPack);
+    draft.saleType === 'auction' ? '1' : isBreakLotSaleType(draft.saleType) ? '25' : '25';
+  const breakSpots = breakSpotCountForSaleType(
+    draft.saleType,
+    boardPack,
+    boardPack === 'nfl' && includeNcaaSpot,
+    playerListPreview.ok ? playerListPreview.names.length : 0,
+  );
+  const showNcaaOption =
+    boardPack === 'nfl' && (draft.saleType === 'pyt' || draft.saleType === 'random_pyt');
+  const playerCountLabel = playerListPreview.ok
+    ? `${playerListPreview.names.length} / ${PLAYER_SPOT_MAX}`
+    : `${playerListPreview.names?.length ?? 0} / ${PLAYER_SPOT_MAX}`;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
@@ -578,22 +633,28 @@ export function AddInventoryModal({
 
             {saleCategory === 'teams_divisions' ? (
               <>
-                <Text style={styles.fieldLbl}>Board</Text>
-                <View style={styles.boardPackRow}>
-                  {LIVE_BOARD_PACKS.map((pack) => {
-                    const active = boardPack === pack.id;
-                    return (
-                      <Pressable
-                        key={pack.id}
-                        style={[styles.boardPackChip, active && styles.boardPackChipOn]}
-                        onPress={() => setBoardPackAndReset(pack.id)}
-                        disabled={busy}
-                      >
-                        <Text style={[styles.boardPackChipTxt, active && styles.boardPackChipTxtOn]}>{pack.label}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                {!isPlayerBreak ? (
+                  <>
+                    <Text style={styles.fieldLbl}>Board</Text>
+                    <View style={styles.boardPackRow}>
+                      {LIVE_BOARD_PACKS.map((pack) => {
+                        const active = boardPack === pack.id;
+                        return (
+                          <Pressable
+                            key={pack.id}
+                            style={[styles.boardPackChip, active && styles.boardPackChipOn]}
+                            onPress={() => setBoardPackAndReset(pack.id)}
+                            disabled={busy}
+                          >
+                            <Text style={[styles.boardPackChipTxt, active && styles.boardPackChipTxtOn]}>
+                              {pack.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </>
+                ) : null}
                 <View style={styles.saleTypeGrid}>
                   {breakOptions.map((type) => {
                     const active = draft.saleType === type.id;
@@ -603,7 +664,11 @@ export function AddInventoryModal({
                         ? `${teamCount} · vault reveal`
                         : type.id === 'pyt'
                           ? `${BOARD_PACK_LABELS[boardPack]} · ${teamCount} teams`
-                          : type.sub;
+                          : type.id === 'pyp'
+                            ? 'Paste your checklist'
+                            : type.id === 'random_pyp'
+                              ? 'Paste · vault reveal'
+                              : type.sub;
                     return (
                       <Pressable
                         key={type.id}
@@ -624,9 +689,54 @@ export function AddInventoryModal({
               <View style={styles.breakHint}>
                 <Ionicons name="grid-outline" size={16} color={colors.gold} />
                 <Text style={styles.breakHintTxt}>
-                  Buyers pick from {breakSpots} selectable spots. Sold spots disappear from the board.
+                  {isPlayerBreak
+                    ? draft.saleType === 'random_pyp'
+                      ? 'Buyers purchase a seat — Vault Reveal assigns a player from your list.'
+                      : 'One player per line. Buyers pick a name. Sold spots disappear from the board.'
+                    : `Buyers pick from ${breakSpots} selectable spots. Sold spots disappear from the board.`}
                 </Text>
               </View>
+            ) : null}
+
+            {isPlayerBreak ? (
+              <View>
+                <View style={styles.playerListHeader}>
+                  <Text style={styles.fieldLbl}>Player list</Text>
+                  <Text style={styles.playerCount}>{playerCountLabel}</Text>
+                </View>
+                <TextInput
+                  value={playerListText}
+                  onChangeText={(text) => {
+                    setPlayerListText(text);
+                    setSpotsCustomized(false);
+                  }}
+                  placeholder={'Mahomes\nAllen\nHurts\n…'}
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                  numberOfLines={6}
+                  textAlignVertical="top"
+                  style={[styles.input, styles.playerListInput]}
+                  editable={!busy}
+                />
+                {!playerListPreview.ok && playerListText.trim() ? (
+                  <Text style={styles.errorTxt}>{playerListPreview.message}</Text>
+                ) : null}
+              </View>
+            ) : null}
+
+            {showNcaaOption ? (
+              <Pressable
+                style={styles.ncaaRow}
+                onPress={() => setIncludeNcaaSpot((prev) => !prev)}
+                disabled={busy}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: includeNcaaSpot }}
+              >
+                <View style={[styles.ncaaCheck, includeNcaaSpot && styles.ncaaCheckOn]}>
+                  {includeNcaaSpot ? <Ionicons name="checkmark" size={14} color="#0c0c0e" /> : null}
+                </View>
+                <Text style={styles.ncaaTxt}>Add NCAA spot (buyable · off by default)</Text>
+              </Pressable>
             ) : null}
 
             <Text style={styles.fieldLbl}>{priceLabel}</Text>
@@ -642,7 +752,7 @@ export function AddInventoryModal({
 
             {isPickBreakLotSaleType(draft.saleType) && spotDrafts.length > 0 ? (
               <BreakSpotSetupGrid
-                saleType={draft.saleType}
+                saleType={draft.saleType === 'pyp' ? 'pyp' : draft.saleType === 'pyd' ? 'pyd' : 'pyt'}
                 spots={spotDrafts}
                 onChange={handleSpotDraftsChange}
                 disabled={busy}
@@ -871,6 +981,35 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(212,175,55,0.06)',
   },
   breakHintTxt: { flex: 1, fontSize: 12, lineHeight: 17, color: colors.textSecondary },
+  playerListHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  playerCount: { fontSize: 11, fontWeight: '700', color: colors.textMuted },
+  playerListInput: { minHeight: 120, paddingTop: 12 },
+  ncaaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 4,
+  },
+  ncaaCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ncaaCheckOn: {
+    borderColor: 'rgba(212,175,55,0.65)',
+    backgroundColor: colors.gold,
+  },
+  ncaaTxt: { flex: 1, fontSize: 12, color: colors.textSecondary, fontWeight: '600' },
   profileWrap: { gap: 8, marginBottom: spacing.xs },
   profileChip: {
     borderRadius: radii.md,

@@ -131,15 +131,28 @@ export function canAttemptHostResumeShow(args: {
 }
 
 /**
+ * After this pause duration, Stage sockets / AWS composition are usually gone.
+ * Prefer a cold leave+rejoin (fresh feed) over warm republish on a zombie session.
+ * Matches pause AWS teardown (~45s) with a cushion for brief home-button pauses.
+ */
+export const HOST_WARM_RESUME_MAX_PAUSE_MS = 30_000;
+
+/**
  * TikTok / Whatnot / eBay pattern: Pause keeps the Stage session joined.
- * Warm Play = republish on the same session. Full leave+rejoin only after process death
- * (phase idle) or when warm republish fails.
+ * Warm Play = republish on the same session — only while the pause was short.
+ * Overnight / long Pause must cold rejoin so buyers get a restored feed even if
+ * it is not the same Stage participant session that was cut.
  */
 export function shouldPreferWarmHostResume(args: {
   phase: 'idle' | 'starting' | 'live' | 'paused' | 'stopping';
   intentionalPause: boolean;
+  /** ms since minimize / Pause; omit = treat as long (force cold). */
+  pauseDurationMs?: number;
 }): boolean {
-  return args.intentionalPause && args.phase === 'paused';
+  if (!args.intentionalPause || args.phase !== 'paused') return false;
+  const duration = args.pauseDurationMs;
+  if (duration == null || !Number.isFinite(duration)) return false;
+  return duration < HOST_WARM_RESUME_MAX_PAUSE_MS;
 }
 
 /**

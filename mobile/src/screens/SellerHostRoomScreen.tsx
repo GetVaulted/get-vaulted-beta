@@ -23,6 +23,7 @@ import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhile
 import { useMobileStagePublish } from '../hooks/useMobileStagePublish';
 import { shouldClearStreamPausedAfterHostResume } from '../lib/livePlaybackAppState';
 import { isLiveRoomRemotePublisherActive } from '../lib/liveRoomBroadcastOnAir';
+import { isObsChannelHlsMode } from '../lib/liveObsChannelMode';
 import { formatIvsObsIngestUrl } from '../lib/ivsObsIngestUrl';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
@@ -158,26 +159,27 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       setRoomError(null);
       try {
         logVaultCommandCenter('room_fetch_start', { roomId, endpoint: 'GET /api/live-rooms/:id/host-console' });
-        const [consoleData, streamPack] = await Promise.all([
-          fetchHostConsole(token, roomId),
-          fetchHostStream(token, roomId, { sync: false }).catch((e) => {
-            if (!cancelled) {
-              setStream(null);
-              setStreamWarning(sanitizeLiveError(e, 'stream'));
-            }
-            return null;
-          }),
-        ]);
+        // Sync IVS first for OBS rooms so ingest auto-start can flip scheduled → live before
+        // the host console paints (items/auctions need room status live, not just OBS streaming).
+        const streamPack = await fetchHostStream(token, roomId, { sync: true }).catch((e) => {
+          if (!cancelled) {
+            setStream(null);
+            setStreamWarning(sanitizeLiveError(e, 'stream'));
+          }
+          return null;
+        });
         if (cancelled) return;
-        const detail = hostConsoleRoomToDetail(consoleData.room);
-        setRoom(detail);
-        setInitialConsole(consoleData);
-        setThumbnailUrl(consoleData.room.thumbnailUrl ?? null);
         if (streamPack) {
           setStream(streamPack.stream);
           if (streamPack.stream.ingestEndpoint) setIngestEndpoint(streamPack.stream.ingestEndpoint);
           setStreamWarning(null);
         }
+        const consoleData = await fetchHostConsole(token, roomId);
+        if (cancelled) return;
+        const detail = hostConsoleRoomToDetail(consoleData.room);
+        setRoom(detail);
+        setInitialConsole(consoleData);
+        setThumbnailUrl(consoleData.room.thumbnailUrl ?? null);
         setLoading(false);
         logVaultCommandCenter('room_fetch_ok', { roomId: detail.id, status: detail.status, roomType: detail.roomType });
 
@@ -200,6 +202,33 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       cancelled = true;
     };
   }, [roomId, token]);
+
+  // While waiting for OBS: poll sync so Start Streaming auto-starts the room without Play.
+  useEffect(() => {
+    if (!token || !room || loading) return;
+    if (room.status !== 'scheduled') return;
+    if (!isObsChannelHlsMode(stream?.streamMode)) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const s = await fetchHostStream(token, roomId, { sync: true });
+        if (cancelled) return;
+        setStream(s.stream);
+        if (s.stream.ingestEndpoint) setIngestEndpoint(s.stream.ingestEndpoint);
+        const health = (s.stream.streamHealth ?? '').toLowerCase();
+        if (health === 'live' || health === 'connecting') {
+          await reloadRoom();
+        }
+      } catch {
+        /* next tick */
+      }
+    };
+    const id = setInterval(() => void tick(), 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [token, room, roomId, loading, stream?.streamMode, reloadRoom]);
 
   const onProvision = async () => {
     if (!token) return;
@@ -345,6 +374,11 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     if (!stream) return;
     autoResumeRef.current = true;
 
+    // OBS / RTMP shows must never auto-open the phone camera on host room open.
+    if (isObsChannelHlsMode(stream.streamMode)) {
+      return;
+    }
+
     // Strong publisher signal only — soft Stage warm-up must not block crash auto-resume.
     const remotePublisherActive = isLiveRoomRemotePublisherActive({
       status: room.status,
@@ -373,11 +407,13 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     stream,
   ]);
 
-  // Heal stuck streamPaused while the host is actually publishing (buyers otherwise sit on Host paused).
+  // Heal stuck streamPaused only when the host is actually on-air (publishing), not merely phase=live.
   useEffect(() => {
     if (!token || stagePublish.phase !== 'live') return;
     if (streamWarning) setStreamWarning(null);
     if (stream?.streamPaused !== true) return;
+    // phase can say live while Pause recovery is mid-flight — wait for real publish.
+    if (!stagePublish.isPublishing) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -392,20 +428,21 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [token, roomId, stagePublish.phase, stream?.streamPaused, streamWarning]);
+  }, [token, roomId, stagePublish.phase, stagePublish.isPublishing, stream?.streamPaused, streamWarning]);
 
   const onStopBroadcast = async () => {
     await endShow();
   };
 
   const onStartShow = async () => {
-    if (!token || stageWebrtcEnabled) return;
+    if (!token) return;
     setBusy('start');
     setRoomError(null);
     try {
       await markRoomLiveOnServer();
       await notifyLiveDiscoveryChanged();
       await reload();
+      await reloadStream(false);
     } catch (e) {
       setRoomError(sanitizeLiveError(e, 'room'));
     } finally {

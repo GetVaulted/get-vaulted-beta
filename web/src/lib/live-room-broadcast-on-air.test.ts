@@ -50,6 +50,17 @@ describe("isLiveRoomBroadcastOnAir", () => {
     ).toBe(true);
   });
 
+  it("keeps OBS channel_hls soft on-air during brief offline while room is live", () => {
+    expect(
+      isLiveRoomBroadcastOnAir({
+        status: "live",
+        streamHealth: "offline",
+        streamPaused: false,
+        streamMode: "channel_hls",
+      }),
+    ).toBe(true);
+  });
+
   it("does not treat Stage warm-up offline as a remote publisher (companion / elsewhere)", () => {
     expect(
       isLiveRoomRemotePublisherActive({

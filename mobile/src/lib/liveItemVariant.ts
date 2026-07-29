@@ -1,6 +1,11 @@
 import type { LiveItemVariantSnapshot, LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 
-export type LiveItemSalesFormat = 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
+export type LiveItemSalesFormat =
+  | 'auction'
+  | 'buy_now'
+  | 'variant_selection'
+  | 'team_break'
+  | 'player_selection';
 
 const MAIN_DIVISION_LABELS = new Set([
   'AFC East',
@@ -88,8 +93,10 @@ export function sortVariantsForBuyerDisplay<T extends VariantDisplayOrderInput>(
   return indexed.map(({ v }) => v);
 }
 
-export function isVariantSalesFormat(format: string | null | undefined): format is 'variant_selection' | 'team_break' {
-  return format === 'variant_selection' || format === 'team_break';
+export function isVariantSalesFormat(
+  format: string | null | undefined,
+): format is 'variant_selection' | 'team_break' | 'player_selection' {
+  return format === 'variant_selection' || format === 'team_break' || format === 'player_selection';
 }
 
 export function isActiveVariantBuyerItem(snap: LiveRoomBuyerSnapshot | null | undefined): boolean {
@@ -285,10 +292,11 @@ export function buildExclusiveHostPinUpdates(
   return variants.map((v) => ({ id: v.id, isHot: v.id === pinnedVariantId }));
 }
 
-/** Buyer CTA on pinned PYT/PYD break — opens the team/division picker sheet. */
+/** Buyer CTA on pinned PYT/PYD/PYP break — opens the spot picker sheet. */
 export function variantClaimPrimaryLabel(format: LiveItemSalesFormat | null | undefined): string {
   if (format === 'team_break') return 'Claim Division';
   if (format === 'variant_selection') return 'Claim Team';
+  if (format === 'player_selection') return 'Claim Player';
   return 'Claim Spot';
 }
 
@@ -308,8 +316,10 @@ export function variantSelectSpotLabel(
   if (random) {
     if (format === 'team_break') return 'Random Division';
     if (format === 'variant_selection') return 'Random Team';
+    if (format === 'player_selection') return 'Random Player';
   }
   if (format === 'team_break') return 'Pick Your Division';
   if (format === 'variant_selection') return 'Pick Your Team';
+  if (format === 'player_selection') return 'Pick Your Player';
   return 'Select Spot';
 }

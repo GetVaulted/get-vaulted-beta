@@ -39,7 +39,8 @@ export function isLiveRoomBroadcastOnAir(room: LiveRoomBroadcastGate): boolean {
   if (room.streamPaused === true) return false;
   if (isLiveStreamSignal(room.streamHealth)) return true;
   if (room.streamHealth.toLowerCase() === 'ended') return false;
-  if (room.streamMode === 'stage_webrtc') return true;
+  // Soft warm-up: Stage phone publish and OBS room lifecycle can lead health by a moment.
+  if (room.streamMode === 'stage_webrtc' || room.streamMode === 'channel_hls') return true;
   if (isLiveStreamDisconnectConfirmed(room)) return false;
   return true;
 }

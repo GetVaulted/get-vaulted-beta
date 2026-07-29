@@ -27,13 +27,15 @@ export type LiveRoomItemRow = {
   auctionVariantId?: string | null;
   itemVersion?: number;
   sortOrder: number;
-  salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
+  salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break' | 'player_selection';
   variantAssignmentMode?: 'pick' | 'random';
   /** ISO — all spots sold; host can begin break. */
   variantBreakReadyAt?: string | null;
   /** ISO — host started the physical break / rip. */
   variantBreakBeganAt?: string | null;
   randomSpotClaims?: { label: string; buyerUsername: string }[];
+  teamBoardMisc?: boolean;
+  teamBoardNcaa?: boolean;
   variants?: {
     id: string;
     label: string;
@@ -95,7 +97,7 @@ export async function createLiveRoomQueueItem(
   input: {
     title: string;
     imageUrl?: string;
-    salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
+    salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break' | 'player_selection';
     listingId?: string | null;
     quantity?: number | null;
     startingBidUsd?: number | null;
@@ -112,6 +114,8 @@ export async function createLiveRoomQueueItem(
     variantAssignmentMode?: 'pick' | 'random';
     sellerShippingProfileId?: string | null;
     shippingProfileId?: string | null;
+    teamBoardNcaa?: boolean;
+    customRandomPoolLabels?: string[] | null;
   },
 ): Promise<string> {
   const body: Record<string, unknown> = {
@@ -133,6 +137,12 @@ export async function createLiveRoomQueueItem(
   }
   if (input.variants?.length) {
     body.variants = input.variants;
+  }
+  if (input.teamBoardNcaa === true) {
+    body.teamBoardNcaa = true;
+  }
+  if (input.customRandomPoolLabels?.length) {
+    body.customRandomPoolLabels = input.customRandomPoolLabels;
   }
   if (input.sellerShippingProfileId?.trim()) {
     body.sellerShippingProfileId = input.sellerShippingProfileId.trim();

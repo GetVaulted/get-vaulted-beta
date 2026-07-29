@@ -188,7 +188,7 @@ export function normalizeVariantDrafts(raw: unknown): VariantDraftInput[] {
 }
 
 export function isVariantSalesFormat(format: string | null | undefined): boolean {
-  return format === "variant_selection" || format === "team_break";
+  return format === "variant_selection" || format === "team_break" || format === "player_selection";
 }
 
 export type VariantSpotSummary = {
@@ -285,10 +285,11 @@ export function buildExclusiveHostPinUpdates(
   return variants.map((v) => ({ id: v.id, isHot: v.id === pinnedVariantId }));
 }
 
-/** Buyer CTA on pinned PYT/PYD break — opens the team/division picker sheet. */
+/** Buyer CTA on pinned PYT/PYD/PYP break — opens the spot picker sheet. */
 export function variantClaimPrimaryLabel(format: string | null | undefined): string {
   if (format === "team_break") return "Claim Division";
   if (format === "variant_selection") return "Claim Team";
+  if (format === "player_selection") return "Claim Player";
   return "Claim Spot";
 }
 
@@ -302,9 +303,11 @@ export function variantBuyerSelectLabel(format: string | null | undefined, rando
   if (random) {
     if (format === "team_break") return "Random Division";
     if (format === "variant_selection") return "Random Team";
+    if (format === "player_selection") return "Random Player";
   }
   if (format === "team_break") return "Pick Your Division";
   if (format === "variant_selection") return "Pick Your Team";
+  if (format === "player_selection") return "Pick Your Player";
   return "Select Spot";
 }
 

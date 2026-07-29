@@ -49,7 +49,7 @@ type LineupItemInput = {
 
 function isPreBidEligible(item: LineupItemInput): boolean {
   const salesFormat = item.salesFormat ?? 'auction';
-  if (salesFormat === 'buy_now' || salesFormat === 'variant_selection' || salesFormat === 'team_break') {
+  if (salesFormat === 'buy_now' || salesFormat === 'variant_selection' || salesFormat === 'team_break' || salesFormat === 'player_selection') {
     return false;
   }
   if (item.listingId?.trim()) return false;

@@ -111,6 +111,15 @@
           "cameraPermission": "Get Vaulted uses your camera to take listing and profile photos."
         }
       ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Get Vaulted saves Hit Clips to your camera roll so you can post them to TikTok.",
+          "savePhotosPermission": "Get Vaulted saves Hit Clips to your camera roll so you can post them to TikTok.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ],
+      "expo-sharing",
       "@react-native-community/datetimepicker",
       [
         "expo-notifications",

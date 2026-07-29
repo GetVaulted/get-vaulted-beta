@@ -30,6 +30,7 @@ import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from '../.
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import { liveRoomChatOpen } from '../../../lib/liveRoomChatPolicy';
 import { isLiveRoomBroadcastOnAir, isLiveRoomRemotePublisherActive } from '../../../lib/liveRoomBroadcastOnAir';
+import { isObsChannelHlsMode } from '../../../lib/liveObsChannelMode';
 import { resolveHostVideoFeedStatus } from '../../../lib/hostVideoFeedStatus';
 import { useLiveRoomChat } from '../../../hooks/useLiveRoomChat';
 import { resolvePinnedModeratorUsername } from '../../../lib/resolvePinnedModeratorUsername';
@@ -212,8 +213,9 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       streamEndedAt: host.stream?.streamEndedAt,
     });
   }, [host.stream, roomLive]);
-  /** Room is live from another device; this phone is queue / start-auction only. */
-  const hostCompanionMode = remotePublisherActive && !localPublishing;
+  const obsMode = isObsChannelHlsMode(host.stream?.streamMode);
+  /** Room is live from another device / OBS; this phone is queue / start-auction only. */
+  const hostCompanionMode = (remotePublisherActive || (obsMode && roomLive)) && !localPublishing;
   /** Header pill — buyer-facing video, not just room status. */
   const videoFeed = useMemo(
     () =>
@@ -727,11 +729,32 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       Alert.alert('Finish setup', host.readinessBlocked.join('\n'));
       return;
     }
+    // OBS / RTMP: open the room only — never auto-publish the phone camera.
+    if (isObsChannelHlsMode(host.stream?.streamMode)) {
+      if (host.room?.status === 'scheduled') {
+        host.onStartShow();
+        return;
+      }
+      Alert.alert(
+        'OBS is the camera',
+        SELLER_CONSOLE.obsWaitingSignal,
+        [{ text: 'OK', style: 'cancel' }],
+      );
+      return;
+    }
     if (host.stageWebrtcEnabled) {
       host.onStartBroadcast();
       return;
     }
     host.onStartShow();
+  };
+
+  const onTakeOverCamera = () => {
+    if (host.readinessBlocked?.length) {
+      Alert.alert('Finish setup', host.readinessBlocked.join('\n'));
+      return;
+    }
+    host.onStartBroadcast();
   };
 
   return (
@@ -780,8 +803,12 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
           style={[styles.companionBanner, { top: headerPaddingTop + sellerHeaderBlockHeight(windowWidth) + 8 }]}
           pointerEvents="box-none"
         >
-          <Text style={styles.companionTitle}>{SELLER_CONSOLE.companionBannerTitle}</Text>
-          <Text style={styles.companionBody}>{SELLER_CONSOLE.companionBannerBody}</Text>
+          <Text style={styles.companionTitle}>
+            {obsMode ? SELLER_CONSOLE.obsLiveBadge : SELLER_CONSOLE.companionBannerTitle}
+          </Text>
+          <Text style={styles.companionBody}>
+            {obsMode ? SELLER_CONSOLE.obsBroadcastHint : SELLER_CONSOLE.companionBannerBody}
+          </Text>
         </View>
       ) : null}
 
@@ -822,6 +849,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
             roomStatus={roomStatus}
             streamOnAir={broadcastOnAir}
             companionMode={hostCompanionMode}
+            obsMode={obsMode}
             canStartRoom={canStart}
             stageEnabled={host.stageWebrtcEnabled}
             cameraReady={host.cameraPermissionState === 'granted'}
@@ -832,6 +860,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
               host.cameraPermissionState === 'requesting'
             }
             onGoLive={onGoLive}
+            onTakeOverCamera={onTakeOverCamera}
             onStopStream={host.onStopBroadcast}
             onPauseStream={host.onPauseBroadcast}
             onResumeStream={host.onResumeBroadcast}

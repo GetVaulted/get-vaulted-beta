@@ -232,6 +232,8 @@ export async function createLiveRoomItem(
     priceUsd?: number | null;
     startingBidUsd?: number | null;
     teamBoardMisc?: boolean;
+    teamBoardNcaa?: boolean;
+    customRandomPoolLabels?: string[] | null;
     /** Units on this queue row (one tile). */
     quantity?: number;
     salesFormat?: string;

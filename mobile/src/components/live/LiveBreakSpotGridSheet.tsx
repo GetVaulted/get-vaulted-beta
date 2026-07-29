@@ -8,6 +8,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  TextInput,
   View,
   Alert,
 } from 'react-native';
@@ -120,11 +121,15 @@ export function LiveBreakSpotGridSheet({
   const insets = useSafeAreaInsets();
   const { confirmPayment } = useStripe();
   const isDivisionBreak = salesFormat === 'team_break';
+  const isPlayerBreak = salesFormat === 'player_selection';
+  const spotNoun = isDivisionBreak ? 'divisions' : isPlayerBreak ? 'players' : 'teams';
+  const spotNounSingular = isDivisionBreak ? 'division' : isPlayerBreak ? 'player' : 'team';
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkoutPreview, setCheckoutPreview] = useState<LiveVariantCheckoutPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [spotSearch, setSpotSearch] = useState('');
   // FIX 3: synchronous in-flight guard — a React state update (`busy`) is not immediate, so a
   // second hold-to-commit within the same render cycle could otherwise start a second checkout.
   const checkoutInFlightRef = useRef(false);
@@ -135,6 +140,12 @@ export function LiveBreakSpotGridSheet({
     return variants.filter((v) => !exclude.has(v.id));
   }, [excludeVariantIds, variants]);
   const sortedVariants = useMemo(() => sortVariantsForBuyerDisplay(pickerVariants), [pickerVariants]);
+  const showSpotSearch = !isRandom && isPlayerBreak && sortedVariants.length > 12;
+  const filteredVariants = useMemo(() => {
+    const q = spotSearch.trim().toLowerCase();
+    if (!q) return sortedVariants;
+    return sortedVariants.filter((v) => v.label.toLowerCase().includes(q));
+  }, [spotSearch, sortedVariants]);
   const spotSummary = useMemo(() => summarizeVariantSpots(pickerVariants), [pickerVariants]);
   const selectedVariants = useMemo(
     () => sortedVariants.filter((v) => selectedIds.includes(v.id)),
@@ -191,6 +202,7 @@ export function LiveBreakSpotGridSheet({
       checkoutInFlightRef.current = false;
       setCheckoutPreview(null);
       setPreviewLoading(false);
+      setSpotSearch('');
       return;
     }
     if (isRandom) {
@@ -572,44 +584,67 @@ export function LiveBreakSpotGridSheet({
 
             <View style={styles.pickerSection}>
               <LiveRoomText style={styles.pickerTitle}>
-                {rosterMode ? (isDivisionBreak ? 'Who got each division' : 'Who got each team') : pickerTitle}
+                {rosterMode
+                  ? isDivisionBreak
+                    ? 'Who got each division'
+                    : isPlayerBreak
+                      ? 'Who got each player'
+                      : 'Who got each team'
+                  : pickerTitle}
               </LiveRoomText>
               <LiveRoomText style={styles.pickerHint}>
                 {rosterMode
-                  ? 'Sold roster — stays available while the host runs the break'
+                  ? `Sold roster — stays available while the host runs the break`
                   : isRandom
-                    ? 'Hold to buy — Vault Reveal assigns your team from what’s left'
+                    ? 'Hold to buy — Vault Reveal assigns your spot from what’s left'
                     : selectionCount > 0
                       ? walletReady
                         ? selectionCount > 1
                           ? `Hold to buy to pay ${fmtMoney(chargeNow)} for ${selectionCount} spots — shipping and tax below`
                           : `Hold to buy to pay ${fmtMoney(chargeNow)} now — spot, shipping, and tax below`
-                        : `Confirm ${isDivisionBreak ? 'division' : 'team'}, then hold to buy to checkout`
-                      : `Tap ${isDivisionBreak ? 'divisions' : 'teams'} to multi-select, then checkout`}
+                        : `Confirm ${spotNounSingular}, then hold to buy to checkout`
+                      : `Tap ${spotNoun} to multi-select, then checkout`}
               </LiveRoomText>
               {isRandom && !rosterMode ? (
                 <View style={styles.randomRevealCard}>
                   <LiveRoomText style={styles.randomRevealKicker}>Vault Reveal</LiveRoomText>
                   <LiveRoomText style={styles.randomRevealBody}>
-                    {spotSummary.available} {isDivisionBreak ? 'divisions' : 'teams'} left in the pool
+                    {spotSummary.available} {spotNoun} left in the pool
                   </LiveRoomText>
                 </View>
               ) : (
-                <View style={styles.pillWrap}>
-                  {sortedVariants.map((variant) => (
-                    <TeamPill
-                      key={variant.id}
-                      variant={variant}
-                      selected={!rosterMode && selectedIds.includes(variant.id)}
-                      wide={isDivisionBreak}
-                      onSelect={() => {
-                        if (rosterMode || !variantIsAvailable(variant)) return;
-                        void Haptics.selectionAsync().catch(() => {});
-                        toggleSpot(variant.id);
-                      }}
+                <>
+                  {showSpotSearch && !rosterMode ? (
+                    <TextInput
+                      value={spotSearch}
+                      onChangeText={setSpotSearch}
+                      placeholder="Search players…"
+                      placeholderTextColor="rgba(255,255,255,0.35)"
+                      style={styles.spotSearch}
+                      autoCorrect={false}
+                      autoCapitalize="none"
+                      clearButtonMode="while-editing"
                     />
-                  ))}
-                </View>
+                  ) : null}
+                  <View style={styles.pillWrap}>
+                    {filteredVariants.map((variant) => (
+                      <TeamPill
+                        key={variant.id}
+                        variant={variant}
+                        selected={!rosterMode && selectedIds.includes(variant.id)}
+                        wide={isDivisionBreak || isPlayerBreak}
+                        onSelect={() => {
+                          if (rosterMode || !variantIsAvailable(variant)) return;
+                          void Haptics.selectionAsync().catch(() => {});
+                          toggleSpot(variant.id);
+                        }}
+                      />
+                    ))}
+                  </View>
+                  {showSpotSearch && !rosterMode && filteredVariants.length === 0 ? (
+                    <LiveRoomText style={styles.pickerHint}>No players match that search.</LiveRoomText>
+                  ) : null}
+                </>
               )}
             </View>
 
@@ -954,6 +989,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.42)',
+  },
+  spotSearch: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: radii.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#fff',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    fontSize: 14,
   },
   randomRevealCard: {
     marginTop: 4,

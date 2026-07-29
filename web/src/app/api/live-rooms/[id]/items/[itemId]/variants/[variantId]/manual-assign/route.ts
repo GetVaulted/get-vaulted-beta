@@ -126,7 +126,7 @@ export async function POST(
       if (item.status !== "active" && item.status !== "queued") {
         throw Object.assign(new Error("ITEM_UNAVAILABLE"), { code: "ITEM_UNAVAILABLE" });
       }
-      if (item.salesFormat !== "variant_selection" && item.salesFormat !== "team_break") {
+      if (item.salesFormat !== "variant_selection" && item.salesFormat !== "team_break" && item.salesFormat !== "player_selection") {
         throw Object.assign(new Error("NOT_TEAM_BOARD"), { code: "NOT_TEAM_BOARD" });
       }
 

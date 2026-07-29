@@ -106,6 +106,8 @@ enum LiveItemSalesFormat {
   buy_now
   variant_selection
   team_break
+  /// Host-defined player list (Pick Your Player / Random Player).
+  player_selection
 }
 
 /// PYT/PYD spot board default — hybrid lets host run fixed checkout or timed auction per pin.
@@ -1445,6 +1447,10 @@ model LiveRoomItem {
   sortOrder                   Int                            @default(0)
   /// NFL break: when true, MISC appears on the team board while this item is active.
   teamBoardMisc               Boolean                        @default(false)
+  /// NFL PYT: when true, an NCAA buyable spot is included and NCAA appears on the team board.
+  teamBoardNcaa               Boolean                        @default(false)
+  /// Custom random-reveal pool labels (Pick Your Player random). JSON string array.
+  customRandomPoolLabels      Json?
   /// Monotonic item-state version for realtime ordering/reconciliation.
   itemVersion                 Int                            @default(0)
   /// When the lot is `active`, host must set this true (via Start) before buyers can bid / claim for timed window.

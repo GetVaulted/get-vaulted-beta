@@ -304,9 +304,11 @@ export function VaultPinnedLot({
             ) : null}
             {!compactEmbedded ? (
               <p className="mt-1 line-clamp-2 text-left text-[10px] leading-relaxed text-zinc-400">
-                {item?.teamBoardMisc
-                  ? "Host note: MISC spot flagged for team board."
-                  : "Seller note: lean into the story — authenticity and comps land bids."}
+                {item?.teamBoardNcaa
+                  ? "Host note: NCAA buyable spot included."
+                  : item?.teamBoardMisc
+                    ? "Host note: MISC spot flagged for team board."
+                    : "Seller note: lean into the story — authenticity and comps land bids."}
               </p>
             ) : null}
             {!isMobile && !compactEmbedded ? (

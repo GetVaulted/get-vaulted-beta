@@ -16,6 +16,11 @@ import {
   type VariantDraftInput,
 } from "@/lib/live-item-variant-presets";
 import { TEAM_BOARD_LEAGUE_LABELS, teamBoardSpotCount } from "@/lib/team-board-sets";
+import {
+  withNcaaBuyableSpot,
+  withNcaaRandomPoolSeat,
+  stripNcaaSpotVariants,
+} from "@/lib/nfl-ncaa-spot";
 import { LiveItemVariantBuilder } from "@/components/live-auction/LiveItemVariantBuilder";
 import { resolveLiveHostDefaultShippingProfileId } from "@/lib/live-show-category-shipping-profile";
 import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
@@ -26,6 +31,12 @@ import {
   type PriorLiveRoomOption,
 } from "@/lib/live-room-control-client";
 import { RANDOM_BREAK_SALE_TYPES_ENABLED } from "../../../../shared/live-break-feature-flags";
+import {
+  buildPlayerPickVariants,
+  buildRandomPlayerVariant,
+  parsePlayerSpotList,
+  PLAYER_SPOT_MAX,
+} from "../../../../shared/live-player-spot-list";
 
 export type AddQueueItemCloseReason = "cancel" | "success" | "escape";
 
@@ -35,10 +46,12 @@ export type AddQueueItemAuctionPayload = {
   priceUsd: number | null;
   startingBidUsd: number;
   quantity: number;
-  salesFormat: "auction" | "buy_now" | "variant_selection" | "team_break";
+  salesFormat: "auction" | "buy_now" | "variant_selection" | "team_break" | "player_selection";
   variantAssignmentMode?: "pick" | "random";
   variants: VariantDraftInput[];
   teamBoardMisc: boolean;
+  teamBoardNcaa: boolean;
+  customRandomPoolLabels?: string[] | null;
   sellerShippingProfileId?: string | null;
   shippingProfileId?: string | null;
 };
@@ -75,7 +88,7 @@ const THUMBNAIL_UPLOAD_ALLOWED = new Set(["image/jpeg", "image/png", "image/webp
 const THUMBNAIL_MAX_FILE_BYTES = 20 * 1024 * 1024;
 
 type SaleCategory = "teams_divisions" | "auction" | "buy_now";
-type BreakSaleType = "pyt" | "pyd" | "random_pyt" | "random_pyd";
+type BreakSaleType = "pyt" | "pyd" | "pyp" | "random_pyt" | "random_pyd" | "random_pyp";
 type SaleType = "auction" | "buy_now" | BreakSaleType;
 type AddSourceTab = "new" | "shop" | "copy";
 
@@ -83,7 +96,7 @@ const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
   {
     id: "teams_divisions",
     label: SELLER_CONSOLE.saleCategoryTeamsDivisions,
-    sub: RANDOM_BREAK_SALE_TYPES_ENABLED ? "Pick or random spots" : "Pick your team or division",
+    sub: RANDOM_BREAK_SALE_TYPES_ENABLED ? "Pick or random spots" : "Teams, divisions, or players",
   },
   { id: "auction", label: SELLER_CONSOLE.saleCategoryAuction, sub: "Timed bidding" },
   { id: "buy_now", label: SELLER_CONSOLE.saleCategoryBuyNow, sub: "Fixed price" },
@@ -92,16 +105,20 @@ const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
 const BREAK_VARIANTS: { id: BreakSaleType; label: string; sub: string }[] = [
   { id: "pyt", label: "PYT", sub: "Pick your team" },
   { id: "pyd", label: "PYD", sub: "Pick division · NFL" },
+  { id: "pyp", label: "PYP", sub: "Pick your player" },
   { id: "random_pyt", label: "Random Teams", sub: "Vault reveal" },
   { id: "random_pyd", label: "Random Divisions", sub: "8 · NFL" },
+  { id: "random_pyp", label: "Random Players", sub: "Vault reveal" },
 ];
 
 function visibleBreakVariants(boardPack: LiveBoardPackId) {
   const base = RANDOM_BREAK_SALE_TYPES_ENABLED
     ? BREAK_VARIANTS
-    : BREAK_VARIANTS.filter((v) => v.id === "pyt" || v.id === "pyd");
+    : BREAK_VARIANTS.filter((v) => v.id === "pyt" || v.id === "pyd" || v.id === "pyp");
   if (boardPackSupportsDivisions(boardPack)) return base;
-  return base.filter((v) => v.id === "pyt" || v.id === "random_pyt");
+  return base.filter(
+    (v) => v.id === "pyt" || v.id === "pyp" || v.id === "random_pyt" || v.id === "random_pyp",
+  );
 }
 function saleTypeForCategory(category: SaleCategory, breakVariant: BreakSaleType): SaleType {
   if (category === "auction") return "auction";
@@ -148,6 +165,8 @@ export function AddQueueItemModal({
   const [price, setPrice] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [queueDraftMisc, setQueueDraftMisc] = useState(false);
+  const [queueDraftNcaa, setQueueDraftNcaa] = useState(false);
+  const [playerListText, setPlayerListText] = useState("");
   const [rulesText, setRulesText] = useState("");
   const [prizeDescription, setPrizeDescription] = useState("");
   const [openEntriesOnCreate, setOpenEntriesOnCreate] = useState(true);
@@ -186,6 +205,8 @@ export function AddQueueItemModal({
       setPrice("");
       setQuantity("1");
       setQueueDraftMisc(false);
+      setQueueDraftNcaa(false);
+      setPlayerListText("");
       setRulesText("");
       setPrizeDescription("");
       setOpenEntriesOnCreate(true);
@@ -292,22 +313,57 @@ export function AddQueueItemModal({
   }, [liveRoomId, open]);
 
   useEffect(() => {
+    if (saleType === "pyp") {
+      const base = parseUsd(price);
+      const parsed = parsePlayerSpotList(playerListText);
+      if (base == null || !parsed.ok) {
+        setSpotVariants([]);
+        return;
+      }
+      setSpotVariants((prev) => {
+        const priceByName = new Map(prev.map((s) => [s.label.trim().toLowerCase(), s.priceUsd]));
+        return buildPlayerPickVariants(
+          parsed.names,
+          base,
+          spotsCustomized ? priceByName : undefined,
+        );
+      });
+      return;
+    }
     if (saleType !== "pyt" && saleType !== "pyd") {
       setSpotVariants([]);
       return;
     }
     const base = parseUsd(price);
-    const expected = saleType === "pyt" ? teamBoardSpotCount(boardPack) : 8;
+    if (base == null) {
+      setSpotVariants([]);
+      return;
+    }
     const teamsPreset = teamsPresetIdForBoardPack(boardPack);
     setSpotVariants((prev) => {
-      if (base == null) return prev.length === expected ? prev : [];
-      if (prev.length !== expected) {
-        return buildVariantsFromPreset(saleType === "pyt" ? teamsPreset : "nfl_divisions", base, 1);
+      const coreCount = saleType === "pyt" ? teamBoardSpotCount(boardPack) : 8;
+      const wantNcaa = saleType === "pyt" && boardPack === "nfl" && queueDraftNcaa;
+      const expected = coreCount + (wantNcaa ? 1 : 0);
+      let next: VariantDraftInput[];
+      if (prev.length === expected && spotsCustomized) {
+        next = wantNcaa
+          ? withNcaaBuyableSpot(stripNcaaSpotVariants(prev), base)
+          : stripNcaaSpotVariants(prev);
+        return next;
       }
-      if (spotsCustomized) return prev;
-      return prev.map((spot) => ({ ...spot, priceUsd: base }));
+      next = buildVariantsFromPreset(saleType === "pyt" ? teamsPreset : "nfl_divisions", base, 1);
+      if (wantNcaa) next = withNcaaBuyableSpot(next, base);
+      else next = stripNcaaSpotVariants(next);
+      if (spotsCustomized) {
+        const byKey = new Map(prev.map((s) => [(s.color || s.label).toUpperCase(), s.priceUsd]));
+        next = next.map((s) => ({
+          ...s,
+          priceUsd: byKey.get((s.color || s.label).toUpperCase()) ?? s.priceUsd,
+        }));
+      }
+      return next;
     });
-  }, [price, saleType, spotsCustomized, boardPack]);
+  }, [price, saleType, spotsCustomized, boardPack, queueDraftNcaa, playerListText]);
 
   const handleSpotVariantsChange = useCallback((next: VariantDraftInput[]) => {
     setSpotVariants((prev) => {
@@ -384,12 +440,20 @@ export function AddQueueItemModal({
         setFormError(saleType === "pyt" ? "Enter a price per team." : "Enter a price per division.");
         return;
       }
-      const expected = saleType === "pyt" ? teamBoardSpotCount(boardPack) : 8;
+      const expected =
+        saleType === "pyt"
+          ? teamBoardSpotCount(boardPack) + (boardPack === "nfl" && queueDraftNcaa ? 1 : 0)
+          : 8;
       const teamsPreset = teamsPresetIdForBoardPack(boardPack);
-      const variants =
+      let variants =
         spotVariants.length === expected
           ? spotVariants
           : buildVariantsFromPreset(saleType === "pyt" ? teamsPreset : "nfl_divisions", parsedPrice, 1);
+      if (saleType === "pyt" && boardPack === "nfl" && queueDraftNcaa) {
+        variants = withNcaaBuyableSpot(stripNcaaSpotVariants(variants), parsedPrice);
+      } else if (saleType === "pyt") {
+        variants = stripNcaaSpotVariants(variants);
+      }
       const ok = await onSubmitAuction({
         title: trimmedTitle,
         imageUrl: imageUrl.trim(),
@@ -400,6 +464,7 @@ export function AddQueueItemModal({
         variantAssignmentMode: "pick",
         variants,
         teamBoardMisc: queueDraftMisc,
+        teamBoardNcaa: boardPack === "nfl" && queueDraftNcaa,
         ...profilePayload,
       });
       if (ok) requestClose("success", onRequestClose);
@@ -416,6 +481,10 @@ export function AddQueueItemModal({
         return;
       }
       const preset = saleType === "random_pyt" ? teamsPresetIdForBoardPack(boardPack) : "nfl_divisions";
+      let variants = buildRandomVariantsFromPreset(preset, parsedPrice);
+      if (saleType === "random_pyt" && boardPack === "nfl" && queueDraftNcaa) {
+        variants = withNcaaRandomPoolSeat(variants, teamBoardSpotCount("nfl"));
+      }
       const ok = await onSubmitAuction({
         title: trimmedTitle,
         imageUrl: imageUrl.trim(),
@@ -424,8 +493,58 @@ export function AddQueueItemModal({
         quantity: 1,
         salesFormat: saleType === "random_pyt" ? "variant_selection" : "team_break",
         variantAssignmentMode: "random",
-        variants: buildRandomVariantsFromPreset(preset, parsedPrice),
+        variants,
         teamBoardMisc: queueDraftMisc,
+        teamBoardNcaa: boardPack === "nfl" && queueDraftNcaa,
+        ...profilePayload,
+      });
+      if (ok) requestClose("success", onRequestClose);
+      return;
+    }
+
+    if (saleType === "pyp" || saleType === "random_pyp") {
+      if (parsedPrice == null) {
+        setFormError("Enter a price per player.");
+        return;
+      }
+      const parsed = parsePlayerSpotList(playerListText);
+      if (!parsed.ok) {
+        setFormError(parsed.message);
+        return;
+      }
+      if (saleType === "pyp") {
+        const variants =
+          spotVariants.length === parsed.names.length
+            ? spotVariants
+            : buildPlayerPickVariants(parsed.names, parsedPrice);
+        const ok = await onSubmitAuction({
+          title: trimmedTitle,
+          imageUrl: imageUrl.trim(),
+          priceUsd: parsedPrice,
+          startingBidUsd: 1,
+          quantity: 1,
+          salesFormat: "player_selection",
+          variantAssignmentMode: "pick",
+          variants,
+          teamBoardMisc: false,
+          teamBoardNcaa: false,
+          ...profilePayload,
+        });
+        if (ok) requestClose("success", onRequestClose);
+        return;
+      }
+      const ok = await onSubmitAuction({
+        title: trimmedTitle,
+        imageUrl: imageUrl.trim(),
+        priceUsd: parsedPrice,
+        startingBidUsd: 1,
+        quantity: 1,
+        salesFormat: "player_selection",
+        variantAssignmentMode: "random",
+        variants: [buildRandomPlayerVariant(parsedPrice, parsed.names.length)],
+        teamBoardMisc: false,
+        teamBoardNcaa: false,
+        customRandomPoolLabels: parsed.names,
         ...profilePayload,
       });
       if (ok) requestClose("success", onRequestClose);
@@ -446,6 +565,7 @@ export function AddQueueItemModal({
         salesFormat: "buy_now",
         variants: [],
         teamBoardMisc: queueDraftMisc,
+        teamBoardNcaa: false,
         ...profilePayload,
       });
       if (ok) requestClose("success", onRequestClose);
@@ -462,10 +582,11 @@ export function AddQueueItemModal({
       salesFormat: "auction",
       variants: [],
       teamBoardMisc: queueDraftMisc,
+      teamBoardNcaa: false,
       ...profilePayload,
     });
     if (ok) requestClose("success", onRequestClose);
-  }, [boardPack, imageUrl, onRequestClose, onSubmitAuction, price, profileOptionsAreSeller, quantity, queueDraftMisc, saleType, selectedProfileId, spotVariants, title]);
+  }, [boardPack, imageUrl, onRequestClose, onSubmitAuction, playerListText, price, profileOptionsAreSeller, quantity, queueDraftMisc, queueDraftNcaa, saleType, selectedProfileId, spotVariants, title]);
 
   const handleSubmitGiveaway = useCallback(async () => {
     if (!onSubmitGiveaway || (mode !== "giveaway" && mode !== "buyers_giveaway")) return;
@@ -643,15 +764,26 @@ export function AddQueueItemModal({
   const priceLabel =
     saleType === "auction"
       ? "Starting bid"
-      : saleType === "pyt"
+      : saleType === "pyt" || saleType === "random_pyt"
         ? "Price per team"
-        : saleType === "pyd"
+        : saleType === "pyd" || saleType === "random_pyd"
           ? "Price per division"
-          : "Buy-it-now price";
+          : saleType === "pyp" || saleType === "random_pyp"
+            ? "Price per player"
+            : "Buy-it-now price";
+  const isPlayerBreak = saleType === "pyp" || saleType === "random_pyp";
   const isBreakSale =
-    saleType === "pyt" || saleType === "pyd" || saleType === "random_pyt" || saleType === "random_pyd";
-  const isPickBreak = saleType === "pyt" || saleType === "pyd";
-  const isRandomBreak = saleType === "random_pyt" || saleType === "random_pyd";
+    saleType === "pyt" ||
+    saleType === "pyd" ||
+    saleType === "random_pyt" ||
+    saleType === "random_pyd" ||
+    isPlayerBreak;
+  const isPickBreak = saleType === "pyt" || saleType === "pyd" || saleType === "pyp";
+  const isRandomBreak = saleType === "random_pyt" || saleType === "random_pyd" || saleType === "random_pyp";
+  const playerListPreview = parsePlayerSpotList(playerListText);
+  const playerCountLabel = playerListPreview.ok
+    ? `${playerListPreview.names.length} / ${PLAYER_SPOT_MAX}`
+    : `${playerListPreview.names?.length ?? 0} / ${PLAYER_SPOT_MAX}`;
 
   return createPortal(
     <div
@@ -951,6 +1083,7 @@ export function AddQueueItemModal({
 
           {saleCategory === "teams_divisions" ? (
             <>
+              {!isPlayerBreak ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 {LIVE_BOARD_PACKS.map((pack) => {
                   const active = boardPack === pack.id;
@@ -962,6 +1095,7 @@ export function AddQueueItemModal({
                         setBoardPack(pack.id);
                         setSpotVariants([]);
                         setSpotsCustomized(false);
+                        if (pack.id !== "nfl") setQueueDraftNcaa(false);
                         if (!boardPackSupportsDivisions(pack.id) && (breakSaleType === "pyd" || breakSaleType === "random_pyd")) {
                           setBreakSaleType("pyt");
                         }
@@ -977,7 +1111,8 @@ export function AddQueueItemModal({
                   );
                 })}
               </div>
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              ) : null}
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {visibleBreakVariants(boardPack).map((type) => {
                   const active = breakSaleType === type.id;
                   const teamCount = teamBoardSpotCount(boardPack);
@@ -986,7 +1121,11 @@ export function AddQueueItemModal({
                       ? `${teamCount} · vault reveal`
                       : type.id === "pyt"
                         ? `${TEAM_BOARD_LEAGUE_LABELS[boardPack]} · ${teamCount} teams`
-                        : type.sub;
+                        : type.id === "pyp"
+                          ? "Paste your checklist"
+                          : type.id === "random_pyp"
+                            ? "Paste · vault reveal"
+                            : type.sub;
                   return (
                     <button
                       key={type.id}
@@ -995,6 +1134,7 @@ export function AddQueueItemModal({
                         setBreakSaleType(type.id);
                         setSpotVariants([]);
                         setSpotsCustomized(false);
+                        if (type.id !== "pyt" && type.id !== "random_pyt") setQueueDraftNcaa(false);
                       }}
                       className={`rounded-lg border px-3 py-2.5 text-left transition ${
                         active
@@ -1013,7 +1153,11 @@ export function AddQueueItemModal({
 
           {isBreakSale ? (
             <p className="mt-3 rounded-lg border border-gold/20 bg-gold/5 px-3 py-2 text-xs text-zinc-300">
-              {isRandomBreak
+              {isPlayerBreak
+                ? isRandomBreak
+                  ? "Buyers purchase a seat — Vault Reveal assigns a player from your list. Won names leave the pool."
+                  : "One player per line. Buyers pick a name from your list. Sold spots disappear from the board."
+                : isRandomBreak
                 ? `Buyers purchase a spot — Vault Reveal assigns ${
                     saleType === "random_pyt"
                       ? `a ${TEAM_BOARD_LEAGUE_LABELS[boardPack]} team`
@@ -1023,6 +1167,31 @@ export function AddQueueItemModal({
                     saleType === "pyt" ? `${teamBoardSpotCount(boardPack)} teams` : "8 divisions"
                   }. Sold spots disappear from the board.`}
             </p>
+          ) : null}
+
+          {isPlayerBreak ? (
+            <div className="mt-4">
+              <div className="flex items-baseline justify-between gap-2">
+                <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                  Player list
+                </label>
+                <span className="text-[10px] font-semibold text-zinc-500">{playerCountLabel}</span>
+              </div>
+              <textarea
+                value={playerListText}
+                onChange={(e) => {
+                  setPlayerListText(e.target.value);
+                  setSpotsCustomized(false);
+                }}
+                rows={6}
+                placeholder={"Mahomes\nAllen\nHurts\n…"}
+                className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
+                aria-label="Player list"
+              />
+              {!playerListPreview.ok && playerListText.trim() ? (
+                <p className="mt-1 text-[11px] text-rose-300">{playerListPreview.message}</p>
+              ) : null}
+            </div>
           ) : null}
 
           <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">{priceLabel}</label>
@@ -1037,7 +1206,13 @@ export function AddQueueItemModal({
           {isPickBreak && spotVariants.length > 0 ? (
             <div className="mt-4 min-w-0">
               <LiveItemVariantBuilder
-                salesFormat={saleType === "pyt" ? "variant_selection" : "team_break"}
+                salesFormat={
+                  saleType === "pyd"
+                    ? "team_break"
+                    : saleType === "pyp"
+                      ? "player_selection"
+                      : "variant_selection"
+                }
                 onSalesFormatChange={() => {}}
                 defaultPriceUsd={price}
                 variants={spotVariants}
@@ -1078,7 +1253,8 @@ export function AddQueueItemModal({
             aria-label="Quantity"
           />
 
-          {teamBoardLeague === "nfl" ? (
+          {teamBoardLeague === "nfl" || boardPack === "nfl" ? (
+            !isPlayerBreak ? (
             <label className="mt-4 flex cursor-pointer items-center gap-2 text-xs text-zinc-300">
               <input
                 type="checkbox"
@@ -1087,6 +1263,19 @@ export function AddQueueItemModal({
                 className="rounded border-white/20 bg-[#0c0c10]"
               />
               MISC spot (shows MISC on team board while this item is active)
+            </label>
+            ) : null
+          ) : null}
+
+          {boardPack === "nfl" && (saleType === "pyt" || saleType === "random_pyt") ? (
+            <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-zinc-300">
+              <input
+                type="checkbox"
+                checked={queueDraftNcaa}
+                onChange={(e) => setQueueDraftNcaa(e.target.checked)}
+                className="rounded border-white/20 bg-[#0c0c10]"
+              />
+              Add NCAA spot (buyable · off by default)
             </label>
           ) : null}
 

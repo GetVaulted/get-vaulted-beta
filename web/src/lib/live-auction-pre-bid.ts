@@ -16,7 +16,7 @@ export type PreBidEligibleItem = {
 
 export function isLiveAuctionPreBidEligible(item: PreBidEligibleItem): boolean {
   if (item.salesFormat === "buy_now") return false;
-  if (item.salesFormat === "variant_selection" || item.salesFormat === "team_break") return false;
+  if (item.salesFormat === "variant_selection" || item.salesFormat === "team_break" || item.salesFormat === "player_selection") return false;
   if (item.listingId) return false;
   if (item.biddingOpen) return false;
   return item.status === "active" || item.status === "queued";

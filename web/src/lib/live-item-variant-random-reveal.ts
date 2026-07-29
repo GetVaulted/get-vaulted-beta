@@ -12,6 +12,10 @@ import {
 } from "@/lib/live-item-variant-presets";
 import { emitVaultRevealSpin } from "@/lib/realtime-emit-server";
 import { formatDivisionReelAbbr, VAULT_REVEAL_DEFAULT_DURATION_MS } from "@/lib/vault-reveal-spin";
+import {
+  normalizeCustomRandomPoolLabels,
+  playerSpotReelAbbr,
+} from "../../../shared/live-player-spot-list";
 
 export type RandomPoolEntry = { label: string; abbr: string };
 
@@ -38,10 +42,22 @@ export function boardPackFromVariantColor(color: string | null | undefined): Liv
   return "nfl";
 }
 
+export function randomPoolFromCustomLabels(labels: string[]): RandomPoolEntry[] {
+  return labels.map((label) => ({
+    label,
+    abbr: playerSpotReelAbbr(label),
+  }));
+}
+
 export function randomPoolForSalesFormat(
   format: LiveItemSalesFormat,
   boardPack: LiveBoardPackId = "nfl",
+  opts?: { includeNcaa?: boolean; customLabels?: string[] | null },
 ): RandomPoolEntry[] {
+  if (format === "player_selection") {
+    const labels = opts?.customLabels ?? [];
+    return randomPoolFromCustomLabels(labels);
+  }
   if (format === "team_break") {
     return NFL_DIVISIONS_PRESET.map((d) => ({
       label: d.label,
@@ -50,7 +66,11 @@ export function randomPoolForSalesFormat(
   }
   const presetKey = `${boardPack}_teams` as keyof typeof LIVE_ITEM_VARIANT_PRESETS;
   const options = LIVE_ITEM_VARIANT_PRESETS[presetKey]?.options ?? NFL_TEAMS_PRESET;
-  return options.map((t) => ({ label: t.label, abbr: t.abbr ?? t.label }));
+  const pool = options.map((t) => ({ label: t.label, abbr: t.abbr ?? t.label }));
+  if (opts?.includeNcaa && boardPack === "nfl") {
+    pool.push({ label: "NCAA", abbr: "NCAA" });
+  }
+  return pool;
 }
 
 type Db = typeof prisma | TransactionClient;
@@ -62,6 +82,23 @@ async function resolveBoardPackForItem(db: Db, liveRoomItemId: string): Promise<
     select: { color: true },
   });
   return boardPackFromVariantColor(variant?.color);
+}
+
+async function resolveIncludeNcaaForItem(db: Db, liveRoomItemId: string): Promise<boolean> {
+  const item = await db.liveRoomItem.findUnique({
+    where: { id: liveRoomItemId },
+    select: { teamBoardNcaa: true },
+  });
+  return item?.teamBoardNcaa === true;
+}
+
+async function resolveCustomPoolLabelsForItem(db: Db, liveRoomItemId: string): Promise<string[] | null> {
+  const item = await db.liveRoomItem.findUnique({
+    where: { id: liveRoomItemId },
+    select: { customRandomPoolLabels: true, salesFormat: true },
+  });
+  if (item?.salesFormat !== "player_selection") return null;
+  return normalizeCustomRandomPoolLabels(item.customRandomPoolLabels);
 }
 
 function pickIndex(seed: string, max: number): number {
@@ -83,6 +120,25 @@ async function assignedLabelsForItem(db: Db, liveRoomItemId: string): Promise<Se
   return new Set(assigned.map((r) => r.revealedLabel!.trim().toLowerCase()));
 }
 
+async function resolveRandomPool(args: {
+  liveRoomItemId: string;
+  salesFormat: LiveItemSalesFormat;
+  db: Db;
+  boardPack?: LiveBoardPackId;
+  includeNcaa?: boolean;
+  customLabels?: string[] | null;
+}): Promise<RandomPoolEntry[]> {
+  if (args.salesFormat === "player_selection") {
+    const labels =
+      args.customLabels ?? (await resolveCustomPoolLabelsForItem(args.db, args.liveRoomItemId)) ?? [];
+    return randomPoolForSalesFormat("player_selection", "nfl", { customLabels: labels });
+  }
+  const boardPack = args.boardPack ?? (await resolveBoardPackForItem(args.db, args.liveRoomItemId));
+  const includeNcaa =
+    args.includeNcaa ?? (boardPack === "nfl" ? await resolveIncludeNcaaForItem(args.db, args.liveRoomItemId) : false);
+  return randomPoolForSalesFormat(args.salesFormat, boardPack, { includeNcaa });
+}
+
 /**
  * Count of pool labels not yet claimed for this item. Shared by the purchase route (FIX 3 — reject
  * new purchases once the pool is fully claimed, independent of raw `quantityRemaining`) and the
@@ -94,10 +150,11 @@ export async function remainingRandomPoolCount(args: {
   salesFormat: LiveItemSalesFormat;
   db?: Db;
   boardPack?: LiveBoardPackId;
+  includeNcaa?: boolean;
+  customLabels?: string[] | null;
 }): Promise<number> {
   const db = args.db ?? prisma;
-  const boardPack = args.boardPack ?? (await resolveBoardPackForItem(db, args.liveRoomItemId));
-  const pool = randomPoolForSalesFormat(args.salesFormat, boardPack);
+  const pool = await resolveRandomPool({ ...args, db });
   if (pool.length === 0) return 0;
   const taken = await assignedLabelsForItem(db, args.liveRoomItemId);
   return pool.filter((p) => !taken.has(p.label.trim().toLowerCase())).length;
@@ -108,7 +165,7 @@ function isUniqueConstraintError(e: unknown): boolean {
 }
 
 /**
- * Assign a random team/division on paid purchase and broadcast the Vault Reveal wheel.
+ * Assign a random team/division/player on paid purchase and broadcast the Vault Reveal wheel.
  *
  * The read-filter-pick-write sequence below is NOT run inside a single serializable transaction:
  * two concurrent purchases could still both read the same "assigned" snapshot before either write
@@ -125,9 +182,17 @@ export async function executeRandomVariantRevealOnPurchase(args: {
   itemTitle: string;
   salesFormat: LiveItemSalesFormat;
   boardPack?: LiveBoardPackId;
+  includeNcaa?: boolean;
+  customLabels?: string[] | null;
 }): Promise<{ label: string; abbr: string } | null> {
-  const boardPack = args.boardPack ?? (await resolveBoardPackForItem(prisma, args.liveRoomItemId));
-  const pool = randomPoolForSalesFormat(args.salesFormat, boardPack);
+  const pool = await resolveRandomPool({
+    liveRoomItemId: args.liveRoomItemId,
+    salesFormat: args.salesFormat,
+    db: prisma,
+    boardPack: args.boardPack,
+    includeNcaa: args.includeNcaa,
+    customLabels: args.customLabels,
+  });
   if (pool.length === 0) return null;
 
   for (let attempt = 0; attempt < MAX_DRAW_ATTEMPTS; attempt++) {

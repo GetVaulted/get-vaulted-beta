@@ -134,9 +134,11 @@ export function useObsStreamSetup(roomId: string | null, roomStatus: string | nu
     }
     setLoading(true);
     void loadStream().finally(() => setLoading(false));
-    const poll = window.setInterval(() => void loadStream(), 15000);
+    // Poll faster while waiting for OBS so ingest auto-start flips the show live quickly.
+    const pollMs = roomStatus === "scheduled" ? 8_000 : 15_000;
+    const poll = window.setInterval(() => void loadStream(), pollMs);
     return () => window.clearInterval(poll);
-  }, [roomId, loadStream]);
+  }, [roomId, roomStatus, loadStream]);
 
   const hasIngest = Boolean(stream?.ingestEndpoint);
   const connectionState = deriveObsConnectionState(stream?.streamHealth, hasIngest);

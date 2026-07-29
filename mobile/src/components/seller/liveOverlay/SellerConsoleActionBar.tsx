@@ -3,7 +3,7 @@ import { BlurView } from 'expo-blur';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { MobileHostBroadcastPhase } from '../../../hooks/useMobileStagePublish';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
-import { confirmStartLive } from '../../../lib/sellerBroadcastConfirm';
+import { confirmStartLive, confirmStartObsShow } from '../../../lib/sellerBroadcastConfirm';
 import { GIVVY_UI } from '../../../lib/givvyUi';
 import { sellerConsoleToolbarScale } from '../../../lib/liveRoomUiScale';
 import { colors, radii, spacing } from '../../../theme';
@@ -42,11 +42,15 @@ type Props = {
   streamOnAir?: boolean;
   /** Room already broadcasting from another device — don't fight for the camera. */
   companionMode?: boolean;
+  /** OBS / RTMP (`channel_hls`) — Start show without phone camera. */
+  obsMode?: boolean;
   canStartRoom: boolean;
   stageEnabled: boolean;
   cameraReady: boolean;
   broadcastBusy: boolean;
   onGoLive: () => void;
+  /** Phone camera take-over when OBS/companion owns the feed. */
+  onTakeOverCamera?: () => void;
   onStopStream: () => void;
   onPauseStream?: () => void;
   onResumeStream?: () => void;
@@ -75,10 +79,12 @@ export function SellerConsoleActionBar({
   roomStatus,
   canStartRoom,
   companionMode = false,
+  obsMode = false,
   stageEnabled,
   cameraReady,
   broadcastBusy,
   onGoLive,
+  onTakeOverCamera,
   onStopStream,
   onPauseStream,
   onResumeStream,
@@ -246,10 +252,12 @@ export function SellerConsoleActionBar({
               roomStatus={roomStatus}
               streamPaused={streamPaused}
               companionMode={companionMode}
+              obsMode={obsMode}
               stageEnabled={stageEnabled}
               cameraReady={cameraReady}
               busy={broadcastBusy}
               onStart={onGoLive}
+              onTakeOverCamera={onTakeOverCamera}
               onStop={onStopStream}
               onPause={onPauseStream}
               onResume={onResumeStream}
@@ -263,7 +271,7 @@ export function SellerConsoleActionBar({
                 { width: trailingBtn, height: trailingBtn },
                 broadcastBusy && styles.disabled,
               ]}
-              onPress={() => confirmStartLive(onGoLive)}
+              onPress={() => (obsMode ? confirmStartObsShow(onGoLive) : confirmStartLive(onGoLive))}
               disabled={broadcastBusy}
               accessibilityLabel={SELLER_CONSOLE.startStream}
               hitSlop={Math.round(4 * scale)}

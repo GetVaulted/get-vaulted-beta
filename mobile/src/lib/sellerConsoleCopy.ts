@@ -16,10 +16,14 @@ export const SELLER_CONSOLE = {
   camera: 'Camera',
   microphone: 'Microphone',
   previewHint:
-    'Check your camera and mic, then go live. Leaving the app pauses buyers (tap Play to continue). Use OBS / RTMP if you need the camera to keep streaming away from the phone.',
+    'Phone camera Go Live, or use OBS / RTMP for desktop. After Connect OBS, Start show opens the room — video comes from OBS, not this phone.',
   resumeStreamHint: 'Show minimized — tap Play to bring the live feed back.',
   liveLeaveAppHint:
     'Leaving the app pauses your show for buyers. Tap Play when you return. Need the camera to stay on? Use OBS / RTMP.',
+  obsBroadcastHint:
+    'This show is set to OBS. Start show opens the room; keep Start Streaming on in OBS. Tap Use this camera only if you want to switch off OBS to the phone.',
+  obsLiveBadge: 'OBS live',
+  obsWaitingSignal: 'Waiting for OBS — Start Streaming in OBS, then Refresh status.',
   copyLink: 'Copy link',
   nativeShare: 'Share…',
   shareInApp: 'Share in Get Vaulted',

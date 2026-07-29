@@ -105,6 +105,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           status: "queued",
           sortOrder: nextSort++,
           teamBoardMisc: item.teamBoardMisc,
+          teamBoardNcaa: item.teamBoardNcaa,
+          customRandomPoolLabels: item.customRandomPoolLabels ?? undefined,
           quantity: isVariantSalesFormat(item.salesFormat) ? 1 : qty,
           quantityInitial: isVariantSalesFormat(item.salesFormat) ? 1 : qty,
           salesFormat: item.salesFormat,

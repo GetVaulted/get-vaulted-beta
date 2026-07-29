@@ -11,7 +11,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -28,6 +27,7 @@ import { fetchProfileById } from '../../api/profilesRepository';
 import { resolveCanonicalProfileAvatar } from '../../lib/profileAvatarSync';
 import { applyLiveModerationAction } from '../../api/trustRepository';
 import { fetchLiveBuyerPaymentSession } from '../../api/liveBuyerPaymentRepository';
+import { createAndShareHitClip } from '../../api/hitClipRepository';
 import { fetchSellerFollowStatus, toggleSellerFollow } from '../../api/sellerFollowRepository';
 import type { LiveStream, ChatMessage } from '../../types';
 import type { LiveStackParamList } from '../../navigation/types';
@@ -257,6 +257,8 @@ function LiveSlide({
   const [staffChatOnly, setStaffChatOnly] = useState(false);
   const [streamMuted, setStreamMuted] = useState(false);
   const [streamRefreshNonce, setStreamRefreshNonce] = useState(0);
+  const [clipBusy, setClipBusy] = useState(false);
+  const [clipProgress, setClipProgress] = useState<string | null>(null);
   /** Immediate pause from realtime — applied before GET /stream catches up. */
   const [realtimeStreamPaused, setRealtimeStreamPaused] = useState<boolean | null>(null);
   const [roomStatus, setRoomStatus] = useState(stream.roomStatus);
@@ -1112,12 +1114,34 @@ function LiveSlide({
   }, [preBidItem]);
 
   const shareClipFromRoom = async () => {
+    if (!accessToken?.trim()) {
+      onRequireAuth?.();
+      return;
+    }
+    if (clipBusy) return;
+    setClipBusy(true);
+    setClipProgress('Starting Hit Clip…');
     try {
-      await Share.share({
-        message: `Clip from “${stream.title}” on Get Vaulted`,
+      const activeId = liveSession.roomSnap?.activeItemId ?? null;
+      const activeItem =
+        liveSession.roomSnap?.lineupItems?.find((it) => it.id === activeId) ??
+        liveSession.roomSnap?.lineupItems?.find((it) => it.status === 'active') ??
+        null;
+      await createAndShareHitClip({
+        accessToken,
+        roomId: stream.id,
+        showTitle: stream.title,
+        hostUsername: hostHandle,
+        activeItemId: activeItem?.id ?? activeId,
+        activeItemTitle: activeItem?.title ?? null,
+        thumbnailUrl: activeItem?.imageUrl ?? stream.previewImageUrl ?? null,
+        onProgress: setClipProgress,
       });
-    } catch {
-      /* cancelled */
+    } catch (e) {
+      Alert.alert('Could not make Hit Clip', e instanceof Error ? e.message : 'Try again.');
+    } finally {
+      setClipBusy(false);
+      setClipProgress(null);
     }
   };
 
@@ -1126,6 +1150,11 @@ function LiveSlide({
       {liveSession.connectionBanner ? (
         <View style={styles.connectionBanner} pointerEvents="none">
           <Text style={styles.connectionBannerTxt}>{liveSession.connectionBanner}</Text>
+        </View>
+      ) : null}
+      {clipProgress ? (
+        <View style={styles.connectionBanner} pointerEvents="none">
+          <Text style={styles.connectionBannerTxt}>{clipProgress}</Text>
         </View>
       ) : null}
       {bidNotice ? (
@@ -1427,7 +1456,8 @@ function LiveSlide({
           <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>Shop</LiveRoomText>
         </Pressable>
         <Pressable
-          style={styles.railBtn}
+          style={[styles.railBtn, clipBusy && { opacity: 0.55 }]}
+          disabled={clipBusy}
           onPress={() => {
             if (!signedIn) {
               onRequireAuth?.();
@@ -1435,9 +1465,16 @@ function LiveSlide({
             }
             void shareClipFromRoom();
           }}
+          accessibilityLabel={clipBusy ? clipProgress ?? 'Capturing hit clip' : 'Make Hit Clip'}
         >
-          <Ionicons name="cut-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
-          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>Clip</LiveRoomText>
+          <Ionicons
+            name={clipBusy ? 'hourglass-outline' : 'cut-outline'}
+            size={railIconSize}
+            color="rgba(255,255,255,0.92)"
+          />
+          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>
+            {clipBusy ? '…' : 'Clip'}
+          </LiveRoomText>
         </Pressable>
         <Pressable
           style={styles.railBtn}

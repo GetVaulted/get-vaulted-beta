@@ -551,7 +551,8 @@ export function useLiveStagePlayback(args: {
       }
       return;
     }
-    // Host tapped Play: stay on the same Stage subscribe when possible.
+    // Host tapped Play: always remount Stage subscribe. Soft keep-alive works for brief Pause,
+    // but overnight / AWS-torn sessions leave buyers stuck on Reconnecting → Waiting for host video.
     clearBuyerStageSubscribeTornDown(args.roomId);
     invalidateBuyerLiveStreamCache(args.roomId);
     invalidateViewerStageToken(args.roomId);
@@ -568,17 +569,11 @@ export function useLiveStagePlayback(args: {
     setPlayerRetryCount(0);
     hideReconnectingUi();
     if (args.playbackMode === 'active') {
-      const alreadyOnWebrtc = transportRef.current === 'webrtc';
-      beginPlaybackAttempt(alreadyOnWebrtc ? 'host_resume_soft' : 'host_resume');
-      hlsStalledRef.current = true;
-      webrtcUpgradedRef.current = true;
-      if (!alreadyOnWebrtc) {
-        lastAttachKeyRef.current = '';
-        setVideoHasData(false);
-        setWebrtcSubscribeEpoch((n) => n + 1);
-        applyTransport('webrtc');
-      }
-      // Soft resume: same subscribe — frames return when host republishes; no remount thrash.
+      beginPlaybackAttempt('host_resume');
+      lastAttachKeyRef.current = '';
+      setVideoHasData(false);
+      setWebrtcSubscribeEpoch((n) => n + 1);
+      applyTransport('webrtc');
     }
     void fetchStream();
   }, [
@@ -608,11 +603,8 @@ export function useLiveStagePlayback(args: {
       void fetchStream();
       return;
     }
-    // Soft host-resume already on WebRTC: don't remount — wait for republished frames.
-    if (transportRef.current === 'webrtc' && hlsStalledRef.current) {
-      void fetchStream();
-      return;
-    }
+    // Soft host-resume already on WebRTC was removed — overnight Pause left buyers latched on a
+    // dead subscribe. Always remount via applyRealtimeStreamPaused / no_video_recover instead.
     // Buyer already left Stage this session (home swipe / suspend): try HLS first.
     // Do not clear the latch here — the first-frame watchdog clears it if HLS stalls.
     if (isBuyerStageWebrtcRejoinBlocked(args.roomId)) {

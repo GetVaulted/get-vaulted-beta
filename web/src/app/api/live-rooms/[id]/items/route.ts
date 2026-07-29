@@ -11,6 +11,7 @@ import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
 import { resolveListingBackedQueueFields } from "@/lib/live-room-shop-inventory";
 import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
 import { resolveDefaultSellerProfileForLiveShow } from "@/services/shipping/seller-shipping-profiles";
+import { normalizeCustomRandomPoolLabels } from "../../../../../../../shared/live-player-spot-list";
 
 type PostBody = {
   title?: string;
@@ -22,6 +23,9 @@ type PostBody = {
   reservePriceUsd?: number | null;
   sortOrder?: number;
   teamBoardMisc?: boolean;
+  teamBoardNcaa?: boolean;
+  /** Custom player names for random player_selection reveal pool. */
+  customRandomPoolLabels?: string[] | null;
   /** Units on this single queue row (one tile). Max 512. */
   quantity?: number | string;
   salesFormat?: string;
@@ -184,6 +188,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const teamBoardMisc =
     body.teamBoardMisc === true && room.roomType === "break" && room.teamBoardLeague === "nfl";
+  const teamBoardNcaa =
+    body.teamBoardNcaa === true && room.roomType === "break" && room.teamBoardLeague === "nfl";
 
   const salesFormat = parseLiveItemSalesFormat(salesFormatBody);
   const variantAssignmentMode: LiveItemVariantAssignmentMode =
@@ -191,6 +197,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const variantDrafts = isVariantSalesFormat(salesFormat) ? normalizeVariantDrafts(body.variants) : [];
   if (isVariantSalesFormat(salesFormat) && variantDrafts.length === 0) {
     return NextResponse.json({ error: "Add at least one selectable option for variant items." }, { status: 400 });
+  }
+
+  const customRandomPoolLabels =
+    salesFormat === "player_selection" && variantAssignmentMode === "random"
+      ? normalizeCustomRandomPoolLabels(body.customRandomPoolLabels)
+      : null;
+  if (salesFormat === "player_selection" && variantAssignmentMode === "random" && !customRandomPoolLabels) {
+    return NextResponse.json(
+      { error: "Add at least 2 player names for a random player break." },
+      { status: 400 },
+    );
   }
 
   const explicitProfileId =
@@ -247,6 +264,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     status: "queued" as const,
     sortOrder,
     teamBoardMisc,
+    teamBoardNcaa,
+    customRandomPoolLabels: customRandomPoolLabels ?? undefined,
     quantity: isVariantSalesFormat(salesFormat) ? 1 : quantity,
     quantityInitial: isVariantSalesFormat(salesFormat) ? 1 : quantity,
     salesFormat,

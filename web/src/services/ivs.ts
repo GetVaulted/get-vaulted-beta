@@ -144,6 +144,34 @@ export async function ensureChannelRecordingConfiguration(channelArn: string): P
   }
 }
 
+/** Force LOW latency on an existing channel when env is configured for LOW (OBS delay fix). */
+export async function ensureChannelLowLatencyMode(channelArn: string): Promise<boolean> {
+  if (getEnv().latencyMode !== "LOW") return false;
+  const client = makeClient();
+  try {
+    const current = await client.send(new GetChannelCommand({ arn: channelArn }));
+    const existing = (current.channel?.latencyMode ?? "").toUpperCase();
+    if (existing === "LOW") return false;
+    await client.send(
+      new UpdateChannelCommand({
+        arn: channelArn,
+        latencyMode: "LOW",
+      }),
+    );
+    logIvsOpsServer("ivs_channel_latency_set_low", {
+      channelArnLen: channelArn.length,
+      previousLatencyMode: existing || "unknown",
+    });
+    return true;
+  } catch (e) {
+    logIvsOpsServer("ivs_channel_latency_set_low_failed", {
+      channelArnLen: channelArn.length,
+      error: e instanceof Error ? e.message.slice(0, 200) : "unknown",
+    });
+    return false;
+  }
+}
+
 export async function createChannel(roomId: string) {
   const env = getEnv();
   const client = makeClient();
@@ -384,7 +412,9 @@ export async function commitLiveRoomStreamHealthFromIvs(args: {
 }
 
 /**
- * Poll IVS `GetStream` and reconcile `LiveRoom.streamHealth` (+ timestamps). Keeps `room.status` unchanged.
+ * Poll IVS `GetStream` and reconcile `LiveRoom.streamHealth` (+ timestamps).
+ * For OBS (`channel_hls`), a live/connecting signal also auto-starts a scheduled room so hosts
+ * do not need to tap Play on the phone for inventory to go live.
  */
 export async function syncLiveRoomStreamFromIvs(liveRoomId: string): Promise<StreamHealthCommitResult | null> {
   const room = await prisma.liveRoom.findUnique({
@@ -395,6 +425,7 @@ export async function syncLiveRoomStreamFromIvs(liveRoomId: string): Promise<Str
       streamProvider: true,
       ivsChannelArn: true,
       streamHealth: true,
+      streamMode: true,
     },
   });
   if (!room || room.streamProvider !== "aws_ivs" || !room.ivsChannelArn) {
@@ -410,7 +441,18 @@ export async function syncLiveRoomStreamFromIvs(liveRoomId: string): Promise<Str
     actualLatencyMode: actualLatencyMode ?? "unknown",
     configuredLatencyMode: getEnv().latencyMode,
   });
-  return commitLiveRoomStreamHealthFromIvs({ liveRoomId, newHealth: health, opSource: "sync_get_stream" });
+  // Older OBS channels may still be NORMAL (~10–30s delay). Nudge them to LOW when env asks for it.
+  if (actualLatencyMode && actualLatencyMode.toUpperCase() !== "LOW" && getEnv().latencyMode === "LOW") {
+    void ensureChannelLowLatencyMode(room.ivsChannelArn).catch(() => {});
+  }
+  const result = await commitLiveRoomStreamHealthFromIvs({ liveRoomId, newHealth: health, opSource: "sync_get_stream" });
+  if (room.streamMode === "channel_hls" && (health === "live" || health === "connecting")) {
+    const { maybeAutoStartObsRoomOnIngestSignal } = await import("@/lib/live-obs-auto-start");
+    await maybeAutoStartObsRoomOnIngestSignal(liveRoomId).catch((e) =>
+      console.error("[IVS] obs auto-start failed", liveRoomId, e),
+    );
+  }
+  return result;
 }
 
 /**
@@ -419,12 +461,19 @@ export async function syncLiveRoomStreamFromIvs(liveRoomId: string): Promise<Str
 export async function applyRecordedIvsStreamState(liveRoomId: string, ivsStateToken: string): Promise<StreamHealthCommitResult | null> {
   const room = await prisma.liveRoom.findUnique({
     where: { id: liveRoomId },
-    select: { streamProvider: true },
+    select: { streamProvider: true, streamMode: true },
   });
   if (!room || room.streamProvider !== "aws_ivs") return null;
   const normalized = normalizeExternalIvsStateToken(ivsStateToken);
   const health = mapIvsStatusToRoomHealth(normalized);
-  return commitLiveRoomStreamHealthFromIvs({ liveRoomId, newHealth: health, opSource: "recorded_state" });
+  const result = await commitLiveRoomStreamHealthFromIvs({ liveRoomId, newHealth: health, opSource: "recorded_state" });
+  if (room.streamMode === "channel_hls" && (health === "live" || health === "connecting")) {
+    const { maybeAutoStartObsRoomOnIngestSignal } = await import("@/lib/live-obs-auto-start");
+    await maybeAutoStartObsRoomOnIngestSignal(liveRoomId).catch((e) =>
+      console.error("[IVS] obs auto-start failed", liveRoomId, e),
+    );
+  }
+  return result;
 }
 
 export async function findLiveRoomIdByIvsChannelArn(channelArn: string): Promise<string | null> {
@@ -997,7 +1046,9 @@ export async function ensureStageHlsCompositionActive(roomId: string): Promise<v
   if (room.streamPaused === true) return;
   if (!room.ivsStageArn || !room.ivsChannelArn) return;
   const health = room.streamHealth?.toLowerCase();
-  if (health !== "live" && health !== "connecting") return;
+  // After overnight Pause, health can be offline while the room is still live. Still heal so
+  // Play restores HLS for guests; WebRTC buyers recover via host republish + subscribe remount.
+  if (health !== "live" && health !== "connecting" && health !== "offline") return;
 
   let compositionState: string | null = null;
   let destinationState: string | null = null;

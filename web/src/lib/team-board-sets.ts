@@ -181,6 +181,7 @@ export const TEAM_BOARD_DISPLAY_NAMES: Record<TeamBoardLeagueKey, Record<string,
     TEN: "Titans",
     WAS: "Commanders",
     MISC: "Misc",
+    NCAA: "NCAA",
   },
   nba: {
     ATL: "Hawks",
@@ -294,11 +295,12 @@ export function normalizeTeamAbbr(raw: string): string {
 export function isValidTeamForLeague(
   league: string,
   abbr: string,
-  opts?: { allowMisc?: boolean },
+  opts?: { allowMisc?: boolean; allowNcaa?: boolean },
 ): boolean {
   if (league !== "nfl" && league !== "nba" && league !== "mlb" && league !== "nhl") return false;
   const a = normalizeTeamAbbr(abbr);
   if (opts?.allowMisc && league === "nfl" && a === "MISC") return true;
+  if (opts?.allowNcaa && league === "nfl" && a === "NCAA") return true;
   return TEAM_BOARD_SETS[league].includes(a);
 }
 

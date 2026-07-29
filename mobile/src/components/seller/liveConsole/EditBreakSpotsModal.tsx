@@ -46,6 +46,7 @@ export function EditBreakSpotsModal({
   const saleType = useMemo(() => {
     if (item?.salesFormat === 'team_break') return 'pyd' as const;
     if (item?.salesFormat === 'variant_selection') return 'pyt' as const;
+    if (item?.salesFormat === 'player_selection') return 'pyp' as const;
     return null;
   }, [item?.salesFormat]);
 

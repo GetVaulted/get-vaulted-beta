@@ -11,6 +11,18 @@ export function confirmStartLive(onConfirm: () => void) {
   );
 }
 
+/** OBS / RTMP path — start the show without turning on the phone camera. */
+export function confirmStartObsShow(onConfirm: () => void) {
+  Alert.alert(
+    'Start show with OBS?',
+    'This opens the live room for buyers. Video comes from OBS — keep Start Streaming on in OBS. This will not turn on your phone camera.',
+    [
+      { text: 'Not yet', style: 'cancel' },
+      { text: 'Start show', onPress: onConfirm },
+    ],
+  );
+}
+
 export function confirmEndLive(onConfirm: () => void) {
   Alert.alert(
     'End live?',

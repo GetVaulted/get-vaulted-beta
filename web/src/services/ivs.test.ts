@@ -140,6 +140,29 @@ describe("stage HLS composition (guest HLS mirror)", () => {
     expect(hoisted.compositionSend).not.toHaveBeenCalled();
   });
 
+  it("ensureStageHlsCompositionActive retries a missing mirror while streamHealth is offline", async () => {
+    const { ensureStageHlsCompositionActive } = await import("@/services/ivs");
+    hoisted.liveRoomFindUnique.mockResolvedValueOnce({
+      status: "live",
+      streamMode: "stage_webrtc",
+      streamHealth: "offline",
+      streamPaused: false,
+      ivsCompositionArn: null,
+      ivsStageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
+      ivsChannelArn: "arn:aws:ivs:us-east-1:123:channel/abc",
+    });
+    hoisted.liveRoomFindUnique.mockResolvedValueOnce({
+      ivsStageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
+      ivsChannelArn: "arn:aws:ivs:us-east-1:123:channel/abc",
+      ivsCompositionArn: null,
+    });
+    hoisted.compositionSend.mockResolvedValueOnce({
+      composition: { arn: "arn:aws:ivs:us-east-1:123:composition/offline-heal" },
+    });
+    await ensureStageHlsCompositionActive("room_1");
+    expect(hoisted.compositionSend).toHaveBeenCalledTimes(1);
+  });
+
   it("ensureStageHlsCompositionActive retries a missing mirror while the room is live", async () => {
     const { ensureStageHlsCompositionActive } = await import("@/services/ivs");
     hoisted.liveRoomFindUnique.mockResolvedValueOnce({

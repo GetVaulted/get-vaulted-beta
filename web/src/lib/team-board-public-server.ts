@@ -25,7 +25,7 @@ export async function getTeamBoardPublicPayload(liveRoomId: string): Promise<Tea
       items: {
         where: { status: "active" },
         take: 1,
-        select: { teamBoardMisc: true },
+        select: { teamBoardMisc: true, teamBoardNcaa: true },
       },
     },
   });
@@ -47,9 +47,15 @@ export async function getTeamBoardPublicPayload(liveRoomId: string): Promise<Tea
 
   const league: TeamBoardLeague = room.teamBoardLeague ?? board?.league ?? "nba";
   const activeMisc = room.items[0]?.teamBoardMisc === true;
+  const activeNcaa = room.items[0]?.teamBoardNcaa === true;
   const includeMisc = league === "nfl" && activeMisc;
+  const includeNcaa = league === "nfl" && activeNcaa;
   const base = TEAM_BOARD_SETS[teamBoardLeagueKey(league)];
-  const teams = includeMisc ? [...base, "MISC"] : [...base];
+  const teams = [
+    ...base,
+    ...(includeMisc ? (["MISC"] as const) : []),
+    ...(includeNcaa ? (["NCAA"] as const) : []),
+  ];
 
   const state: TeamBoardStateDTO = {
     liveRoomId,

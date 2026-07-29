@@ -81,14 +81,24 @@ export function LiveVariantSelectionSheet({
   const [error, setError] = useState<string | null>(null);
   const [checkoutPreview, setCheckoutPreview] = useState<LiveVariantCheckoutPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [spotSearch, setSpotSearch] = useState("");
 
   const isRandom = isRandomVariantAssignment(item.variantAssignmentMode);
   const isDivisionBreak = item.salesFormat === "team_break";
+  const isPlayerBreak = item.salesFormat === "player_selection";
+  const spotNoun = isDivisionBreak ? "divisions" : isPlayerBreak ? "players" : "teams";
+  const spotNounSingular = isDivisionBreak ? "division" : isPlayerBreak ? "player" : "team";
   const pickerVariants = useMemo(() => {
     const exclude = new Set(excludeVariantIds ?? []);
     return (item.variants ?? []).filter((v) => !exclude.has(v.id));
   }, [excludeVariantIds, item.variants]);
   const variants = useMemo(() => sortVariantsForBuyerDisplay(pickerVariants), [pickerVariants]);
+  const showSpotSearch = !isRandom && isPlayerBreak && variants.length > 12;
+  const filteredVariants = useMemo(() => {
+    const q = spotSearch.trim().toLowerCase();
+    if (!q) return variants;
+    return variants.filter((v) => v.label.toLowerCase().includes(q));
+  }, [spotSearch, variants]);
   const selectedVariants = useMemo(
     () => variants.filter((v) => selectedIds.includes(v.id)),
     [selectedIds, variants],
@@ -120,6 +130,7 @@ export function LiveVariantSelectionSheet({
       setBusy(false);
       setCheckoutPreview(null);
       setPreviewLoading(false);
+      setSpotSearch("");
       return;
     }
     if (isRandom) {
@@ -347,34 +358,49 @@ export function LiveVariantSelectionSheet({
             <p className="text-sm font-black text-white">{pickerTitle}</p>
             <p className="mt-0.5 text-[11px] font-semibold text-zinc-500">
               {isRandom
-                ? "Hold to buy — Vault Reveal assigns your team from what's left"
+                ? "Hold to buy — Vault Reveal assigns your spot from what's left"
                 : selectionCount > 0
                   ? walletReady
                     ? selectionCount > 1
                       ? `Hold to buy to pay ${fmtMoney(chargeNow)} for ${selectionCount} spots — shipping and tax below`
                       : `Hold to buy to pay ${fmtMoney(chargeNow)} now — spot, shipping, and tax below`
-                    : `Confirm ${isDivisionBreak ? "division" : "team"}, then hold to buy to checkout`
-                  : `Tap ${isDivisionBreak ? "divisions" : "teams"} to multi-select, then checkout`}
+                    : `Confirm ${spotNounSingular}, then hold to buy to checkout`
+                  : `Tap ${spotNoun} to multi-select, then checkout`}
             </p>
             {!isRandom ? (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {variants.map((v) => (
-                  <VariantPill
-                    key={v.id}
-                    variant={v}
-                    selected={selectedIds.includes(v.id)}
-                    onSelect={() => {
-                      if (!variantIsAvailable(v)) return;
-                      toggleSpot(v.id);
-                    }}
+              <>
+                {showSpotSearch ? (
+                  <input
+                    type="search"
+                    value={spotSearch}
+                    onChange={(e) => setSpotSearch(e.target.value)}
+                    placeholder="Search players…"
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500"
+                    aria-label="Search players"
                   />
-                ))}
-              </div>
+                ) : null}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {filteredVariants.map((v) => (
+                    <VariantPill
+                      key={v.id}
+                      variant={v}
+                      selected={selectedIds.includes(v.id)}
+                      onSelect={() => {
+                        if (!variantIsAvailable(v)) return;
+                        toggleSpot(v.id);
+                      }}
+                    />
+                  ))}
+                </div>
+                {showSpotSearch && filteredVariants.length === 0 ? (
+                  <p className="mt-2 text-[11px] font-semibold text-zinc-500">No players match that search.</p>
+                ) : null}
+              </>
             ) : (
               <div className="mt-3 rounded-xl border border-amber-400/25 bg-gradient-to-r from-amber-500/10 to-zinc-950/80 px-4 py-3 text-center">
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200/90">Vault Reveal</p>
                 <p className="mt-1 text-sm font-bold text-white">
-                  {spotSummary.available} {item.salesFormat === "team_break" ? "divisions" : "teams"} left in the pool
+                  {spotSummary.available} {spotNoun} left in the pool
                 </p>
               </div>
             )}

@@ -13,7 +13,7 @@ import { formatSoldSpotBuyerLabel } from '../../../lib/liveVariantSpotBoard';
 import { colors, radii, spacing } from '../../../theme';
 
 type Props = {
-  saleType: 'pyt' | 'pyd';
+  saleType: 'pyt' | 'pyd' | 'pyp';
   spots: LiveBreakVariantDraft[];
   onChange: (next: LiveBreakVariantDraft[]) => void;
   disabled?: boolean;
@@ -48,7 +48,12 @@ export function breakSpotsFromItemVariants(
     }>;
   },
 ): LiveBreakVariantDraft[] | null {
-  if (item.salesFormat !== 'variant_selection' && item.salesFormat !== 'team_break') return null;
+  if (
+    item.salesFormat !== 'variant_selection' &&
+    item.salesFormat !== 'team_break' &&
+    item.salesFormat !== 'player_selection'
+  )
+    return null;
   if (!item.variants?.length) return null;
   return item.variants
     .slice()

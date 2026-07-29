@@ -43,10 +43,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   const streamPaused = body.streamPaused;
+  // Overnight Pause often leaves streamHealth=offline after AWS teardown. Promote to connecting
+  // on Play so buyers' live signal / HLS heal run again (new feed is fine).
+  const resumeHealth =
+    !streamPaused &&
+    room.streamHealth !== "live" &&
+    room.streamHealth !== "connecting"
+      ? "connecting"
+      : undefined;
+
   const updated = await prisma.liveRoom.update({
     where: { id: liveRoomId },
     data: {
       streamPaused,
+      ...(resumeHealth ? { streamHealth: resumeHealth, streamEndedAt: null, hostAbsentSince: null } : {}),
       roomVersion: { increment: 1 },
     },
     select: { streamHealth: true, streamPaused: true, roomVersion: true },

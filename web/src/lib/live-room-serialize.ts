@@ -20,6 +20,7 @@ import {
   serializeLiveItemVariants,
   type LiveItemVariantDTO,
 } from "@/lib/live-item-variant-serialize";
+import { normalizeCustomRandomPoolLabels } from "../../../shared/live-player-spot-list";
 
 export type { LiveItemVariantDTO };
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
@@ -72,6 +73,9 @@ export type LiveRoomItemDTO = {
   status: LiveRoomItemStatus;
   sortOrder: number;
   teamBoardMisc: boolean;
+  teamBoardNcaa: boolean;
+  /** Custom random-reveal pool (player_selection random). */
+  customRandomPoolLabels: string[] | null;
   itemVersion: number;
   /** Host opens bidding with Start; false while lot is only posted on screen. */
   biddingOpen: boolean;
@@ -288,6 +292,10 @@ export function serializeLiveRoomItem(
     status: row.status,
     sortOrder: row.sortOrder,
     teamBoardMisc: row.teamBoardMisc,
+    teamBoardNcaa: row.teamBoardNcaa,
+    customRandomPoolLabels: normalizeCustomRandomPoolLabels(
+      (row as { customRandomPoolLabels?: unknown }).customRandomPoolLabels,
+    ),
     itemVersion: row.itemVersion,
     biddingOpen,
     auctionEndsAt,

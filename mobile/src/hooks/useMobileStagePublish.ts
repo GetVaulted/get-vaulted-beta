@@ -101,6 +101,8 @@ export function useMobileStagePublish(args: {
   const intentionalStopRef = useRef(false);
   /** Pause button or app-background pause — stay paused until host taps Resume. */
   const intentionalPauseRef = useRef(false);
+  /** Wall clock when minimize / Pause started — drives warm vs cold Play after long holds. */
+  const pauseStartedAtRef = useRef<number | null>(null);
   const reconnectInFlightRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
   /** Bumped to cancel stale reconnect/AppState timers after stop / failed start / Retry. */
@@ -122,6 +124,8 @@ export function useMobileStagePublish(args: {
 
   const [phase, setPhase] = useState<MobileHostBroadcastPhase>('idle');
   const [error, setError] = useState<string | null>(null);
+  /** True only while setStreamsPublished(true) is active — not merely phase=live/paused. */
+  const [publishing, setPublishing] = useState(false);
   const [localPreviewReady, setLocalPreviewReady] = useState(false);
   const [permissionState, setPermissionState] = useState<SellerCameraPermissionState>('idle');
   const [permissionError, setPermissionError] = useState<string | null>(null);
@@ -132,6 +136,11 @@ export function useMobileStagePublish(args: {
 
   const cbRef = useRef(args);
   cbRef.current = args;
+
+  const setPublishingActive = useCallback((next: boolean) => {
+    publishingRef.current = next;
+    if (mountedRef.current) setPublishing(next);
+  }, []);
 
   useEffect(() => {
     phaseRef.current = phase;
@@ -156,8 +165,11 @@ export function useMobileStagePublish(args: {
 
     intentionalPauseRef.current = true;
     interruptedPublishRef.current = true;
+    if (pauseStartedAtRef.current == null) {
+      pauseStartedAtRef.current = Date.now();
+    }
     bumpReconnectEpoch();
-    publishingRef.current = false;
+    setPublishingActive(false);
     if (mountedRef.current) {
       setPhase('paused');
       setError(null);
@@ -182,7 +194,7 @@ export function useMobileStagePublish(args: {
       setPhase('paused');
       setError(null);
     }
-  }, [bumpReconnectEpoch]);
+  }, [bumpReconnectEpoch, setPublishingActive]);
 
   const minimizeShowRef = useRef(minimizeShow);
   minimizeShowRef.current = minimizeShow;
@@ -273,7 +285,7 @@ export function useMobileStagePublish(args: {
     await withIvsStageSerialized(async () => {
       clearTokenRefreshTimer();
       clearStageListeners();
-      publishingRef.current = false;
+      setPublishingActive(false);
       try {
         await setStreamsPublished(false);
       } catch {
@@ -293,7 +305,7 @@ export function useMobileStagePublish(args: {
     await withIvsStageSerialized(async () => {
       clearTokenRefreshTimer();
       clearStageListeners();
-      publishingRef.current = false;
+      setPublishingActive(false);
       try {
         await setStreamsPublished(false);
       } catch {
@@ -500,7 +512,7 @@ export function useMobileStagePublish(args: {
           // Pause / leave-app calls setStreamsPublished(false) on purpose — that often surfaces as
           // publish "failed". Stay on Host paused with Play; never drop to idle + Retry (black feed).
           if (shouldStayPausedAfterIntentionalUnpublish(intentionalPauseRef.current)) {
-            publishingRef.current = false;
+            setPublishingActive(false);
             if (mountedRef.current) {
               setPhase('paused');
               setError(null);
@@ -512,7 +524,7 @@ export function useMobileStagePublish(args: {
             if (!startInFlightRef.current) {
               setError(evt.error || 'Publish failed.');
               setPhase('idle');
-              publishingRef.current = false;
+              setPublishingActive(false);
               void teardownStageConnection();
               void endServerSession();
             }
@@ -524,7 +536,7 @@ export function useMobileStagePublish(args: {
           }
           setError(evt.error || 'Publish failed.');
           setPhase('idle');
-          publishingRef.current = false;
+          setPublishingActive(false);
           wentLiveRef.current = false;
           bumpReconnectEpoch();
           void teardownStageConnection();
@@ -536,7 +548,7 @@ export function useMobileStagePublish(args: {
         if (!evt.isFatal) return;
         // Background pause can tear the Stage socket — keep Host paused so Play can full-rejoin.
         if (shouldStayPausedAfterIntentionalUnpublish(intentionalPauseRef.current)) {
-          publishingRef.current = false;
+          setPublishingActive(false);
           if (mountedRef.current) {
             setPhase('paused');
             setError(null);
@@ -547,7 +559,7 @@ export function useMobileStagePublish(args: {
           if (!startInFlightRef.current && (publishingRef.current || wentLiveRef.current)) {
             setError(evt.description || `stage_error_${evt.code}`);
             setPhase('idle');
-            publishingRef.current = false;
+            setPublishingActive(false);
             wentLiveRef.current = false;
             bumpReconnectEpoch();
             void teardownStageConnection();
@@ -561,7 +573,7 @@ export function useMobileStagePublish(args: {
         }
         setError(evt.description || `stage_error_${evt.code}`);
         setPhase('idle');
-        publishingRef.current = false;
+        setPublishingActive(false);
         wentLiveRef.current = false;
         bumpReconnectEpoch();
         void teardownStageConnection();
@@ -570,7 +582,7 @@ export function useMobileStagePublish(args: {
 
       listenerSubsRef.current = [pubSub, errSub];
     },
-    [bumpReconnectEpoch, clearStageListeners, endServerSession, teardownStageConnection],
+    [bumpReconnectEpoch, clearStageListeners, endServerSession, setPublishingActive, teardownStageConnection],
   );
 
   const reconnectPublish = useCallback(
@@ -601,7 +613,7 @@ export function useMobileStagePublish(args: {
           // Stay "live" intent — never park on paused unless the host tapped Pause.
           if (phaseRef.current !== 'paused') setPhase('starting');
         }
-        publishingRef.current = false;
+        setPublishingActive(false);
         setTimeout(() => {
           if (epoch !== reconnectEpochRef.current) return;
           if (!intentionalStopRef.current && wentLiveRef.current && !startInFlightRef.current) {
@@ -656,7 +668,7 @@ export function useMobileStagePublish(args: {
         attachPublishListeners({
           onFirstLive: () => {
             reconnectAttemptsRef.current = 0;
-            publishingRef.current = true;
+            setPublishingActive(true);
             if (mountedRef.current) {
               setPhase('live');
               setError(null);
@@ -676,7 +688,7 @@ export function useMobileStagePublish(args: {
           return;
         }
 
-        publishingRef.current = true;
+        setPublishingActive(true);
         reconnectAttemptsRef.current = 0;
         if (mountedRef.current) {
           setPhase('live');
@@ -693,7 +705,7 @@ export function useMobileStagePublish(args: {
             setError(friendlyPublishError(err) || 'Reconnecting to live…');
             if (phaseRef.current !== 'paused') setPhase('starting');
           }
-          publishingRef.current = false;
+          setPublishingActive(false);
           setTimeout(() => {
             if (epoch !== reconnectEpochRef.current) return;
             if (!intentionalStopRef.current && wentLiveRef.current && !startInFlightRef.current) {
@@ -769,7 +781,7 @@ export function useMobileStagePublish(args: {
         /* best-effort reset */
       }
       startInFlightRef.current = false;
-      publishingRef.current = false;
+      setPublishingActive(false);
       wentLiveRef.current = false;
       reconnectAttemptsRef.current = 0;
       startPromiseRef.current = null;
@@ -799,7 +811,7 @@ export function useMobileStagePublish(args: {
       intentionalStopRef.current = false;
       intentionalPauseRef.current = false;
       wentLiveRef.current = false;
-      publishingRef.current = false;
+      setPublishingActive(false);
       reconnectAttemptsRef.current = 0;
       setPhase('starting');
       setError(null);
@@ -807,7 +819,7 @@ export function useMobileStagePublish(args: {
       const markLive = () => {
         if (wentLiveRef.current) return;
         wentLiveRef.current = true;
-        publishingRef.current = true;
+        setPublishingActive(true);
         reconnectAttemptsRef.current = 0;
         setPhase('live');
         void cbRef.current.onBroadcastStarted?.();
@@ -844,7 +856,7 @@ export function useMobileStagePublish(args: {
           /* best-effort */
         }
         wentLiveRef.current = false;
-        publishingRef.current = false;
+        setPublishingActive(false);
         reconnectAttemptsRef.current = 0;
         intentionalStopRef.current = false;
         setPhase('idle');
@@ -890,7 +902,7 @@ export function useMobileStagePublish(args: {
       setError(friendlyPublishError(err));
     } finally {
       wentLiveRef.current = false;
-      publishingRef.current = false;
+      setPublishingActive(false);
       interruptedPublishRef.current = false;
       reconnectAttemptsRef.current = 0;
       setPhase('idle');
@@ -920,9 +932,11 @@ export function useMobileStagePublish(args: {
     if (!canAttemptHostResumeShow(resumeGate)) return false;
 
     // Stuck Host-paused flag while already publishing — Play only clears streamPaused.
-    if (shouldTreatHostResumeAsAlreadyLive(resumeGate)) {
+    // Never take this shortcut after an intentional Pause (even if phase briefly says live).
+    if (shouldTreatHostResumeAsAlreadyLive(resumeGate) && !intentionalPauseRef.current) {
       intentionalPauseRef.current = false;
       interruptedPublishRef.current = false;
+      pauseStartedAtRef.current = null;
       if (mountedRef.current) {
         setPhase('live');
         setError(null);
@@ -935,11 +949,14 @@ export function useMobileStagePublish(args: {
     intentionalStopRef.current = false;
     setError(null);
 
+    const pauseDurationMs =
+      pauseStartedAtRef.current != null ? Date.now() - pauseStartedAtRef.current : undefined;
+
     const previewOk = localStreamsReadyRef.current || (await ensureLocalPreview());
     if (!previewOk) {
       const msg = permissionError ?? cameraPermissionDeniedMessage();
       intentionalPauseRef.current = true;
-      publishingRef.current = false;
+      setPublishingActive(false);
       if (mountedRef.current) {
         setPhase('paused');
         setError(msg);
@@ -957,7 +974,8 @@ export function useMobileStagePublish(args: {
     const markLive = (expiresInSeconds?: number) => {
       intentionalPauseRef.current = false;
       interruptedPublishRef.current = false;
-      publishingRef.current = true;
+      pauseStartedAtRef.current = null;
+      setPublishingActive(true);
       wentLiveRef.current = true;
       reconnectAttemptsRef.current = 0;
       if (mountedRef.current) {
@@ -987,12 +1005,12 @@ export function useMobileStagePublish(args: {
       });
 
     try {
-      // Warm Play — same Stage join, just turn publish back on (industry keep-session-alive).
-      const preferWarm =
-        shouldPreferWarmHostResume({
-          phase: p === 'starting' || p === 'live' ? 'paused' : p,
-          intentionalPause: true,
-        }) || p === 'paused';
+      // Warm Play only for short Pause — overnight / long hold needs a fresh Stage join.
+      const preferWarm = shouldPreferWarmHostResume({
+        phase: p === 'paused' ? 'paused' : 'idle',
+        intentionalPause: true,
+        pauseDurationMs,
+      });
 
       if (preferWarm) {
         const publishedWait = waitForPublished(5_000);
@@ -1035,7 +1053,9 @@ export function useMobileStagePublish(args: {
         return false;
       }
 
-      const tokenPayload = await refreshHostStageToken(cbRef.current.roomId, cbRef.current.accessToken);
+      // POST prepareHostStageSession — same as Go Live: reconnecting health + Stage→HLS heal.
+      // PATCH refresh alone leaves overnight-torn composition dead and buyers on Waiting…
+      const tokenPayload = await requestHostStageToken(cbRef.current.roomId, cbRef.current.accessToken);
 
       if (intentionalStopRef.current || !mountedRef.current) {
         if (mountedRef.current) setPhase('paused');
@@ -1070,7 +1090,7 @@ export function useMobileStagePublish(args: {
     } catch (err) {
       // Live show recovery failed — stay minimized (Play), never idle Retry.
       intentionalPauseRef.current = true;
-      publishingRef.current = false;
+      setPublishingActive(false);
       wentLiveRef.current = true;
       if (mountedRef.current) {
         setPhase('paused');
@@ -1087,6 +1107,7 @@ export function useMobileStagePublish(args: {
     ensureLocalPreview,
     permissionError,
     scheduleTokenRefresh,
+    setPublishingActive,
   ]);
 
   /** @deprecated Prefer minimizeShow — Pause button alias. */
@@ -1123,6 +1144,6 @@ export function useMobileStagePublish(args: {
     toggleMicrophoneMute,
     microphoneMuted,
     retryPreviewPermission,
-    isPublishing: phase === 'live' || phase === 'starting' || phase === 'paused',
+    isPublishing: publishing,
   };
 }

@@ -16,6 +16,7 @@ describe('isVariantSalesFormat', () => {
   it('matches team break formats', () => {
     expect(isVariantSalesFormat('team_break')).toBe(true);
     expect(isVariantSalesFormat('variant_selection')).toBe(true);
+    expect(isVariantSalesFormat('player_selection')).toBe(true);
     expect(isVariantSalesFormat('auction')).toBe(false);
   });
 });
@@ -68,6 +69,8 @@ describe('variantSelectSpotLabel', () => {
   it('uses team label for team_break', () => {
     expect(variantSelectSpotLabel('team_break')).toBe('Pick Your Division');
     expect(variantSelectSpotLabel('variant_selection')).toBe('Pick Your Team');
+    expect(variantSelectSpotLabel('player_selection')).toBe('Pick Your Player');
+    expect(variantSelectSpotLabel('player_selection', true)).toBe('Random Player');
   });
 });
 

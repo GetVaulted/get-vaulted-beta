@@ -298,6 +298,8 @@ export function useSellerLiveConsole({
           variantAssignmentMode: payload.variantAssignmentMode,
           sellerShippingProfileId: payload.sellerShippingProfileId ?? null,
           shippingProfileId: payload.shippingProfileId ?? null,
+          teamBoardNcaa: payload.teamBoardNcaa === true,
+          customRandomPoolLabels: payload.customRandomPoolLabels ?? null,
         });
         setItems((prev) => {
           const sortOrder = prev.reduce((max, item) => Math.max(max, item.sortOrder ?? 0), -1) + 1;
@@ -319,6 +321,7 @@ export function useSellerLiveConsole({
             sortOrder,
             salesFormat: payload.salesFormat,
             variantAssignmentMode: payload.variantAssignmentMode,
+            teamBoardNcaa: payload.teamBoardNcaa === true,
             variants: payload.variants?.map((variant, index) => ({
               id: `pending-${newItemId}-${index}`,
               label: variant.label,

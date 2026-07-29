@@ -36,6 +36,8 @@ export const TEAM_BOARD_PRIMARY_BG: Record<TeamBoardLeagueKey, Record<string, st
     TEN: "#0C2340",
     WAS: "#5A1414",
     MISC: "#52525b",
+    NCAA: "#7C2D12",
+    PLAYER: "#1e3a5f",
   },
   nba: {
     ATL: "#E03A3E",
@@ -173,6 +175,8 @@ export const TEAM_BOARD_SECONDARY_BG: Record<TeamBoardLeagueKey, Record<string, 
     TEN: "#4B92DB",
     WAS: "#FFB612",
     MISC: "#71717a",
+    NCAA: "#B45309",
+    PLAYER: "#93c5fd",
   },
   nba: {
     ATL: "#000000",
