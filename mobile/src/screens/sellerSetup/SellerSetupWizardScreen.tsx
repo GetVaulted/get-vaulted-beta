@@ -171,8 +171,14 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     let cancelled = false;
     void (async () => {
       const pref = await fetchSellerPayoutPreference(token);
-      if (cancelled || !pref) return;
-      setPaypalEnabled(pref.paypalSellerPayoutsEnabled);
+      if (cancelled) return;
+      // Prefer server readiness flag from setup load so chooser isn't stuck off if preference GET fails.
+      const fromReadiness = setup.readiness?.checks?.paypalSellerPayoutsEnabled === true;
+      if (!pref) {
+        if (fromReadiness) setPaypalEnabled(true);
+        return;
+      }
+      setPaypalEnabled(pref.paypalSellerPayoutsEnabled === true || fromReadiness);
       setPaypalEmail(pref.paypalPayoutEmail ?? '');
       setPaypalReady(Boolean(pref.paypalPayoutVerifiedAt));
       if (pref.preferredSellerPayoutProcessor === 'PAYPAL' || pref.paypalPayoutVerifiedAt) {
@@ -182,7 +188,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, setup.readiness?.checks?.paypalSellerPayoutsEnabled]);
 
   const patchPaypalPreference = useCallback(
     async (body: {

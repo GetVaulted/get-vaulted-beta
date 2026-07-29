@@ -9,14 +9,10 @@ import {
 type PayoutPhase = "not_connected" | "connecting" | "connected" | "confirming" | "error";
 type PayoutRail = "STRIPE" | "PAYPAL";
 
-const STRIPE_INFO = [
+const STRIPE_ONLY_INFO = [
   {
     title: "Stripe Connect",
     body: "Stripe verifies your identity and pays out to your bank. Best for sellers who want automatic bank deposits.",
-  },
-  {
-    title: "PayPal",
-    body: "Get paid to a verified PayPal email when orders clear payout gates. No Stripe Connect required.",
   },
 ] as const;
 
@@ -109,7 +105,7 @@ export function PayoutStep({
         </div>
       ) : (
         <ul className="mt-5 space-y-3">
-          {STRIPE_INFO.map((block) => (
+          {STRIPE_ONLY_INFO.map((block) => (
             <li key={block.title} className="rounded-xl border border-white/[0.06] bg-black/25 px-4 py-3">
               <p className="text-xs font-bold uppercase tracking-wide text-zinc-400">{block.title}</p>
               <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">{block.body}</p>

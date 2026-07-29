@@ -18,6 +18,8 @@ export type SellerReadinessChecks = {
   hasShipFromAddress: boolean;
   /** Seller chose PayPal and has a verified payout email. */
   paypalPayoutReady?: boolean;
+  /** Server feature flag — show Stripe vs PayPal chooser in onboarding. */
+  paypalSellerPayoutsEnabled?: boolean;
   preferredSellerPayoutProcessor?: 'STRIPE' | 'PAYPAL';
 };
 
@@ -143,6 +145,7 @@ export function normalizeSellerReadinessChecks(
     stripePayoutSubmitted: Boolean(raw?.stripePayoutSubmitted || raw?.stripeChargesEnabled),
     hasShipFromAddress: Boolean(raw?.hasShipFromAddress),
     paypalPayoutReady: Boolean(raw?.paypalPayoutReady),
+    paypalSellerPayoutsEnabled: Boolean(raw?.paypalSellerPayoutsEnabled),
     preferredSellerPayoutProcessor: preferred,
   };
 }

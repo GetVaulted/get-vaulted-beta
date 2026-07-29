@@ -46,6 +46,7 @@ type LiveReadinessChecks = {
   stripePayoutSubmitted: boolean;
   hasShipFromAddress: boolean;
   paypalPayoutReady?: boolean;
+  paypalSellerPayoutsEnabled?: boolean;
   preferredSellerPayoutProcessor?: "STRIPE" | "PAYPAL";
 };
 
@@ -129,6 +130,8 @@ export function SellerSetupWizard() {
         setPayoutRail("STRIPE");
       }
       setPaypalReady(Boolean(checks?.paypalPayoutReady));
+      // Prefer readiness flag (same request as setup load) so PayPal chooser isn't lost if preference GET fails.
+      setPaypalEnabled(checks?.paypalSellerPayoutsEnabled === true);
       if (s) {
         setShipName(s.shipFromName ?? "");
         setShipStreet(s.shipFromStreet ?? "");
@@ -148,13 +151,15 @@ export function SellerSetupWizard() {
             paypalPayoutEmail?: string | null;
             paypalPayoutVerifiedAt?: string | null;
           };
-          setPaypalEnabled(pref.paypalSellerPayoutsEnabled === true);
+          if (typeof pref.paypalSellerPayoutsEnabled === "boolean") {
+            setPaypalEnabled(pref.paypalSellerPayoutsEnabled);
+          }
           if (pref.preferredSellerPayoutProcessor === "PAYPAL") setPayoutRail("PAYPAL");
           setPaypalEmail(pref.paypalPayoutEmail ?? "");
           setPaypalReady(Boolean(pref.paypalPayoutVerifiedAt));
         }
       } catch {
-        /* preference optional for Stripe-only envs */
+        /* email/preference optional — chooser still uses readiness flag above */
       }
     } finally {
       setLoading(false);

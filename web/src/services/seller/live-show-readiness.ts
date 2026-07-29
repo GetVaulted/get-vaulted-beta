@@ -10,6 +10,7 @@ import {
 import { hasCompleteSellerShipFrom, sellerNeedsShipFromPhoneOnly } from "@/lib/seller-shipping-readiness";
 import { isShippoConfigured } from "@/lib/shippo";
 import { isStripeConfigured } from "@/lib/stripe";
+import { isPayPalSellerPayoutsEnabled } from "@/lib/paypal";
 import { parseRequirementsDue } from "@/lib/stripe-connect-status-response";
 import { isStripePayoutSetupSubmitted } from "@/lib/stripe-payout-submitted";
 
@@ -90,6 +91,7 @@ export async function getSellerLiveReadiness(
         stripeChargesEnabled: false,
         stripePayoutSubmitted: false,
         paypalPayoutReady: false,
+        paypalSellerPayoutsEnabled: isPayPalSellerPayoutsEnabled(),
         preferredSellerPayoutProcessor: "STRIPE",
         hasShippoConfigured: isShippoConfigured(),
         hasShipFromAddress: false,
@@ -151,6 +153,7 @@ export async function getSellerLiveReadiness(
     stripeChargesEnabled,
     stripePayoutSubmitted,
     paypalPayoutReady,
+    paypalSellerPayoutsEnabled: isPayPalSellerPayoutsEnabled(),
     preferredSellerPayoutProcessor: preferred,
     hasShippoConfigured,
     hasShipFromAddress,
