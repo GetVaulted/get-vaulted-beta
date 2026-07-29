@@ -119,7 +119,6 @@
           "isAccessMediaLocationEnabled": false
         }
       ],
-      "expo-sharing",
       "@react-native-community/datetimepicker",
       [
         "expo-notifications",
