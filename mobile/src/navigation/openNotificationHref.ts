@@ -93,6 +93,16 @@ export function openNotificationHref(
     return true;
   }
 
+  // Referral credits live in Vault Wallet on mobile (Account → Vault Wallet → Referral Credit).
+  if (
+    path.startsWith('/account/referrals') ||
+    path.startsWith('/account/wallet') ||
+    path.startsWith('/account/vault-wallet')
+  ) {
+    n.navigate('BuyerWallet');
+    return true;
+  }
+
   if (path.startsWith('/account/offers') || (ctx?.type?.includes('offer') && !ctx?.type?.startsWith('trade_'))) {
     n.navigate('MainTabs', { screen: 'Marketplace' });
     return true;
