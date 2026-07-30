@@ -11,8 +11,11 @@ import {
   syncBreakSpotPaymentIntent,
 } from "@/lib/live-payment-pipeline";
 import { finalizeLiveItemVariantPurchasePaid, releaseVariantPurchaseOnCheckoutExpired, reopenVariantPurchaseForRecovery } from "@/lib/live-item-variant-purchase";
-import { finalizeBreakSpotPaid } from "@/lib/live-buy-now-purchase";
+import { releaseVariantPurchaseBatchOnCheckoutExpired } from "@/lib/live-item-variant-batch-purchase";
+import { finalizeBreakSpotPaid, releaseBreakSpotOnDefiniteFailure } from "@/lib/live-buy-now-purchase";
+import { releaseActiveInventoryHoldsForOrderId } from "@/lib/live-auction-inventory-hold";
 import { prisma } from "@/lib/prisma";
+import { releaseReferralCreditReservation } from "@/lib/referral-credit";
 import {
   emitLiveRoomPaymentFailed,
   emitLiveRoomPaymentRecovered,
@@ -913,7 +916,7 @@ export async function syncLiveRoomPaymentFailureAfterSca(args: {
   };
 }
 
-/** Host dismisses a stuck payment retry — releases held variant spot and unblocks the buyer. */
+/** Host dismisses a stuck payment retry — releases held spots/inventory and unblocks the buyer. */
 export async function cancelLiveRoomPaymentFailureBySeller(args: {
   liveRoomId: string;
   sellerId: string;
@@ -940,11 +943,39 @@ export async function cancelLiveRoomPaymentFailureBySeller(args: {
   if (failure.variantPurchaseId) {
     const purchase = await prisma.liveItemVariantPurchase.findUnique({
       where: { id: failure.variantPurchaseId },
-      select: { paymentStatus: true },
+      select: { paymentStatus: true, batchId: true },
     });
-    if (purchase?.paymentStatus === "pending_payment") {
+    if (purchase?.batchId) {
+      await releaseVariantPurchaseBatchOnCheckoutExpired(purchase.batchId);
+    } else if (purchase?.paymentStatus === "pending_payment") {
       await releaseVariantPurchaseOnCheckoutExpired(failure.variantPurchaseId);
     }
+  }
+
+  // Break spots stay held through buyer recovery; host cancel returns the label to the board.
+  if (failure.breakSpotId) {
+    await releaseBreakSpotOnDefiniteFailure(failure.breakSpotId);
+  }
+
+  if (failure.orderId) {
+    await releaseActiveInventoryHoldsForOrderId(failure.orderId).catch((e) =>
+      console.error("[payment failure] cancel could not release inventory holds", {
+        orderId: failure.orderId,
+        error: e,
+      }),
+    );
+    await prisma.order
+      .updateMany({
+        where: { id: failure.orderId, paymentStatus: { not: "paid" } },
+        data: { paymentStatus: "failed", status: "cancelled", stripePaymentIntentId: null },
+      })
+      .catch(() => {});
+    releaseReferralCreditReservation(failure.orderId).catch((e) =>
+      console.error("[referral-credit] release failed (host cancel payment retry)", {
+        orderId: failure.orderId,
+        error: e,
+      }),
+    );
   }
 
   await prisma.liveRoomPaymentFailure.delete({ where: { id: failure.id } });

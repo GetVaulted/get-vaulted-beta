@@ -30,6 +30,8 @@ type Props = {
   onClose: () => void;
   liveRoomId: string;
   onReadinessChange?: (ready: boolean) => void;
+  /** Fired after a card/Cash App is saved — use for live payment recovery retry. */
+  onPaymentMethodSaved?: (paymentMethodId: string) => void;
 };
 
 function SheetHeader({ title, onBack }: { title: string; onBack?: () => void }) {
@@ -85,7 +87,13 @@ function RowButton({
   );
 }
 
-export function LivePremiumWalletSheet({ open, onClose, liveRoomId: _liveRoomId, onReadinessChange }: Props) {
+export function LivePremiumWalletSheet({
+  open,
+  onClose,
+  liveRoomId: _liveRoomId,
+  onReadinessChange,
+  onPaymentMethodSaved,
+}: Props) {
   const [step, setStep] = useState<Step>("main");
   const [loading, setLoading] = useState(false);
   const [wallet, setWallet] = useState<BuyerWalletSummaryDTO | null>(null);
@@ -154,11 +162,12 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId: _liveRoomId,
   const handleCardSaved = (pm: { id: string; brand: string; last4: string; expMonth: number; expYear: number }) => {
     setPaymentMethods((prev) => {
       if (prev.some((row) => row.id === pm.id)) return prev;
-      return [{ ...pm, isDefault: prev.length === 0 }, ...prev.map((row) => ({ ...row, isDefault: false }))];
+      return [{ ...pm, isDefault: true }, ...prev.map((row) => ({ ...row, isDefault: false }))];
     });
     setSaveNotice("Payment method saved.");
     setStep("payment");
     void reload();
+    onPaymentMethodSaved?.(pm.id);
   };
 
   const handleAddressSaved = (address: WalletShippingAddressRow) => {

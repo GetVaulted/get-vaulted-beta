@@ -1,6 +1,10 @@
 import Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
-import { ensureStripeCustomerIdForUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
+import {
+  ensureStripeCustomerIdForUser,
+  getBuyerDefaultCardPaymentMethodId,
+  setBuyerDefaultPaymentMethod,
+} from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { syncBuyerDefaultShippingToPendingOrder } from "@/lib/live-buy-now-purchase";
@@ -90,6 +94,10 @@ export async function finalizeBuyerPaymentMethod(args: {
     paymentMethodId: args.paymentMethodId.trim(),
     detachExpiredCards: true,
   });
+
+  // Keep User.buyerDefaultWalletPaymentMethodId in sync — recovery retries prefer this over Stripe's
+  // customer default, so a newly saved card must become the app default or Retry keeps the old PM.
+  await setBuyerDefaultPaymentMethod(args.userId, pm.id);
 
   const brandRaw =
     pm.type === "cashapp"

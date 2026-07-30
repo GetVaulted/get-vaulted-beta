@@ -243,7 +243,7 @@ describe("finalizeBreakSpotPaid — FIX 4: loud alert on swallowed order finaliz
   });
 });
 
-describe("releaseBreakSpotOnDefiniteFailure — FIX 6", () => {
+describe("releaseBreakSpotOnDefiniteFailure — host cancel / abandon", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prismaMock.breakSpot.findUnique.mockResolvedValue(

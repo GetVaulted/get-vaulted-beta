@@ -27,7 +27,6 @@ import {
   createLiveBuyNowOrder,
   finalizeBreakSpotPaid,
   refreshBuyerShippingOnOrderIfIncomplete,
-  releaseBreakSpotOnDefiniteFailure,
 } from "@/lib/live-buy-now-purchase";
 import { resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
 import {
@@ -1522,14 +1521,8 @@ export async function settleLiveBreakSpotPayment(args: {
     return { ok: true, processing: true, paymentIntentId: charge.paymentIntentId };
   }
 
-  // FIX 6: unlike variant purchases (`releaseVariantPurchaseOnCheckoutExpired`), a break spot claim
-  // was never released on a failed charge, permanently holding the spot after a dead card. Only
-  // release on a CONFIRMED-definite failure — an ambiguous/network error must not release a spot
-  // whose charge might still have gone through.
-  if (charge.outcome === "error" && charge.definiteFailure !== false) {
-    await releaseBreakSpotOnDefiniteFailure(spot.id);
-  }
-
+  // Keep the BreakSpot claimed while an unresolved payment failure exists so the buyer can
+  // update their card and retry. Host "Cancel retry" releases via releaseBreakSpotOnDefiniteFailure.
   return {
     ok: false,
     code: charge.code,

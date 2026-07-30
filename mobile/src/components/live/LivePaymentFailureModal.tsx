@@ -266,24 +266,24 @@ export function LivePaymentFailureModal({
               <Pressable
                 style={[styles.primaryBtn, busy && styles.disabled]}
                 disabled={busy}
+                onPress={openWalletForRecovery}
+                accessibilityRole="button"
+                accessibilityLabel="Update Wallet"
+              >
+                <LiveRoomText style={styles.primaryLabel}>Update Wallet</LiveRoomText>
+              </Pressable>
+              <Pressable
+                style={[styles.secondaryBtn, busy && styles.disabled]}
+                disabled={busy}
                 onPress={() => void runRetry()}
                 accessibilityRole="button"
                 accessibilityLabel="Retry payment"
               >
                 {busy ? (
-                  <ActivityIndicator color={colors.background} />
+                  <ActivityIndicator color={colors.textPrimary} />
                 ) : (
-                  <LiveRoomText style={styles.primaryLabel}>Retry payment</LiveRoomText>
+                  <LiveRoomText style={styles.secondaryLabel}>Retry payment</LiveRoomText>
                 )}
-              </Pressable>
-              <Pressable
-                style={[styles.secondaryBtn, busy && styles.disabled]}
-                disabled={busy}
-                onPress={openWalletForRecovery}
-                accessibilityRole="button"
-                accessibilityLabel="Update Wallet"
-              >
-                <LiveRoomText style={styles.secondaryLabel}>Update Wallet</LiveRoomText>
               </Pressable>
               <Pressable
                 style={[styles.tertiaryBtn, busy && styles.disabled]}

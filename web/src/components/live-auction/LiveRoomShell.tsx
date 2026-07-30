@@ -83,6 +83,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const [spotCelebration, setSpotCelebration] = useState<LiveSpotTakenCelebrationPayload | null>(null);
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
   const [premiumWalletOpen, setPremiumWalletOpen] = useState(false);
+  const [recoveryPaymentMethodId, setRecoveryPaymentMethodId] = useState<string | null>(null);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const seenSpotCelebrationKeysRef = useRef<Set<string>>(new Set());
   /** Sticky last known count — must stay above loading/null early returns (React hooks rules). */
@@ -1035,6 +1036,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         failure={paymentFailure}
         onResolved={() => void load()}
         onOpenWallet={() => setPremiumWalletOpen(true)}
+        recoveryPaymentMethodId={recoveryPaymentMethodId}
+        onRecoveryPaymentMethodConsumed={() => setRecoveryPaymentMethodId(null)}
       />
     ) : null;
 
@@ -1093,6 +1096,10 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           onClose={() => setPremiumWalletOpen(false)}
           liveRoomId={detail.id}
           onReadinessChange={() => void load()}
+          onPaymentMethodSaved={(paymentMethodId) => {
+            setPremiumWalletOpen(false);
+            setRecoveryPaymentMethodId(paymentMethodId);
+          }}
         />
       </>
     );
@@ -1151,6 +1158,10 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         onClose={() => setPremiumWalletOpen(false)}
         liveRoomId={detail.id}
         onReadinessChange={() => void load()}
+        onPaymentMethodSaved={(paymentMethodId) => {
+          setPremiumWalletOpen(false);
+          setRecoveryPaymentMethodId(paymentMethodId);
+        }}
       />
     </>
   );

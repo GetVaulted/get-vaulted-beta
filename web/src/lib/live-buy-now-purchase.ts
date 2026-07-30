@@ -717,16 +717,12 @@ export async function finalizeBreakSpotPaid(args: {
 }
 
 /**
- * FIX 6: release a break spot claim on a DEFINITE/terminal payment failure so other buyers can
- * claim it, mirroring `releaseVariantPurchaseOnCheckoutExpired`'s pattern for variant purchases.
- * Unlike variant purchases (which restore a `quantityRemaining` counter), a `BreakSpot` row IS the
- * claim — `@@unique([liveRoomId, spotLabel])` means the row must be deleted (not just re-flagged)
- * for a different buyer to claim the same label, matching the host's manual "release spot" action.
+ * Release a break spot claim so another buyer can take the label.
+ * Used when the host cancels a stuck payment retry (or other confirmed abandon paths).
+ * Never call while a successful charge may still settle — releasing would allow a double sell.
  *
- * Callers MUST only invoke this for a confirmed-definite failure (e.g. Stripe told us the
- * PaymentIntent is dead) — never for an ambiguous/network error, since Stripe may have actually
- * processed the charge and releasing the spot would let it be double-sold while the original buyer
- * is still charged.
+ * A `BreakSpot` row IS the claim — `@@unique([liveRoomId, spotLabel])` means the row must be
+ * deleted for a different buyer to claim the same label.
  */
 export async function releaseBreakSpotOnDefiniteFailure(breakSpotId: string): Promise<void> {
   const spot = await prisma.breakSpot.findUnique({

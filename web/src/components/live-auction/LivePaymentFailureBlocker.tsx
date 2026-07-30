@@ -2,7 +2,7 @@
 
 import { loadStripe } from "@stripe/stripe-js";
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { LiveBuyerPaymentFailureDTO } from "@/lib/live-room-serialize";
 
 type Props = {
@@ -10,77 +10,108 @@ type Props = {
   failure: LiveBuyerPaymentFailureDTO;
   onResolved: () => void;
   onOpenWallet: () => void;
+  /** Freshly saved PM from Vault Wallet — triggers an automatic retry with that card. */
+  recoveryPaymentMethodId?: string | null;
+  onRecoveryPaymentMethodConsumed?: () => void;
 };
 
-export function LivePaymentFailureBlocker({ liveRoomId, failure, onResolved, onOpenWallet }: Props) {
+export function LivePaymentFailureBlocker({
+  liveRoomId,
+  failure,
+  onResolved,
+  onOpenWallet,
+  recoveryPaymentMethodId,
+  onRecoveryPaymentMethodConsumed,
+}: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const retryInFlight = useRef(false);
 
-  const retryPayment = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/payment-failure/retry`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ failureId: failure.id }),
-      });
-      const payload = (await res.json()) as {
-        error?: string;
-        paid?: boolean;
-        ok?: boolean;
-        message?: string;
-        requiresAction?: boolean;
-        clientSecret?: string;
-        publishableKey?: string;
-      };
-      if (payload.paid || payload.ok) {
-        setSuccess(true);
-        onResolved();
-        return;
-      }
-      if (payload.requiresAction && payload.clientSecret) {
-        const pk = payload.publishableKey?.trim() || process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() || "";
-        const stripe = pk ? await loadStripe(pk) : null;
-        if (!stripe) {
-          setError("Complete verification in your Vault Wallet, then tap Fix Payment again.");
-          return;
-        }
-        const conf = await stripe.confirmCardPayment(payload.clientSecret);
-        if (conf.error) {
-          setError(conf.error.message ?? "Verification failed.");
-          return;
-        }
-        const syncRes = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/payment-failure/retry`, {
+  const retryPayment = useCallback(
+    async (paymentMethodId?: string | null) => {
+      if (retryInFlight.current) return;
+      retryInFlight.current = true;
+      setBusy(true);
+      setError(null);
+      try {
+        const body: { failureId: string; paymentMethodId?: string } = { failureId: failure.id };
+        const pm = paymentMethodId?.trim();
+        if (pm) body.paymentMethodId = pm;
+
+        const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/payment-failure/retry`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ failureId: failure.id, action: "sync" }),
+          body: JSON.stringify(body),
         });
-        const syncPayload = (await syncRes.json()) as { error?: string; paid?: boolean; ok?: boolean; message?: string };
-        if (syncRes.ok && (syncPayload.paid || syncPayload.ok)) {
+        const payload = (await res.json()) as {
+          error?: string;
+          paid?: boolean;
+          ok?: boolean;
+          message?: string;
+          requiresAction?: boolean;
+          clientSecret?: string;
+          publishableKey?: string;
+        };
+        if (payload.paid || payload.ok) {
           setSuccess(true);
           onResolved();
           return;
         }
-        setError(syncPayload.error ?? "Payment not completed.");
-        return;
+        if (payload.requiresAction && payload.clientSecret) {
+          const pk =
+            payload.publishableKey?.trim() || process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() || "";
+          const stripe = pk ? await loadStripe(pk) : null;
+          if (!stripe) {
+            setError("Complete verification in your Vault Wallet, then tap Retry payment again.");
+            return;
+          }
+          const conf = await stripe.confirmCardPayment(payload.clientSecret);
+          if (conf.error) {
+            setError(conf.error.message ?? "Verification failed.");
+            return;
+          }
+          const syncRes = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/payment-failure/retry`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ failureId: failure.id, action: "sync" }),
+          });
+          const syncPayload = (await syncRes.json()) as {
+            error?: string;
+            paid?: boolean;
+            ok?: boolean;
+            message?: string;
+          };
+          if (syncRes.ok && (syncPayload.paid || syncPayload.ok)) {
+            setSuccess(true);
+            onResolved();
+            return;
+          }
+          setError(syncPayload.error ?? "Payment not completed.");
+          return;
+        }
+        setError(
+          typeof payload.error === "string" ? payload.error : "Payment failed. Update your card and try again.",
+        );
+      } catch {
+        setError("Network error — try again.");
+      } finally {
+        retryInFlight.current = false;
+        setBusy(false);
       }
-      setError(typeof payload.error === "string" ? payload.error : "Payment failed. Update your card and try again.");
-    } catch {
-      setError("Network error — try again.");
-    } finally {
-      setBusy(false);
-    }
-  }, [failure.id, liveRoomId, onResolved]);
+    },
+    [failure.id, liveRoomId, onResolved],
+  );
 
-  const handleFixPayment = () => {
-    onOpenWallet();
-    void retryPayment();
-  };
+  useEffect(() => {
+    const pm = recoveryPaymentMethodId?.trim();
+    if (!pm || success) return;
+    onRecoveryPaymentMethodConsumed?.();
+    void retryPayment(pm);
+  }, [recoveryPaymentMethodId, onRecoveryPaymentMethodConsumed, retryPayment, success]);
 
   return (
     <div
@@ -108,20 +139,28 @@ export function LivePaymentFailureBlocker({ liveRoomId, failure, onResolved, onO
         ) : null}
         {error ? <p className="mt-3 text-sm text-rose-300">{error}</p> : null}
         {!success ? (
-          <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+          <div className="mt-6 flex flex-col gap-2">
             <button
               type="button"
               disabled={busy}
-              onClick={handleFixPayment}
-              className="flex-1 rounded-full bg-amber-400 px-4 py-3 text-sm font-black uppercase tracking-wide text-zinc-950 disabled:opacity-50"
+              onClick={onOpenWallet}
+              className="w-full rounded-full bg-amber-400 px-4 py-3 text-sm font-black uppercase tracking-wide text-zinc-950 disabled:opacity-50"
             >
-              {busy ? "Processing…" : "Fix payment"}
+              Update Wallet
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void retryPayment()}
+              className="w-full rounded-full border border-white/15 bg-black/50 px-4 py-3 text-sm font-bold text-zinc-100 disabled:opacity-50"
+            >
+              {busy ? "Processing…" : "Retry payment"}
             </button>
             <button
               type="button"
               disabled={busy}
               onClick={() => router.push("/live")}
-              className="flex-1 rounded-full border border-white/15 bg-black/50 px-4 py-3 text-sm font-bold text-zinc-100"
+              className="w-full rounded-full px-4 py-2.5 text-sm font-bold text-zinc-400 hover:text-zinc-200"
             >
               Leave room
             </button>
