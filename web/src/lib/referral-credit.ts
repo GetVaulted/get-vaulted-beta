@@ -19,8 +19,10 @@ import { normalizeAddressKey, normalizeEmailForComparison } from "@/lib/identity
  * - Hold: credit sits `pending` until the qualifying order's own return/dispute window has
  *   closed (mirrors buyer-protection windows elsewhere), so a fast refund/chargeback can still
  *   claw it back before it's spendable.
- * - Guardrails v1: one referral attribution per account for life (immutable, set only at account
- *   creation or OAuth profile setup), plus a same-household self-referral heuristic (see `isLikelySelfReferral`).
+ * - Guardrails v1: one referral attribution per account for life (immutable), only for **new**
+ *   accounts (no prior paid orders; account created within {@link REFERRAL_ATTRIBUTION_MAX_AGE_MS}),
+ *   plus a same-household self-referral heuristic (see `isLikelySelfReferral`). Existing onboarded
+ *   users cannot enter a code in settings/wallet/checkout.
  *
  * Share links use each member's secret `User.referralCode` (not their public username). Legacy
  * `?ref=<username>` links still resolve during transition (`web/src/lib/referral-code.ts`).
@@ -29,6 +31,8 @@ import { normalizeAddressKey, normalizeEmailForComparison } from "@/lib/identity
 export const REFERRAL_CREDIT_AMOUNT_USD = 10;
 export const REFERRAL_MIN_QUALIFYING_ORDER_USD = 25;
 export const REFERRAL_CREDIT_HOLD_DAYS = 14;
+/** Max age of a Prisma user row that may still accept referral attribution (signup / first profile setup). */
+export const REFERRAL_ATTRIBUTION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const HOLD_MS = REFERRAL_CREDIT_HOLD_DAYS * 24 * 60 * 60 * 1000;
 /** Safety net: an in-flight checkout reservation that's sat this long without being committed or
  *  released (crashed process, abandoned tab) is treated as abandoned and returned to the pool. */
@@ -61,11 +65,9 @@ async function isLikelySelfReferral(
 }
 
 /**
- * Attribute a brand-new account to a referrer from a `?ref=` signup link. Only ever
- * called once, immediately after the Prisma `User` row is created (mobile: `AuthSignUpScreen` →
- * Supabase metadata; web: `registerAccountViaSupabaseAuth`) — both funnel through
- * `ensurePrismaUserForSupabaseAuth`, which is the single place this is invoked from. The
- * `referredById: null` guard makes this idempotent/safe even if called more than once.
+ * Attribute a brand-new account to a referrer from a `?ref=` signup link / first profile setup.
+ * Refuses existing buyers (any prior paid order) and accounts older than
+ * {@link REFERRAL_ATTRIBUTION_MAX_AGE_MS}. The `referredById: null` guard keeps attribution write-once.
  */
 export async function attributeReferralOnSignup(
   newUserId: string,
@@ -74,6 +76,28 @@ export async function attributeReferralOnSignup(
   try {
     const referrerId = await resolveReferrerIdFromReferralInput(rawReferralCode);
     if (!referrerId || referrerId === newUserId) return;
+
+    const user = await prisma.user.findUnique({
+      where: { id: newUserId },
+      select: { referredById: true, createdAt: true },
+    });
+    if (!user || user.referredById) return;
+    if (Date.now() - user.createdAt.getTime() > REFERRAL_ATTRIBUTION_MAX_AGE_MS) {
+      console.info("[referral-credit] skip attribution — account too old for referral", { newUserId });
+      return;
+    }
+
+    const priorPaidOrders = await prisma.order.count({
+      where: { buyerId: newUserId, paymentStatus: "paid" },
+    });
+    if (priorPaidOrders > 0) {
+      console.info("[referral-credit] skip attribution — existing buyer has paid orders", {
+        newUserId,
+        priorPaidOrders,
+      });
+      return;
+    }
+
     await prisma.user.updateMany({
       where: { id: newUserId, referredById: null },
       data: { referredById: referrerId, referredAt: new Date() },
@@ -119,6 +143,17 @@ export async function grantReferralCreditsForQualifyingOrder(orderId: string): P
       select: { id: true },
     });
     if (existingReferee) return;
+
+    // New-account program: credits only on the referee's first paid order (not a later purchase
+    // after a late/invalid attribution).
+    const priorPaidOrders = await prisma.order.count({
+      where: {
+        buyerId: order.buyerId,
+        paymentStatus: "paid",
+        id: { not: order.id },
+      },
+    });
+    if (priorPaidOrders > 0) return;
 
     const selfReferral = await isLikelySelfReferral(referrerId, {
       shipAddress: order.shipAddress,
