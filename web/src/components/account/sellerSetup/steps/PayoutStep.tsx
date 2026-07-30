@@ -64,7 +64,8 @@ export function PayoutStep({
   onEmbedFallback: () => void;
 }) {
   const errorMessage = reconcileError ?? loadError;
-  const payoutDone = phase === "connected" || paypalReady;
+  // Stripe "connected" must not mask the PayPal email form when PayPal is selected.
+  const payoutDone = rail === "PAYPAL" ? paypalReady : phase === "connected" || paypalReady;
 
   return (
     <WizardCard className="flex flex-1 flex-col">

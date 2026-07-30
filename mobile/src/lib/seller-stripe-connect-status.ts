@@ -13,6 +13,10 @@ export function isWizardPayoutStepComplete(
   checks: SellerReadinessChecks | null | undefined,
   connect: SellerConnectStatusResponse | null | undefined,
 ): boolean {
+  // PayPal rail is email-verify only — ignore Stripe Connect status for this step.
+  if (checks?.preferredSellerPayoutProcessor === 'PAYPAL') {
+    return Boolean(checks.paypalPayoutReady);
+  }
   if (isPayoutSetupSubmitted(checks)) return true;
   if (isSellerPayoutSetupComplete(connect)) return true;
   if (!connect?.stripe_account_id?.trim()) return false;

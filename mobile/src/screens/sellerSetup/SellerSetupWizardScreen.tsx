@@ -452,10 +452,11 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const wizardDataLoading = setup.phase === 'loading' || !stepReady;
 
   const checks = setup.checks;
+  // Local rail wins immediately on tap — Stripe already linked must not hide the PayPal email step.
   const payoutsDone =
-    isWizardPayoutStepComplete(checks, stripeConnect.status) ||
-    paypalReady ||
-    isPayoutSetupSubmitted(checks);
+    payoutRail === 'PAYPAL'
+      ? Boolean(paypalReady || checks?.paypalPayoutReady)
+      : isWizardPayoutStepComplete(checks, stripeConnect.status) || isPayoutSetupSubmitted(checks);
   const progressPct = Math.round((step / SELLER_WIZARD_TOTAL_STEPS) * 100);
   const payoutStepLoading = payoutBusy || payoutReconciling || paypalBusy;
 

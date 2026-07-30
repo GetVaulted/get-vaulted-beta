@@ -31,9 +31,13 @@ function isStripePayoutReady(checks: SellerReadinessChecks): boolean {
   );
 }
 
-/** Wizard payout step — Stripe submitted/verified OR PayPal email verified. */
+/** Wizard payout step — ready for the seller's *chosen* rail only. */
 export function isPayoutSetupSubmitted(checks: SellerReadinessChecks | null | undefined): boolean {
   if (!checks) return false;
+  // Choosing PayPal must not look "done" just because Stripe was connected earlier.
+  if (checks.preferredSellerPayoutProcessor === 'PAYPAL') {
+    return Boolean(checks.paypalPayoutReady);
+  }
   if (checks.paypalPayoutReady) return true;
   return isStripePayoutReady(checks);
 }
@@ -41,6 +45,9 @@ export function isPayoutSetupSubmitted(checks: SellerReadinessChecks | null | un
 /** Full payout verification — publish / go-live gate (not wizard). */
 export function isPayoutSetupComplete(checks: SellerReadinessChecks | null | undefined): boolean {
   if (!checks) return false;
+  if (checks.preferredSellerPayoutProcessor === 'PAYPAL') {
+    return Boolean(checks.paypalPayoutReady);
+  }
   if (checks.paypalPayoutReady) return true;
   return Boolean(checks.hasStripeAccount && checks.stripeChargesEnabled);
 }

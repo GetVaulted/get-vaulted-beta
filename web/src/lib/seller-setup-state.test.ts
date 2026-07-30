@@ -46,4 +46,18 @@ describe("seller-setup-state payout rails", () => {
     expect(isPayoutSetupComplete(checks)).toBe(false);
     expect(isRequiredSellerSetupComplete(checks)).toBe(true);
   });
+
+  it("does not treat Stripe as done when seller switched to PayPal without verifying email", () => {
+    const checks = {
+      hasStripeAccount: true,
+      stripeChargesEnabled: true,
+      stripePayoutSubmitted: true,
+      hasShipFromAddress: true,
+      paypalPayoutReady: false,
+      preferredSellerPayoutProcessor: "PAYPAL" as const,
+    };
+    expect(isPayoutSetupSubmitted(checks)).toBe(false);
+    expect(isPayoutSetupComplete(checks)).toBe(false);
+    expect(isRequiredSellerSetupComplete(checks)).toBe(false);
+  });
 });

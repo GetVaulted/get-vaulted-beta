@@ -509,7 +509,11 @@ export function SellerSetupWizard() {
   }
 
   const checks = readiness.checks;
-  const payoutsDone = isPayoutSetupSubmitted(checks);
+  // Local rail wins immediately on tap — Stripe already linked must not hide the PayPal email step.
+  const payoutsDone =
+    payoutRail === "PAYPAL"
+      ? Boolean(paypalReady || checks.paypalPayoutReady)
+      : isPayoutSetupSubmitted(checks);
   const payoutPhase = payoutsDone
     ? "connected"
     : payoutReconciling
