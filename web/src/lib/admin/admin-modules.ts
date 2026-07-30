@@ -15,7 +15,8 @@ export type AdminModuleId =
   | "listings"
   | "orders"
   | "reports"
-  | "tax";
+  | "tax"
+  | "referrals";
 
 export type AdminModuleDef = {
   id: AdminModuleId;
@@ -151,6 +152,13 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
     href: "/admin/tax",
     accent: "amber",
   },
+  {
+    id: "referrals",
+    title: "Referral credits",
+    description: "Ledger, wallets, pending holds, spent and voided referral credit.",
+    href: "/admin/referrals",
+    accent: "gold",
+  },
 ];
 
 export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
@@ -168,6 +176,7 @@ export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
     "support-tickets",
     "notifications",
     "health",
+    "referrals",
   ].includes(m.id),
 );
 
@@ -188,6 +197,7 @@ export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[]
   { href: "/admin/support-tickets", label: "Support" },
   { href: "/admin/notifications", label: "Notifications" },
   { href: "/admin/health", label: "Health" },
+  { href: "/admin/referrals", label: "Referrals" },
   { href: "/admin/tax", label: "Tax" },
 ];
 

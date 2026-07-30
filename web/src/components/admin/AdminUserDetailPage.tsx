@@ -94,6 +94,30 @@ type ActivityItem = {
 
 type ActivityPayload = { items: ActivityItem[]; lookbackDays: number };
 
+type ReferralSnapshot = {
+  referralCode: string | null;
+  referredBy: { id: string; username: string } | null;
+  referredAt: string | null;
+  availableUsd: number;
+  pendingUsd: number;
+  reservedUsd: number;
+  spentUsd: number;
+  voidedUsd: number;
+  successfulReferrals: number;
+  referredUserCount: number;
+  credits: Array<{
+    id: string;
+    status: string;
+    role: string;
+    amountUsd: number;
+    createdAt: string;
+    availableAt: string;
+    voidReason: string | null;
+    sourceOrder: { id: string; totalUsd: number; paymentStatus: string };
+    spentOrderId: string | null;
+  }>;
+};
+
 type LinkedPeer = {
   userId: string;
   username: string;
@@ -137,6 +161,8 @@ export function AdminUserDetailPage() {
   const [activityLoading, setActivityLoading] = useState(true);
   const [linked, setLinked] = useState<LinkedPayload | null>(null);
   const [linkedLoading, setLinkedLoading] = useState(true);
+  const [referral, setReferral] = useState<ReferralSnapshot | null>(null);
+  const [referralLoading, setReferralLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -162,21 +188,28 @@ export function AdminUserDetailPage() {
     let cancelled = false;
     setActivityLoading(true);
     setLinkedLoading(true);
+    setReferralLoading(true);
     void (async () => {
       try {
-        const [actRes, linkRes] = await Promise.all([
+        const [actRes, linkRes, refRes] = await Promise.all([
           fetch(`/api/admin/users/${encodeURIComponent(userId)}/activity`, { cache: "no-store" }),
           fetch(`/api/admin/users/${encodeURIComponent(userId)}/linked-accounts`, { cache: "no-store" }),
+          fetch(`/api/admin/users/${encodeURIComponent(userId)}/referral-credits`, { cache: "no-store" }),
         ]);
         if (cancelled) return;
         if (actRes.ok) setActivity((await actRes.json()) as ActivityPayload);
         else setActivity(null);
         if (linkRes.ok) setLinked((await linkRes.json()) as LinkedPayload);
         else setLinked(null);
+        if (refRes.ok) {
+          const j = (await refRes.json()) as { referral?: ReferralSnapshot };
+          setReferral(j.referral ?? null);
+        } else setReferral(null);
       } finally {
         if (!cancelled) {
           setActivityLoading(false);
           setLinkedLoading(false);
+          setReferralLoading(false);
         }
       }
     })();
@@ -348,6 +381,81 @@ export function AdminUserDetailPage() {
             {usernameBusy ? "Saving…" : "Set username"}
           </button>
         </div>
+      </section>
+
+      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Referral credits</h2>
+          <Link href="/admin/referrals" className="text-[10px] font-semibold text-gold-bright hover:underline">
+            Open referrals tracker →
+          </Link>
+        </div>
+        {referralLoading ? (
+          <p className="mt-3 text-zinc-500">Loading…</p>
+        ) : !referral ? (
+          <p className="mt-3 text-zinc-500">Could not load referral data.</p>
+        ) : (
+          <>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <p className="text-[10px] text-zinc-500">Available</p>
+                <p className="font-semibold text-emerald-300">${referral.availableUsd.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-zinc-500">Pending</p>
+                <p className="font-semibold text-amber-300">${referral.pendingUsd.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-zinc-500">Spent / voided</p>
+                <p className="font-semibold text-zinc-200">
+                  ${referral.spentUsd.toFixed(2)} / ${referral.voidedUsd.toFixed(2)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-zinc-500">Successful referrals</p>
+                <p className="font-semibold text-zinc-200">
+                  {referral.successfulReferrals} · {referral.referredUserCount} attributed signups
+                </p>
+              </div>
+            </div>
+            <p className="mt-3 text-[11px] text-zinc-500">
+              Code: <span className="font-mono text-zinc-300">{referral.referralCode ?? "—"}</span>
+              {referral.referredBy ? (
+                <>
+                  {" "}
+                  · Referred by{" "}
+                  <Link
+                    href={`/admin/users/${encodeURIComponent(referral.referredBy.id)}`}
+                    className="text-gold-bright hover:underline"
+                  >
+                    @{referral.referredBy.username}
+                  </Link>
+                </>
+              ) : null}
+            </p>
+            {referral.credits.length > 0 ? (
+              <ul className="mt-3 max-h-48 space-y-1.5 overflow-y-auto border-t border-white/[0.04] pt-3">
+                {referral.credits.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                    <span className="text-zinc-400">
+                      {c.role} · {c.status}
+                      {c.voidReason ? ` (${c.voidReason})` : ""}
+                    </span>
+                    <span className="tabular-nums text-zinc-200">${c.amountUsd.toFixed(2)}</span>
+                    <Link
+                      href={`/admin/orders/${encodeURIComponent(c.sourceOrder.id)}`}
+                      className="text-sky-300 hover:underline"
+                    >
+                      source order
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-zinc-500">No credit ledger rows for this user.</p>
+            )}
+          </>
+        )}
       </section>
 
       <section className="mt-6 grid gap-4 lg:grid-cols-2">
