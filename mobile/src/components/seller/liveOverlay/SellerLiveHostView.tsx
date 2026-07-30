@@ -829,8 +829,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
           navigation.navigate('MainTabs', { screen: 'Live', params: { screen: 'LiveDiscovery' } });
         }}
         onBroadcastSettings={() => setBroadcastOpen(true)}
-        onEndShow={host.stageWebrtcEnabled ? undefined : () => host.onEndShow()}
-        canEnd={canEnd && !host.stageWebrtcEnabled}
+        onEndShow={!host.stageWebrtcEnabled || obsMode ? () => host.onEndShow() : undefined}
+        canEnd={canEnd && (!host.stageWebrtcEnabled || obsMode)}
         endBusy={host.busy === 'end'}
         toolbarMinHeight={sellerToolbarHeight}
         toolbar={

@@ -54,6 +54,11 @@ export function VaultBroadcastControl({
         >
           <span className="truncate">Use PC camera</span>
         </button>
+        {roomLive ? (
+          <button type="button" onClick={onStop} aria-label="Stop stream" className={stopClass}>
+            <span className="truncate">Stop</span>
+          </button>
+        ) : null}
       </div>
     );
   }

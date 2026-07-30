@@ -1825,6 +1825,32 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     })();
   }, [refreshHostStreamSurfaces, roomId, webcamBroadcast]);
 
+  /** Stop stream = End live (OBS + phone). Soft Stage-only stop left shows "live" with nowhere to exit. */
+  const handleStopStream = useCallback(() => {
+    const status = data?.room?.status;
+    if (status === "live" || status === "scheduled") {
+      if (!window.confirm("End this live room for everyone?")) return;
+      void (async () => {
+        setBusy(true);
+        setToast(null);
+        try {
+          await webcamBroadcast.stop().catch(() => undefined);
+          const res = await patchLiveRoomAction(roomId, "end");
+          if (!res.ok) {
+            setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
+            return;
+          }
+          await load();
+          router.refresh();
+        } finally {
+          setBusy(false);
+        }
+      })();
+      return;
+    }
+    void webcamBroadcast.stop();
+  }, [data?.room?.status, load, roomId, router, webcamBroadcast]);
+
   const handlePreviewVideoDevice = useCallback(
     (deviceId: string) => {
       void webcamBroadcast.restartPreviewWithDevices(deviceId, webcamBroadcast.selectedAudioDeviceId);
@@ -2428,7 +2454,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         roomLive={room.status === "live"}
         companionMode={hostCompanionMode}
         onStart={handleGoLive}
-        onStop={() => void webcamBroadcast.stop()}
+        onStop={handleStopStream}
         onPause={handlePauseStream}
         onResume={handleResumeStream}
       />
@@ -2674,7 +2700,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             roomLive={room.status === "live"}
             companionMode={hostCompanionMode}
             onGoLive={handleGoLive}
-            onStopStream={() => void webcamBroadcast.stop()}
+            onStopStream={handleStopStream}
             onPauseStream={handlePauseStream}
             onResumeStream={handleResumeStream}
             streamTimerDisplay={streamTimerDisplay}
@@ -2756,7 +2782,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             roomLive={room.status === "live"}
             companionMode={hostCompanionMode}
             onGoLive={handleGoLive}
-            onStopStream={() => void webcamBroadcast.stop()}
+            onStopStream={handleStopStream}
             onPauseStream={handlePauseStream}
             onResumeStream={handleResumeStream}
             streamTimerDisplay={streamTimerDisplay}

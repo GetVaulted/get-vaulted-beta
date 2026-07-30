@@ -107,6 +107,24 @@ export function SellerBroadcastControl({
             )}
           </Pressable>
         ) : null}
+        {roomLive ? (
+          <Pressable
+            style={[
+              styles.stop,
+              compact && styles.stopCompact,
+              { width: btnSize, height: btnSize },
+              busy && styles.disabled,
+            ]}
+            onPress={() => {
+              if (busy) return;
+              confirmEndLive(onStop);
+            }}
+            disabled={busy}
+            accessibilityLabel={SELLER_CONSOLE.stopStream}
+          >
+            <Ionicons name="stop" size={iconSize} color="#fecdd3" />
+          </Pressable>
+        ) : null}
         <Pressable
           style={[
             styles.takeOver,
