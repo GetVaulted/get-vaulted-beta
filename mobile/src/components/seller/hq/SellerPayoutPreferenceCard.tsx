@@ -149,7 +149,7 @@ export function SellerPayoutPreferenceCard({ accessToken }: { accessToken: strin
           </Pressable>
         </View>
 
-        {data.paypalSellerPayoutsEnabled ? (
+        {data.paypalSellerPayoutsEnabled && paypalSelected ? (
           <View style={styles.emailBlock}>
             <Text style={styles.emailLbl}>PayPal payout email</Text>
             <TextInput
@@ -161,7 +161,11 @@ export function SellerPayoutPreferenceCard({ accessToken }: { accessToken: strin
               placeholder="you@paypal.com"
               placeholderTextColor={colors.textMuted}
               style={styles.emailInput}
+              autoFocus
             />
+            <Text style={styles.emailHint}>
+              No PayPal login — enter the email on your PayPal account, then Verify.
+            </Text>
             <View style={styles.emailActions}>
               <Pressable
                 disabled={busy}
@@ -246,6 +250,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.4)',
     fontSize: 14,
   },
+  emailHint: { color: colors.textMuted, fontSize: 11, lineHeight: 15 },
   emailActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
   secondaryBtn: {
     flex: 1,

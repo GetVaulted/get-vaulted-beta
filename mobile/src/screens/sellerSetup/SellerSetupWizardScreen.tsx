@@ -96,6 +96,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const [paypalReady, setPaypalReady] = useState(false);
   const [paypalBusy, setPaypalBusy] = useState(false);
   const [startSetupBusy, setStartSetupBusy] = useState(false);
+  const paypalEmailInputRef = useRef<TextInput | null>(null);
   const stripeReturnRef = useRef(false);
   const stripeReturnClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconcileInFlightRef = useRef(false);
@@ -296,6 +297,8 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   }, [step, setup, user?.id]);
 
   const openPayouts = async () => {
+    // PayPal sellers verify an email in-app — never open Stripe Connect for that rail.
+    if (payoutRail === 'PAYPAL') return;
     if (!token || payoutBusy || payoutReconciling) return;
     setPayoutBusy(true);
     setPayoutError(null);
@@ -315,6 +318,20 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     } finally {
       setPayoutBusy(false);
     }
+  };
+
+  const selectPayoutRail = (rail: 'STRIPE' | 'PAYPAL') => {
+    setPayoutRail(rail);
+    setPayoutError(null);
+    setPayoutNotice(null);
+    void patchPaypalPreference({ preferredSellerPayoutProcessor: rail }).then((ok) => {
+      if (!ok || rail !== 'PAYPAL') return;
+      // Keep focus on the email step — PayPal is not OAuth/Connect in seller setup.
+      requestAnimationFrame(() => {
+        wizardScrollRef.current?.scrollTo({ y: 160, animated: true });
+        paypalEmailInputRef.current?.focus();
+      });
+    });
   };
 
   const cancelPayoutReconcile = () => {
@@ -518,10 +535,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                 <View style={styles.railRow}>
                   <Pressable
                     disabled={payoutStepLoading}
-                    onPress={() => {
-                      setPayoutRail('STRIPE');
-                      void patchPaypalPreference({ preferredSellerPayoutProcessor: 'STRIPE' });
-                    }}
+                    onPress={() => selectPayoutRail('STRIPE')}
                     style={[styles.railChoice, payoutRail === 'STRIPE' && styles.railChoiceSelected]}
                   >
                     <Text style={styles.unlockTitle}>Stripe Connect</Text>
@@ -529,10 +543,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                   </Pressable>
                   <Pressable
                     disabled={payoutStepLoading}
-                    onPress={() => {
-                      setPayoutRail('PAYPAL');
-                      void patchPaypalPreference({ preferredSellerPayoutProcessor: 'PAYPAL' });
-                    }}
+                    onPress={() => selectPayoutRail('PAYPAL')}
                     style={[styles.railChoice, payoutRail === 'PAYPAL' && styles.railChoiceSelected]}
                   >
                     <Text style={styles.unlockTitle}>PayPal</Text>
@@ -554,6 +565,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                 <View style={styles.paypalBlock}>
                   <Text style={styles.fieldLabel}>PayPal payout email</Text>
                   <TextInput
+                    ref={paypalEmailInputRef}
                     value={paypalEmail}
                     onChangeText={setPaypalEmail}
                     autoCapitalize="none"
@@ -562,13 +574,14 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                     placeholder="you@paypal.com"
                     placeholderTextColor={colors.textMuted}
                     style={styles.input}
+                    autoFocus
                   />
                   <Text style={styles.unlockDesc}>
-                    Use the email on your PayPal account. Verify to confirm — Get Vaulted sends seller earnings there
-                    when orders clear payout.
+                    Enter the email on your PayPal account, then tap Verify. We do not open PayPal login or Connect —
+                    Get Vaulted sends seller earnings to this email when orders clear payout.
                   </Text>
                 </View>
-              ) : payoutStepLoading ? (
+              ) : payoutBusy || payoutReconciling ? (
                 <View style={styles.reconcileBox}>
                   <ActivityIndicator color={colors.gold} />
                   <Text style={styles.reconcileText}>Confirming payout setup…</Text>
