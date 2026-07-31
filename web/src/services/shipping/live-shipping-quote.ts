@@ -268,7 +268,7 @@ export async function refreshLiveShippingSessionShippoEstimate(
 
   const showConfig = liveShowShippingConfigFromRoom(session.liveShow);
 
-  let rawEstimateCents = tierFallbackCentsForPackageGroups(built.groups, showConfig.shippingCapCents);
+  let rawEstimateCents = tierFallbackCentsForPackageGroups(built.groups);
   let usedShippo = false;
 
   const buyer = session.orders[0];

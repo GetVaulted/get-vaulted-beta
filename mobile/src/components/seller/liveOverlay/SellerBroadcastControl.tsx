@@ -55,11 +55,7 @@ export function SellerBroadcastControl({
   const iconSize = headerCompact ? 15 : compact ? 18 : 20;
   const btnSize = headerCompact ? 32 : compact ? 44 : 48;
   const takeOver = onTakeOverCamera ?? onStart;
-  const obsCommandCenter =
-    obsMode &&
-    !isOnAir &&
-    phase !== 'starting' &&
-    phase !== 'stopping';
+  const obsCommandCenter = obsMode && !isOnAir && phase !== 'starting';
 
   // OBS path (or remote publisher): command center chrome — never auto-open this phone's camera.
   if (

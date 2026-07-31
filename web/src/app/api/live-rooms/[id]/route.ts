@@ -37,6 +37,7 @@ import { logSellerRoomStateSnapshot } from "@/lib/log-room-state-snapshot";
 import { liveShowEndGmvFields } from "@/lib/live-show-gmv";
 import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
 import { parseLiveTeaserFieldsFromBody } from "@/lib/live-room-teaser";
+import { ensureLiveBuyNowItemCheckoutListingTx } from "@/lib/live-buy-now-checkout-listing";
 import {
   filterStaffMessagesForViewer,
   viewerCanAccessStaffChat,
@@ -111,6 +112,42 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         if (reloaded) room = reloaded;
       } catch (e) {
         console.error("[api/live-rooms/[id]] finalizeOverdueLiveAuctionLots", e);
+      }
+    }
+  }
+
+  // Host "New lot → Buy Now" rows often have no marketplace listingId. Heal them on read so
+  // existing buyers (shop / Buy Now CTAs that check listingId) can checkout without a rebuild.
+  if (room.status === "live") {
+    const needsCheckoutLink = room.items
+      .filter(
+        (it) =>
+          (it.status === "active" || it.status === "queued") &&
+          it.salesFormat === "buy_now" &&
+          !it.listingId &&
+          typeof it.priceUsd === "number" &&
+          Number.isFinite(it.priceUsd) &&
+          it.priceUsd > 0,
+      )
+      .slice(0, 20);
+    if (needsCheckoutLink.length > 0) {
+      let healed = false;
+      for (const it of needsCheckoutLink) {
+        try {
+          const result = await prisma.$transaction(async (tx) =>
+            ensureLiveBuyNowItemCheckoutListingTx(tx, {
+              liveRoomId: id,
+              liveRoomItemId: it.id,
+            }),
+          );
+          if (result.ok) healed = true;
+        } catch (e) {
+          console.error("[api/live-rooms/[id]] ensureLiveBuyNowCheckoutListing", { itemId: it.id, e });
+        }
+      }
+      if (healed) {
+        const reloaded = await prisma.liveRoom.findUnique({ where: { id }, include: includeDetail });
+        if (reloaded) room = reloaded;
       }
     }
   }

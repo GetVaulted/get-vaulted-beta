@@ -18,6 +18,21 @@ export function isBuyerVenmoPayConfigured(): boolean {
   return enabled && paypalCredentialsConfigured();
 }
 
+/**
+ * Buyer PayPal Wallet vault/charge for live.
+ * Enabled when PAYPAL_BUYER_ENABLED is on, or when Venmo buyer pay is already configured
+ * (same PayPal app credentials / vault permissions).
+ */
+export function isBuyerPayPalWalletConfigured(): boolean {
+  const flag = (process.env.PAYPAL_BUYER_ENABLED ?? "").trim().toLowerCase();
+  if (flag === "false" || flag === "0" || flag === "no") return false;
+  if (flag === "true" || flag === "1" || flag === "yes") {
+    return paypalCredentialsConfigured();
+  }
+  // Default: if Venmo buyer rail is live, PayPal Wallet uses the same PayPal vault stack.
+  return isBuyerVenmoPayConfigured();
+}
+
 let cachedToken: { accessToken: string; expiresAtMs: number } | null = null;
 
 export async function getPayPalAccessToken(): Promise<string> {

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import {
   isLiveRoomBroadcastOnAir,
+  isLiveRoomBroadcastPurchasable,
   type LiveRoomBroadcastGate,
 } from "@/lib/live-room-broadcast-on-air";
 import {
@@ -19,11 +20,28 @@ export {
   type LiveBuyerCommerceBlock,
 } from "@/lib/live-room-commerce-messages";
 
-/** Blocks buyer bids and checkout when the host broadcast is offline or paused. */
+/** Auction/bid gates vs shop/Buy Now gates. Host pause only blocks auctions. */
+export type LiveBroadcastCommerceMode = "auction" | "purchase";
+
+/**
+ * Blocks buyer commerce when the host broadcast is offline.
+ * `auction` also blocks while the host is paused; `purchase` (Buy Now / spots / shop) stays open.
+ */
 export function getLiveRoomBroadcastCommerceBlock(
   room: LiveRoomBroadcastGate,
+  mode: LiveBroadcastCommerceMode = "auction",
 ): LiveBuyerCommerceBlock | null {
   if (room.status !== "live") return null;
+
+  if (mode === "purchase") {
+    if (isLiveRoomBroadcastPurchasable(room)) return null;
+    return {
+      status: 409,
+      error: LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR,
+      code: "LIVE_BROADCAST_OFFLINE",
+    };
+  }
+
   if (isLiveRoomBroadcastOnAir(room)) return null;
   if (room.streamPaused === true) {
     return {

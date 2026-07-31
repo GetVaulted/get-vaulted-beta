@@ -24,6 +24,7 @@ export function liveAcceptedWalletMethods(capabilities?: LiveWalletCapabilities)
     if (entry.id === "cash_app_pay" && !capabilities?.cashAppPay) return false;
     if (entry.id === "amazon_pay" && !capabilities?.amazonPay) return false;
     if (entry.id === "venmo" && !capabilities?.venmo) return false;
+    if (entry.id === "paypal" && !capabilities?.paypal) return false;
     return true;
   });
 }

@@ -178,23 +178,39 @@ function resolveBuyerVariantItemHud(
 
   const available = availableVariantCount(variants);
   const fromPrice = lowestAvailableVariantPrice(variants) ?? snap.priceUsd ?? snap.startingBidUsd ?? 0;
+  if (available <= 0) {
+    return {
+      ...base,
+      format: 'shop',
+      hybridFocus: null,
+      timerMmSs: '—',
+      itemTitle: itemTitleFallback,
+      currentPrefix: 'Status',
+      currentAmount: 'Sold out',
+      winningLine: '',
+      stateLine: 'All spots sold — open the team roster to see who got each team.',
+      bottomLeftLabel: 'Teams',
+      bottomRightLabel: 'Team roster',
+      bottomRightIsSlide: false,
+      showShopButton: false,
+      buyerPrimaryDisabled: false,
+      buyerSecondaryDisabled: false,
+    };
+  }
   return {
     ...base,
     format: 'shop',
     hybridFocus: null,
     timerMmSs: '—',
     itemTitle: itemTitleFallback,
-    currentPrefix: available > 0 ? 'From' : 'Status',
-    currentAmount: available > 0 ? formatMoney(fromPrice) : 'Sold out',
+    currentPrefix: 'From',
+    currentAmount: formatMoney(fromPrice),
     winningLine: '',
-    stateLine:
-      available > 0
-        ? `${available} spot${available === 1 ? '' : 's'} available — tap to claim yours.`
-        : 'All spots are sold or unavailable.',
+    stateLine: `${available} spot${available === 1 ? '' : 's'} available — tap to claim yours.`,
     bottomLeftLabel: 'Custom',
-    bottomRightLabel: available > 0 ? variantClaimPrimaryLabel(snap.activeItemSalesFormat) : 'Sold out',
+    bottomRightLabel: variantClaimPrimaryLabel(snap.activeItemSalesFormat),
     bottomRightIsSlide: false,
-    buyerPrimaryDisabled: available <= 0,
+    buyerPrimaryDisabled: false,
     buyerSecondaryDisabled: true,
   };
 }
@@ -211,7 +227,6 @@ function resolveBuyerBuyNowItemHud(
     stream.title?.trim() ||
     'Live item';
   const price = snap.priceUsd ?? stream.buyNowPrice ?? 0;
-  const checkoutReady = Boolean(snap.activeItemListingId?.trim());
 
   return {
     ...base,
@@ -222,13 +237,11 @@ function resolveBuyerBuyNowItemHud(
     currentPrefix: 'Price',
     currentAmount: price > 0 ? formatBidMoney(price) : '—',
     winningLine: '',
-    stateLine: checkoutReady
-      ? 'Tap Buy Now to checkout with your saved card.'
-      : 'Checkout is not linked for this item yet — ask the host in chat.',
+    stateLine: 'Tap Buy Now to checkout with your saved card.',
     bottomLeftLabel: 'Custom',
     bottomRightLabel: price > 0 ? `Buy Now ${formatBidMoney(price)}` : 'Buy Now',
     bottomRightIsSlide: false,
-    buyerPrimaryDisabled: !checkoutReady || price <= 0 || snap.status !== 'live',
+    buyerPrimaryDisabled: price <= 0 || snap.status !== 'live',
     buyerSecondaryDisabled: true,
   };
 }

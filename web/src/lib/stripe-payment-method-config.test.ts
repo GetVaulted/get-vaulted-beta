@@ -107,4 +107,11 @@ describe("stripe-payment-method-config", () => {
     expect(venmo!.eligibility).toEqual(expect.arrayContaining(["live", "marketplace", "trade"]));
     expect(venmo!.savableInWallet).toBe(true);
   });
+
+  it("includes PayPal in the live wallet catalog", () => {
+    const paypal = WALLET_METHOD_CATALOG.find((e) => e.id === "paypal");
+    expect(paypal).toBeTruthy();
+    expect(paypal!.eligibility).toEqual(expect.arrayContaining(["live", "marketplace", "trade"]));
+    expect(paypal!.savableInWallet).toBe(true);
+  });
 });

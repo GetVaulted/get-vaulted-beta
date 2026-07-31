@@ -232,6 +232,46 @@ export async function startBuyerVenmoSetup(accessToken: string | undefined): Pro
   };
 }
 
+/** Start PayPal Wallet linking (PayPal Orders save-during-purchase). */
+export async function startBuyerPayPalSetup(accessToken: string | undefined): Promise<{
+  authorizeUrl?: string;
+  paymentMethodId?: string;
+}> {
+  requireApiBase();
+  if (!accessToken?.trim()) throw new Error('Sign in to connect PayPal.');
+  const res = await fetchWebApiAuthed('/api/account/payment-methods/paypal-setup', accessToken, {
+    method: 'POST',
+    body: JSON.stringify({ mobileReturn: true }),
+  });
+  const raw = await res.text();
+  let j: {
+    authorizeUrl?: string;
+    paymentMethodId?: string;
+    error?: string;
+    code?: string;
+    issue?: string;
+    debugId?: string;
+  } = {};
+  try {
+    j = JSON.parse(raw) as typeof j;
+  } catch {
+    /* non-JSON body */
+  }
+  if (!res.ok) {
+    const detail = [j.error, j.issue ? `(${j.issue})` : null, j.debugId ? `debug ${j.debugId}` : null]
+      .filter(Boolean)
+      .join(' ');
+    if (detail) throw new Error(detail);
+    throw new Error(
+      `PayPal linking failed (HTTP ${res.status}). ${raw.replace(/\s+/g, ' ').trim().slice(0, 180) || 'Empty response from server — redeploy may still be in progress.'}`,
+    );
+  }
+  return {
+    authorizeUrl: typeof j.authorizeUrl === 'string' ? j.authorizeUrl : undefined,
+    paymentMethodId: typeof j.paymentMethodId === 'string' ? j.paymentMethodId : undefined,
+  };
+}
+
 export async function fetchBuyerWalletSummary(
   accessToken: string | undefined,
 ): Promise<BuyerWalletSummary | null> {

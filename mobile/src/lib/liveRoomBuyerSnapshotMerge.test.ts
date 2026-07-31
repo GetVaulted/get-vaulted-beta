@@ -3,6 +3,7 @@ import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import {
   mergeBuyerSnapshotForActiveItemChanged,
   mergeBuyerSnapshotForOptimisticBid,
+  patchBuyerSnapshotMinNextBid,
   reconcileBuyerSnapshotMonotonic,
 } from './liveRoomBuyerSnapshotMerge';
 
@@ -314,5 +315,19 @@ describe('mergeBuyerSnapshotForOptimisticBid', () => {
 
     expect(merged?.lastHighBidderId).toBe('me');
     expect(merged?.lastHighBidderUsername).toBe('vaulted_me');
+  });
+});
+
+describe('patchBuyerSnapshotMinNextBid', () => {
+  it('raises the local floor after an outbid rejection', () => {
+    const prev = snap({ currentBidUsd: 10, minNextBidUsd: 11 });
+    const next = patchBuyerSnapshotMinNextBid(prev, 16);
+    expect(next.minNextBidUsd).toBe(16);
+    expect(next.currentBidUsd).toBe(10);
+  });
+
+  it('does not lower an already-higher floor', () => {
+    const prev = snap({ minNextBidUsd: 20 });
+    expect(patchBuyerSnapshotMinNextBid(prev, 16).minNextBidUsd).toBe(20);
   });
 });

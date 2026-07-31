@@ -105,6 +105,13 @@ export function isActiveVariantBuyerItem(snap: LiveRoomBuyerSnapshot | null | un
   return (snap.activeItemVariants?.length ?? 0) > 0;
 }
 
+/** True when the active PYT/PYD lot has no open spots left (sold roster / break-in-progress). */
+export function isBuyerVariantRosterClosed(snap: LiveRoomBuyerSnapshot | null | undefined): boolean {
+  if (!isActiveVariantBuyerItem(snap)) return false;
+  const variants = snap!.activeItemVariants ?? [];
+  return variants.length > 0 && availableVariantCount(variants) <= 0;
+}
+
 export function variantIsAvailable(v: LiveItemVariantSnapshot): boolean {
   return v.quantityRemaining > 0 && v.status !== 'sold_out' && v.status !== 'removed';
 }

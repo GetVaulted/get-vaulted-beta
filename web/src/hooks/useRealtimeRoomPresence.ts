@@ -8,6 +8,12 @@ import {
   shouldPublishViewerCountBroadcast,
 } from "@/lib/live-room-viewer-count-broadcast";
 import {
+  createViewerCountStabilizerState,
+  nextStabilizedViewerCount,
+  resolveDisplayedViewerCount,
+  VIEWER_COUNT_DECREASE_HOLD_MS,
+} from "@/lib/live-room-viewer-count-stabilize";
+import {
   bindLiveRoomPresenceHandlers,
   bindLiveRoomViewerCountHandler,
   releaseLiveRoomChannel,
@@ -18,6 +24,10 @@ import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import { RT_EVENT } from "@/lib/realtime-channels";
 
 export type ViewerPresenceChatEvent = { kind: "joined"; label: string };
+
+const PRESENCE_HEARTBEAT_MS = 45_000;
+/** Keep host broadcast fresh for buyers even when the count is unchanged. */
+const HOST_UNCHANGED_PUBLISH_MS = 5_000;
 
 function resolvePresenceChatLabel(username: unknown, userId: unknown): string {
   if (typeof username === "string" && username.trim().length > 0) {
@@ -61,26 +71,44 @@ export function useRealtimeRoomPresence(opts: {
   } = opts;
   const [localCount, setLocalCount] = useState<number | null>(null);
   const [broadcastCount, setBroadcastCount] = useState<number | null>(null);
+  const [broadcastAtMs, setBroadcastAtMs] = useState<number | null>(null);
+  const [, setTick] = useState(0);
 
   const onViewerEventRef = useRef(onViewerEvent);
   const onPresenceStateChangeRef = useRef(onPresenceStateChange);
   const viewerDisplayNameRef = useRef(viewerDisplayName);
+  const userIdRef = useRef(userId);
   onViewerEventRef.current = onViewerEvent;
   onPresenceStateChangeRef.current = onPresenceStateChange;
   viewerDisplayNameRef.current = viewerDisplayName;
+  userIdRef.current = userId;
 
   const presenceKeyRef = useRef("");
   const lastBroadcastRef = useRef<{ count: number | null; at: number }>({ count: null, at: 0 });
+  const stabilizerRef = useRef(createViewerCountStabilizerState());
 
+  // Freeze the presence slot for a room session. Do NOT rebuild when session hydrates
+  // null → userId — that remounted presence and made the count jump.
   useLayoutEffect(() => {
-    presenceKeyRef.current =
-      liveRoomId && enabled ? buildPresenceChannelKey(liveRoomId, userId ?? null, trackSelf) : "";
-  }, [enabled, liveRoomId, trackSelf, userId]);
+    if (!liveRoomId || !enabled) {
+      presenceKeyRef.current = "";
+      return;
+    }
+    if (trackSelf) {
+      const prefix = `${liveRoomId}:`;
+      if (presenceKeyRef.current.startsWith(prefix)) return;
+      presenceKeyRef.current = buildPresenceChannelKey(liveRoomId, userIdRef.current ?? null, true);
+      return;
+    }
+    presenceKeyRef.current = buildPresenceChannelKey(liveRoomId, null, false);
+  }, [enabled, liveRoomId, trackSelf]);
 
   useEffect(() => {
     if (!enabled || !liveRoomId) {
       setLocalCount(null);
       setBroadcastCount(null);
+      setBroadcastAtMs(null);
+      stabilizerRef.current = createViewerCountStabilizerState();
       return;
     }
     const supabase = getSupabaseBrowserClient();
@@ -92,6 +120,9 @@ export function useRealtimeRoomPresence(opts: {
     const channel = retainLiveRoomChannel(supabase, liveRoomId, presenceKey);
     let reconnectCount = 0;
     let heartbeatId: number | null = null;
+    let hostPublishId: number | null = null;
+    let decreaseFlushId: number | null = null;
+    let broadcastFreshId: number | null = null;
     /** Cleared on matching presence `leave` so that viewer can get one join line again later. */
     const joinedChatAnnounced = new Set<string>();
 
@@ -105,6 +136,7 @@ export function useRealtimeRoomPresence(opts: {
           lastCount: prev.count,
           lastPublishedAtMs: prev.at,
           nowMs: now,
+          unchangedIntervalMs: HOST_UNCHANGED_PUBLISH_MS,
         })
       ) {
         return;
@@ -118,17 +150,33 @@ export function useRealtimeRoomPresence(opts: {
     };
 
     const updateCount = () => {
-      const next = countRoomPresenceViewers(channel.presenceState());
-      setLocalCount(next);
-      publishHostCount(next);
+      const raw = countRoomPresenceViewers(channel.presenceState());
+      const now = Date.now();
+      const next = nextStabilizedViewerCount(stabilizerRef.current, raw, now);
+      stabilizerRef.current = next;
+      if (next.displayed != null) {
+        setLocalCount(next.displayed);
+        publishHostCount(next.displayed);
+      }
+      if (decreaseFlushId != null) {
+        window.clearTimeout(decreaseFlushId);
+        decreaseFlushId = null;
+      }
+      if (next.pendingDecrease != null && next.pendingSinceMs != null) {
+        const wait = VIEWER_COUNT_DECREASE_HOLD_MS - (now - next.pendingSinceMs) + 50;
+        decreaseFlushId = window.setTimeout(() => {
+          updateCount();
+        }, Math.max(50, wait));
+      }
     };
 
     const trackPresence = async () => {
       if (!trackSelf) return;
-      const username = resolvePresenceChatLabel(viewerDisplayNameRef.current, userId);
+      const uid = userIdRef.current;
+      const username = resolvePresenceChatLabel(viewerDisplayNameRef.current, uid);
       await channel.track({
         tabKey: presenceKey,
-        userId,
+        userId: uid,
         username,
         liveRoomId,
         at: new Date().toISOString(),
@@ -161,8 +209,15 @@ export function useRealtimeRoomPresence(opts: {
 
     const unbindViewerCount = bindLiveRoomViewerCountHandler(liveRoomId, (payload) => {
       const n = parseViewerCountBroadcast(payload);
-      if (n != null) setBroadcastCount(n);
+      if (n == null) return;
+      setBroadcastCount(n);
+      setBroadcastAtMs(Date.now());
     });
+
+    // Re-evaluate broadcast freshness so buyers fall back to local after the window expires.
+    if (trackSelf) {
+      broadcastFreshId = window.setInterval(() => setTick((t) => t + 1), 2_000);
+    }
 
     const onVisible = () => {
       if (!trackSelf || document.visibilityState !== "visible") return;
@@ -180,15 +235,23 @@ export function useRealtimeRoomPresence(opts: {
           await channel.send({ type: "broadcast", event: RT_EVENT.viewerJoined, payload: { liveRoomId } });
         }
         if (heartbeatId != null) window.clearInterval(heartbeatId);
-        heartbeatId = window.setInterval(() => void trackPresence(), 25000);
+        heartbeatId = window.setInterval(() => void trackPresence(), PRESENCE_HEARTBEAT_MS);
       } else {
         updateCount();
+        if (hostPublishId != null) window.clearInterval(hostPublishId);
+        hostPublishId = window.setInterval(() => {
+          const displayed = stabilizerRef.current.displayed;
+          if (displayed != null) publishHostCount(displayed);
+        }, HOST_UNCHANGED_PUBLISH_MS);
       }
     });
 
     return () => {
       if (trackSelf) document.removeEventListener("visibilitychange", onVisible);
       if (heartbeatId != null) window.clearInterval(heartbeatId);
+      if (hostPublishId != null) window.clearInterval(hostPublishId);
+      if (decreaseFlushId != null) window.clearTimeout(decreaseFlushId);
+      if (broadcastFreshId != null) window.clearInterval(broadcastFreshId);
       unsubscribeStatus();
       unbindPresence();
       unbindViewerCount();
@@ -198,13 +261,18 @@ export function useRealtimeRoomPresence(opts: {
       }
       releaseLiveRoomChannel(supabase, liveRoomId);
     };
-    // `viewerDisplayName` is intentionally excluded: it's read live via a ref, and the 25s
-    // heartbeat re-tracks it. Including it forced every viewer to untrack/re-track the moment
-    // their profile name loaded (a few seconds after joining), flapping presence and making the
-    // room read low when several distinct accounts joined at once.
+    // `viewerDisplayName` / `userId` are read via refs so session hydrate does not remount presence.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, liveRoomId, trackSelf, userId]);
+  }, [enabled, liveRoomId, trackSelf]);
 
-  // Prefer the host-broadcast room count so every device shows the same number.
-  return broadcastCount ?? localCount;
+  // Host is the authority — never flip between local and a stale self-echo.
+  if (!trackSelf) return localCount;
+
+  // Buyers prefer a fresh host broadcast so every device shows the same accurate number.
+  return resolveDisplayedViewerCount({
+    broadcastCount,
+    broadcastAtMs,
+    localCount,
+    nowMs: Date.now(),
+  });
 }

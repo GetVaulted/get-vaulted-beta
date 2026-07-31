@@ -25,7 +25,7 @@ export function clearBuyerLiveWalletReadinessCache(userId?: string): void {
 /**
  * When Stripe is off (local dev), both gates are relaxed — same behavior as `buyerHasCardOnFileForLiveBidding`.
  * In production, live buyers need a live-eligible saved payment method (card, Cash App, Link,
- * Amazon Pay, or vaulted Venmo) and a shipping address on their account (Wallet).
+ * Amazon Pay, vaulted Venmo, or vaulted PayPal) and a shipping address on their account (Wallet).
  */
 export async function getBuyerLiveWalletReadiness(userId: string): Promise<WalletReadiness> {
   if (!isStripeConfigured()) {

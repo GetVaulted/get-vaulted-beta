@@ -10,6 +10,12 @@ import {
   getBuyerVenmoWalletMethod,
   isVenmoWalletPaymentMethodId,
 } from "@/lib/paypal-buyer-venmo";
+import {
+  buyerHasPayPalWalletOnFile,
+  getBuyerPayPalWalletMethod,
+  isPayPalWalletPaymentMethodId,
+} from "@/lib/paypal-buyer-wallet";
+import { isPayPalRailWalletPaymentMethodId } from "@/lib/paypal-buyer-rail";
 import type Stripe from "stripe";
 
 export type BuyerCardPaymentMethodRow = {
@@ -131,11 +137,12 @@ async function resolveDefaultPaymentMethodId(customerId: string): Promise<string
   return null;
 }
 
-/** All saved wallet payment methods (Stripe PMs + vaulted Venmo). */
+/** All saved wallet payment methods (Stripe PMs + vaulted Venmo / PayPal). */
 export async function listBuyerWalletPaymentMethods(userId: string): Promise<BuyerWalletPaymentMethodDTO[]> {
-  const [stripeRows, venmo] = await Promise.all([
+  const [stripeRows, venmo, paypal] = await Promise.all([
     listStripeBuyerWalletPaymentMethods(userId),
     getBuyerVenmoWalletMethod(userId),
+    getBuyerPayPalWalletMethod(userId),
   ]);
 
   const user = await prisma.user.findUnique({
@@ -146,12 +153,15 @@ export async function listBuyerWalletPaymentMethods(userId: string): Promise<Buy
 
   const rows = [...stripeRows];
   if (venmo) rows.push(venmo);
+  if (paypal) rows.push(paypal);
 
   if (preferred) {
     return rows.map((row) => ({ ...row, isDefault: row.id === preferred }));
   }
-  // Prefer an existing Stripe default; otherwise Venmo if it is the only defaulted row.
   if (rows.some((r) => r.isDefault)) return rows;
+  if (paypal) {
+    return rows.map((row) => ({ ...row, isDefault: row.id === paypal.id }));
+  }
   if (venmo) {
     return rows.map((row) => ({ ...row, isDefault: row.id === venmo.id }));
   }
@@ -213,6 +223,11 @@ export async function setBuyerDefaultPaymentMethod(userId: string, paymentMethod
     await setBuyerVenmoAsDefault(userId);
     return;
   }
+  if (isPayPalWalletPaymentMethodId(paymentMethodId)) {
+    const { setBuyerPayPalWalletAsDefault } = await import("@/lib/paypal-buyer-wallet");
+    await setBuyerPayPalWalletAsDefault(userId);
+    return;
+  }
   await assertPaymentMethodOwnedByUser(userId, paymentMethodId);
   const customerId = await ensureStripeCustomerIdForUser(userId);
   const stripe = getStripe();
@@ -229,6 +244,11 @@ export async function detachBuyerPaymentMethod(userId: string, paymentMethodId: 
   if (isVenmoWalletPaymentMethodId(paymentMethodId)) {
     const { detachBuyerVenmo } = await import("@/lib/paypal-buyer-venmo");
     await detachBuyerVenmo(userId);
+    return;
+  }
+  if (isPayPalWalletPaymentMethodId(paymentMethodId)) {
+    const { detachBuyerPayPalWallet } = await import("@/lib/paypal-buyer-wallet");
+    await detachBuyerPayPalWallet(userId);
     return;
   }
   await assertPaymentMethodOwnedByUser(userId, paymentMethodId);
@@ -248,11 +268,12 @@ export async function detachBuyerPaymentMethod(userId: string, paymentMethodId: 
 
 /**
  * True when Stripe is off (local dev) or the buyer has a live-eligible saved PM
- * (card, Cash App Pay, Link, Amazon Pay, or vaulted Venmo).
+ * (card, Cash App Pay, Link, Amazon Pay, vaulted Venmo, or vaulted PayPal).
  */
 export async function buyerHasCardOnFileForLiveBidding(userId: string): Promise<boolean> {
   if (!isStripeConfigured()) return true;
   if (await buyerHasVenmoOnFile(userId)) return true;
+  if (await buyerHasPayPalWalletOnFile(userId)) return true;
   const pmId = await getBuyerDefaultCardPaymentMethodId(userId);
   return pmId != null;
 }
@@ -260,7 +281,7 @@ export async function buyerHasCardOnFileForLiveBidding(userId: string): Promise<
 /**
  * Stripe Customer default live-eligible PM when set; otherwise the first usable
  * card / Cash App / Link / Amazon Pay on the Customer.
- * Returns null when the buyer's preferred method is Venmo (use Venmo charge path).
+ * Returns null when the buyer's preferred method is Venmo/PayPal (use PayPal-rail charge path).
  */
 export async function getBuyerDefaultCardPaymentMethodId(userId: string): Promise<string | null> {
   const preferred = await prisma.user.findUnique({
@@ -268,7 +289,7 @@ export async function getBuyerDefaultCardPaymentMethodId(userId: string): Promis
     select: { buyerDefaultWalletPaymentMethodId: true },
   });
   const pref = preferred?.buyerDefaultWalletPaymentMethodId?.trim() ?? "";
-  if (isVenmoWalletPaymentMethodId(pref)) return null;
+  if (isPayPalRailWalletPaymentMethodId(pref)) return null;
 
   if (!isStripeConfigured()) return null;
   if (pref.startsWith("pm_")) {
@@ -288,18 +309,25 @@ export async function getBuyerDefaultCardPaymentMethodId(userId: string): Promis
   return resolveDefaultPaymentMethodId(customerId);
 }
 
-/** Preferred wallet id for live charges: `venmo_…` or Stripe `pm_…`. */
+/** Preferred wallet id for live charges: `paypal_…`, `venmo_…`, or Stripe `pm_…`. */
 export async function getBuyerPreferredWalletPaymentMethodId(userId: string): Promise<string | null> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { buyerDefaultWalletPaymentMethodId: true, venmoPaymentTokenId: true },
+    select: {
+      buyerDefaultWalletPaymentMethodId: true,
+      venmoPaymentTokenId: true,
+      paypalWalletPaymentTokenId: true,
+    },
   });
   const pref = user?.buyerDefaultWalletPaymentMethodId?.trim() ?? "";
-  if (isVenmoWalletPaymentMethodId(pref)) return pref;
+  if (isPayPalRailWalletPaymentMethodId(pref)) return pref;
   if (pref.startsWith("pm_")) return pref;
 
   const stripePm = await getBuyerDefaultCardPaymentMethodId(userId);
   if (stripePm) return stripePm;
+  if (user?.paypalWalletPaymentTokenId?.trim()) {
+    return `paypal_${user.paypalWalletPaymentTokenId.trim()}`;
+  }
   if (user?.venmoPaymentTokenId?.trim()) {
     return `venmo_${user.venmoPaymentTokenId.trim()}`;
   }

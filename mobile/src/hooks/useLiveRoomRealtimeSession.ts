@@ -279,6 +279,8 @@ export function useLiveRoomRealtimeSession(args: {
       if (leader === args.userId) return;
       const high = payload.amountUsd ?? snap.currentBidUsd;
       if (high == null || high <= mine + 0.01) return;
+      // Clear so outbid recovery / next Hold is not gated on a stale personal high.
+      setMyHighBidUsd(null);
       setShowOutbidToast(true);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
       if (outbidTimerRef.current) clearTimeout(outbidTimerRef.current);

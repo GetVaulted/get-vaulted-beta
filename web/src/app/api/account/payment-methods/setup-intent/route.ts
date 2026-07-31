@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { ensureStripeCustomerIdForUser } from "@/lib/stripe-customer";
 import { getStripe, getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
-import { isWalletVenmoEnabled } from "@/lib/payment-processor";
-import { isBuyerVenmoPayConfigured } from "@/lib/paypal-auth";
+import { isWalletPayPalEnabled, isWalletVenmoEnabled } from "@/lib/payment-processor";
+import { isBuyerPayPalWalletConfigured, isBuyerVenmoPayConfigured } from "@/lib/paypal-auth";
 import { stripeSetupIntentPaymentOptions } from "@/lib/stripe-payment-method-config";
 
 /**
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
       linkEnabled: paymentMethodTypes.includes("link"),
       cashAppPayEnabled: paymentMethodTypes.includes("cashapp"),
       amazonPayEnabled: paymentMethodTypes.includes("amazon_pay"),
-      paypalEnabled: false,
+      paypalEnabled: isWalletPayPalEnabled() && isBuyerPayPalWalletConfigured(),
       venmoEnabled: isWalletVenmoEnabled() && isBuyerVenmoPayConfigured(),
       paymentMethodTypes,
     });

@@ -74,12 +74,17 @@ describe("live-shipping-pool", () => {
     const totals = computePoolTotalsFromGroups(groups, capped);
     expect(totals.buyerTotalCents).toBe(999);
     expect(totals.capReached).toBe(true);
+    // Raw estimate must stay uncapped relative to buyer total when Shippo override is high.
+    const withRaw = computePoolTotalsFromGroups(groups, capped, 1500);
+    expect(withRaw.rawEstimateCents).toBe(1500);
+    expect(withRaw.buyerTotalCents).toBe(999);
+    expect(withRaw.sellerSubsidyCents).toBe(501);
 
     const due = computeBuyerLiveShippingTotals({
       shippingMode: "capped",
       shippingCapCents: 999,
       sellerPaysOverCap: true,
-      estimatedEligibleBundleShippingCents: totals.buyerTotalCents,
+      estimatedEligibleBundleShippingCents: totals.rawEstimateCents,
       shippingAlreadyChargedCents: 0,
     });
     expect(due.shippingDueForThisPurchaseCents).toBe(999);

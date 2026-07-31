@@ -9,6 +9,7 @@ import type { LiveItemVariantAssignmentMode } from "@/generated/prisma/client";
 import { validateLiveRoomItemThumbnail } from "@/lib/listing-photo-requirements";
 import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
 import { resolveListingBackedQueueFields } from "@/lib/live-room-shop-inventory";
+import { ensureLiveBuyNowItemCheckoutListingTx } from "@/lib/live-buy-now-checkout-listing";
 import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
 import { resolveDefaultSellerProfileForLiveShow } from "@/services/shipping/seller-shipping-profiles";
 import { normalizeCustomRandomPoolLabels } from "../../../../../../../shared/live-player-spot-list";
@@ -322,6 +323,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
             sortOrder: v.sortOrder ?? i,
           })),
         });
+      }
+      // Host "New lot → Buy Now" without From my shop still needs a checkout listing.
+      if (salesFormat === "buy_now" && !listingId) {
+        const ensured = await ensureLiveBuyNowItemCheckoutListingTx(tx, {
+          liveRoomId,
+          liveRoomItemId: created.id,
+        });
+        if (!ensured.ok) {
+          throw Object.assign(new Error(ensured.error), { code: ensured.code });
+        }
       }
       return created;
     });

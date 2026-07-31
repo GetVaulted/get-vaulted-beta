@@ -13,6 +13,7 @@ import {
   recoverFromStaleAuthSession,
 } from './src/lib/recoverInvalidAuthSession';
 import { AppLayoutProvider } from './src/layout/AppLayoutProvider';
+import { LiveMiniPlayerProvider } from './src/live/LiveMiniPlayerContext';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -39,7 +40,9 @@ export default function App() {
         <AppLayoutProvider>
           <PlatformFeeProvider>
             <AuthProvider>
-              <RootNavigator />
+              <LiveMiniPlayerProvider>
+                <RootNavigator />
+              </LiveMiniPlayerProvider>
             </AuthProvider>
           </PlatformFeeProvider>
         </AppLayoutProvider>

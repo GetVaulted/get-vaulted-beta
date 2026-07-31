@@ -18,13 +18,17 @@ export const walletPaymentSetupStyles = StyleSheet.create({
   embeddedShell: {
     flex: 1,
     width: '100%',
+    minHeight: 0,
   },
   embeddedPanel: {
     flex: 1,
+    minHeight: 0,
     backgroundColor: VAULT_BG,
+    overflow: 'hidden',
   },
   panelDark: {
     flex: 1,
+    minHeight: 0,
     marginTop: spacing.md,
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
@@ -35,10 +39,12 @@ export const walletPaymentSetupStyles = StyleSheet.create({
   },
   body: {
     flex: 1,
+    minHeight: 0,
     backgroundColor: VAULT_BG,
   },
   keyboardFrame: {
     flex: 1,
+    minHeight: 0,
   },
   headerBlock: {
     paddingBottom: spacing.md,
@@ -81,6 +87,7 @@ export const walletPaymentSetupStyles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
+    minHeight: 0,
   },
   scrollContent: {
     paddingHorizontal: spacing.lg,

@@ -1058,11 +1058,26 @@ export function VaultWalletSheet({
                 }
                 accessibilityLabel="Dismiss payment setup"
               />
-              <KeyboardAvoidingView
-                style={{ maxHeight: sheetMaxHeight, width: '100%' }}
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              <View
+                style={{
+                  height: sheetMaxHeight,
+                  maxHeight: sheetMaxHeight,
+                  width: '100%',
+                }}
               >
-                <View style={[t.sheet, { paddingBottom: safeBottom, maxHeight: sheetMaxHeight }]}>
+                <View
+                  style={[
+                    t.sheet,
+                    {
+                      flex: 1,
+                      paddingBottom: safeBottom,
+                      // Payment setup is a full-height panel — drop horizontal padding so the
+                      // picker/header can use the sheet edge-to-edge (matches modal setup UI).
+                      paddingHorizontal: 0,
+                      paddingTop: 0,
+                    },
+                  ]}
+                >
                   <WalletPaymentSetupPanel
                     active={paymentSetupOpen}
                     accessToken={accessToken}
@@ -1081,7 +1096,7 @@ export function VaultWalletSheet({
                     }}
                   />
                 </View>
-              </KeyboardAvoidingView>
+              </View>
             </>
           ) : (
             <>

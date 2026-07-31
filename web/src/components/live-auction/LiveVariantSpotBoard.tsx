@@ -8,6 +8,8 @@ type LiveVariantSpotBoardProps = {
   item: LiveRoomItemDTO | null;
   pinned?: boolean;
   hostMode?: boolean;
+  /** Buyer @username — sold tiles they own get a Yours highlight. */
+  highlightUsername?: string | null;
   onToggleHot?: (variantId: string, isHot: boolean) => void;
   /** Host taps an open spot to pin it for buyers (exclusive). */
   onPinVariant?: (variantId: string) => void;
@@ -27,6 +29,7 @@ function fmtMoney(n: number) {
 export function LiveVariantSpotBoard({
   item,
   hostMode = false,
+  highlightUsername = null,
   onToggleHot,
   onPinVariant,
   pinBusy = false,
@@ -50,6 +53,7 @@ export function LiveVariantSpotBoard({
       : "Sold roster"
     : variantBuyerSelectLabel(item.salesFormat);
   const canHostEdit = hostMode && !breakRoster;
+  const viewerKey = highlightUsername?.trim().replace(/^@+/, "").toLowerCase() ?? "";
 
   if (hostMode && minimized) {
     return (
@@ -139,6 +143,8 @@ export function LiveVariantSpotBoard({
         {rows.map((r) => {
           const closed = r.sold || r.unavailable;
           const pinned = r.isHot && !closed;
+          const rowBuyer = r.buyerUsername?.trim().replace(/^@+/, "").toLowerCase() ?? "";
+          const mine = Boolean(viewerKey && r.sold && rowBuyer === viewerKey);
           const canPin = hostSpotBoardPinEnabled({
             hostMode,
             hasPinHandler: Boolean(onPinVariant),
@@ -146,20 +152,26 @@ export function LiveVariantSpotBoard({
             sold: closed,
           });
           const tileClass = `relative min-w-[5.5rem] max-w-[48%] flex-grow rounded-full border px-3 py-2 ${
-            r.unavailable
-              ? "border-white/10 bg-white/[0.02] opacity-70"
-              : r.sold
-                ? "border-emerald-400/25 bg-emerald-950/25"
-                : pinned
-                  ? "border-amber-300/70 bg-amber-500/15 ring-1 ring-amber-300/40"
-                  : r.isHot
-                    ? "border-amber-400/40 bg-amber-500/10"
-                    : "border-white/15 bg-white/[0.03]"
+            mine
+              ? "border-gold/70 bg-gold/15 ring-1 ring-gold/35"
+              : r.unavailable
+                ? "border-white/10 bg-white/[0.02] opacity-70"
+                : r.sold
+                  ? "border-emerald-400/25 bg-emerald-950/25"
+                  : pinned
+                    ? "border-amber-300/70 bg-amber-500/15 ring-1 ring-amber-300/40"
+                    : r.isHot
+                      ? "border-amber-400/40 bg-amber-500/10"
+                      : "border-white/15 bg-white/[0.03]"
           }`;
 
           const inner = (
             <>
-              {pinned ? (
+              {mine ? (
+                <span className="absolute -top-1.5 right-2 rounded-full border border-gold/50 bg-gold px-1.5 py-0.5 text-[8px] font-black uppercase text-zinc-950">
+                  Yours
+                </span>
+              ) : pinned ? (
                 <span className="absolute -top-1.5 right-2 rounded-full border border-amber-200/40 bg-amber-400 px-1.5 py-0.5 text-[8px] font-black uppercase text-zinc-950">
                   Pinned
                 </span>

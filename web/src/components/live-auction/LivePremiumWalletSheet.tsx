@@ -103,6 +103,8 @@ export function LivePremiumWalletSheet({
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [venmoBusy, setVenmoBusy] = useState(false);
   const [venmoError, setVenmoError] = useState<string | null>(null);
+  const [paypalBusy, setPaypalBusy] = useState(false);
+  const [paypalError, setPaypalError] = useState<string | null>(null);
 
   const defaultAddress = useMemo(
     () => addresses.find((a) => a.isDefault) ?? addresses[0] ?? null,
@@ -180,6 +182,7 @@ export function LivePremiumWalletSheet({
   const startVenmoSetup = useCallback(async () => {
     setVenmoBusy(true);
     setVenmoError(null);
+    setPaypalError(null);
     setSaveNotice(null);
     try {
       const res = await fetch("/api/account/payment-methods/venmo-setup", {
@@ -225,6 +228,58 @@ export function LivePremiumWalletSheet({
       setVenmoError("Could not start Venmo linking.");
     } finally {
       setVenmoBusy(false);
+    }
+  }, [reload]);
+
+  const startPayPalSetup = useCallback(async () => {
+    setPaypalBusy(true);
+    setPaypalError(null);
+    setVenmoError(null);
+    setSaveNotice(null);
+    try {
+      const res = await fetch("/api/account/payment-methods/paypal-setup", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const raw = await res.text();
+      let j: {
+        authorizeUrl?: string;
+        paymentMethodId?: string;
+        error?: string;
+        issue?: string;
+        debugId?: string;
+      } = {};
+      try {
+        j = JSON.parse(raw) as typeof j;
+      } catch {
+        /* non-JSON */
+      }
+      if (!res.ok) {
+        const detail = [j.error, j.issue ? `(${j.issue})` : null, j.debugId ? `debug ${j.debugId}` : null]
+          .filter(Boolean)
+          .join(" ");
+        setPaypalError(
+          detail ||
+            `PayPal linking failed (HTTP ${res.status}). ${raw.replace(/\s+/g, " ").trim().slice(0, 160) || "Empty server response."}`,
+        );
+        return;
+      }
+      if (typeof j.authorizeUrl === "string" && j.authorizeUrl.trim()) {
+        window.location.assign(j.authorizeUrl.trim());
+        return;
+      }
+      if (typeof j.paymentMethodId === "string" && j.paymentMethodId.trim()) {
+        setSaveNotice("PayPal connected.");
+        void reload();
+        return;
+      }
+      setPaypalError("PayPal linking did not return a next step.");
+    } catch {
+      setPaypalError("Could not start PayPal linking.");
+    } finally {
+      setPaypalBusy(false);
     }
   }, [reload]);
 
@@ -437,14 +492,25 @@ export function LivePremiumWalletSheet({
                 {wallet?.capabilities?.venmo ? (
                   <button
                     type="button"
-                    disabled={venmoBusy}
+                    disabled={venmoBusy || paypalBusy}
                     onClick={() => void startVenmoSetup()}
                     className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-white/18 bg-white/[0.04] py-3 text-sm font-extrabold text-zinc-100 disabled:opacity-60"
                   >
                     {venmoBusy ? "Starting Venmo…" : "Connect Venmo"}
                   </button>
                 ) : null}
+                {wallet?.capabilities?.paypal ? (
+                  <button
+                    type="button"
+                    disabled={paypalBusy || venmoBusy}
+                    onClick={() => void startPayPalSetup()}
+                    className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-white/18 bg-white/[0.04] py-3 text-sm font-extrabold text-zinc-100 disabled:opacity-60"
+                  >
+                    {paypalBusy ? "Starting PayPal…" : "Connect PayPal"}
+                  </button>
+                ) : null}
                 {venmoError ? <p className="mt-2 text-xs font-medium text-rose-300">{venmoError}</p> : null}
+                {paypalError ? <p className="mt-2 text-xs font-medium text-rose-300">{paypalError}</p> : null}
                 <p className="mb-2 mt-5 text-[11px] font-extrabold uppercase tracking-wide text-zinc-500">
                   Accepted on live
                 </p>

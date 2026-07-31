@@ -56,6 +56,12 @@ export const WALLET_SAVABLE_METHOD_CATALOG: WalletMethodCatalogEntry[] = [
     eligibility: ['live', 'marketplace', 'trade'],
     savableInWallet: true,
   },
+  {
+    id: 'paypal',
+    label: 'PayPal',
+    eligibility: ['live', 'marketplace', 'trade'],
+    savableInWallet: true,
+  },
 ];
 
 export const WALLET_MARKETPLACE_BNPL_CATALOG: WalletMethodCatalogEntry[] = [

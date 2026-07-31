@@ -22,6 +22,7 @@ import {
 } from "@/services/payments";
 import { emitLiveRoomMessagesRefetch, emitPurchaseCompleted } from "@/lib/realtime-emit-server";
 import { resolveLiveBuyNowUnitSale } from "@/lib/live-room-item-quantity-display";
+import { ensureLiveBuyNowItemCheckoutListingTx } from "@/lib/live-buy-now-checkout-listing";
 import { createNotification } from "@/lib/notifications";
 import { liveRoomBuyerPaymentConfirmedNotification } from "@/lib/live-room-payment-notify-copy";
 import { resolveLivePurchaseNotificationChargeUsd } from "@/lib/live-purchase-charge-total";
@@ -373,13 +374,20 @@ export async function createLiveBuyNowOrder(args: {
         select: {
           id: true,
           title: true,
-          listingId: true,
         },
       });
-      if (!item?.listingId) throw Object.assign(new Error("LIVE_ITEM_INVALID"), { code: "LIVE_ITEM_INVALID" });
+      if (!item) throw Object.assign(new Error("LIVE_ITEM_INVALID"), { code: "LIVE_ITEM_INVALID" });
+
+      const ensured = await ensureLiveBuyNowItemCheckoutListingTx(tx, {
+        liveRoomId: args.liveRoomId,
+        liveRoomItemId: item.id,
+      });
+      if (!ensured.ok) {
+        throw Object.assign(new Error(ensured.code), { code: ensured.code });
+      }
 
       const listingRow = await tx.listing.findUnique({
-        where: { id: item.listingId },
+        where: { id: ensured.listingId },
         select: {
           id: true,
           title: true,
@@ -493,6 +501,7 @@ export async function createLiveBuyNowOrder(args: {
       ALREADY_SOLD: "This item was already sold.",
       CHECKOUT_IN_PROGRESS: "Another buyer is checking out this item.",
       NO_SAVED_CARD: "Add a saved payment method to your Wallet.",
+      NO_PRICE: "This item needs a price before checkout.",
     };
     return { ok: false, code, error: messages[code] ?? "Could not start purchase." };
   }

@@ -40,14 +40,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   if (room.status !== "live") {
     return NextResponse.json({ error: "This room is not live." }, { status: 409 });
   }
-  const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room);
+  const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room, "purchase");
   if (broadcastBlock) {
     return NextResponse.json({ error: broadcastBlock.error, code: broadcastBlock.code }, { status: broadcastBlock.status });
   }
 
   const item = await prisma.liveRoomItem.findFirst({
     where: { id: itemId, liveRoomId },
-    select: { id: true, listingId: true, status: true, title: true },
+    select: { id: true, status: true, title: true },
   });
   if (!item) return NextResponse.json({ error: "Item not found." }, { status: 404 });
   // Buy Now items are shoppable from the lineup at any time, not only when the host has pinned
@@ -63,13 +63,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   const commerceBlock = await getLiveBuyerCommerceBlock({ liveRoomId, userId: buyerId });
   if (commerceBlock) {
     return NextResponse.json({ error: commerceBlock.error, code: commerceBlock.code }, { status: commerceBlock.status });
-  }
-
-  if (!item.listingId) {
-    return NextResponse.json(
-      { error: "This slot is not linked to checkout yet. Ask the host in chat." },
-      { status: 422 },
-    );
   }
 
   let body: Body = {};

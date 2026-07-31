@@ -4,7 +4,11 @@ import { prisma } from "@/lib/prisma";
 import { isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
 import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId, getBuyerPreferredWalletPaymentMethodId } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
-import { chargeOrderWithVaultedVenmo, isVenmoWalletPaymentMethodId } from "@/lib/paypal-buyer-venmo";
+import {
+  chargeOrderWithPayPalRailWallet,
+  isPayPalRailWalletPaymentMethodId,
+  stampOrderPaidViaPayPalRail,
+} from "@/lib/paypal-buyer-rail";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { stripeOffSessionPaymentIntentOptions } from "@/lib/stripe-payment-method-config";
 import { orderTaxUpdateData } from "@/lib/sales-tax-order";
@@ -507,15 +511,15 @@ export async function chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard(args: {
 
   const explicitPm = args.paymentMethodId?.trim() ?? "";
   const preferred =
-    (isStripePaymentMethodId(explicitPm) || isVenmoWalletPaymentMethodId(explicitPm)
+    (isStripePaymentMethodId(explicitPm) || isPayPalRailWalletPaymentMethodId(explicitPm)
       ? explicitPm
       : null) ??
-    (isStripePaymentMethodId(row.paymentLabel) || isVenmoWalletPaymentMethodId(row.paymentLabel)
+    (isStripePaymentMethodId(row.paymentLabel) || isPayPalRailWalletPaymentMethodId(row.paymentLabel)
       ? row.paymentLabel!.trim()
       : null) ??
     (await getBuyerPreferredWalletPaymentMethodId(args.buyerId));
 
-  if (preferred && isVenmoWalletPaymentMethodId(preferred)) {
+  if (preferred && isPayPalRailWalletPaymentMethodId(preferred)) {
     await syncLiveBundledShippingOnOrder(args.orderId);
     await refreshBuyerShippingOnOrderIfIncomplete(args.orderId);
     const fresh = await prisma.order.findUniqueOrThrow({
@@ -526,25 +530,21 @@ export async function chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard(args: {
       typeof fresh.totalUsd === "number" && fresh.totalUsd > 0
         ? fresh.totalUsd
         : fresh.itemPriceUsd + fresh.shippingPriceUsd + (fresh.taxUsd ?? 0);
-    const charged = await chargeOrderWithVaultedVenmo({
+    const charged = await chargeOrderWithPayPalRailWallet({
       buyerId: args.buyerId,
       orderId: args.orderId,
       amountUsd,
       description: row.listing?.title ?? `Order ${args.orderId}`,
+      walletPaymentMethodId: preferred,
     });
     if (charged.outcome !== "paid") {
       return { outcome: "error", code: charged.code };
     }
-    await prisma.order.updateMany({
-      where: { id: args.orderId, buyerId: args.buyerId, paymentStatus: { not: PAYMENT_PAID } },
-      data: {
-        paymentLabel: preferred,
-        paymentProcessor: "PAYPAL_VENMO",
-        walletPaymentMethodType: "venmo",
-        walletPaymentMethodId: preferred,
-        processorPaymentId: charged.processorPaymentId,
-        sellerPayoutProcessor: "PAYPAL",
-      },
+    await stampOrderPaidViaPayPalRail({
+      orderId: args.orderId,
+      buyerId: args.buyerId,
+      walletPaymentMethodId: preferred,
+      processorPaymentId: charged.processorPaymentId,
     });
     await finalizeStripeMarketplaceOrderPaid(args.orderId, null, null);
     return { outcome: "paid", paymentIntentId: charged.processorPaymentId };
@@ -754,6 +754,58 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
   }
 
   let pmId = args.paymentMethodId?.trim() ?? row.paymentLabel?.trim() ?? "";
+  if (!isStripePaymentMethodId(pmId) && !isPayPalRailWalletPaymentMethodId(pmId)) {
+    pmId = (await getBuyerPreferredWalletPaymentMethodId(args.buyerId)) ?? "";
+  }
+
+  if (isPayPalRailWalletPaymentMethodId(pmId)) {
+    await syncLiveBundledShippingOnOrder(row.id);
+    await refreshBuyerShippingOnOrderIfIncomplete(row.id);
+    const orderFreshRail = await prisma.order.findUniqueOrThrow({
+      where: { id: row.id },
+      select: {
+        totalUsd: true,
+        itemPriceUsd: true,
+        shippingPriceUsd: true,
+        taxUsd: true,
+        referralCreditAppliedUsd: true,
+      },
+    });
+    const creditRail = await applyReferralCreditForSavedCardOrder(
+      row.id,
+      args.buyerId,
+      orderFreshRail.itemPriceUsd,
+      orderFreshRail.referralCreditAppliedUsd,
+      args.applyReferralCredit === true,
+    );
+    const amountUsd =
+      creditRail.itemPriceUsd + orderFreshRail.shippingPriceUsd + (orderFreshRail.taxUsd ?? 0);
+    if (amountUsd < 0.5) return { outcome: "error", code: "INVALID_ORDER_AMOUNT" };
+    const charged = await chargeOrderWithPayPalRailWallet({
+      buyerId: args.buyerId,
+      orderId: row.id,
+      amountUsd,
+      description: `Live buy-now ${args.liveRoomItemId}`,
+      walletPaymentMethodId: pmId,
+    });
+    if (charged.outcome !== "paid") {
+      return { outcome: "error", code: charged.code };
+    }
+    await stampOrderPaidViaPayPalRail({
+      orderId: row.id,
+      buyerId: args.buyerId,
+      walletPaymentMethodId: pmId,
+      processorPaymentId: charged.processorPaymentId,
+    });
+    await finalizeLiveBuyNowPurchaseComplete({
+      orderId: row.id,
+      liveRoomId: args.liveRoomId,
+      liveRoomItemId: args.liveRoomItemId,
+      paymentIntentId: charged.processorPaymentId,
+    });
+    return { outcome: "paid", paymentIntentId: charged.processorPaymentId };
+  }
+
   if (!isStripePaymentMethodId(pmId)) {
     pmId = (await getBuyerDefaultCardPaymentMethodId(args.buyerId)) ?? "";
   }

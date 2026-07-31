@@ -6,6 +6,12 @@ import {
   parseViewerCountBroadcast,
   shouldPublishViewerCountBroadcast,
 } from '../lib/liveRoomViewerCountBroadcast';
+import {
+  createViewerCountStabilizerState,
+  nextStabilizedViewerCount,
+  resolveDisplayedViewerCount,
+  VIEWER_COUNT_DECREASE_HOLD_MS,
+} from '../lib/liveRoomViewerCountStabilize';
 import { RT_EVENT } from '../lib/realtimeChannels';
 import {
   bindLiveRoomPresenceHandlers,
@@ -15,6 +21,10 @@ import {
   subscribeLiveRoomChannel,
 } from '../lib/liveRoomSharedChannel';
 import { ensureSupabaseReady, getSupabase } from '../lib/supabase';
+
+const PRESENCE_HEARTBEAT_MS = 45_000;
+/** Keep host broadcast fresh for buyers even when the count is unchanged. */
+const HOST_UNCHANGED_PUBLISH_MS = 5_000;
 
 /**
  * Supabase Realtime presence for live rooms — same channel as web (`gv-room-{id}`).
@@ -37,23 +47,39 @@ export function useRealtimeRoomPresence(opts: {
   } = opts;
   const [localCount, setLocalCount] = useState<number | null>(null);
   const [broadcastCount, setBroadcastCount] = useState<number | null>(null);
+  const [broadcastAtMs, setBroadcastAtMs] = useState<number | null>(null);
+  const [, setTick] = useState(0);
   const viewerDisplayNameRef = useRef(viewerDisplayName);
+  const userIdRef = useRef(userId);
   viewerDisplayNameRef.current = viewerDisplayName;
+  userIdRef.current = userId;
 
   const presenceKeyRef = useRef<string>('');
   const lastBroadcastRef = useRef<{ count: number | null; at: number }>({ count: null, at: 0 });
+  const stabilizerRef = useRef(createViewerCountStabilizerState());
 
+  // Freeze the presence slot for a room session. Do NOT rebuild when auth hydrates
+  // null → userId — that remounted presence and made the count jump.
   useLayoutEffect(() => {
-    presenceKeyRef.current =
-      liveRoomId && enabled
-        ? buildPresenceChannelKey(liveRoomId, userId ?? null, trackSelf)
-        : '';
-  }, [enabled, liveRoomId, trackSelf, userId]);
+    if (!liveRoomId || !enabled) {
+      presenceKeyRef.current = '';
+      return;
+    }
+    if (trackSelf) {
+      const prefix = `${liveRoomId}:`;
+      if (presenceKeyRef.current.startsWith(prefix)) return;
+      presenceKeyRef.current = buildPresenceChannelKey(liveRoomId, userIdRef.current ?? null, true);
+      return;
+    }
+    presenceKeyRef.current = buildPresenceChannelKey(liveRoomId, null, false);
+  }, [enabled, liveRoomId, trackSelf]);
 
   useEffect(() => {
     if (!enabled || !liveRoomId) {
       setLocalCount(null);
       setBroadcastCount(null);
+      setBroadcastAtMs(null);
+      stabilizerRef.current = createViewerCountStabilizerState();
       return undefined;
     }
 
@@ -62,6 +88,9 @@ export function useRealtimeRoomPresence(opts: {
 
     let cancelled = false;
     let heartbeatId: ReturnType<typeof setInterval> | null = null;
+    let hostPublishId: ReturnType<typeof setInterval> | null = null;
+    let decreaseFlushId: ReturnType<typeof setTimeout> | null = null;
+    let broadcastFreshId: ReturnType<typeof setInterval> | null = null;
     let appStateSub: { remove: () => void } | null = null;
     let channel: ReturnType<typeof retainLiveRoomChannel> | null = null;
     let supabase = getSupabase();
@@ -83,6 +112,7 @@ export function useRealtimeRoomPresence(opts: {
             lastCount: prev.count,
             lastPublishedAtMs: prev.at,
             nowMs: now,
+            unchangedIntervalMs: HOST_UNCHANGED_PUBLISH_MS,
           })
         ) {
           return;
@@ -97,22 +127,38 @@ export function useRealtimeRoomPresence(opts: {
 
       const updateCount = () => {
         if (!channel) return;
-        const next = countRoomPresenceViewers(channel.presenceState());
-        setLocalCount(next);
-        publishHostCount(next);
+        const raw = countRoomPresenceViewers(channel.presenceState());
+        const now = Date.now();
+        const next = nextStabilizedViewerCount(stabilizerRef.current, raw, now);
+        stabilizerRef.current = next;
+        if (next.displayed != null) {
+          setLocalCount(next.displayed);
+          publishHostCount(next.displayed);
+        }
+        if (decreaseFlushId != null) {
+          clearTimeout(decreaseFlushId);
+          decreaseFlushId = null;
+        }
+        if (next.pendingDecrease != null && next.pendingSinceMs != null) {
+          const wait = VIEWER_COUNT_DECREASE_HOLD_MS - (now - next.pendingSinceMs) + 50;
+          decreaseFlushId = setTimeout(() => {
+            updateCount();
+          }, Math.max(50, wait));
+        }
       };
 
       const trackPresence = async () => {
         if (!channel || !trackSelf) return;
+        const uid = userIdRef.current;
         const username =
           typeof viewerDisplayNameRef.current === 'string' && viewerDisplayNameRef.current.trim().length > 0
             ? viewerDisplayNameRef.current.trim()
-            : userId
+            : uid
               ? 'Member'
               : 'Guest';
         await channel.track({
           tabKey: presenceKey,
-          userId,
+          userId: uid,
           username,
           liveRoomId,
           at: new Date().toISOString(),
@@ -127,10 +173,13 @@ export function useRealtimeRoomPresence(opts: {
       });
       unbindViewerCount = bindLiveRoomViewerCountHandler(liveRoomId, (payload) => {
         const n = parseViewerCountBroadcast(payload);
-        if (n != null) setBroadcastCount(n);
+        if (n == null) return;
+        setBroadcastCount(n);
+        setBroadcastAtMs(Date.now());
       });
 
       if (trackSelf) {
+        broadcastFreshId = setInterval(() => setTick((t) => t + 1), 2_000);
         appStateSub = AppState.addEventListener('change', (next: AppStateStatus) => {
           if (next === 'active') void trackPresence();
         });
@@ -141,9 +190,14 @@ export function useRealtimeRoomPresence(opts: {
         if (trackSelf) {
           await trackPresence();
           if (heartbeatId != null) clearInterval(heartbeatId);
-          heartbeatId = setInterval(() => void trackPresence(), 25_000);
+          heartbeatId = setInterval(() => void trackPresence(), PRESENCE_HEARTBEAT_MS);
         } else {
           updateCount();
+          if (hostPublishId != null) clearInterval(hostPublishId);
+          hostPublishId = setInterval(() => {
+            const displayed = stabilizerRef.current.displayed;
+            if (displayed != null) publishHostCount(displayed);
+          }, HOST_UNCHANGED_PUBLISH_MS);
         }
       });
     };
@@ -159,6 +213,9 @@ export function useRealtimeRoomPresence(opts: {
       cancelled = true;
       if (appStateSub) appStateSub.remove();
       if (heartbeatId != null) clearInterval(heartbeatId);
+      if (hostPublishId != null) clearInterval(hostPublishId);
+      if (decreaseFlushId != null) clearTimeout(decreaseFlushId);
+      if (broadcastFreshId != null) clearInterval(broadcastFreshId);
       unsubscribeStatus?.();
       unbindPresence?.();
       unbindViewerCount?.();
@@ -168,7 +225,14 @@ export function useRealtimeRoomPresence(opts: {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, liveRoomId, trackSelf, userId]);
+  }, [enabled, liveRoomId, trackSelf]);
 
-  return broadcastCount ?? localCount;
+  if (!trackSelf) return localCount;
+
+  return resolveDisplayedViewerCount({
+    broadcastCount,
+    broadcastAtMs,
+    localCount,
+    nowMs: Date.now(),
+  });
 }

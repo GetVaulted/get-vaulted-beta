@@ -334,10 +334,7 @@ export function computePoolTotalsFromGroups(
   const rawEstimateCents =
     rawOverrideCents != null && Number.isFinite(rawOverrideCents) && rawOverrideCents >= 0
       ? Math.floor(rawOverrideCents)
-      : tierFallbackCentsForPackageGroups(
-          groups,
-          show.shippingCapEnabled ? show.shippingCapCents : null,
-        );
+      : tierFallbackCentsForPackageGroups(groups);
   const charge = computeLiveBuyerShippingCharge({
     rawShippoEstimateCents: rawEstimateCents,
     show,
@@ -345,6 +342,7 @@ export function computePoolTotalsFromGroups(
   });
 
   // Always go through charge math so calculated mode still hits the $9.99 platform max.
+  // rawEstimateCents must stay uncapped (Shippo or tier); buyerTotalCents is the capped session total.
   const buyerTotalCents = charge.buyerPaysCents;
   const mode =
     show.shippingMode ??
@@ -476,16 +474,17 @@ export async function estimateWinItemShippingDeltaCents(args: {
     ...currentRows,
     { itemId: winProfile.itemId, profile: winProfile.profile, overrides: winProfile.overrides },
   ];
-  const nextPoolBuyerTotal = computePoolTotalsFromGroups(
+  const nextPool = computePoolTotalsFromGroups(
     packageGroupsFromProfileRows(nextRows, show),
     show,
-  ).buyerTotalCents;
+  );
 
   return computeBuyerLiveShippingTotals({
     shippingMode,
     shippingCapCents: capCents,
     sellerPaysOverCap: show.sellerPaysOverCap !== false,
-    estimatedEligibleBundleShippingCents: nextPoolBuyerTotal,
+    // Pass uncapped raw so remaining-to-cap math matches settlement/subsidy paths.
+    estimatedEligibleBundleShippingCents: nextPool.rawEstimateCents,
     shippingAlreadyChargedCents: alreadyChargedCents,
   }).shippingDueForThisPurchaseCents;
 }

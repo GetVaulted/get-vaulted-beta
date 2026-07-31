@@ -616,7 +616,15 @@ model User {
   venmoPendingSetupTokenId      String?
   venmoPendingSetupNonce        String?
   venmoPendingSetupMobile       Boolean                     @default(false)
-  /// Preferred wallet instrument: Stripe `pm_…` or `venmo_<tokenId>`.
+  /// Vaulted PayPal Wallet payment token id (PayPal `/v3/vault/payment-tokens`).
+  paypalWalletPaymentTokenId    String?
+  paypalWalletEmail             String?
+  paypalWalletVaultedAt         DateTime?
+  /// Pending PayPal Wallet setup while buyer completes approval.
+  paypalPendingSetupTokenId     String?
+  paypalPendingSetupNonce       String?
+  paypalPendingSetupMobile      Boolean                     @default(false)
+  /// Preferred wallet instrument: Stripe `pm_…`, `venmo_<tokenId>`, or `paypal_<tokenId>`.
   buyerDefaultWalletPaymentMethodId String?
   /// Seller ship-from (origin) for Shippo label purchase.
   shipFromName                  String?

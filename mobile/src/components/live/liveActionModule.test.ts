@@ -471,6 +471,46 @@ describe('resolveLiveBuyerCommerceHud', () => {
     expect(hud.bottomRightLabel).toBe('Claim Team');
     expect(hud.buyerPrimaryDisabled).toBe(false);
   });
+
+  it('opens Team roster when all PYT spots are sold', () => {
+    const snap = {
+      roomType: 'auction',
+      status: 'live',
+      activeItemId: 'item-3',
+      activeItemSalesFormat: 'variant_selection',
+      activeItemTitle: 'NFL PYT',
+      activeItemVariants: [
+        {
+          id: 'v1',
+          label: 'Ravens',
+          priceUsd: 24.99,
+          quantityRemaining: 0,
+          soldCount: 1,
+          isHot: false,
+          status: 'sold_out',
+          buyerUsername: 'buyer1',
+        },
+        {
+          id: 'v2',
+          label: 'Chiefs',
+          priceUsd: 24.99,
+          quantityRemaining: 0,
+          soldCount: 1,
+          isHot: false,
+          status: 'sold_out',
+          buyerUsername: 'buyer2',
+        },
+      ],
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.currentAmount).toBe('Sold out');
+    expect(hud.bottomRightLabel).toBe('Team roster');
+    expect(hud.bottomLeftLabel).toBe('Teams');
+    expect(hud.buyerPrimaryDisabled).toBe(false);
+    expect(hud.buyerSecondaryDisabled).toBe(false);
+    expect(hud.stateLine).toMatch(/team roster/i);
+  });
 });
 
 describe('formatBidMoney', () => {

@@ -97,7 +97,7 @@ import {
   estimateFirstItemLiveShippingCentsForListingTx,
   removeOrderFromLiveShippingSessionOnRefundTx,
 } from "@/services/shipping/live-shipping-pricing";
-import { syncOrderShippingFromLiveSessionTx } from "@/services/shipping/live-commerce-shipping-settlement";
+import { syncOrderShippingFromLiveSessionTx, resolvePayOrderLiveShippingUsd, hasLiveShippingTermsSnapshot } from "@/services/shipping/live-commerce-shipping-settlement";
 
 /** @remarks Conceptually `payment_pending` — persisted value for compatibility. */
 export const PAYMENT_PENDING = "pending_payment" as const;
@@ -1241,8 +1241,16 @@ export async function createPayOrderCheckoutSession(args: {
   }
 
   const payOrder = order;
-  let shippingPriceUsd = payOrder.shippingPriceUsd;
-  if (payOrder.liveShippingSession?.id) {
+  // Once live shipping is settled into an immutable terms snapshot, never rewrite
+  // shippingPriceUsd from a later session estimate refresh (Shippo/tier).
+  const liveShippingLockedBySnapshot = hasLiveShippingTermsSnapshot(payOrder.shippingTermsSnapshotJson);
+  let shippingPriceUsd = resolvePayOrderLiveShippingUsd({
+    orderShippingPriceUsd: payOrder.shippingPriceUsd,
+    shippingTermsSnapshotJson: payOrder.shippingTermsSnapshotJson,
+    sessionShippingCostCents: payOrder.liveShippingSession?.shippingCostCents,
+    siblingPaidShippingCents: 0,
+  });
+  if (payOrder.liveShippingSession?.id && !liveShippingLockedBySnapshot) {
     const paidOrders = await prisma.order.findMany({
       where: {
         liveShippingSessionId: payOrder.liveShippingSession.id,
@@ -1253,10 +1261,17 @@ export async function createPayOrderCheckoutSession(args: {
     const alreadyChargedCents = paidOrders
       .filter((o) => o.id !== payOrder.id)
       .reduce((sum, o) => sum + Math.round(Math.max(0, o.shippingPriceUsd) * 100), 0);
-    const remainingCents = Math.max(0, payOrder.liveShippingSession.shippingCostCents - alreadyChargedCents);
-    shippingPriceUsd = remainingCents / 100;
+    shippingPriceUsd = resolvePayOrderLiveShippingUsd({
+      orderShippingPriceUsd: payOrder.shippingPriceUsd,
+      shippingTermsSnapshotJson: payOrder.shippingTermsSnapshotJson,
+      sessionShippingCostCents: payOrder.liveShippingSession.shippingCostCents,
+      siblingPaidShippingCents: alreadyChargedCents,
+    });
   }
-  if (Math.abs(shippingPriceUsd - payOrder.shippingPriceUsd) > 0.0001) {
+  if (
+    !liveShippingLockedBySnapshot &&
+    Math.abs(shippingPriceUsd - payOrder.shippingPriceUsd) > 0.0001
+  ) {
     const refreshed = await prisma.order.update({
       where: { id: payOrder.id },
       data: {

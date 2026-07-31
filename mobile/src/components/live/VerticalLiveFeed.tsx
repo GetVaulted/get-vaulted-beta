@@ -32,6 +32,7 @@ import { fetchSellerFollowStatus, toggleSellerFollow } from '../../api/sellerFol
 import type { LiveStream, ChatMessage } from '../../types';
 import type { LiveStackParamList } from '../../navigation/types';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
+import { useLiveMiniPlayerOptional } from '../../live/LiveMiniPlayerContext';
 import { openLiveHostProfile, openUserProfile } from '../../navigation/openPlatform';
 import { UserAvatar } from '../ui/UserAvatar';
 import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
@@ -118,7 +119,9 @@ import { LiveBidNoticeToast } from './LiveBidNoticeToast';
 import type { LiveBidFailureDisplay } from '../../lib/liveBidUserErrors';
 import {
   isLiveBroadcastCommerceBlocked,
+  isLiveBroadcastPurchaseBlocked,
   liveBroadcastCommerceBlockMessage,
+  liveBroadcastPurchaseBlockMessage,
   type LiveRoomBroadcastGate,
 } from '../../lib/liveRoomBroadcastOnAir';
 import { isVariantSpotAuctionLive } from '../../lib/liveVariantSpotCommerce';
@@ -233,6 +236,7 @@ function LiveSlide({
   const insets = useSafeAreaInsets();
   const stageInsets = computeLiveStageSafeInsets(stageContainer, screenHeight, insets, spacing.sm);
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
+  const miniPlayer = useLiveMiniPlayerOptional();
   const openWalletRef = useRef<(reason?: string) => void>(() => {});
   const layoutWidth = stageContainer.designWidth;
   const compact = isCompactLiveRoomLayout(layoutWidth);
@@ -277,8 +281,16 @@ function LiveSlide({
     () => isLiveBroadcastCommerceBlocked({ ...broadcastGate, status: roomStatus }),
     [broadcastGate, roomStatus],
   );
+  const broadcastPurchaseBlocked = useMemo(
+    () => isLiveBroadcastPurchaseBlocked({ ...broadcastGate, status: roomStatus }),
+    [broadcastGate, roomStatus],
+  );
   const broadcastCommerceBlockMessage = useMemo(
     () => liveBroadcastCommerceBlockMessage({ ...broadcastGate, status: roomStatus }),
+    [broadcastGate, roomStatus],
+  );
+  const broadcastPurchaseBlockMessage = useMemo(
+    () => liveBroadcastPurchaseBlockMessage({ ...broadcastGate, status: roomStatus }),
     [broadcastGate, roomStatus],
   );
   const [commerceHeight, setCommerceHeight] = useState(DEFAULT_COMMERCE_OVERLAY_HEIGHT);
@@ -302,10 +314,30 @@ function LiveSlide({
     setWalletReadiness(null);
   }, [isActive, roomVisitNonce, stream.id]);
 
+  const leaveAllowRef = useRef(false);
+
   const leaveRoomSafely = useCallback(() => {
     setWalletGateSheetOpen(false);
     onPaymentBlockerChange?.(false);
     onWalletGateHostChange?.(null, null);
+    const health = (broadcastGate.streamHealth ?? '').toLowerCase();
+    const canMinimize =
+      roomStatus === 'live' ||
+      broadcastGate.status === 'live' ||
+      health === 'live' ||
+      health === 'connecting';
+    if (canMinimize) {
+      miniPlayer?.minimize({
+        roomId: stream.id,
+        title: stream.title?.trim() || 'Live show',
+        hostLabel: stream.host?.handle
+          ? `@${stream.host.handle.replace(/^@/, '')}`
+          : stream.host?.name?.trim() || '',
+        thumbnailUrl: stream.previewImageUrl?.trim() || '',
+        accessToken,
+      });
+    }
+    leaveAllowRef.current = true;
     requestAnimationFrame(() => {
       if (stackNav.canGoBack()) {
         stackNav.goBack();
@@ -315,7 +347,56 @@ function LiveSlide({
       stackNav.navigate('LiveDiscovery');
       onBack?.();
     });
-  }, [onBack, onPaymentBlockerChange, onWalletGateHostChange, stackNav]);
+  }, [
+    accessToken,
+    broadcastGate.status,
+    broadcastGate.streamHealth,
+    miniPlayer,
+    onBack,
+    onPaymentBlockerChange,
+    onWalletGateHostChange,
+    stackNav,
+    stream.host?.handle,
+    stream.host?.name,
+    stream.id,
+    stream.previewImageUrl,
+    roomStatus,
+    stream.title,
+  ]);
+
+  // Hardware back + iOS edge-swipe must minimize like the in-room Back chevron.
+  useEffect(() => {
+    if (!isActive) return;
+    const unsub = stackNav.addListener('beforeRemove', (e) => {
+      if (leaveAllowRef.current) {
+        leaveAllowRef.current = false;
+        return;
+      }
+      const actionType = e.data.action.type;
+      // Only intercept back/pop — do not trap navigates to other screens.
+      if (actionType !== 'GO_BACK' && actionType !== 'POP' && actionType !== 'POP_TO_TOP') {
+        return;
+      }
+      const health = (broadcastGate.streamHealth ?? '').toLowerCase();
+      const canMinimize =
+        roomStatus === 'live' ||
+        broadcastGate.status === 'live' ||
+        health === 'live' ||
+        health === 'connecting';
+      if (!canMinimize || !miniPlayer) return;
+      e.preventDefault();
+      leaveRoomSafely();
+    });
+    return unsub;
+  }, [
+    broadcastGate.status,
+    broadcastGate.streamHealth,
+    isActive,
+    leaveRoomSafely,
+    miniPlayer,
+    roomStatus,
+    stackNav,
+  ]);
 
   const moderation = useLiveRoomModeration({
     roomId: stream.id,
@@ -606,9 +687,6 @@ function LiveSlide({
     if (breakParticipationBlocked) {
       return 'Accept the live break notice before bidding or buying.';
     }
-    if (broadcastCommerceBlockMessage) {
-      return broadcastCommerceBlockMessage;
-    }
     if (walletParticipationBlocked && walletReadiness) {
       return buyerWalletGatePromptBody(walletReadiness);
     }
@@ -618,7 +696,6 @@ function LiveSlide({
     return 'Complete setup in this show before bidding or buying.';
   }, [
     breakParticipationBlocked,
-    broadcastCommerceBlockMessage,
     liveSession.unresolvedPaymentFailure,
     walletParticipationBlocked,
     walletReadiness,
@@ -1062,10 +1139,7 @@ function LiveSlide({
         // Buy Now items are shoppable from the lineup anytime and in any room type — a host can pin
         // a fixed-price item during a PYT/PYD break or auction show, not just a sale room. Pinning a
         // lot only spotlights it on screen; it does not gate purchasing other listed Buy Now items.
-        if (!item.listingId) {
-          Alert.alert('Checkout unavailable', 'This item is not linked to checkout yet.');
-          return;
-        }
+        // Missing listingId is healed server-side on purchase (host "New lot" without From my shop).
         try {
           const paymentSession = await fetchLiveBuyerPaymentSession(accessToken, stream.id);
           const res = await purchaseLiveBuyNow({
@@ -1133,7 +1207,7 @@ function LiveSlide({
         showTitle: stream.title,
         hostUsername: hostHandle,
         activeItemId: activeItem?.id ?? activeId,
-        activeItemTitle: activeItem?.title ?? null,
+        activeItemTitle: activeItem?.displayTitle ?? null,
         thumbnailUrl: activeItem?.imageUrl ?? stream.previewImageUrl ?? null,
         onProgress: setClipProgress,
       });
@@ -1242,7 +1316,7 @@ function LiveSlide({
           <View style={styles.topBarLeft}>
             {onBack ? (
               <Pressable
-                onPress={onBack}
+                onPress={leaveRoomSafely}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 style={styles.backIconOnly}
                 accessibilityRole="button"
@@ -1612,7 +1686,7 @@ function LiveSlide({
             You cannot participate in this room.
           </LiveRoomText>
           {onBack ? (
-            <Pressable onPress={onBack} style={styles.blockedBannerBtn}>
+            <Pressable onPress={leaveRoomSafely} style={styles.blockedBannerBtn}>
               <LiveRoomText style={styles.blockedBannerBtnText}>Leave show</LiveRoomText>
             </Pressable>
           ) : null}
@@ -1738,11 +1812,13 @@ function LiveSlide({
           onBidNotice={showBidNotice}
           participationBlocked={
             breakParticipationBlocked ||
-            broadcastCommerceBlocked ||
             walletParticipationBlocked ||
             Boolean(liveSession.unresolvedPaymentFailure)
           }
           broadcastCommerceBlocked={broadcastCommerceBlocked}
+          broadcastPurchaseBlocked={broadcastPurchaseBlocked}
+          broadcastCommerceBlockMessage={broadcastCommerceBlockMessage}
+          broadcastPurchaseBlockMessage={broadcastPurchaseBlockMessage}
           participationBlockMessage={participationBlockMessage}
           onWalletOverlayChange={
             isActive
@@ -1773,7 +1849,7 @@ function LiveSlide({
                 />
                 {isActive && immersiveChrome.immersive && onBack ? (
                   <Pressable
-                    onPress={onBack}
+                    onPress={leaveRoomSafely}
                     hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                     style={[styles.immersiveBack, { top: stageInsets.top + 6 }]}
                     accessibilityRole="button"

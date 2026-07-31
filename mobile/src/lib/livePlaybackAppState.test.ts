@@ -7,7 +7,9 @@ import {
   shouldClearStreamPausedAfterHostResume,
   shouldCommitLiveBackgroundAfterDwell,
   shouldHostBackgroundAutoPause,
+  shouldMuteHlsUnderLiveWebrtc,
   shouldPreferWarmHostResume,
+  shouldShowHlsLayerForLivePip,
   shouldShowHostResumeControl,
   shouldShowLiveResumeInsteadOfRetry,
   shouldShowPreLiveRetryBanner,
@@ -19,8 +21,19 @@ import {
 } from './livePlaybackAppState';
 
 describe('livePlaybackAppState', () => {
-  it('does not PiP on inactive alone (phone call overlay)', () => {
+  it('does not PiP on inactive alone via background helper (phone call overlay)', () => {
     expect(shouldAttemptLivePictureInPicture('inactive', 'active')).toBe(false);
+  });
+
+  it('prepares PiP on active → inactive (iOS home swipe begins)', async () => {
+    const { shouldPrepareLivePictureInPicture, isLivePictureInPictureAppState } = await import(
+      './livePlaybackAppState'
+    );
+    expect(shouldPrepareLivePictureInPicture('inactive', 'active')).toBe(true);
+    expect(shouldPrepareLivePictureInPicture('background', 'active')).toBe(false);
+    expect(isLivePictureInPictureAppState('inactive')).toBe(true);
+    expect(isLivePictureInPictureAppState('background')).toBe(true);
+    expect(isLivePictureInPictureAppState('active')).toBe(false);
   });
 
   it('PiP when entering background from active or inactive (home swipe)', () => {
@@ -100,6 +113,92 @@ describe('livePlaybackAppState', () => {
         playbackUrl: 'https://playback.m3u8',
       }),
     ).toBe(false);
+  });
+
+  it('mutes HLS under foreground Stage and unmutes for PiP / background', () => {
+    expect(
+      shouldMuteHlsUnderLiveWebrtc({
+        webrtcReady: true,
+        useWebrtc: true,
+        stageSuspended: false,
+        pipActive: false,
+        appBackgrounded: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldMuteHlsUnderLiveWebrtc({
+        webrtcReady: true,
+        useWebrtc: true,
+        stageSuspended: false,
+        pipActive: false,
+        appBackgrounded: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldMuteHlsUnderLiveWebrtc({
+        webrtcReady: true,
+        useWebrtc: true,
+        stageSuspended: true,
+        pipActive: false,
+        appBackgrounded: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldMuteHlsUnderLiveWebrtc({
+        webrtcReady: true,
+        useWebrtc: true,
+        stageSuspended: false,
+        pipActive: true,
+        appBackgrounded: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('keeps HLS VideoView mounted for warm companion and PiP after Stage paints', () => {
+    expect(
+      shouldShowHlsLayerForLivePip({
+        attachHls: true,
+        playbackActive: true,
+        surfaceError: false,
+        webrtcReady: false,
+        warmPipCompanion: false,
+        pipActive: false,
+        appBackgrounded: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowHlsLayerForLivePip({
+        attachHls: true,
+        playbackActive: true,
+        surfaceError: false,
+        webrtcReady: true,
+        warmPipCompanion: false,
+        pipActive: false,
+        appBackgrounded: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowHlsLayerForLivePip({
+        attachHls: true,
+        playbackActive: true,
+        surfaceError: false,
+        webrtcReady: true,
+        warmPipCompanion: true,
+        pipActive: false,
+        appBackgrounded: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowHlsLayerForLivePip({
+        attachHls: true,
+        playbackActive: true,
+        surfaceError: false,
+        webrtcReady: true,
+        warmPipCompanion: false,
+        pipActive: true,
+        appBackgrounded: false,
+      }),
+    ).toBe(true);
   });
 
   it('retries PiP long enough for Stage HLS mirror startup', () => {

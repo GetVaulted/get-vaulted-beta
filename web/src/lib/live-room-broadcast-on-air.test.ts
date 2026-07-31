@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isLiveRoomBroadcastOnAir,
+  isLiveRoomBroadcastPurchasable,
   isLiveRoomRemotePublisherActive,
   isLiveStreamDisconnectConfirmed,
 } from "@/lib/live-room-broadcast-on-air";
@@ -78,6 +79,30 @@ describe("isLiveRoomBroadcastOnAir", () => {
         streamMode: "stage_webrtc",
       }),
     ).toBe(true);
+  });
+});
+
+describe("isLiveRoomBroadcastPurchasable", () => {
+  it("stays purchasable while the host is paused", () => {
+    expect(
+      isLiveRoomBroadcastPurchasable({
+        status: "live",
+        streamHealth: "live",
+        streamPaused: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("blocks purchases after a confirmed disconnect", () => {
+    expect(
+      isLiveRoomBroadcastPurchasable({
+        status: "live",
+        streamHealth: "offline",
+        streamPaused: false,
+        streamStartedAt: "2026-07-02T18:00:00.000Z",
+        streamEndedAt: "2026-07-02T18:05:00.000Z",
+      }),
+    ).toBe(false);
   });
 });
 

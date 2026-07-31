@@ -221,6 +221,8 @@ export type LiveSaleRoomProps = {
   onApplyVariantPurchase?: (payload: VariantPurchasedMergePayload & { label?: string; amountUsd?: number }) => void;
   buyerPaymentRecoveryPending?: boolean;
   broadcastCommerceBlocked?: boolean;
+  /** Offline-only — host pause does not block Buy Now / spots / shop. */
+  broadcastPurchaseBlocked?: boolean;
   broadcastCommerceHint?: string | null;
 };
 
@@ -254,6 +256,7 @@ export function LiveSaleRoom({
   onApplyVariantPurchase,
   buyerPaymentRecoveryPending = false,
   broadcastCommerceBlocked = false,
+  broadcastPurchaseBlocked = false,
   broadcastCommerceHint = null,
 }: LiveSaleRoomProps) {
   const { data: session, status } = useSession();
@@ -605,6 +608,7 @@ export function LiveSaleRoom({
     : "Select spot";
   const hybridSpotCommerce =
     spotAuctionLive && (shopVariantSpots?.available ?? 0) > 0 && activeLotBidPhase === "bidding_open";
+  const purchaseBlocked = broadcastPurchaseBlocked;
   const variantShopLabel = activeDb ? variantClaimPrimaryLabel(activeDb.salesFormat) : "Claim spot";
   const actionsDisabled =
     !isLive ||
@@ -626,7 +630,7 @@ export function LiveSaleRoom({
     : null;
   const variantShopDisabled =
     !isLive ||
-    broadcastCommerceBlocked ||
+    purchaseBlocked ||
     staffCommerceBlocked ||
     busy ||
     sessionBlocksBuyer ||
@@ -670,7 +674,18 @@ export function LiveSaleRoom({
   const buyerAuctionBidBlocked =
     roomType === "auction" && !isHost && isLive && activeLotBidPhase !== "bidding_open";
   const activeSaleMissingListing =
-    roomType === "sale" && activeDb?.status === "active" && !activeDb.listingId;
+    roomType === "sale" &&
+    activeDb?.status === "active" &&
+    !(typeof activeDb.priceUsd === "number" && Number.isFinite(activeDb.priceUsd) && activeDb.priceUsd > 0);
+  const buyNowDisabled =
+    !isLive ||
+    purchaseBlocked ||
+    staffCommerceBlocked ||
+    busy ||
+    sessionPending ||
+    sessionBlocksBuyer ||
+    !(typeof activeDb?.priceUsd === "number" && Number.isFinite(activeDb.priceUsd) && activeDb.priceUsd > 0) ||
+    (!isHost && isLive && !buyerLiveWalletReady);
 
   const redirectSignIn = (returnPath: string) => {
     router.push(`/signin?returnTo=${encodeURIComponent(returnPath)}`);
@@ -687,7 +702,7 @@ export function LiveSaleRoom({
       redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
       return;
     }
-    if (!activeDb.listingId) {
+    if (!activeDb.listingId && !(typeof activeDb.priceUsd === "number" && activeDb.priceUsd > 0)) {
       setActionError("Checkout is not available for this slot.");
       return;
     }
@@ -1095,7 +1110,7 @@ export function LiveSaleRoom({
         {roomType === "sale" && !activeHasVariants ? (
           <button
             type="button"
-            disabled={actionsDisabled || !activeDb?.listingId || activeSaleMissingListing}
+            disabled={buyNowDisabled}
             onClick={() => void handleBuyNow()}
             className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
           >
@@ -1105,7 +1120,7 @@ export function LiveSaleRoom({
       </div>
       {activeSaleMissingListing ? (
         <p className="mt-2 text-[10px] font-medium text-amber-200/90">
-          This live item is not linked to checkout yet. Ask the host in chat.
+          This live item needs a price before Buy Now checkout.
         </p>
       ) : null}
       <LiveBuyerWalletGateHint
@@ -1367,7 +1382,7 @@ export function LiveSaleRoom({
       {roomType === "sale" && !activeHasVariants ? (
         <button
           type="button"
-          disabled={actionsDisabled || !activeDb?.listingId || activeSaleMissingListing}
+          disabled={buyNowDisabled}
           onClick={() => void handleBuyNow()}
           className="mt-2 min-h-10 w-full rounded-full bg-gradient-to-r from-gold to-gold-bright text-[10px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
         >
@@ -1375,7 +1390,7 @@ export function LiveSaleRoom({
         </button>
       ) : null}
       {activeSaleMissingListing ? (
-        <p className="mt-1 text-[10px] font-medium text-amber-200/90">Checkout is not linked for this slot.</p>
+        <p className="mt-1 text-[10px] font-medium text-amber-200/90">This slot needs a price before Buy Now.</p>
       ) : null}
       <LiveBuyerWalletGateHint
         hide={isHost || !isLive || (roomType !== "auction" && roomType !== "sale") || activeHasVariants}
@@ -1519,6 +1534,7 @@ export function LiveSaleRoom({
         <LiveVariantSpotBoard
           item={activeDb}
           hostMode={isHost}
+          highlightUsername={!isHost ? session?.user?.username ?? null : null}
           onPinVariant={
             isHost &&
             activeDb.status === "active" &&

@@ -31,10 +31,13 @@ export function resolveLiveCustomBidPayload(args: {
 export const LIVE_CUSTOM_BID_MODE_COPY = {
   exact: {
     label: 'Exact bid',
-    description: 'Instant bid — places the exact amount you enter on the lot now.',
+    description: 'Jump to this amount on the lot now. Does not auto-raise if someone outbids you.',
   },
   reserve: {
     label: 'Max bid',
-    description: 'Placeholder max — bids the minimum now and keeps you winning up to this amount.',
+    description: 'Bids the minimum now and auto-raises for you up to this max if others bid.',
   },
 } as const;
+
+/** Custom opens in Max mode — Exact (jump the hammer) is opt-in. */
+export const LIVE_CUSTOM_BID_DEFAULT_MODE: LiveCustomBidMode = 'reserve';

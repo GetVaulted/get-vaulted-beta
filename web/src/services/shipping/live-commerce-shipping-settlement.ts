@@ -47,6 +47,47 @@ export type LiveOrderShippingSettlementResult = {
   snapshot: LiveOrderShippingTermsSnapshot;
 };
 
+/** True when live shipping for this order was already settled into an immutable snapshot. */
+export function hasLiveShippingTermsSnapshot(shippingTermsSnapshotJson: unknown): boolean {
+  return shippingTermsSnapshotJson != null && typeof shippingTermsSnapshotJson === "object";
+}
+
+/**
+ * Buyer shipping USD for pay-order checkout.
+ * Once a terms snapshot exists, keep the settled `orderShippingPriceUsd` (never recompute from a
+ * later session estimate refresh). Unsettled orders may still derive remaining session balance.
+ */
+export function resolvePayOrderLiveShippingUsd(args: {
+  orderShippingPriceUsd: number;
+  shippingTermsSnapshotJson: unknown;
+  sessionShippingCostCents: number | null | undefined;
+  siblingPaidShippingCents: number;
+}): number {
+  if (hasLiveShippingTermsSnapshot(args.shippingTermsSnapshotJson)) {
+    return Math.max(0, args.orderShippingPriceUsd);
+  }
+  if (args.sessionShippingCostCents == null || !Number.isFinite(args.sessionShippingCostCents)) {
+    return Math.max(0, args.orderShippingPriceUsd);
+  }
+  const already = Math.max(0, Math.floor(args.siblingPaidShippingCents));
+  const remainingCents = Math.max(0, Math.floor(args.sessionShippingCostCents) - already);
+  return remainingCents / 100;
+}
+
+/**
+ * Raw estimate for settlement subsidy math: prefer uncapped estimatedLabelCostCents;
+ * fall back to shippingCostCents only for legacy rows missing the label estimate.
+ */
+export function resolveLiveSessionRawEstimateCents(session: {
+  shippingCostCents: number;
+  estimatedLabelCostCents?: number | null;
+}): number {
+  if (session.estimatedLabelCostCents != null && Number.isFinite(session.estimatedLabelCostCents)) {
+    return Math.max(0, Math.floor(session.estimatedLabelCostCents));
+  }
+  return Math.max(0, Math.floor(session.shippingCostCents));
+}
+
 /** Row-lock the live shipping session so concurrent purchases serialize cap math. */
 export async function lockLiveShippingSessionForUpdateTx(
   tx: TransactionClient,
@@ -294,6 +335,7 @@ export async function settleLiveOrderShippingTx(
     select: {
       id: true,
       shippingCostCents: true,
+      estimatedLabelCostCents: true,
       liveShowId: true,
       liveShow: {
         select: {
@@ -317,11 +359,15 @@ export async function settleLiveOrderShippingTx(
   const showConfig = liveShowShippingConfigFromTerms(showTerms);
   const alreadyReservedCents = await sumSessionReservedShippingCentsTx(tx, session.id, orderId);
 
+  // Buyer session total stays on shippingCostCents; raw Shippo/tier estimate is estimatedLabelCostCents.
+  // Never feed the capped buyer total back in as "raw" or seller subsidy collapses to 0.
+  const rawEstimateCents = resolveLiveSessionRawEstimateCents(session);
+
   const totals = computeBuyerLiveShippingTotals({
     shippingMode: showConfig.shippingMode ?? "calculated",
     shippingCapCents: showConfig.shippingCapCents,
     sellerPaysOverCap: showConfig.sellerPaysOverCap !== false,
-    estimatedEligibleBundleShippingCents: session.shippingCostCents,
+    estimatedEligibleBundleShippingCents: rawEstimateCents,
     shippingAlreadyChargedCents: alreadyReservedCents,
   });
 
@@ -333,7 +379,8 @@ export async function settleLiveOrderShippingTx(
   const shippingDueCents = Math.min(totals.shippingDueForThisPurchaseCents, roomLeftUnderPlatformMax);
   const totalChargedSoFarCents = alreadyReservedCents + shippingDueCents;
   const shippingPriceUsd = shippingDueCents / 100;
-  const estimatedBeforeCents = Math.max(0, session.shippingCostCents - shippingDueCents);
+  // Snapshot "before" is buyer session total (capped), not raw label estimate.
+  const estimatedBeforeCents = Math.max(0, Math.floor(session.shippingCostCents) - shippingDueCents);
 
   const profileInfo = await resolveShippingProfileForOrderTx(tx, orderId, opts);
   const capturedAt = new Date().toISOString();

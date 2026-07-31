@@ -513,31 +513,6 @@ export function LiveVideoStagePlayback({
       setLatencyMode(safe.latencyMode ?? null);
       setStreamMode(safe.streamMode);
       setStageAvailable(safe.stageAvailable);
-      // #region agent log
-      fetch("http://127.0.0.1:7674/ingest/20fcfd2c-15bc-4e11-921b-7cb9232e12f6", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "dca6d1" },
-        body: JSON.stringify({
-          sessionId: "dca6d1",
-          hypothesisId: "H2_H3_H5",
-          location: "LiveVideoStagePlayback.tsx:fetchStream",
-          message: "buyer_stream_poll",
-          data: {
-            roomId: liveRoomId,
-            streamHealth: safe.streamHealth,
-            streamPaused: safe.streamPaused,
-            streamMode: safe.streamMode,
-            stageAvailable: safe.stageAvailable,
-            streamStartedAt: safe.streamStartedAt,
-            hasPlaybackUrl: Boolean(safe.playbackUrl),
-            transport: transportRef.current,
-            videoHasData,
-            webrtcFailed: webrtcFailedRef.current,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       if (!loggedLatencyModeRef.current) {
         loggedLatencyModeRef.current = true;
         logIvsWeb("channel latency mode", {
@@ -556,6 +531,17 @@ export function LiveVideoStagePlayback({
       setLoading(false);
       retryRef.current = 0;
       setHlsFatalRetries(0);
+
+      // Host paused: stop painting/decoding video under the standby screen (OBS may still ingest).
+      if (safe.streamPaused) {
+        transportRef.current = "none";
+        setTransport("none");
+        lastAttachedKeyRef.current = "";
+        setDebugEngine("none");
+        detachHls();
+        setVideoHasData(false);
+        return;
+      }
 
       const signalLive = isLiveStreamSignal(safe.streamHealth);
       // A fresh live signal resets the one-shot WebRTC failover guard so a new Go Live retries WebRTC.
@@ -702,7 +688,7 @@ export function LiveVideoStagePlayback({
   useStageSubscribe({
     roomId: liveRoomId,
     videoRef,
-    active: transport === "webrtc",
+    active: transport === "webrtc" && !streamPaused,
     muted,
     refreshNonce: streamPlaybackRefreshNonce,
     subscribeEpoch: webrtcSubscribeEpoch,
@@ -759,26 +745,6 @@ export function LiveVideoStagePlayback({
       lastAttachedKeyRef.current = "";
       setPlayerFatal(false);
       setHlsFatalRetries(0);
-      // #region agent log
-      fetch("http://127.0.0.1:7674/ingest/20fcfd2c-15bc-4e11-921b-7cb9232e12f6", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "dca6d1" },
-        body: JSON.stringify({
-          sessionId: "dca6d1",
-          hypothesisId: "H_FAILOVER",
-          location: "LiveVideoStagePlayback.tsx:noVideoRecover",
-          message: "buyer_no_video_recover_tick",
-          data: {
-            roomId: liveRoomId,
-            transport: transportRef.current,
-            webrtcFailoverCount: webrtcFailoverCountRef.current,
-            webrtcFailed: webrtcFailedRef.current,
-            streamHealth,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       // WebRTC has yielded no host video for the whole recover window. Escalate toward the HLS
       // mirror instead of resetting the failover counter — the reset was trapping buyers on a
       // never-playing WebRTC subscribe while the Stage→Channel HLS mirror was live.

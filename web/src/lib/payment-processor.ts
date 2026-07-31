@@ -1,10 +1,10 @@
 import type { PaymentProcessor, SellerPayoutProcessor, WalletPaymentMethodType } from "@/generated/prisma/client";
 import { isStripeWalletOptionalMethodEnabled } from "@/lib/stripe-payment-method-config";
-import { isBuyerVenmoPayConfigured } from "@/lib/paypal-auth";
+import { isBuyerPayPalWalletConfigured, isBuyerVenmoPayConfigured } from "@/lib/paypal-auth";
 
 export type { PaymentProcessor, SellerPayoutProcessor, WalletPaymentMethodType };
 
-/** Stripe-supported wallet methods we expose in Vault Wallet (Venmo is a separate PayPal path). */
+/** Stripe-supported wallet methods we expose in Vault Wallet (Venmo/PayPal are separate PayPal paths). */
 export const STRIPE_WALLET_METHOD_TYPES: WalletPaymentMethodType[] = [
   "card",
   "apple_pay",
@@ -17,6 +17,11 @@ export const STRIPE_WALLET_METHOD_TYPES: WalletPaymentMethodType[] = [
 /** Buyer Venmo option in Vault Wallet / Live. Backend link lives at POST /api/account/payment-methods/venmo-setup. */
 export function isWalletVenmoEnabled(): boolean {
   return process.env.WALLET_VENMO_ENABLED !== "false";
+}
+
+/** Buyer PayPal Wallet option in Vault Wallet / Live. */
+export function isWalletPayPalEnabled(): boolean {
+  return process.env.WALLET_PAYPAL_ENABLED !== "false";
 }
 
 export type WalletCapabilities = {
@@ -73,7 +78,7 @@ export function defaultWalletCapabilities(stripeConfigured: boolean): WalletCapa
     link: stripeConfigured && isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_LINK_ENABLED"),
     cashAppPay: stripeConfigured && isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_CASH_APP_ENABLED"),
     amazonPay: stripeConfigured && isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_AMAZON_PAY_ENABLED"),
-    paypal: false,
+    paypal: isWalletPayPalEnabled() && isBuyerPayPalWalletConfigured(),
     /** Shown when UI flag is on; linking requires PAYPAL_BUYER_VENMO_ENABLED + credentials. */
     venmo: isWalletVenmoEnabled() && isBuyerVenmoPayConfigured(),
   };

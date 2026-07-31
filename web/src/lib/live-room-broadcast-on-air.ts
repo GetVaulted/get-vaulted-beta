@@ -35,6 +35,19 @@ export function isLiveStreamDisconnectConfirmed(room: LiveRoomBroadcastGate): bo
 export function isLiveRoomBroadcastOnAir(room: LiveRoomBroadcastGate): boolean {
   if (room.status !== "live") return false;
   if (room.streamPaused === true) return false;
+  return isLiveRoomBroadcastSignalReady(room);
+}
+
+/**
+ * Buy Now / shop / spots stay available while the host is paused.
+ * Only a confirmed disconnect (or ended signal) blocks purchases.
+ */
+export function isLiveRoomBroadcastPurchasable(room: LiveRoomBroadcastGate): boolean {
+  if (room.status !== "live") return false;
+  return isLiveRoomBroadcastSignalReady(room);
+}
+
+function isLiveRoomBroadcastSignalReady(room: LiveRoomBroadcastGate): boolean {
   if (isLiveStreamSignal(room.streamHealth)) return true;
   if (room.streamHealth.toLowerCase() === "ended") return false;
   // Soft warm-up: Stage phone publish and OBS room lifecycle can lead health by a moment.

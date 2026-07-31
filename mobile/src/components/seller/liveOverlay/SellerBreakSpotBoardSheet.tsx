@@ -35,11 +35,24 @@ import { UsernameMentionPicker } from '../../mentions/UsernameMentionPicker';
 
 type SaleMode = 'cash' | 'supp';
 
+/** Minimal item shape for the shared host/buyer team roster board. */
+export type BreakSpotBoardItem = {
+  id: string;
+  title: string;
+  displayTitle?: string;
+  salesFormat?: LiveRoomItemRow['salesFormat'];
+  variantAssignmentMode?: 'pick' | 'random';
+  variants?: LiveRoomItemRow['variants'];
+  randomSpotClaims?: { label: string; buyerUsername: string }[];
+};
+
 type Props = {
   visible: boolean;
   onClose: () => void;
-  item: LiveRoomItemRow | null;
+  item: BreakSpotBoardItem | LiveRoomItemRow | null;
   accessToken?: string;
+  /** Highlight sold tiles that belong to this viewer (@username, no leading @). */
+  viewerUsername?: string | null;
   /** When true, host can tap an open team to pin it for buyers. */
   canPinTeams?: boolean;
   pinningVariantId?: string | null;
@@ -109,6 +122,7 @@ function SpotTile({
   selected,
   canSelect,
   onSelect,
+  mine,
 }: {
   row: VariantSpotDisplayRow;
   isDivisionBreak: boolean;
@@ -120,6 +134,7 @@ function SpotTile({
   selected: boolean;
   canSelect: boolean;
   onSelect?: () => void;
+  mine?: boolean;
 }) {
   const sold = row.sold;
   const unavailable = row.unavailable;
@@ -147,10 +162,15 @@ function SpotTile({
         unavailable && styles.spotTileUnavailable,
         pinned && styles.spotTilePinned,
         selected && !sold && styles.spotTileSelected,
+        mine && styles.spotTileMine,
         !closed && { backgroundColor: lightAccent ? `${accent}ee` : `${accent}33` },
       ]}
     >
-      {pinned ? (
+      {mine ? (
+        <View style={styles.mineBadge}>
+          <LiveRoomText style={styles.mineBadgeText}>YOURS</LiveRoomText>
+        </View>
+      ) : pinned ? (
         <View style={styles.pinnedBadge}>
           <LiveRoomText style={styles.pinnedBadgeText}>PINNED</LiveRoomText>
         </View>
@@ -229,6 +249,7 @@ export function SellerBreakSpotBoardSheet({
   onClose,
   item,
   accessToken,
+  viewerUsername = null,
   canPinTeams = false,
   pinningVariantId = null,
   onPinTeam,
@@ -300,6 +321,8 @@ export function SellerBreakSpotBoardSheet({
   const isSuppSale = selectedUnavailable || saleMode === 'supp';
   const buyerUsername = username.trim().replace(/^@+/, '');
   const canSubmitUsername = buyerUsername.length >= 3;
+  const viewerKey = viewerUsername?.trim().replace(/^@+/, '').toLowerCase() ?? '';
+  const isBuyerRoster = !canMarkSold && !canPinTeams;
 
   const parsedAmount = (() => {
     if (isSuppSale) return 0;
@@ -366,7 +389,9 @@ export function SellerBreakSpotBoardSheet({
                   ? ' · tap a team for Mark sold, Supp sold, or Mark unavailable'
                   : canPinTeams
                     ? ' · use Pin on a team to feature it for buyers'
-                    : ''}
+                    : isBuyerRoster
+                      ? ' · your teams are marked Yours'
+                      : ''}
               </LiveRoomText>
             </View>
             <Pressable
@@ -397,6 +422,8 @@ export function SellerBreakSpotBoardSheet({
                   !row.sold &&
                   (row.unavailable ? onRestoreTeam || onMarkSold : onMarkSold),
               );
+              const rowBuyer = row.buyerUsername?.trim().replace(/^@+/, '').toLowerCase() ?? '';
+              const mine = Boolean(viewerKey && row.sold && rowBuyer === viewerKey);
               return (
                 <SpotTile
                   key={row.id}
@@ -409,6 +436,7 @@ export function SellerBreakSpotBoardSheet({
                   onPinTeam={onPinTeam}
                   selected={selectedVariantId === row.variantId}
                   canSelect={canSelect}
+                  mine={mine}
                   onSelect={
                     canSelect
                       ? () => {
@@ -742,6 +770,30 @@ const styles = StyleSheet.create({
     borderColor: colors.gold,
     borderWidth: 2,
     borderLeftWidth: 3,
+  },
+  spotTileMine: {
+    opacity: 1,
+    borderColor: colors.gold,
+    borderWidth: 2,
+    borderLeftWidth: 3,
+    backgroundColor: 'rgba(212,175,55,0.16)',
+  },
+  mineBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: colors.gold,
+    backgroundColor: colors.gold,
+  },
+  mineBadgeText: {
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    color: '#111',
   },
   pinnedBadge: {
     position: 'absolute',

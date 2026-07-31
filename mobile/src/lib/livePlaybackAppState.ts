@@ -18,14 +18,31 @@ export function isLiveAudioInterruptionState(state: AppStateStatus): boolean {
 
 /**
  * Start PiP when the app actually backgrounds (home swipe ends in `background`).
- * Do NOT start on `active → inactive` alone — that is incoming calls and crashes CallKit.
- * iOS home gesture is often `active → inactive → background`; allow PiP on that final step.
+ * Do NOT start on `active → inactive` alone via this helper — use
+ * `shouldPrepareLivePictureInPicture` for the early iOS home-gesture attempt.
  */
 export function shouldAttemptLivePictureInPicture(
   next: AppStateStatus,
   previous: AppStateStatus,
 ): boolean {
   return next === 'background' && previous !== 'background';
+}
+
+/**
+ * iOS home / app-switcher begins as `active → inactive`. Starting PiP here (debounced)
+ * is required — waiting until `background` is often too late for AVPictureInPictureController.
+ * Phone-call / Control Center also use `inactive`; callers must cancel if we return to `active`.
+ */
+export function shouldPrepareLivePictureInPicture(
+  next: AppStateStatus,
+  previous: AppStateStatus,
+): boolean {
+  return next === 'inactive' && previous === 'active';
+}
+
+/** True while the OS transition still allows startPictureInPicture (not back in foreground). */
+export function isLivePictureInPictureAppState(state: AppStateStatus): boolean {
+  return state === 'inactive' || state === 'background';
 }
 
 /**
@@ -47,6 +64,37 @@ export function shouldWarmLiveHlsPipCompanion(args: {
     args.roomLifecycleLive &&
     Boolean(args.playbackUrl?.trim())
   );
+}
+
+/**
+ * Mute the HLS mirror under live Stage so buyers only hear WebRTC.
+ * Unmute when backgrounded / Stage suspended / PiP so the OS window has audio
+ * (never leave Stage + HLS both audible — that caused the delayed echo).
+ */
+export function shouldMuteHlsUnderLiveWebrtc(args: {
+  webrtcReady: boolean;
+  useWebrtc: boolean;
+  stageSuspended: boolean;
+  pipActive: boolean;
+  appBackgrounded: boolean;
+}): boolean {
+  if (args.appBackgrounded || args.stageSuspended || args.pipActive) return false;
+  return args.webrtcReady && args.useWebrtc;
+}
+
+/** Mount the HLS VideoView for PiP even after Stage has painted over it. */
+export function shouldShowHlsLayerForLivePip(args: {
+  attachHls: boolean;
+  playbackActive: boolean;
+  surfaceError: boolean;
+  webrtcReady: boolean;
+  warmPipCompanion: boolean;
+  pipActive: boolean;
+  appBackgrounded: boolean;
+}): boolean {
+  if (!args.attachHls || !args.playbackActive || args.surfaceError) return false;
+  if (!args.webrtcReady) return true;
+  return args.warmPipCompanion || args.pipActive || args.appBackgrounded;
 }
 
 /**

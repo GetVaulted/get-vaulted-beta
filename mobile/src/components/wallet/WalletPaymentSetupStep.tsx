@@ -27,6 +27,7 @@ import {
   createBuyerSetupIntent,
   finalizeBuyerPaymentMethodSetup,
   FinalizePaymentMethodError,
+  startBuyerPayPalSetup,
   startBuyerVenmoSetup,
   type BuyerSetupIntentPayload,
 } from '../../api/buyerWalletRepository';
@@ -106,10 +107,11 @@ function PaymentSetupScreenShell({
   return (
     <View style={ps.body}>
       <PaymentSetupHeader onBack={onBack} backIcon={backIcon} title={title} />
+      {/* Avoid nested KeyboardAvoidingView when embedded in VaultWalletSheet — it collapses the panel. */}
       {keyboardAware ? (
         <KeyboardAvoidingView
           style={ps.keyboardFrame}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={0}
         >
           {scrollAndFooter}
@@ -174,6 +176,8 @@ function methodPickerSubtitle(entryId: string): string {
       return 'Pay with Cash App — saved for live wins';
     case 'venmo':
       return 'Pay with Venmo — saved for live wins';
+    case 'paypal':
+      return 'Pay with PayPal — saved for live wins';
     case 'link':
       return 'Stripe Link — fast checkout';
     case 'amazon_pay':
@@ -190,6 +194,7 @@ function LivePaymentMethodPicker({
   onPickWallet,
   onPickStripeSheet,
   onPickVenmo,
+  onPickPayPal,
 }: {
   payload: BuyerSetupIntentPayload;
   onClose: () => void;
@@ -197,6 +202,7 @@ function LivePaymentMethodPicker({
   onPickWallet: () => void;
   onPickStripeSheet: () => void;
   onPickVenmo: () => void;
+  onPickPayPal: () => void;
 }) {
   const platform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
   const capabilities = {
@@ -221,8 +227,10 @@ function LivePaymentMethodPicker({
     <View style={ps.body}>
       <PaymentSetupHeader onBack={onClose} backIcon="close" title="Add payment method" />
       <ScrollView
+        style={ps.scroll}
         contentContainerStyle={ps.pickerScrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <LiveRoomText style={ps.sectionLabel}>Choose a method</LiveRoomText>
         {methods.map((entry) => {
@@ -233,7 +241,9 @@ function LivePaymentMethodPicker({
                 ? onPickWallet
                 : entry.id === 'venmo'
                   ? onPickVenmo
-                  : onPickStripeSheet;
+                  : entry.id === 'paypal'
+                    ? onPickPayPal
+                    : onPickStripeSheet;
           const showFastestBadge =
             (entry.id === 'apple_pay' && platform === 'ios' && payload.applePayEnabled !== false) ||
             (entry.id === 'google_pay' && platform === 'android' && NATIVE_GOOGLE_PAY_ENABLED);
@@ -667,6 +677,34 @@ function WalletPaymentSetupInner({
     })();
   }, [accessToken, busy, onSaved]);
 
+  const openPayPalSetup = useCallback(() => {
+    if (busy) return;
+    setInitError(null);
+    void (async () => {
+      setBusy(true);
+      try {
+        const result = await startBuyerPayPalSetup(accessToken);
+        if (result.authorizeUrl) {
+          await Linking.openURL(result.authorizeUrl);
+          return;
+        }
+        if (result.paymentMethodId?.startsWith('pm_') || result.paymentMethodId) {
+          onSaved(result.paymentMethodId);
+          return;
+        }
+        Alert.alert('PayPal', 'PayPal linking did not return a next step. Try again later.');
+      } catch (e) {
+        const msg =
+          e instanceof Error && e.message.trim()
+            ? e.message
+            : 'Could not start PayPal linking. Try again, or connect PayPal on the website wallet for a clearer error.';
+        Alert.alert('PayPal', msg);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [accessToken, busy, onSaved]);
+
   const saveManualCard = async () => {
     if (busy) return;
     setBusy(true);
@@ -714,6 +752,7 @@ function WalletPaymentSetupInner({
         onPickWallet={openNativeWallet}
         onPickStripeSheet={openStripeWalletSheet}
         onPickVenmo={openVenmoSetup}
+        onPickPayPal={openPayPalSetup}
       />
     );
   }

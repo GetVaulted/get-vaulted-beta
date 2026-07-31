@@ -48,7 +48,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (room.status !== "live") {
     return NextResponse.json({ error: "This room is not live." }, { status: 409 });
   }
-  const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room);
+  const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room, "purchase");
   if (broadcastBlock) {
     return NextResponse.json({ error: broadcastBlock.error, code: broadcastBlock.code }, { status: broadcastBlock.status });
   }

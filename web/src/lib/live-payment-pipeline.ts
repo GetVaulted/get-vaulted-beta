@@ -42,8 +42,13 @@ import {
   resolveLiveSellerPayoutProcessor,
   sellerStripeCollectSelect,
 } from "@/lib/seller-stripe-collect-ready";
-import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
+import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId, getBuyerPreferredWalletPaymentMethodId } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
+import {
+  chargeOrderWithPayPalRailWallet,
+  isPayPalRailWalletPaymentMethodId,
+  stampOrderPaidViaPayPalRail,
+} from "@/lib/paypal-buyer-rail";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 import {
@@ -117,9 +122,11 @@ export async function getLiveBuyerPaymentSessionState(args: {
     } catch {
       activePaymentMethodId = null;
     }
+  } else if (isPayPalRailWalletPaymentMethodId(preferred)) {
+    activePaymentMethodId = preferred;
   }
   if (!activePaymentMethodId && wallet.paymentReady) {
-    activePaymentMethodId = await getBuyerDefaultCardPaymentMethodId(args.buyerId);
+    activePaymentMethodId = await getBuyerPreferredWalletPaymentMethodId(args.buyerId);
   }
 
   const liveRoomPaymentReady = wallet.paymentReady && wallet.shippingReady;
@@ -151,7 +158,10 @@ async function resolveBuyerPaymentMethodId(
     await assertPaymentMethodOwnedByUser(buyerId, explicit);
     return explicit;
   }
-  return getBuyerDefaultCardPaymentMethodId(buyerId);
+  if (isPayPalRailWalletPaymentMethodId(explicit)) {
+    return explicit;
+  }
+  return getBuyerPreferredWalletPaymentMethodId(buyerId);
 }
 
 function mapPaymentIntentOutcome(
@@ -440,6 +450,70 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
   }
   if (!pmId) {
     return { outcome: "error", code: "NO_SAVED_CARD", message: "Add a saved payment method to your Wallet." };
+  }
+
+  if (isPayPalRailWalletPaymentMethodId(pmId)) {
+    let fulfillmentRail: { orderId: string; chargeTotalUsd: number };
+    try {
+      fulfillmentRail = await ensureVariantPurchaseFulfillmentOrder(purchase.id);
+      await prisma.$transaction(async (tx) => {
+        await syncOrderShippingFromLiveSessionTx(tx, fulfillmentRail.orderId);
+      });
+    } catch (err) {
+      return {
+        outcome: "error",
+        code: "FULFILLMENT_ORDER_FAILED",
+        message: mapLiveFulfillmentOrderError(err),
+        fulfillmentDetail: err instanceof Error ? err.message : String(err ?? ""),
+      };
+    }
+    const feeCentsRawRail = await resolveCheckoutApplicationFeeCents({
+      saleAmountUsd: purchase.totalUsd,
+      isCompanyListing: false,
+      liveRoomId: purchase.liveRoomId,
+      sellerId: purchase.liveRoom.sellerId,
+      orderId: fulfillmentRail.orderId,
+    });
+    const orderRowRail = await prisma.order.findUnique({
+      where: { id: fulfillmentRail.orderId },
+      select: { itemPriceUsd: true, shippingPriceUsd: true },
+    });
+    const taxChargeRail = await applyOrderTaxPlanForLiveCharge({
+      orderId: fulfillmentRail.orderId,
+      sellerId: purchase.liveRoom.sellerId,
+      itemPriceUsd: orderRowRail?.itemPriceUsd ?? purchase.totalUsd,
+      shippingPriceUsd: orderRowRail?.shippingPriceUsd ?? 0,
+      applicationFeeCents: feeCentsRawRail,
+    });
+    const amountCentsRail = taxChargeRail.amountCents;
+    if (amountCentsRail < 50) {
+      return { outcome: "error", code: "INVALID_AMOUNT", message: "Purchase amount is too small to charge." };
+    }
+    const charged = await chargeOrderWithPayPalRailWallet({
+      buyerId: args.buyerId,
+      orderId: fulfillmentRail.orderId,
+      amountUsd: amountCentsRail / 100,
+      description: `Live spot: ${purchase.variant.label}`,
+      walletPaymentMethodId: pmId,
+    });
+    if (charged.outcome !== "paid") {
+      return {
+        outcome: "error",
+        code: charged.code,
+        message: charged.message ?? "PayPal/Venmo charge failed.",
+      };
+    }
+    await stampOrderPaidViaPayPalRail({
+      orderId: fulfillmentRail.orderId,
+      buyerId: args.buyerId,
+      walletPaymentMethodId: pmId,
+      processorPaymentId: charged.processorPaymentId,
+    });
+    return {
+      outcome: "paid",
+      paymentIntentId: charged.processorPaymentId,
+      chargeUsd: amountCentsRail / 100,
+    };
   }
 
   const buyer = await prisma.user.findUnique({
@@ -870,6 +944,76 @@ export async function chargeLiveItemVariantPurchaseBatchWithSavedCard(args: {
     return { outcome: "error", code: "NO_SAVED_CARD", message: "Add a saved payment method to your Wallet." };
   }
 
+  if (isPayPalRailWalletPaymentMethodId(pmId)) {
+    let fulfillmentRail: { orderId: string; chargeTotalUsd: number; itemPriceUsd: number };
+    try {
+      fulfillmentRail = await ensureVariantPurchaseBatchFulfillmentOrder(args.batchId);
+      await prisma.$transaction(async (tx) => {
+        await syncOrderShippingFromLiveSessionTx(tx, fulfillmentRail.orderId);
+      });
+    } catch (err) {
+      const fulfillmentDetail = err instanceof Error ? err.message : String(err ?? "");
+      console.error("[variant batch purchase] fulfillment order failed (paypal rail)", {
+        batchId: args.batchId,
+        message: fulfillmentDetail,
+        err,
+      });
+      return {
+        outcome: "error",
+        code: "FULFILLMENT_ORDER_FAILED",
+        message: mapLiveFulfillmentOrderError(err),
+        fulfillmentDetail,
+      };
+    }
+    const feeCentsRawRail = await resolveCheckoutApplicationFeeCents({
+      saleAmountUsd: fulfillmentRail.itemPriceUsd,
+      isCompanyListing: false,
+      liveRoomId: primary.liveRoomId,
+      sellerId: primary.liveRoom.sellerId,
+      orderId: fulfillmentRail.orderId,
+    });
+    const orderRowRail = await prisma.order.findUnique({
+      where: { id: fulfillmentRail.orderId },
+      select: { itemPriceUsd: true, shippingPriceUsd: true },
+    });
+    const taxChargeRail = await applyOrderTaxPlanForLiveCharge({
+      orderId: fulfillmentRail.orderId,
+      sellerId: primary.liveRoom.sellerId,
+      itemPriceUsd: orderRowRail?.itemPriceUsd ?? fulfillmentRail.itemPriceUsd,
+      shippingPriceUsd: orderRowRail?.shippingPriceUsd ?? 0,
+      applicationFeeCents: feeCentsRawRail,
+    });
+    const amountCentsRail = taxChargeRail.amountCents;
+    if (amountCentsRail < 50) {
+      return { outcome: "error", code: "INVALID_AMOUNT", message: "Purchase amount is too small to charge." };
+    }
+    const charged = await chargeOrderWithPayPalRailWallet({
+      buyerId: args.buyerId,
+      orderId: fulfillmentRail.orderId,
+      amountUsd: amountCentsRail / 100,
+      description: formatVariantBatchOrderTitle(pending.map((p) => p.variant.label)),
+      walletPaymentMethodId: pmId,
+    });
+    if (charged.outcome !== "paid") {
+      return {
+        outcome: "error",
+        code: charged.code,
+        message: charged.message ?? "PayPal/Venmo charge failed.",
+      };
+    }
+    await stampOrderPaidViaPayPalRail({
+      orderId: fulfillmentRail.orderId,
+      buyerId: args.buyerId,
+      walletPaymentMethodId: pmId,
+      processorPaymentId: charged.processorPaymentId,
+    });
+    return {
+      outcome: "paid",
+      paymentIntentId: charged.processorPaymentId,
+      chargeUsd: amountCentsRail / 100,
+    };
+  }
+
   const buyer = await prisma.user.findUnique({
     where: { id: args.buyerId },
     select: { stripeCustomerId: true },
@@ -1226,6 +1370,64 @@ export async function chargeBreakSpotWithSavedCard(args: {
   }
   if (!pmId) {
     return { outcome: "error", code: "NO_SAVED_CARD", message: "Add a saved payment method to your Wallet." };
+  }
+
+  if (isPayPalRailWalletPaymentMethodId(pmId)) {
+    let fulfillmentRail: { orderId: string; chargeTotalUsd: number };
+    try {
+      fulfillmentRail = await ensureBreakSpotFulfillmentOrder(spot.id);
+    } catch (err) {
+      return {
+        outcome: "error",
+        code: "FULFILLMENT_ORDER_FAILED",
+        message: mapLiveFulfillmentOrderError(err),
+        fulfillmentDetail: err instanceof Error ? err.message : String(err ?? ""),
+      };
+    }
+    const feeCentsRawRail = await resolveCheckoutApplicationFeeCents({
+      saleAmountUsd: spot.priceUsd,
+      isCompanyListing: false,
+      liveRoomId: spot.liveRoomId,
+      sellerId: spot.liveRoom.sellerId,
+      orderId: fulfillmentRail.orderId,
+    });
+    const orderRowRail = await prisma.order.findUnique({
+      where: { id: fulfillmentRail.orderId },
+      select: { itemPriceUsd: true, shippingPriceUsd: true },
+    });
+    const taxChargeRail = await applyOrderTaxPlanForLiveCharge({
+      orderId: fulfillmentRail.orderId,
+      sellerId: spot.liveRoom.sellerId,
+      itemPriceUsd: orderRowRail?.itemPriceUsd ?? spot.priceUsd,
+      shippingPriceUsd: orderRowRail?.shippingPriceUsd ?? 0,
+      applicationFeeCents: feeCentsRawRail,
+    });
+    const amountCentsRail = taxChargeRail.amountCents;
+    if (amountCentsRail < 50) {
+      return { outcome: "error", code: "INVALID_AMOUNT", message: "Purchase amount is too small to charge." };
+    }
+    const charged = await chargeOrderWithPayPalRailWallet({
+      buyerId: args.buyerId,
+      orderId: fulfillmentRail.orderId,
+      amountUsd: amountCentsRail / 100,
+      description: `Break spot ${spot.id}`,
+      walletPaymentMethodId: pmId,
+    });
+    if (charged.outcome !== "paid") {
+      return {
+        outcome: "error",
+        code: charged.code,
+        message: charged.message ?? "PayPal/Venmo charge failed.",
+      };
+    }
+    await stampOrderPaidViaPayPalRail({
+      orderId: fulfillmentRail.orderId,
+      buyerId: args.buyerId,
+      walletPaymentMethodId: pmId,
+      processorPaymentId: charged.processorPaymentId,
+    });
+    await finalizeBreakSpotPaid({ breakSpotId: spot.id, paymentIntentId: charged.processorPaymentId });
+    return { outcome: "paid", paymentIntentId: charged.processorPaymentId, chargeUsd: amountCentsRail / 100 };
   }
 
   const buyer = await prisma.user.findUnique({

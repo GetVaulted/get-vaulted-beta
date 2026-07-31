@@ -38,7 +38,7 @@ import { VaultRevealOverlay } from "@/components/live-auction/VaultRevealOverlay
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from "@/lib/vault-reveal-spin";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
-import { isLiveRoomBroadcastOnAir, type LiveRoomBroadcastGate } from "@/lib/live-room-broadcast-on-air";
+import { isLiveRoomBroadcastOnAir, isLiveRoomBroadcastPurchasable, type LiveRoomBroadcastGate } from "@/lib/live-room-broadcast-on-air";
 import {
   LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR,
   LIVE_STREAM_PAUSED_COMMERCE_ERROR,
@@ -1007,17 +1007,18 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
 
   const host = `@${detail.sellerUsername}`;
   const isLive = detail.status === "live";
-  const broadcastCommerceBlocked =
-    isLive &&
-    !isLiveRoomBroadcastOnAir({
-      status: "live",
-      streamHealth: broadcastGate.streamHealth,
-      streamPaused: broadcastGate.streamPaused,
-      streamMode: broadcastGate.streamMode,
-      streamStartedAt: broadcastGate.streamStartedAt,
-      streamEndedAt: broadcastGate.streamEndedAt,
-    });
-  const broadcastCommerceHint = broadcastCommerceBlocked
+  const gate = {
+    status: "live" as const,
+    streamHealth: broadcastGate.streamHealth,
+    streamPaused: broadcastGate.streamPaused,
+    streamMode: broadcastGate.streamMode,
+    streamStartedAt: broadcastGate.streamStartedAt,
+    streamEndedAt: broadcastGate.streamEndedAt,
+  };
+  // Auctions pause with the host; Buy Now / spots / shop stay open while paused.
+  const broadcastAuctionBlocked = isLive && !isLiveRoomBroadcastOnAir(gate);
+  const broadcastPurchaseBlocked = isLive && !isLiveRoomBroadcastPurchasable(gate);
+  const broadcastCommerceHint = broadcastAuctionBlocked
     ? broadcastGate.streamPaused
       ? LIVE_STREAM_PAUSED_COMMERCE_ERROR
       : LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR
@@ -1075,7 +1076,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           onOpenWallet={() => setPremiumWalletOpen(true)}
           onApplyVariantPurchase={handleBuyerVariantPurchased}
           buyerPaymentRecoveryPending={buyerPaymentRecoveryPending}
-          broadcastCommerceBlocked={broadcastCommerceBlocked}
+          broadcastCommerceBlocked={broadcastAuctionBlocked}
+          broadcastPurchaseBlocked={broadcastPurchaseBlocked}
           broadcastCommerceHint={broadcastCommerceHint}
         />
         <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
@@ -1137,7 +1139,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       onOpenWallet={() => setPremiumWalletOpen(true)}
       onApplyVariantPurchase={handleBuyerVariantPurchased}
       buyerPaymentRecoveryPending={buyerPaymentRecoveryPending}
-      broadcastCommerceBlocked={broadcastCommerceBlocked}
+      broadcastCommerceBlocked={broadcastAuctionBlocked}
+      broadcastPurchaseBlocked={broadcastPurchaseBlocked}
       broadcastCommerceHint={broadcastCommerceHint}
     />
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />

@@ -92,6 +92,12 @@ export const WALLET_METHOD_CATALOG: WalletMethodCatalogEntry[] = [
     savableInWallet: true,
   },
   {
+    id: "paypal",
+    label: "PayPal",
+    eligibility: ["live", "marketplace", "trade"],
+    savableInWallet: true,
+  },
+  {
     id: "affirm",
     label: "Affirm",
     eligibility: ["marketplace_only"],

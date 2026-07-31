@@ -48,6 +48,8 @@ function defaultWeightsForCategory(category: ShippingCategory): { base: number; 
 
 import { settleLiveOrderShippingTx } from "@/services/shipping/live-commerce-shipping-settlement";
 import { resolveLiveShowShippingCapCents } from "@/lib/live-show-shipping-terms";
+import { calculateLiveShippingCost as tierEstimateCents } from "@/services/shipping/live-shipping-tier-estimate";
+import { computeBuyerLiveShippingTotals } from "@/lib/unified-shipping-engine";
 
 function parseTiersFromEnv(): LiveShippingTier[] | null {
   const raw = process.env.LIVE_SHIPPING_TIERS_JSON?.trim();
@@ -76,13 +78,12 @@ export function calculateLivePricingWeight(items: Array<{ appliedWeightOz: numbe
   return items.reduce((sum, item) => sum + (Number.isFinite(item.appliedWeightOz) ? item.appliedWeightOz : 0), 0);
 }
 
-export function calculateLiveShippingCost(weightOz: number, capCents?: number | null): number {
-  if (!Number.isFinite(weightOz) || weightOz <= 0) return 0;
-  const tiers = effectiveTiers();
-  const row = tiers.find((tier) => weightOz <= tier.maxWeightOz) ?? tiers[tiers.length - 1];
-  const computed = row?.costCents ?? 0;
-  const cap = resolveLiveShowShippingCapCents(capCents ?? null);
-  return Math.min(computed, cap);
+/**
+ * Weight-tier estimate in cents (uncapped). Caps/subsidy are applied by buyer charge helpers.
+ * `@param _capCents` retained for call-site compatibility; ignored.
+ */
+export function calculateLiveShippingCost(weightOz: number, _capCents?: number | null): number {
+  return tierEstimateCents(weightOz);
 }
 
 /** Buyer-facing label for the tier band that contains `pricingWeightOz` (e.g. `"5–8 oz tier"`). */
@@ -114,8 +115,15 @@ export function computeBundledNextItemShippingDeltaCents(args: {
   if (args.capReached) return 0;
   if (!Number.isFinite(args.incrementalWeightOz) || args.incrementalWeightOz <= 0) return null;
   const newWeight = args.currentPricingWeightOz + args.incrementalWeightOz;
-  const newCost = calculateLiveShippingCost(newWeight, args.listingCapCents ?? null);
-  return Math.max(0, newCost - args.currentShippingCostCents);
+  const rawNewCost = calculateLiveShippingCost(newWeight);
+  const buyerNewTotal = computeBuyerLiveShippingTotals({
+    shippingMode: "capped",
+    shippingCapCents: args.listingCapCents ?? null,
+    sellerPaysOverCap: true,
+    estimatedEligibleBundleShippingCents: rawNewCost,
+    shippingAlreadyChargedCents: 0,
+  }).buyerTotalShippingCents;
+  return Math.max(0, buyerNewTotal - args.currentShippingCostCents);
 }
 
 export async function findOrCreateLiveShippingSessionTx(
@@ -175,7 +183,8 @@ export async function estimateFirstItemLiveShippingCentsForListingTx(
     Number.isFinite(listing.shippingBaseWeightOz) && listing.shippingBaseWeightOz > 0
       ? listing.shippingBaseWeightOz
       : defaults.base;
-  return calculateLiveShippingCost(baseWeightOz, listing.shippingPriceCapCents ?? null);
+  const rawCents = calculateLiveShippingCost(baseWeightOz);
+  return Math.min(rawCents, resolveLiveShowShippingCapCents(listing.shippingPriceCapCents ?? null));
 }
 
 export async function addOrderToLiveShippingSessionTx(

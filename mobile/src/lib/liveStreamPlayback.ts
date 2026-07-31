@@ -118,6 +118,17 @@ export function shouldAttachHlsPlayback(streamHealth: string, playbackUrl: strin
   return h === 'live' || h === 'connecting';
 }
 
+/**
+ * Bust CDN / player playlist cache so a newly attached HLS surface starts at the live edge
+ * instead of replaying a recently buffered window.
+ */
+export function withLivePlaybackCacheBust(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return trimmed;
+  const sep = trimmed.includes('?') ? '&' : '?';
+  return `${trimmed}${sep}gv_live=${Date.now()}`;
+}
+
 /** True when the stream signal is live-ish (WebRTC has no playbackUrl). */
 export function isLiveStreamSignal(streamHealth: string): boolean {
   const h = streamHealth.toLowerCase();

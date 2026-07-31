@@ -1,6 +1,8 @@
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { StyleSheet, View } from 'react-native';
 import { CreateListingDraftProvider } from '../createListing/CreateListingDraftContext';
+import { LiveMiniPlayerOverlay } from '../live/LiveMiniPlayerOverlay';
 import { MainTabNavigator } from './MainTabNavigator';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { AuthLoginScreen } from '../screens/auth/AuthLoginScreen';
@@ -220,16 +222,17 @@ const stackScreenOptions = {
 export function RootNavigator() {
   return (
     <NavigationContainer ref={rootNavigationRef} theme={theme} linking={navigationLinking}>
-      <AuthSessionRoutingEffect />
-      <ProfileSetupRoutingEffect />
-      <AppPresenceHeartbeatEffect />
-      <AccountSwitchEffect />
-      <MarketplaceReviewPromptEffect />
-      <PushRegistrationEffect />
-      <MarketplaceCatalogSyncEffect />
-      <NotificationDeepLinkEffect />
-      <CreateListingDraftProvider>
-        <Stack.Navigator initialRouteName="LaunchIntro" screenOptions={stackScreenOptions}>
+      <View style={rootStyles.root}>
+        <AuthSessionRoutingEffect />
+        <ProfileSetupRoutingEffect />
+        <AppPresenceHeartbeatEffect />
+        <AccountSwitchEffect />
+        <MarketplaceReviewPromptEffect />
+        <PushRegistrationEffect />
+        <MarketplaceCatalogSyncEffect />
+        <NotificationDeepLinkEffect />
+        <CreateListingDraftProvider>
+          <Stack.Navigator initialRouteName="LaunchIntro" screenOptions={stackScreenOptions}>
           <Stack.Screen
             name="LaunchIntro"
             component={LaunchIntroScreen}
@@ -377,7 +380,13 @@ export function RootNavigator() {
           <Stack.Screen name="AdminSellerRisk" component={AdminSellerRiskScreen} />
           <Stack.Screen name="AdminHealth" component={AdminHealthScreen} />
         </Stack.Navigator>
-      </CreateListingDraftProvider>
+        </CreateListingDraftProvider>
+        <LiveMiniPlayerOverlay />
+      </View>
     </NavigationContainer>
   );
 }
+
+const rootStyles = StyleSheet.create({
+  root: { flex: 1 },
+});

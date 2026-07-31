@@ -213,11 +213,14 @@ export function segmentColorForLabel(label: string, abbr?: string | null, pack?:
 /** Per-spot color key for random pool boards (team abbr or division conference). */
 export function spotColorKeyForPoolLabel(
   label: string,
-  salesFormat: 'variant_selection' | 'team_break',
+  salesFormat: 'variant_selection' | 'team_break' | 'player_selection',
   pack?: LiveBoardPackId | null,
 ): string | null {
   if (salesFormat === 'team_break') {
     return NFL_DIVISIONS.find((d) => d.label === label)?.conference ?? null;
+  }
+  if (salesFormat === 'player_selection') {
+    return null;
   }
   return findTeamByName(label, pack)?.abbr ?? null;
 }

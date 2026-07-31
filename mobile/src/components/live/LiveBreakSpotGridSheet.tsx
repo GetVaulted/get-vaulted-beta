@@ -55,7 +55,8 @@ import { LiveRoomText } from './LiveRoomText';
 
 /**
  * Buyer checkout bottom sheet for PYT (variant_selection) and PYD (team_break).
- * This is the only buyer-facing spot picker — do not add a center team board for buyers.
+ * Open spots use this sheet for purchase. Once the break fills, buyers open the same
+ * host team roster (`SellerBreakSpotBoardSheet`) via Team roster / Teams — not this sheet.
  */
 type Props = {
   visible: boolean;

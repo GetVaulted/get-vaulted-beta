@@ -30,7 +30,9 @@ describe('buyer break checkout routing', () => {
     const bar = readComponent('LivePinnedActionBar.tsx');
     expect(bar).toContain('LiveBreakSpotGridSheet');
     expect(bar).toContain('setVariantSheetOpen(true)');
-    expect(bar).not.toContain('SellerBreakSpotBoardSheet');
+    // Checkout stays on the compact sheet; sold roster reuses the host team board.
+    expect(bar).toContain('SellerBreakSpotBoardSheet');
+    expect(bar).toContain('setTeamsRosterOpen(true)');
   });
 
   it('opens compact checkout sheet from the live commerce bar for PYD', () => {
@@ -46,10 +48,13 @@ describe('buyer break checkout routing', () => {
     expect(variantSelectSpotLabel('team_break')).toBe('Pick Your Division');
   });
 
-  it('does not treat seller host board as buyer checkout', () => {
+  it('keeps host mark-sold controls off the buyer sold roster', () => {
     const host = readFileSync(resolve(liveDir, '../seller/liveOverlay/SellerLiveHostView.tsx'), 'utf8');
     expect(host).toContain('SellerBreakSpotBoardSheet');
-    expect(readComponent('LivePinnedActionBar.tsx')).not.toContain('SellerBreakSpotBoardSheet');
+    const bar = readComponent('LivePinnedActionBar.tsx');
+    expect(bar).toContain('SellerBreakSpotBoardSheet');
+    expect(bar).not.toContain('canMarkSold');
+    expect(bar).not.toContain('onMarkSold');
   });
 
   it('aliases LiveVariantSelectionSheet to the compact checkout sheet', () => {

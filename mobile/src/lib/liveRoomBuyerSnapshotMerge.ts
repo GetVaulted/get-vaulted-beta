@@ -359,3 +359,19 @@ export function mergeBuyerSnapshotForActiveItemChanged(
     fetchedAtMs: wallNowMs,
   };
 }
+
+/**
+ * After a rejected bid (outbid / raised minimum), lift local minNext immediately so the next
+ * Hold / Custom attempt uses the correct floor before GET/realtime catch-up.
+ */
+export function patchBuyerSnapshotMinNextBid(
+  snap: LiveRoomBuyerSnapshot,
+  minNextBidUsd: number,
+): LiveRoomBuyerSnapshot {
+  if (!Number.isFinite(minNextBidUsd) || minNextBidUsd <= 0) return snap;
+  const prev = snap.minNextBidUsd;
+  if (typeof prev === 'number' && Number.isFinite(prev) && minNextBidUsd <= prev + 0.001) {
+    return snap;
+  }
+  return { ...snap, minNextBidUsd };
+}

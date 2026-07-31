@@ -350,7 +350,10 @@ export function validateQuickLiveLot(
           priceUsd: spotPrice,
           salesFormat: 'player_selection',
           variantAssignmentMode: 'pick',
-          variants: variants.map((v) => ({ ...v, isHot: v.isHot === true })),
+          variants: variants.map((v) => ({
+            ...v,
+            isHot: 'isHot' in v ? v.isHot === true : false,
+          })),
         },
       };
     }

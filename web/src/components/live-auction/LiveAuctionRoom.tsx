@@ -78,6 +78,7 @@ import {
 import { loadStripe } from "@stripe/stripe-js";
 import { resolvePinnedLotOverlayPrice } from "@/lib/live-auction-overlay-price";
 import {
+  LIVE_CUSTOM_BID_DEFAULT_MODE,
   LIVE_CUSTOM_BID_MODE_COPY,
   resolveLiveCustomBidPayload,
   type LiveCustomBidMode,
@@ -227,6 +228,8 @@ export type LiveAuctionRoomProps = {
   buyerPaymentRecoveryPending?: boolean;
   /** Host IVS broadcast offline/paused — block buyer bids and checkout. */
   broadcastCommerceBlocked?: boolean;
+  /** Offline-only — host pause does not block Buy Now / spots / shop. */
+  broadcastPurchaseBlocked?: boolean;
   broadcastCommerceHint?: string | null;
 };
 
@@ -304,6 +307,7 @@ export function LiveAuctionRoom({
   onApplyVariantPurchase,
   buyerPaymentRecoveryPending = false,
   broadcastCommerceBlocked = false,
+  broadcastPurchaseBlocked = false,
   broadcastCommerceHint = null,
 }: LiveAuctionRoomProps) {
   const router = useRouter();
@@ -400,7 +404,7 @@ export function LiveAuctionRoom({
   const [bidFlight, setBidFlight] = useState(false);
   const [customBidOpen, setCustomBidOpen] = useState(false);
   const [customBidDraft, setCustomBidDraft] = useState("");
-  const [customBidMode, setCustomBidMode] = useState<LiveCustomBidMode>("exact");
+  const [customBidMode, setCustomBidMode] = useState<LiveCustomBidMode>(LIVE_CUSTOM_BID_DEFAULT_MODE);
   const [userHighBidUsd, setUserHighBidUsd] = useState<number | null>(null);
   const [showOutbidToast, setShowOutbidToast] = useState(false);
   const [teamBoardData, setTeamBoardData] = useState<TeamBoardPublicPayload | null>(null);
@@ -542,7 +546,7 @@ export function LiveAuctionRoom({
   useEffect(() => {
     setUserHighBidUsd(null);
     setCustomBidOpen(false);
-    setCustomBidMode("exact");
+    setCustomBidMode(LIVE_CUSTOM_BID_DEFAULT_MODE);
   }, [activeDbItem?.id]);
 
   useEffect(() => {
@@ -753,6 +757,8 @@ export function LiveAuctionRoom({
     router.back();
   }, [router]);
 
+  const purchaseBlocked = broadcastPurchaseBlocked;
+
   const actionsDisabled =
     !isLive ||
     broadcastCommerceBlocked ||
@@ -778,7 +784,7 @@ export function LiveAuctionRoom({
   /** PYT/PYD — claim sheet for pick/random; spot auction uses bid flow. */
   const variantShopDisabled =
     !isLive ||
-    broadcastCommerceBlocked ||
+    purchaseBlocked ||
     staffCommerceBlocked ||
     busy ||
     sessionBlocksBuyer ||
@@ -1619,7 +1625,11 @@ export function LiveAuctionRoom({
                 onClick={() => void handleSubmitCustomBid()}
                 className="min-h-10 rounded-full bg-gold px-3 text-[11px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-50 md:min-h-11"
               >
-                {bidFlight ? "Placing…" : "Place custom bid"}
+                {bidFlight
+                  ? "Placing…"
+                  : customBidReserveSupported && customBidMode === "reserve"
+                    ? "Set max bid"
+                    : "Place exact bid"}
               </button>
             </div>
           ) : null}
@@ -1819,6 +1829,7 @@ export function LiveAuctionRoom({
       <LiveVariantSpotBoard
         item={activeDbItem}
         hostMode={isHost}
+        highlightUsername={!isHost ? session?.user?.username ?? null : null}
         onPinVariant={
           isHost &&
           activeDbItem.status === "active" &&
