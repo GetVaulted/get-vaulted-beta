@@ -107,7 +107,7 @@ import {
 } from '../../lib/liveRoomViewport';
 import { isCompactLiveRoomLayout, liveRoomOverlayScale } from '../../lib/liveRoomUiScale';
 import { LiveRoomShareSheet } from './LiveRoomShareSheet';
-import { invalidateBuyerLiveStreamCache, prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
+import { invalidateBuyerLiveStreamCache, peekCachedBuyerLiveStream, prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
 import { WARM_NEIGHBOR_RADIUS } from '../../lib/liveStreamPlayback';
 import type { LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import type { LiveRoomLineupItemSnapshot } from '../../lib/liveBuyerQueueProjection';
@@ -327,6 +327,8 @@ function LiveSlide({
       health === 'live' ||
       health === 'connecting';
     if (canMinimize) {
+      const cached = peekCachedBuyerLiveStream(stream.id);
+      const warmUrl = cached?.playbackUrl?.trim() || null;
       miniPlayer?.minimize({
         roomId: stream.id,
         title: stream.title?.trim() || 'Live show',
@@ -335,6 +337,7 @@ function LiveSlide({
           : stream.host?.name?.trim() || '',
         thumbnailUrl: stream.previewImageUrl?.trim() || '',
         accessToken,
+        playbackUrl: warmUrl,
       });
     }
     leaveAllowRef.current = true;

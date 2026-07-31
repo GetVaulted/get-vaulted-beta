@@ -13,6 +13,8 @@ export type LiveMiniPlayerSession = {
   hostLabel: string;
   thumbnailUrl: string;
   accessToken?: string;
+  /** Optional warm HLS URL so the mini player does not wait on a cold fetch (reduces DVR replay). */
+  playbackUrl?: string | null;
 };
 
 type LiveMiniPlayerContextValue = {

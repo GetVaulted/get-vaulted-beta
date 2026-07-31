@@ -160,8 +160,10 @@ export function LiveStagePlayback({
   const pipRetryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const isForegroundRef = useRef(isForeground);
   const roomIdRef = useRef(roomId);
+  const mutedRef = useRef(muted);
   isForegroundRef.current = isForeground;
   roomIdRef.current = roomId;
+  mutedRef.current = muted;
   const [pipActive, setPipActive] = useState(false);
   const [appBackgrounded, setAppBackgrounded] = useState(
     () => AppState.currentState === 'background',
@@ -333,6 +335,8 @@ export function LiveStagePlayback({
   );
 
   const player = useVideoPlayer(attachHls ? playbackUrl : null, hlsPlayerSetup);
+  const playerRef = useRef(player);
+  playerRef.current = player;
 
   useHlsLiveEdgeSeek(player, attachHls && playback.videoHasData);
 
@@ -426,7 +430,9 @@ export function LiveStagePlayback({
       }
     };
     const attemptPictureInPicture = () => {
-      if (!LIVE_PICTURE_IN_PICTURE_ENABLED || !isForegroundRef.current) return;
+      if (!LIVE_PICTURE_IN_PICTURE_ENABLED) return;
+      // Do NOT gate on isForegroundRef — AppState inactive/background must still start PiP
+      // while the LiveRoom slide is the active one (mode stays 'active' on home swipe).
       if (isLivePlaybackCommerceHoldActive()) {
         viewerLifecycleLog('commerce_hold_skip_pip', { roomId: roomIdRef.current });
         return;
@@ -436,8 +442,18 @@ export function LiveStagePlayback({
         return;
       }
       clearPipRetries();
-      // Mute Stage immediately — HLS becomes the only audible path for the OS window.
+      // Unmute + play HLS so OS PiP has an audible, advancing stream (Stage stays muted).
       void setStageAudioOutputEnabled(false).catch(() => {});
+      try {
+        const p = playerRef.current;
+        const userMuted = mutedRef.current;
+        p.muted = userMuted;
+        p.volume = userMuted ? 0 : 1;
+        p.play();
+        p.targetOffsetFromLive = 0.35;
+      } catch {
+        /* ignore */
+      }
       for (const delayMs of LIVE_PIP_RETRY_DELAYS_MS) {
         const timer = setTimeout(() => {
           // Allow inactive + background — iOS home swipe starts on inactive; waiting for
@@ -472,15 +488,18 @@ export function LiveStagePlayback({
       prevAppStateRef.current = next;
 
       if (shouldPrepareLivePictureInPicture(next, prev)) {
-        // Home / app-switcher begins here on iOS. Debounce so Control Center flicks cancel.
+        // Home / app-switcher begins here on iOS. Start PiP quickly — Control Center flicks cancel.
         clearPreparePip();
         if (isLivePlaybackCommerceHoldActive()) return;
+        setAppBackgrounded(true);
         preparePipTimer = setTimeout(() => {
           preparePipTimer = null;
-          if (prevAppStateRef.current === 'active') return;
-          setAppBackgrounded(true);
+          if (prevAppStateRef.current === 'active') {
+            setAppBackgrounded(false);
+            return;
+          }
           attemptPictureInPicture();
-        }, 100);
+        }, 40);
         return;
       }
 
@@ -898,7 +917,8 @@ const styles = StyleSheet.create({
   /** Near-invisible under Stage while warm — opacity 0 blocks iOS startPictureInPicture. */
   hlsPipCompanion: {
     ...StyleSheet.absoluteFillObject,
-    opacity: 0.02,
+    // Keep non-trivial opacity so AVPlayerViewController treats the layer as inline-visible.
+    opacity: 0.08,
   },
   standbyWrap: {
     ...StyleSheet.absoluteFillObject,

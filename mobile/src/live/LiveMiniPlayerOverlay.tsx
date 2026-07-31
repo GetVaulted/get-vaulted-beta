@@ -17,6 +17,7 @@ import { useHlsLiveEdgeSeek } from '../hooks/useHlsLiveEdgeSeek';
 import {
   invalidateBuyerLiveStreamCache,
   getBuyerLiveStreamCached,
+  peekCachedBuyerLiveStream,
 } from '../lib/liveStreamPrefetchCache';
 import {
   shouldAttachHlsPlayback,
@@ -37,11 +38,11 @@ const PLAYER_H = 220;
 const EDGE_PAD = 10;
 
 /**
- * TikTok-style in-app floating live player: drag anywhere, tap for X / play-pause / expand.
- * HLS-only so it survives leaving LiveRoom without fighting the Stage WebRTC singleton.
+ * Whatnot / TikTok-style in-app floating live player:
+ * - Back from a live room → this window keeps playing
+ * - Home swipe → promotes into OS Picture-in-Picture
  *
  * Always seeks to the live edge (not a replay of the buffer window just before leave).
- * Home-swipe promotes this player into OS Picture-in-Picture when supported.
  */
 export function LiveMiniPlayerOverlay() {
   const { session, paused, close, togglePaused } = useLiveMiniPlayer();
@@ -82,7 +83,16 @@ export function LiveMiniPlayerOverlay() {
       return;
     }
     let cancelled = false;
-    // Always refetch — do not reuse a warm playlist that starts mid-window (looks like a replay).
+
+    // Paint immediately from warm URL / cache so we don't flash thumbnail then DVR-start.
+    const seed =
+      session.playbackUrl?.trim() ||
+      peekCachedBuyerLiveStream(session.roomId)?.playbackUrl?.trim() ||
+      null;
+    if (seed && shouldAttachHlsPlayback('live', seed)) {
+      setPlaybackUrl(withLivePlaybackCacheBust(seed));
+    }
+
     invalidateBuyerLiveStreamCache(session.roomId);
     void (async () => {
       const stream = await getBuyerLiveStreamCached(session.roomId, session.accessToken);
@@ -90,7 +100,7 @@ export function LiveMiniPlayerOverlay() {
       const url = stream.playbackUrl?.trim() || null;
       if (url && shouldAttachHlsPlayback(stream.streamHealth, url)) {
         setPlaybackUrl(withLivePlaybackCacheBust(url));
-      } else {
+      } else if (!seed) {
         setPlaybackUrl(null);
       }
     })();
@@ -105,6 +115,12 @@ export function LiveMiniPlayerOverlay() {
     p.volume = 1;
     p.audioMixingMode = 'doNotMix';
     p.staysActiveInBackground = true;
+    p.showNowPlayingNotification = true;
+    try {
+      p.targetOffsetFromLive = 0.35;
+    } catch {
+      /* ignore */
+    }
     p.bufferOptions = {
       preferredForwardBufferDuration: 1,
       waitsToMinimizeStalling: false,
@@ -133,6 +149,11 @@ export function LiveMiniPlayerOverlay() {
     if (!session || !playbackUrl) return;
     try {
       player.replace(playbackUrl);
+      try {
+        player.targetOffsetFromLive = 0.35;
+      } catch {
+        /* ignore */
+      }
       if (!paused) player.play();
     } catch {
       /* ignore */
@@ -142,17 +163,29 @@ export function LiveMiniPlayerOverlay() {
   // Seek to live edge as soon as the player reports ready.
   useEffect(() => {
     if (!session || !playbackUrl) return;
-    const sub = player.addListener('statusChange', (evt) => {
-      if (evt.status !== 'readyToPlay') return;
+    const bumpLive = () => {
       try {
+        player.targetOffsetFromLive = 0.35;
         const duration = player.duration;
-        if (Number.isFinite(duration) && duration > 0) {
-          player.currentTime = Math.max(0, duration - 0.5);
+        if (Number.isFinite(duration) && duration > 0 && duration < 1e7) {
+          player.currentTime = Math.max(0, duration - 0.35);
+        } else {
+          const offset = player.currentOffsetFromLive;
+          if (typeof offset === 'number' && Number.isFinite(offset) && offset > 1.5) {
+            player.currentTime = player.currentTime + Math.max(0, offset - 0.35);
+          }
         }
         if (!paused) player.play();
       } catch {
         /* ignore */
       }
+    };
+    const sub = player.addListener('statusChange', (evt) => {
+      if (evt.status !== 'readyToPlay') return;
+      bumpLive();
+      // Second nudge after playlist windows settle.
+      setTimeout(bumpLive, 400);
+      setTimeout(bumpLive, 1200);
     });
     return () => sub.remove();
   }, [session, playbackUrl, player, paused]);
@@ -170,6 +203,13 @@ export function LiveMiniPlayerOverlay() {
     if (paused) return;
     if (!isPictureInPictureSupported()) return;
     clearPipRetries();
+    try {
+      player.play();
+      player.muted = false;
+      player.volume = 1;
+    } catch {
+      /* ignore */
+    }
     for (const delayMs of LIVE_PIP_RETRY_DELAYS_MS) {
       const timer = setTimeout(() => {
         if (!isLivePictureInPictureAppState(prevAppStateRef.current)) return;
@@ -181,9 +221,9 @@ export function LiveMiniPlayerOverlay() {
       }, delayMs);
       pipRetryTimersRef.current.push(timer);
     }
-  }, [clearPipRetries, paused]);
+  }, [clearPipRetries, paused, player]);
 
-  // Home / app-switcher: promote floating HLS into OS PiP (must start on inactive on iOS).
+  // Home / app-switcher: promote floating HLS into OS PiP.
   useEffect(() => {
     if (!session || !playbackUrl) return;
     const sub = AppState.addEventListener('change', (next) => {
@@ -196,7 +236,7 @@ export function LiveMiniPlayerOverlay() {
           preparePipTimerRef.current = null;
           if (prevAppStateRef.current === 'active') return;
           attemptPictureInPicture();
-        }, 100);
+        }, 40);
         return;
       }
 
@@ -273,10 +313,11 @@ export function LiveMiniPlayerOverlay() {
   if (!session) return null;
 
   return (
-    <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+    <View pointerEvents="box-none" style={StyleSheet.absoluteFill} collapsable={false}>
       <View
         style={[styles.shell, { left: pos.x, top: pos.y, width: PLAYER_W, height: PLAYER_H }]}
         {...panResponder.panHandlers}
+        collapsable={false}
       >
         <Pressable style={styles.surface} onPress={showControlsBriefly}>
           {playbackUrl ? (
@@ -288,6 +329,7 @@ export function LiveMiniPlayerOverlay() {
               nativeControls={false}
               allowsPictureInPicture
               startsPictureInPictureAutomatically
+              collapsable={false}
             />
           ) : session.thumbnailUrl ? (
             <Image
