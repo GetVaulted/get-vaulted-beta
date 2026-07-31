@@ -328,7 +328,10 @@ function LiveSlide({
       health === 'connecting';
     if (canMinimize) {
       const cached = peekCachedBuyerLiveStream(stream.id);
-      const warmUrl = cached?.playbackUrl?.trim() || null;
+      const warmUrl =
+        miniPlayer?.peekWarmPlaybackUrl(stream.id) ||
+        cached?.playbackUrl?.trim() ||
+        null;
       miniPlayer?.minimize({
         roomId: stream.id,
         title: stream.title?.trim() || 'Live show',
@@ -341,14 +344,17 @@ function LiveSlide({
       });
     }
     leaveAllowRef.current = true;
+    // Let the shared player re-home its VideoView (companion → mini) before unmounting the room.
     requestAnimationFrame(() => {
-      if (stackNav.canGoBack()) {
-        stackNav.goBack();
-        return;
-      }
-      // Never leave buyers stranded on a blank LiveRoom with no tabs / Back.
-      stackNav.navigate('LiveDiscovery');
-      onBack?.();
+      requestAnimationFrame(() => {
+        if (stackNav.canGoBack()) {
+          stackNav.goBack();
+          return;
+        }
+        // Never leave buyers stranded on a blank LiveRoom with no tabs / Back.
+        stackNav.navigate('LiveDiscovery');
+        onBack?.();
+      });
     });
   }, [
     accessToken,

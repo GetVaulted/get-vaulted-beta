@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useVideoPlayer, VideoView, isPictureInPictureSupported } from 'expo-video';
+import { VideoView, isPictureInPictureSupported } from 'expo-video';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppState,
@@ -14,15 +14,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LiveRoomText } from '../components/live/LiveRoomText';
 import { useHlsLiveEdgeSeek } from '../hooks/useHlsLiveEdgeSeek';
-import {
-  invalidateBuyerLiveStreamCache,
-  getBuyerLiveStreamCached,
-  peekCachedBuyerLiveStream,
-} from '../lib/liveStreamPrefetchCache';
-import {
-  shouldAttachHlsPlayback,
-  withLivePlaybackCacheBust,
-} from '../lib/liveStreamPlayback';
+import { getBuyerLiveStreamCached } from '../lib/liveStreamPrefetchCache';
+import { shouldAttachHlsPlayback } from '../lib/liveStreamPlayback';
 import {
   isLivePictureInPictureAppState,
   LIVE_PIP_RETRY_DELAYS_MS,
@@ -38,17 +31,21 @@ const PLAYER_H = 220;
 const EDGE_PAD = 10;
 
 /**
- * Whatnot / TikTok-style in-app floating live player:
- * - Back from a live room → this window keeps playing
- * - Home swipe → promotes into OS Picture-in-Picture
- *
- * Always seeks to the live edge (not a replay of the buffer window just before leave).
+ * Whatnot / TikTok-style in-app floating live player.
+ * Video comes from the shared root player (warmed in-room) — this shell only re-homes the VideoView.
  */
 export function LiveMiniPlayerOverlay() {
-  const { session, paused, close, togglePaused } = useLiveMiniPlayer();
+  const {
+    session,
+    paused,
+    close,
+    togglePaused,
+    player,
+    playbackSourceUrl,
+    warmHls,
+  } = useLiveMiniPlayer();
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
-  const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoRef = useRef<VideoView>(null);
@@ -77,118 +74,25 @@ export function LiveMiniPlayerOverlay() {
     }));
   }, [bounds.maxX, bounds.maxY, bounds.minY]);
 
+  // Soft refresh URL if minimize landed without one — never cache-bust (would restart DVR head).
   useEffect(() => {
-    if (!session) {
-      setPlaybackUrl(null);
-      return;
-    }
+    if (!session) return;
+    if (playbackSourceUrl) return;
     let cancelled = false;
-
-    // Paint immediately from warm URL / cache so we don't flash thumbnail then DVR-start.
-    const seed =
-      session.playbackUrl?.trim() ||
-      peekCachedBuyerLiveStream(session.roomId)?.playbackUrl?.trim() ||
-      null;
-    if (seed && shouldAttachHlsPlayback('live', seed)) {
-      setPlaybackUrl(withLivePlaybackCacheBust(seed));
-    }
-
-    invalidateBuyerLiveStreamCache(session.roomId);
     void (async () => {
       const stream = await getBuyerLiveStreamCached(session.roomId, session.accessToken);
       if (cancelled || !stream) return;
       const url = stream.playbackUrl?.trim() || null;
       if (url && shouldAttachHlsPlayback(stream.streamHealth, url)) {
-        setPlaybackUrl(withLivePlaybackCacheBust(url));
-      } else if (!seed) {
-        setPlaybackUrl(null);
+        warmHls(session.roomId, url);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [session, playbackSourceUrl, warmHls]);
 
-  const player = useVideoPlayer(session && playbackUrl ? playbackUrl : null, (p) => {
-    p.loop = false;
-    p.muted = false;
-    p.volume = 1;
-    p.audioMixingMode = 'doNotMix';
-    p.staysActiveInBackground = true;
-    p.showNowPlayingNotification = true;
-    try {
-      p.targetOffsetFromLive = 0.35;
-    } catch {
-      /* ignore */
-    }
-    p.bufferOptions = {
-      preferredForwardBufferDuration: 1,
-      waitsToMinimizeStalling: false,
-      minBufferForPlayback: 0.5,
-    };
-    try {
-      p.play();
-    } catch {
-      /* ignore */
-    }
-  });
-
-  useHlsLiveEdgeSeek(player, Boolean(session && playbackUrl && !paused));
-
-  useEffect(() => {
-    if (!session || !playbackUrl) return;
-    try {
-      if (paused) player.pause();
-      else player.play();
-    } catch {
-      /* ignore */
-    }
-  }, [paused, player, session, playbackUrl]);
-
-  useEffect(() => {
-    if (!session || !playbackUrl) return;
-    try {
-      player.replace(playbackUrl);
-      try {
-        player.targetOffsetFromLive = 0.35;
-      } catch {
-        /* ignore */
-      }
-      if (!paused) player.play();
-    } catch {
-      /* ignore */
-    }
-  }, [playbackUrl, player, session, paused]);
-
-  // Seek to live edge as soon as the player reports ready.
-  useEffect(() => {
-    if (!session || !playbackUrl) return;
-    const bumpLive = () => {
-      try {
-        player.targetOffsetFromLive = 0.35;
-        const duration = player.duration;
-        if (Number.isFinite(duration) && duration > 0 && duration < 1e7) {
-          player.currentTime = Math.max(0, duration - 0.35);
-        } else {
-          const offset = player.currentOffsetFromLive;
-          if (typeof offset === 'number' && Number.isFinite(offset) && offset > 1.5) {
-            player.currentTime = player.currentTime + Math.max(0, offset - 0.35);
-          }
-        }
-        if (!paused) player.play();
-      } catch {
-        /* ignore */
-      }
-    };
-    const sub = player.addListener('statusChange', (evt) => {
-      if (evt.status !== 'readyToPlay') return;
-      bumpLive();
-      // Second nudge after playlist windows settle.
-      setTimeout(bumpLive, 400);
-      setTimeout(bumpLive, 1200);
-    });
-    return () => sub.remove();
-  }, [session, playbackUrl, player, paused]);
+  useHlsLiveEdgeSeek(player, Boolean(session && playbackSourceUrl && !paused));
 
   const clearPipRetries = useCallback(() => {
     for (const t of pipRetryTimersRef.current) clearTimeout(t);
@@ -200,13 +104,14 @@ export function LiveMiniPlayerOverlay() {
   }, []);
 
   const attemptPictureInPicture = useCallback(() => {
-    if (paused) return;
+    if (!session || paused) return;
     if (!isPictureInPictureSupported()) return;
     clearPipRetries();
     try {
       player.play();
       player.muted = false;
       player.volume = 1;
+      player.targetOffsetFromLive = 0.35;
     } catch {
       /* ignore */
     }
@@ -221,11 +126,10 @@ export function LiveMiniPlayerOverlay() {
       }, delayMs);
       pipRetryTimersRef.current.push(timer);
     }
-  }, [clearPipRetries, paused, player]);
+  }, [clearPipRetries, paused, player, session]);
 
-  // Home / app-switcher: promote floating HLS into OS PiP.
   useEffect(() => {
-    if (!session || !playbackUrl) return;
+    if (!session || !playbackSourceUrl) return;
     const sub = AppState.addEventListener('change', (next) => {
       const prev = prevAppStateRef.current;
       prevAppStateRef.current = next;
@@ -253,7 +157,7 @@ export function LiveMiniPlayerOverlay() {
       clearPipRetries();
       sub.remove();
     };
-  }, [session, playbackUrl, attemptPictureInPicture, clearPipRetries]);
+  }, [session, playbackSourceUrl, attemptPictureInPicture, clearPipRetries]);
 
   const showControlsBriefly = useCallback(() => {
     setControlsVisible(true);
@@ -320,7 +224,7 @@ export function LiveMiniPlayerOverlay() {
         collapsable={false}
       >
         <Pressable style={styles.surface} onPress={showControlsBriefly}>
-          {playbackUrl ? (
+          {playbackSourceUrl ? (
             <VideoView
               ref={videoRef}
               player={player}

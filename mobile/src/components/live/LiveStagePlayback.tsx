@@ -32,6 +32,7 @@ import {
 import { isLivePlaybackCommerceHoldActive } from '../../lib/livePlaybackCommerceHold';
 import { liveStageContentFitForStreamMode, liveStageContentFitForPlayback } from '../../lib/liveRoomViewport';
 import { viewerLifecycleLog } from '../../lib/viewerLifecycleLog';
+import { useLiveMiniPlayerOptional } from '../../live/LiveMiniPlayerContext';
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
 import { StageSubscriberVideo } from './StageSubscriberVideo';
@@ -169,6 +170,7 @@ export function LiveStagePlayback({
     () => AppState.currentState === 'background',
   );
   const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce, roomVisitNonce });
+  const miniPlayer = useLiveMiniPlayerOptional();
 
   useEffect(() => {
     if (!blockStageAfterBackgroundLeave) return;
@@ -266,6 +268,34 @@ export function LiveStagePlayback({
       (useWebrtc && !playback.videoHasData) ||
       warmPipCompanion ||
       (LIVE_PICTURE_IN_PICTURE_ENABLED && (pipActive || appBackgrounded) && hlsAttachable));
+
+  // Keep a root-level HLS player buffering the same URL so Back → mini does not cold-start.
+  useEffect(() => {
+    if (!miniPlayer) return undefined;
+    const url = playbackUrl?.trim() || null;
+    if (
+      url &&
+      playbackActive &&
+      roomLifecycleLive &&
+      !streamPaused &&
+      shouldAttachHlsPlayback(streamHealth, url)
+    ) {
+      miniPlayer.warmHls(roomId, url);
+      return () => {
+        miniPlayer.clearWarmHls(roomId);
+      };
+    }
+    miniPlayer.clearWarmHls(roomId);
+    return undefined;
+  }, [
+    miniPlayer,
+    playbackUrl,
+    playbackActive,
+    roomLifecycleLive,
+    streamPaused,
+    streamHealth,
+    roomId,
+  ]);
 
   useEffect(() => {
     if (!useWebrtc || !isForeground) setWebrtcReady(false);

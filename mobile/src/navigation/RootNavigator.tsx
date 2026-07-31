@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StyleSheet, View } from 'react-native';
 import { CreateListingDraftProvider } from '../createListing/CreateListingDraftContext';
 import { LiveMiniPlayerOverlay } from '../live/LiveMiniPlayerOverlay';
+import { LivePersistentHlsCompanion } from '../live/LivePersistentHlsCompanion';
 import { MainTabNavigator } from './MainTabNavigator';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { AuthLoginScreen } from '../screens/auth/AuthLoginScreen';
@@ -381,6 +382,7 @@ export function RootNavigator() {
           <Stack.Screen name="AdminHealth" component={AdminHealthScreen} />
         </Stack.Navigator>
         </CreateListingDraftProvider>
+        <LivePersistentHlsCompanion />
         <LiveMiniPlayerOverlay />
       </View>
     </NavigationContainer>
