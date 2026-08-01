@@ -103,8 +103,13 @@ export function openNotificationHref(
     return true;
   }
 
-  if (path.startsWith('/account/offers') || (ctx?.type?.includes('offer') && !ctx?.type?.startsWith('trade_'))) {
-    n.navigate('MainTabs', { screen: 'Marketplace' });
+  // Seller Vault Studio for one listing (e.g. "new offer" push: `/seller/listings/{id}?offerId=...`).
+  // Must run before any type-based "offer" fallback — production always sends type `offer_received`.
+  const sellerListingMatch = path.match(/^\/seller\/listings\/([^/]+)/);
+  if (sellerListingMatch?.[1]) {
+    const listingId = decodeURIComponent(sellerListingMatch[1]);
+    const offerId = new URLSearchParams(href.split('?')[1] ?? '').get('offerId')?.trim();
+    n.navigate('SellerListingManagement', offerId ? { listingId, offerId } : { listingId });
     return true;
   }
 
@@ -119,6 +124,14 @@ export function openNotificationHref(
   }
   if (path.startsWith('/trade')) {
     n.navigate('MainTabs', { screen: 'TradeCenter' });
+    return true;
+  }
+
+  // Buyer "your offers" web path — mobile has no dedicated screen yet.
+  // Do NOT match on type alone: that used to send seller `offer_received` to Marketplace
+  // and skip `/seller/listings/...` above.
+  if (path.startsWith('/account/offers')) {
+    n.navigate('MainTabs', { screen: 'Marketplace' });
     return true;
   }
 
@@ -145,15 +158,6 @@ export function openNotificationHref(
 
   if (path.startsWith('/account/listings') || ctx?.type === 'item_sold' || ctx?.type === 'seller_ready_to_ship') {
     n.navigate('MainTabs', { screen: 'HQ' });
-    return true;
-  }
-
-  // Seller Vault Studio for one listing (e.g. "new offer" push: `/seller/listings/{id}?offerId=...`).
-  const sellerListingMatch = path.match(/^\/seller\/listings\/([^/]+)/);
-  if (sellerListingMatch?.[1]) {
-    const listingId = decodeURIComponent(sellerListingMatch[1]);
-    const offerId = new URLSearchParams(href.split('?')[1] ?? '').get('offerId')?.trim();
-    n.navigate('SellerListingManagement', offerId ? { listingId, offerId } : { listingId });
     return true;
   }
 

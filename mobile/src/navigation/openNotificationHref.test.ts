@@ -112,6 +112,18 @@ describe('openNotificationHref', () => {
       });
     });
 
+    it('still opens Vault Studio when type is offer_received (push/inbox always send that type)', () => {
+      const nav = fakeNav();
+      expect(
+        openNotificationHref(nav, '/seller/listings/lst_1?offerId=offer_42', { type: 'offer_received' }),
+      ).toBe(true);
+      expect(nav.navigate).toHaveBeenCalledWith('SellerListingManagement', {
+        listingId: 'lst_1',
+        offerId: 'offer_42',
+      });
+      expect(nav.navigate).not.toHaveBeenCalledWith('MainTabs', { screen: 'Marketplace' });
+    });
+
     it('decodes an encoded listing id', () => {
       const nav = fakeNav();
       const encoded = encodeURIComponent('lst 1');
