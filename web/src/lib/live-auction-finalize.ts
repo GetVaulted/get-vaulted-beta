@@ -19,7 +19,6 @@ import {
   resetVariantSpotAuctionNoBids,
   settleVariantSpotAuctionWinner,
 } from "@/lib/live-variant-spot-auction-settle";
-import { isMultiQuantityLiveAuctionItem } from "@/lib/live-auction-host-start";
 import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
 
 /**
@@ -280,7 +279,8 @@ export async function settleAndChargeLiveAuctionLot(args: {
 }
 
 /**
- * Multi-unit lot ended with no bids: clear the round and keep the row active for another start.
+ * Auction ended with no bids: clear the round, keep quantity, keep the lot active.
+ * Single-unit and multi-unit lots share this path — unsold must NEVER skip/consume inventory.
  */
 export async function resetLiveAuctionLotAfterNoBids(args: {
   liveRoomId: string;
@@ -291,10 +291,9 @@ export async function resetLiveAuctionLotAfterNoBids(args: {
   const next = await prisma.$transaction(async (tx) => {
     const row = await tx.liveRoomItem.findFirst({
       where: { id: itemId, liveRoomId, status: "active" },
-      select: { id: true, quantity: true, quantityInitial: true },
+      select: { id: true },
     });
     if (!row) return null;
-    if (!isMultiQuantityLiveAuctionItem(row)) return null;
 
     const updated = await tx.liveRoomItem.updateMany({
       where: { id: itemId, liveRoomId, status: "active" },
@@ -338,45 +337,6 @@ export async function resetLiveAuctionLotAfterNoBids(args: {
   return { reset: true };
 }
 
-async function skipLiveAuctionLotNoWinner(args: {
-  liveRoomId: string;
-  itemId: string;
-  room: RoomCtx;
-  trigger: FinalizeTrigger;
-}): Promise<{ closed: boolean }> {
-  const { liveRoomId, itemId, trigger } = args;
-  const next = await prisma.$transaction(async (tx) => {
-    const updated = await tx.liveRoomItem.updateMany({
-      where: { id: itemId, liveRoomId, status: "active" },
-      data: { status: "skipped", biddingOpen: false, auctionEndsAt: null, clutchTimeEnabled: false, itemVersion: { increment: 1 } },
-    });
-    if (updated.count === 0) return null;
-    const roomNext = await tx.liveRoom.update({
-      where: { id: liveRoomId },
-      data: { roomVersion: { increment: 1 } },
-      select: { roomVersion: true },
-    });
-    const itemNext = await tx.liveRoomItem.findUnique({ where: { id: itemId }, select: { itemVersion: true } });
-    return { roomVersion: roomNext.roomVersion, itemVersion: itemNext?.itemVersion ?? 0 };
-  });
-  if (!next) return { closed: false };
-  emitPurchaseCompleted(liveRoomId, itemId, {
-    roomVersion: next.roomVersion,
-    itemVersion: next.itemVersion,
-    noBids: true,
-    itemSoldOut: true,
-  });
-  emitActiveItemChanged(liveRoomId, itemId, {
-    roomVersion: next.roomVersion,
-    itemVersion: next.itemVersion,
-    biddingOpen: false,
-    auctionEndsAt: null,
-  });
-  emitLiveRoomQueueItemsChanged(liveRoomId);
-  console.info("[auction close] no bids, closed unsold", { trigger, liveRoomId, itemId });
-  return { closed: true };
-}
-
 /** Timer elapsed with a winner — settle + charge (same path as host Mark sold). */
 async function settleLiveAuctionLotOnTimerEnd(args: {
   liveRoomId: string;
@@ -395,7 +355,7 @@ async function settleLiveAuctionLotOnTimerEnd(args: {
 
 /**
  * Close an overdue auction lot that has no winning bidder.
- * Multi-quantity lots reset for another round; single-quantity lots are skipped.
+ * Always reset in place — never skip/retire inventory when nothing sold.
  */
 export async function closeLiveAuctionLotNoWinner(args: {
   liveRoomId: string;
@@ -404,15 +364,8 @@ export async function closeLiveAuctionLotNoWinner(args: {
   trigger: FinalizeTrigger;
 }): Promise<{ closed: boolean }> {
   const { liveRoomId, itemId, trigger } = args;
-  const row = await prisma.liveRoomItem.findFirst({
-    where: { id: itemId, liveRoomId, status: "active" },
-    select: { quantity: true, quantityInitial: true },
-  });
-  if (row && isMultiQuantityLiveAuctionItem(row)) {
-    const reset = await resetLiveAuctionLotAfterNoBids({ liveRoomId, itemId, trigger });
-    return { closed: reset.reset };
-  }
-  return skipLiveAuctionLotNoWinner(args);
+  const reset = await resetLiveAuctionLotAfterNoBids({ liveRoomId, itemId, trigger });
+  return { closed: reset.reset };
 }
 
 export type OverdueFinalizeSummary = {

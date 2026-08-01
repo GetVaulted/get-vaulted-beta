@@ -19,7 +19,6 @@ import {
 import { parseLiveItemSalesFormat } from "@/lib/live-item-variant-serialize";
 import { settleAndChargeLiveAuctionLot, resetLiveAuctionLotAfterNoBids } from "@/lib/live-auction-finalize";
 import { liveRoomHostCommerceBlockResponse } from "@/lib/live-room-payment-failure";
-import { isMultiQuantityLiveAuctionItem } from "@/lib/live-auction-host-start";
 import { resolveUnpinnedActiveItemStatus } from "@/lib/resolve-unpinned-active-item-status";
 import { applyHighestPreBidToLiveItem } from "@/lib/live-auction-pre-bid";
 import {
@@ -737,11 +736,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     return NextResponse.json({ error: "No updates." }, { status: 400 });
   }
 
+  // Host "skip" on an unsold active lot = reset the round. Never retire inventory on no sale.
   if (
     data.status === "skipped" &&
     item.status === "active" &&
     !item.lastHighBidderId?.trim() &&
-    isMultiQuantityLiveAuctionItem(item) &&
     (item.biddingOpen || item.auctionEndsAt != null)
   ) {
     const reset = await resetLiveAuctionLotAfterNoBids({

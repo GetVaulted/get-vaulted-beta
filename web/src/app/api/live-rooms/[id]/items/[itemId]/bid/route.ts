@@ -139,10 +139,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   if (room.roomType !== "auction" && room.roomType !== "break" && !(room.roomType === "sale" && variantSpotAuction)) {
     return NextResponse.json({ error: "Bidding is only available in auction or break live shows." }, { status: 400 });
   }
-  if (room.status !== "live") {
-    return NextResponse.json({ error: "This room is not live." }, { status: 409 });
+  // Host already opened bidding while room lifecycle lagged behind publish → heal to live.
+  let roomStatus = room.status;
+  if (roomStatus !== "live" && item.biddingOpen && room.streamPaused !== true) {
+    const healed = await prisma.liveRoom.updateMany({
+      where: { id: liveRoomId, status: { not: "live" } },
+      data: { status: "live" },
+    });
+    if (healed.count > 0) roomStatus = "live";
   }
-  const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room);
+  if (roomStatus !== "live") {
+    return NextResponse.json(
+      { error: "This room is not live.", code: "ROOM_NOT_LIVE" },
+      { status: 409 },
+    );
+  }
+  const broadcastBlock = getLiveRoomBroadcastCommerceBlock({ ...room, status: roomStatus });
   if (broadcastBlock) {
     return NextResponse.json({ error: broadcastBlock.error, code: broadcastBlock.code }, { status: broadcastBlock.status });
   }

@@ -49,6 +49,16 @@ describe("isLiveRoomBroadcastOnAir", () => {
         streamMode: "stage_webrtc",
       }),
     ).toBe(true);
+    expect(
+      isLiveRoomBroadcastOnAir({
+        status: "live",
+        streamHealth: "offline",
+        streamPaused: false,
+        streamMode: "stage_webrtc",
+        streamStartedAt: "2026-07-02T18:00:00.000Z",
+        streamEndedAt: "2026-07-02T18:05:00.000Z",
+      }),
+    ).toBe(true);
   });
 
   it("keeps OBS channel_hls soft on-air during brief offline while room is live", () => {
@@ -131,5 +141,28 @@ describe("isLiveStreamDisconnectConfirmed", () => {
         streamPaused: false,
       }),
     ).toBe(false);
+  });
+
+  it("clears disconnect after host republishes (newer streamStartedAt)", () => {
+    expect(
+      isLiveStreamDisconnectConfirmed({
+        status: "live",
+        streamHealth: "offline",
+        streamPaused: false,
+        streamMode: "stage_webrtc",
+        streamStartedAt: "2026-07-02T18:10:00.000Z",
+        streamEndedAt: "2026-07-02T18:05:00.000Z",
+      }),
+    ).toBe(false);
+    expect(
+      isLiveRoomBroadcastOnAir({
+        status: "live",
+        streamHealth: "offline",
+        streamPaused: false,
+        streamMode: "stage_webrtc",
+        streamStartedAt: "2026-07-02T18:10:00.000Z",
+        streamEndedAt: "2026-07-02T18:05:00.000Z",
+      }),
+    ).toBe(true);
   });
 });

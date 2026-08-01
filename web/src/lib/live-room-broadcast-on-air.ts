@@ -20,12 +20,19 @@ export function isLiveStreamDisconnectConfirmed(room: LiveRoomBroadcastGate): bo
   if (room.status !== "live") return false;
   const health = room.streamHealth.toLowerCase();
   if (health === "live" || health === "connecting") return false;
-  if (health === "ended") return true;
 
   const endedAt = parseGateTimestamp(room.streamEndedAt);
-  if (endedAt == null) return false;
-
   const startedAt = parseGateTimestamp(room.streamStartedAt);
+  // Host republished after a prior disconnect — newer start wins.
+  if (startedAt != null && endedAt != null && startedAt > endedAt) return false;
+
+  if (health === "ended") {
+    if (endedAt == null) return true;
+    if (startedAt != null && endedAt >= startedAt) return true;
+    return false;
+  }
+
+  if (endedAt == null) return false;
   if (startedAt != null && endedAt >= startedAt) return true;
 
   return health === "offline" || health === "error";
@@ -49,11 +56,18 @@ export function isLiveRoomBroadcastPurchasable(room: LiveRoomBroadcastGate): boo
 
 function isLiveRoomBroadcastSignalReady(room: LiveRoomBroadcastGate): boolean {
   if (isLiveStreamSignal(room.streamHealth)) return true;
-  if (room.streamHealth.toLowerCase() === "ended") return false;
-  // Soft warm-up: Stage phone publish and OBS room lifecycle can lead health by a moment.
-  if (room.streamMode === "stage_webrtc" || room.streamMode === "channel_hls") return true;
+
+  // Stage / OBS rooms: buyers often still have WebRTC while channel health is sticky offline.
+  // Only hard-block when health is ended and a disconnect is confirmed.
+  if (room.streamMode === "stage_webrtc" || room.streamMode === "channel_hls") {
+    if (room.streamHealth.toLowerCase() === "ended" && isLiveStreamDisconnectConfirmed(room)) {
+      return false;
+    }
+    return true;
+  }
+
   if (isLiveStreamDisconnectConfirmed(room)) return false;
-  return true;
+  return room.streamHealth.toLowerCase() !== "ended";
 }
 
 /**
