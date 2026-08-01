@@ -1,0 +1,20 @@
+diff --git a/node_modules/expo-video/ios/VideoView.swift b/node_modules/expo-video/ios/VideoView.swift
+index 3f285fb..f80f503 100644
+--- a/node_modules/expo-video/ios/VideoView.swift
++++ b/node_modules/expo-video/ios/VideoView.swift
+@@ -168,6 +168,15 @@ public final class VideoView: ExpoView, AVPlayerViewControllerDelegate {
+     // TV is doing a normal view controller present, so we should not execute
+     // this code
+     #if !os(tvOS)
++    // PiP from inline requires the AVPlayerViewController to be a real child VC.
++    // addSubview alone is not enough for canStartPictureInPictureAutomaticallyFromInline.
++    if window != nil, let parentVC = reactViewController(), playerViewController.parent == nil {
++      parentVC.addChild(playerViewController)
++      playerViewController.didMove(toParent: parentVC)
++    } else if window == nil, playerViewController.parent != nil {
++      playerViewController.willMove(toParent: nil)
++      playerViewController.removeFromParent()
++    }
+     playerViewController.beginAppearanceTransition(self.window != nil, animated: true)
+     #endif
+   }

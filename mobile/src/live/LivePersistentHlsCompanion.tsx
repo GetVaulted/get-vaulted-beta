@@ -112,8 +112,9 @@ export function LivePersistentHlsCompanion() {
         style={styles.video}
         contentFit="cover"
         nativeControls={false}
-        allowsPictureInPicture
-        startsPictureInPictureAutomatically
+        // In-room PiP is owned by LiveStagePlayback's front HLS layer — do not compete.
+        allowsPictureInPicture={false}
+        startsPictureInPictureAutomatically={false}
         collapsable={false}
       />
     </View>

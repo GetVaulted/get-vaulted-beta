@@ -166,6 +166,11 @@ export function LiveStagePlayback({
   roomIdRef.current = roomId;
   mutedRef.current = muted;
   const [pipActive, setPipActive] = useState(false);
+  /**
+   * Home / app-switcher: lift HLS above Stage at full opacity so iOS can start
+   * Picture-in-Picture. A covered / near-invisible companion cannot enter PiP.
+   */
+  const [pipSurfaceActive, setPipSurfaceActive] = useState(false);
   const [appBackgrounded, setAppBackgrounded] = useState(
     () => AppState.currentState === 'background',
   );
@@ -379,13 +384,21 @@ export function LiveStagePlayback({
       useWebrtc,
       stageSuspended: stageMediaSuspended,
       pipActive,
-      appBackgrounded,
+      appBackgrounded: appBackgrounded || pipSurfaceActive,
     });
     player.muted = muted || muteForWebrtcAudio;
     player.volume = muted || muteForWebrtcAudio ? 0 : 1;
-    // Only the foreground surface takes exclusive audio focus. Warm neighbor buffers must not grab
-    // `doNotMix`, or several muted background players fight the active player for the audio session.
-    player.audioMixingMode = isForeground ? 'doNotMix' : 'mixWithOthers';
+    // PiP / home-swipe needs exclusive playback audio session (moviePlayback).
+    player.audioMixingMode =
+      isForeground || pipSurfaceActive || pipActive || appBackgrounded ? 'doNotMix' : 'mixWithOthers';
+    try {
+      player.staysActiveInBackground = LIVE_PICTURE_IN_PICTURE_ENABLED;
+      if (pipSurfaceActive || pipActive || appBackgrounded) {
+        player.play();
+      }
+    } catch {
+      /* ignore */
+    }
   }, [
     attachHls,
     muted,
@@ -396,12 +409,13 @@ export function LiveStagePlayback({
     stageMediaSuspended,
     pipActive,
     appBackgrounded,
+    pipSurfaceActive,
   ]);
 
   // WebRTC Stage audio ignores expo-video `muted` — apply the buyer mute toggle via the patched
   // Stage audio-output gate. Mute Stage as soon as we background / enter PiP so HLS is sole audio.
   useEffect(() => {
-    if (appBackgrounded || pipActive) {
+    if (appBackgrounded || pipActive || pipSurfaceActive) {
       void setStageAudioOutputEnabled(false).catch(() => {});
       return;
     }
@@ -416,7 +430,7 @@ export function LiveStagePlayback({
     return () => {
       void setStageAudioOutputEnabled(true).catch(() => {});
     };
-  }, [useWebrtc, stageMediaSuspended, muted, isForeground, appBackgrounded, pipActive]);
+  }, [useWebrtc, stageMediaSuspended, muted, isForeground, appBackgrounded, pipActive, pipSurfaceActive]);
 
   // Hard-stop HLS audio whenever this slide is not the active playback surface. Adjacent pager
   // pages stay mounted (page ± 1 are kept warm), and on Android an expo-video player keeps
@@ -518,13 +532,17 @@ export function LiveStagePlayback({
       prevAppStateRef.current = next;
 
       if (shouldPrepareLivePictureInPicture(next, prev)) {
-        // Home / app-switcher begins here on iOS. Start PiP quickly — Control Center flicks cancel.
+        // Home / app-switcher begins here on iOS. Promote HLS above Stage immediately —
+        // covered companions never win AVPictureInPictureController.
         clearPreparePip();
         if (isLivePlaybackCommerceHoldActive()) return;
+        setPipSurfaceActive(true);
         setAppBackgrounded(true);
+        attemptPictureInPicture();
         preparePipTimer = setTimeout(() => {
           preparePipTimer = null;
           if (prevAppStateRef.current === 'active') {
+            setPipSurfaceActive(false);
             setAppBackgrounded(false);
             return;
           }
@@ -543,6 +561,7 @@ export function LiveStagePlayback({
           viewerLifecycleLog('commerce_hold_skip_suspend', { roomId: roomIdRef.current });
           return;
         }
+        setPipSurfaceActive(true);
         setAppBackgrounded(true);
         if (shouldAttemptLivePictureInPicture(next, prev)) {
           attemptPictureInPicture();
@@ -562,6 +581,7 @@ export function LiveStagePlayback({
 
       if (next === 'active') {
         clearPreparePip();
+        setPipSurfaceActive(false);
         setAppBackgrounded(false);
         clearSuspendTimer();
         clearPipRetries();
@@ -824,32 +844,45 @@ export function LiveStagePlayback({
 
       {hlsCompanionUnderWebrtc ? (
         <>
-          <VideoView
-            ref={mainVideoRef}
-            player={player}
-            style={styles.hlsPipCompanion}
-            contentFit={hlsContentFit}
-            nativeControls={false}
-            allowsPictureInPicture={LIVE_PICTURE_IN_PICTURE_ENABLED}
-            startsPictureInPictureAutomatically={LIVE_PICTURE_IN_PICTURE_ENABLED}
-            onPictureInPictureStart={() => setPipActive(true)}
-            onPictureInPictureStop={() => setPipActive(false)}
+          {/* Stage under HLS: PiP needs the AVPlayer layer frontmost / unobscured. */}
+          <View
+            style={pipSurfaceActive ? styles.stageHiddenForPip : styles.video}
+            pointerEvents="none"
             collapsable={false}
-          />
-          <StageSubscriberVideo
-            roomId={roomId}
-            accessToken={accessToken}
-            active={useWebrtc && !stageMediaSuspended && !blockStageAfterBackgroundLeave}
-            hostPaused={streamPaused}
-            latchRejoinOnLeave={stageMediaSuspended || blockStageAfterBackgroundLeave}
-            refreshNonce={refreshNonce}
-            subscribeEpoch={playback.webrtcSubscribeEpoch}
-            foregroundResumeNonce={foregroundResumeNonce}
-            contentFit={webrtcContentFit}
-            onConnected={handleWebrtcConnected}
-            onFailed={playback.onWebrtcFailed}
-            onDisconnected={playback.onWebrtcDisconnected}
-          />
+          >
+            <StageSubscriberVideo
+              roomId={roomId}
+              accessToken={accessToken}
+              active={useWebrtc && !stageMediaSuspended && !blockStageAfterBackgroundLeave}
+              hostPaused={streamPaused}
+              latchRejoinOnLeave={stageMediaSuspended || blockStageAfterBackgroundLeave}
+              refreshNonce={refreshNonce}
+              subscribeEpoch={playback.webrtcSubscribeEpoch}
+              foregroundResumeNonce={foregroundResumeNonce}
+              contentFit={webrtcContentFit}
+              onConnected={handleWebrtcConnected}
+              onFailed={playback.onWebrtcFailed}
+              onDisconnected={playback.onWebrtcDisconnected}
+            />
+          </View>
+          <View
+            pointerEvents="none"
+            style={pipSurfaceActive ? styles.video : styles.hlsPipCompanionFront}
+            collapsable={false}
+          >
+            <VideoView
+              ref={mainVideoRef}
+              player={player}
+              style={StyleSheet.absoluteFill}
+              contentFit={hlsContentFit}
+              nativeControls={false}
+              allowsPictureInPicture={LIVE_PICTURE_IN_PICTURE_ENABLED}
+              startsPictureInPictureAutomatically={LIVE_PICTURE_IN_PICTURE_ENABLED}
+              onPictureInPictureStart={() => setPipActive(true)}
+              onPictureInPictureStop={() => setPipActive(false)}
+              collapsable={false}
+            />
+          </View>
         </>
       ) : (
         <>
@@ -944,11 +977,16 @@ const styles = StyleSheet.create({
   video: {
     ...StyleSheet.absoluteFillObject,
   },
-  /** Near-invisible under Stage while warm — opacity 0 blocks iOS startPictureInPicture. */
-  hlsPipCompanion: {
+  /** Near-invisible ON TOP of Stage while warm — covered layers cannot enter iOS PiP. */
+  hlsPipCompanionFront: {
     ...StyleSheet.absoluteFillObject,
-    // Keep non-trivial opacity so AVPlayerViewController treats the layer as inline-visible.
-    opacity: 0.08,
+    opacity: 0.05,
+    zIndex: 2,
+  },
+  stageHiddenForPip: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0,
+    zIndex: 0,
   },
   standbyWrap: {
     ...StyleSheet.absoluteFillObject,
