@@ -1,4 +1,4 @@
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -37,6 +37,13 @@ import {
 import { MarketplaceCardSkeletonRail } from '../components/home/MarketplaceCardSkeleton';
 import { SearchBar } from '../components/ui/SearchBar';
 import { VaultCampaignHeader } from '../components/branding/VaultCampaignHeader';
+import { HomeRemoteBanner } from '../components/home/HomeRemoteBanner';
+import {
+  dismissAppBanner,
+  fetchHomeAppBanner,
+  type PublicAppBanner,
+} from '../api/appBannerRepository';
+import { openNotificationHref } from '../navigation/openNotificationHref';
 import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 import {
   deriveFreshInVault,
@@ -127,6 +134,7 @@ export function HomeScreen() {
   const [activeBuyerOrders, setActiveBuyerOrders] = useState(0);
   const [followBySeller, setFollowBySeller] = useState<Record<string, boolean>>({});
   const [followBusyId, setFollowBusyId] = useState<string | null>(null);
+  const [remoteBanner, setRemoteBanner] = useState<PublicAppBanner | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   const sellerActivated = sellerSetup.displayActivated;
@@ -182,6 +190,18 @@ export function HomeScreen() {
     }, 1200);
     return () => task.cancel();
   }, [session?.access_token, user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      void fetchHomeAppBanner().then((banner) => {
+        if (!cancelled) setRemoteBanner(banner);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
 
   const loadFeed = useCallback(async (opts?: { hadCachedLive?: boolean; hadCachedListings?: boolean; force?: boolean }) => {
     if (!isSupabaseConfigured()) {
@@ -453,6 +473,20 @@ export function HomeScreen() {
         />
 
         <VaultCampaignHeader />
+
+        {remoteBanner ? (
+          <HomeRemoteBanner
+            banner={remoteBanner}
+            onPress={() => {
+              if (!remoteBanner.href) return;
+              openNotificationHref(navigation, remoteBanner.href);
+            }}
+            onDismiss={() => {
+              void dismissAppBanner(remoteBanner.dismissKey);
+              setRemoteBanner(null);
+            }}
+          />
+        ) : null}
 
         <HomeSectionHeader first eyebrow="Discover" title="Jump in fast">
           <HomeDiscoveryStrip lanes={discoveryLanes} onPressLane={handleDiscoveryLane} />

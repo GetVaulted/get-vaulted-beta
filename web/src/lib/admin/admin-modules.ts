@@ -11,6 +11,7 @@ export type AdminModuleId =
   | "trust"
   | "support-tickets"
   | "notifications"
+  | "app-banner"
   | "health"
   | "listings"
   | "orders"
@@ -118,6 +119,13 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
     accent: "gold",
   },
   {
+    id: "app-banner",
+    title: "Home Banner",
+    description: "Remote promo on the app front page — referrals, drops, announcements. No rebuild to change copy.",
+    href: "/admin/app-banner",
+    accent: "gold",
+  },
+  {
     id: "health",
     title: "Platform Health",
     description: "Supabase, API, Stripe webhooks, IVS, Shippo, and job failures.",
@@ -175,6 +183,7 @@ export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
     "trust",
     "support-tickets",
     "notifications",
+    "app-banner",
     "health",
     "referrals",
   ].includes(m.id),
@@ -196,6 +205,7 @@ export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[]
   { href: "/admin/trust/linked-accounts", label: "Linked accounts" },
   { href: "/admin/support-tickets", label: "Support" },
   { href: "/admin/notifications", label: "Notifications" },
+  { href: "/admin/app-banner", label: "Home banner" },
   { href: "/admin/health", label: "Health" },
   { href: "/admin/referrals", label: "Referrals" },
   { href: "/admin/tax", label: "Tax" },

@@ -2795,6 +2795,24 @@ model PlatformMarketplaceFeeConfig {
   updatedByUserId    String?
 }
 
+/// Admin-editable home-screen promo banner (mobile/web). Change copy anytime — no app rebuild.
+model PlatformAppBanner {
+  id              String    @id @default("default")
+  enabled         Boolean   @default(false)
+  title           String    @default("")
+  body            String    @default("")
+  /// Button label shown on the banner (e.g. "Get my link").
+  ctaLabel        String    @default("")
+  /// App/web path opened on tap (e.g. `/account/referrals`). Empty = non-tappable.
+  href            String    @default("")
+  /// Change this to re-show the banner after users dismissed a previous version.
+  dismissKey      String    @default("default")
+  startsAt        DateTime?
+  endsAt          DateTime?
+  updatedAt       DateTime  @updatedAt
+  updatedByUserId String?
+}
+
 /// Admin-editable live show volume fee tiers (single-row config).
 model PlatformLiveShowFeeConfig {
   id                String   @id @default("default")
