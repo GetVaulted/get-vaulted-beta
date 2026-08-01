@@ -1588,33 +1588,36 @@ export function LiveAuctionRoom({
               </label>
               <div className="flex items-center justify-between gap-2 rounded-xl border border-white/8 bg-black/30 px-3 py-2">
                 <div className="min-w-0">
-                  <p className="text-[11px] font-bold text-zinc-100">
-                    {customBidMode === "reserve"
-                      ? LIVE_CUSTOM_BID_MODE_COPY.reserve.label
-                      : LIVE_CUSTOM_BID_MODE_COPY.exact.label}
-                  </p>
+                  <p className="text-[11px] font-bold text-zinc-100">{LIVE_CUSTOM_BID_MODE_COPY.exact.label}</p>
                   <p className="text-[10px] leading-snug text-zinc-400">
-                    {customBidMode === "reserve"
-                      ? LIVE_CUSTOM_BID_MODE_COPY.reserve.description
-                      : LIVE_CUSTOM_BID_MODE_COPY.exact.description}
+                    {customBidMode === "exact"
+                      ? LIVE_CUSTOM_BID_MODE_COPY.exact.description
+                      : "Off = Max bid (default). Bids the minimum now and auto-raises up to your amount."}
                   </p>
                   {!customBidReserveSupported ? (
                     <p className="mt-1 text-[10px] text-zinc-500">Max bid is not available for marketplace listing lots.</p>
-                  ) : null}
+                  ) : (
+                    <p className="mt-1 text-[10px] text-zinc-500">
+                      {customBidMode === "exact"
+                        ? "Exact places your full amount immediately."
+                        : "Recommended — you only pay one increment above the competition."}
+                    </p>
+                  )}
                 </div>
                 <button
                   type="button"
                   role="switch"
-                  aria-checked={customBidMode === "reserve"}
+                  aria-label="Exact bid"
+                  aria-checked={customBidMode === "exact"}
                   disabled={!customBidReserveSupported}
-                  onClick={() => setCustomBidMode((m) => (m === "reserve" ? "exact" : "reserve"))}
+                  onClick={() => setCustomBidMode((m) => (m === "exact" ? "reserve" : "exact"))}
                   className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-40 ${
-                    customBidMode === "reserve" ? "bg-gold/80" : "bg-white/15"
+                    customBidMode === "exact" ? "bg-gold/80" : "bg-white/15"
                   }`}
                 >
                   <span
                     className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition ${
-                      customBidMode === "reserve" ? "left-[22px]" : "left-0.5"
+                      customBidMode === "exact" ? "left-[22px]" : "left-0.5"
                     }`}
                   />
                 </button>

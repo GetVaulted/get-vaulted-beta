@@ -66,8 +66,6 @@ export function LiveCustomBidSheet({
 
   const effectiveMode: LiveCustomBidMode =
     reserveSupported && mode === 'reserve' ? 'reserve' : 'exact';
-  const modeCopy =
-    effectiveMode === 'reserve' ? LIVE_CUSTOM_BID_MODE_COPY.reserve : LIVE_CUSTOM_BID_MODE_COPY.exact;
 
   const submit = async () => {
     const entered = Number.parseFloat(amountDraft.trim());
@@ -117,25 +115,30 @@ export function LiveCustomBidSheet({
 
           <View style={styles.modeRow}>
             <View style={styles.modeCopy}>
-              <Text style={styles.modeLabel}>{modeCopy.label}</Text>
-              <Text style={styles.modeDescription}>{modeCopy.description}</Text>
+              <Text style={styles.modeLabel}>{LIVE_CUSTOM_BID_MODE_COPY.exact.label}</Text>
+              <Text style={styles.modeDescription}>
+                {effectiveMode === 'exact'
+                  ? LIVE_CUSTOM_BID_MODE_COPY.exact.description
+                  : 'Off = Max bid (default). Bids the minimum now and auto-raises up to your amount.'}
+              </Text>
               {!reserveSupported ? (
                 <Text style={styles.modeNote}>Max bid is not available for marketplace listing lots.</Text>
               ) : (
                 <Text style={styles.modeNote}>
-                  {effectiveMode === 'reserve'
-                    ? 'Recommended — you only pay one increment above the competition.'
-                    : 'Exact places your full amount immediately.'}
+                  {effectiveMode === 'exact'
+                    ? 'Exact places your full amount immediately.'
+                    : 'Recommended — you only pay one increment above the competition.'}
                 </Text>
               )}
             </View>
             <Switch
-              value={effectiveMode === 'reserve'}
-              onValueChange={(v) => setMode(v ? 'reserve' : 'exact')}
+              value={effectiveMode === 'exact'}
+              onValueChange={(v) => setMode(v ? 'exact' : 'reserve')}
               disabled={busy || !reserveSupported}
               trackColor={{ false: 'rgba(255,255,255,0.15)', true: colors.gold }}
               thumbColor="#fff"
-              accessibilityLabel="Toggle max bid mode"
+              accessibilityLabel="Exact bid"
+              accessibilityState={{ checked: effectiveMode === 'exact' }}
             />
           </View>
 
