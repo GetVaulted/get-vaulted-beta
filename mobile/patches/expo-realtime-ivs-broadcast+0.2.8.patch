@@ -274,23 +274,111 @@ index 8aafd8a..78dd9a2 100644
      AsyncFunction("setMicrophoneMuted") { (muted: Bool) in
        self.ivsStageManager?.setMicrophoneMuted(muted: muted)
      }
+diff --git a/node_modules/expo-realtime-ivs-broadcast/ios/IVSPictureInPictureController.swift b/node_modules/expo-realtime-ivs-broadcast/ios/IVSPictureInPictureController.swift
+index 71d368a..933987a 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/ios/IVSPictureInPictureController.swift
++++ b/node_modules/expo-realtime-ivs-broadcast/ios/IVSPictureInPictureController.swift
+@@ -445,6 +445,14 @@ public class IVSPictureInPictureController: NSObject {
+             }
+             return
+         }
++
++        // Amazon IVS remote Stage PiP: must use AVPictureInPictureController(ivsImagePreviewView:).
++        // The generic Video-Call / sample-buffer path keeps audio but paints black video in background.
++        if options.sourceView == .remote,
++           let ivsPreview = resolveIVSImagePreviewView(from: sourceView) {
++            setupWithOfficialIVSRemotePreview(ivsPreview)
++            return
++        }
+         
+         guard let pipVideoCallVC = pipVideoCallViewController else {
+             print("🖼️ [PiP] Error: Must call enable() before setupWithSourceView()")
+@@ -474,6 +482,68 @@ public class IVSPictureInPictureController: NSObject {
+         
+         completeSetupWithSourceView(sourceView, pipVideoCallVC: pipVideoCallVC)
+     }
++
++    /// Pull the real IVSImagePreviewView out of an Expo wrapper or direct reference.
++    private func resolveIVSImagePreviewView(from view: UIView) -> IVSImagePreviewView? {
++        if let preview = view as? IVSImagePreviewView {
++            return preview
++        }
++        if let remote = view as? ExpoIVSRemoteStreamView {
++            return remote.previewViewForPiP as? IVSImagePreviewView
++        }
++        for subview in view.subviews {
++            if let preview = subview as? IVSImagePreviewView {
++                return preview
++            }
++        }
++        return nil
++    }
++
++    /// Official Amazon IVS remote-participant PiP (keeps video alive after home swipe).
++    private func setupWithOfficialIVSRemotePreview(_ preview: IVSImagePreviewView) {
++        if preview.window == nil {
++            print("🖼️ [PiP] IVSImagePreviewView not in window yet — deferring official remote PiP setup")
++            self.pendingSourceView = preview
++            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak preview] in
++                guard let self = self, let preview = preview else { return }
++                if preview.window != nil {
++                    self.pendingSourceView = nil
++                    self.setupWithOfficialIVSRemotePreview(preview)
++                } else {
++                    // Retry a few times; still try once so auto-PiP can attach.
++                    self.pendingSourceView = nil
++                    self.finishOfficialIVSRemotePreviewSetup(preview)
++                }
++            }
++            return
++        }
++        finishOfficialIVSRemotePreviewSetup(preview)
++    }
++
++    private func finishOfficialIVSRemotePreviewSetup(_ preview: IVSImagePreviewView) {
++        stopViewCapture()
++        pipController?.stopPictureInPicture()
++
++        guard let controller = AVPictureInPictureController(ivsImagePreviewView: preview) else {
++            print("🖼️ [PiP] AVPictureInPictureController(ivsImagePreviewView:) returned nil — falling back")
++            if let pipVideoCallVC = pipVideoCallViewController {
++                completeSetupWithSourceView(preview, pipVideoCallVC: pipVideoCallVC)
++            } else {
++                delegate?.pictureInPictureDidFail(with: "Official IVS remote PiP init failed")
++            }
++            return
++        }
++
++        controller.delegate = self
++        controller.canStartPictureInPictureAutomaticallyFromInline = options.autoEnterOnBackground
++        self.pipController = controller
++        self.activeSourceView = preview
++        self.pipContainerView = preview
++        self.isEnabled = true
++        print("🖼️ [PiP] Official IVS remote PiP ready (IVSImagePreviewView)")
++        print("🖼️ [PiP] isPictureInPicturePossible: \(controller.isPictureInPicturePossible)")
++        print("🖼️ [PiP] autoEnterOnBackground: \(options.autoEnterOnBackground)")
++    }
+     
+     /// Retry setup with exponential backoff
+     private func retrySetupWithSourceView(_ sourceView: UIView, pipVideoCallVC: AVPictureInPictureVideoCallViewController, attempt: Int) {
 diff --git a/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift b/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
-index f92f823..6922058 100644
+index f92f823..5cc4208 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
 +++ b/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
-@@ -33,6 +33,12 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
+@@ -32,6 +32,12 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
+     
      // Available cameras discovered via AVFoundation
      private(set) var availableCameras: [AVCaptureDevice] = []
- 
++
 +    // Ultra-wide (0.5x) cameras, tracked separately so the front/back swap logic keeps using the
 +    // standard wide lens while zoom-out can opt into the ultra-wide lens.
 +    private var ultraWideCameras: [AVCaptureDevice] = []
 +    private(set) var currentZoomFactor: Double = 1.0
 +    private var usingUltraWide: Bool = false
-+    
+     
      // Camera mute state (sends placeholder frames when muted)
      private(set) var isCameraMuted: Bool = false
-     private var placeholderTimer: Timer?
 @@ -44,6 +50,17 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
      override init() {
          super.init()
@@ -318,10 +406,11 @@ index f92f823..6922058 100644
                  print("📸 [CustomCameraCapture] ✅ Added camera input: \(camera.localizedName)")
              } else {
                  print("📸 [CustomCameraCapture] ❌ Cannot add camera input")
-@@ -230,6 +249,85 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
+@@ -229,6 +248,85 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
+         
          return success
      }
- 
++
 +    // MARK: - Zoom / lens control
 +
 +    /// Zoom stops the current position supports, e.g. [0.5, 1, 2, 3]. 0.5 is offered only when an
@@ -400,10 +489,9 @@ index f92f823..6922058 100644
 +        print("📸 [CustomCameraCapture] ✅ Zoom set to \(factor) (ultraWide=\(wantUltraWide))")
 +        return true
 +    }
-+    
+     
      // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
      
-     private var captureFrameCount: Int = 0
 @@ -624,13 +722,23 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
      }
  
@@ -568,6 +656,77 @@ index f92f823..6922058 100644
       // --- NEW VIEW MANAGEMENT API ---
      func registerRemoteView(_ view: ExpoIVSRemoteStreamView) {
          // Add a weak reference to the view to avoid memory leaks.
+@@ -1427,28 +1637,33 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+         // IMPORTANT: Set up the Video Call API source view
+         // This is required for the PiP window to appear correctly
+         if let view = sourceView {
+-            pipController.setupWithSourceView(view)
+-            pipTargetView = view
++            // Prefer the inner IVSImagePreviewView — required for official remote PiP video.
++            let pipSource = (view as? ExpoIVSRemoteStreamView)?.previewViewForPiP ?? view
++            pipController.setupWithSourceView(pipSource)
++            pipTargetView = pipSource
+             pipHasValidSourceView = true
+-            print("🖼️ [PiP] Set up with provided source view (VALID)")
++            print("🖼️ [PiP] Set up with provided source view (VALID, ivsPreview=\(pipSource is IVSImagePreviewView))")
+         } else {
+             // For remote streams, device.previewView() returns an internal view that's not visible
+             // We should prefer finding a registered remote view first
+             if let remoteView = remoteViews.compactMap({ $0.value }).first(where: { $0.currentRenderedDeviceUrn == device.descriptor().urn }) {
+-                pipController.setupWithSourceView(remoteView as UIView)
+-                pipTargetView = remoteView.previewViewForPiP ?? remoteView
++                let pipSource = remoteView.previewViewForPiP ?? (remoteView as UIView)
++                pipController.setupWithSourceView(pipSource)
++                pipTargetView = pipSource
+                 pipHasValidSourceView = true
+-                print("🖼️ [PiP] Set up with matching remote view container (VALID)")
++                print("🖼️ [PiP] Set up with matching remote IVSImagePreviewView (VALID)")
+             } else if let anyRenderingView = remoteViews.compactMap({ $0.value }).first(where: { $0.isRenderingVideo }) {
+-                pipController.setupWithSourceView(anyRenderingView as UIView)
+-                pipTargetView = anyRenderingView.previewViewForPiP ?? anyRenderingView
++                let pipSource = anyRenderingView.previewViewForPiP ?? (anyRenderingView as UIView)
++                pipController.setupWithSourceView(pipSource)
++                pipTargetView = pipSource
+                 pipHasValidSourceView = true
+-                print("🖼️ [PiP] Set up with fallback rendering view (VALID)")
++                print("🖼️ [PiP] Set up with fallback remote IVSImagePreviewView (VALID)")
+             } else if let anyView = remoteViews.compactMap({ $0.value }).first {
+-                pipController.setupWithSourceView(anyView as UIView)
+-                pipTargetView = anyView
++                let pipSource = anyView.previewViewForPiP ?? (anyView as UIView)
++                pipController.setupWithSourceView(pipSource)
++                pipTargetView = pipSource
+                 pipHasValidSourceView = true
+-                print("🖼️ [PiP] Set up with any available view (VALID)")
++                print("🖼️ [PiP] Set up with any available remote view (VALID)")
+             } else {
+                 // Last resort: try device.previewView() - but mark as NOT valid for remote streams
+                 // This allows frame capture to start, but we'll re-setup when a remote view becomes available
+@@ -1537,18 +1752,18 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+                     }
+                 }
+                 
+-                // Try to find the remote view that's rendering this stream
++                // Prefer IVSImagePreviewView (official remote PiP), not the Expo wrapper.
+                 if let remoteView = remoteViews.compactMap({ $0.value }).first(where: { $0.currentRenderedDeviceUrn == imageDevice.descriptor().urn }) {
+-                    candidateSourceView = remoteView as UIView
+-                    print("🖼️ [PiP] Found matching remote view for source")
++                    candidateSourceView = remoteView.previewViewForPiP ?? (remoteView as UIView)
++                    print("🖼️ [PiP] Found matching remote IVSImagePreviewView for source")
+                 } else {
+                     // Fallback: Use ANY remote view that's rendering video
+                     if let anyRenderingView = remoteViews.compactMap({ $0.value }).first(where: { $0.isRenderingVideo }) {
+-                        candidateSourceView = anyRenderingView as UIView
+-                        print("🖼️ [PiP] Using fallback remote view (URN didn't match but view is rendering)")
++                        candidateSourceView = anyRenderingView.previewViewForPiP ?? (anyRenderingView as UIView)
++                        print("🖼️ [PiP] Using fallback remote IVSImagePreviewView (URN didn't match but view is rendering)")
+                     } else if let anyView = remoteViews.compactMap({ $0.value }).first {
+                         // Last resort: use any registered view
+-                        candidateSourceView = anyView as UIView
++                        candidateSourceView = anyView.previewViewForPiP ?? (anyView as UIView)
+                         print("🖼️ [PiP] Using any available remote view as last resort")
+                     } else {
+                         print("🖼️ [PiP] No remote views available yet - will retry when view registers")
 diff --git a/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts b/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
 index b5f4c71..69dca24 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts

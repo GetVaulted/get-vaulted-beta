@@ -17,7 +17,7 @@
       "supportsTablet": true,
       "usesAppleSignIn": true,
       "bundleIdentifier": "com.getvaulted.app",
-      "buildNumber": "186",
+      "buildNumber": "187",
       "appStoreUrl": "https://apps.apple.com/app/id6780714456",
       "associatedDomains": [
         "applinks:shopgetvaulted.com",
@@ -36,7 +36,7 @@
     },
     "android": {
       "package": "com.getvaulted.app",
-      "versionCode": 186,
+      "versionCode": 187,
       "playStoreUrl": "https://play.google.com/store/apps/details?id=com.getvaulted.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
