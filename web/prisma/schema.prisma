@@ -1188,6 +1188,8 @@ model LiveRoom {
   /// Teaser length in milliseconds (validated on upload; max 15s).
   teaserVideoDurationMs   Int?
   viewerCount             Int                         @default(0)
+  /// Last time `viewerCount` was written from live presence. Null / stale → discovery shows 0.
+  viewerCountUpdatedAt    DateTime?
   streamProvider          LiveStreamProvider          @default(none)
   streamMode              LiveStreamMode              @default(stage_webrtc)
   streamHealth            LiveStreamHealth            @default(not_provisioned)

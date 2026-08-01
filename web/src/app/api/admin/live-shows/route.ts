@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import { effectiveLiveRoomViewerCount } from "@/lib/live-room-viewer-count-freshness";
 
 export async function GET(req: Request) {
   const gate = await requireAdmin();
@@ -54,7 +55,10 @@ export async function GET(req: Request) {
           username: r.seller.username,
           email: r.seller.email,
         },
-        viewerCount: r.viewerCount,
+        viewerCount: effectiveLiveRoomViewerCount({
+          viewerCount: r.viewerCount,
+          viewerCountUpdatedAt: r.viewerCountUpdatedAt,
+        }),
         bidCount: r._count.roomBids,
         reportCount: r._count.reports,
         streamHealth: r.streamHealth,

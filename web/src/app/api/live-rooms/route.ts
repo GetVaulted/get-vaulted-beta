@@ -31,6 +31,7 @@ import { buildWeeklyRecurringScheduleDates } from "@/lib/live-room-recurring-sch
 import { parseLiveTeaserFieldsFromBody } from "@/lib/live-room-teaser";
 import { listHiddenPeerIdsForViewer } from "@/lib/user-block";
 import { scheduleNotifyAdminsLiveShowCreated } from "@/lib/live-show-created-admin-notify";
+import { effectiveLiveRoomViewerCount } from "@/lib/live-room-viewer-count-freshness";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
 
@@ -160,7 +161,15 @@ export async function GET(req: Request) {
       if (ra !== rb) return ra - rb;
 
       if (ra === 0) {
-        const viewerDelta = (b.viewerCount ?? 0) - (a.viewerCount ?? 0);
+        const viewerDelta =
+          effectiveLiveRoomViewerCount({
+            viewerCount: b.viewerCount ?? 0,
+            viewerCountUpdatedAt: b.viewerCountUpdatedAt,
+          }) -
+          effectiveLiveRoomViewerCount({
+            viewerCount: a.viewerCount ?? 0,
+            viewerCountUpdatedAt: a.viewerCountUpdatedAt,
+          });
         if (viewerDelta !== 0) return viewerDelta;
         return b.updatedAt.getTime() - a.updatedAt.getTime();
       }
@@ -222,7 +231,10 @@ export async function GET(req: Request) {
         sellerAvatarUrl: resolveLiveRoomMediaUrl(r.seller?.image ?? ""),
         // Public show cards must use username only — never legal/full name from User.name.
         sellerDisplayName: r.seller?.username?.trim() || "seller",
-        viewerCount: r.viewerCount,
+        viewerCount: effectiveLiveRoomViewerCount({
+          viewerCount: r.viewerCount,
+          viewerCountUpdatedAt: r.viewerCountUpdatedAt,
+        }),
         scheduledStartAt: r.scheduledStartAt?.toISOString() ?? null,
         startedAt: r.startedAt?.toISOString() ?? null,
         endedAt: r.endedAt?.toISOString() ?? null,

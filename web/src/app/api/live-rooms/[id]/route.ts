@@ -443,6 +443,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       data: {
         status: "ended",
         endedAt: new Date(),
+        viewerCount: 0,
+        viewerCountUpdatedAt: new Date(),
         ...liveShowEndGmvFields(existing.completedSalesGmvUsd),
         roomVersion: { increment: 1 },
       },
@@ -472,6 +474,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       data: {
         status: "ended",
         endedAt: new Date(),
+        viewerCount: 0,
+        viewerCountUpdatedAt: new Date(),
         ...liveShowEndGmvFields(existing.completedSalesGmvUsd),
         roomVersion: { increment: 1 },
       },

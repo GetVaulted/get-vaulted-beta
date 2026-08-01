@@ -48,6 +48,8 @@ async function autoEndRoom(roomId: string, completedSalesGmvUsd: number): Promis
       status: "ended",
       endedAt: new Date(),
       hostAbsentSince: null,
+      viewerCount: 0,
+      viewerCountUpdatedAt: new Date(),
       ...liveShowEndGmvFields(completedSalesGmvUsd),
       roomVersion: { increment: 1 },
     },

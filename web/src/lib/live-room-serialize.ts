@@ -21,6 +21,7 @@ import {
   type LiveItemVariantDTO,
 } from "@/lib/live-item-variant-serialize";
 import { normalizeCustomRandomPoolLabels } from "../../../shared/live-player-spot-list";
+import { effectiveLiveRoomViewerCount } from "@/lib/live-room-viewer-count-freshness";
 
 export type { LiveItemVariantDTO };
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
@@ -362,7 +363,10 @@ export function buildLiveRoomDetail(room: LiveRoomDetailPayload): LiveRoomDetail
       typeof room.teaserVideoDurationMs === "number" && Number.isFinite(room.teaserVideoDurationMs)
         ? Math.round(room.teaserVideoDurationMs)
         : null,
-    viewerCount: room.viewerCount,
+    viewerCount: effectiveLiveRoomViewerCount({
+      viewerCount: room.viewerCount,
+      viewerCountUpdatedAt: room.viewerCountUpdatedAt ?? null,
+    }),
     roomVersion: room.roomVersion,
     auctionEventSeq: room.auctionEventSeq ?? 0,
     scheduledStartAt: room.scheduledStartAt?.toISOString() ?? null,

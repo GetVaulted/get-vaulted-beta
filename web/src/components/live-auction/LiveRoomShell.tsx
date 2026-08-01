@@ -44,6 +44,7 @@ import {
   LIVE_STREAM_PAUSED_COMMERCE_ERROR,
 } from "@/lib/live-room-commerce-messages";
 import { parseBuyerSafeStreamPayload } from "@/lib/live-stream-playback";
+import { syncLiveRoomViewerCount } from "@/lib/sync-live-room-viewer-count";
 
 type LiveRoomShellProps = {
   roomId: string;
@@ -134,6 +135,12 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       });
     },
   });
+
+  // Keep discovery / feed in sync with live presence (not a stale DB snapshot).
+  useEffect(() => {
+    if (presenceCount == null || detail?.status !== "live" || !session?.user?.id) return;
+    void syncLiveRoomViewerCount({ liveRoomId: roomId, viewerCount: presenceCount });
+  }, [detail?.status, presenceCount, roomId, session?.user?.id]);
 
   /** Latest room id for rejecting stale async `load()` responses after navigation. */
   const roomIdRef = useRef(roomId);

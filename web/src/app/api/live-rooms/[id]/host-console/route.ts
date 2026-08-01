@@ -12,6 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { fetchHostRecentSales } from "@/lib/live-room-recent-sales";
 import { buildLiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import { effectiveLiveRoomViewerCount } from "@/lib/live-room-viewer-count-freshness";
 import { fetchLiveShowSellerSummary } from "@/lib/live-show-seller-summary";
 import {
   logSellerShowSummaryEvent,
@@ -309,7 +310,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         streamPaused: room.streamPaused,
         roomVersion: room.roomVersion,
         thumbnailUrl: room.thumbnailUrl,
-        viewerCount: room.viewerCount,
+        viewerCount: effectiveLiveRoomViewerCount({
+          viewerCount: room.viewerCount,
+          viewerCountUpdatedAt: room.viewerCountUpdatedAt,
+        }),
         scheduledStartAt: room.scheduledStartAt?.toISOString() ?? null,
         startedAt: room.startedAt?.toISOString() ?? null,
         endedAt: room.endedAt?.toISOString() ?? null,

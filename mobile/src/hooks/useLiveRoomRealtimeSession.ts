@@ -39,6 +39,7 @@ import { parseVaultRevealSpinPayload, VAULT_REVEAL_TOTAL_DISPLAY_MS, vaultReveal
 import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
 import { useRealtimeRoomSubscription, type LiveRoomChatBroadcastMessage } from './useRealtimeRoomSubscription';
 import { useRealtimeRoomPresence } from './useRealtimeRoomPresence';
+import { syncLiveRoomViewerCount } from '../lib/syncLiveRoomViewerCount';
 
 const FALLBACK_POLL_CONNECTED_MS = 30_000;
 const FALLBACK_POLL_DISCONNECTED_MS = 5000;
@@ -95,6 +96,15 @@ export function useLiveRoomRealtimeSession(args: {
     viewerDisplayName: args.viewerDisplayName ?? null,
     trackSelf: true,
   });
+
+  useEffect(() => {
+    if (viewerCount == null || !args.enabled || !args.accessToken) return;
+    void syncLiveRoomViewerCount({
+      liveRoomId: args.roomId,
+      viewerCount,
+      accessToken: args.accessToken,
+    });
+  }, [args.accessToken, args.enabled, args.roomId, viewerCount]);
 
   const showSpotCelebration = useCallback((taken: LiveSpotTakenCelebration) => {
     const key = spotCelebrationDismissKey(taken);

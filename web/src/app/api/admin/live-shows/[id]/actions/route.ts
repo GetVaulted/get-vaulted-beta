@@ -39,6 +39,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       data: {
         status: "ended",
         endedAt: new Date(),
+        viewerCount: 0,
+        viewerCountUpdatedAt: new Date(),
         ...liveShowEndGmvFields(room.completedSalesGmvUsd),
         roomVersion: { increment: 1 },
       },
@@ -69,6 +71,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       data: {
         status: "ended",
         endedAt: new Date(),
+        viewerCount: 0,
+        viewerCountUpdatedAt: new Date(),
         ...liveShowEndGmvFields(room.completedSalesGmvUsd),
         roomVersion: { increment: 1 },
       },

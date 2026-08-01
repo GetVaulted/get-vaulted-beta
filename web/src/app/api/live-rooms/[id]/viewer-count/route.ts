@@ -3,8 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 
 /**
- * Persist concurrent viewer count from host presence so discovery / OBS / OG
- * don't stay stuck at the never-updated LiveRoom.viewerCount default (0).
+ * Persist concurrent viewer count from live presence so discovery / OBS / OG
+ * match the in-room counter. Any signed-in participant may sync (host or buyer)
+ * so the feed stays accurate when the host console is closed. Stale rows expire
+ * via `viewerCountUpdatedAt` (see `effectiveLiveRoomViewerCount`).
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const auth = await resolveLiveRoomsUserId(req);
@@ -30,19 +32,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: liveRoomId },
-    select: { id: true, sellerId: true, status: true },
+    select: { id: true, status: true },
   });
   if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (room.sellerId !== auth.userId) {
-    return NextResponse.json({ error: "Only the host can update viewer count." }, { status: 403 });
-  }
   if (room.status === "ended") {
     return NextResponse.json({ error: "Room has ended." }, { status: 409 });
   }
 
+  const now = new Date();
   await prisma.liveRoom.update({
     where: { id: liveRoomId },
-    data: { viewerCount },
+    data: { viewerCount, viewerCountUpdatedAt: now },
   });
 
   return NextResponse.json({ ok: true, viewerCount });
