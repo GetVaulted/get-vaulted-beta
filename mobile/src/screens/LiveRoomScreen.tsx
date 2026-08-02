@@ -87,11 +87,23 @@ export function LiveRoomScreen() {
       // Soft visit bump (wallet/session resets) — do NOT remount the whole feed via React key;
       // remount racing IVS leave/join blanks video until app kill.
       viewerLifecycleLog('screen_focused', { streamId, layer: 'LiveRoomScreen' });
-      // Close mini only when (re)entering this room. Read via ref — do NOT put session/roomId in
-      // deps or leave→minimize updates the context and re-runs this effect while still focused,
-      // which immediately clears the floating player.
       const mp = miniPlayerRef.current;
-      if (mp?.session?.roomId === streamId) {
+      const resumingSameMini = mp?.session?.roomId === streamId;
+      if (resumingSameMini) {
+        // Soft handoff from floating mini / warm HLS — keep playback; clear overlay after attach.
+        // Do NOT bump roomVisitNonce (that force-restarts Stage/HLS like a brand-new show).
+        const t = setTimeout(() => {
+          const cur = miniPlayerRef.current;
+          if (cur?.session?.roomId === streamId) cur.close();
+        }, 450);
+        void reloadStreams();
+        return () => {
+          clearTimeout(t);
+          viewerLifecycleLog('screen_blurred', { streamId, layer: 'LiveRoomScreen' });
+        };
+      }
+      if (mp?.session) {
+        // Different show was minimized — close it before watching this room.
         mp.close();
       }
       setRoomVisitNonce((n) => n + 1);

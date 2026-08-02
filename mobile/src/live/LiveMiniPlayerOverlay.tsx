@@ -176,7 +176,7 @@ export function LiveMiniPlayerOverlay() {
   const expandToLiveRoom = useCallback(() => {
     if (!session) return;
     const roomId = session.roomId;
-    close();
+    // Navigate first — LiveRoom soft-hands off the mini. Closing first forced a cold reload.
     if (!rootNavigationRef.isReady()) return;
     rootNavigationRef.navigate('MainTabs', {
       screen: 'Live',
@@ -185,7 +185,7 @@ export function LiveMiniPlayerOverlay() {
         params: { streamId: roomId },
       },
     });
-  }, [close, session]);
+  }, [session]);
 
   const panResponder = useMemo(
     () =>

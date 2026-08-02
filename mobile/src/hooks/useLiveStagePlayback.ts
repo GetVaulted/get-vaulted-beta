@@ -33,6 +33,7 @@ import {
 import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
 import { shouldCommitLiveBackgroundAfterDwell } from '../lib/livePlaybackAppState';
 import { isLivePlaybackCommerceHoldActive } from '../lib/livePlaybackCommerceHold';
+import { isLiveStagePipKeepAliveActive } from '../lib/liveStagePipKeepAlive';
 
 export type LivePlaybackMode = 'active' | 'prefetch' | 'off';
 
@@ -756,6 +757,11 @@ export function useLiveStagePlayback(args: {
       backgroundAtMs = null;
       // Checkout returned: keep existing transport (do not park HLS / leave latch).
       if (isLivePlaybackCommerceHoldActive()) {
+        void fetchStream();
+        return;
+      }
+      // Stage remote PiP kept the subscribe alive — do not park to `none` / cold-rejoin.
+      if (isLiveStagePipKeepAliveActive()) {
         void fetchStream();
         return;
       }

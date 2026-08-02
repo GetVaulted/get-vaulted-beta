@@ -31,6 +31,7 @@ import {
   shouldWarmLiveHlsPipCompanion,
 } from '../../lib/livePlaybackAppState';
 import { isLivePlaybackCommerceHoldActive } from '../../lib/livePlaybackCommerceHold';
+import { setLiveStagePipKeepAlive } from '../../lib/liveStagePipKeepAlive';
 import { liveStageContentFitForStreamMode, liveStageContentFitForPlayback } from '../../lib/liveRoomViewport';
 import { viewerLifecycleLog } from '../../lib/viewerLifecycleLog';
 import { useLiveMiniPlayerOptional } from '../../live/LiveMiniPlayerContext';
@@ -264,6 +265,12 @@ export function LiveStagePlayback({
     roomId,
   });
   stagePipReadyRef.current = stagePipReady || stagePipActive;
+  useEffect(() => {
+    setLiveStagePipKeepAlive(stagePipReady || stagePipActive);
+    return () => {
+      setLiveStagePipKeepAlive(false);
+    };
+  }, [stagePipReady, stagePipActive]);
   const hlsAttachable = Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
   // Hold the HLS mirror under WebRTC until Stage connects (and as a cold-mirror safety net while
   // waiting for first paint). Neighbors buffer HLS muted+hidden for instant switching.
