@@ -23,14 +23,13 @@ export function shippoLabelTrackingExtra(args: {
   username?: string | null;
   /** Optional second line (order id, live lot count, etc.). */
   secondary?: string | null;
-}): { reference_1: string; reference_2?: string } | Record<string, never> {
+}): { reference_1?: string; reference_2?: string } {
   const reference_1 = normalizeUsernameForShippoLabel(args.username);
   const reference_2 = truncateShippoLabelReference(args.secondary);
   if (!reference_1 && !reference_2) return {};
-  return {
-    ...(reference_1 ? { reference_1 } : {}),
-    ...(reference_2 ? { reference_2 } : {}),
-  };
+  if (reference_1 && reference_2) return { reference_1, reference_2 };
+  if (reference_1) return { reference_1 };
+  return { reference_2: reference_2! };
 }
 
 /** Merge tracking refs onto a Shippo parcel so multi-piece / parcel-level refs still print. */

@@ -103,6 +103,7 @@ export class VenmoSetupError extends Error {
     super(args.userMessage);
     this.name = "VenmoSetupError";
     this.code = args.code;
+    this.userMessage = args.userMessage;
     this.issue = args.issue ?? null;
     this.debugId = args.debugId ?? null;
     this.httpStatus = args.httpStatus ?? null;

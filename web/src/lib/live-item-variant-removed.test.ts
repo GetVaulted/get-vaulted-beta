@@ -4,9 +4,9 @@ import { summarizeVariantSpots, allVariantSpotsSold, variantIsAvailable } from "
 describe("removed team spots", () => {
   it("excludes removed teams from sold and available counts", () => {
     const summary = summarizeVariantSpots([
-      { label: "Cowboys", priceUsd: 25, quantityRemaining: 1, soldCount: 0, status: "available" },
-      { label: "Eagles", priceUsd: 25, quantityRemaining: 0, soldCount: 1, status: "sold_out" },
-      { label: "Giants", priceUsd: 25, quantityRemaining: 0, soldCount: 0, status: "removed" },
+      { priceUsd: 25, quantityRemaining: 1, soldCount: 0, status: "available" },
+      { priceUsd: 25, quantityRemaining: 0, soldCount: 1, status: "sold_out" },
+      { priceUsd: 25, quantityRemaining: 0, soldCount: 0, status: "removed" },
     ]);
     expect(summary.available).toBe(1);
     expect(summary.sold).toBe(1);
@@ -17,8 +17,8 @@ describe("removed team spots", () => {
     expect(variantIsAvailable({ quantityRemaining: 0, status: "removed" })).toBe(false);
     expect(
       allVariantSpotsSold([
-        { label: "A", priceUsd: 10, quantityRemaining: 0, soldCount: 1, status: "sold_out" },
-        { label: "B", priceUsd: 10, quantityRemaining: 0, soldCount: 0, status: "removed" },
+        { priceUsd: 10, quantityRemaining: 0, soldCount: 1, status: "sold_out" },
+        { priceUsd: 10, quantityRemaining: 0, soldCount: 0, status: "removed" },
       ]),
     ).toBe(true);
   });

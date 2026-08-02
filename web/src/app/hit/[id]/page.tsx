@@ -21,7 +21,7 @@ async function loadClip(id: string) {
       teamOrSpotLabel: true,
       shareCount: true,
       liveRoomId: true,
-      seller: { select: { username: true, avatarUrl: true } },
+      seller: { select: { username: true, image: true } },
       liveRoom: { select: { title: true, status: true } },
     },
   });

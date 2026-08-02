@@ -74,7 +74,10 @@ export async function POST(req: Request) {
         return jsonError(404, { error: "Account not found.", code: "USER_NOT_FOUND" });
       }
       if (isPrismaMissingSchemaError(e)) {
-        return apiErrorResponseFromUnknown(e, { fallbackMessage: "Database schema needs migration." });
+        return apiErrorResponseFromUnknown(e, {
+          error: "Database schema needs migration.",
+          code: "DATABASE_SCHEMA_OUT_OF_DATE",
+        });
       }
       if (e instanceof VenmoSetupError) {
         return jsonError(502, {

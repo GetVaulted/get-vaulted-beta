@@ -144,6 +144,7 @@ type RoomPayload = {
   startedAt: string | null;
   streamHealth?: string;
   streamPaused?: boolean;
+  streamMode?: string;
   thumbnailUrl?: string | null;
 };
 

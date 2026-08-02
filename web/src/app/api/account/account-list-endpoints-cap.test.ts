@@ -51,7 +51,7 @@ describe("account list endpoints apply defensive row caps", () => {
 
   it("GET /api/account/watchlist caps rows", async () => {
     const { GET } = await import("@/app/api/account/watchlist/route");
-    await GET();
+    await GET(new Request("https://example.com/api/account/watchlist"));
     expect(takeOf(watchlistFindMany)).toBeGreaterThan(0);
   });
 

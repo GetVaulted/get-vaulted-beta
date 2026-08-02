@@ -28,7 +28,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       shareCount: true,
       createdAt: true,
       liveRoomId: true,
-      seller: { select: { id: true, username: true, avatarUrl: true } },
+      seller: { select: { id: true, username: true, image: true } },
       liveRoom: { select: { title: true, status: true } },
     },
   });
@@ -53,7 +53,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       seller: {
         id: clip.seller.id,
         username: clip.seller.username,
-        avatarUrl: clip.seller.avatarUrl,
+        avatarUrl: clip.seller.image,
       },
       shareUrl,
       shareCaption: buildHitClipShareCaption({
