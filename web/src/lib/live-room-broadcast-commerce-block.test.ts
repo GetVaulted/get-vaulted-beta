@@ -16,12 +16,32 @@ describe("getLiveRoomBroadcastCommerceBlock", () => {
     ).toBeNull();
   });
 
-  it("allows commerce during warm-up before IVS reports live", () => {
+  it("blocks commerce before the host starts broadcasting", () => {
+    const block = getLiveRoomBroadcastCommerceBlock({
+      status: "live",
+      streamHealth: "offline",
+      streamPaused: false,
+    });
+    expect(block?.code).toBe("LIVE_BROADCAST_OFFLINE");
+    expect(
+      getLiveRoomBroadcastCommerceBlock(
+        {
+          status: "live",
+          streamHealth: "offline",
+          streamPaused: false,
+        },
+        "purchase",
+      )?.code,
+    ).toBe("LIVE_BROADCAST_OFFLINE");
+  });
+
+  it("allows commerce during warm-up after broadcast start before IVS reports live", () => {
     expect(
       getLiveRoomBroadcastCommerceBlock({
         status: "live",
         streamHealth: "offline",
         streamPaused: false,
+        streamStartedAt: new Date("2026-07-02T18:00:00.000Z"),
       }),
     ).toBeNull();
   });

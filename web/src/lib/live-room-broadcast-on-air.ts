@@ -57,13 +57,17 @@ export function isLiveRoomBroadcastPurchasable(room: LiveRoomBroadcastGate): boo
 function isLiveRoomBroadcastSignalReady(room: LiveRoomBroadcastGate): boolean {
   if (isLiveStreamSignal(room.streamHealth)) return true;
 
-  // Stage / OBS rooms: buyers often still have WebRTC while channel health is sticky offline.
-  // Only hard-block when health is ended and a disconnect is confirmed.
+  /**
+   * Room status can be `live` before the host starts camera/OBS. Do not open bidding or
+   * team shop checkout until a broadcast session has actually started.
+   */
+  const startedAt = parseGateTimestamp(room.streamStartedAt);
+  if (startedAt == null) return false;
+
+  // Stage / OBS: channel health can stick offline while WebRTC/HLS is still warming.
+  // Only hard-block when health is ended after a real start.
   if (room.streamMode === "stage_webrtc" || room.streamMode === "channel_hls") {
-    if (room.streamHealth.toLowerCase() === "ended" && isLiveStreamDisconnectConfirmed(room)) {
-      return false;
-    }
-    return true;
+    return room.streamHealth.toLowerCase() !== "ended";
   }
 
   if (isLiveStreamDisconnectConfirmed(room)) return false;
