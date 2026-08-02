@@ -337,7 +337,7 @@ export function Navbar() {
                   type="search"
                   value={searchDraft}
                   onChange={(e) => setSearchDraft(e.target.value)}
-                  placeholder="Search listings, breaks, sellers…"
+                  placeholder="Search listings, people, breaks…"
                   className="h-9 w-full rounded-full border border-border-subtle bg-surface pl-9 pr-3 text-xs text-foreground placeholder:text-muted outline-none ring-gold/30 transition-[border-color,box-shadow] focus:border-gold/40 focus:ring-2"
                 />
               </div>
@@ -361,7 +361,7 @@ export function Navbar() {
                   type="search"
                   value={searchDraft}
                   onChange={(e) => setSearchDraft(e.target.value)}
-                  placeholder="Search listings, sellers…"
+                  placeholder="Search listings, people…"
                   className="h-11 w-full rounded-full bg-transparent pl-10 pr-20 text-sm text-foreground outline-none"
                 />
                 <button
