@@ -69,6 +69,12 @@ import {
   shopAvailableSpotCount,
   shopAvailableVariants,
 } from "@/lib/live-variant-spot-commerce";
+import {
+  LIVE_CUSTOM_BID_DEFAULT_MODE,
+  LIVE_CUSTOM_BID_MODE_COPY,
+  resolveLiveCustomBidPayload,
+  type LiveCustomBidMode,
+} from "@/lib/live-custom-bid";
 import { purchaseLiveBuyNowWithSca } from "@/lib/live-buy-now-client";
 
 type SaleItem = {
@@ -303,6 +309,9 @@ export function LiveSaleRoom({
   const [variantSheetInitialVariantId, setVariantSheetInitialVariantId] = useState<string | null>(null);
   /** Auction bid POST in flight — disables button. */
   const [bidFlight, setBidFlight] = useState(false);
+  const [customBidOpen, setCustomBidOpen] = useState(false);
+  const [customBidDraft, setCustomBidDraft] = useState("");
+  const [customBidMode, setCustomBidMode] = useState<LiveCustomBidMode>(LIVE_CUSTOM_BID_DEFAULT_MODE);
   const [bidMeta, setBidMeta] = useState<ListingBidMeta | null>(null);
   const [shipUxNonce, setShipUxNonce] = useState(0);
   /** Last successful bid amount from this client — drives winning / outbid UX (auction rooms). */
@@ -434,6 +443,11 @@ export function LiveSaleRoom({
     if (minNextFromLiveItem != null) return minNextFromLiveItem.toFixed(2);
     return "0.00";
   }, [roomType, actionUi, activeListingId, bidMeta, minNextFromLiveItem]);
+
+  useEffect(() => {
+    if (!customBidOpen) return;
+    setCustomBidDraft(nextBidAmount);
+  }, [customBidOpen, nextBidAmount, activeDb?.id]);
   const currentTopBid = actionUi?.topBid ?? 0;
   const liveTitle = actionUi ? actionUi.displayTitle : (roomTitle ?? "Vaulted Live");
 
@@ -736,7 +750,7 @@ export function LiveSaleRoom({
     }
   };
 
-  const handlePlaceBid = async () => {
+  const handlePlaceBid = async (opts?: { amountUsd?: number; maxProxyUsd?: number }) => {
     setActionError(null);
     if (!activeDb) {
       setActionError("Nothing is live to bid on yet.");
@@ -758,9 +772,30 @@ export function LiveSaleRoom({
       setActionError("This auction has ended.");
       return;
     }
-    const amount = Number(nextBidAmount);
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const buyerNext = Number(nextBidAmount);
+    let amountUsd: number;
+    let maxProxyUsd: number | undefined = opts?.maxProxyUsd;
+    if (opts?.amountUsd != null) {
+      amountUsd = opts.amountUsd;
+      // Custom: Exact omits maxProxy; Max sends maxProxy > amount.
+    } else {
+      amountUsd = buyerNext;
+      // Primary bid: Hold-pattern proxy cap on host-only lots.
+      if (maxProxyUsd == null && !activeDb.listingId) {
+        maxProxyUsd = amountUsd;
+      }
+    }
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
       setActionError("Invalid bid amount.");
+      return;
+    }
+    if (amountUsd + 0.001 < buyerNext) {
+      setActionError(`Minimum bid is $${buyerNext.toFixed(2)}.`);
+      return;
+    }
+    const customBidReserveSupported = !activeDb.listingId;
+    if (maxProxyUsd != null && !customBidReserveSupported) {
+      setActionError("Max proxy bids are not supported for marketplace listing lots in this release.");
       return;
     }
     setBidFlight(true);
@@ -772,7 +807,10 @@ export function LiveSaleRoom({
           method: "POST",
           headers: liveBidRequestHeaders(idempotencyKey),
           credentials: "include",
-          body: JSON.stringify({ amountUsd: amount }),
+          body: JSON.stringify({
+            amountUsd,
+            ...(maxProxyUsd != null ? { maxProxyUsd } : {}),
+          }),
         },
       );
       const data = (await res.json().catch(() => ({}))) as {
@@ -790,9 +828,6 @@ export function LiveSaleRoom({
         const msg = toUserFacingErrorMessage(data.error, "We couldn't place that bid. Try again in a moment.");
         setActionError(msg);
         toast(msg);
-        // A rejected bid (outbid, min-bid moved, lot state changed) leaves local bid state
-        // stale until the next realtime event or poll — resync now so the next attempt uses
-        // current numbers instead of retrying against outdated state.
         void onRefetch?.();
         return;
       }
@@ -802,21 +837,40 @@ export function LiveSaleRoom({
       }
       onAuctionHttpAck?.(ack);
       toast("Bid placed.");
+      setCustomBidOpen(false);
       const uid = session?.user?.id;
       if (uid && ack.item?.lastHighBidderId === uid) {
-        setUserHighBidUsd(ack.item.currentBidUsd ?? amount);
+        setUserHighBidUsd(ack.item.currentBidUsd ?? amountUsd);
       } else {
         setUserHighBidUsd(null);
       }
       setShipUxNonce((n) => n + 1);
-      // ACK + realtime already updated local state — no delayed full refresh on the hot path.
     } catch {
       toast("We couldn't place that bid. Try again in a moment.");
-      // Network error / timeout: the request may or may not have gone through server-side —
-      // resync so the UI reflects reality instead of trusting the pre-bid local state.
       void onRefetch?.();
     } finally {
       setBidFlight(false);
+    }
+  };
+
+  const customBidReserveSupported = Boolean(activeDb && !activeDb.listingId);
+  const handleSubmitCustomBid = async () => {
+    setActionError(null);
+    try {
+      const entered = Number.parseFloat(customBidDraft);
+      const payload = resolveLiveCustomBidPayload({
+        mode: customBidReserveSupported && customBidMode === "reserve" ? "reserve" : "exact",
+        enteredUsd: entered,
+        minNextBidUsd: Number(nextBidAmount),
+      });
+      await handlePlaceBid({
+        amountUsd: payload.amountUsd,
+        maxProxyUsd: payload.maxProxyUsd,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Enter a valid bid amount.";
+      setActionError(msg);
+      toast(msg);
     }
   };
 
@@ -1065,66 +1119,148 @@ export function LiveSaleRoom({
           )}
         </div>
       ) : null}
-      <div className="mt-2 flex gap-2">
-        {roomType === "auction" ? (
-          <button
-            data-testid="live-bid-button"
-            type="button"
-            disabled={
-              actionsDisabled ||
-              activeSaleMissingListing ||
-              buyerAuctionBidBlocked ||
-              (Boolean(activeListingId) && Boolean(bidMeta?.auctionEnded))
-            }
-            onClick={() => void handlePlaceBid()}
-            className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
-          >
-            {`Place bid $${nextBidAmount}`}
-          </button>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {roomType === "auction" && customBidOpen ? (
+          <div className="flex flex-col gap-1.5 rounded-[var(--live-radius-chrome)] border border-white/12 bg-black/40 p-2.5">
+            <label className="flex min-h-10 items-center gap-2 rounded-md border border-white/12 bg-black/40 px-3">
+              <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-zinc-400">$</span>
+              <input
+                type="number"
+                min={Number(nextBidAmount)}
+                step="1"
+                inputMode="decimal"
+                placeholder={nextBidAmount}
+                value={customBidDraft}
+                onChange={(e) => setCustomBidDraft(e.target.value)}
+                className="min-w-0 flex-1 bg-transparent text-sm font-bold tabular-nums text-zinc-100 outline-none"
+                aria-label="Custom bid amount"
+              />
+            </label>
+            <div className="flex items-center justify-between gap-2 rounded-md border border-white/8 bg-black/30 px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-zinc-100">{LIVE_CUSTOM_BID_MODE_COPY.exact.label}</p>
+                <p className="text-[10px] leading-snug text-zinc-400">
+                  {customBidMode === "exact"
+                    ? LIVE_CUSTOM_BID_MODE_COPY.exact.description
+                    : "Off = Max bid (default). Bids the minimum now and auto-raises up to your amount."}
+                </p>
+                {!customBidReserveSupported ? (
+                  <p className="mt-1 text-[10px] text-zinc-500">Max bid is not available for marketplace listing lots.</p>
+                ) : (
+                  <p className="mt-1 text-[10px] text-zinc-500">
+                    {customBidMode === "exact"
+                      ? "Exact places your full amount immediately."
+                      : "Recommended — you only pay one increment above the competition."}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-label="Exact bid"
+                aria-checked={customBidMode === "exact"}
+                disabled={!customBidReserveSupported}
+                onClick={() => setCustomBidMode((m) => (m === "exact" ? "reserve" : "exact"))}
+                className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-40 ${
+                  customBidMode === "exact" ? "bg-gold/80" : "bg-white/15"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition ${
+                    customBidMode === "exact" ? "left-[22px]" : "left-0.5"
+                  }`}
+                />
+              </button>
+            </div>
+            <button
+              type="button"
+              disabled={actionsDisabled || bidFlight}
+              onClick={() => void handleSubmitCustomBid()}
+              className="min-h-10 rounded-md bg-gold px-3 text-[11px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-50"
+            >
+              {bidFlight
+                ? "Placing…"
+                : customBidReserveSupported && customBidMode === "reserve"
+                  ? "Set max bid"
+                  : "Place exact bid"}
+            </button>
+          </div>
         ) : null}
-        {activeHasVariants && !isHost ? (
-          hybridSpotCommerce ? (
+        <div className="flex gap-2">
+          {roomType === "auction" ? (
             <>
               <button
-                data-testid="live-variant-claim-button"
                 type="button"
-                disabled={variantShopDisabled}
-                onClick={() => handleOpenVariantShop()}
-                className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+                aria-pressed={customBidOpen}
+                onClick={() => setCustomBidOpen((v) => !v)}
+                className={`min-h-10 shrink-0 rounded-[var(--live-radius-chrome)] border px-2.5 text-[10px] font-bold uppercase tracking-wide transition ${
+                  customBidOpen
+                    ? "border-gold/50 bg-gold/15 text-gold-bright"
+                    : "border-white/14 bg-black/40 text-zinc-200"
+                }`}
               >
-                {variantShopLabel}
+                Custom
               </button>
               <button
                 data-testid="live-bid-button"
                 type="button"
-                disabled={variantSpotBidDisabled}
+                disabled={
+                  actionsDisabled ||
+                  activeSaleMissingListing ||
+                  buyerAuctionBidBlocked ||
+                  (Boolean(activeListingId) && Boolean(bidMeta?.auctionEnded))
+                }
                 onClick={() => void handlePlaceBid()}
-                className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-white transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+                className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+              >
+                {`Place bid $${nextBidAmount}`}
+              </button>
+            </>
+          ) : null}
+          {activeHasVariants && !isHost ? (
+            hybridSpotCommerce ? (
+              <>
+                <button
+                  data-testid="live-variant-claim-button"
+                  type="button"
+                  disabled={variantShopDisabled}
+                  onClick={() => handleOpenVariantShop()}
+                  className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+                >
+                  {variantShopLabel}
+                </button>
+                <button
+                  data-testid="live-bid-button"
+                  type="button"
+                  disabled={variantSpotBidDisabled}
+                  onClick={() => void handlePlaceBid()}
+                  className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-white transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+                >
+                  {variantSelectLabel}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                disabled={variantPickerDisabled}
+                onClick={() => void handleBuyerVariantCommerce()}
+                className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
               >
                 {variantSelectLabel}
               </button>
-            </>
-          ) : (
+            )
+          ) : null}
+          {roomType === "sale" && !activeHasVariants ? (
             <button
               type="button"
-              disabled={variantPickerDisabled}
-              onClick={() => void handleBuyerVariantCommerce()}
+              disabled={buyNowDisabled}
+              onClick={() => void handleBuyNow()}
               className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
             >
-              {variantSelectLabel}
+              {busy ? "Working…" : "Buy Now"}
             </button>
-          )
-        ) : null}
-        {roomType === "sale" && !activeHasVariants ? (
-          <button
-            type="button"
-            disabled={buyNowDisabled}
-            onClick={() => void handleBuyNow()}
-            className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
-          >
-            {busy ? "Working…" : "Buy Now"}
-          </button>
-        ) : null}
+          ) : null}
+        </div>
       </div>
       {activeSaleMissingListing ? (
         <p className="mt-2 text-[10px] font-medium text-amber-200/90">
@@ -1317,41 +1453,121 @@ export function LiveSaleRoom({
         </div>
       ) : null}
       {roomType === "auction" ? (
-        <div className="mt-2 flex min-h-10 items-center gap-1.5 max-[380px]:gap-1 md:min-h-11">
-          <span
-            className={`inline-flex min-h-10 min-w-[4.75rem] shrink-0 items-center justify-center rounded-full border border-white/14 bg-black/40 px-1.5 text-[9px] font-bold tabular-nums tracking-tight max-[380px]:min-w-[4.25rem] md:min-h-11 md:min-w-[5.5rem] md:px-2 md:text-[10px] ${
-              bidMeta?.auctionEnded
-                ? "text-zinc-500"
-                : countdownFinal
-                  ? "text-rose-200/95 motion-safe:[animation:live-countdown-pulse_1.15s_ease-in-out_infinite] motion-reduce:[animation:none]"
-                  : countdownUrgent
-                    ? "text-amber-200/95"
-                    : "text-zinc-200"
-            }`}
-          >
-            {activeLotBidPhase === "timer_ended_unsettled" || bidMeta?.auctionEnded
-              ? "Ended"
-              : countdownLabel ?? "Live"}
-          </span>
-          <button
-            data-testid="live-bid-button"
-            type="button"
-            disabled={
-              actionsDisabled ||
-              activeSaleMissingListing ||
-              buyerAuctionBidBlocked ||
-              (Boolean(activeListingId) && Boolean(bidMeta?.auctionEnded))
-            }
-            onClick={() => void handlePlaceBid()}
-            aria-label={`Place bid ${nextBidAmount} dollars`}
-            className="flex min-h-10 min-w-0 flex-1 items-center justify-center rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-2 text-[10px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,box-shadow,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-40 motion-reduce:transition-none motion-reduce:active:scale-100 md:min-h-11 md:px-3 md:text-[11px]"
-          >
-            <span className="min-w-0 truncate">
-              <span className="max-[380px]:hidden">Place bid </span>
-              <span className="hidden max-[380px]:inline">Bid </span>
-              <span className="tabular-nums">${nextBidAmount}</span>
+        <div className="mt-2 flex flex-col gap-1.5">
+          {customBidOpen ? (
+            <div className="flex flex-col gap-1.5 rounded-2xl border border-white/12 bg-black/40 p-2.5">
+              <label className="flex min-h-10 items-center gap-2 rounded-full border border-white/12 bg-black/40 px-3">
+                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-zinc-400">$</span>
+                <input
+                  type="number"
+                  min={Number(nextBidAmount)}
+                  step="1"
+                  inputMode="decimal"
+                  placeholder={nextBidAmount}
+                  value={customBidDraft}
+                  onChange={(e) => setCustomBidDraft(e.target.value)}
+                  className="min-w-0 flex-1 bg-transparent text-sm font-bold tabular-nums text-zinc-100 outline-none"
+                  aria-label="Custom bid amount"
+                />
+              </label>
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-white/8 bg-black/30 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold text-zinc-100">{LIVE_CUSTOM_BID_MODE_COPY.exact.label}</p>
+                  <p className="text-[10px] leading-snug text-zinc-400">
+                    {customBidMode === "exact"
+                      ? LIVE_CUSTOM_BID_MODE_COPY.exact.description
+                      : "Off = Max bid (default). Bids the minimum now and auto-raises up to your amount."}
+                  </p>
+                  {!customBidReserveSupported ? (
+                    <p className="mt-1 text-[10px] text-zinc-500">Max bid is not available for marketplace listing lots.</p>
+                  ) : (
+                    <p className="mt-1 text-[10px] text-zinc-500">
+                      {customBidMode === "exact"
+                        ? "Exact places your full amount immediately."
+                        : "Recommended — you only pay one increment above the competition."}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-label="Exact bid"
+                  aria-checked={customBidMode === "exact"}
+                  disabled={!customBidReserveSupported}
+                  onClick={() => setCustomBidMode((m) => (m === "exact" ? "reserve" : "exact"))}
+                  className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-40 ${
+                    customBidMode === "exact" ? "bg-gold/80" : "bg-white/15"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition ${
+                      customBidMode === "exact" ? "left-[22px]" : "left-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+              <button
+                type="button"
+                disabled={actionsDisabled || bidFlight}
+                onClick={() => void handleSubmitCustomBid()}
+                className="min-h-10 rounded-full bg-gold px-3 text-[11px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-50 md:min-h-11"
+              >
+                {bidFlight
+                  ? "Placing…"
+                  : customBidReserveSupported && customBidMode === "reserve"
+                    ? "Set max bid"
+                    : "Place exact bid"}
+              </button>
+            </div>
+          ) : null}
+          <div className="flex min-h-10 items-center gap-1.5 max-[380px]:gap-1 md:min-h-11">
+            <span
+              className={`inline-flex min-h-10 min-w-[4.75rem] shrink-0 items-center justify-center rounded-full border border-white/14 bg-black/40 px-1.5 text-[9px] font-bold tabular-nums tracking-tight max-[380px]:min-w-[4.25rem] md:min-h-11 md:min-w-[5.5rem] md:px-2 md:text-[10px] ${
+                bidMeta?.auctionEnded
+                  ? "text-zinc-500"
+                  : countdownFinal
+                    ? "text-rose-200/95 motion-safe:[animation:live-countdown-pulse_1.15s_ease-in-out_infinite] motion-reduce:[animation:none]"
+                    : countdownUrgent
+                      ? "text-amber-200/95"
+                      : "text-zinc-200"
+              }`}
+            >
+              {activeLotBidPhase === "timer_ended_unsettled" || bidMeta?.auctionEnded
+                ? "Ended"
+                : countdownLabel ?? "Live"}
             </span>
-          </button>
+            <button
+              type="button"
+              aria-pressed={customBidOpen}
+              onClick={() => setCustomBidOpen((v) => !v)}
+              className={`min-h-10 shrink-0 rounded-full border px-2.5 text-[10px] font-bold uppercase tracking-wide transition max-[380px]:px-2 max-[380px]:text-[9px] md:min-h-11 md:px-3 ${
+                customBidOpen
+                  ? "border-gold/50 bg-gold/15 text-gold-bright"
+                  : "border-white/14 bg-black/40 text-zinc-200"
+              }`}
+            >
+              Custom
+            </button>
+            <button
+              data-testid="live-bid-button"
+              type="button"
+              disabled={
+                actionsDisabled ||
+                activeSaleMissingListing ||
+                buyerAuctionBidBlocked ||
+                (Boolean(activeListingId) && Boolean(bidMeta?.auctionEnded))
+              }
+              onClick={() => void handlePlaceBid()}
+              aria-label={`Place bid ${nextBidAmount} dollars`}
+              className="flex min-h-10 min-w-0 flex-1 items-center justify-center rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-2 text-[10px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,box-shadow,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-40 motion-reduce:transition-none motion-reduce:active:scale-100 md:min-h-11 md:px-3 md:text-[11px]"
+            >
+              <span className="min-w-0 truncate">
+                <span className="max-[380px]:hidden">Place bid </span>
+                <span className="hidden max-[380px]:inline">Bid </span>
+                <span className="tabular-nums">${nextBidAmount}</span>
+              </span>
+            </button>
+          </div>
         </div>
       ) : null}
       {pytCommerceLive && !isHost ? (

@@ -1292,7 +1292,7 @@ function LiveSlide({
                   refreshNonce={streamRefreshNonce + roomVisitNonce}
                   roomVisitNonce={roomVisitNonce}
                   realtimeStreamPaused={realtimeStreamPaused}
-                  muted={isActive ? streamMuted : true}
+                  muted={isActive && screenFocused ? streamMuted : true}
                   onMutedChange={setStreamMuted}
                   onBroadcastGateChange={handleBroadcastGateChange}
                 />
@@ -2167,10 +2167,12 @@ export function VerticalLiveFeed({
 
   const resolvePlaybackMode = useCallback(
     (index: number): LivePlaybackMode => {
-      // When the screen loses focus (back, tab switch, pushed screen), no page plays — this leaves
-      // the IVS stage and pauses/mutes HLS so the buyer's audio/video cuts immediately. The host
-      // keeps streaming server-side; playback restores when the screen is focused again.
-      if (!screenFocused) return 'off';
+      // Soft keep on blur (profile/DM/Settings push): warm the current page as prefetch instead
+      // of tearing Stage/HLS to `off`. Tab switch still unfocuses the screen — mute below.
+      if (!screenFocused) {
+        if (index === page) return 'prefetch';
+        return 'off';
+      }
       if (index === page) return 'active';
       if (warmPageIndices.has(index)) return 'prefetch';
       return 'off';

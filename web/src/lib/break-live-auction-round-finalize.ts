@@ -81,32 +81,6 @@ export async function finalizeBreakAuctionRoundIfEnded(
     item.biddingOpen === true && item.auctionEndsAt != null && item.auctionEndsAt <= now;
   if (!roundEnded) return { finalized: false, skipStartAuction: false };
 
-  if (item.listingId) {
-    /** Linked-listing break bids need a manual / separate close path. */
-    const resetStart = item.startingBidUsd ?? item.priceUsd ?? 1;
-    await tx.liveRoomItem.update({
-      where: { id: item.id },
-      data: {
-        biddingOpen: false,
-        auctionEndsAt: null,
-        clutchTimeEnabled: false,
-        currentBidUsd: null,
-        startingBidUsd: resetStart,
-        lastHighBidderId: null,
-        itemVersion: { increment: 1 },
-      },
-    });
-    await clearLiveAuctionProxyBidsForItem(tx, {
-      liveRoomId: args.liveRoomId,
-      itemId: item.id,
-    });
-    await tx.liveRoom.update({
-      where: { id: args.liveRoomId },
-      data: { roomVersion: { increment: 1 } },
-    });
-    return { finalized: true, skipStartAuction: false };
-  }
-
   const winnerId = item.lastHighBidderId?.trim();
   const winUsdRaw = item.currentBidUsd ?? item.startingBidUsd ?? item.priceUsd ?? 0;
   const winUsd = typeof winUsdRaw === "number" && Number.isFinite(winUsdRaw) ? winUsdRaw : 0;
@@ -120,44 +94,89 @@ export async function finalizeBreakAuctionRoundIfEnded(
   let itemSold = false;
 
   if (winnerId && winUsd >= 1) {
-    const listing = await tx.listing.create({
-      data: {
-        sellerId: args.sellerId,
-        title: unitTitle,
-        category: "Live break",
-        condition: "See title",
-        buyingFormat: "auction",
-        status: "auction_live",
-        priceUsd: winUsd,
-        startingBidUsd: item.startingBidUsd ?? item.priceUsd ?? 1,
-        currentBidUsd: winUsd,
-        auctionEndsAt: new Date(0),
-        shippingPriceUsd: 0,
-      },
-      select: { id: true },
-    });
-    await tx.bid.create({
-      data: {
+    let listingId = item.listingId?.trim() || null;
+    if (listingId) {
+      const listingRow = await tx.listing.findUnique({
+        where: { id: listingId },
+        select: { id: true, moderationRemovedAt: true, shippingPriceUsd: true },
+      });
+      if (!listingRow || listingRow.moderationRemovedAt) {
+        listingId = null;
+      } else {
+        await tx.listing.update({
+          where: { id: listingId },
+          data: {
+            title: unitTitle,
+            priceUsd: winUsd,
+            currentBidUsd: winUsd,
+            auctionEndsAt: new Date(0),
+            status: "auction_live",
+          },
+        });
+        await tx.bid.create({
+          data: {
+            listingId,
+            bidderId: winnerId,
+            amountUsd: winUsd,
+            maxBidUsd: winUsd,
+          },
+        });
+        const { orderId: oid } = await createOrderFromAuctionWin(tx, {
+          listingId,
+          listingTitle: unitTitle,
+          buyerId: winnerId,
+          sellerId: args.sellerId,
+          itemPriceUsd: winUsd,
+          shippingPriceUsd: listingRow.shippingPriceUsd ?? 0,
+          liveAuctionLiveShowId: args.liveRoomId,
+          liveRoomItemId: args.liveRoomItemId,
+          skipWinNotifications: true,
+        });
+        orderId = oid;
+        nextQty = item.quantity - 1;
+        itemSold = nextQty < 1;
+      }
+    }
+    if (!orderId) {
+      const listing = await tx.listing.create({
+        data: {
+          sellerId: args.sellerId,
+          title: unitTitle,
+          category: "Live break",
+          condition: "See title",
+          buyingFormat: "auction",
+          status: "auction_live",
+          priceUsd: winUsd,
+          startingBidUsd: item.startingBidUsd ?? item.priceUsd ?? 1,
+          currentBidUsd: winUsd,
+          auctionEndsAt: new Date(0),
+          shippingPriceUsd: 0,
+        },
+        select: { id: true },
+      });
+      await tx.bid.create({
+        data: {
+          listingId: listing.id,
+          bidderId: winnerId,
+          amountUsd: winUsd,
+          maxBidUsd: winUsd,
+        },
+      });
+      const { orderId: oid } = await createOrderFromAuctionWin(tx, {
         listingId: listing.id,
-        bidderId: winnerId,
-        amountUsd: winUsd,
-        maxBidUsd: winUsd,
-      },
-    });
-    const { orderId: oid } = await createOrderFromAuctionWin(tx, {
-      listingId: listing.id,
-      listingTitle: unitTitle,
-      buyerId: winnerId,
-      sellerId: args.sellerId,
-      itemPriceUsd: winUsd,
-      shippingPriceUsd: 0,
-      liveAuctionLiveShowId: args.liveRoomId,
-      liveRoomItemId: args.liveRoomItemId,
-      skipWinNotifications: true,
-    });
-    orderId = oid;
-    nextQty = item.quantity - 1;
-    itemSold = nextQty < 1;
+        listingTitle: unitTitle,
+        buyerId: winnerId,
+        sellerId: args.sellerId,
+        itemPriceUsd: winUsd,
+        shippingPriceUsd: 0,
+        liveAuctionLiveShowId: args.liveRoomId,
+        liveRoomItemId: args.liveRoomItemId,
+        skipWinNotifications: true,
+      });
+      orderId = oid;
+      nextQty = item.quantity - 1;
+      itemSold = nextQty < 1;
+    }
   }
 
   const resetStart = item.startingBidUsd ?? item.priceUsd ?? 1;

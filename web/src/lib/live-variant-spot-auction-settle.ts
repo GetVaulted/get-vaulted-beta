@@ -7,12 +7,15 @@ import {
   emitLiveRoomQueueItemsChanged,
   emitVariantPurchased,
 } from "@/lib/realtime-emit-server";
-import { idleVariantSpotCommerceReset } from "@/lib/live-variant-spot-commerce";
+import {
+  endVariantSpotAuctionNoBidsReset,
+  idleVariantSpotCommerceReset,
+} from "@/lib/live-variant-spot-commerce";
 import type { FinalizeTrigger } from "@/lib/live-auction-finalize";
 import { resolveSoldUnitDisplayTitle } from "@/lib/live-room-item-quantity-display";
 import { summarizeVariantSpots } from "@/lib/live-item-variant-presets";
 
-/** Close a PYT/PYD spot auction with no bids — keep pin, return to fixed checkout. */
+/** Close a PYT/PYD spot auction with no bids — keep pin armed (not buy-now). */
 export async function resetVariantSpotAuctionNoBids(args: {
   liveRoomId: string;
   itemId: string;
@@ -22,7 +25,7 @@ export async function resetVariantSpotAuctionNoBids(args: {
     const updated = await tx.liveRoomItem.updateMany({
       where: { id: args.itemId, liveRoomId: args.liveRoomId, status: "active", biddingOpen: true },
       data: {
-        ...idleVariantSpotCommerceReset(),
+        ...endVariantSpotAuctionNoBidsReset(),
         itemVersion: { increment: 1 },
       },
     });
@@ -46,7 +49,7 @@ export async function resetVariantSpotAuctionNoBids(args: {
     auctionEndsAt: null,
   });
   emitLiveRoomQueueItemsChanged(args.liveRoomId);
-  console.info("[variant spot auction] no bids, reset to fixed", {
+  console.info("[variant spot auction] no bids, keep pin armed", {
     trigger: args.trigger,
     liveRoomId: args.liveRoomId,
     itemId: args.itemId,

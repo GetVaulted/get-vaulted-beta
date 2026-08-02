@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   defaultActiveSpotModeForPin,
+  endVariantSpotAuctionNoBidsReset,
   idleVariantSpotCommerceReset,
   isVariantSpotAuctionArmed,
   isVariantSpotAuctionLive,
@@ -166,5 +167,15 @@ describe("live-variant-spot-commerce", () => {
       auctionVariantId: null,
       activeSpotCommerceMode: "fixed",
     });
+  });
+
+  it("empty spot auction reset keeps pin armed (not buy-now)", () => {
+    expect(endVariantSpotAuctionNoBidsReset()).toMatchObject({
+      biddingOpen: false,
+      activeSpotCommerceMode: "auction",
+      currentBidUsd: null,
+      lastHighBidderId: null,
+    });
+    expect(endVariantSpotAuctionNoBidsReset()).not.toHaveProperty("auctionVariantId");
   });
 });

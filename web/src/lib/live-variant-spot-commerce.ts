@@ -134,6 +134,28 @@ export function idleVariantSpotCommerceReset(): {
   };
 }
 
+/**
+ * Timed spot auction ended with no bids — keep the pin armed for Start Auction.
+ * Do not flip to fixed buy-now (that was showing the tile price / $1 after empty rounds).
+ */
+export function endVariantSpotAuctionNoBidsReset(): {
+  biddingOpen: false;
+  auctionEndsAt: null;
+  currentBidUsd: null;
+  lastHighBidderId: null;
+  activeSpotCommerceMode: "auction";
+  clutchTimeEnabled: false;
+} {
+  return {
+    biddingOpen: false,
+    auctionEndsAt: null,
+    currentBidUsd: null,
+    lastHighBidderId: null,
+    activeSpotCommerceMode: "auction",
+    clutchTimeEnabled: false,
+  };
+}
+
 export function pinnedVariantAuctionPrimaryLabel(
   format: string | null | undefined,
   nextBidUsd: number,

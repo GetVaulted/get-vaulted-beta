@@ -156,3 +156,111 @@ export async function placeListingBid(
 ): Promise<PlaceListingBidResult> {
   return placeListingProxyBid(tx, { ...args, maxBidUsd: args.amountUsd });
 }
+
+/**
+ * Live-room bid on a linked marketplace listing (Whatnot-style).
+ * `amountUsd` becomes the public hammer immediately — Exact jumps and min-next floors alike.
+ * Standalone marketplace auctions keep using {@link placeListingProxyBid}.
+ */
+export async function placeLiveListingBid(
+  tx: TransactionClient,
+  args: { listingId: string; bidderId: string; amountUsd: number },
+): Promise<PlaceListingBidResult> {
+  const { listingId, bidderId, amountUsd } = args;
+
+  await closeAuctionIfDue(tx, listingId);
+
+  const listing = await tx.listing.findUnique({
+    where: { id: listingId },
+    select: {
+      id: true,
+      title: true,
+      sellerId: true,
+      buyingFormat: true,
+      status: true,
+      startingBidUsd: true,
+      currentBidUsd: true,
+      priceUsd: true,
+      auctionEndsAt: true,
+      moderationRemovedAt: true,
+    },
+  });
+
+  if (!listing) {
+    throw new Error("NOT_FOUND");
+  }
+  if (listing.moderationRemovedAt) {
+    throw new Error("NOT_OPEN");
+  }
+  if (listing.buyingFormat !== "auction") {
+    throw new Error("NOT_AUCTION");
+  }
+  if (listing.status !== "auction_live" && listing.status !== "active") {
+    throw new Error("NOT_OPEN");
+  }
+  if (listing.sellerId === bidderId) {
+    throw new Error("OWN_LISTING");
+  }
+
+  const now = await getTransactionServerNow(tx);
+  if (listing.auctionEndsAt && listing.auctionEndsAt <= now) {
+    throw new Error("ENDED");
+  }
+
+  if (!Number.isFinite(amountUsd) || amountUsd < 1) {
+    throw new Error("MIN_BID:1");
+  }
+
+  const startingHigh = listing.startingBidUsd ?? listing.priceUsd;
+  const displayHigh = listing.currentBidUsd ?? startingHigh;
+  const existing = await tx.bid.findMany({
+    where: { listingId },
+    select: { bidderId: true, amountUsd: true, maxBidUsd: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const bidsLike: BidLike[] = existing.map((b) => ({
+    bidderId: b.bidderId,
+    amountUsd: b.amountUsd,
+    maxBidUsd: b.maxBidUsd,
+    createdAt: b.createdAt,
+  }));
+  const oldResolved = resolveProxyAuction(startingHigh, bidsLike);
+
+  // First live bid may equal opening; later bids must beat the public high.
+  if (existing.length > 0 || listing.currentBidUsd != null) {
+    if (amountUsd <= displayHigh + 0.001) {
+      throw new Error(`MIN_BID:${minNextBidUsd(displayHigh)}`);
+    }
+  } else if (amountUsd + 0.001 < startingHigh) {
+    throw new Error(`MIN_BID:${startingHigh}`);
+  }
+
+  await tx.bid.create({
+    data: {
+      listingId,
+      bidderId,
+      amountUsd,
+      maxBidUsd: amountUsd,
+    },
+  });
+
+  await tx.listing.update({
+    where: { id: listingId },
+    data: { currentBidUsd: amountUsd },
+  });
+
+  await closeAuctionIfDue(tx, listingId);
+
+  const prevLeaderId =
+    oldResolved.leaderBidderId && oldResolved.leaderBidderId !== bidderId
+      ? oldResolved.leaderBidderId
+      : null;
+
+  return {
+    listingTitle: listing.title,
+    prevLeaderId,
+    amountUsd,
+    leaderBidderId: bidderId,
+    youAreLeader: true,
+  };
+}

@@ -78,15 +78,35 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (order.paymentStatus !== "paid") {
       return NextResponse.json({ error: "Order is not paid." }, { status: 400 });
     }
-    if (!order.seller.stripeAccountId || !order.seller.stripeOnboardingComplete) {
-      return NextResponse.json(
-        { error: "Cannot release payout — seller has no verified Stripe payout account." },
-        { status: 400 },
-      );
+
+    const isPaypalRail = order.sellerPayoutProcessor === "PAYPAL";
+    if (!isPaypalRail) {
+      if (!order.seller.stripeAccountId || !order.seller.stripeOnboardingComplete) {
+        return NextResponse.json(
+          { error: "Cannot release payout — seller has no verified Stripe payout account." },
+          { status: 400 },
+        );
+      }
     }
-    if (order.fulfillmentStatus !== "delivered" && !order.deliveryConfirmedAt) {
+
+    // Hold-until-shipped model: bank payout after ship + label clawback (or delivered).
+    // Do not require delivery when the order is already marked shipped / carrier-accepted.
+    const {
+      orderLooksShippedForBankPayout,
+      orderLabelClawbackSettledForBankPayout,
+    } = await import("@/services/payout/stripe-seller-payout");
+    const shippedOk =
+      orderLooksShippedForBankPayout({
+        shippedAt: order.shippedAt,
+        carrierAcceptedAt: null,
+        fulfillmentStatus: order.fulfillmentStatus,
+        status: null,
+      }) ||
+      order.fulfillmentStatus === "delivered" ||
+      Boolean(order.deliveryConfirmedAt);
+    if (!shippedOk) {
       return NextResponse.json(
-        { error: "Delivery must be confirmed before releasing payout." },
+        { error: "Order must be shipped (or delivery confirmed) before releasing payout." },
         { status: 400 },
       );
     }
@@ -159,11 +179,32 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           throw e;
         }
       }
-    }
-
-    if (order.sellerPayoutProcessor === "PAYPAL") {
-      // PayPal rail handled elsewhere
-    } else if (order.paymentMethod !== OrderPaymentMethod.escrow) {
+    } else if (isPaypalRail) {
+      const { releaseSellerPayPalPayout } = await import("@/services/payout/paypal-seller-payout");
+      const paypal = await releaseSellerPayPalPayout(orderId);
+      if (!paypal.ok && paypal.reason !== "already_paid_out" && paypal.reason !== "zero_net") {
+        return NextResponse.json(
+          { error: `PayPal payout failed: ${paypal.reason ?? "unknown"}` },
+          { status: 502 },
+        );
+      }
+    } else {
+      // Stripe Connect: clawback must be settled before bank payout (unless force already passed ship).
+      const full = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: {
+          shippoTransactionId: true,
+          labelUrl: true,
+          shippingLabelCostCents: true,
+          shippingLabelCostReversedCents: true,
+        },
+      });
+      if (full && !orderLabelClawbackSettledForBankPayout(full)) {
+        return NextResponse.json(
+          { error: "Label clawback must complete before releasing Stripe bank payout." },
+          { status: 409 },
+        );
+      }
       const { releaseSellerStripePayout } = await import("@/services/payout/stripe-seller-payout");
       const stripePay = await releaseSellerStripePayout(orderId, { force: true });
       if (!stripePay.ok && stripePay.reason !== "already_paid_out" && stripePay.reason !== "zero_net") {

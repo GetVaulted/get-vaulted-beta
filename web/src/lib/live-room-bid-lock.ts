@@ -9,6 +9,7 @@ export type LockedLiveRoomItemForBid = {
   currentBidUsd: number | null;
   startingBidUsd: number | null;
   priceUsd: number | null;
+  bidIncrementUsd: number | null;
   biddingOpen: boolean;
   auctionEndsAt: Date | null;
   clutchTimeEnabled: boolean;
@@ -25,6 +26,7 @@ type LockedRow = {
   currentBidUsd: number | null;
   startingBidUsd: number | null;
   priceUsd: number | null;
+  bidIncrementUsd: number | null;
   biddingOpen: boolean;
   auctionEndsAt: Date | null;
   clutchTimeEnabled: boolean;
@@ -58,6 +60,7 @@ export async function lockActiveLiveRoomItemForBid(
       "currentBidUsd",
       "startingBidUsd",
       "priceUsd",
+      "bidIncrementUsd",
       "biddingOpen",
       "auctionEndsAt",
       "clutchTimeEnabled",

@@ -3,7 +3,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { getUnresolvedPaymentFailureForBuyer } from "@/lib/live-room-payment-failure";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { liveAuctionMinBidUsd } from "@/lib/auction";
-import { placeListingBid } from "@/lib/place-listing-bid";
+import { placeLiveListingBid } from "@/lib/place-listing-bid";
 import { notifyAuctionOutbid } from "@/lib/notify-auction-outbid";
 import { prisma } from "@/lib/prisma";
 import { computeNextAuctionEndsAtAfterBid } from "@/lib/live-auction-bid-extension";
@@ -136,9 +136,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   }
   if (!room) return NextResponse.json({ error: "Room not found." }, { status: 404 });
   if (!item) return NextResponse.json({ error: "Item not found." }, { status: 404 });
-  const variantSpotAuction = Boolean(item.auctionVariantId?.trim());
-  if (room.roomType !== "auction" && room.roomType !== "break" && !(room.roomType === "sale" && variantSpotAuction)) {
-    return NextResponse.json({ error: "Bidding is only available in auction or break live shows." }, { status: 400 });
+  if (room.roomType !== "auction" && room.roomType !== "break" && room.roomType !== "sale") {
+    return NextResponse.json({ error: "Bidding is only available in auction, break, or sale live shows." }, { status: 400 });
   }
   // Host already opened bidding while room lifecycle lagged behind publish → heal to live.
   let roomStatus = room.status;
@@ -248,7 +247,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
           currentHighUsd: lockedHigh,
         });
         const nextEndsAt = computeNextAuctionEndsAtAfterBid(now, locked.clutchTimeEnabled, locked.auctionEndsAt);
-        const r = await placeListingBid(tx, { listingId, bidderId, amountUsd });
+        const r = await placeLiveListingBid(tx, { listingId, bidderId, amountUsd });
         await tx.liveRoomItem.update({
           where: { id: itemId },
           data: {

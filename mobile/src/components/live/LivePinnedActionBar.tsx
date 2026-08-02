@@ -816,9 +816,9 @@ export function LivePinnedActionBar({
       const amountUsd = holdOnly ? minNext : (bid?.amountUsd ?? minNext);
       const listingLot = Boolean(snap.activeItemListingId?.trim());
       let maxProxyUsd = bid?.maxProxyUsd;
-      // Hold + exact instant bids cap proxy at the placed amount so an older max bid
-      // cannot keep auto-raising the buyer on this lot.
-      if (maxProxyUsd == null && !listingLot) {
+      // Hold / primary instant bids cap proxy at the placed amount so an older max bid
+      // cannot keep auto-raising the buyer on this lot. Exact custom omits maxProxy.
+      if (maxProxyUsd == null && !listingLot && (holdOnly || bid == null)) {
         maxProxyUsd = amountUsd;
       }
       if (amountUsd + 0.001 < minNext) {

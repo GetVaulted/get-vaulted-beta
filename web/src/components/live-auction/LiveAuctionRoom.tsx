@@ -909,12 +909,14 @@ export function LiveAuctionRoom({
 
       if (opts?.amountUsd != null) {
         amountUsd = opts.amountUsd;
+        // Custom sheet: Exact omits maxProxy; Max sends maxProxy > amount. Do not invent a
+        // hold pattern (maxProxy === amount) or the server clamps Exact jumps to min next.
       } else {
         amountUsd = buyerNextBidUsd;
-      }
-
-      if (maxProxyUsd == null && !activeDbItem?.listingId) {
-        maxProxyUsd = amountUsd;
+        // Primary / Hold-to-Bid: cap proxy at the placed amount so an older max cannot auto-raise.
+        if (maxProxyUsd == null && !activeDbItem?.listingId) {
+          maxProxyUsd = amountUsd;
+        }
       }
 
       if (amountUsd + 0.001 < buyerNextBidUsd) {
@@ -1228,7 +1230,7 @@ export function LiveAuctionRoom({
                   <button
                     type="button"
                     aria-pressed={hostClutchTimeEnabled}
-                    title="Sudden death: the auction timer resets on every bid until bidding closes."
+                    title="Sudden death: the auction timer does not extend on bids."
                     onClick={() => setHostClutchTimeEnabled((v) => !v)}
                     className={`group inline-flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide transition ${
                       hostClutchTimeEnabled
@@ -1511,7 +1513,7 @@ export function LiveAuctionRoom({
               <button
                 type="button"
                 aria-pressed={hostClutchTimeEnabled}
-                title="Sudden death: the auction timer resets on every bid until bidding closes."
+                title="Sudden death: the auction timer does not extend on bids."
                 onClick={() => setHostClutchTimeEnabled((v) => !v)}
                 className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-wide transition ${
                   hostClutchTimeEnabled

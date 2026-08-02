@@ -84,7 +84,7 @@ export function LiveRoomScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      // Soft visit bump (wallet/session resets) — do NOT remount the whole feed via React key;
+      // Soft visit — do NOT remount the whole feed via React key;
       // remount racing IVS leave/join blanks video until app kill.
       viewerLifecycleLog('screen_focused', { streamId, layer: 'LiveRoomScreen' });
       const mp = miniPlayerRef.current;
@@ -106,13 +106,19 @@ export function LiveRoomScreen() {
         // Different show was minimized — close it before watching this room.
         mp.close();
       }
-      setRoomVisitNonce((n) => n + 1);
+      // Re-focus after in-app nav (profile/DM/Settings) must soft-resume — bumping
+      // roomVisitNonce force-restarts Stage/HLS as if opening a brand-new show.
       void reloadStreams();
       return () => {
         viewerLifecycleLog('screen_blurred', { streamId, layer: 'LiveRoomScreen' });
       };
     }, [reloadStreams, streamId]),
   );
+
+  // First entry / stream change only — not every focus re-entry.
+  useLayoutEffect(() => {
+    setRoomVisitNonce((n) => n + 1);
+  }, [streamId]);
 
   const blockGuestLive = guestExploreMode && !user;
 
