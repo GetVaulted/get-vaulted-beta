@@ -51,6 +51,7 @@ vi.mock("@/lib/seller-stripe-collect-ready", () => ({
 vi.mock("@/lib/stripe-customer", () => ({
   assertPaymentMethodOwnedByUser: vi.fn().mockResolvedValue(undefined),
   getBuyerDefaultCardPaymentMethodId: vi.fn().mockResolvedValue("pm_1"),
+  getBuyerPreferredWalletPaymentMethodId: vi.fn().mockResolvedValue("pm_1"),
 }));
 vi.mock("@/lib/stripe-payment-method-id", () => ({ isStripePaymentMethodId: vi.fn().mockReturnValue(false) }));
 vi.mock("@/lib/realtime-emit-server", () => ({ emitLiveRoomQueueItemsChanged: vi.fn() }));

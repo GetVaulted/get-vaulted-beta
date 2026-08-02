@@ -20,6 +20,7 @@ const hoisted = vi.hoisted(() => ({
   schedulePausedBroadcastAwsTeardown: vi.fn(),
   cancelPausedBroadcastAwsTeardown: vi.fn(),
   reconcileStagePublisherHealth: vi.fn(async () => "skip" as const),
+  ensureChannelLowLatencyMode: vi.fn(async () => true),
   checkRateLimit: vi.fn(() => ({ ok: true as const, remaining: 29, resetAt: Date.now() + 60_000 })),
   userFindUnique: vi.fn(),
 }));
@@ -72,6 +73,7 @@ vi.mock("@/services/ivs", () => ({
   schedulePausedBroadcastAwsTeardown: hoisted.schedulePausedBroadcastAwsTeardown,
   cancelPausedBroadcastAwsTeardown: hoisted.cancelPausedBroadcastAwsTeardown,
   reconcileStagePublisherHealth: hoisted.reconcileStagePublisherHealth,
+  ensureChannelLowLatencyMode: hoisted.ensureChannelLowLatencyMode,
 }));
 
 vi.mock("@/lib/realtime-emit-server", () => ({
