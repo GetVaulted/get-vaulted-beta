@@ -63,6 +63,7 @@ import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 import type { VariantPurchasedMergePayload } from "@/lib/live-room-variant-merge";
 import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
 import {
+  isVariantSpotAuctionArmed,
   isVariantSpotAuctionLive,
   pinnedVariantAuctionPrimaryLabel,
   shopAvailableSpotCount,
@@ -590,6 +591,7 @@ export function LiveSaleRoom({
     return hostPinnedBuyerVariant(activeDb.variants, activeDb.variantAssignmentMode);
   }, [activeDb]);
   const spotAuctionLive = Boolean(activeDb && isVariantSpotAuctionLive(activeDb));
+  const spotAuctionArmed = Boolean(activeDb && isVariantSpotAuctionArmed(activeDb));
   const shopVariantSpots = activeHasVariants && activeDb
     ? summarizeVariantSpots(shopAvailableVariants(activeDb))
     : null;
@@ -600,11 +602,13 @@ export function LiveSaleRoom({
           activeDb.salesFormat,
           liveAuctionMinBidUsd(activeDb) ?? activeDb.currentBidUsd ?? activeDb.startingBidUsd ?? buyerPinnedVariant?.priceUsd ?? 1,
         )
-      : isRandomVariantAssignment(activeDb.variantAssignmentMode)
-        ? variantBuyerSelectLabel(activeDb.salesFormat, true)
-        : shoppableSpotCount > 0
-          ? variantClaimPrimaryLabel(activeDb.salesFormat)
-          : "Sold out"
+      : spotAuctionArmed
+        ? "Waiting for host"
+        : isRandomVariantAssignment(activeDb.variantAssignmentMode)
+          ? variantBuyerSelectLabel(activeDb.salesFormat, true)
+          : shoppableSpotCount > 0
+            ? variantClaimPrimaryLabel(activeDb.salesFormat)
+            : "Sold out"
     : "Select spot";
   const hybridSpotCommerce =
     spotAuctionLive && (shopVariantSpots?.available ?? 0) > 0 && activeLotBidPhase === "bidding_open";
@@ -827,6 +831,10 @@ export function LiveSaleRoom({
     if (!activeDb || !pytCommerceLive) return;
     if (isVariantSpotAuctionLive(activeDb)) {
       await handlePlaceBid();
+      return;
+    }
+    if (isVariantSpotAuctionArmed(activeDb)) {
+      toast("Host pinned this team for auction. Bidding opens when they start the timer.");
       return;
     }
     setVariantSheetItemId(activeDb.id);

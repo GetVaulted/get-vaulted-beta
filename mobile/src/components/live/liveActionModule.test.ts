@@ -415,6 +415,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
       activeItemTitle: 'PYT 1 Box Break',
       activeItemSalesFormat: 'variant_selection',
       activeItemVariantAssignmentMode: 'pick',
+      activeSpotCommerceMode: 'fixed',
       activeItemVariants: [
         {
           id: 'v1',
@@ -445,6 +446,37 @@ describe('resolveLiveBuyerCommerceHud', () => {
     expect(hud.buyerPinnedVariantId).toBe('v1');
     expect(hud.showShopButton).toBe(true);
     expect(hud.stateLine).toContain('shipping & tax');
+  });
+
+  it('does not offer buy-now when a PYT team is pinned for auction before Start', () => {
+    const snap = {
+      roomType: 'break',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemTitle: 'PYT 1 Box Break',
+      activeItemSalesFormat: 'variant_selection',
+      activeItemVariantAssignmentMode: 'pick',
+      activeSpotCommerceMode: 'auction',
+      biddingOpen: false,
+      activeItemVariants: [
+        {
+          id: 'v1',
+          label: 'Chiefs',
+          priceUsd: 1,
+          quantityRemaining: 1,
+          soldCount: 0,
+          isHot: true,
+          status: 'available',
+          buyerUsername: null,
+        },
+      ],
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toBe('Waiting for host');
+    expect(hud.buyerPrimaryDisabled).toBe(true);
+    expect(hud.buyerPinnedVariantId).toBeUndefined();
+    expect(hud.stateLine).toContain('pinned for auction');
   });
 
   it('shows Claim Team when PYT break is pinned without host spot pin', () => {

@@ -70,6 +70,7 @@ import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import { toUserFacingErrorMessage } from "@/lib/user-facing-error-message";
 import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
 import {
+  isVariantSpotAuctionArmed,
   isVariantSpotAuctionLive,
   pinnedVariantAuctionPrimaryLabel,
   shopAvailableSpotCount,
@@ -370,6 +371,7 @@ export function LiveAuctionRoom({
     return hostPinnedBuyerVariant(activeDbItem.variants, activeDbItem.variantAssignmentMode);
   }, [activeDbItem]);
   const spotAuctionLive = Boolean(activeDbItem && isVariantSpotAuctionLive(activeDbItem));
+  const spotAuctionArmed = Boolean(activeDbItem && isVariantSpotAuctionArmed(activeDbItem));
   const shopVariantSpots = activeHasVariants && activeDbItem
     ? summarizeVariantSpots(shopAvailableVariants(activeDbItem))
     : null;
@@ -381,11 +383,13 @@ export function LiveAuctionRoom({
           activeDbItem.salesFormat,
           liveAuctionMinBidUsd(activeDbItem) ?? activeDbItem.currentBidUsd ?? activeDbItem.startingBidUsd ?? buyerPinnedVariant?.priceUsd ?? 1,
         )
-      : isRandomVariantAssignment(activeDbItem.variantAssignmentMode)
-        ? variantBuyerSelectLabel(activeDbItem.salesFormat, true)
-        : shoppableSpotCount > 0
-          ? variantClaimPrimaryLabel(activeDbItem.salesFormat)
-          : "Sold out"
+      : spotAuctionArmed
+        ? "Waiting for host"
+        : isRandomVariantAssignment(activeDbItem.variantAssignmentMode)
+          ? variantBuyerSelectLabel(activeDbItem.salesFormat, true)
+          : shoppableSpotCount > 0
+            ? variantClaimPrimaryLabel(activeDbItem.salesFormat)
+            : "Sold out"
     : "Select spot";
   const variantShopLabel = activeDbItem ? variantClaimPrimaryLabel(activeDbItem.salesFormat) : "Claim spot";
   const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(5);
@@ -637,7 +641,12 @@ export function LiveAuctionRoom({
   const shipReady = buyerLiveShippingReady !== false;
   const buyerLiveWalletReady = payReady && shipReady;
   const buyerPytCheckoutHudActive = Boolean(
-    activeHasVariants && pytCommerceLive && !spotAuctionLive && !isHost && status === "authenticated",
+    activeHasVariants &&
+      pytCommerceLive &&
+      !spotAuctionLive &&
+      !spotAuctionArmed &&
+      !isHost &&
+      status === "authenticated",
   );
   const { preview: variantCheckoutPreview, loading: variantCheckoutPreviewLoading } = useLiveVariantCheckoutPreview({
     enabled: buyerPytCheckoutHudActive && buyerLiveWalletReady && Boolean(activeDbItem?.id),
@@ -1022,6 +1031,10 @@ export function LiveAuctionRoom({
     if (!activeDbItem || !pytCommerceLive) return;
     if (isVariantSpotAuctionLive(activeDbItem)) {
       await handlePlaceBid();
+      return;
+    }
+    if (isVariantSpotAuctionArmed(activeDbItem)) {
+      toast("Host pinned this team for auction. Bidding opens when they start the timer.");
       return;
     }
     setVariantSheetItemId(activeDbItem.id);

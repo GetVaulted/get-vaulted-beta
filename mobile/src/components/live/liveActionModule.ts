@@ -13,6 +13,7 @@ import {
   variantSelectSpotLabel,
 } from '../../lib/liveItemVariant';
 import {
+  isVariantSpotAuctionArmed,
   isVariantSpotAuctionLive,
   shopAvailableVariants,
   shopVariantCountDuringSpotAuction,
@@ -143,6 +144,33 @@ function resolveBuyerVariantItemHud(
       buyerPrimaryDisabled: !biddingOpen,
       buyerSecondaryDisabled: !biddingOpen,
       buyerPinnedVariantId: pinned.id,
+    };
+  }
+
+  // Pinned for auction, bidding not open yet — never offer buy-now at the tile price.
+  if (pinned && isVariantSpotAuctionArmed(snap)) {
+    const opening = snap.startingBidUsd ?? pinned.priceUsd ?? 1;
+    const shopCount = shopAvailableVariants(snap).length;
+    const breakTitle = snap.activeItemTitle?.trim() || itemTitleFallback;
+    return {
+      ...base,
+      format: 'auction',
+      hybridFocus: null,
+      timerMmSs: '—',
+      itemTitle: pinned.label,
+      categoryType: breakTitle,
+      currentPrefix: 'Opening',
+      currentAmount: formatMoney(opening),
+      winningLine: '',
+      stateLine: `${pinned.label} pinned for auction — waiting for host to start bidding.`,
+      bottomLeftLabel: shopCount > 0 ? 'All teams' : 'Custom',
+      bottomRightLabel: 'Waiting for host',
+      bottomRightIsSlide: false,
+      showShopButton: shopCount > 0,
+      shopButtonLabel: variantClaimPrimaryLabel(snap.activeItemSalesFormat),
+      buyerPrimaryDisabled: true,
+      buyerSecondaryDisabled: shopCount <= 0,
+      buyerPinnedVariantId: undefined,
     };
   }
 

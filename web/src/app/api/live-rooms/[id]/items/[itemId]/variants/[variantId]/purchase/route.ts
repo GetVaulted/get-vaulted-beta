@@ -226,6 +226,7 @@ export async function POST(
               title: true,
               biddingOpen: true,
               auctionVariantId: true,
+              activeSpotCommerceMode: true,
               variantAssignmentMode: true,
             },
           },
@@ -241,6 +242,14 @@ export async function POST(
       }
       if (item.biddingOpen && item.auctionVariantId === variantId) {
         throw Object.assign(new Error("SPOT_AUCTION_LIVE"), { code: "SPOT_AUCTION_LIVE" });
+      }
+      // Host pinned this team for auction but has not started bidding — do not sell at tile price.
+      if (
+        item.activeSpotCommerceMode === "auction" &&
+        !item.biddingOpen &&
+        (variant.isHot || item.auctionVariantId === variantId)
+      ) {
+        throw Object.assign(new Error("SPOT_AUCTION_ARMED"), { code: "SPOT_AUCTION_ARMED" });
       }
 
       const isRandomReveal = isRandomVariantAssignment(item.variantAssignmentMode);
@@ -381,6 +390,12 @@ export async function POST(
     if (code === "ITEM_UNAVAILABLE") return NextResponse.json({ error: "This item is not available." }, { status: 409 });
     if (code === "SPOT_AUCTION_LIVE") {
       return NextResponse.json({ error: "This spot is in a live auction — place a bid instead." }, { status: 409 });
+    }
+    if (code === "SPOT_AUCTION_ARMED") {
+      return NextResponse.json(
+        { error: "This team is pinned for auction. Wait for the host to start bidding — it is not for sale at the tile price." },
+        { status: 409 },
+      );
     }
     if (code === "SOLD_OUT") return NextResponse.json({ error: "That option is sold out." }, { status: 409 });
     if (code === "RANDOM_REVEAL_QUANTITY_LIMIT") {

@@ -40,6 +40,17 @@ export function isVariantSpotAuctionLive(item: ItemSpotCommerceRow | null | unde
   return item.activeSpotCommerceMode === "auction";
 }
 
+/**
+ * True when the host pinned a team for auction but has not opened bidding yet.
+ * That spot must not be buyable at the fixed tile price.
+ */
+export function isVariantSpotAuctionArmed(item: ItemSpotCommerceRow | null | undefined): boolean {
+  if (!item || !isVariantSalesFormat(item.salesFormat)) return false;
+  if (item.activeSpotCommerceMode !== "auction") return false;
+  if (item.biddingOpen === true) return false;
+  return Boolean(hostPinnedBuyerVariant(item.variants ?? [], item.variantAssignmentMode));
+}
+
 /** Variants buyers can claim via shop while a spot auction may be live on another team. */
 export function shopAvailableVariants(item: ItemSpotCommerceRow | null | undefined): VariantPinRow[] {
   const variants = item?.variants ?? [];
@@ -47,6 +58,13 @@ export function shopAvailableVariants(item: ItemSpotCommerceRow | null | undefin
   if (isVariantSpotAuctionLive(item) && item!.auctionVariantId?.trim()) {
     const auctionId = item!.auctionVariantId.trim();
     return variants.filter((v) => v.id !== auctionId && variantIsAvailable(v));
+  }
+  // Pinned for auction (not started): keep other teams in shop, block the armed pin.
+  if (isVariantSpotAuctionArmed(item)) {
+    const pinned = hostPinnedBuyerVariant(item!.variants ?? [], item!.variantAssignmentMode);
+    if (pinned) {
+      return variants.filter((v) => v.id !== pinned.id && variantIsAvailable(v));
+    }
   }
   return variants.filter((v) => variantIsAvailable(v));
 }
@@ -75,12 +93,16 @@ export function canHostSwitchSpotCommerceMode(item: {
   return item.biddingOpen !== true;
 }
 
-/** Default runtime mode when host pins a new spot (hybrid → fixed until Start Auction). */
+/**
+ * Default runtime mode when host pins a new spot.
+ * Hybrid + auction shows arm the pin for Start Auction (not instant $ buy-now).
+ * Fixed-price shows still pin into buy-now checkout.
+ */
 export function defaultActiveSpotModeForPin(
   variantSpotCommerceDefault: VariantSpotCommerceDefault | null | undefined,
 ): ActiveSpotCommerceMode {
-  if (variantSpotCommerceDefault === "auction") return "auction";
-  return "fixed";
+  if (variantSpotCommerceDefault === "fixed") return "fixed";
+  return "auction";
 }
 
 export function resolvePinnedVariantForAuction(
