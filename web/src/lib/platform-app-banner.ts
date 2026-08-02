@@ -1,33 +1,28 @@
 import { prisma } from "@/lib/prisma";
+import {
+  APP_BANNER_BODY_MAX,
+  APP_BANNER_CTA_MAX,
+  APP_BANNER_DISMISS_KEY_MAX,
+  APP_BANNER_HREF_MAX,
+  APP_BANNER_TITLE_MAX,
+  type AppBannerUpdateInput,
+  type PlatformAppBannerDTO,
+  type PublicAppBannerDTO,
+} from "@/lib/platform-app-banner-shared";
+
+export {
+  APP_BANNER_BODY_MAX,
+  APP_BANNER_CTA_MAX,
+  APP_BANNER_DISMISS_KEY_MAX,
+  APP_BANNER_HREF_MAX,
+  APP_BANNER_TITLE_MAX,
+  type AppBannerUpdateInput,
+  type PlatformAppBannerDTO,
+  type PublicAppBannerDTO,
+} from "@/lib/platform-app-banner-shared";
 
 const CONFIG_ID = "default";
 const CACHE_TTL_MS = 5_000;
-
-export const APP_BANNER_TITLE_MAX = 80;
-export const APP_BANNER_BODY_MAX = 220;
-export const APP_BANNER_CTA_MAX = 40;
-export const APP_BANNER_HREF_MAX = 240;
-export const APP_BANNER_DISMISS_KEY_MAX = 64;
-
-export type PlatformAppBannerDTO = {
-  enabled: boolean;
-  title: string;
-  body: string;
-  ctaLabel: string;
-  href: string;
-  dismissKey: string;
-  startsAt: string | null;
-  endsAt: string | null;
-  updatedAt: string | null;
-};
-
-export type PublicAppBannerDTO = {
-  title: string;
-  body: string;
-  ctaLabel: string;
-  href: string;
-  dismissKey: string;
-};
 
 const DEFAULT_SEED = {
   enabled: false,
@@ -142,17 +137,6 @@ export async function getPublicAppBanner(force = false): Promise<PublicAppBanner
   const row = await getPlatformAppBannerAdmin(force);
   return resolvePublicAppBanner(row);
 }
-
-export type AppBannerUpdateInput = {
-  enabled?: boolean;
-  title?: string;
-  body?: string;
-  ctaLabel?: string;
-  href?: string;
-  dismissKey?: string;
-  startsAt?: string | null;
-  endsAt?: string | null;
-};
 
 export function parseAppBannerUpdate(body: unknown):
   | { ok: true; data: AppBannerUpdateInput }

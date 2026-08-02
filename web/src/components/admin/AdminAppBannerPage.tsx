@@ -13,7 +13,7 @@ import {
   APP_BANNER_HREF_MAX,
   APP_BANNER_TITLE_MAX,
   type PlatformAppBannerDTO,
-} from "@/lib/platform-app-banner";
+} from "@/lib/platform-app-banner-shared";
 
 const inputClassName =
   "mt-1.5 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2.5 text-sm text-zinc-100 outline-none ring-gold/30 focus:border-gold/40 focus:ring-2";
