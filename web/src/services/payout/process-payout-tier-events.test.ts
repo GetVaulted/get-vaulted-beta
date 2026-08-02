@@ -31,6 +31,14 @@ vi.mock("@/services/payout/stripe-seller-payout", () => ({
   releaseSellerStripePayout,
   orderLooksShippedForBankPayout: (o: { shippedAt?: Date | null; carrierAcceptedAt?: Date | null }) =>
     Boolean(o.shippedAt || o.carrierAcceptedAt),
+  orderLabelClawbackSettledForBankPayout: () => true,
+}));
+
+const scheduleNotifyAdminsBankPayoutReady = vi.hoisted(() => vi.fn());
+const loadSellerHandleForPayoutAlert = vi.hoisted(() => vi.fn().mockResolvedValue("seller1"));
+vi.mock("@/lib/admin/notify-admins-bank-payout-ready", () => ({
+  scheduleNotifyAdminsBankPayoutReady,
+  loadSellerHandleForPayoutAlert,
 }));
 
 const loadSellerPayoutTierDashboard = vi.hoisted(() =>
@@ -96,6 +104,7 @@ function baseOrder(overrides: Record<string, unknown> = {}) {
     shippedAt: null,
     sellerPayoutProcessor: "STRIPE",
     processorTransferId: null,
+    liveShippingSessionId: null,
     listing: { isCompanyListing: false },
     liveShippingSession: null,
     ...overrides,
@@ -127,7 +136,7 @@ function baseSeller(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("Stripe label hold vs ship bank payout", () => {
+describe("Stripe label hold vs admin bank payout queue", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prismaMock.order.findUnique.mockResolvedValue(baseOrder());
@@ -144,45 +153,44 @@ describe("Stripe label hold vs ship bank payout", () => {
     });
   });
 
-  it("does not bank-payout Stripe sellers at label create (hold until shipped)", async () => {
+  it("does not bank-payout Stripe sellers at label create", async () => {
     await processLabelCreatedPayoutEvaluation("ord_1");
 
-    expect(prismaMock.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ labelCreatedAt: expect.any(Date) }),
-      }),
-    );
     expect(prismaMock.order.updateMany).not.toHaveBeenCalled();
     expect(releaseSellerStripePayout).not.toHaveBeenCalled();
-    expect(recordInstantPayoutRelease).not.toHaveBeenCalled();
+    expect(scheduleNotifyAdminsBankPayoutReady).not.toHaveBeenCalled();
   });
 
-  it("creates Stripe bank payout when order is shipped", async () => {
+  it("marks shipped Stripe orders ready and alerts admins (no auto bank payout)", async () => {
     prismaMock.order.findUnique.mockResolvedValue(
       baseOrder({ shippedAt: new Date(), carrierAcceptedAt: new Date() }),
     );
 
     await processShippedPayoutEvaluation("ord_1");
 
-    expect(releaseSellerStripePayout).toHaveBeenCalledWith("ord_1");
-    expect(prismaMock.order.updateMany).toHaveBeenCalledWith(
+    expect(releaseSellerStripePayout).not.toHaveBeenCalled();
+    expect(prismaMock.order.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.order.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "ord_1", payoutStatus: { not: OrderPayoutStatus.paid_out } },
-        data: expect.objectContaining({ payoutStatus: OrderPayoutStatus.paid_out }),
+        data: expect.objectContaining({ payoutStatus: OrderPayoutStatus.fast_payout_ready }),
       }),
     );
-    expect(recordInstantPayoutRelease).toHaveBeenCalledTimes(1);
+    expect(scheduleNotifyAdminsBankPayoutReady).toHaveBeenCalledWith(
+      expect.objectContaining({ orderId: "ord_1", sellerId: "seller_1" }),
+    );
   });
 
-  it("skips paid_out side effects when Stripe bank payout fails (e.g. pending balance)", async () => {
+  it("does not re-alert when already fast_payout_ready", async () => {
     prismaMock.order.findUnique.mockResolvedValue(
-      baseOrder({ shippedAt: new Date(), carrierAcceptedAt: new Date() }),
+      baseOrder({
+        shippedAt: new Date(),
+        carrierAcceptedAt: new Date(),
+        payoutStatus: OrderPayoutStatus.fast_payout_ready,
+      }),
     );
-    releaseSellerStripePayout.mockResolvedValue({ ok: false, reason: "insufficient_available_balance" });
 
     await processShippedPayoutEvaluation("ord_1");
 
-    expect(prismaMock.order.updateMany).not.toHaveBeenCalled();
-    expect(recordInstantPayoutRelease).not.toHaveBeenCalled();
+    expect(scheduleNotifyAdminsBankPayoutReady).not.toHaveBeenCalled();
   });
 });

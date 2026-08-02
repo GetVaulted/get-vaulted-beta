@@ -17,6 +17,7 @@ type Overview = {
   openOrders: number;
   activeLayaways: number;
   sellersPendingPayoutReview: number;
+  ordersReadyForBankPayout: number;
   suspendedUsers: number;
   onlineNow: number;
   onlineByPlatform: { ios: number; android: number; web: number };
@@ -94,6 +95,12 @@ export function AdminCommandCenterPage() {
               { label: "Pending payouts", value: data?.finance?.pendingPayoutsUsd ?? null, href: "/admin/seller-risk" },
               { label: "Active layaways", value: data?.activeLayaways ?? 0, href: "/admin/fulfillment" },
               { label: "Payout reviews", value: data?.sellersPendingPayoutReview ?? 0, href: "/admin/seller-risk", tone: "warn" },
+              {
+                label: "Bank payouts ready",
+                value: data?.ordersReadyForBankPayout ?? 0,
+                href: "/admin/payouts",
+                tone: "gold",
+              },
               { label: "Suspended users", value: data?.suspendedUsers ?? 0, href: "/admin/users-management" },
             ]}
           />

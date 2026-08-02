@@ -150,9 +150,15 @@ export function AdminOrderPayoutPanel({
           type="button"
           disabled={busy}
           onClick={() => void act("release_payout")}
-          className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-semibold text-emerald-200 disabled:opacity-50"
+          className={
+            payoutStatus === "fast_payout_ready" ||
+            payoutStatus === "label_payout_ready" ||
+            payoutStatus === "instant_payout_ready"
+              ? "rounded-lg border border-emerald-400/60 bg-emerald-500/20 px-3 py-1.5 text-[10px] font-semibold text-emerald-100 disabled:opacity-50"
+              : "rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-semibold text-emerald-200 disabled:opacity-50"
+          }
         >
-          Release payout
+          {payoutStatus.includes("payout_ready") ? "Push bank payout" : "Release payout"}
         </button>
         <button
           type="button"

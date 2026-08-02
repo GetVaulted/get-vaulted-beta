@@ -61,6 +61,7 @@ const orderSelect = {
   sellerPayoutProcessor: true,
   processorTransferId: true,
   shippedAt: true,
+  liveShippingSessionId: true,
   listing: { select: { isCompanyListing: true } },
   liveShippingSession: {
     select: {
@@ -398,14 +399,17 @@ export async function processLabelCreatedPayoutEvaluation(orderId: string): Prom
 }
 
 /**
- * Stripe (and non-PayPal held rails): bank payout after the order is shipped.
- * Label clawback already pulled GV's Shippo cost from the held Connect balance.
+ * Stripe rail: mark order ready for admin bank payout (manual Connect hold → you push).
+ * PayPal rail: still finalize automatically (platform-held → PayPal payout API).
  */
 export async function processShippedPayoutEvaluation(orderId: string): Promise<void> {
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: orderSelect });
   if (!order || order.paymentStatus !== "paid" || order.payoutStatus === OrderPayoutStatus.paid_out) return;
 
-  const { orderLooksShippedForBankPayout } = await import("@/services/payout/stripe-seller-payout");
+  const {
+    orderLooksShippedForBankPayout,
+    orderLabelClawbackSettledForBankPayout,
+  } = await import("@/services/payout/stripe-seller-payout");
   if (!orderLooksShippedForBankPayout(order)) return;
 
   const ctx = await loadOrderEvalContext(orderId, order.sellerId);
@@ -415,26 +419,101 @@ export async function processShippedPayoutEvaluation(orderId: string): Promise<v
   const prev = order.payoutStatus;
   const sellerNetUsd = resolveOrderSellerNetUsd(order);
 
+  // PayPal: platform-held — release on ship/label path as before.
+  if (order.sellerPayoutProcessor === "PAYPAL") {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        shippedAt: order.shippedAt ?? now,
+        carrierAcceptedAt: order.carrierAcceptedAt ?? now,
+        payoutStatus: OrderPayoutStatus.fast_payout_ready,
+        payoutReserveAmountCents: ctx.reserveCents,
+      },
+    });
+    await finalizeOrderPayoutRelease(
+      orderId,
+      order.sellerId,
+      prev,
+      OrderPayoutStatus.fast_payout_ready,
+      OrderPayoutMethod.fast_after_acceptance,
+      "shipped_paypal_payout_release",
+      { ...order, shippedAt: order.shippedAt ?? now, carrierAcceptedAt: order.carrierAcceptedAt ?? now },
+    );
+    return;
+  }
+
+  if (!orderLabelClawbackSettledForBankPayout(order)) {
+    await logPayoutEligibilityDecision({
+      sellerId: order.sellerId,
+      orderId,
+      action: "order_payout_evaluated",
+      previousStatus: prev,
+      newStatus: prev,
+      reason: "stripe_shipped_waiting_label_clawback",
+    });
+    return;
+  }
+
+  if (order.liveShippingSessionId) {
+    const siblings = await prisma.order.findMany({
+      where: {
+        liveShippingSessionId: order.liveShippingSessionId,
+        paymentStatus: "paid",
+        status: { not: "cancelled" },
+      },
+      select: {
+        shippedAt: true,
+        carrierAcceptedAt: true,
+        fulfillmentStatus: true,
+        status: true,
+      },
+    });
+    if (!siblings.every((s) => orderLooksShippedForBankPayout(s))) {
+      await logPayoutEligibilityDecision({
+        sellerId: order.sellerId,
+        orderId,
+        action: "order_payout_evaluated",
+        previousStatus: prev,
+        newStatus: prev,
+        reason: "stripe_waiting_live_session_fully_shipped",
+      });
+      return;
+    }
+  }
+
   await prisma.order.update({
     where: { id: orderId },
     data: {
       shippedAt: order.shippedAt ?? now,
       carrierAcceptedAt: order.carrierAcceptedAt ?? now,
       payoutStatus: OrderPayoutStatus.fast_payout_ready,
+      payoutMethod: OrderPayoutMethod.fast_after_acceptance,
       payoutReserveAmountCents: ctx.reserveCents,
+      payoutBlockedReason: null,
     },
   });
 
-  await finalizeOrderPayoutRelease(
+  await logPayoutEligibilityDecision({
+    sellerId: order.sellerId,
     orderId,
-    order.sellerId,
-    prev,
-    OrderPayoutStatus.fast_payout_ready,
-    OrderPayoutMethod.fast_after_acceptance,
-    "shipped_bank_payout_release",
-    { ...order, shippedAt: order.shippedAt ?? now, carrierAcceptedAt: order.carrierAcceptedAt ?? now },
-    order.sellerPayoutProcessor === "PAYPAL" ? undefined : sellerNetUsd,
-  );
+    action: "order_payout_evaluated",
+    previousStatus: prev,
+    newStatus: OrderPayoutStatus.fast_payout_ready,
+    reason: "stripe_ready_for_admin_bank_payout",
+  });
+
+  if (prev !== OrderPayoutStatus.fast_payout_ready) {
+    const { scheduleNotifyAdminsBankPayoutReady, loadSellerHandleForPayoutAlert } = await import(
+      "@/lib/admin/notify-admins-bank-payout-ready"
+    );
+    const handle = await loadSellerHandleForPayoutAlert(order.sellerId);
+    scheduleNotifyAdminsBankPayoutReady({
+      orderId,
+      sellerId: order.sellerId,
+      sellerUsername: handle,
+      estimatedNetUsd: sellerNetUsd,
+    });
+  }
 }
 
 /** Carrier acceptance scan (in transit) — primary ship signal for GV labels. */

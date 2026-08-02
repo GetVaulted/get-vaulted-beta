@@ -5,6 +5,7 @@ export type AdminModuleId =
   | "fees"
   | "shipping-profiles"
   | "seller-risk"
+  | "bank-payouts"
   | "moderation"
   | "users"
   | "fulfillment"
@@ -71,6 +72,13 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
     description: "Payout tiers, GMV, standing, dispute rates, suspend or restore privileges.",
     href: "/admin/seller-risk",
     accent: "amber",
+  },
+  {
+    id: "bank-payouts",
+    title: "Bank Payouts",
+    description: "Shipped Stripe orders ready for you to push Connect bank payouts.",
+    href: "/admin/payouts",
+    accent: "emerald",
   },
   {
     id: "moderation",
@@ -177,6 +185,7 @@ export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
     "fees",
     "shipping-profiles",
     "seller-risk",
+    "bank-payouts",
     "moderation",
     "users",
     "fulfillment",
@@ -198,6 +207,7 @@ export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[]
   { href: "/admin/fees", label: "Fees" },
   { href: "/admin/shipping-profiles", label: "Shipping" },
   { href: "/admin/seller-risk", label: "Seller Risk" },
+  { href: "/admin/payouts", label: "Bank payouts" },
   { href: "/admin/moderation", label: "Moderation" },
   { href: "/admin/users-management", label: "Users" },
   { href: "/admin/fulfillment", label: "Fulfillment" },
