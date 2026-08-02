@@ -12,6 +12,7 @@ import { flushPendingLiveAuctionFanout } from "@/lib/live-auction-fanout-flush";
 import { logLiveAuctionRtDebug } from "@/lib/live-auction-rt-debug";
 import { runLiveAuctionSpan } from "@/lib/live-auction-otel";
 import { buildLiveBidAckItem } from "@/lib/live-bid-http-ack";
+import { clampLiveHostLotBidAmounts } from "@/lib/live-bid-amount-clamp";
 import { resolveLiveProxyBidChain, upsertLiveAuctionProxyBid } from "@/services/live-auction/resolve-live-proxy-bid-chain";
 import { isStripeConfigured } from "@/lib/stripe";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
@@ -363,8 +364,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
     }
 
     const minBid = liveAuctionMinBidUsd(item);
-    const amountUsd =
+    const rawAmountUsd =
       typeof body.amountUsd === "number" && Number.isFinite(body.amountUsd) ? body.amountUsd : minBid;
+    const preClamp = clampLiveHostLotBidAmounts({
+      amountUsd: rawAmountUsd,
+      maxProxyUsd,
+      minBidUsd: minBid,
+    });
+    let amountUsd = preClamp.amountUsd;
+    let effectiveMaxProxyForRequest = preClamp.maxProxyUsd;
     if (amountUsd < minBid) {
       return NextResponse.json({ error: `Bid must be at least ${formatMoney(minBid)}.` }, { status: 400 });
     }
@@ -375,6 +383,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       const locked = await lockActiveLiveRoomItemForBid(tx, { liveRoomId, itemId, now, receivedAt });
       const lockedHigh = currentHighUsdFromLockedItem(locked);
       const minBidLocked = liveAuctionMinBidUsd(locked);
+      const clamped = clampLiveHostLotBidAmounts({
+        amountUsd: rawAmountUsd,
+        maxProxyUsd,
+        minBidUsd: minBidLocked,
+      });
+      amountUsd = clamped.amountUsd;
+      effectiveMaxProxyForRequest = clamped.maxProxyUsd;
       if (amountUsd < minBidLocked) throw new Error(`MIN_BID:${minBidLocked}`);
       assertBidExceedsCurrentHigh({
         bidderId,
@@ -439,7 +454,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
         idempotencyKey: idempotencyKey || undefined,
       });
       if (!item.listingId) {
-        const effectiveMaxProxyUsd = maxProxyUsd ?? amountUsd;
+        const effectiveMaxProxyUsd = effectiveMaxProxyForRequest ?? amountUsd;
         if (effectiveMaxProxyUsd + 0.001 < amountUsd) throw new Error("PROXY_MAX_LT_BID");
         await upsertLiveAuctionProxyBid(tx, {
           liveRoomId,
