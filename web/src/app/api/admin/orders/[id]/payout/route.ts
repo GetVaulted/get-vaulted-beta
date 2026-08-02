@@ -51,6 +51,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       paymentMethod: true,
       fulfillmentStatus: true,
       payoutStatus: true,
+      sellerPayoutProcessor: true,
+      shippedAt: true,
       escrowStatus: true,
       escrowTransactionId: true,
       escrowProvider: true,
@@ -156,6 +158,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           }
           throw e;
         }
+      }
+    }
+
+    if (order.sellerPayoutProcessor === "PAYPAL") {
+      // PayPal rail handled elsewhere
+    } else if (order.paymentMethod !== OrderPaymentMethod.escrow) {
+      const { releaseSellerStripePayout } = await import("@/services/payout/stripe-seller-payout");
+      const stripePay = await releaseSellerStripePayout(orderId, { force: true });
+      if (!stripePay.ok && stripePay.reason !== "already_paid_out" && stripePay.reason !== "zero_net") {
+        return NextResponse.json(
+          { error: `Stripe bank payout failed: ${stripePay.reason ?? "unknown"}` },
+          { status: 502 },
+        );
       }
     }
 

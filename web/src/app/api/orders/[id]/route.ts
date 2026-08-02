@@ -160,6 +160,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       paymentStatus: order.paymentStatus,
       extraPayload: { fulfillmentStatus: "shipped" },
     });
+    void import("@/services/payout/process-payout-tier-events").then(({ processSellerMarkedShippedPayoutEvaluation }) =>
+      processSellerMarkedShippedPayoutEvaluation(id),
+    );
     return NextResponse.json({ ok: true });
   }
 

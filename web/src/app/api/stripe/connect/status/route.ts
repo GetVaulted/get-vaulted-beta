@@ -74,6 +74,9 @@ export async function GET(request: Request) {
       try {
         const stripe = getStripe();
         const account = await stripe.accounts.retrieve(user.stripeAccountId);
+        void import("@/lib/seller-stripe-connect").then(({ ensureSellerStripeManualPayouts }) =>
+          ensureSellerStripeManualPayouts(stripe, user.stripeAccountId!).catch(() => undefined),
+        );
         const currentlyDue = account.requirements?.currently_due ?? [];
         payoutSetupSubmitted = isStripePayoutSetupSubmittedFromAccount(account);
         console.info("[stripe connect status] account retrieved", {

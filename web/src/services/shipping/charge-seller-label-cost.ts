@@ -13,6 +13,7 @@ import {
   verifyShippoLabelRefundStatus,
 } from "@/services/shipping/shippo-label-refund-status";
 import { creditSellerForLabelCost } from "@/services/shipping/credit-seller-label-cost";
+import { isStripeBankPayoutId } from "@/services/payout/stripe-seller-payout";
 
 export type ChargeSellerLabelCostResult =
   | { ok: true; reversedCents: number; reversalId: string | null; skipped: boolean }
@@ -133,12 +134,18 @@ export async function chargeSellerForLabelCost(
         stripeTransferId: true,
         paymentProcessor: true,
         sellerPayoutProcessor: true,
+        processorTransferId: true,
+        payoutStatus: true,
         shippingLabelCostReversedCents: true,
         shippingLabelCostReversalId: true,
         shippingLabelCostChargedShippoTransactionId: true,
       },
     });
     if (!order) return { kind: "missing_order" as const };
+
+    if (isStripeBankPayoutId(order.processorTransferId)) {
+      return { kind: "bank_already_paid" as const, order };
+    }
 
     const existing = await tx.shipmentLabelFinance.findUnique({
       where: {
@@ -234,6 +241,15 @@ export async function chargeSellerForLabelCost(
 
   if (prepared.kind === "missing_order") {
     return { ok: false, code: "ORDER_NOT_FOUND", error: "Order not found." };
+  }
+
+  if (prepared.kind === "bank_already_paid") {
+    return {
+      ok: false,
+      code: "BANK_PAYOUT_ALREADY_SENT",
+      error:
+        "Seller bank payout already sent for this order; cannot reverse label cost from Connect. Flag for manual review.",
+    };
   }
 
   if (prepared.kind === "already_charged") {
