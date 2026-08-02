@@ -324,6 +324,68 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     }
     const ends = new Date(now.getTime() + n * 1000);
     try {
+      /**
+       * Auction/sale multi-unit lots used to clear `lastHighBidderId` and reopen without settling.
+       * That left proxy maxes from the prior unit, so the previous winner could be charged again
+       * at the prior hammer (or show as still leading). Break rooms already finalized first —
+       * auction/sale must do the same.
+       */
+      const priorRoundEnded =
+        (item.biddingOpen === true && item.auctionEndsAt != null && item.auctionEndsAt <= now) ||
+        (item.biddingOpen === false && Boolean(item.lastHighBidderId?.trim()) && item.auctionEndsAt != null);
+      if (
+        priorRoundEnded &&
+        (room.roomType === "auction" || room.roomType === "sale") &&
+        !isVariantSalesFormat(item.salesFormat)
+      ) {
+        const hasWinner = Boolean(item.lastHighBidderId?.trim());
+        try {
+          if (hasWinner) {
+            await settleAndChargeLiveAuctionLot({
+              liveRoomId,
+              itemId,
+              room: {
+                sellerId: room.sellerId,
+                roomType: room.roomType,
+                roomVersion: room.roomVersion,
+              },
+              trigger: "manual",
+            });
+          } else {
+            await resetLiveAuctionLotAfterNoBids({ liveRoomId, itemId, trigger: "manual" });
+          }
+        } catch (settleErr) {
+          const settleMsg = settleErr instanceof Error ? settleErr.message : "";
+          if (
+            settleMsg !== "ITEM_ALREADY_SOLD" &&
+            settleMsg !== "ITEM_NOT_ACTIVE" &&
+            settleMsg !== "LIVE_AUCTION_NO_WINNER" &&
+            settleMsg !== "ITEM_NOT_FOUND"
+          ) {
+            throw settleErr;
+          }
+          if (settleMsg === "LIVE_AUCTION_NO_WINNER") {
+            await resetLiveAuctionLotAfterNoBids({ liveRoomId, itemId, trigger: "manual" });
+          }
+        }
+        const afterSettle = await prisma.liveRoomItem.findFirst({
+          where: { id: itemId, liveRoomId },
+          select: { status: true, quantity: true },
+        });
+        if (!afterSettle || afterSettle.status === "sold" || afterSettle.quantity < 1) {
+          const itemDto = await getLiveRoomItemSnapshotDto(itemId);
+          return NextResponse.json({
+            ok: true,
+            breakRoundClosed: true,
+            serverNowMs: Date.now(),
+            biddingOpen: false,
+            auctionEndsAt: null,
+            clutchTimeEnabled: false,
+            item: itemDto,
+          });
+        }
+      }
+
       const needsBreakPriorFinalize =
         room.roomType === "break" &&
         item.biddingOpen === true &&

@@ -64,6 +64,8 @@ export type LiveRoomBuyerSnapshot = {
   biddingOpen: boolean;
   currentBidUsd: number | null;
   minNextBidUsd: number | null;
+  /** Active lot row version — used to ignore stale bid ACKs from a prior unit. */
+  itemVersion?: number | null;
   auctionEndsAt: string | null;
   lotBidPhase: LiveAuctionLotBidPhase;
   /** Client wall time when this snapshot was fetched (for stale-sync UX). */
@@ -307,6 +309,7 @@ export async function fetchLiveRoomBuyerSnapshot(
         priceUsd?: number | null;
         lastHighBidderId?: string | null;
         lastHighBidderUsername?: string | null;
+        itemVersion?: number;
         auctionEndsAt?: string | null;
         variantAssignmentMode?: 'pick' | 'random';
         variants?: unknown;
@@ -408,6 +411,10 @@ export async function fetchLiveRoomBuyerSnapshot(
     biddingOpen: lotBidPhase === 'bidding_open',
     currentBidUsd: typeof current === 'number' ? current : null,
     minNextBidUsd: minNext,
+    itemVersion:
+      typeof active?.itemVersion === 'number' && Number.isFinite(active.itemVersion)
+        ? Math.max(0, Math.floor(active.itemVersion))
+        : null,
     auctionEndsAt: active?.auctionEndsAt ?? null,
     lotBidPhase,
     fetchedAtMs,

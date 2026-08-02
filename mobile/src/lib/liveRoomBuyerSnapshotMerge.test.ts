@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import {
   mergeBuyerSnapshotForActiveItemChanged,
+  mergeBuyerSnapshotForBidAck,
   mergeBuyerSnapshotForOptimisticBid,
   patchBuyerSnapshotMinNextBid,
   reconcileBuyerSnapshotMonotonic,
@@ -122,6 +123,57 @@ describe('reconcileBuyerSnapshotMonotonic', () => {
     const r = reconcileBuyerSnapshotMonotonic(prev, incoming);
     expect(r.staleIgnored).toBe(true);
     expect(r.snap.currentBidUsd).toBe(4);
+  });
+
+  it('accepts a lower high when a new timed round opens on the same multi-qty lot', () => {
+    const prev = snap({
+      currentBidUsd: 34,
+      minNextBidUsd: 35,
+      lastHighBidderId: 'old',
+      biddingOpen: false,
+      lotBidPhase: 'settled',
+      auctionEndsAt: '2026-01-01T00:00:30.000Z',
+    });
+    const incoming = snap({
+      currentBidUsd: 1,
+      minNextBidUsd: 2,
+      lastHighBidderId: 'new',
+      biddingOpen: true,
+      lotBidPhase: 'bidding_open',
+      auctionEndsAt: '2026-01-01T00:01:30.000Z',
+      fetchedAtMs: 2_000,
+    });
+    const r = reconcileBuyerSnapshotMonotonic(prev, incoming);
+    expect(r.staleIgnored).toBe(false);
+    expect(r.snap.currentBidUsd).toBe(1);
+    expect(r.snap.lastHighBidderId).toBe('new');
+  });
+
+  it('bid ACK replaces a stale prior-unit high instead of Math.max', () => {
+    const prev = snap({
+      currentBidUsd: 34,
+      minNextBidUsd: 35,
+      lastHighBidderId: 'old',
+      itemVersion: 10,
+    });
+    const merged = mergeBuyerSnapshotForBidAck(
+      prev,
+      {
+        item: {
+          id: 'item-1',
+          currentBidUsd: 2,
+          lastHighBidderId: 'new',
+          lastHighBidderUsername: 'newbie',
+          itemVersion: 12,
+          biddingOpen: true,
+          auctionEndsAt: '2026-01-01T00:01:00.000Z',
+        },
+      },
+      3_000,
+    );
+    expect(merged?.currentBidUsd).toBe(2);
+    expect(merged?.lastHighBidderId).toBe('new');
+    expect(merged?.itemVersion).toBe(12);
   });
 
   it('preserves minNextBidUsd when high is unchanged but incoming min regresses', () => {

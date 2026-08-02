@@ -257,6 +257,14 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         // Lean bid ACK only carries auction fields — patch onto the existing row so variants/title stay intact.
         const items = prev.items.map((it) => {
           if (it.id !== item.id) return it;
+          // Ignore a late ACK from an older unit so the prior hammer cannot reappear.
+          if (
+            typeof item.itemVersion === "number" &&
+            Number.isFinite(item.itemVersion) &&
+            item.itemVersion < it.itemVersion
+          ) {
+            return it;
+          }
           return {
             ...it,
             currentBidUsd:

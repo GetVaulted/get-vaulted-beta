@@ -78,14 +78,17 @@ export function mergeLiveRoomItemsForBidPlaced(items: LiveRoomItemDTO[], payload
   const leaderId = payload.leadingBidderId ?? payload.bidderId;
   return items.map((it) => {
     if (it.id !== payload.itemId) return it;
+    // Stale realtime from a prior unit must not Math.max over a cleared/new-round high.
+    if (typeof payload.itemVersion === "number" && payload.itemVersion < it.itemVersion) {
+      return it;
+    }
     const iv =
       typeof payload.itemVersion === "number"
         ? Math.max(it.itemVersion, payload.itemVersion)
         : it.itemVersion;
-    const prevBid = it.currentBidUsd ?? 0;
     const next: LiveRoomItemDTO = {
       ...it,
-      currentBidUsd: Math.max(prevBid, amountUsd),
+      currentBidUsd: amountUsd,
       itemVersion: iv,
       lastHighBidderId:
         typeof leaderId === "string" && leaderId.trim() ? leaderId.trim() : it.lastHighBidderId,

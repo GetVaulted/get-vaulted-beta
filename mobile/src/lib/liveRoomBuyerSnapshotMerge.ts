@@ -81,7 +81,18 @@ export function reconcileBuyerSnapshotMonotonic(
   // After a unit sells (or host restarts the same lot), the server clears currentBid + high bidder.
   // That must win over local state — otherwise the next round shows the prior min-next (e.g. $2 win → $3).
   const serverClearedRound = prevHadBidder && !nextHasBidder && !nextHasHigh;
-  if (serverClearedRound) {
+  // New timed round on the same multi-qty row: endsAt moved forward and high dropped — accept reset.
+  const prevEndsMs = prev.auctionEndsAt ? Date.parse(prev.auctionEndsAt) : NaN;
+  const nextEndsMs = next.auctionEndsAt ? Date.parse(next.auctionEndsAt) : NaN;
+  const newTimedRound =
+    prevHasHigh &&
+    nextHasHigh &&
+    (nextHigh as number) < (prevHigh as number) &&
+    next.biddingOpen === true &&
+    Number.isFinite(prevEndsMs) &&
+    Number.isFinite(nextEndsMs) &&
+    nextEndsMs > prevEndsMs;
+  if (serverClearedRound || newTimedRound) {
     const wallNowMs = next.fetchedAtMs ?? prev.fetchedAtMs ?? Date.now();
     return {
       snap: withMonotonicAuctionEndsAt(next, prev, wallNowMs),
@@ -149,8 +160,8 @@ export function mergeBuyerSnapshotForBidPlaced(
   if (!payload.itemId || typeof payload.amountUsd !== 'number') return null;
   if (snap.activeItemId && snap.activeItemId !== payload.itemId) return null;
 
-  const prevHigh = snap.currentBidUsd ?? 0;
-  const nextHigh = Math.max(prevHigh, payload.amountUsd);
+  // Trust the event amount — Math.max with a prior-unit high stuck the HUD on the last hammer.
+  const nextHigh = payload.amountUsd;
   const auctionEndsAt =
     payload.auctionEndsAt !== undefined ? payload.auctionEndsAt : snap.auctionEndsAt;
   const biddingOpen =
@@ -229,15 +240,19 @@ export function mergeBuyerSnapshotForBidAck(
   if (!item?.id) return null;
   if (snap.activeItemId && snap.activeItemId !== item.id) return null;
 
-  const ackHigh =
+  const ackIv =
+    typeof item.itemVersion === 'number' && Number.isFinite(item.itemVersion) ? item.itemVersion : null;
+  const snapIv =
+    typeof snap.itemVersion === 'number' && Number.isFinite(snap.itemVersion) ? snap.itemVersion : null;
+  // Ignore a late ACK from an older unit/version so it cannot resurrect the prior hammer.
+  if (ackIv != null && snapIv != null && ackIv < snapIv) {
+    return snap;
+  }
+  // Server ACK is authoritative for the accepted high — do not Math.max with stale local state.
+  const nextHigh =
     typeof item.currentBidUsd === 'number' && Number.isFinite(item.currentBidUsd)
       ? item.currentBidUsd
       : snap.currentBidUsd;
-  // Monotonic: an ACK must never lower the displayed high bid for the same active lot.
-  const nextHigh =
-    typeof ackHigh === 'number' && typeof snap.currentBidUsd === 'number'
-      ? Math.max(ackHigh, snap.currentBidUsd)
-      : ackHigh;
   const auctionEndsAt = item.auctionEndsAt !== undefined ? item.auctionEndsAt : snap.auctionEndsAt;
   const biddingOpenRaw =
     typeof item.biddingOpen === 'boolean' ? item.biddingOpen : snap.biddingOpen;
@@ -260,6 +275,7 @@ export function mergeBuyerSnapshotForBidAck(
       priceUsd: snap.priceUsd,
       lastHighBidderId: item.lastHighBidderId ?? snap.lastHighBidderId,
     }),
+    itemVersion: ackIv != null ? ackIv : snap.itemVersion,
     lastHighBidderUsername:
       item.lastHighBidderUsername !== undefined ? item.lastHighBidderUsername : snap.lastHighBidderUsername,
     lastHighBidderId: item.lastHighBidderId !== undefined ? item.lastHighBidderId : snap.lastHighBidderId,

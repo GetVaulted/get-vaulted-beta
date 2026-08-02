@@ -159,15 +159,23 @@ export async function settleLiveAuctionItemWhenMarkedSold(
     createdAt: b.createdAt,
   }));
   const resolved = resolveProxyAuction(startingHigh, bidsLike);
-  const leaderId = resolved.leaderBidderId;
+  /**
+   * Live room state is authoritative for who won and at what price.
+   * Never let historical listing `Bid` rows (prior units / marketplace history) pick a different
+   * buyer or resurrect an old hammer — that charged winners for the previous item's amount.
+   */
+  const liveWinnerId = item.lastHighBidderId?.trim() || null;
+  const leaderId = liveWinnerId || resolved.leaderBidderId;
   if (!leaderId) {
     throw new Error("LIVE_AUCTION_NO_WINNER");
   }
 
   const itemPriceUsd = resolveLiveAuctionHammerUsd({
     liveRoomItemHighUsd: item.currentBidUsd,
-    listingCurrentBidUsd: listingRow.currentBidUsd,
-    proxyDisplayUsd: resolved.displayUsd,
+    listingCurrentBidUsd: liveWinnerId ? null : listingRow.currentBidUsd,
+    proxyDisplayUsd: liveWinnerId
+      ? item.currentBidUsd ?? resolved.displayUsd
+      : resolved.displayUsd,
   });
 
   const leaderBids = bidRows.filter((b) => b.bidderId === leaderId);
