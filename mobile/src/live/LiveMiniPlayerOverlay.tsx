@@ -14,7 +14,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LiveRoomText } from '../components/live/LiveRoomText';
 import { useHlsLiveEdgeSeek } from '../hooks/useHlsLiveEdgeSeek';
-import { getBuyerLiveStreamCached } from '../lib/liveStreamPrefetchCache';
+import {
+  getBuyerLiveStreamCached,
+  invalidateBuyerLiveStreamCache,
+} from '../lib/liveStreamPrefetchCache';
 import { shouldAttachHlsPlayback } from '../lib/liveStreamPlayback';
 import {
   isLivePictureInPictureAppState,
@@ -43,15 +46,19 @@ export function LiveMiniPlayerOverlay() {
     player,
     playbackSourceUrl,
     warmHls,
+    kickLivePlayback,
   } = useLiveMiniPlayer();
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [playbackStalled, setPlaybackStalled] = useState(false);
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoRef = useRef<VideoView>(null);
   const prevAppStateRef = useRef<AppStateStatus>(AppState.currentState);
   const pipRetryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const preparePipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recoverInflightRef = useRef(false);
+  const lastKickAtRef = useRef(0);
 
   const bounds = useMemo(() => {
     const maxX = Math.max(EDGE_PAD, winW - PLAYER_W - EDGE_PAD);
@@ -74,29 +81,62 @@ export function LiveMiniPlayerOverlay() {
     }));
   }, [bounds.maxX, bounds.maxY, bounds.minY]);
 
-  // Soft refresh URL if minimize landed without one — never cache-bust (would restart DVR head).
-  useEffect(() => {
-    if (!session) return;
-    if (playbackSourceUrl) return;
-    let cancelled = false;
-    void (async () => {
-      const stream = await getBuyerLiveStreamCached(session.roomId, session.accessToken);
-      if (cancelled || !stream) return;
-      const url = stream.playbackUrl?.trim() || null;
-      if (url && shouldAttachHlsPlayback(stream.streamHealth, url)) {
-        warmHls(session.roomId, url);
+  const recoverLiveMirror = useCallback(
+    async (opts?: { forceKick?: boolean }) => {
+      if (!session || recoverInflightRef.current) return;
+      recoverInflightRef.current = true;
+      try {
+        // Buyer stream GET self-heals Stage→HLS composition when the mirror is missing.
+        invalidateBuyerLiveStreamCache(session.roomId);
+        const stream = await getBuyerLiveStreamCached(session.roomId, session.accessToken, {
+          healComposition: true,
+        });
+        if (!stream) return;
+        const url = stream.playbackUrl?.trim() || null;
+        if (url && shouldAttachHlsPlayback(stream.streamHealth, url)) {
+          warmHls(session.roomId, url);
+          lastKickAtRef.current = Date.now();
+          kickLivePlayback(url);
+          return;
+        }
+        if (opts?.forceKick && playbackSourceUrl) {
+          lastKickAtRef.current = Date.now();
+          kickLivePlayback(playbackSourceUrl);
+        }
+      } finally {
+        recoverInflightRef.current = false;
       }
-    })();
+    },
+    [session, warmHls, kickLivePlayback, playbackSourceUrl],
+  );
+  const recoverLiveMirrorRef = useRef(recoverLiveMirror);
+  recoverLiveMirrorRef.current = recoverLiveMirror;
+
+  // On minimize: invalidate + refetch so composition heal runs and we replace onto live edge.
+  // Composition can take 15–30s after a heal — retry while the float is open.
+  useEffect(() => {
+    if (!session?.roomId) {
+      setPlaybackStalled(false);
+      lastKickAtRef.current = 0;
+      return;
+    }
+    void recoverLiveMirrorRef.current({ forceKick: true });
+    const retries = [3500, 9000, 18000].map((ms) =>
+      setTimeout(() => {
+        void recoverLiveMirrorRef.current({ forceKick: true });
+      }, ms),
+    );
     return () => {
-      cancelled = true;
+      for (const t of retries) clearTimeout(t);
     };
-  }, [session, playbackSourceUrl, warmHls]);
+  }, [session?.roomId]);
 
   useHlsLiveEdgeSeek(player, Boolean(session && playbackSourceUrl && !paused));
 
-  // Stall watchdog: shared player can keep a frozen frame after WebRTC→mini VideoView handoff.
+  // Stall watchdog: frozen WebRTC→HLS handoff or dead composition → replace + server heal.
+  // Cooldown avoids thrashing live-edge playlists when currentTime updates slowly.
   useEffect(() => {
-    if (!session || !playbackSourceUrl || paused) return undefined;
+    if (!session || paused) return undefined;
     let lastTime = -1;
     let stuckTicks = 0;
     const id = setInterval(() => {
@@ -112,27 +152,26 @@ export function LiveMiniPlayerOverlay() {
           stuckTicks += 1;
         } else {
           stuckTicks = 0;
+          setPlaybackStalled(false);
         }
         if (Number.isFinite(t)) lastTime = t;
-        if (stuckTicks >= 4) {
+        if (stuckTicks >= 6) {
+          setPlaybackStalled(true);
           stuckTicks = 0;
-          try {
-            player.targetOffsetFromLive = 0.35;
-          } catch {
-            /* ignore */
+          if (Date.now() - lastKickAtRef.current < 8_000) return;
+          const url = playbackSourceUrl;
+          if (url) {
+            lastKickAtRef.current = Date.now();
+            kickLivePlayback(url);
           }
-          const duration = player.duration;
-          if (Number.isFinite(duration) && duration > 0 && duration < 1e7) {
-            player.currentTime = Math.max(0, duration - 0.35);
-          }
-          player.play();
+          void recoverLiveMirrorRef.current({ forceKick: true });
         }
       } catch {
         /* ignore */
       }
     }, 500);
     return () => clearInterval(id);
-  }, [session, playbackSourceUrl, paused, player]);
+  }, [session, playbackSourceUrl, paused, player, kickLivePlayback]);
 
   const clearPipRetries = useCallback(() => {
     for (const t of pipRetryTimersRef.current) clearTimeout(t);
@@ -287,8 +326,10 @@ export function LiveMiniPlayerOverlay() {
 
           {!controlsVisible ? (
             <View style={styles.livePill} pointerEvents="none">
-              <View style={styles.liveDot} />
-              <LiveRoomText style={styles.liveTxt}>LIVE</LiveRoomText>
+              <View style={[styles.liveDot, playbackStalled ? styles.liveDotWarn : null]} />
+              <LiveRoomText style={styles.liveTxt}>
+                {playbackStalled ? 'SYNC' : 'LIVE'}
+              </LiveRoomText>
             </View>
           ) : null}
 
@@ -375,6 +416,9 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: '#ef4444',
+  },
+  liveDotWarn: {
+    backgroundColor: '#f59e0b',
   },
   liveTxt: {
     fontSize: 9,

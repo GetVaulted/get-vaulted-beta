@@ -332,6 +332,8 @@ function LiveSlide({
         miniPlayer?.peekWarmPlaybackUrl(stream.id) ||
         cached?.playbackUrl?.trim() ||
         null;
+      // Drop stale stream cache so mini overlay refetch can heal Stage→HLS composition.
+      invalidateBuyerLiveStreamCache(stream.id);
       // Minimize BEFORE blur/unmount so sessionRef is set when warm HLS cleanup runs.
       miniPlayer?.minimize({
         roomId: stream.id,

@@ -100,7 +100,18 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   // keeps playbackUrl + health honest for the HLS path.
   row = (await maybeSyncChannelHlsHealth(row)) ?? row;
 
-  maybeHealStageComposition(id);
+  // Guests / in-app mini depend on Stage→Channel HLS. Prefer an explicit heal request
+  // (mini player recovery) over the soft poll throttle so Back→float can restart a dead mirror.
+  const wantsHeal =
+    url.searchParams.get("heal") === "1" || url.searchParams.get("heal") === "true";
+  if (wantsHeal) {
+    const rl = checkRateLimit(`stage-composition-heal-force:${id}`, { limit: 4, windowMs: 60_000 });
+    if (rl.ok) {
+      void ensureStageHlsCompositionActive(id).catch(() => {});
+    }
+  } else {
+    maybeHealStageComposition(id);
+  }
   maybeReconcileStagePublisherHealth(id);
 
   const auth = await resolveLiveRoomsUserId(req);

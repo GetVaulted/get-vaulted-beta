@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { withLivePlaybackCacheBust } from '../lib/liveStreamPlayback';
 
 export type LiveMiniPlayerSession = {
   roomId: string;
@@ -45,6 +46,11 @@ type LiveMiniPlayerContextValue = {
   clearWarmHls: (roomId: string) => void;
   /** Minimize the current live show into the TikTok-style floating player. */
   minimize: (session: LiveMiniPlayerSession) => void;
+  /**
+   * Force the shared player onto a fresh live-edge playlist (cache-bust + replace).
+   * Required after WebRTC→mini: the muted companion often holds a frozen DVR head.
+   */
+  kickLivePlayback: (playbackUrl: string) => void;
   /** Close the floating player and stop playback. */
   close: () => void;
   setPaused: (paused: boolean) => void;
@@ -163,37 +169,55 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
     return null;
   }, []);
 
-  const minimize = useCallback((next: LiveMiniPlayerSession) => {
-    const fromWarm =
-      next.roomId && warmRef.current?.roomId === next.roomId
-        ? warmRef.current.playbackUrl
-        : null;
-    const url = normalizeHlsUrl(next.playbackUrl) || fromWarm;
-    const sessionNext = { ...next, playbackUrl: url };
-    // Sync before setState so leave-room clearWarmHls cannot drop the source.
-    sessionRef.current = sessionNext;
-    setSession(sessionNext);
-    setPaused(false);
-    if (url) {
-      const warmNext = { roomId: next.roomId, playbackUrl: url };
-      warmRef.current = warmNext;
-      setWarm(warmNext);
-    }
-    // Kick decode immediately — WebRTC→HLS handoff often leaves a frozen last frame.
-    try {
-      player.muted = false;
-      player.volume = 1;
-      player.audioMixingMode = 'doNotMix';
+  const kickLivePlayback = useCallback(
+    (playbackUrl: string) => {
+      const base = normalizeHlsUrl(playbackUrl);
+      if (!base) return;
+      const liveUrl = withLivePlaybackCacheBust(base);
       try {
-        player.targetOffsetFromLive = 0.35;
+        player.replace(liveUrl);
+        player.muted = Boolean(sessionRef.current) ? false : true;
+        player.volume = sessionRef.current ? 1 : 0;
+        player.audioMixingMode = sessionRef.current ? 'doNotMix' : 'mixWithOthers';
+        try {
+          player.targetOffsetFromLive = 0.35;
+        } catch {
+          /* ignore */
+        }
+        player.play();
       } catch {
-        /* ignore */
+        try {
+          player.play();
+        } catch {
+          /* ignore */
+        }
       }
-      player.play();
-    } catch {
-      /* ignore */
-    }
-  }, [player]);
+    },
+    [player],
+  );
+
+  const minimize = useCallback(
+    (next: LiveMiniPlayerSession) => {
+      const fromWarm =
+        next.roomId && warmRef.current?.roomId === next.roomId
+          ? warmRef.current.playbackUrl
+          : null;
+      const url = normalizeHlsUrl(next.playbackUrl) || fromWarm;
+      const sessionNext = { ...next, playbackUrl: url };
+      // Sync before setState so leave-room clearWarmHls cannot drop the source.
+      sessionRef.current = sessionNext;
+      setSession(sessionNext);
+      setPaused(false);
+      if (url) {
+        const warmNext = { roomId: next.roomId, playbackUrl: url };
+        warmRef.current = warmNext;
+        setWarm(warmNext);
+        // Critical: replace+cache-bust — play() alone leaves a frozen WebRTC-handoff frame.
+        kickLivePlayback(url);
+      }
+    },
+    [kickLivePlayback],
+  );
 
   const close = useCallback(() => {
     sessionRef.current = null;
@@ -224,6 +248,7 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
       warmHls,
       clearWarmHls,
       minimize,
+      kickLivePlayback,
       close,
       setPaused,
       togglePaused,
@@ -238,6 +263,7 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
       warmHls,
       clearWarmHls,
       minimize,
+      kickLivePlayback,
       close,
       togglePaused,
     ],

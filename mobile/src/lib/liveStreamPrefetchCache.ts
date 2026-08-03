@@ -61,18 +61,25 @@ async function warmStageToken(roomId: string, accessToken: string): Promise<stri
   return job;
 }
 
-async function warmStream(roomId: string, accessToken?: string): Promise<BuyerSafeStreamFields | null> {
-  const fresh = streamCache.get(roomId);
-  if (fresh && Date.now() - fresh.fetchedAt < STREAM_TTL_MS) {
-    return fresh.value;
-  }
+async function warmStream(
+  roomId: string,
+  accessToken?: string,
+  opts?: { healComposition?: boolean },
+): Promise<BuyerSafeStreamFields | null> {
+  // Forced composition heal must always hit the network (skip TTL / shared inflight).
+  if (!opts?.healComposition) {
+    const fresh = streamCache.get(roomId);
+    if (fresh && Date.now() - fresh.fetchedAt < STREAM_TTL_MS) {
+      return fresh.value;
+    }
 
-  const inflight = streamInflight.get(roomId);
-  if (inflight) return inflight;
+    const inflight = streamInflight.get(roomId);
+    if (inflight) return inflight;
+  }
 
   const job = (async () => {
     try {
-      const value = await fetchBuyerLiveStream(roomId, accessToken);
+      const value = await fetchBuyerLiveStream(roomId, accessToken, opts);
       if (value) {
         streamCache.set(roomId, { value, fetchedAt: Date.now() });
         if (
@@ -87,11 +94,15 @@ async function warmStream(roomId: string, accessToken?: string): Promise<BuyerSa
     } catch {
       return null;
     } finally {
-      streamInflight.delete(roomId);
+      if (!opts?.healComposition) {
+        streamInflight.delete(roomId);
+      }
     }
   })();
 
-  streamInflight.set(roomId, job);
+  if (!opts?.healComposition) {
+    streamInflight.set(roomId, job);
+  }
   return job;
 }
 
@@ -120,8 +131,9 @@ export function prefetchLiveStreamRooms(roomIds: string[], accessToken?: string)
 export async function getBuyerLiveStreamCached(
   roomId: string,
   accessToken?: string,
+  opts?: { healComposition?: boolean },
 ): Promise<BuyerSafeStreamFields | null> {
-  return warmStream(roomId, accessToken);
+  return warmStream(roomId, accessToken, opts);
 }
 
 export function invalidateViewerStageToken(roomId: string): void {

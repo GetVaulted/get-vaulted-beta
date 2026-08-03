@@ -48,11 +48,16 @@ async function stageTokenFetch(
 export async function fetchBuyerLiveStream(
   roomId: string,
   accessToken?: string,
+  opts?: { healComposition?: boolean },
 ): Promise<BuyerSafeStreamFields | null> {
   try {
     const headers: Record<string, string> = {};
     if (accessToken?.trim()) headers.Authorization = `Bearer ${accessToken}`;
-    const res = await fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(roomId)}/stream`, { headers });
+    const healQ = opts?.healComposition ? '?heal=1' : '';
+    const res = await fetchWebApiMobile(
+      `/api/live-rooms/${encodeURIComponent(roomId)}/stream${healQ}`,
+      { headers },
+    );
     if (!res.ok) return null;
     const raw = (await res.json().catch(() => null)) as unknown;
     return parseBuyerSafeStreamPayload(raw);
