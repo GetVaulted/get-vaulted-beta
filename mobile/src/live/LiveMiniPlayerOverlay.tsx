@@ -94,6 +94,46 @@ export function LiveMiniPlayerOverlay() {
 
   useHlsLiveEdgeSeek(player, Boolean(session && playbackSourceUrl && !paused));
 
+  // Stall watchdog: shared player can keep a frozen frame after WebRTC→mini VideoView handoff.
+  useEffect(() => {
+    if (!session || !playbackSourceUrl || paused) return undefined;
+    let lastTime = -1;
+    let stuckTicks = 0;
+    const id = setInterval(() => {
+      try {
+        const t = player.currentTime;
+        const playing = player.playing;
+        if (!playing) {
+          player.muted = false;
+          player.volume = 1;
+          player.play();
+          stuckTicks += 1;
+        } else if (Number.isFinite(t) && Math.abs(t - lastTime) < 0.05) {
+          stuckTicks += 1;
+        } else {
+          stuckTicks = 0;
+        }
+        if (Number.isFinite(t)) lastTime = t;
+        if (stuckTicks >= 4) {
+          stuckTicks = 0;
+          try {
+            player.targetOffsetFromLive = 0.35;
+          } catch {
+            /* ignore */
+          }
+          const duration = player.duration;
+          if (Number.isFinite(duration) && duration > 0 && duration < 1e7) {
+            player.currentTime = Math.max(0, duration - 0.35);
+          }
+          player.play();
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [session, playbackSourceUrl, paused, player]);
+
   const clearPipRetries = useCallback(() => {
     for (const t of pipRetryTimersRef.current) clearTimeout(t);
     pipRetryTimersRef.current = [];

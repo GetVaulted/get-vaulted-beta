@@ -63,9 +63,16 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
   const [paused, setPaused] = useState(false);
   const [warm, setWarm] = useState<WarmHls | null>(null);
   const warmRef = useRef<WarmHls | null>(null);
-  warmRef.current = warm;
   const sessionRef = useRef<LiveMiniPlayerSession | null>(null);
-  sessionRef.current = session;
+  // Do NOT assign refs from state on every render — minimize() writes refs synchronously
+  // so leave-room cleanup can see them before setState commits. A parent re-render in
+  // that window would otherwise wipe the refs back to the stale null session/warm.
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+  useEffect(() => {
+    warmRef.current = warm;
+  }, [warm]);
 
   const sessionUrl = normalizeHlsUrl(session?.playbackUrl);
   const warmUrl = normalizeHlsUrl(warm?.playbackUrl);
@@ -127,16 +134,24 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
   const warmHls = useCallback((roomId: string, playbackUrl: string) => {
     const url = normalizeHlsUrl(playbackUrl);
     if (!roomId || !url) return;
+    // Sync ref first — room unmount cleanup can race React setState and wipe warm
+    // before minimize's session lands, which nulls the shared player mid-handoff.
+    const next = { roomId, playbackUrl: url };
+    warmRef.current = next;
     setWarm((prev) => {
       if (prev?.roomId === roomId && prev.playbackUrl === url) return prev;
-      return { roomId, playbackUrl: url };
+      return next;
     });
   }, []);
 
   const clearWarmHls = useCallback((roomId: string) => {
+    // Prefer refs — setState from minimize may not have re-rendered yet when the
+    // leaving room's effect cleanup runs (Back → mini race).
+    if (sessionRef.current?.roomId === roomId) return;
+    if (warmRef.current?.roomId !== roomId) return;
+    warmRef.current = null;
     setWarm((prev) => {
       if (!prev || prev.roomId !== roomId) return prev;
-      // Keep buffering if this room was minimized — mini owns the source now.
       if (sessionRef.current?.roomId === roomId) return prev;
       return null;
     });
@@ -154,15 +169,35 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
         ? warmRef.current.playbackUrl
         : null;
     const url = normalizeHlsUrl(next.playbackUrl) || fromWarm;
-    setSession({ ...next, playbackUrl: url });
+    const sessionNext = { ...next, playbackUrl: url };
+    // Sync before setState so leave-room clearWarmHls cannot drop the source.
+    sessionRef.current = sessionNext;
+    setSession(sessionNext);
     setPaused(false);
-    // Keep warm registration so source URL stays stable through the VideoView handoff.
     if (url) {
-      setWarm({ roomId: next.roomId, playbackUrl: url });
+      const warmNext = { roomId: next.roomId, playbackUrl: url };
+      warmRef.current = warmNext;
+      setWarm(warmNext);
     }
-  }, []);
+    // Kick decode immediately — WebRTC→HLS handoff often leaves a frozen last frame.
+    try {
+      player.muted = false;
+      player.volume = 1;
+      player.audioMixingMode = 'doNotMix';
+      try {
+        player.targetOffsetFromLive = 0.35;
+      } catch {
+        /* ignore */
+      }
+      player.play();
+    } catch {
+      /* ignore */
+    }
+  }, [player]);
 
   const close = useCallback(() => {
+    sessionRef.current = null;
+    warmRef.current = null;
     setSession(null);
     setWarm(null);
     setPaused(false);

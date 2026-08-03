@@ -332,6 +332,7 @@ function LiveSlide({
         miniPlayer?.peekWarmPlaybackUrl(stream.id) ||
         cached?.playbackUrl?.trim() ||
         null;
+      // Minimize BEFORE blur/unmount so sessionRef is set when warm HLS cleanup runs.
       miniPlayer?.minimize({
         roomId: stream.id,
         title: stream.title?.trim() || 'Live show',
@@ -344,16 +345,17 @@ function LiveSlide({
       });
     }
     leaveAllowRef.current = true;
-    // Let the shared player re-home its VideoView (companion → mini) before unmounting the room.
+    // Extra frame so the mini VideoView attaches to the shared player before room unmount.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (stackNav.canGoBack()) {
-          stackNav.goBack();
-          return;
-        }
-        // Never leave buyers stranded on a blank LiveRoom with no tabs / Back.
-        stackNav.navigate('LiveDiscovery');
-        onBack?.();
+        requestAnimationFrame(() => {
+          if (stackNav.canGoBack()) {
+            stackNav.goBack();
+            return;
+          }
+          stackNav.navigate('LiveDiscovery');
+          onBack?.();
+        });
       });
     });
   }, [
