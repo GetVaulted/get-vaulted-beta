@@ -232,8 +232,8 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
         const warmNext = { roomId: next.roomId, playbackUrl: url };
         warmRef.current = warmNext;
         setWarm(warmNext);
-        // Immediate: unmute + play the already-warm buffer (no native replace race
-        // while companion VideoView unmounts and mini VideoView mounts).
+        // Keep the already-warm decoder. A delayed replace() blacks the float (SYNC→LIVE)
+        // and makes home-swipe PiP flash. Only play/unmute here.
         try {
           player.muted = false;
           player.volume = 1;
@@ -247,17 +247,9 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
         } catch {
           /* ignore */
         }
-        // One delayed live-edge kick after the mini surface attaches — not a storm.
-        if (delayedKickTimerRef.current) clearTimeout(delayedKickTimerRef.current);
-        const roomId = next.roomId;
-        delayedKickTimerRef.current = setTimeout(() => {
-          delayedKickTimerRef.current = null;
-          if (sessionRef.current?.roomId !== roomId) return;
-          kickLivePlayback(url, { force: true });
-        }, 450);
       }
     },
-    [kickLivePlayback, player],
+    [player],
   );
 
   const close = useCallback(() => {

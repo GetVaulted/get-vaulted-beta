@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { VideoView, isPictureInPictureSupported } from 'expo-video';
+import { VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppState,
@@ -20,7 +20,6 @@ import {
 } from '../lib/liveStreamPrefetchCache';
 import { shouldAttachHlsPlayback } from '../lib/liveStreamPlayback';
 import {
-  isLivePictureInPictureAppState,
   shouldAttemptLivePictureInPicture,
   shouldPrepareLivePictureInPicture,
 } from '../lib/livePlaybackAppState';
@@ -28,13 +27,14 @@ import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { radii } from '../theme';
 import { useLiveMiniPlayer } from './LiveMiniPlayerContext';
 
-const PLAYER_W = 132;
-const PLAYER_H = 220;
+const PLAYER_W = 168;
+const PLAYER_H = 298;
 const EDGE_PAD = 10;
 
 /**
  * Whatnot / TikTok-style in-app floating live player.
- * Video comes from the shared root player (warmed in-room) — this shell only re-homes the VideoView.
+ * Same shared decoder as OS PiP — this shell only re-homes the VideoView.
+ * Size roughly matches iOS system PiP for portrait live.
  */
 export function LiveMiniPlayerOverlay() {
   const {
@@ -51,14 +51,13 @@ export function LiveMiniPlayerOverlay() {
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
   const [controlsVisible, setControlsVisible] = useState(true);
-  const [playbackStalled, setPlaybackStalled] = useState(false);
+  const [osPipActive, setOsPipActive] = useState(false);
+  const [seekEnabled, setSeekEnabled] = useState(false);
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoRef = useRef<VideoView>(null);
   const prevAppStateRef = useRef<AppStateStatus>(AppState.currentState);
-  const pipRetryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const preparePipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recoverInflightRef = useRef(false);
-  const lastKickAtRef = useRef(0);
+  const sessionStartedAtRef = useRef(0);
 
   const bounds = useMemo(() => {
     const maxX = Math.max(EDGE_PAD, winW - PLAYER_W - EDGE_PAD);
@@ -87,7 +86,6 @@ export function LiveMiniPlayerOverlay() {
       const roomId = session.roomId;
       recoverInflightRef.current = true;
       try {
-        // Heal Stage→HLS composition; kick only when forced or URL was missing.
         invalidateBuyerLiveStreamCache(roomId);
         const stream = await getBuyerLiveStreamCached(roomId, session.accessToken, {
           healComposition: true,
@@ -97,14 +95,10 @@ export function LiveMiniPlayerOverlay() {
         const url = stream.playbackUrl?.trim() || null;
         if (url && shouldAttachHlsPlayback(stream.streamHealth, url)) {
           warmHls(roomId, url);
-          if (opts?.forceKick) {
-            lastKickAtRef.current = Date.now();
-            kickLivePlayback(url);
-          }
+          if (opts?.forceKick) kickLivePlayback(url);
           return;
         }
         if (opts?.forceKick && playbackSourceUrl && isMiniSessionActive(roomId)) {
-          lastKickAtRef.current = Date.now();
           kickLivePlayback(playbackSourceUrl);
         }
       } finally {
@@ -116,141 +110,85 @@ export function LiveMiniPlayerOverlay() {
   const recoverLiveMirrorRef = useRef(recoverLiveMirror);
   recoverLiveMirrorRef.current = recoverLiveMirror;
 
-  // On minimize: heal composition in background. Do NOT immediately replace — minimize already
-  // scheduled one delayed kick. Extra replace storms crash expo-video on Back→float.
+  // Heal composition quietly — never replace on open (that causes SYNC→LIVE and PiP flash).
   useEffect(() => {
     if (!session?.roomId) {
-      setPlaybackStalled(false);
-      lastKickAtRef.current = 0;
+      setSeekEnabled(false);
       return;
     }
+    sessionStartedAtRef.current = Date.now();
+    setOsPipActive(false);
+    setSeekEnabled(false);
     void recoverLiveMirrorRef.current({ forceKick: !playbackSourceUrl });
-    // One soft retry if composition was cold — still no kick storm.
-    const retry = setTimeout(() => {
-      void recoverLiveMirrorRef.current({ forceKick: false });
-    }, 12_000);
-    return () => clearTimeout(retry);
+    const seekTimer = setTimeout(() => setSeekEnabled(true), 2_500);
+    return () => clearTimeout(seekTimer);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mini room
   }, [session?.roomId]);
 
-  useHlsLiveEdgeSeek(player, Boolean(session && playbackSourceUrl && !paused));
+  useHlsLiveEdgeSeek(player, Boolean(session && playbackSourceUrl && !paused && seekEnabled));
 
-  // Stall watchdog: prefer play()/seek over replace. Kick only after a long freeze.
+  // Keep-alive: only play() if stopped. Never treat live currentTime as "stalled" (false SYNC).
   useEffect(() => {
     if (!session || paused || !playbackSourceUrl) return undefined;
-    let lastTime = -1;
-    let stuckTicks = 0;
+    let kicked = false;
     const id = setInterval(() => {
       try {
         if (!isMiniSessionActive(session.roomId)) return;
-        const t = player.currentTime;
-        const playing = player.playing;
-        if (!playing) {
-          player.muted = false;
-          player.volume = 1;
-          player.play();
-          stuckTicks += 1;
-        } else if (Number.isFinite(t) && Math.abs(t - lastTime) < 0.05) {
-          stuckTicks += 1;
-        } else {
-          stuckTicks = 0;
-          setPlaybackStalled(false);
-        }
-        if (Number.isFinite(t)) lastTime = t;
-        // ~4s stuck → soft seek; ~8s → one coalesced kick + heal
-        if (stuckTicks === 8) {
-          setPlaybackStalled(true);
-          try {
-            player.targetOffsetFromLive = 0.35;
-            const duration = player.duration;
-            if (Number.isFinite(duration) && duration > 0 && duration < 1e7) {
-              player.currentTime = Math.max(0, duration - 0.35);
-            }
-            player.play();
-          } catch {
-            /* ignore */
-          }
-        }
-        if (stuckTicks >= 16) {
-          stuckTicks = 0;
-          setPlaybackStalled(true);
-          if (Date.now() - lastKickAtRef.current < 10_000) return;
-          lastKickAtRef.current = Date.now();
+        if (osPipActive) return;
+        if (player.playing) return;
+        player.muted = false;
+        player.volume = 1;
+        player.play();
+        // One replace if still dead after handoff — not a loop.
+        if (!kicked && Date.now() - sessionStartedAtRef.current > 5_000) {
+          kicked = true;
           kickLivePlayback(playbackSourceUrl);
           void recoverLiveMirrorRef.current({ forceKick: false });
         }
       } catch {
         /* ignore */
       }
-    }, 500);
+    }, 1_000);
     return () => clearInterval(id);
-  }, [session, playbackSourceUrl, paused, player, kickLivePlayback, isMiniSessionActive]);
+  }, [session, playbackSourceUrl, paused, player, kickLivePlayback, isMiniSessionActive, osPipActive]);
 
-  const clearPipRetries = useCallback(() => {
-    for (const t of pipRetryTimersRef.current) clearTimeout(t);
-    pipRetryTimersRef.current = [];
-    if (preparePipTimerRef.current) {
-      clearTimeout(preparePipTimerRef.current);
-      preparePipTimerRef.current = null;
-    }
-  }, []);
-
-  const attemptPictureInPicture = useCallback(() => {
-    if (!session || paused) return;
-    if (!isPictureInPictureSupported()) return;
-    clearPipRetries();
-    try {
-      player.play();
-      player.muted = false;
-      player.volume = 1;
-      player.targetOffsetFromLive = 0.35;
-    } catch {
-      /* ignore */
-    }
-    // Short retry window — long storms fight Stage PiP and feel janky on home swipe.
-    for (const delayMs of [0, 200, 600] as const) {
-      const timer = setTimeout(() => {
-        if (!isLivePictureInPictureAppState(prevAppStateRef.current)) return;
-        const view = videoRef.current;
-        if (!view) return;
-        void view.startPictureInPicture().catch(() => {
-          /* unsupported / already active */
-        });
-      }, delayMs);
-      pipRetryTimersRef.current.push(timer);
-    }
-  }, [clearPipRetries, paused, player, session]);
-
+  // Home swipe: keep audio playing and let automatic PiP own the window.
+  // Manual startPictureInPicture retries restart OS PiP → disappear for a second.
   useEffect(() => {
     if (!session || !playbackSourceUrl) return;
     const sub = AppState.addEventListener('change', (next) => {
       const prev = prevAppStateRef.current;
       prevAppStateRef.current = next;
 
-      if (shouldPrepareLivePictureInPicture(next, prev)) {
-        if (preparePipTimerRef.current) clearTimeout(preparePipTimerRef.current);
-        preparePipTimerRef.current = setTimeout(() => {
-          preparePipTimerRef.current = null;
-          if (prevAppStateRef.current === 'active') return;
-          attemptPictureInPicture();
-        }, 40);
-        return;
-      }
-
-      if (shouldAttemptLivePictureInPicture(next, prev)) {
-        attemptPictureInPicture();
+      if (
+        shouldPrepareLivePictureInPicture(next, prev) ||
+        shouldAttemptLivePictureInPicture(next, prev)
+      ) {
+        try {
+          player.muted = false;
+          player.volume = 1;
+          player.audioMixingMode = 'doNotMix';
+          player.play();
+        } catch {
+          /* ignore */
+        }
         return;
       }
 
       if (next === 'active') {
-        clearPipRetries();
+        try {
+          if (!paused) {
+            player.muted = false;
+            player.volume = 1;
+            player.play();
+          }
+        } catch {
+          /* ignore */
+        }
       }
     });
-    return () => {
-      clearPipRetries();
-      sub.remove();
-    };
-  }, [session, playbackSourceUrl, attemptPictureInPicture, clearPipRetries]);
+    return () => sub.remove();
+  }, [session, playbackSourceUrl, player, paused]);
 
   const showControlsBriefly = useCallback(() => {
     setControlsVisible(true);
@@ -326,6 +264,8 @@ export function LiveMiniPlayerOverlay() {
               nativeControls={false}
               allowsPictureInPicture
               startsPictureInPictureAutomatically
+              onPictureInPictureStart={() => setOsPipActive(true)}
+              onPictureInPictureStop={() => setOsPipActive(false)}
               collapsable={false}
             />
           ) : session.thumbnailUrl ? (
@@ -338,12 +278,10 @@ export function LiveMiniPlayerOverlay() {
             <View style={[StyleSheet.absoluteFill, styles.fallback]} />
           )}
 
-          {!controlsVisible ? (
+          {!controlsVisible && !osPipActive ? (
             <View style={styles.livePill} pointerEvents="none">
-              <View style={[styles.liveDot, playbackStalled ? styles.liveDotWarn : null]} />
-              <LiveRoomText style={styles.liveTxt}>
-                {playbackStalled ? 'SYNC' : 'LIVE'}
-              </LiveRoomText>
+              <View style={styles.liveDot} />
+              <LiveRoomText style={styles.liveTxt}>LIVE</LiveRoomText>
             </View>
           ) : null}
 
@@ -430,9 +368,6 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: '#ef4444',
-  },
-  liveDotWarn: {
-    backgroundColor: '#f59e0b',
   },
   liveTxt: {
     fontSize: 9,

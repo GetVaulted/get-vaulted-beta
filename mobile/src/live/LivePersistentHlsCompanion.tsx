@@ -36,16 +36,16 @@ export function LivePersistentHlsCompanion() {
 const styles = StyleSheet.create({
   host: {
     position: 'absolute',
-    left: -160,
+    left: -180,
     top: 0,
-    width: 132,
-    height: 220,
+    width: 168,
+    height: 298,
     opacity: 0.08,
     zIndex: 0,
     overflow: 'hidden',
   },
   video: {
-    width: 132,
-    height: 220,
+    width: 168,
+    height: 298,
   },
 });
