@@ -37,6 +37,8 @@ type LiveMiniPlayerContextValue = {
   hasWarmHls: boolean;
   /** Peek the warm URL for a room (used on Back so minimize does not depend on cache). */
   peekWarmPlaybackUrl: (roomId: string) => string | null;
+  /** True while the floating mini still owns this room (guards async recover after close). */
+  isMiniSessionActive: (roomId: string) => boolean;
   /**
    * Keep HLS buffering at app root while the buyer is in a live room.
    * Must be called with the raw playback URL (never cache-busted) so handoff is seamless.
@@ -48,9 +50,9 @@ type LiveMiniPlayerContextValue = {
   minimize: (session: LiveMiniPlayerSession) => void;
   /**
    * Force the shared player onto a fresh live-edge playlist (cache-bust + replace).
-   * Required after WebRTC→mini: the muted companion often holds a frozen DVR head.
+   * Coalesced + session-gated — never call after close (native crash risk).
    */
-  kickLivePlayback: (playbackUrl: string) => void;
+  kickLivePlayback: (playbackUrl: string, opts?: { force?: boolean }) => void;
   /** Close the floating player and stop playback. */
   close: () => void;
   setPaused: (paused: boolean) => void;
@@ -58,6 +60,9 @@ type LiveMiniPlayerContextValue = {
 };
 
 const LiveMiniPlayerContext = createContext<LiveMiniPlayerContextValue | null>(null);
+
+/** Min gap between native replace() calls — overlapping replace+seek crashes expo-video. */
+const KICK_COOLDOWN_MS = 3_000;
 
 function normalizeHlsUrl(url: string | null | undefined): string | null {
   const trimmed = url?.trim() || null;
@@ -70,6 +75,9 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
   const [warm, setWarm] = useState<WarmHls | null>(null);
   const warmRef = useRef<WarmHls | null>(null);
   const sessionRef = useRef<LiveMiniPlayerSession | null>(null);
+  const lastKickAtRef = useRef(0);
+  const kickEpochRef = useRef(0);
+  const delayedKickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Do NOT assign refs from state on every render — minimize() writes refs synchronously
   // so leave-room cleanup can see them before setState commits. A parent re-render in
   // that window would otherwise wipe the refs back to the stale null session/warm.
@@ -169,16 +177,28 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
     return null;
   }, []);
 
+  const isMiniSessionActive = useCallback((roomId: string) => {
+    return sessionRef.current?.roomId === roomId;
+  }, []);
+
   const kickLivePlayback = useCallback(
-    (playbackUrl: string) => {
+    (playbackUrl: string, opts?: { force?: boolean }) => {
+      // Never touch native player after close / without an active mini session.
+      if (!sessionRef.current) return;
       const base = normalizeHlsUrl(playbackUrl);
       if (!base) return;
+      const now = Date.now();
+      if (!opts?.force && now - lastKickAtRef.current < KICK_COOLDOWN_MS) return;
+      lastKickAtRef.current = now;
+      const epoch = kickEpochRef.current;
       const liveUrl = withLivePlaybackCacheBust(base);
       try {
+        if (kickEpochRef.current !== epoch || !sessionRef.current) return;
         player.replace(liveUrl);
-        player.muted = Boolean(sessionRef.current) ? false : true;
-        player.volume = sessionRef.current ? 1 : 0;
-        player.audioMixingMode = sessionRef.current ? 'doNotMix' : 'mixWithOthers';
+        if (kickEpochRef.current !== epoch || !sessionRef.current) return;
+        player.muted = false;
+        player.volume = 1;
+        player.audioMixingMode = 'doNotMix';
         try {
           player.targetOffsetFromLive = 0.35;
         } catch {
@@ -187,7 +207,7 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
         player.play();
       } catch {
         try {
-          player.play();
+          if (kickEpochRef.current === epoch && sessionRef.current) player.play();
         } catch {
           /* ignore */
         }
@@ -212,14 +232,40 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
         const warmNext = { roomId: next.roomId, playbackUrl: url };
         warmRef.current = warmNext;
         setWarm(warmNext);
-        // Critical: replace+cache-bust — play() alone leaves a frozen WebRTC-handoff frame.
-        kickLivePlayback(url);
+        // Immediate: unmute + play the already-warm buffer (no native replace race
+        // while companion VideoView unmounts and mini VideoView mounts).
+        try {
+          player.muted = false;
+          player.volume = 1;
+          player.audioMixingMode = 'doNotMix';
+          try {
+            player.targetOffsetFromLive = 0.35;
+          } catch {
+            /* ignore */
+          }
+          player.play();
+        } catch {
+          /* ignore */
+        }
+        // One delayed live-edge kick after the mini surface attaches — not a storm.
+        if (delayedKickTimerRef.current) clearTimeout(delayedKickTimerRef.current);
+        const roomId = next.roomId;
+        delayedKickTimerRef.current = setTimeout(() => {
+          delayedKickTimerRef.current = null;
+          if (sessionRef.current?.roomId !== roomId) return;
+          kickLivePlayback(url, { force: true });
+        }, 450);
       }
     },
-    [kickLivePlayback],
+    [kickLivePlayback, player],
   );
 
   const close = useCallback(() => {
+    kickEpochRef.current += 1;
+    if (delayedKickTimerRef.current) {
+      clearTimeout(delayedKickTimerRef.current);
+      delayedKickTimerRef.current = null;
+    }
     sessionRef.current = null;
     warmRef.current = null;
     setSession(null);
@@ -233,6 +279,12 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [player]);
 
+  useEffect(() => {
+    return () => {
+      if (delayedKickTimerRef.current) clearTimeout(delayedKickTimerRef.current);
+    };
+  }, []);
+
   const togglePaused = useCallback(() => {
     setPaused((p) => !p);
   }, []);
@@ -245,6 +297,7 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
       playbackSourceUrl,
       hasWarmHls: Boolean(warmUrl),
       peekWarmPlaybackUrl,
+      isMiniSessionActive,
       warmHls,
       clearWarmHls,
       minimize,
@@ -260,6 +313,7 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
       playbackSourceUrl,
       warmUrl,
       peekWarmPlaybackUrl,
+      isMiniSessionActive,
       warmHls,
       clearWarmHls,
       minimize,

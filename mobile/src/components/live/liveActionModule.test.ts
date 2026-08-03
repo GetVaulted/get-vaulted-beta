@@ -516,7 +516,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
       status: 'scheduled',
       activeItemId: null,
       lineupItems: [],
-    } as LiveRoomBuyerSnapshot;
+    } as unknown as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
     expect(hud.bottomRightLabel).toBe('Starting soon');
   });

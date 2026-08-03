@@ -21,7 +21,6 @@ import {
 import { shouldAttachHlsPlayback } from '../lib/liveStreamPlayback';
 import {
   isLivePictureInPictureAppState,
-  LIVE_PIP_RETRY_DELAYS_MS,
   shouldAttemptLivePictureInPicture,
   shouldPrepareLivePictureInPicture,
 } from '../lib/livePlaybackAppState';
@@ -47,6 +46,7 @@ export function LiveMiniPlayerOverlay() {
     playbackSourceUrl,
     warmHls,
     kickLivePlayback,
+    isMiniSessionActive,
   } = useLiveMiniPlayer();
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
@@ -84,22 +84,26 @@ export function LiveMiniPlayerOverlay() {
   const recoverLiveMirror = useCallback(
     async (opts?: { forceKick?: boolean }) => {
       if (!session || recoverInflightRef.current) return;
+      const roomId = session.roomId;
       recoverInflightRef.current = true;
       try {
-        // Buyer stream GET self-heals Stage→HLS composition when the mirror is missing.
-        invalidateBuyerLiveStreamCache(session.roomId);
-        const stream = await getBuyerLiveStreamCached(session.roomId, session.accessToken, {
+        // Heal Stage→HLS composition; kick only when forced or URL was missing.
+        invalidateBuyerLiveStreamCache(roomId);
+        const stream = await getBuyerLiveStreamCached(roomId, session.accessToken, {
           healComposition: true,
         });
+        if (!isMiniSessionActive(roomId)) return;
         if (!stream) return;
         const url = stream.playbackUrl?.trim() || null;
         if (url && shouldAttachHlsPlayback(stream.streamHealth, url)) {
-          warmHls(session.roomId, url);
-          lastKickAtRef.current = Date.now();
-          kickLivePlayback(url);
+          warmHls(roomId, url);
+          if (opts?.forceKick) {
+            lastKickAtRef.current = Date.now();
+            kickLivePlayback(url);
+          }
           return;
         }
-        if (opts?.forceKick && playbackSourceUrl) {
+        if (opts?.forceKick && playbackSourceUrl && isMiniSessionActive(roomId)) {
           lastKickAtRef.current = Date.now();
           kickLivePlayback(playbackSourceUrl);
         }
@@ -107,40 +111,38 @@ export function LiveMiniPlayerOverlay() {
         recoverInflightRef.current = false;
       }
     },
-    [session, warmHls, kickLivePlayback, playbackSourceUrl],
+    [session, warmHls, kickLivePlayback, playbackSourceUrl, isMiniSessionActive],
   );
   const recoverLiveMirrorRef = useRef(recoverLiveMirror);
   recoverLiveMirrorRef.current = recoverLiveMirror;
 
-  // On minimize: invalidate + refetch so composition heal runs and we replace onto live edge.
-  // Composition can take 15–30s after a heal — retry while the float is open.
+  // On minimize: heal composition in background. Do NOT immediately replace — minimize already
+  // scheduled one delayed kick. Extra replace storms crash expo-video on Back→float.
   useEffect(() => {
     if (!session?.roomId) {
       setPlaybackStalled(false);
       lastKickAtRef.current = 0;
       return;
     }
-    void recoverLiveMirrorRef.current({ forceKick: true });
-    const retries = [3500, 9000, 18000].map((ms) =>
-      setTimeout(() => {
-        void recoverLiveMirrorRef.current({ forceKick: true });
-      }, ms),
-    );
-    return () => {
-      for (const t of retries) clearTimeout(t);
-    };
+    void recoverLiveMirrorRef.current({ forceKick: !playbackSourceUrl });
+    // One soft retry if composition was cold — still no kick storm.
+    const retry = setTimeout(() => {
+      void recoverLiveMirrorRef.current({ forceKick: false });
+    }, 12_000);
+    return () => clearTimeout(retry);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mini room
   }, [session?.roomId]);
 
   useHlsLiveEdgeSeek(player, Boolean(session && playbackSourceUrl && !paused));
 
-  // Stall watchdog: frozen WebRTC→HLS handoff or dead composition → replace + server heal.
-  // Cooldown avoids thrashing live-edge playlists when currentTime updates slowly.
+  // Stall watchdog: prefer play()/seek over replace. Kick only after a long freeze.
   useEffect(() => {
-    if (!session || paused) return undefined;
+    if (!session || paused || !playbackSourceUrl) return undefined;
     let lastTime = -1;
     let stuckTicks = 0;
     const id = setInterval(() => {
       try {
+        if (!isMiniSessionActive(session.roomId)) return;
         const t = player.currentTime;
         const playing = player.playing;
         if (!playing) {
@@ -155,23 +157,34 @@ export function LiveMiniPlayerOverlay() {
           setPlaybackStalled(false);
         }
         if (Number.isFinite(t)) lastTime = t;
-        if (stuckTicks >= 6) {
+        // ~4s stuck → soft seek; ~8s → one coalesced kick + heal
+        if (stuckTicks === 8) {
           setPlaybackStalled(true);
-          stuckTicks = 0;
-          if (Date.now() - lastKickAtRef.current < 8_000) return;
-          const url = playbackSourceUrl;
-          if (url) {
-            lastKickAtRef.current = Date.now();
-            kickLivePlayback(url);
+          try {
+            player.targetOffsetFromLive = 0.35;
+            const duration = player.duration;
+            if (Number.isFinite(duration) && duration > 0 && duration < 1e7) {
+              player.currentTime = Math.max(0, duration - 0.35);
+            }
+            player.play();
+          } catch {
+            /* ignore */
           }
-          void recoverLiveMirrorRef.current({ forceKick: true });
+        }
+        if (stuckTicks >= 16) {
+          stuckTicks = 0;
+          setPlaybackStalled(true);
+          if (Date.now() - lastKickAtRef.current < 10_000) return;
+          lastKickAtRef.current = Date.now();
+          kickLivePlayback(playbackSourceUrl);
+          void recoverLiveMirrorRef.current({ forceKick: false });
         }
       } catch {
         /* ignore */
       }
     }, 500);
     return () => clearInterval(id);
-  }, [session, playbackSourceUrl, paused, player, kickLivePlayback]);
+  }, [session, playbackSourceUrl, paused, player, kickLivePlayback, isMiniSessionActive]);
 
   const clearPipRetries = useCallback(() => {
     for (const t of pipRetryTimersRef.current) clearTimeout(t);
@@ -194,7 +207,8 @@ export function LiveMiniPlayerOverlay() {
     } catch {
       /* ignore */
     }
-    for (const delayMs of LIVE_PIP_RETRY_DELAYS_MS) {
+    // Short retry window — long storms fight Stage PiP and feel janky on home swipe.
+    for (const delayMs of [0, 200, 600] as const) {
       const timer = setTimeout(() => {
         if (!isLivePictureInPictureAppState(prevAppStateRef.current)) return;
         const view = videoRef.current;

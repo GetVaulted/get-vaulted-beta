@@ -256,6 +256,8 @@ export function LiveStagePlayback({
   // Keep Stage subscribed while Host paused (TikTok/Whatnot/eBay). Unmounting Stage on pause
   // leave-latches buyers onto a dead HLS mirror and "Waiting for host video" after Play.
   const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
+  const webrtcReadyRef = useRef(false);
+  webrtcReadyRef.current = webrtcReady;
   // Native Stage PiP — enable once remote WebRTC is painting. Must stay enabled across
   // home-swipe (do not tie to AppState) or disable() tears down the OS PiP source.
   const stageRemotePipEnabled =
@@ -404,18 +406,18 @@ export function LiveStagePlayback({
       pipActive,
       appBackgrounded: appBackgrounded || pipSurfaceActive,
     });
-    player.muted = muted || muteForWebrtcAudio;
-    player.volume = muted || muteForWebrtcAudio ? 0 : 1;
-    // PiP / home-swipe needs exclusive playback audio session (moviePlayback).
-    player.audioMixingMode =
-      isForeground || pipSurfaceActive || pipActive || appBackgrounded ? 'doNotMix' : 'mixWithOthers';
     try {
+      player.muted = muted || muteForWebrtcAudio;
+      player.volume = muted || muteForWebrtcAudio ? 0 : 1;
+      // PiP / home-swipe needs exclusive playback audio session (moviePlayback).
+      player.audioMixingMode =
+        isForeground || pipSurfaceActive || pipActive || appBackgrounded ? 'doNotMix' : 'mixWithOthers';
       player.staysActiveInBackground = LIVE_PICTURE_IN_PICTURE_ENABLED;
       if (pipSurfaceActive || pipActive || appBackgrounded) {
         player.play();
       }
     } catch {
-      /* ignore */
+      /* released player during handoff */
     }
   }, [
     attachHls,
@@ -563,8 +565,8 @@ export function LiveStagePlayback({
       if (shouldPrepareLivePictureInPicture(next, prev)) {
         clearPreparePip();
         if (isLivePlaybackCommerceHoldActive()) return;
-        if (usingStagePip) {
-          // Stage remote PiP owns home-swipe. Do NOT hide Stage / mute audio / promote HLS.
+        // WebRTC already painting → Stage remote PiP owns home. Do not promote HLS / leave Stage.
+        if (usingStagePip || webrtcReadyRef.current) {
           setAppBackgrounded(true);
           viewerLifecycleLog('stage_pip_prepare_home', { roomId: roomIdRef.current });
           preparePipTimer = setTimeout(() => {
@@ -598,8 +600,9 @@ export function LiveStagePlayback({
           return;
         }
         setAppBackgrounded(true);
-        if (usingStagePip) {
-          // Keep Stage subscribed + audible — native PiP captures the remote stream.
+        // Keep Stage subscribed while WebRTC was live — leaving after 700ms causes the
+        // black/reconnect cut on home swipe. Stage remote PiP needs the session intact.
+        if (usingStagePip || webrtcReadyRef.current) {
           viewerLifecycleLog('stage_pip_skip_suspend', { roomId: roomIdRef.current });
           return;
         }
@@ -614,7 +617,7 @@ export function LiveStagePlayback({
             viewerLifecycleLog('commerce_hold_skip_suspend', { roomId: roomIdRef.current, at: 'timer' });
             return;
           }
-          if (stagePipReadyRef.current) return;
+          if (stagePipReadyRef.current || webrtcReadyRef.current) return;
           didCommitSuspendRef.current = true;
           setStageMediaSuspended(true);
         }, LIVE_BACKGROUND_SUSPEND_DWELL_MS);
@@ -630,7 +633,8 @@ export function LiveStagePlayback({
         const wasSuspended = didCommitSuspendRef.current;
         didCommitSuspendRef.current = false;
         setStageMediaSuspended(false);
-        if (wasSuspended && prev !== 'active') {
+        // Only remount Stage after a real suspend — keep-alive / Stage PiP return must stay fluid.
+        if (wasSuspended && prev !== 'active' && !stagePipReadyRef.current) {
           setBlockStageAfterBackgroundLeave(true);
           setForegroundResumeNonce((n) => n + 1);
         }
@@ -733,8 +737,14 @@ export function LiveStagePlayback({
     pipActive,
     appBackgrounded,
   });
-  /** When Stage is painted, keep the HLS companion under it (opacity 0) so PiP can attach. */
-  const hlsCompanionUnderWebrtc = showHlsLayer && showWebrtcLayer && webrtcReady;
+  /** When Stage is painted, keep the HLS companion under it — unless home-swipe needs HLS PiP. */
+  const promoteHlsForOsPip =
+    LIVE_PICTURE_IN_PICTURE_ENABLED &&
+    pipSurfaceActive &&
+    !stagePipReady &&
+    !stagePipActive;
+  const hlsCompanionUnderWebrtc =
+    showHlsLayer && showWebrtcLayer && webrtcReady && !promoteHlsForOsPip;
   const showVideoLayer = showWebrtcLayer || (showHlsLayer && !hlsCompanionUnderWebrtc);
   const teaserUrl = typeof teaserVideoUrl === 'string' ? teaserVideoUrl.trim() : '';
   const showTeaserLayer =
