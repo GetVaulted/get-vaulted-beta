@@ -5,7 +5,7 @@ import {
   type BuyerSafeStreamFields,
 } from './liveStreamPlayback';
 
-const STREAM_TTL_MS = 5_000;
+const STREAM_TTL_MS = 45_000;
 const TOKEN_TTL_MS = 15 * 60 * 1000;
 
 type StreamEntry = { value: BuyerSafeStreamFields; fetchedAt: number };
@@ -124,6 +124,16 @@ export function prefetchLiveStreamRooms(roomIds: string[], accessToken?: string)
   const unique = [...new Set(roomIds.filter(Boolean))];
   for (const roomId of unique) {
     void warmStream(roomId, accessToken);
+    // If we already know this room is Stage-eligible, warm the token in parallel with any refresh.
+    const cached = peekCachedBuyerLiveStream(roomId);
+    if (
+      accessToken?.trim() &&
+      cached &&
+      isLiveStreamSignal(cached.streamHealth) &&
+      shouldUseStageWebrtcPlayback(cached, false, accessToken)
+    ) {
+      void warmStageToken(roomId, accessToken);
+    }
   }
 }
 

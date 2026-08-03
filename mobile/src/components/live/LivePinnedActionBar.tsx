@@ -2,11 +2,11 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useStripe } from '@stripe/stripe-react-native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLiveConfirmPayment } from './LiveStripeProvider';
 import {
   ActivityIndicator,
   Alert,
@@ -412,7 +412,7 @@ export function LivePinnedActionBar({
     bottomRightLabel: m.bottomRightLabel,
   });
   const useLiveBuyNowFlow = isActiveBuyNowBuyerItem(roomSnap);
-  const { confirmPayment } = useStripe();
+  const confirmPayment = useLiveConfirmPayment();
   const walletReady = useMemo(() => {
     const fromSnap = walletReadinessFromSnapshot(roomSnap);
     const r = walletReadiness ?? fromSnap;
@@ -1197,6 +1197,10 @@ export function LivePinnedActionBar({
         return;
       }
       if ('requiresAction' in res) {
+        if (!confirmPayment) {
+          Alert.alert('Payment loading', 'Payments are still starting up — try again in a moment.');
+          return;
+        }
         const conf = await withLivePlaybackCommerceHold(() =>
           confirmPayment(res.clientSecret, { paymentMethodType: 'Card' }),
         );

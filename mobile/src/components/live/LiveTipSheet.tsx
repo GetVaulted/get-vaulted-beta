@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useStripe } from '@stripe/stripe-react-native';
 import { useCallback, useEffect, useState } from 'react';
+import { useLiveConfirmPayment } from './LiveStripeProvider';
 import {
   ActivityIndicator,
   Modal,
@@ -54,7 +54,7 @@ export function LiveTipSheet({
   onError,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { confirmPayment } = useStripe();
+  const confirmPayment = useLiveConfirmPayment();
   const [amountUsd, setAmountUsd] = useState(10);
   const [customAmount, setCustomAmount] = useState('');
   const [message, setMessage] = useState('');
@@ -120,6 +120,10 @@ export function LiveTipSheet({
         paymentMethodId: selectedPmId,
       });
       if ('requiresAction' in result) {
+        if (!confirmPayment) {
+          onError('Payments are still starting up — try again in a moment.');
+          return;
+        }
         const conf = await withLivePlaybackCommerceHold(() =>
           confirmPayment(result.clientSecret, { paymentMethodType: 'Card' }),
         );

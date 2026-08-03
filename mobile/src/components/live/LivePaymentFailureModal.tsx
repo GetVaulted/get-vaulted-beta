@@ -9,9 +9,9 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { useStripe } from '@stripe/stripe-react-native';
 import type { LiveBuyerPaymentFailureSnapshot } from '../../api/liveRoomBuyerRepository';
 import { retryLivePaymentFailure } from '../../api/livePaymentFailureRepository';
+import { useLiveConfirmPayment } from './LiveStripeProvider';
 import {
   isShippingAddressRecoveryFailure,
   mapLivePaymentFailureMessage,
@@ -48,7 +48,7 @@ export function LivePaymentFailureModal({
   onWalletOverlayChange,
   onBlockerActiveChange,
 }: Props) {
-  const { confirmPayment } = useStripe();
+  const confirmPayment = useLiveConfirmPayment();
   const [busy, setBusy] = useState(false);
   const [statusLine, setStatusLine] = useState<string | null>(null);
   // Once a new card is saved + retried, the original failure reason ("Your card has expired") is
@@ -139,6 +139,10 @@ export function LivePaymentFailureModal({
           return true;
         }
         if (result.ok && 'requiresAction' in result && result.requiresAction) {
+          if (!confirmPayment) {
+            setStatusLine('Payments are still starting up — try again in a moment.');
+            return false;
+          }
           const conf = await withLivePlaybackCommerceHold(() =>
             confirmPayment(result.clientSecret, { paymentMethodType: 'Card' }),
           );

@@ -626,7 +626,29 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
       };
     }
 
-    const start = async () => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next === 'background' || next === 'inactive') wentToBackground.current = true;
+      if (next === 'active' && wentToBackground.current) {
+        wentToBackground.current = false;
+        skipToEnd();
+      }
+    });
+
+    const run = async () => {
+      await waitForAuth();
+      if (cancelled) return;
+
+      // Returning signed-in users: skip the ~5s montage and route immediately.
+      if (userRef.current) {
+        skipped.current = true;
+        logoHapticFired.current = true;
+        helmetFlashHapticFired.current = true;
+        progress.value = 1;
+        introEndAt.current = Date.now();
+        finishIntroRouting();
+        return;
+      }
+
       await prefetchIntroMontageAssets(650);
       if (cancelled) return;
       fireIntroLift();
@@ -638,27 +660,14 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
           if (finished) runOnJS(onTimelineFinished)();
         },
       );
-    };
 
-    void start();
-
-    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (next === 'background' || next === 'inactive') wentToBackground.current = true;
-      if (next === 'active' && wentToBackground.current) {
-        wentToBackground.current = false;
-        skipToEnd();
-      }
-    });
-
-    const runNav = async () => {
-      await waitForAuth();
       while (Date.now() < introEndAt.current) {
         await new Promise((r) => setTimeout(r, 16));
       }
       if (cancelled) return;
       finishIntroRouting();
     };
-    void runNav();
+    void run();
 
     return () => {
       cancelled = true;

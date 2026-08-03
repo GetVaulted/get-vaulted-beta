@@ -6,6 +6,7 @@ import { StyleSheet } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/auth/AuthContext';
 import { PlatformFeeProvider } from './src/platform/PlatformFeeContext';
+import { prefetchStripePublishableKey } from './src/components/live/LiveStripeProvider';
 import { loadHomeFeedCache } from './src/lib/homeFeedCache';
 import { configureGlobalTextScaling } from './src/lib/appUiScale';
 import {
@@ -22,6 +23,7 @@ configureGlobalTextScaling();
 export default function App() {
   useEffect(() => {
     void loadHomeFeedCache();
+    prefetchStripePublishableKey();
   }, []);
 
   useEffect(() => {

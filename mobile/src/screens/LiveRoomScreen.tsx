@@ -60,13 +60,34 @@ export function LiveRoomScreen() {
       }
     }
 
+    // Prefer the single room first so video paints without waiting on the full discovery directory.
     try {
+      let singleRoom: LiveStream | null = null;
+      if (streamId) {
+        const row = await fetchLiveRoomPublicById(streamId);
+        if (row && (row.status === 'live' || row.status === 'scheduled')) {
+          singleRoom = liveRoomRowToLiveStream(row);
+          setStreams((prev) => {
+            if (prev.some((s) => s.id === streamId)) {
+              return prev.map((s) => (s.id === streamId ? { ...s, ...singleRoom! } : s));
+            }
+            return [singleRoom!, ...prev];
+          });
+          setLoading(false);
+          prefetchLiveStreamRooms([streamId], session?.access_token);
+        }
+      }
+
       const pack = await fetchLiveShowsForDiscovery();
       let next = pack.live;
       if (streamId && !next.some((s) => s.id === streamId)) {
-        const row = await fetchLiveRoomPublicById(streamId);
-        if (row && (row.status === 'live' || row.status === 'scheduled')) {
-          next = [liveRoomRowToLiveStream(row), ...next];
+        if (singleRoom) {
+          next = [singleRoom, ...next];
+        } else {
+          const cachedRow = cache?.live.find((s) => s.id === streamId);
+          if (cachedRow) {
+            next = [cachedRow, ...next];
+          }
         }
       }
       setStreams(next);

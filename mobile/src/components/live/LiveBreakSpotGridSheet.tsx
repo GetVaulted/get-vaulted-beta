@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useStripe } from '@stripe/stripe-react-native';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLiveConfirmPayment } from './LiveStripeProvider';
 import {
   Modal,
   Pressable,
@@ -120,7 +120,7 @@ export function LiveBreakSpotGridSheet({
   seedCheckoutPreview = null,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { confirmPayment } = useStripe();
+  const confirmPayment = useLiveConfirmPayment();
   const isDivisionBreak = salesFormat === 'team_break';
   const isPlayerBreak = salesFormat === 'player_selection';
   const spotNoun = isDivisionBreak ? 'divisions' : isPlayerBreak ? 'players' : 'teams';
@@ -446,6 +446,13 @@ export function LiveBreakSpotGridSheet({
         return;
       }
       if ('requiresAction' in res) {
+        if (!confirmPayment) {
+          const msg = 'Payments are still starting up — try again in a moment.';
+          setError(msg);
+          onClose();
+          Alert.alert('Payment loading', msg);
+          return;
+        }
         const conf = await withLivePlaybackCommerceHold(() =>
           confirmPayment(res.clientSecret, { paymentMethodType: 'Card' }),
         );
