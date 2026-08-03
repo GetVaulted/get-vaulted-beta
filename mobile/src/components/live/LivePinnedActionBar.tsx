@@ -1324,6 +1324,12 @@ export function LivePinnedActionBar({
       return;
     }
 
+    // Scheduled pre-sale: Claim Team with no pinned lot → open Shop lineup.
+    if (m.showShopButton && /claim (team|division)/i.test(m.bottomRightLabel)) {
+      if (onOpenInlineShop) onOpenInlineShop();
+      return;
+    }
+
     if (useLiveBuyNowFlow) {
       void tryPurchaseLiveBuyNow();
       return;
@@ -1343,6 +1349,8 @@ export function LivePinnedActionBar({
     auctionLane,
     m.bottomRightIsSlide,
     m.bottomRightLabel,
+    m.showShopButton,
+    onOpenInlineShop,
     roomSnap?.activeItemId,
     roomSnap?.lotBidPhase,
     roomSnap?.roomType,

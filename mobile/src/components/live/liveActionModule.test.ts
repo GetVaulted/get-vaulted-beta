@@ -479,6 +479,48 @@ describe('resolveLiveBuyerCommerceHud', () => {
     expect(hud.stateLine).toContain('pinned for auction');
   });
 
+  it('shows Claim Team for scheduled pre-sale when lineup has open PYT spots', () => {
+    const snap = {
+      roomType: 'auction',
+      status: 'scheduled',
+      activeItemId: null,
+      lineupItems: [
+        {
+          id: 'item-1',
+          displayTitle: 'NFL PYT',
+          metaLine: 'From $25 · 32 spots open · Open now',
+          imageUrl: null,
+          salesFormat: 'variant_selection',
+          sortOrder: 0,
+          status: 'queued',
+          isPinned: false,
+          isLiveBidding: false,
+          listingId: null,
+          queueAction: 'variant_shop',
+          startingBidUsd: null,
+          currentBidUsd: null,
+          lastHighBidderId: null,
+          biddingOpen: false,
+        },
+      ],
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toBe('Claim Team');
+    expect(hud.showShopButton).toBe(true);
+    expect(hud.stateLine).toContain('Pre-sale');
+  });
+
+  it('keeps Starting soon when scheduled with no team spots', () => {
+    const snap = {
+      roomType: 'auction',
+      status: 'scheduled',
+      activeItemId: null,
+      lineupItems: [],
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toBe('Starting soon');
+  });
+
   it('shows Claim Team when PYT break is pinned without host spot pin', () => {
     const snap = {
       roomType: 'auction',

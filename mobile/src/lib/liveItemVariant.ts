@@ -100,7 +100,9 @@ export function isVariantSalesFormat(
 }
 
 export function isActiveVariantBuyerItem(snap: LiveRoomBuyerSnapshot | null | undefined): boolean {
-  if (!snap?.activeItemId || snap.status !== 'live') return false;
+  if (!snap?.activeItemId) return false;
+  // Pre-sale: host may pin a PYT board while the room is still scheduled.
+  if (snap.status !== 'live' && snap.status !== 'scheduled') return false;
   if (!isVariantSalesFormat(snap.activeItemSalesFormat)) return false;
   return (snap.activeItemVariants?.length ?? 0) > 0;
 }

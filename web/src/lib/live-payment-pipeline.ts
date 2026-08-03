@@ -36,6 +36,7 @@ import {
 } from "@/services/shipping/live-commerce-fulfillment-order";
 import { syncOrderShippingFromLiveSessionTx } from "@/services/shipping/live-commerce-shipping-settlement";
 import { prisma } from "@/lib/prisma";
+import { isLiveRoomOpenForSpotPurchase } from "@/lib/live-room-commerce-guards";
 import {
   liveSavedCardSellerReady,
   resolveLiveSellerDestinationAccount,
@@ -427,8 +428,8 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
   if (purchase.totalUsd <= 0) {
     return { outcome: "paid", paymentIntentId: purchase.stripePaymentIntentId ?? purchase.id };
   }
-  if (purchase.liveRoom.status !== "live") {
-    return { outcome: "error", code: "ROOM_NOT_LIVE", message: "This room is not live." };
+  if (!isLiveRoomOpenForSpotPurchase(purchase.liveRoom.status)) {
+    return { outcome: "error", code: "ROOM_NOT_LIVE", message: "Team sales are only open before and during the live show." };
   }
 
   const seller = await prisma.user.findUnique({
@@ -919,8 +920,8 @@ export async function chargeLiveItemVariantPurchaseBatchWithSavedCard(args: {
   if (itemSumUsd <= 0) {
     return { outcome: "paid", paymentIntentId: primary.stripePaymentIntentId ?? args.batchId };
   }
-  if (primary.liveRoom.status !== "live") {
-    return { outcome: "error", code: "ROOM_NOT_LIVE", message: "This room is not live." };
+  if (!isLiveRoomOpenForSpotPurchase(primary.liveRoom.status)) {
+    return { outcome: "error", code: "ROOM_NOT_LIVE", message: "Team sales are only open before and during the live show." };
   }
 
   const seller = await prisma.user.findUnique({
@@ -1347,8 +1348,8 @@ export async function chargeBreakSpotWithSavedCard(args: {
   if (!Number.isFinite(spot.priceUsd) || spot.priceUsd <= 0) {
     return { outcome: "paid", paymentIntentId: spot.id };
   }
-  if (spot.liveRoom.status !== "live") {
-    return { outcome: "error", code: "ROOM_NOT_LIVE", message: "This room is not live." };
+  if (!isLiveRoomOpenForSpotPurchase(spot.liveRoom.status)) {
+    return { outcome: "error", code: "ROOM_NOT_LIVE", message: "Team sales are only open before and during the live show." };
   }
 
   const seller = await prisma.user.findUnique({

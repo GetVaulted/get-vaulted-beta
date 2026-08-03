@@ -349,7 +349,21 @@ export function LiveSaleRoom({
   }, [dbItems, mapped]);
 
   const selected = useMemo(() => items.find((i) => i.id === selectedId) ?? items[0], [items, selectedId]);
-  const activeDb = useMemo(() => dbItems.find((i) => i.status === "active") ?? null, [dbItems]);
+  const activeDb = useMemo(() => {
+    const pinned = dbItems.find((i) => i.status === "active") ?? null;
+    if (pinned) return pinned;
+    if (roomStatus === "scheduled") {
+      return (
+        dbItems.find(
+          (x) =>
+            x.status === "queued" &&
+            isVariantSalesFormat(x.salesFormat) &&
+            (x.variants?.length ?? 0) > 0,
+        ) ?? null
+      );
+    }
+    return null;
+  }, [dbItems, roomStatus]);
   const actionUi = useMemo(() => {
     if (activeDb) return mapDbItem(activeDb, isLive, clockSkewMs, roomType);
     return selected;
@@ -597,7 +611,11 @@ export function LiveSaleRoom({
   const activeHasVariants = Boolean(
     activeDb && isVariantSalesFormat(activeDb.salesFormat) && (activeDb.variants?.length ?? 0) > 0,
   );
-  const pytCommerceLive = Boolean(activeHasVariants && isLive && activeDb?.status === "active");
+  const pytCommerceLive = Boolean(
+    activeHasVariants &&
+      (isLive || roomStatus === "scheduled") &&
+      (activeDb?.status === "active" || activeDb?.status === "queued"),
+  );
   const activeVariantSpots = activeHasVariants ? summarizeVariantSpots(activeDb?.variants) : null;
   const buyerPinnedVariant = useMemo(() => {
     if (!activeDb?.variants?.length) return null;

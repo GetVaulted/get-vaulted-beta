@@ -644,6 +644,33 @@ export function resolveLiveBuyerCommerceHud(
   }
 
   if (effectiveSnap.status === 'scheduled') {
+    // Pre-sale before Go Live: PYT/PYD spots are buyable from Shop / Claim Team.
+    if (isActiveVariantBuyerItem(effectiveSnap)) {
+      return resolveBuyerVariantItemHud(stream, effectiveSnap, base);
+    }
+    const presaleLot = (effectiveSnap.lineupItems ?? []).find((it) => it.queueAction === 'variant_shop');
+    if (presaleLot) {
+      const claimLabel = variantClaimPrimaryLabel(presaleLot.salesFormat);
+      return {
+        ...base,
+        format: 'shop',
+        hybridFocus: null,
+        timerMmSs: '—',
+        itemTitle: presaleLot.displayTitle || stream.title?.trim() || 'Team board',
+        categoryType: 'Pre-sale',
+        currentPrefix: 'Status',
+        currentAmount: 'Open',
+        winningLine: '',
+        stateLine: 'Pre-sale open — claim your team before the host goes live.',
+        bottomLeftLabel: 'Shop',
+        bottomRightLabel: claimLabel,
+        bottomRightIsSlide: false,
+        showShopButton: true,
+        shopButtonLabel: claimLabel,
+        buyerPrimaryDisabled: false,
+        buyerSecondaryDisabled: false,
+      };
+    }
     return buildBuyerWaitingHud(base, stream.id, {
       itemTitle: stream.pinnedProductLabel || stream.currentItem || 'Vault event',
       stateLine: pickVaultWaitingMessage(stream.id, 'vault_loading'),

@@ -24,6 +24,15 @@ export {
 export type LiveBroadcastCommerceMode = "auction" | "purchase";
 
 /**
+ * PYT / PYD / break-spot checkout is intentionally open while the show is still
+ * `scheduled` (pre-sale before Go Live) and while `live`. Auctions/tips stay live-only.
+ */
+export function isLiveRoomOpenForSpotPurchase(status: string | null | undefined): boolean {
+  const s = (status ?? "").trim().toLowerCase();
+  return s === "live" || s === "scheduled";
+}
+
+/**
  * Blocks buyer commerce when the host broadcast is offline.
  * `auction` also blocks while the host is paused; `purchase` (Buy Now / spots / shop) stays open.
  */

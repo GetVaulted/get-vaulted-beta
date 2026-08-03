@@ -10,7 +10,11 @@ import {
   syncLiveItemVariantPurchasePaymentIntent,
 } from "@/lib/live-payment-pipeline";
 import { prisma } from "@/lib/prisma";
-import { getLiveBuyerCommerceBlock, getLiveRoomBroadcastCommerceBlock } from "@/lib/live-room-commerce-guards";
+import {
+  getLiveBuyerCommerceBlock,
+  getLiveRoomBroadcastCommerceBlock,
+  isLiveRoomOpenForSpotPurchase,
+} from "@/lib/live-room-commerce-guards";
 import { getUnresolvedPaymentFailureForBuyer, liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { isStripeConfigured } from "@/lib/stripe";
@@ -103,8 +107,12 @@ export async function POST(
     select: { id: true, sellerId: true, status: true, lockPurchases: true, streamHealth: true, streamPaused: true, streamMode: true, streamStartedAt: true, streamEndedAt: true },
   });
   if (!room) return NextResponse.json({ error: "Room not found." }, { status: 404 });
-  if (room.status !== "live") {
-    return NextResponse.json({ error: "This room is not live." }, { status: 409 });
+  // Scheduled = pre-sale before Go Live; live = during the show. Broadcast gate is live-only.
+  if (!isLiveRoomOpenForSpotPurchase(room.status)) {
+    return NextResponse.json(
+      { error: "Team sales are only open before and during the live show.", code: "ROOM_NOT_OPEN_FOR_PURCHASE" },
+      { status: 409 },
+    );
   }
   const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room, "purchase");
   if (broadcastBlock) {

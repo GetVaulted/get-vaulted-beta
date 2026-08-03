@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { isLiveRoomOpenForSpotPurchase } from "@/lib/live-room-commerce-guards";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { stripeCheckoutSessionPaymentOptions } from "@/lib/stripe-payment-method-config";
 import { buildCheckoutTaxSessionFields, STRIPE_TAX_CODE_TANGIBLE, stripeLineItemProductData } from "@/lib/stripe-tax";
@@ -381,7 +382,7 @@ export async function reopenVariantPurchaseForRecovery(args: {
   if (purchase.paymentStatus !== "failed") {
     return { reopened: false, reason: "PURCHASE_NOT_PAYABLE" };
   }
-  if (purchase.liveRoom.status !== "live") {
+  if (!isLiveRoomOpenForSpotPurchase(purchase.liveRoom.status)) {
     return { reopened: false, reason: "ROOM_NOT_LIVE" };
   }
   if (purchase.liveRoom.lockPurchases) {
@@ -457,7 +458,7 @@ export async function createLiveItemVariantCheckoutSession(args: {
     },
   });
   if (!purchase || purchase.totalUsd <= 0) throw new Error("PURCHASE_INVALID");
-  if (purchase.liveRoom.status !== "live") throw new Error("ROOM_NOT_LIVE");
+  if (!isLiveRoomOpenForSpotPurchase(purchase.liveRoom.status)) throw new Error("ROOM_NOT_LIVE");
   if (purchase.paymentStatus === "paid") throw new Error("ALREADY_PAID");
 
   const seller = await prisma.user.findUnique({

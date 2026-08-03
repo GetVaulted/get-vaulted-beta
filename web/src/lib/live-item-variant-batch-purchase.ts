@@ -8,6 +8,7 @@ import { reportUrgentPaymentAnomaly } from "@/lib/cron-anomaly-alert";
 import { finalizeStripeMarketplaceOrderPaid } from "@/services/payments";
 import { releaseReferralCreditReservation } from "@/lib/referral-credit";
 import { prisma } from "@/lib/prisma";
+import { isLiveRoomOpenForSpotPurchase } from "@/lib/live-room-commerce-guards";
 import {
   emitLiveRoomMessagesRefetch,
   emitLiveRoomQueueItemsChanged,
@@ -245,7 +246,7 @@ export async function reopenVariantPurchaseBatchForRecovery(args: {
     return { reopened: false, reason: "PURCHASE_NOT_PAYABLE" };
   }
   const room = purchases[0]!.liveRoom;
-  if (room.status !== "live") return { reopened: false, reason: "ROOM_NOT_LIVE" };
+  if (!isLiveRoomOpenForSpotPurchase(room.status)) return { reopened: false, reason: "ROOM_NOT_LIVE" };
   if (room.lockPurchases) return { reopened: false, reason: "PURCHASES_LOCKED" };
 
   try {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
-import { getLiveRoomBroadcastCommerceBlock } from "@/lib/live-room-commerce-guards";
+import { getLiveRoomBroadcastCommerceBlock, isLiveRoomOpenForSpotPurchase } from "@/lib/live-room-commerce-guards";
 import { getServerSessionSafe } from "@/lib/auth";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
 import { prisma } from "@/lib/prisma";
@@ -45,8 +45,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (room.roomType !== "break") {
     return NextResponse.json({ error: "Spot claims are only for break rooms." }, { status: 400 });
   }
-  if (room.status !== "live") {
-    return NextResponse.json({ error: "This room is not live." }, { status: 409 });
+  if (!isLiveRoomOpenForSpotPurchase(room.status)) {
+    return NextResponse.json(
+      { error: "Team sales are only open before and during the live show.", code: "ROOM_NOT_OPEN_FOR_PURCHASE" },
+      { status: 409 },
+    );
   }
   const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room, "purchase");
   if (broadcastBlock) {

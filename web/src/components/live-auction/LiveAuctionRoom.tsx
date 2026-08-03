@@ -359,12 +359,31 @@ export function LiveAuctionRoom({
     () => dbItems.map((i) => mapDbItem(i, isLive, clockSkewMs)),
     [dbItems, isLive, auctionResolutionTick, clockSkewMs],
   );
-  const activeDbItem = useMemo(() => dbItems.find((x) => x.status === "active") ?? null, [dbItems]);
+  const activeDbItem = useMemo(() => {
+    const pinned = dbItems.find((x) => x.status === "active") ?? null;
+    if (pinned) return pinned;
+    // Pre-sale: first queued PYT/PYD board is shoppable before Go Live (no pin required).
+    if (roomStatus === "scheduled") {
+      return (
+        dbItems.find(
+          (x) =>
+            x.status === "queued" &&
+            isVariantSalesFormat(x.salesFormat) &&
+            (x.variants?.length ?? 0) > 0,
+        ) ?? null
+      );
+    }
+    return null;
+  }, [dbItems, roomStatus]);
   const activeHasVariants = Boolean(
     activeDbItem && isVariantSalesFormat(activeDbItem.salesFormat) && (activeDbItem.variants?.length ?? 0) > 0,
   );
   const activeVariantSpots = activeHasVariants ? summarizeVariantSpots(activeDbItem?.variants) : null;
-  const pytCommerceLive = Boolean(activeHasVariants && isLive && activeDbItem?.status === "active");
+  const pytCommerceLive = Boolean(
+    activeHasVariants &&
+      (isLive || roomStatus === "scheduled") &&
+      (activeDbItem?.status === "active" || activeDbItem?.status === "queued"),
+  );
   const buyerPinnedVariant = useMemo(() => {
     if (!activeDbItem?.variants?.length) return null;
     if (isRandomVariantAssignment(activeDbItem.variantAssignmentMode)) return null;
@@ -1816,7 +1835,8 @@ export function LiveAuctionRoom({
       />
     ) : null;
 
-  const showTeamsChrome = isLive && (Boolean(breakSnapshot) || hasQueuedItems);
+  const showTeamsChrome =
+    (isLive || roomStatus === "scheduled") && (Boolean(breakSnapshot) || hasQueuedItems);
   const teamBoardStageChrome = showTeamsChrome ? (
     <TeamBoardChromeButton
       league={teamBoardData?.state.league ?? "nba"}
