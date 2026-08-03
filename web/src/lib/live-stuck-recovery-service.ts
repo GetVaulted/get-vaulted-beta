@@ -3,6 +3,7 @@ import {
   commitStagePublisherDerivedHealth,
   countStagePublishers,
   endHostStageSession,
+  ensureStageHlsCompositionActive,
 } from "@/services/ivs";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
 import { liveShowEndGmvFields } from "@/lib/live-show-gmv";
@@ -24,6 +25,7 @@ export type StuckLiveRecoverySummary = {
   unknown: number;
   warned: number;
   autoEnded: number;
+  compositionHealed: number;
   endedRoomIds: string[];
 };
 
@@ -84,6 +86,7 @@ export async function recoverStuckLiveRooms(): Promise<StuckLiveRecoverySummary>
     unknown: 0,
     warned: 0,
     autoEnded: 0,
+    compositionHealed: 0,
     endedRoomIds: [],
   };
   if (!recoveryEnabled()) return summary;
@@ -93,6 +96,8 @@ export async function recoverStuckLiveRooms(): Promise<StuckLiveRecoverySummary>
     select: {
       id: true,
       ivsStageArn: true,
+      ivsCompositionArn: true,
+      streamPaused: true,
       streamStartedAt: true,
       hostAbsentSince: true,
       completedSalesGmvUsd: true,
@@ -120,6 +125,25 @@ export async function recoverStuckLiveRooms(): Promise<StuckLiveRecoverySummary>
 
       if (hasPublisher) {
         await commitStagePublisherDerivedHealth(room.id, "live").catch(() => {});
+        // Host is on air but Stage→HLS mirror missing (pause billing cut, failed start, etc.).
+        // Without this, guests/share-links/mini-player stay frozen while WebRTC buyers are fine.
+        const missingComposition =
+          room.streamPaused !== true && !(room.ivsCompositionArn?.trim());
+        if (missingComposition) {
+          try {
+            await ensureStageHlsCompositionActive(room.id);
+            const after = await prisma.liveRoom.findUnique({
+              where: { id: room.id },
+              select: { ivsCompositionArn: true },
+            });
+            if (after?.ivsCompositionArn?.trim()) {
+              summary.compositionHealed += 1;
+              logIvsOpsServer("ivs_stuck_live_composition_healed", { roomId: room.id });
+            }
+          } catch (e) {
+            console.error("[live-stuck-recovery] composition heal failed", room.id, e);
+          }
+        }
         summary.healthy += 1;
         continue;
       }

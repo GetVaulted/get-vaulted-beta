@@ -337,6 +337,7 @@ export async function GET() {
         where: {
           status: "live",
           streamMode: "stage_webrtc",
+          streamPaused: { not: true },
           ivsStageArn: { not: null },
           OR: [{ ivsCompositionArn: null }, { ivsCompositionArn: "" }],
         },
@@ -362,6 +363,12 @@ export async function GET() {
       });
     } else if (missingComposition.length > 0) {
       const titles = missingComposition.map((r) => r.title || r.id).join(", ");
+      // Best-effort heal while the dashboard is open — same path buyer polls use.
+      for (const r of missingComposition) {
+        void import("@/services/ivs")
+          .then(({ ensureStageHlsCompositionActive }) => ensureStageHlsCompositionActive(r.id))
+          .catch(() => {});
+      }
       checks.push({
         id: "live_streams",
         label: "Live stream sessions",
@@ -369,7 +376,7 @@ export async function GET() {
         detail: `${missingComposition.length} live WebRTC room(s) missing HLS composition`,
         issue: `Guest share-link video may fail — no Stage→HLS composition on: ${titles}`,
         solution:
-          "Confirm LIVE_STAGE_COMPOSITION_ENABLED is not false, IAM allows ivs:StartComposition, and the host Go Live path provisions channel + composition. Ask guests to wait ~15s after go-live, then recheck Live Shows.",
+          "Confirm LIVE_STAGE_COMPOSITION_ENABLED is not false, IAM allows ivs:StartComposition, and the host Go Live path provisions channel + composition. Ask guests to wait ~15s after go-live, then recheck Live Shows. Healing was triggered automatically — refresh this page in ~30s.",
         log: missingComposition[0]?.lastIvsError?.slice(0, 300) ?? "ivsCompositionArn=null",
         href: "/admin/live-shows",
       });

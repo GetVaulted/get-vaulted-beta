@@ -1265,7 +1265,10 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
         status: true,
       },
     });
-    if (!room || room.status !== "live") return;
+    if (!room || room.status === "ended") return;
+    // Room may still be `scheduled` for a beat after Go Live while stream is connecting —
+    // still start the mirror so guests/share-links aren't stuck until a later heal.
+    if (room.status !== "live" && room.status !== "scheduled") return;
     if (room.streamPaused === true) return;
     // Promote health if the host already published during the delay.
     await reconcileStagePublisherHealth(roomId);
