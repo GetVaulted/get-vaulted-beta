@@ -59,7 +59,7 @@ export async function listOrdersReadyForAdminBankPayout(limit = 100): Promise<Ad
   const rows = await prisma.order.findMany({
     where: readyBaseWhere,
     orderBy: [{ shippedAt: "asc" }, { createdAt: "asc" }],
-    take: Math.min(200, Math.max(1, limit)),
+    take: Math.min(1000, Math.max(1, limit)),
     select: {
       id: true,
       sellerId: true,

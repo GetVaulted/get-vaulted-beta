@@ -1,43 +1,61 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { AdminCommandShell, adminPanelClassName, formatAdminUsd } from "@/components/admin/AdminCommandShell";
 
-type ReadyRow = {
+type SellerOrder = {
   orderId: string;
-  sellerId: string;
-  sellerUsername: string | null;
-  sellerEmail: string | null;
   itemTitle: string;
-  itemPriceUsd: number;
   estimatedNetUsd: number;
-  payoutStatus: string;
   shippedAt: string | null;
-  carrierAcceptedAt: string | null;
-  labelCostCents: number;
-  labelReversedCents: number;
-  liveShippingSessionId: string | null;
-  createdAt: string;
+  payoutStatus: string;
 };
 
-type Payload = { count: number; orders: ReadyRow[] };
+type SellerRow = {
+  sellerId: string;
+  username: string | null;
+  email: string | null;
+  stripeAccountId: string | null;
+  orderCount: number;
+  owedUsd: number;
+  availableUsd: number | null;
+  pendingUsd: number | null;
+  pushableUsd: number;
+  blockedReason: string | null;
+  orders: SellerOrder[];
+};
 
-function money(n: number) {
+type Payload = {
+  sellers: SellerRow[];
+  sellerCount: number;
+  orderCount: number;
+};
+
+function money(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return "—";
   return formatAdminUsd(n) ?? `$${n.toFixed(2)}`;
 }
 
+function blockedLabel(reason: string | null): string | null {
+  if (!reason) return null;
+  if (reason === "no_stripe_account") return "No Stripe account";
+  if (reason === "stripe_onboarding_incomplete") return "Onboarding incomplete";
+  if (reason === "stripe_payouts_disabled") return "Payouts disabled";
+  if (reason === "stripe_not_configured") return "Stripe not configured";
+  if (reason.startsWith("stripe_balance_error:")) return "Could not load Connect balance";
+  return reason;
+}
+
 export function AdminBankPayoutsPage() {
-  const search = useSearchParams();
-  const highlightOrderId = search.get("orderId")?.trim() || null;
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busySellerId, setBusySellerId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [syncNote, setSyncNote] = useState<string | null>(null);
-  const [reason, setReason] = useState("Admin bank payout release");
+  const [note, setNote] = useState<string | null>(null);
+  const [reason, setReason] = useState("Admin seller bank payout release");
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,24 +76,10 @@ export function AdminBankPayoutsPage() {
     void load();
   }, [load]);
 
-  const bySeller = useMemo(() => {
-    const map = new Map<string, { seller: ReadyRow; orders: ReadyRow[]; netUsd: number }>();
-    for (const o of data?.orders ?? []) {
-      const cur = map.get(o.sellerId);
-      if (!cur) {
-        map.set(o.sellerId, { seller: o, orders: [o], netUsd: o.estimatedNetUsd });
-      } else {
-        cur.orders.push(o);
-        cur.netUsd += o.estimatedNetUsd;
-      }
-    }
-    return [...map.values()].sort((a, b) => b.netUsd - a.netUsd);
-  }, [data?.orders]);
-
   const syncStripe = async () => {
     setSyncing(true);
     setError(null);
-    setSyncNote(null);
+    setNote(null);
     try {
       const res = await fetch("/api/admin/payouts/sync", {
         method: "POST",
@@ -99,15 +103,10 @@ export function AdminBankPayoutsPage() {
         (j.matchedFromStripe ?? 0) +
         (j.matchedBulkFromBalance ?? 0) +
         (j.matchedFromConnectShortfall ?? 0);
-      const shortfall = j.matchedFromConnectShortfall ?? 0;
-      setSyncNote(
+      setNote(
         healed > 0
-          ? `Synced ${healed} already-paid order${healed === 1 ? "" : "s"} off the queue` +
-              (shortfall > 0
-                ? ` (${shortfall} because Connect balance can’t cover the ready net)`
-                : "") +
-              ` — scanned ${j.sellersScanned ?? 0} sellers.`
-          : `No changes — queue already matches Stripe Connect balances (${j.sellersScanned ?? 0} sellers scanned).`,
+          ? `Synced ${healed} already-paid order${healed === 1 ? "" : "s"} off the queue (scanned ${j.sellersScanned ?? 0} sellers).`
+          : `Queue matches Connect balances (${j.sellersScanned ?? 0} sellers scanned).`,
       );
       await load();
     } finally {
@@ -115,78 +114,63 @@ export function AdminBankPayoutsPage() {
     }
   };
 
-  const release = async (orderId: string) => {
+  const pushSeller = async (seller: SellerRow) => {
     if (!reason.trim()) {
       setError("Reason is required.");
       return;
     }
-    setBusyId(orderId);
+    if (seller.pushableUsd < 0.01) return;
+    setBusySellerId(seller.sellerId);
     setError(null);
+    setNote(null);
     try {
-      const res = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}/payout`, {
+      const res = await fetch("/api/admin/payouts/release-seller", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "release_payout", reason: reason.trim() }),
+        body: JSON.stringify({ sellerId: seller.sellerId, reason: reason.trim() }),
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        pushed?: number;
+        skipped?: number;
+        failed?: number;
+        totalPaidUsd?: number;
+        remainingAvailableUsd?: number | null;
+      };
       if (!res.ok) {
-        setError(typeof j.error === "string" ? j.error : "Release failed.");
+        setError(typeof j.error === "string" ? j.error : "Push failed.");
         return;
       }
+      const handle = seller.username?.trim() || seller.sellerId.slice(0, 8);
+      setNote(
+        `Pushed ${j.pushed ?? 0} order${(j.pushed ?? 0) === 1 ? "" : "s"} for @${handle}` +
+          ` · paid ${money(j.totalPaidUsd ?? 0)}` +
+          ((j.skipped ?? 0) > 0 ? ` · skipped ${j.skipped} (over available)` : "") +
+          ((j.failed ?? 0) > 0 ? ` · failed ${j.failed}` : "") +
+          (j.remainingAvailableUsd != null
+            ? ` · Connect left ${money(j.remainingAvailableUsd)}`
+            : ""),
+      );
       await load();
     } finally {
-      setBusyId(null);
+      setBusySellerId(null);
     }
   };
 
-  const markAlreadyPaid = async (orderId: string) => {
+  const markSellerAlreadyPaid = async (seller: SellerRow) => {
     if (!reason.trim()) {
       setError("Reason is required.");
       return;
     }
+    const handle = seller.username?.trim() || seller.sellerId.slice(0, 8);
     if (
       !window.confirm(
-        "Mark this order as already bank-paid? Use this when Stripe/Dashboard already paid the seller and the queue is stale.",
+        `Mark all ${seller.orderCount} ready order${seller.orderCount === 1 ? "" : "s"} for @${handle} as already bank-paid?\n\nUse when Connect already paid them and Sync did not clear the queue.`,
       )
     ) {
       return;
     }
-    setBusyId(`mark:${orderId}`);
-    setError(null);
-    try {
-      const res = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}/payout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "mark_already_paid",
-          reason: reason.trim() || "Already paid — admin sync",
-        }),
-      });
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        setError(typeof j.error === "string" ? j.error : "Could not mark paid.");
-        return;
-      }
-      await load();
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const markSellerAlreadyPaid = async (sellerId: string, username: string | null, orderCount: number) => {
-    if (!reason.trim()) {
-      setError("Reason is required.");
-      return;
-    }
-    const handle = username?.trim() || sellerId.slice(0, 8);
-    if (
-      !window.confirm(
-        `Mark all ${orderCount} ready order${orderCount === 1 ? "" : "s"} for @${handle} as already bank-paid?\n\nUse when Stripe Dashboard already paid this seller’s Connect balance (bulk payout with no per-order metadata).`,
-      )
-    ) {
-      return;
-    }
-    setBusyId(`seller:${sellerId}`);
+    setBusySellerId(`mark:${seller.sellerId}`);
     setError(null);
     try {
       const res = await fetch("/api/admin/payouts/sync", {
@@ -194,26 +178,29 @@ export function AdminBankPayoutsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "mark_seller_already_paid",
-          sellerId,
-          reason: reason.trim() || "Already paid — Dashboard bulk bank payout",
+          sellerId: seller.sellerId,
+          reason: reason.trim() || "Already paid — admin override",
         }),
       });
       const j = (await res.json().catch(() => ({}))) as { error?: string; marked?: number };
       if (!res.ok) {
-        setError(typeof j.error === "string" ? j.error : "Could not mark seller paid.");
+        setError(typeof j.error === "string" ? j.error : "Could not mark paid.");
         return;
       }
-      setSyncNote(`Marked ${j.marked ?? orderCount} order(s) for @${handle} as already paid.`);
+      setNote(`Marked ${j.marked ?? seller.orderCount} order(s) for @${handle} as already paid.`);
       await load();
     } finally {
-      setBusyId(null);
+      setBusySellerId(null);
     }
   };
+
+  const totalOwed = data?.sellers.reduce((s, r) => s + r.owedUsd, 0) ?? 0;
+  const totalPushable = data?.sellers.reduce((s, r) => s + r.pushableUsd, 0) ?? 0;
 
   return (
     <AdminCommandShell
       title="Bank payouts"
-      subtitle="Stripe sellers whose orders are shipped and label-settled — push Connect bank payouts here so you don’t forget."
+      subtitle="Seller Connect balances only — Push never pays more than available."
       actions={
         <div className="flex flex-wrap gap-2">
           <button
@@ -235,18 +222,27 @@ export function AdminBankPayoutsPage() {
       }
     >
       {loading && !data ? (
-        <p className="text-sm text-zinc-500">Loading payout queue…</p>
+        <p className="text-sm text-zinc-500">Loading seller payout queue…</p>
       ) : (
         <>
           <div className={`${adminPanelClassName} mb-6 flex flex-wrap items-end justify-between gap-3 p-4`}>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Ready to push</p>
-              <p className="mt-1 font-display text-3xl font-black text-foreground">{data?.count ?? 0}</p>
-              <p className="mt-1 text-xs text-zinc-500">
-                Funds land on Connect at charge time; this queue is only Connect → bank. Sync
-                clears anything the Connect balance can no longer cover (Dashboard bulk payouts
-                included). What’s left is what you can still Push.
-              </p>
+            <div className="flex flex-wrap gap-8">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Sellers</p>
+                <p className="mt-1 font-display text-3xl font-black text-foreground">
+                  {data?.sellerCount ?? 0}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Owed</p>
+                <p className="mt-1 font-display text-3xl font-black text-foreground">{money(totalOwed)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Pushable</p>
+                <p className="mt-1 font-display text-3xl font-black text-emerald-200">
+                  {money(totalPushable)}
+                </p>
+              </div>
             </div>
             <label className="flex min-w-[240px] flex-1 flex-col gap-1">
               <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
@@ -260,9 +256,15 @@ export function AdminBankPayoutsPage() {
             </label>
           </div>
 
-          {syncNote ? (
+          <p className="mb-4 text-xs text-zinc-500">
+            Owed = ready order nets. Available = live Connect balance. Pushable = min(owed,
+            available). Push pays oldest orders first and stops before overdrawing Connect.
+            {data ? ` · ${data.orderCount} ready order${data.orderCount === 1 ? "" : "s"}` : ""}
+          </p>
+
+          {note ? (
             <p className="mb-4 rounded-lg border border-sky-400/25 bg-sky-950/30 px-3 py-2 text-sm text-sky-100">
-              {syncNote}
+              {note}
             </p>
           ) : null}
 
@@ -272,98 +274,125 @@ export function AdminBankPayoutsPage() {
             </p>
           ) : null}
 
-          {bySeller.length === 0 ? (
-            <p className="text-sm text-zinc-500">No Stripe orders waiting for a bank payout.</p>
+          {!data?.sellers.length ? (
+            <p className="text-sm text-zinc-500">No Stripe sellers waiting for a bank payout.</p>
           ) : (
-            <div className="space-y-4">
-              {bySeller.map(({ seller, orders, netUsd }) => (
-                <section key={seller.sellerId} className={`${adminPanelClassName} p-4`}>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <Link
-                        href={`/admin/users/${encodeURIComponent(seller.sellerId)}`}
-                        className="font-semibold text-gold-bright hover:underline"
-                      >
-                        @{seller.sellerUsername?.trim() || seller.sellerId.slice(0, 8)}
-                      </Link>
-                      {seller.sellerEmail ? (
-                        <p className="text-xs text-zinc-500">{seller.sellerEmail}</p>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-mono text-sm text-emerald-200">
-                        {orders.length} order{orders.length === 1 ? "" : "s"} · {money(netUsd)}
-                      </p>
-                      <button
-                        type="button"
-                        disabled={busyId === `seller:${seller.sellerId}`}
-                        onClick={() =>
-                          void markSellerAlreadyPaid(
-                            seller.sellerId,
-                            seller.sellerUsername,
-                            orders.length,
-                          )
-                        }
-                        className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 disabled:opacity-50 hover:bg-amber-500/15"
-                      >
-                        {busyId === `seller:${seller.sellerId}`
-                          ? "Saving…"
-                          : "Mark all already paid"}
-                      </button>
-                    </div>
-                  </div>
-                  <ul className="mt-3 divide-y divide-white/[0.06]">
-                    {orders.map((o) => {
-                      const highlighted = highlightOrderId === o.orderId;
-                      return (
-                        <li
-                          key={o.orderId}
-                          className={`flex flex-wrap items-center justify-between gap-3 py-3 ${
-                            highlighted ? "rounded-lg bg-emerald-500/10 px-2" : ""
-                          }`}
-                        >
-                          <div className="min-w-0 flex-1">
+            <div className={`${adminPanelClassName} overflow-x-auto`}>
+              <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+                    <th className="px-4 py-3 font-bold">Seller</th>
+                    <th className="px-3 py-3 font-bold">Orders</th>
+                    <th className="px-3 py-3 font-bold">Owed</th>
+                    <th className="px-3 py-3 font-bold">Available</th>
+                    <th className="px-3 py-3 font-bold">Pending</th>
+                    <th className="px-3 py-3 font-bold">Pushable</th>
+                    <th className="px-4 py-3 font-bold">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.sellers.map((s) => {
+                    const handle = s.username?.trim() || s.sellerId.slice(0, 8);
+                    const isOpen = Boolean(expanded[s.sellerId]);
+                    const block = blockedLabel(s.blockedReason);
+                    const canPush = s.pushableUsd >= 0.01 && !block;
+                    const busy = busySellerId === s.sellerId || busySellerId === `mark:${s.sellerId}`;
+                    return (
+                      <Fragment key={s.sellerId}>
+                        <tr className="border-b border-white/[0.06] align-middle">
+                          <td className="px-4 py-3">
                             <Link
-                              href={`/admin/orders/${encodeURIComponent(o.orderId)}`}
-                              className="truncate text-sm font-medium text-zinc-100 hover:text-gold-bright"
+                              href={`/admin/users/${encodeURIComponent(s.sellerId)}`}
+                              className="font-semibold text-gold-bright hover:underline"
                             >
-                              {o.itemTitle}
+                              @{handle}
                             </Link>
-                            <p className="mt-0.5 text-[11px] text-zinc-500">
-                              {o.orderId.slice(0, 10)}… · {o.payoutStatus.replace(/_/g, " ")} · shipped{" "}
-                              {o.shippedAt || o.carrierAcceptedAt
-                                ? new Date(o.shippedAt ?? o.carrierAcceptedAt!).toLocaleString()
-                                : "—"}
-                              {o.labelCostCents > 0
-                                ? ` · label $${(o.labelReversedCents / 100).toFixed(2)}`
-                                : ""}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-mono text-sm text-zinc-200">{money(o.estimatedNetUsd)}</span>
-                            <button
-                              type="button"
-                              disabled={busyId === o.orderId}
-                              onClick={() => void release(o.orderId)}
-                              className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-200 disabled:opacity-50"
-                            >
-                              {busyId === o.orderId ? "Pushing…" : "Push payout"}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busyId === `mark:${o.orderId}`}
-                              onClick={() => void markAlreadyPaid(o.orderId)}
-                              className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] font-semibold text-zinc-400 hover:text-zinc-200 disabled:opacity-50"
-                            >
-                              {busyId === `mark:${o.orderId}` ? "Saving…" : "Already paid"}
-                            </button>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </section>
-              ))}
+                            {s.email ? <p className="text-[11px] text-zinc-500">{s.email}</p> : null}
+                            {block ? (
+                              <p className="mt-0.5 text-[11px] text-amber-200/90">{block}</p>
+                            ) : null}
+                            {s.owedUsd > (s.availableUsd ?? 0) + 5 && s.availableUsd != null ? (
+                              <p className="mt-0.5 text-[11px] text-zinc-500">
+                                Owed exceeds available — Sync or Mark already paid for the gap.
+                              </p>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-3 font-mono text-zinc-200">{s.orderCount}</td>
+                          <td className="px-3 py-3 font-mono text-zinc-100">{money(s.owedUsd)}</td>
+                          <td className="px-3 py-3 font-mono text-zinc-100">{money(s.availableUsd)}</td>
+                          <td className="px-3 py-3 font-mono text-zinc-400">{money(s.pendingUsd)}</td>
+                          <td className="px-3 py-3 font-mono text-emerald-200">{money(s.pushableUsd)}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={!canPush || busy}
+                                onClick={() => void pushSeller(s)}
+                                className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-200 disabled:opacity-40"
+                              >
+                                {busySellerId === s.sellerId ? "Pushing…" : "Push payouts"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() =>
+                                  setExpanded((prev) => ({
+                                    ...prev,
+                                    [s.sellerId]: !prev[s.sellerId],
+                                  }))
+                                }
+                                className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] font-semibold text-zinc-400 hover:text-zinc-200"
+                              >
+                                {isOpen ? "Hide" : "Orders"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void markSellerAlreadyPaid(s)}
+                                className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-1.5 text-[11px] font-semibold text-amber-100/90 disabled:opacity-40"
+                              >
+                                {busySellerId === `mark:${s.sellerId}` ? "Saving…" : "Already paid"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {isOpen ? (
+                          <tr className="border-b border-white/[0.06] bg-black/20">
+                            <td colSpan={7} className="px-4 py-3">
+                              <ul className="divide-y divide-white/[0.05]">
+                                {s.orders.map((o) => (
+                                  <li
+                                    key={o.orderId}
+                                    className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs"
+                                  >
+                                    <div className="min-w-0">
+                                      <Link
+                                        href={`/admin/orders/${encodeURIComponent(o.orderId)}`}
+                                        className="text-zinc-200 hover:text-gold-bright"
+                                      >
+                                        {o.itemTitle}
+                                      </Link>
+                                      <p className="text-[11px] text-zinc-500">
+                                        {o.orderId.slice(0, 10)}… · {o.payoutStatus.replace(/_/g, " ")}
+                                        {o.shippedAt
+                                          ? ` · shipped ${new Date(o.shippedAt).toLocaleString()}`
+                                          : ""}
+                                      </p>
+                                    </div>
+                                    <span className="font-mono text-zinc-300">
+                                      {money(o.estimatedNetUsd)}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </>
