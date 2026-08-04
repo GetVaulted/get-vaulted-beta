@@ -87,6 +87,7 @@ export function AdminBankPayoutsPage() {
         healedLocal?: number;
         matchedFromStripe?: number;
         matchedBulkFromBalance?: number;
+        matchedFromConnectShortfall?: number;
         sellersScanned?: number;
       };
       if (!res.ok) {
@@ -94,14 +95,19 @@ export function AdminBankPayoutsPage() {
         return;
       }
       const healed =
-        (j.healedLocal ?? 0) + (j.matchedFromStripe ?? 0) + (j.matchedBulkFromBalance ?? 0);
-      const bulk = j.matchedBulkFromBalance ?? 0;
+        (j.healedLocal ?? 0) +
+        (j.matchedFromStripe ?? 0) +
+        (j.matchedBulkFromBalance ?? 0) +
+        (j.matchedFromConnectShortfall ?? 0);
+      const shortfall = j.matchedFromConnectShortfall ?? 0;
       setSyncNote(
         healed > 0
           ? `Synced ${healed} already-paid order${healed === 1 ? "" : "s"} off the queue` +
-              (bulk > 0 ? ` (${bulk} via emptied Connect / Dashboard bulk payout)` : "") +
+              (shortfall > 0
+                ? ` (${shortfall} because Connect balance can’t cover the ready net)`
+                : "") +
               ` — scanned ${j.sellersScanned ?? 0} sellers.`
-          : `No changes — queue already matches Stripe bank payouts (${j.sellersScanned ?? 0} sellers scanned).`,
+          : `No changes — queue already matches Stripe Connect balances (${j.sellersScanned ?? 0} sellers scanned).`,
       );
       await load();
     } finally {
@@ -237,9 +243,9 @@ export function AdminBankPayoutsPage() {
               <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Ready to push</p>
               <p className="mt-1 font-display text-3xl font-black text-foreground">{data?.count ?? 0}</p>
               <p className="mt-1 text-xs text-zinc-500">
-                Funds are held on Connect until you release. Label clawback already ran. Sync also
-                clears sellers paid via Stripe Dashboard bulk payouts (empty Connect + covering
-                payouts). Use Mark all already paid if Sync still misses them.
+                Funds land on Connect at charge time; this queue is only Connect → bank. Sync
+                clears anything the Connect balance can no longer cover (Dashboard bulk payouts
+                included). What’s left is what you can still Push.
               </p>
             </div>
             <label className="flex min-w-[240px] flex-1 flex-col gap-1">

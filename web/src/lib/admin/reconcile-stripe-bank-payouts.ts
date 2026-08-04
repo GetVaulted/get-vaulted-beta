@@ -63,6 +63,45 @@ export function connectBulkPayoutCoversReadyQueue(args: {
 }
 
 /**
+ * Destination charges already put seller funds on Connect at payment time.
+ * Admin "Push payout" only moves Connect → bank. So ready-queue net cannot exceed
+ * what's still on Connect (available + pending). Anything above that was already banked
+ * (Dashboard bulk / prior Push) — clear oldest ready orders first (FIFO).
+ */
+export function allocateOrdersAlreadyBankPaidByConnectShortfall(args: {
+  orders: Array<{ id: string; estimatedNetUsdCents: number; sortAtMs: number }>;
+  availableUsdCents: number;
+  pendingUsdCents: number;
+  /** Slack for estimate drift vs Stripe balances. Default $5. */
+  slackUsdCents?: number;
+}): { markPaidIds: string[]; keepReadyIds: string[] } {
+  const sorted = [...args.orders].sort((a, b) => {
+    if (a.sortAtMs !== b.sortAtMs) return a.sortAtMs - b.sortAtMs;
+    return a.id.localeCompare(b.id);
+  });
+  const onConnect =
+    Math.max(0, args.availableUsdCents) + Math.max(0, args.pendingUsdCents);
+  const slack = Math.max(0, args.slackUsdCents ?? 500);
+  const readyNet = sorted.reduce((sum, o) => sum + Math.max(0, o.estimatedNetUsdCents), 0);
+  let shortfall = readyNet - onConnect - slack;
+  if (shortfall <= 0) {
+    return { markPaidIds: [], keepReadyIds: sorted.map((o) => o.id) };
+  }
+
+  const markPaidIds: string[] = [];
+  const keepReadyIds: string[] = [];
+  for (const o of sorted) {
+    if (shortfall <= 0) {
+      keepReadyIds.push(o.id);
+      continue;
+    }
+    markPaidIds.push(o.id);
+    shortfall -= Math.max(0, o.estimatedNetUsdCents);
+  }
+  return { markPaidIds, keepReadyIds };
+}
+
+/**
  * Flip ready-status orders that already have `po_` / `zero-net:` to `paid_out`.
  * Heals the split-write gap (payout created, status never updated).
  */
@@ -103,8 +142,10 @@ export async function healOrdersWithExistingBankPayoutIds(opts?: {
   return { healed: orderIds.length, orderIds };
 }
 
-async function estimateReadyNetCentsForOrders(orderIds: string[]): Promise<number> {
-  if (orderIds.length === 0) return 0;
+async function estimateReadyOrderNets(
+  orderIds: string[],
+): Promise<Array<{ id: string; estimatedNetUsdCents: number; sortAtMs: number }>> {
+  if (orderIds.length === 0) return [];
   const rows = await prisma.order.findMany({
     where: { id: { in: orderIds } },
     select: {
@@ -114,6 +155,9 @@ async function estimateReadyNetCentsForOrders(orderIds: string[]): Promise<numbe
       paymentStatus: true,
       shippingLabelCostCents: true,
       shippingLabelCostReversedCents: true,
+      shippedAt: true,
+      carrierAcceptedAt: true,
+      createdAt: true,
       listing: { select: { isCompanyListing: true } },
       liveShippingSession: {
         select: {
@@ -124,8 +168,7 @@ async function estimateReadyNetCentsForOrders(orderIds: string[]): Promise<numbe
     },
   });
 
-  let cents = 0;
-  for (const o of rows) {
+  return rows.map((o) => {
     const saleBasisUsd = orderItemSaleBasisUsd(o);
     const liveShow = o.liveShippingSession?.liveShow ?? null;
     const feePct = resolvePlatformFeePercentForSellerOrder({
@@ -143,9 +186,14 @@ async function estimateReadyNetCentsForOrders(orderIds: string[]): Promise<numbe
       shippingLabelCostCents: o.shippingLabelCostCents ?? 0,
       shippingLabelCostReversedCents: o.shippingLabelCostReversedCents ?? 0,
     });
-    cents += Math.round(netUsd * 100);
-  }
-  return cents;
+    const sortAt =
+      o.shippedAt?.getTime() ?? o.carrierAcceptedAt?.getTime() ?? o.createdAt.getTime();
+    return {
+      id: o.id,
+      estimatedNetUsdCents: Math.round(netUsd * 100),
+      sortAtMs: sortAt,
+    };
+  });
 }
 
 async function markOrdersPaidOutFromBulkPayout(args: {
@@ -167,7 +215,6 @@ async function markOrdersPaidOutFromBulkPayout(args: {
       processorTransferId: transferId,
     },
   });
-  // fundsReleasedAt: set only where null
   await prisma.order.updateMany({
     where: { id: { in: args.orderIds }, fundsReleasedAt: null },
     data: { fundsReleasedAt: args.now },
@@ -176,9 +223,11 @@ async function markOrdersPaidOutFromBulkPayout(args: {
 }
 
 /**
- * Pull recent Connect bank payouts and mark matching orders paid_out when Stripe
- * already paid them (metadata.orderId) but our queue still says ready.
- * Also detects Dashboard bulk payouts that emptied Connect and cover the ready net.
+ * Pull Connect bank payouts + balances and clear ready orders that Stripe already banked.
+ * 1) Heal local po_/sentinels
+ * 2) Match metadata.orderId payouts
+ * 3) Connect shortfall: ready net − (available+pending) → oldest orders already banked
+ * 4) Legacy emptied-balance full clear when payouts cover the whole ready net
  */
 export async function reconcileStripeBankPayoutsForReadySellers(opts?: {
   sellerId?: string;
@@ -187,6 +236,7 @@ export async function reconcileStripeBankPayoutsForReadySellers(opts?: {
   healedLocal: number;
   matchedFromStripe: number;
   matchedBulkFromBalance: number;
+  matchedFromConnectShortfall: number;
   sellersScanned: number;
   orderIds: string[];
 }> {
@@ -198,6 +248,7 @@ export async function reconcileStripeBankPayoutsForReadySellers(opts?: {
       healedLocal: local.healed,
       matchedFromStripe: 0,
       matchedBulkFromBalance: 0,
+      matchedFromConnectShortfall: 0,
       sellersScanned: 0,
       orderIds: [...matchedIds],
     };
@@ -218,7 +269,7 @@ export async function reconcileStripeBankPayoutsForReadySellers(opts?: {
       sellerId: true,
       seller: { select: { stripeAccountId: true } },
     },
-    take: 300,
+    take: 1000,
   });
 
   const bySeller = new Map<string, { accountId: string; orderIds: string[] }>();
@@ -231,10 +282,11 @@ export async function reconcileStripeBankPayoutsForReadySellers(opts?: {
   }
 
   const stripe = getStripe();
-  const limitPerSeller = Math.min(100, Math.max(10, opts?.limitPerSeller ?? 40));
+  const limitPerSeller = Math.min(100, Math.max(10, opts?.limitPerSeller ?? 100));
   const now = new Date();
   let matchedFromStripe = 0;
   let matchedBulkFromBalance = 0;
+  let matchedFromConnectShortfall = 0;
 
   for (const [, { accountId, orderIds }] of bySeller) {
     try {
@@ -264,10 +316,9 @@ export async function reconcileStripeBankPayoutsForReadySellers(opts?: {
         readySet.delete(metaOrderId);
       }
 
-      const remaining = [...readySet];
+      let remaining = [...readySet];
       if (remaining.length === 0) continue;
 
-      // Dashboard / manual bulk payouts have no metadata.orderId — match by emptied balance + coverage.
       const balance = await stripe.balance.retrieve({ stripeAccount: accountId });
       const availableUsdCents = balance.available
         .filter((b) => b.currency === "usd")
@@ -280,30 +331,56 @@ export async function reconcileStripeBankPayoutsForReadySellers(opts?: {
         (p) => p.status === "paid" || p.status === "in_transit" || p.status === "pending",
       );
       const paidPayoutUsdCents = bulkOrAnyPaid.reduce((sum, p) => sum + (p.amount ?? 0), 0);
-      const estimatedReadyNetUsdCents = await estimateReadyNetCentsForOrders(remaining);
+      const orderNets = await estimateReadyOrderNets(remaining);
+      const estimatedReadyNetUsdCents = orderNets.reduce((s, o) => s + o.estimatedNetUsdCents, 0);
 
-      if (
-        !connectBulkPayoutCoversReadyQueue({
-          availableUsdCents,
-          pendingUsdCents,
-          paidPayoutUsdCents,
-          estimatedReadyNetUsdCents,
-        })
-      ) {
-        continue;
-      }
+      // Primary: clear whatever ready net exceeds funds still on Connect.
+      const { markPaidIds } = allocateOrdersAlreadyBankPaidByConnectShortfall({
+        orders: orderNets,
+        availableUsdCents,
+        pendingUsdCents,
+      });
 
       const anchor =
         bulkOrAnyPaid.find((p) => !p.metadata?.orderId)?.id ||
         bulkOrAnyPaid[0]?.id ||
-        "unknown";
-      const marked = await markOrdersPaidOutFromBulkPayout({
-        orderIds: remaining,
-        payoutId: anchor,
-        now,
-      });
-      for (const id of remaining) matchedIds.add(id);
-      matchedBulkFromBalance += marked;
+        `shortfall-sync:${accountId.slice(-8)}`;
+
+      if (markPaidIds.length > 0) {
+        const marked = await markOrdersPaidOutFromBulkPayout({
+          orderIds: markPaidIds,
+          payoutId: anchor,
+          now,
+        });
+        for (const id of markPaidIds) {
+          matchedIds.add(id);
+          readySet.delete(id);
+        }
+        matchedFromConnectShortfall += marked;
+        remaining = [...readySet];
+      }
+
+      // Secondary: full clear when Connect is empty and recent payouts cover the whole queue.
+      if (remaining.length > 0) {
+        const remainingNets = orderNets.filter((o) => readySet.has(o.id));
+        const remainingCents = remainingNets.reduce((s, o) => s + o.estimatedNetUsdCents, 0);
+        if (
+          connectBulkPayoutCoversReadyQueue({
+            availableUsdCents,
+            pendingUsdCents,
+            paidPayoutUsdCents,
+            estimatedReadyNetUsdCents: remainingCents || estimatedReadyNetUsdCents,
+          })
+        ) {
+          const marked = await markOrdersPaidOutFromBulkPayout({
+            orderIds: remaining,
+            payoutId: anchor,
+            now,
+          });
+          for (const id of remaining) matchedIds.add(id);
+          matchedBulkFromBalance += marked;
+        }
+      }
     } catch (e) {
       console.warn("[reconcileStripeBankPayouts] seller scan failed", {
         accountId,
@@ -316,6 +393,7 @@ export async function reconcileStripeBankPayoutsForReadySellers(opts?: {
     healedLocal: local.healed,
     matchedFromStripe,
     matchedBulkFromBalance,
+    matchedFromConnectShortfall,
     sellersScanned: bySeller.size,
     orderIds: [...matchedIds],
   };
