@@ -86,16 +86,21 @@ export function AdminBankPayoutsPage() {
         error?: string;
         healedLocal?: number;
         matchedFromStripe?: number;
+        matchedBulkFromBalance?: number;
         sellersScanned?: number;
       };
       if (!res.ok) {
         setError(typeof j.error === "string" ? j.error : "Sync failed.");
         return;
       }
-      const healed = (j.healedLocal ?? 0) + (j.matchedFromStripe ?? 0);
+      const healed =
+        (j.healedLocal ?? 0) + (j.matchedFromStripe ?? 0) + (j.matchedBulkFromBalance ?? 0);
+      const bulk = j.matchedBulkFromBalance ?? 0;
       setSyncNote(
         healed > 0
-          ? `Synced ${healed} already-paid order${healed === 1 ? "" : "s"} off the queue (scanned ${j.sellersScanned ?? 0} sellers).`
+          ? `Synced ${healed} already-paid order${healed === 1 ? "" : "s"} off the queue` +
+              (bulk > 0 ? ` (${bulk} via emptied Connect / Dashboard bulk payout)` : "") +
+              ` — scanned ${j.sellersScanned ?? 0} sellers.`
           : `No changes — queue already matches Stripe bank payouts (${j.sellersScanned ?? 0} sellers scanned).`,
       );
       await load();
@@ -162,6 +167,43 @@ export function AdminBankPayoutsPage() {
     }
   };
 
+  const markSellerAlreadyPaid = async (sellerId: string, username: string | null, orderCount: number) => {
+    if (!reason.trim()) {
+      setError("Reason is required.");
+      return;
+    }
+    const handle = username?.trim() || sellerId.slice(0, 8);
+    if (
+      !window.confirm(
+        `Mark all ${orderCount} ready order${orderCount === 1 ? "" : "s"} for @${handle} as already bank-paid?\n\nUse when Stripe Dashboard already paid this seller’s Connect balance (bulk payout with no per-order metadata).`,
+      )
+    ) {
+      return;
+    }
+    setBusyId(`seller:${sellerId}`);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/payouts/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "mark_seller_already_paid",
+          sellerId,
+          reason: reason.trim() || "Already paid — Dashboard bulk bank payout",
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string; marked?: number };
+      if (!res.ok) {
+        setError(typeof j.error === "string" ? j.error : "Could not mark seller paid.");
+        return;
+      }
+      setSyncNote(`Marked ${j.marked ?? orderCount} order(s) for @${handle} as already paid.`);
+      await load();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <AdminCommandShell
       title="Bank payouts"
@@ -195,8 +237,9 @@ export function AdminBankPayoutsPage() {
               <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Ready to push</p>
               <p className="mt-1 font-display text-3xl font-black text-foreground">{data?.count ?? 0}</p>
               <p className="mt-1 text-xs text-zinc-500">
-                Funds are held on Connect until you release. Label clawback already ran. Use Sync if a
-                seller was already paid in Stripe.
+                Funds are held on Connect until you release. Label clawback already ran. Sync also
+                clears sellers paid via Stripe Dashboard bulk payouts (empty Connect + covering
+                payouts). Use Mark all already paid if Sync still misses them.
               </p>
             </div>
             <label className="flex min-w-[240px] flex-1 flex-col gap-1">
@@ -241,9 +284,27 @@ export function AdminBankPayoutsPage() {
                         <p className="text-xs text-zinc-500">{seller.sellerEmail}</p>
                       ) : null}
                     </div>
-                    <p className="font-mono text-sm text-emerald-200">
-                      {orders.length} order{orders.length === 1 ? "" : "s"} · {money(netUsd)}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-mono text-sm text-emerald-200">
+                        {orders.length} order{orders.length === 1 ? "" : "s"} · {money(netUsd)}
+                      </p>
+                      <button
+                        type="button"
+                        disabled={busyId === `seller:${seller.sellerId}`}
+                        onClick={() =>
+                          void markSellerAlreadyPaid(
+                            seller.sellerId,
+                            seller.sellerUsername,
+                            orders.length,
+                          )
+                        }
+                        className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 disabled:opacity-50 hover:bg-amber-500/15"
+                      >
+                        {busyId === `seller:${seller.sellerId}`
+                          ? "Saving…"
+                          : "Mark all already paid"}
+                      </button>
+                    </div>
                   </div>
                   <ul className="mt-3 divide-y divide-white/[0.06]">
                     {orders.map((o) => {
