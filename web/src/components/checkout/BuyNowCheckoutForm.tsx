@@ -198,6 +198,7 @@ export function BuyNowCheckoutForm({
   const [hasSavedAddress, setHasSavedAddress] = useState(false);
   const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false);
   const [referralCreditUsd, setReferralCreditUsd] = useState(0);
+  const [vaultCreditsUsd, setVaultCreditsUsd] = useState(0);
   const [applyReferralCredit, setApplyReferralCredit] = useState(false);
   const router = useRouter();
 
@@ -247,9 +248,13 @@ export function BuyNowCheckoutForm({
       try {
         const res = await fetch("/api/account/wallet", { cache: "no-store" });
         if (!res.ok || cancelled) return;
-        const j = (await res.json()) as { wallet?: { referralCreditUsd?: number } };
+        const j = (await res.json()) as {
+          wallet?: { referralCreditUsd?: number; vaultCreditsUsd?: number };
+        };
         const bal = Number(j.wallet?.referralCreditUsd ?? 0);
+        const vault = Number(j.wallet?.vaultCreditsUsd ?? 0);
         if (!cancelled && Number.isFinite(bal) && bal > 0) setReferralCreditUsd(bal);
+        if (!cancelled && Number.isFinite(vault) && vault > 0) setVaultCreditsUsd(vault);
       } catch {
         /* ignore */
       }
@@ -401,10 +406,11 @@ export function BuyNowCheckoutForm({
     () => listing.itemPriceUsd + shippingPriceUsd,
     [listing.itemPriceUsd, shippingPriceUsd],
   );
+  const storeCreditUsd = referralCreditUsd + vaultCreditsUsd;
   const referralDiscountUsd = useMemo(() => {
-    if (!applyReferralCredit || referralCreditUsd <= 0) return 0;
-    return Math.min(referralCreditUsd, Math.max(0, listing.itemPriceUsd - 0.5));
-  }, [applyReferralCredit, referralCreditUsd, listing.itemPriceUsd]);
+    if (!applyReferralCredit || storeCreditUsd <= 0) return 0;
+    return Math.min(storeCreditUsd, Math.max(0, listing.itemPriceUsd - 0.5));
+  }, [applyReferralCredit, storeCreditUsd, listing.itemPriceUsd]);
   const total = useMemo(
     () => Math.max(0, subtotal - referralDiscountUsd) + (taxCollect ? taxUsd : 0),
     [subtotal, referralDiscountUsd, taxCollect, taxUsd],
@@ -878,7 +884,7 @@ export function BuyNowCheckoutForm({
                   </span>
                 </li>
               </ul>
-              {referralCreditUsd > 0 ? (
+              {storeCreditUsd > 0 ? (
                 <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-gold/20 bg-gold/5 px-3 py-3 text-sm text-zinc-300">
                   <input
                     type="checkbox"
@@ -887,7 +893,13 @@ export function BuyNowCheckoutForm({
                     onChange={(e) => setApplyReferralCredit(e.target.checked)}
                   />
                   <span>
-                    Apply referral credit ({formatMoney(referralCreditUsd)} available)
+                    Apply available credits ({formatMoney(storeCreditUsd)}
+                    {vaultCreditsUsd > 0 && referralCreditUsd > 0
+                      ? ` — ${formatMoney(vaultCreditsUsd)} Get Vaulted + ${formatMoney(referralCreditUsd)} referral`
+                      : vaultCreditsUsd > 0
+                        ? " Get Vaulted Credit"
+                        : " referral"}
+                    )
                     {referralDiscountUsd > 0 ? (
                       <span className="mt-0.5 block text-xs text-emerald-400/90">
                         Saves {formatMoney(referralDiscountUsd)} on this order

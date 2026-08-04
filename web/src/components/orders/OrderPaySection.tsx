@@ -33,6 +33,7 @@ export function OrderPaySection({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [referralCreditUsd, setReferralCreditUsd] = useState(0);
+  const [vaultCreditsUsd, setVaultCreditsUsd] = useState(0);
   const [applyReferralCredit, setApplyReferralCredit] = useState(false);
 
   useEffect(() => {
@@ -41,9 +42,13 @@ export function OrderPaySection({
       try {
         const res = await fetch("/api/account/wallet", { cache: "no-store" });
         if (!res.ok || cancelled) return;
-        const j = (await res.json()) as { wallet?: { referralCreditUsd?: number } };
+        const j = (await res.json()) as {
+          wallet?: { referralCreditUsd?: number; vaultCreditsUsd?: number };
+        };
         const bal = Number(j.wallet?.referralCreditUsd ?? 0);
+        const vault = Number(j.wallet?.vaultCreditsUsd ?? 0);
         if (!cancelled && Number.isFinite(bal) && bal > 0) setReferralCreditUsd(bal);
+        if (!cancelled && Number.isFinite(vault) && vault > 0) setVaultCreditsUsd(vault);
       } catch {
         /* ignore */
       }
@@ -53,10 +58,11 @@ export function OrderPaySection({
     };
   }, []);
 
+  const storeCreditUsd = referralCreditUsd + vaultCreditsUsd;
   const referralDiscountUsd = useMemo(() => {
-    if (!applyReferralCredit || referralCreditUsd <= 0) return 0;
-    return Math.min(referralCreditUsd, Math.max(0, totalUsd - 0.5));
-  }, [applyReferralCredit, referralCreditUsd, totalUsd]);
+    if (!applyReferralCredit || storeCreditUsd <= 0) return 0;
+    return Math.min(storeCreditUsd, Math.max(0, totalUsd - 0.5));
+  }, [applyReferralCredit, storeCreditUsd, totalUsd]);
   const displayTotal = Math.max(0, totalUsd - referralDiscountUsd);
 
   if (!isBuyer) return null;
@@ -212,7 +218,7 @@ export function OrderPaySection({
           Time remaining: <PaymentDeadlineCountdown deadlineIso={deadlineIso} />
         </p>
       ) : null}
-      {referralCreditUsd > 0 ? (
+      {storeCreditUsd > 0 ? (
         <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-gold/20 bg-gold/5 px-3 py-3 text-sm text-zinc-300">
           <input
             type="checkbox"
@@ -221,7 +227,13 @@ export function OrderPaySection({
             onChange={(e) => setApplyReferralCredit(e.target.checked)}
           />
           <span>
-            Apply referral credit ({formatMoney(referralCreditUsd)} available)
+            Apply available credits ({formatMoney(storeCreditUsd)}
+            {vaultCreditsUsd > 0 && referralCreditUsd > 0
+              ? ` — ${formatMoney(vaultCreditsUsd)} Get Vaulted + ${formatMoney(referralCreditUsd)} referral`
+              : vaultCreditsUsd > 0
+                ? " Get Vaulted Credit"
+                : " referral"}
+            )
             {referralDiscountUsd > 0 ? (
               <span className="mt-0.5 block text-xs text-emerald-400/90">
                 Order total becomes {formatMoney(displayTotal)}

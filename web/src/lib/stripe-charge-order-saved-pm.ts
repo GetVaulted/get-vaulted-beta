@@ -40,55 +40,97 @@ import {
   PAYMENT_REQUIRES_ACTION,
 } from "@/services/payments";
 import { releaseReferralCreditReservation, reserveReferralCreditForCheckout } from "@/lib/referral-credit";
+import {
+  releasePlatformCreditReservation,
+  reservePlatformCreditForCheckout,
+} from "@/lib/giveaway/platform-credit";
 import { orderItemSaleBasisUsd, referralCreditAppliedCents } from "@/lib/referral-credit-payout";
 
-/** Stripe's minimum chargeable amount — never let a referral-credit discount push a charge below this. */
+/** Stripe's minimum chargeable amount — never let store-credit discounts push a charge below this. */
 const MIN_STRIPE_CHARGE_USD = 0.5;
 
 /**
- * Applies (or re-applies) a referral credit discount to a saved-card order charge, right before the
- * PaymentIntent amount is computed. Guards against double-reserving: if this order already has
- * `referralCreditAppliedUsd` set — from a prior saved-card charge attempt, OR from the same order's
- * Stripe-Checkout-session flow (`createPayOrderCheckoutSession`) having already reserved credit for
- * it — the previously-discounted `itemPriceUsd` already on the row is reused as-is.
+ * Applies (or re-applies) referral + platform store credit to a saved-card order charge.
+ * Guards against double-reserving when credit fields are already set on the order.
  */
-async function applyReferralCreditForSavedCardOrder(
+async function applyStoreCreditsForSavedCardOrder(
   orderId: string,
   buyerId: string,
   itemPriceUsd: number,
   referralCreditAppliedUsd: number,
-  applyReferralCredit: boolean,
-): Promise<{ itemPriceUsd: number; referralCreditAppliedUsd: number }> {
-  if (!applyReferralCredit) {
-    if (referralCreditAppliedUsd > 0) {
-      const restored = itemPriceUsd + referralCreditAppliedUsd;
-      await releaseReferralCreditReservation(orderId);
+  platformCreditAppliedUsd: number,
+  applyStoreCredit: boolean,
+): Promise<{
+  itemPriceUsd: number;
+  referralCreditAppliedUsd: number;
+  platformCreditAppliedUsd: number;
+}> {
+  if (!applyStoreCredit) {
+    const restore =
+      (referralCreditAppliedUsd > 0 ? referralCreditAppliedUsd : 0) +
+      (platformCreditAppliedUsd > 0 ? platformCreditAppliedUsd : 0);
+    if (restore > 0) {
+      const restored = itemPriceUsd + restore;
+      if (referralCreditAppliedUsd > 0) await releaseReferralCreditReservation(orderId);
+      if (platformCreditAppliedUsd > 0) await releasePlatformCreditReservation(orderId);
       await prisma.order.update({
         where: { id: orderId },
-        data: { itemPriceUsd: restored, referralCreditAppliedUsd: 0 },
+        data: {
+          itemPriceUsd: restored,
+          referralCreditAppliedUsd: 0,
+          platformCreditAppliedUsd: 0,
+        },
       });
-      return { itemPriceUsd: restored, referralCreditAppliedUsd: 0 };
+      return { itemPriceUsd: restored, referralCreditAppliedUsd: 0, platformCreditAppliedUsd: 0 };
     }
-    return { itemPriceUsd, referralCreditAppliedUsd: 0 };
+    return { itemPriceUsd, referralCreditAppliedUsd: 0, platformCreditAppliedUsd: 0 };
   }
-  if (referralCreditAppliedUsd > 0) {
-    return { itemPriceUsd, referralCreditAppliedUsd };
+
+  if (referralCreditAppliedUsd > 0 || platformCreditAppliedUsd > 0) {
+    return { itemPriceUsd, referralCreditAppliedUsd, platformCreditAppliedUsd };
   }
+
+  let nextItem = itemPriceUsd;
+  let referralApplied = 0;
+  let platformApplied = 0;
+
   try {
-    const maxApplyUsd = Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD);
-    if (maxApplyUsd <= 0) return { itemPriceUsd, referralCreditAppliedUsd: 0 };
-    const reserved = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, orderId);
-    if (reserved <= 0) return { itemPriceUsd, referralCreditAppliedUsd: 0 };
-    const discountedItemPriceUsd = itemPriceUsd - reserved;
-    await prisma.order.update({
-      where: { id: orderId },
-      data: { itemPriceUsd: discountedItemPriceUsd, referralCreditAppliedUsd: reserved },
-    });
-    return { itemPriceUsd: discountedItemPriceUsd, referralCreditAppliedUsd: reserved };
+    const maxApplyUsd = Math.max(0, nextItem - MIN_STRIPE_CHARGE_USD);
+    if (maxApplyUsd >= 0.01) {
+      referralApplied = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, orderId);
+      if (referralApplied > 0) nextItem -= referralApplied;
+    }
   } catch (e) {
     console.error("[referral-credit] reserve failed (saved-card checkout)", { orderId, error: e });
-    return { itemPriceUsd, referralCreditAppliedUsd: 0 };
   }
+
+  try {
+    const maxApplyUsd = Math.max(0, nextItem - MIN_STRIPE_CHARGE_USD);
+    if (maxApplyUsd >= 0.01) {
+      platformApplied = await reservePlatformCreditForCheckout(buyerId, maxApplyUsd, orderId);
+      if (platformApplied > 0) nextItem -= platformApplied;
+    }
+  } catch (e) {
+    console.error("[platform-credit] reserve failed (saved-card checkout)", { orderId, error: e });
+  }
+
+  if (referralApplied <= 0 && platformApplied <= 0) {
+    return { itemPriceUsd, referralCreditAppliedUsd: 0, platformCreditAppliedUsd: 0 };
+  }
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      itemPriceUsd: nextItem,
+      referralCreditAppliedUsd: referralApplied,
+      platformCreditAppliedUsd: platformApplied,
+    },
+  });
+  return {
+    itemPriceUsd: nextItem,
+    referralCreditAppliedUsd: referralApplied,
+    platformCreditAppliedUsd: platformApplied,
+  };
 }
 
 /** Short grace window granted when a buyer is actively recovering an expired auction-win order. */
@@ -346,6 +388,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
       taxUsd: true,
       totalUsd: true,
       referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
       stripePaymentIntentId: true,
       shipRecipientName: true,
       shipAddress: true,
@@ -356,11 +399,12 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     },
   });
 
-  const credit = await applyReferralCreditForSavedCardOrder(
+  const credit = await applyStoreCreditsForSavedCardOrder(
     row.id,
     args.buyerId,
     orderFresh.itemPriceUsd,
     orderFresh.referralCreditAppliedUsd,
+    orderFresh.platformCreditAppliedUsd,
     args.applyReferralCredit === true,
   );
 
@@ -387,6 +431,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     shippingPriceUsd: orderFresh.shippingPriceUsd,
     applicationFeeCents: feeCents,
     referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: credit.platformCreditAppliedUsd,
     sellerId: row.sellerId,
   });
 
@@ -448,6 +493,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
       data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
     });
     releaseReferralCreditReservation(row.id).catch(() => {});
+    releasePlatformCreditReservation(row.id).catch(() => {});
     return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED" };
   } catch (e) {
     const stripeDebug = buildStripeChargeErrorDebug(e, {
@@ -466,6 +512,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
         })
         .catch(() => {});
       releaseReferralCreditReservation(row.id).catch(() => {});
+    releasePlatformCreditReservation(row.id).catch(() => {});
       console.error("[payment recovery] stripe charge declined", { orderId: row.id, ...stripeDebug });
       return { outcome: "error", code: "CARD_DECLINED", stripeDebug };
     }
@@ -769,13 +816,15 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
         shippingPriceUsd: true,
         taxUsd: true,
         referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
       },
     });
-    const creditRail = await applyReferralCreditForSavedCardOrder(
+    const creditRail = await applyStoreCreditsForSavedCardOrder(
       row.id,
       args.buyerId,
       orderFreshRail.itemPriceUsd,
       orderFreshRail.referralCreditAppliedUsd,
+      orderFreshRail.platformCreditAppliedUsd,
       args.applyReferralCredit === true,
     );
     const amountUsd =
@@ -825,6 +874,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
       itemPriceUsd: true,
       shippingPriceUsd: true,
       referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
       stripePaymentIntentId: true,
       shipRecipientName: true,
       shipAddress: true,
@@ -835,11 +885,12 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
     },
   });
 
-  const credit = await applyReferralCreditForSavedCardOrder(
+  const credit = await applyStoreCreditsForSavedCardOrder(
     row.id,
     args.buyerId,
     orderFresh.itemPriceUsd,
     orderFresh.referralCreditAppliedUsd,
+    orderFresh.platformCreditAppliedUsd,
     args.applyReferralCredit === true,
   );
 
@@ -865,6 +916,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
     shippingPriceUsd: orderFresh.shippingPriceUsd,
     applicationFeeCents: feeCents,
     referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: credit.platformCreditAppliedUsd,
     sellerId: row.sellerId,
   });
 
@@ -948,6 +1000,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
       data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
     });
     releaseReferralCreditReservation(row.id).catch(() => {});
+    releasePlatformCreditReservation(row.id).catch(() => {});
     return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED" };
   } catch (e) {
     const stripeDebug = buildStripeChargeErrorDebug(e, {
@@ -965,6 +1018,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
         })
         .catch(() => {});
       releaseReferralCreditReservation(row.id).catch(() => {});
+    releasePlatformCreditReservation(row.id).catch(() => {});
       console.error("[payment recovery] stripe charge declined", { orderId: row.id, ...stripeDebug });
       return { outcome: "error", code: "CARD_DECLINED", stripeDebug };
     }
@@ -1039,6 +1093,7 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
       shippingPriceUsd: true,
       taxUsd: true,
       referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
       stripePaymentIntentId: true,
       shipRecipientName: true,
       shipAddress: true,
@@ -1049,11 +1104,12 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
     },
   });
 
-  const credit = await applyReferralCreditForSavedCardOrder(
+  const credit = await applyStoreCreditsForSavedCardOrder(
     row.id,
     args.buyerId,
     orderFresh.itemPriceUsd,
     orderFresh.referralCreditAppliedUsd,
+    orderFresh.platformCreditAppliedUsd,
     args.applyReferralCredit === true,
   );
 
@@ -1079,6 +1135,7 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
     shippingPriceUsd: orderFresh.shippingPriceUsd,
     applicationFeeCents: feeCents,
     referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: credit.platformCreditAppliedUsd,
     sellerId: row.sellerId,
   });
 
@@ -1149,6 +1206,7 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
       data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
     });
     releaseReferralCreditReservation(row.id).catch(() => {});
+    releasePlatformCreditReservation(row.id).catch(() => {});
     return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED" };
   } catch (e) {
     const stripeDebug = buildStripeChargeErrorDebug(e, {
@@ -1166,6 +1224,7 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
         })
         .catch(() => {});
       releaseReferralCreditReservation(row.id).catch(() => {});
+    releasePlatformCreditReservation(row.id).catch(() => {});
       return { outcome: "error", code: "CARD_DECLINED", stripeDebug };
     }
     console.error("[marketplace buy now] ambiguous stripe charge error — order left untouched pending reconciliation", {

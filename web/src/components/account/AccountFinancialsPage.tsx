@@ -149,6 +149,11 @@ export function AccountFinancialsPage() {
                     : "Available at checkout"
                 }
               />
+              <StatCard
+                label="Get Vaulted Credit"
+                value={formatMoney(data.vaultCreditsUsd)}
+                hint="Store credit · not withdrawable"
+              />
               <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/90 px-4 py-3">
                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">Quick links</p>
                 <div className="mt-2 flex flex-col gap-1.5 text-sm">

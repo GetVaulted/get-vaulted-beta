@@ -11,6 +11,11 @@ import {
   reserveReferralCreditForCheckout,
 } from "@/lib/referral-credit";
 import {
+  commitPlatformCreditReservation,
+  releasePlatformCreditReservation,
+  reservePlatformCreditForCheckout,
+} from "@/lib/giveaway/platform-credit";
+import {
   orderItemSaleBasisUsd,
   referralCreditAppliedCents,
 } from "@/lib/referral-credit-payout";
@@ -162,6 +167,9 @@ export async function processAuctionPaymentExpiries(): Promise<void> {
     releaseReferralCreditReservation(o.id).catch((e) =>
       console.error("[referral-credit] release failed (auction payment expired)", { orderId: o.id, error: e }),
     );
+    releasePlatformCreditReservation(o.id).catch((e) =>
+      console.error("[platform-credit] release failed (auction payment expired)", { orderId: o.id, error: e }),
+    );
     await createNotification(prisma, {
       userId: o.buyerId,
       type: "auction_payment_expired",
@@ -201,79 +209,114 @@ function siteUrl(): string {
 /** Stripe's minimum chargeable amount — never let a referral-credit discount push a charge below this. */
 const MIN_STRIPE_CHARGE_USD = 0.5;
 
-type ReferralCreditCheckoutFields = {
+type StoreCreditCheckoutFields = {
   itemPriceUsd: number;
   totalUsd: number;
   referralCreditAppliedUsd: number;
+  platformCreditAppliedUsd: number;
 };
 
 /**
  * Buy Now: `createBuyNowCheckoutSession`'s enclosing transaction always (re)computes
  * `itemPriceUsd`/`totalUsd` from the listing's full, undiscounted price — on both brand-new orders
  * and every "resume an existing pending checkout" branch — since the transaction has no knowledge
- * of referral credit (reservation happens after it commits, per `reserveReferralCreditForCheckout`'s
- * non-transactional contract). So any previously-reserved credit for this exact order (tracked in
- * `referralCreditAppliedUsd`, untouched by the transaction) must be re-subtracted here on every call
- * rather than re-reserved — re-reserving would double-spend the buyer's credit.
+ * of store credit (reservation happens after it commits). Previously-reserved referral + platform
+ * credit for this order must be re-subtracted here rather than re-reserved.
  *
- * Credit applies only when `applyReferralCredit` is true (buyer opt-in at checkout).
+ * Credits apply only when `applyReferralCredit` is true (buyer opt-in at checkout; covers both
+ * referral and Get Vaulted / platform credit).
  */
-async function applyReferralCreditForBuyNowOrder(
+async function applyStoreCreditsForBuyNowOrder(
   order: {
     id: string;
     itemPriceUsd: number;
     shippingPriceUsd: number;
     taxUsd: number;
     referralCreditAppliedUsd: number;
+    platformCreditAppliedUsd: number;
   },
   buyerId: string,
-  applyReferralCredit: boolean,
-): Promise<ReferralCreditCheckoutFields> {
-  const unchanged = {
-    itemPriceUsd: order.itemPriceUsd,
-    totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
-    referralCreditAppliedUsd: 0,
-  };
+  applyStoreCredit: boolean,
+): Promise<StoreCreditCheckoutFields> {
+  let itemPriceUsd = order.itemPriceUsd;
+  let referralApplied = 0;
+  let platformApplied = 0;
 
-  if (!applyReferralCredit) {
+  if (!applyStoreCredit) {
     if (order.referralCreditAppliedUsd > 0) {
       await releaseReferralCreditReservation(order.id);
+    }
+    if (order.platformCreditAppliedUsd > 0) {
+      await releasePlatformCreditReservation(order.id);
+    }
+    if (order.referralCreditAppliedUsd > 0 || order.platformCreditAppliedUsd > 0) {
+      const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
       await prisma.order.update({
         where: { id: order.id },
-        data: { referralCreditAppliedUsd: 0 },
+        data: { totalUsd, referralCreditAppliedUsd: 0, platformCreditAppliedUsd: 0 },
       });
     }
-    return unchanged;
+    return {
+      itemPriceUsd,
+      totalUsd: itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
+      referralCreditAppliedUsd: 0,
+      platformCreditAppliedUsd: 0,
+    };
   }
 
+  // Referral first, then platform credit on remaining room above Stripe minimum.
   if (order.referralCreditAppliedUsd > 0) {
-    const reapply = Math.min(
+    referralApplied = Math.min(
       order.referralCreditAppliedUsd,
-      Math.max(0, order.itemPriceUsd - MIN_STRIPE_CHARGE_USD),
+      Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD),
     );
-    if (reapply <= 0) return { ...unchanged, referralCreditAppliedUsd: order.referralCreditAppliedUsd };
-    const itemPriceUsd = order.itemPriceUsd - reapply;
-    const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
-    await prisma.order.update({ where: { id: order.id }, data: { itemPriceUsd, totalUsd } });
-    return { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reapply };
+    if (referralApplied > 0) itemPriceUsd -= referralApplied;
+  } else {
+    try {
+      const maxApplyUsd = Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD);
+      if (maxApplyUsd >= 0.01) {
+        referralApplied = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, order.id);
+        if (referralApplied > 0) itemPriceUsd -= referralApplied;
+      }
+    } catch (e) {
+      console.error("[referral-credit] reserve failed (buy now checkout)", { orderId: order.id, error: e });
+    }
   }
 
-  try {
-    const maxApplyUsd = Math.max(0, order.itemPriceUsd - MIN_STRIPE_CHARGE_USD);
-    if (maxApplyUsd <= 0) return unchanged;
-    const reserved = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, order.id);
-    if (reserved <= 0) return unchanged;
-    const itemPriceUsd = order.itemPriceUsd - reserved;
-    const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reserved },
-    });
-    return { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reserved };
-  } catch (e) {
-    console.error("[referral-credit] reserve failed (buy now checkout)", { orderId: order.id, error: e });
-    return unchanged;
+  if (order.platformCreditAppliedUsd > 0) {
+    platformApplied = Math.min(
+      order.platformCreditAppliedUsd,
+      Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD),
+    );
+    if (platformApplied > 0) itemPriceUsd -= platformApplied;
+  } else {
+    try {
+      const maxApplyUsd = Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD);
+      if (maxApplyUsd >= 0.01) {
+        platformApplied = await reservePlatformCreditForCheckout(buyerId, maxApplyUsd, order.id);
+        if (platformApplied > 0) itemPriceUsd -= platformApplied;
+      }
+    } catch (e) {
+      console.error("[platform-credit] reserve failed (buy now checkout)", { orderId: order.id, error: e });
+    }
   }
+
+  const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      itemPriceUsd,
+      totalUsd,
+      referralCreditAppliedUsd: referralApplied,
+      platformCreditAppliedUsd: platformApplied,
+    },
+  });
+  return {
+    itemPriceUsd,
+    totalUsd,
+    referralCreditAppliedUsd: referralApplied,
+    platformCreditAppliedUsd: platformApplied,
+  };
 }
 
 /**
@@ -282,57 +325,111 @@ async function applyReferralCreditForBuyNowOrder(
  * order creation and never reset by this function — so once credit has been reserved and applied
  * for this order, `itemPriceUsd` already reflects the discount and must not be discounted again.
  *
- * Credit applies only when `applyReferralCredit` is true (buyer opt-in at checkout).
+ * Credits apply only when `applyReferralCredit` is true (buyer opt-in; referral + platform).
  */
-async function applyReferralCreditForPayOrder(
+async function applyStoreCreditsForPayOrder(
   order: {
     id: string;
     itemPriceUsd: number;
     shippingPriceUsd: number;
     taxUsd: number;
     referralCreditAppliedUsd: number;
+    platformCreditAppliedUsd: number;
   },
   buyerId: string,
-  applyReferralCredit: boolean,
-): Promise<ReferralCreditCheckoutFields> {
-  const baseUnchanged = {
-    itemPriceUsd: order.itemPriceUsd,
-    totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
-    referralCreditAppliedUsd: order.referralCreditAppliedUsd,
-  };
-
-  if (!applyReferralCredit) {
-    if (order.referralCreditAppliedUsd > 0) {
-      const restoredItem = order.itemPriceUsd + order.referralCreditAppliedUsd;
+  applyStoreCredit: boolean,
+): Promise<StoreCreditCheckoutFields> {
+  if (!applyStoreCredit) {
+    const restore =
+      (order.referralCreditAppliedUsd > 0 ? order.referralCreditAppliedUsd : 0) +
+      (order.platformCreditAppliedUsd > 0 ? order.platformCreditAppliedUsd : 0);
+    if (restore > 0) {
+      const restoredItem = order.itemPriceUsd + restore;
       const totalUsd = restoredItem + order.shippingPriceUsd + order.taxUsd;
-      await releaseReferralCreditReservation(order.id);
+      if (order.referralCreditAppliedUsd > 0) await releaseReferralCreditReservation(order.id);
+      if (order.platformCreditAppliedUsd > 0) await releasePlatformCreditReservation(order.id);
       await prisma.order.update({
         where: { id: order.id },
-        data: { itemPriceUsd: restoredItem, totalUsd, referralCreditAppliedUsd: 0 },
+        data: {
+          itemPriceUsd: restoredItem,
+          totalUsd,
+          referralCreditAppliedUsd: 0,
+          platformCreditAppliedUsd: 0,
+        },
       });
-      return { itemPriceUsd: restoredItem, totalUsd, referralCreditAppliedUsd: 0 };
+      return {
+        itemPriceUsd: restoredItem,
+        totalUsd,
+        referralCreditAppliedUsd: 0,
+        platformCreditAppliedUsd: 0,
+      };
     }
-    return { ...baseUnchanged, referralCreditAppliedUsd: 0 };
+    return {
+      itemPriceUsd: order.itemPriceUsd,
+      totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
+      referralCreditAppliedUsd: 0,
+      platformCreditAppliedUsd: 0,
+    };
   }
 
-  if (order.referralCreditAppliedUsd > 0) return baseUnchanged;
+  if (order.referralCreditAppliedUsd > 0 || order.platformCreditAppliedUsd > 0) {
+    return {
+      itemPriceUsd: order.itemPriceUsd,
+      totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
+      referralCreditAppliedUsd: order.referralCreditAppliedUsd,
+      platformCreditAppliedUsd: order.platformCreditAppliedUsd,
+    };
+  }
+
+  let itemPriceUsd = order.itemPriceUsd;
+  let referralApplied = 0;
+  let platformApplied = 0;
 
   try {
-    const maxApplyUsd = Math.max(0, order.itemPriceUsd - MIN_STRIPE_CHARGE_USD);
-    if (maxApplyUsd <= 0) return baseUnchanged;
-    const reserved = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, order.id);
-    if (reserved <= 0) return baseUnchanged;
-    const itemPriceUsd = order.itemPriceUsd - reserved;
-    const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reserved },
-    });
-    return { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reserved };
+    const maxApplyUsd = Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD);
+    if (maxApplyUsd >= 0.01) {
+      referralApplied = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, order.id);
+      if (referralApplied > 0) itemPriceUsd -= referralApplied;
+    }
   } catch (e) {
     console.error("[referral-credit] reserve failed (pay order checkout)", { orderId: order.id, error: e });
-    return baseUnchanged;
   }
+
+  try {
+    const maxApplyUsd = Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD);
+    if (maxApplyUsd >= 0.01) {
+      platformApplied = await reservePlatformCreditForCheckout(buyerId, maxApplyUsd, order.id);
+      if (platformApplied > 0) itemPriceUsd -= platformApplied;
+    }
+  } catch (e) {
+    console.error("[platform-credit] reserve failed (pay order checkout)", { orderId: order.id, error: e });
+  }
+
+  if (referralApplied <= 0 && platformApplied <= 0) {
+    return {
+      itemPriceUsd: order.itemPriceUsd,
+      totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
+      referralCreditAppliedUsd: 0,
+      platformCreditAppliedUsd: 0,
+    };
+  }
+
+  const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      itemPriceUsd,
+      totalUsd,
+      referralCreditAppliedUsd: referralApplied,
+      platformCreditAppliedUsd: platformApplied,
+    },
+  });
+  return {
+    itemPriceUsd,
+    totalUsd,
+    referralCreditAppliedUsd: referralApplied,
+    platformCreditAppliedUsd: platformApplied,
+  };
 }
 
 /**
@@ -511,6 +608,10 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
     paymentStatus: PAYMENT_PAID,
     listingStatus: "sold",
   });
+
+  void import("@/lib/giveaway/purchase-entries")
+    .then((m) => m.onOrderPaidForGiveaways(orderId))
+    .catch((e) => console.warn("[giveaway] purchase entry hook failed (escrow)", orderId, e));
 
   for (const lay of closedLayaways) {
     const { emitLayawayLifecycleSync } = await import("@/lib/marketplace/ecosystem-sync");
@@ -936,12 +1037,18 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
         error: e,
       }),
     );
+    releasePlatformCreditReservation(deletedOrderIdForCreditRelease).catch((e) =>
+      console.error("[platform-credit] release failed (stale failed order replaced)", {
+        orderId: deletedOrderIdForCreditRelease,
+        error: e,
+      }),
+    );
   }
 
   const rowEscrow = order.paymentMethod === OrderPaymentMethod.escrow;
 
   if (!rowEscrow) {
-    const credit = await applyReferralCreditForBuyNowOrder(
+    const credit = await applyStoreCreditsForBuyNowOrder(
       order,
       args.buyerId,
       args.applyReferralCredit === true,
@@ -949,6 +1056,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
     order.itemPriceUsd = credit.itemPriceUsd;
     order.totalUsd = credit.totalUsd;
     order.referralCreditAppliedUsd = credit.referralCreditAppliedUsd;
+    order.platformCreditAppliedUsd = credit.platformCreditAppliedUsd;
   }
 
   const liveRoomIdForFee = await resolveLiveRoomIdForLiveRoomItem(liveRoomItemId);
@@ -1005,6 +1113,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
         })
         .catch(() => {});
       releaseReferralCreditReservation(order.id).catch(() => {});
+      releasePlatformCreditReservation(order.id).catch(() => {});
       throw e;
     }
   }
@@ -1064,6 +1173,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
     shippingPriceUsd: order.shippingPriceUsd,
     applicationFeeCents: feeCents,
     referralCreditAppliedUsd: order.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: order.platformCreditAppliedUsd,
     sellerShipFrom: await loadSellerShipFromForTax(listing.sellerId),
   });
 
@@ -1179,6 +1289,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
       })
       .catch(() => {});
     releaseReferralCreditReservation(order.id).catch(() => {});
+    releasePlatformCreditReservation(order.id).catch(() => {});
     throw e;
   }
 }
@@ -1343,7 +1454,7 @@ export async function createPayOrderCheckoutSession(args: {
   const stripe = getStripe();
   if (!liveSavedCardSellerReady(order.seller)) throw new Error("SELLER_NOT_READY");
 
-  const payOrderCredit = await applyReferralCreditForPayOrder(
+  const payOrderCredit = await applyStoreCreditsForPayOrder(
     order,
     args.buyerId,
     args.applyReferralCredit === true,
@@ -1351,6 +1462,7 @@ export async function createPayOrderCheckoutSession(args: {
   order.itemPriceUsd = payOrderCredit.itemPriceUsd;
   order.totalUsd = payOrderCredit.totalUsd;
   order.referralCreditAppliedUsd = payOrderCredit.referralCreditAppliedUsd;
+  order.platformCreditAppliedUsd = payOrderCredit.platformCreditAppliedUsd;
 
   const feeCents = await resolveCheckoutApplicationFeeCents({
     // Fee on full item; referral credit is platform-funded and does not shrink seller basis.
@@ -1387,6 +1499,7 @@ export async function createPayOrderCheckoutSession(args: {
     shippingPriceUsd,
     applicationFeeCents: feeCents,
     referralCreditAppliedUsd: order.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: order.platformCreditAppliedUsd,
     sellerShipFrom: await loadSellerShipFromForTax(order.sellerId),
   });
 
@@ -1883,6 +1996,13 @@ export async function finalizeStripeMarketplaceOrderPaid(
   void commitReferralCreditReservation(orderId, orderId).catch((e) =>
     console.error("[referral-credit] commit failed", { orderId, error: e }),
   );
+  void commitPlatformCreditReservation(orderId, orderId).catch((e) =>
+    console.error("[platform-credit] commit failed", { orderId, error: e }),
+  );
+
+  void import("@/lib/giveaway/purchase-entries")
+    .then((m) => m.onOrderPaidForGiveaways(orderId))
+    .catch((e) => console.warn("[giveaway] purchase entry hook failed", orderId, e));
 
   void recordTaxDestinationVolumeOnOrderPaid({
     shipState: order.shipState,
@@ -2188,6 +2308,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
                 data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
               });
               releaseReferralCreditReservation(orderId).catch(() => {});
+              releasePlatformCreditReservation(orderId).catch(() => {});
               await ensureLiveRoomPaymentFailureRecorded({
                 liveRoomId: item.liveRoomId,
                 buyerId: order.buyerId,
@@ -2209,6 +2330,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
                 },
               });
               releaseReferralCreditReservation(orderId).catch(() => {});
+              releasePlatformCreditReservation(orderId).catch(() => {});
             }
           } else {
             await releaseActiveInventoryHoldsForOrderId(orderId).catch(() => {});
@@ -2221,6 +2343,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
               },
             });
             releaseReferralCreditReservation(orderId).catch(() => {});
+            releasePlatformCreditReservation(orderId).catch(() => {});
           }
         } else {
           await releaseActiveInventoryHoldsForOrderId(orderId).catch(() => {});
@@ -2233,6 +2356,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
             data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
           });
           releaseReferralCreditReservation(orderId).catch(() => {});
+          releasePlatformCreditReservation(orderId).catch(() => {});
         }
       }
       if (session.metadata?.kind === "break_spot" && session.metadata.breakSpotId) {
@@ -2770,6 +2894,9 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
           orderStatus: "cancelled",
           paymentStatus: PAYMENT_REFUNDED,
         });
+        void import("@/lib/giveaway/purchase-entries")
+          .then((m) => m.clawbackPurchaseEntriesForOrder(o.id))
+          .catch((e) => console.warn("[giveaway] purchase clawback failed (charge.refunded)", o.id, e));
       }
       break;
     }
@@ -2939,6 +3066,11 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
           orderStatus: "cancelled",
           paymentStatus: PAYMENT_CHARGEBACK,
         });
+        void import("@/lib/giveaway/purchase-entries")
+          .then((m) => m.clawbackPurchaseEntriesForOrder(order.id))
+          .catch((e) =>
+            console.warn("[giveaway] purchase clawback failed (chargeback)", order.id, e),
+          );
       }
       break;
     }

@@ -773,6 +773,12 @@ model User {
   sellerShippingProfiles             SellerShippingProfile[]
   notificationBroadcastsSent         NotificationBroadcast[]     @relation("NotificationBroadcastCreatedBy")
   referralCredits                    ReferralCredit[]            @relation("ReferralCreditOwner")
+  platformCredits                    PlatformCredit[]            @relation("PlatformCreditOwner")
+  giveawayEntryLedgers               GiveawayEntryLedger[]
+  giveawayFraudFlags                 GiveawayFraudFlag[]
+  giveawayCampaignsWon               GiveawayCampaign[]          @relation("GiveawayCampaignWinner")
+  giveawayDrawsWon                   GiveawayDraw[]              @relation("GiveawayDrawWinner")
+  giveawayDrawsAsAdmin               GiveawayDraw[]              @relation("GiveawayDrawAdmin")
   appPresence                        UserAppPresence[]
 }
 
@@ -1933,6 +1939,9 @@ model Order {
   /// Referral credit applied to this order's charge (USD) — buyer-facing order summary + audit.
   /// Informational only; ledger truth is `ReferralCredit` rows with `spentOrderId` = this order.
   referralCreditAppliedUsd   Float                      @default(0)
+  /// Platform / giveaway store credit applied to this order's charge (USD).
+  platformCreditAppliedUsd   Float                      @default(0)
+  platformCreditsSpent       PlatformCredit[]           @relation("PlatformCreditSpentOrder")
   createdAt                  DateTime                   @default(now())
   updatedAt                  DateTime                   @updatedAt
 
@@ -2031,6 +2040,157 @@ model ReferralCredit {
   @@unique([sourceOrderId, role])
   @@index([userId, status])
   @@index([status, availableAt])
+}
+
+// ---------------------------------------------------------------------------
+// Platform giveaway campaigns (site-wide; separate from live-room LiveGiveaway)
+// ---------------------------------------------------------------------------
+
+enum GiveawayCampaignStatus {
+  draft
+  scheduled
+  active
+  paused
+  ended
+  cancelled
+}
+
+enum GiveawayPrizeType {
+  platform_credit
+  cash
+  product
+  custom
+}
+
+enum GiveawayEntryType {
+  existing_user
+  new_signup
+  referral
+  purchase
+  manual_adjustment
+}
+
+enum GiveawayDrawStatus {
+  pending_confirm
+  confirmed
+  superseded
+}
+
+enum PlatformCreditStatus {
+  available
+  reserved
+  spent
+  voided
+}
+
+enum PlatformCreditSourceType {
+  giveaway_prize
+  admin_grant
+}
+
+/// Site-wide giveaway campaign (e.g. $500 Get Vaulted Credit). Configurable from admin.
+model GiveawayCampaign {
+  id                 String                 @id @default(cuid())
+  slug               String                 @unique
+  title              String
+  description        String                 @default("")
+  rulesText          String                 @default("")
+  prizeType          GiveawayPrizeType      @default(platform_credit)
+  prizeAmountUsd     Float                  @default(0)
+  prizeLabel         String                 @default("")
+  prizeMetadata      Json?
+  status             GiveawayCampaignStatus @default(draft)
+  startsAt           DateTime
+  endsAt             DateTime
+  winnerUserId       String?
+  winnerUser         User?                  @relation("GiveawayCampaignWinner", fields: [winnerUserId], references: [id], onDelete: SetNull)
+  winnerConfirmedAt  DateTime?
+  prizeAwardedAt     DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  entries    GiveawayEntryLedger[]
+  fraudFlags GiveawayFraudFlag[]
+  draws      GiveawayDraw[]
+
+  @@index([status, startsAt, endsAt])
+}
+
+/// Append-only entry ledger — never store entry counts on User.
+model GiveawayEntryLedger {
+  id             String            @id @default(cuid())
+  campaignId     String
+  campaign       GiveawayCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entryType      GiveawayEntryType
+  quantity       Int               @default(1)
+  source         String
+  idempotencyKey String            @unique
+  metadata       Json?
+  createdAt      DateTime          @default(now())
+
+  @@index([campaignId, userId])
+  @@index([campaignId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model GiveawayFraudFlag {
+  id         String            @id @default(cuid())
+  campaignId String?
+  campaign   GiveawayCampaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reason     String
+  detail     String            @default("")
+  createdAt  DateTime          @default(now())
+
+  @@index([campaignId, userId])
+  @@index([userId, createdAt])
+  @@unique([campaignId, userId, reason])
+}
+
+model GiveawayDraw {
+  id             String             @id @default(cuid())
+  campaignId     String
+  campaign       GiveawayCampaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  winnerUserId   String
+  winnerUser     User               @relation("GiveawayDrawWinner", fields: [winnerUserId], references: [id], onDelete: Cascade)
+  totalEntries   Int
+  totalEntrants  Int
+  drawSeed       String
+  drawHash       String
+  isRedraw       Boolean            @default(false)
+  redrawReason   String?
+  adminUserId    String
+  adminUser      User               @relation("GiveawayDrawAdmin", fields: [adminUserId], references: [id], onDelete: Cascade)
+  status         GiveawayDrawStatus @default(pending_confirm)
+  createdAt      DateTime           @default(now())
+
+  @@index([campaignId, createdAt])
+}
+
+/// Spendable Get Vaulted Credit (giveaway prizes, admin grants). Not withdrawable.
+model PlatformCredit {
+  id             String                   @id @default(cuid())
+  userId         String
+  user           User                     @relation("PlatformCreditOwner", fields: [userId], references: [id], onDelete: Cascade)
+  amountUsd      Float
+  status         PlatformCreditStatus     @default(available)
+  sourceType     PlatformCreditSourceType
+  sourceRef      String
+  reservedForRef String?
+  reservedAt     DateTime?
+  spentOrderId   String?
+  spentOrder     Order?                   @relation("PlatformCreditSpentOrder", fields: [spentOrderId], references: [id], onDelete: SetNull)
+  spentAt        DateTime?
+  voidedAt       DateTime?
+  voidReason     String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  @@unique([sourceType, sourceRef])
+  @@index([userId, status])
 }
 
 /// Persistent seller metrics for payout tier eligibility and risk review.

@@ -341,16 +341,19 @@ export async function buildMarketplaceCheckoutTaxBundle(args: {
   shippingPriceUsd: number;
   applicationFeeCents: number;
   /**
-   * Platform-funded referral credit already subtracted from `itemPriceUsd`. Seller transfer uses
+   * Platform-funded store credit already subtracted from `itemPriceUsd`. Seller transfer uses
    * the full item so the seller is not cut.
    */
   referralCreditAppliedUsd?: number | null;
+  platformCreditAppliedUsd?: number | null;
   sellerShipFrom?: ShipFromAddress | null;
 }): Promise<MarketplaceCheckoutTaxBundle> {
   const shipTo = normalizeShipToAddress(args.shipTo);
   const sellerShipFrom = args.sellerShipFrom ? normalizeShipFromAddress(args.sellerShipFrom) : null;
   const itemCents = Math.round(Math.max(0, args.itemPriceUsd) * 100);
-  const creditCents = Math.round(Math.max(0, args.referralCreditAppliedUsd ?? 0) * 100);
+  const creditCents =
+    Math.round(Math.max(0, args.referralCreditAppliedUsd ?? 0) * 100) +
+    Math.round(Math.max(0, args.platformCreditAppliedUsd ?? 0) * 100);
   const fullItemCents = itemCents + creditCents;
   const shippingCents = Math.round(Math.max(0, args.shippingPriceUsd) * 100);
   const feeCents = Math.max(0, Math.round(args.applicationFeeCents));

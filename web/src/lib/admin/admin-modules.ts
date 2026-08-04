@@ -18,7 +18,8 @@ export type AdminModuleId =
   | "orders"
   | "reports"
   | "tax"
-  | "referrals";
+  | "referrals"
+  | "giveaways";
 
 export type AdminModuleDef = {
   id: AdminModuleId;
@@ -175,6 +176,13 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
     href: "/admin/referrals",
     accent: "gold",
   },
+  {
+    id: "giveaways",
+    title: "Giveaways",
+    description: "Platform credit giveaways — entries, draws, winners, and prize awards.",
+    href: "/admin/giveaways",
+    accent: "emerald",
+  },
 ];
 
 export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
@@ -195,6 +203,7 @@ export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
     "app-banner",
     "health",
     "referrals",
+    "giveaways",
   ].includes(m.id),
 );
 
@@ -218,6 +227,7 @@ export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[]
   { href: "/admin/app-banner", label: "Home banner" },
   { href: "/admin/health", label: "Health" },
   { href: "/admin/referrals", label: "Referrals" },
+  { href: "/admin/giveaways", label: "Giveaways" },
   { href: "/admin/tax", label: "Tax" },
 ];
 

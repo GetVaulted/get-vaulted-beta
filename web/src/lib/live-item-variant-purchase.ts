@@ -29,6 +29,7 @@ import { ACTIVE_REFUND_REQUEST_STATUSES } from "@/lib/order-refund-eligibility";
 import { reportUrgentPaymentAnomaly } from "@/lib/cron-anomaly-alert";
 import { OrderRefundRequestKind, OrderRefundRequestStatus } from "@/generated/prisma/enums";
 import { releaseReferralCreditReservation } from "@/lib/referral-credit";
+import { releasePlatformCreditReservation } from "@/lib/giveaway/platform-credit";
 
 function siteUrl(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
@@ -316,6 +317,13 @@ export async function releaseVariantPurchaseOnCheckoutExpired(purchaseId: string
   if (purchase.fulfillmentOrderId) {
     releaseReferralCreditReservation(purchase.fulfillmentOrderId).catch((e) =>
       console.error("[referral-credit] release failed (variant purchase checkout expired)", {
+        purchaseId,
+        orderId: purchase.fulfillmentOrderId,
+        error: e,
+      }),
+    );
+    releasePlatformCreditReservation(purchase.fulfillmentOrderId).catch((e) =>
+      console.error("[platform-credit] release failed (variant purchase checkout expired)", {
         purchaseId,
         orderId: purchase.fulfillmentOrderId,
         error: e,

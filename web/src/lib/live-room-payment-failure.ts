@@ -16,6 +16,7 @@ import { finalizeBreakSpotPaid, releaseBreakSpotOnDefiniteFailure } from "@/lib/
 import { releaseActiveInventoryHoldsForOrderId } from "@/lib/live-auction-inventory-hold";
 import { prisma } from "@/lib/prisma";
 import { releaseReferralCreditReservation } from "@/lib/referral-credit";
+import { releasePlatformCreditReservation } from "@/lib/giveaway/platform-credit";
 import {
   emitLiveRoomPaymentFailed,
   emitLiveRoomPaymentRecovered,
@@ -972,6 +973,12 @@ export async function cancelLiveRoomPaymentFailureBySeller(args: {
       .catch(() => {});
     releaseReferralCreditReservation(failure.orderId).catch((e) =>
       console.error("[referral-credit] release failed (host cancel payment retry)", {
+        orderId: failure.orderId,
+        error: e,
+      }),
+    );
+    releasePlatformCreditReservation(failure.orderId).catch((e) =>
+      console.error("[platform-credit] release failed (host cancel payment retry)", {
         orderId: failure.orderId,
         error: e,
       }),

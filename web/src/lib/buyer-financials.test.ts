@@ -6,6 +6,7 @@ const hoisted = vi.hoisted(() => ({
   variantFindMany: vi.fn(),
   layawayFindMany: vi.fn(),
   getUserReferralSummary: vi.fn(),
+  getAvailablePlatformCreditUsd: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -19,6 +20,10 @@ vi.mock("@/lib/prisma", () => ({
 
 vi.mock("@/lib/referral-credit", () => ({
   getUserReferralSummary: hoisted.getUserReferralSummary,
+}));
+
+vi.mock("@/lib/giveaway/platform-credit", () => ({
+  getAvailablePlatformCreditUsd: hoisted.getAvailablePlatformCreditUsd,
 }));
 
 import { buildBuyerFinancialsSummary } from "./buyer-financials";
@@ -37,6 +42,7 @@ describe("buildBuyerFinancialsSummary", () => {
       referralCode: "ABC",
       successfulReferrals: 1,
     });
+    hoisted.getAvailablePlatformCreditUsd.mockResolvedValue(0);
   });
 
   it("sums marketplace vs live spent without double-counting orphan live rows", async () => {

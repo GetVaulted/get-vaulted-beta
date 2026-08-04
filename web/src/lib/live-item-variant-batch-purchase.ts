@@ -7,6 +7,7 @@ import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 import { reportUrgentPaymentAnomaly } from "@/lib/cron-anomaly-alert";
 import { finalizeStripeMarketplaceOrderPaid } from "@/services/payments";
 import { releaseReferralCreditReservation } from "@/lib/referral-credit";
+import { releasePlatformCreditReservation } from "@/lib/giveaway/platform-credit";
 import { prisma } from "@/lib/prisma";
 import { isLiveRoomOpenForSpotPurchase } from "@/lib/live-room-commerce-guards";
 import {
@@ -178,6 +179,13 @@ export async function releaseVariantPurchaseBatchOnCheckoutExpired(batchId: stri
   if (fulfillmentOrderId) {
     releaseReferralCreditReservation(fulfillmentOrderId).catch((e) =>
       console.error("[referral-credit] release failed (variant batch checkout expired)", {
+        batchId,
+        orderId: fulfillmentOrderId,
+        error: e,
+      }),
+    );
+    releasePlatformCreditReservation(fulfillmentOrderId).catch((e) =>
+      console.error("[platform-credit] release failed (variant batch checkout expired)", {
         batchId,
         orderId: fulfillmentOrderId,
         error: e,

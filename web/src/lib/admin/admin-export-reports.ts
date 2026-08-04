@@ -24,6 +24,7 @@ export const ADMIN_EXPORT_REPORT_IDS = [
   "seller-risk",
   "refund-requests",
   "live-shows",
+  "giveaway-entrants",
 ] as const;
 
 export type AdminExportReportId = (typeof ADMIN_EXPORT_REPORT_IDS)[number];
@@ -40,6 +41,7 @@ export type AdminExportParams = {
   pending?: string;
   from?: string;
   to?: string;
+  campaignId?: string;
 };
 
 function centsToUsd(cents: number): string {
@@ -94,6 +96,8 @@ export async function buildAdminExportPayload(
       return buildRefundRequestsExport();
     case "live-shows":
       return buildLiveShowsExport(params.status);
+    case "giveaway-entrants":
+      return buildGiveawayEntrantsExport(params.campaignId);
     default: {
       const _exhaustive: never = report;
       throw new Error(`Unsupported export report: ${_exhaustive}`);
@@ -536,6 +540,46 @@ async function buildLiveShowsExport(statusRaw: string | undefined): Promise<CsvE
       r.endedAt?.toISOString() ?? "",
       r.lastIvsError ?? "",
     ]),
+  };
+}
+
+async function buildGiveawayEntrantsExport(campaignId: string | undefined): Promise<CsvExportPayload> {
+  if (!campaignId?.trim()) {
+    throw new Error("campaignId required for giveaway-entrants export");
+  }
+  const id = campaignId.trim();
+  const campaign = await prisma.giveawayCampaign.findUnique({
+    where: { id },
+    select: { slug: true, title: true },
+  });
+  const grouped = await prisma.giveawayEntryLedger.groupBy({
+    by: ["userId"],
+    where: { campaignId: id },
+    _sum: { quantity: true },
+  });
+  const users = await prisma.user.findMany({
+    where: { id: { in: grouped.map((g) => g.userId) } },
+    select: { id: true, username: true, email: true, emailVerified: true, createdAt: true },
+  });
+  const byId = new Map(users.map((u) => [u.id, u]));
+  const rows = grouped
+    .map((g) => {
+      const u = byId.get(g.userId);
+      return [
+        g.userId,
+        u?.username ?? "",
+        u?.email ?? "",
+        u?.emailVerified?.toISOString() ?? "",
+        u?.createdAt.toISOString() ?? "",
+        String(g._sum.quantity ?? 0),
+      ];
+    })
+    .sort((a, b) => Number(b[5]) - Number(a[5]));
+
+  return {
+    filename: `giveaway-entrants-${campaign?.slug ?? id}`,
+    headers: ["userId", "username", "email", "emailVerified", "accountCreatedAt", "totalEntries"],
+    rows,
   };
 }
 

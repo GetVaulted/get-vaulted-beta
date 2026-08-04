@@ -926,6 +926,10 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
     orderStatus: "cancelled",
     paymentStatus: PAYMENT_REFUNDED,
   });
+
+  void import("@/lib/giveaway/purchase-entries")
+    .then((m) => m.clawbackPurchaseEntriesForOrder(order.id))
+    .catch((e) => console.warn("[giveaway] purchase clawback failed (refund)", order.id, e));
 }
 
 export class RefundRequestError extends Error {

@@ -8,17 +8,23 @@
  * shipping (platform fee bottoms at $0; seller cannot be paid more than the charge allows).
  */
 
-/** Full item price for platform fee and seller payout when referral credit reduced the buyer line. */
+/** Full item price for platform fee and seller payout when store credit reduced the buyer line. */
 export function orderItemSaleBasisUsd(order: {
   itemPriceUsd: number;
   referralCreditAppliedUsd?: number | null;
+  platformCreditAppliedUsd?: number | null;
 }): number {
-  return Math.max(0, order.itemPriceUsd) + Math.max(0, order.referralCreditAppliedUsd ?? 0);
+  return (
+    Math.max(0, order.itemPriceUsd) +
+    Math.max(0, order.referralCreditAppliedUsd ?? 0) +
+    Math.max(0, order.platformCreditAppliedUsd ?? 0)
+  );
 }
 
 export function orderItemSaleBasisCents(order: {
   itemPriceUsd: number;
   referralCreditAppliedUsd?: number | null;
+  platformCreditAppliedUsd?: number | null;
 }): number {
   return Math.round(orderItemSaleBasisUsd(order) * 100);
 }
@@ -27,4 +33,10 @@ export function referralCreditAppliedCents(order: {
   referralCreditAppliedUsd?: number | null;
 }): number {
   return Math.round(Math.max(0, order.referralCreditAppliedUsd ?? 0) * 100);
+}
+
+export function platformCreditAppliedCents(order: {
+  platformCreditAppliedUsd?: number | null;
+}): number {
+  return Math.round(Math.max(0, order.platformCreditAppliedUsd ?? 0) * 100);
 }

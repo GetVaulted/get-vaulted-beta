@@ -5,6 +5,7 @@ import {
   zonedLocalToUtc,
 } from "@/lib/calendar-day-bounds";
 import { prisma } from "@/lib/prisma";
+import { getAvailablePlatformCreditUsd } from "@/lib/giveaway/platform-credit";
 import { getUserReferralSummary } from "@/lib/referral-credit";
 import {
   PAYMENT_FAILED,
@@ -38,6 +39,7 @@ export type BuyerFinancialsSummary = {
   layawayRemainingUsd: number;
   referralCreditUsd: number;
   referralCreditPendingUsd: number;
+  vaultCreditsUsd: number;
   paidOrderCount: number;
   activity: BuyerFinancialActivityRow[];
 };
@@ -100,7 +102,7 @@ export async function buildBuyerFinancialsSummary(
   const { start: todayStart, end: todayEnd } = calendarDayBoundsUtc(day, timeZone);
   const { start: monthStart, end: monthEnd } = monthBoundsUtc(day, timeZone);
 
-  const [orders, breakSpots, variantPurchases, layaways, referral] = await Promise.all([
+  const [orders, breakSpots, variantPurchases, layaways, referral, vaultCreditsUsd] = await Promise.all([
     prisma.order.findMany({
       where: { buyerId: userId },
       orderBy: { createdAt: "desc" },
@@ -165,6 +167,7 @@ export async function buildBuyerFinancialsSummary(
       take: 100,
     }),
     getUserReferralSummary(userId),
+    getAvailablePlatformCreditUsd(userId),
   ]);
 
   type SpendRow = {
@@ -328,6 +331,7 @@ export async function buildBuyerFinancialsSummary(
     layawayRemainingUsd,
     referralCreditUsd: money(referral.availableUsd),
     referralCreditPendingUsd: money(referral.pendingUsd),
+    vaultCreditsUsd: money(vaultCreditsUsd),
     paidOrderCount: spendRows.length,
     activity: activity.slice(0, 50),
   };
