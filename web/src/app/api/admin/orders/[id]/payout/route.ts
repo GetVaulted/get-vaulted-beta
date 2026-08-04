@@ -282,6 +282,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ ok: true, payoutStatus: OrderPayoutStatus.manual_review });
   }
 
+  if (action === "mark_already_paid") {
+    const { markOrderBankPayoutAlreadyPaid } = await import("@/lib/admin/reconcile-stripe-bank-payouts");
+    const marked = await markOrderBankPayoutAlreadyPaid({
+      orderId,
+      adminId: gate.userId,
+      reason,
+    });
+    if (!marked.ok) {
+      return NextResponse.json({ error: marked.error }, { status: 400 });
+    }
+    return NextResponse.json({ ok: true, payoutStatus: OrderPayoutStatus.paid_out });
+  }
+
   if (action === "reevaluate") {
     await processDeliveryPayoutEvaluation(orderId);
     const fresh = await prisma.order.findUnique({
@@ -292,7 +305,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   return NextResponse.json(
-    { error: "Invalid action. Use release_payout, block_payout, manual_review, or reevaluate." },
+    {
+      error:
+        "Invalid action. Use release_payout, block_payout, manual_review, mark_already_paid, or reevaluate.",
+    },
     { status: 400 },
   );
 }

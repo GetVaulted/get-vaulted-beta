@@ -34,7 +34,9 @@ export function AdminBankPayoutsPage() {
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
   const [reason, setReason] = useState("Admin bank payout release");
 
   const load = useCallback(async () => {
@@ -70,6 +72,38 @@ export function AdminBankPayoutsPage() {
     return [...map.values()].sort((a, b) => b.netUsd - a.netUsd);
   }, [data?.orders]);
 
+  const syncStripe = async () => {
+    setSyncing(true);
+    setError(null);
+    setSyncNote(null);
+    try {
+      const res = await fetch("/api/admin/payouts/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        healedLocal?: number;
+        matchedFromStripe?: number;
+        sellersScanned?: number;
+      };
+      if (!res.ok) {
+        setError(typeof j.error === "string" ? j.error : "Sync failed.");
+        return;
+      }
+      const healed = (j.healedLocal ?? 0) + (j.matchedFromStripe ?? 0);
+      setSyncNote(
+        healed > 0
+          ? `Synced ${healed} already-paid order${healed === 1 ? "" : "s"} off the queue (scanned ${j.sellersScanned ?? 0} sellers).`
+          : `No changes — queue already matches Stripe bank payouts (${j.sellersScanned ?? 0} sellers scanned).`,
+      );
+      await load();
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const release = async (orderId: string) => {
     if (!reason.trim()) {
       setError("Reason is required.");
@@ -94,18 +128,62 @@ export function AdminBankPayoutsPage() {
     }
   };
 
+  const markAlreadyPaid = async (orderId: string) => {
+    if (!reason.trim()) {
+      setError("Reason is required.");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Mark this order as already bank-paid? Use this when Stripe/Dashboard already paid the seller and the queue is stale.",
+      )
+    ) {
+      return;
+    }
+    setBusyId(`mark:${orderId}`);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}/payout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "mark_already_paid",
+          reason: reason.trim() || "Already paid — admin sync",
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(typeof j.error === "string" ? j.error : "Could not mark paid.");
+        return;
+      }
+      await load();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <AdminCommandShell
       title="Bank payouts"
       subtitle="Stripe sellers whose orders are shipped and label-settled — push Connect bank payouts here so you don’t forget."
       actions={
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:bg-white/[0.04]"
-        >
-          Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void syncStripe()}
+            disabled={syncing}
+            className="rounded-lg border border-sky-500/35 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-100 disabled:opacity-50 hover:bg-sky-500/15"
+          >
+            {syncing ? "Syncing…" : "Sync with Stripe"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:bg-white/[0.04]"
+          >
+            Refresh
+          </button>
+        </div>
       }
     >
       {loading && !data ? (
@@ -117,7 +195,8 @@ export function AdminBankPayoutsPage() {
               <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Ready to push</p>
               <p className="mt-1 font-display text-3xl font-black text-foreground">{data?.count ?? 0}</p>
               <p className="mt-1 text-xs text-zinc-500">
-                Funds are held on Connect until you release. Label clawback already ran.
+                Funds are held on Connect until you release. Label clawback already ran. Use Sync if a
+                seller was already paid in Stripe.
               </p>
             </div>
             <label className="flex min-w-[240px] flex-1 flex-col gap-1">
@@ -131,6 +210,12 @@ export function AdminBankPayoutsPage() {
               />
             </label>
           </div>
+
+          {syncNote ? (
+            <p className="mb-4 rounded-lg border border-sky-400/25 bg-sky-950/30 px-3 py-2 text-sm text-sky-100">
+              {syncNote}
+            </p>
+          ) : null}
 
           {error ? (
             <p className="mb-4 rounded-lg border border-rose-400/25 bg-rose-950/30 px-3 py-2 text-sm text-rose-100">
@@ -187,7 +272,7 @@ export function AdminBankPayoutsPage() {
                                 : ""}
                             </p>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="font-mono text-sm text-zinc-200">{money(o.estimatedNetUsd)}</span>
                             <button
                               type="button"
@@ -196,6 +281,14 @@ export function AdminBankPayoutsPage() {
                               className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-200 disabled:opacity-50"
                             >
                               {busyId === o.orderId ? "Pushing…" : "Push payout"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busyId === `mark:${o.orderId}`}
+                              onClick={() => void markAlreadyPaid(o.orderId)}
+                              className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] font-semibold text-zinc-400 hover:text-zinc-200 disabled:opacity-50"
+                            >
+                              {busyId === `mark:${o.orderId}` ? "Saving…" : "Already paid"}
                             </button>
                           </div>
                         </li>

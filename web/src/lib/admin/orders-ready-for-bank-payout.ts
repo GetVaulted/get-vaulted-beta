@@ -1,3 +1,4 @@
+import type { Prisma } from "@/generated/prisma/client";
 import { OrderPayoutStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import {
@@ -10,6 +11,7 @@ import {
   orderLabelClawbackSettledForBankPayout,
   orderLooksShippedForBankPayout,
 } from "@/services/payout/stripe-seller-payout";
+import { adminBankPayoutNotAlreadyPaidWhere } from "@/lib/admin/reconcile-stripe-bank-payouts";
 
 /** Orders waiting for an admin to push the Stripe bank payout. */
 export const ADMIN_BANK_PAYOUT_READY_STATUSES: OrderPayoutStatus[] = [
@@ -33,37 +35,29 @@ export type AdminBankPayoutReadyRow = {
   labelReversedCents: number;
   liveShippingSessionId: string | null;
   createdAt: string;
+  processorTransferId: string | null;
+};
+
+const readyBaseWhere: Prisma.OrderWhereInput = {
+  paymentStatus: "paid",
+  sellerPayoutProcessor: { not: "PAYPAL" },
+  payoutStatus: { in: ADMIN_BANK_PAYOUT_READY_STATUSES },
+  AND: [adminBankPayoutNotAlreadyPaidWhere],
+  OR: [
+    { shippedAt: { not: null } },
+    { carrierAcceptedAt: { not: null } },
+    { fulfillmentStatus: { in: ["shipped", "in_transit", "out_for_delivery", "delivered"] } },
+    { status: { in: ["shipped", "delivered"] } },
+  ],
 };
 
 export async function countOrdersReadyForAdminBankPayout(): Promise<number> {
-  return prisma.order.count({
-    where: {
-      paymentStatus: "paid",
-      sellerPayoutProcessor: { not: "PAYPAL" },
-      payoutStatus: { in: ADMIN_BANK_PAYOUT_READY_STATUSES },
-      OR: [
-        { shippedAt: { not: null } },
-        { carrierAcceptedAt: { not: null } },
-        { fulfillmentStatus: { in: ["shipped", "in_transit", "out_for_delivery", "delivered"] } },
-        { status: { in: ["shipped", "delivered"] } },
-      ],
-    },
-  });
+  return prisma.order.count({ where: readyBaseWhere });
 }
 
 export async function listOrdersReadyForAdminBankPayout(limit = 100): Promise<AdminBankPayoutReadyRow[]> {
   const rows = await prisma.order.findMany({
-    where: {
-      paymentStatus: "paid",
-      sellerPayoutProcessor: { not: "PAYPAL" },
-      payoutStatus: { in: ADMIN_BANK_PAYOUT_READY_STATUSES },
-      OR: [
-        { shippedAt: { not: null } },
-        { carrierAcceptedAt: { not: null } },
-        { fulfillmentStatus: { in: ["shipped", "in_transit", "out_for_delivery", "delivered"] } },
-        { status: { in: ["shipped", "delivered"] } },
-      ],
-    },
+    where: readyBaseWhere,
     orderBy: [{ shippedAt: "asc" }, { createdAt: "asc" }],
     take: Math.min(200, Math.max(1, limit)),
     select: {
@@ -73,6 +67,7 @@ export async function listOrdersReadyForAdminBankPayout(limit = 100): Promise<Ad
       shippingPriceUsd: true,
       paymentStatus: true,
       payoutStatus: true,
+      processorTransferId: true,
       shippedAt: true,
       carrierAcceptedAt: true,
       shippingLabelCostCents: true,
@@ -111,8 +106,8 @@ export async function listOrdersReadyForAdminBankPayout(limit = 100): Promise<Ad
         shippingPriceUsd: o.shippingPriceUsd,
         platformFeePercent: feePct,
         payoutReserveAmountCents: 0,
-        shippingLabelCostCents: o.shippingLabelCostCents,
-        shippingLabelCostReversedCents: o.shippingLabelCostReversedCents,
+        shippingLabelCostCents: o.shippingLabelCostCents ?? 0,
+        shippingLabelCostReversedCents: o.shippingLabelCostReversedCents ?? 0,
       });
       return {
         orderId: o.id,
@@ -125,10 +120,11 @@ export async function listOrdersReadyForAdminBankPayout(limit = 100): Promise<Ad
         payoutStatus: o.payoutStatus,
         shippedAt: o.shippedAt?.toISOString() ?? null,
         carrierAcceptedAt: o.carrierAcceptedAt?.toISOString() ?? null,
-        labelCostCents: o.shippingLabelCostCents,
-        labelReversedCents: o.shippingLabelCostReversedCents,
+        labelCostCents: o.shippingLabelCostCents ?? 0,
+        labelReversedCents: o.shippingLabelCostReversedCents ?? 0,
         liveShippingSessionId: o.liveShippingSessionId,
         createdAt: o.createdAt.toISOString(),
+        processorTransferId: o.processorTransferId,
       };
     });
 }
