@@ -511,6 +511,8 @@ export async function supportResolveRefundRequest(args: {
   adminUserId: string;
   approve: boolean;
   note?: string;
+  /** When approving a return escalation, skip the ship-back step and refund immediately. */
+  forceRefund?: boolean;
 }) {
   const req = await prisma.orderRefundRequest.findUnique({
     where: { id: args.requestId },
@@ -530,12 +532,32 @@ export async function supportResolveRefundRequest(args: {
   const now = new Date();
 
   if (args.approve) {
-    if (req.kind === OrderRefundRequestKind.cancel) {
+    if (req.kind === OrderRefundRequestKind.cancel || args.forceRefund) {
       await prisma.orderRefundRequest.update({
         where: { id: req.id },
-        data: { supportNote: note, supportResolvedAt: now },
+        data: {
+          supportNote: note,
+          supportResolvedAt: now,
+          ...(req.kind === OrderRefundRequestKind.return
+            ? { returnReceivedAt: req.returnReceivedAt ?? now }
+            : {}),
+        },
       });
       await executeOrderRefund(order.id, req.id);
+      await createNotification(prisma, {
+        userId: order.buyerId,
+        type: "order_refund_support_approved",
+        title: "Support issued refund",
+        body: `Get Vaulted support approved and refunded “${lt}”.`,
+        href: `/orders/${encodeURIComponent(order.id)}`,
+      });
+      await createNotification(prisma, {
+        userId: order.sellerId,
+        type: "order_refund_support_approved_seller",
+        title: "Support issued refund",
+        body: `Support refunded the buyer for “${lt}”.`,
+        href: `/account/sales/${encodeURIComponent(order.id)}`,
+      });
     } else {
       await prisma.orderRefundRequest.update({
         where: { id: req.id },
@@ -584,6 +606,86 @@ export async function supportResolveRefundRequest(args: {
       href: `/account/sales/${encodeURIComponent(order.id)}`,
     });
   }
+
+  const updated = await prisma.orderRefundRequest.findUniqueOrThrow({ where: { id: req.id } });
+  return serializeOrderRefundRequest(updated);
+}
+
+const ADMIN_FORCE_REFUND_STATUSES: OrderRefundRequestStatus[] = [
+  OrderRefundRequestStatus.pending_seller,
+  OrderRefundRequestStatus.awaiting_return,
+  OrderRefundRequestStatus.return_in_transit,
+  OrderRefundRequestStatus.escalated,
+  OrderRefundRequestStatus.seller_denied,
+];
+
+/**
+ * Admin override: issue the Stripe refund immediately without waiting for return tracking /
+ * seller confirm. Used when support assigns the refund (e.g. dispute override).
+ */
+export async function adminForceRefundRequest(args: {
+  requestId: string;
+  adminUserId: string;
+  note?: string;
+}) {
+  const req = await prisma.orderRefundRequest.findUnique({
+    where: { id: args.requestId },
+    include: {
+      order: { select: ORDER_SELECT },
+    },
+  });
+  if (!req) throw new RefundRequestError("NOT_FOUND", 404);
+  if (req.status === OrderRefundRequestStatus.refunded) {
+    return serializeOrderRefundRequest(req);
+  }
+  if (req.status === OrderRefundRequestStatus.refund_processing) {
+    throw new RefundRequestError("REFUND_ALREADY_PROCESSING", 409);
+  }
+  if (!ADMIN_FORCE_REFUND_STATUSES.includes(req.status)) {
+    throw new RefundRequestError("NOT_FORCEABLE", 400);
+  }
+
+  const order = req.order;
+  const lt = listingTitleShort(order.listing.title);
+  const note =
+    trimStr(args.note, 2000) ||
+    `Admin force refund by ${args.adminUserId} (override return flow)`;
+  const now = new Date();
+
+  await prisma.orderRefundRequest.update({
+    where: { id: req.id },
+    data: {
+      supportNote: note,
+      supportResolvedAt: now,
+      ...(req.kind === OrderRefundRequestKind.return
+        ? { returnReceivedAt: req.returnReceivedAt ?? now }
+        : {}),
+    },
+  });
+
+  console.warn("[order-refund] admin force refund", {
+    requestId: req.id,
+    orderId: order.id,
+    adminUserId: args.adminUserId,
+    previousStatus: req.status,
+  });
+
+  await executeOrderRefund(order.id, req.id);
+
+  await createNotification(prisma, {
+    userId: order.buyerId,
+    type: "order_refund_admin_force",
+    title: "Refund issued",
+    body: `Get Vaulted issued a refund for “${lt}”.`,
+    href: `/orders/${encodeURIComponent(order.id)}`,
+  });
+  await createNotification(prisma, {
+    userId: order.sellerId,
+    type: "order_refund_admin_force_seller",
+    title: "Buyer refunded by support",
+    body: `Support refunded the buyer for “${lt}”.`,
+    href: `/account/sales/${encodeURIComponent(order.id)}`,
+  });
 
   const updated = await prisma.orderRefundRequest.findUniqueOrThrow({ where: { id: req.id } });
   return serializeOrderRefundRequest(updated);
