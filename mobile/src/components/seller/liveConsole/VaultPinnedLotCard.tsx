@@ -433,8 +433,8 @@ export function VaultPinnedLotCard({
           <Text style={[styles.meta, compact && styles.metaCompact]}>
             {pinnedVariant && !item.biddingOpen
               ? `${pinnedVariant.label} pinned · ${item.activeSpotCommerceMode === 'auction' ? 'ready to auction' : 'buy now — or Start Auction'}`
-              : spotStats.available > 0
-                ? `${spotStats.available} spot${spotStats.available === 1 ? '' : 's'} available`
+                  : spotStats.available > 0
+                ? `${spotStats.available} of ${spotStats.available + spotStats.sold} spots available`
                 : 'All spots sold'}
           </Text>
         ) : hostOverlayMinimal ? null : isBuyNowItem && item.status === 'active' ? (

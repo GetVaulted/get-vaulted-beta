@@ -239,7 +239,7 @@ export function LiveSellerCommandCenter({
   const spotStats = isVariantItem ? summarizeVariantSpots(commerceItem?.variants) : null;
   const leaderLine = item
     ? isVariantItem && spotStats
-      ? `${spotStats.available} spots open · ${spotStats.sold} sold`
+      ? `${spotStats.available} of ${spotStats.available + spotStats.sold} spots open · ${spotStats.sold} sold`
       : formatAuctionLeaderLine({
           lastHighBidderUsername: item.lastHighBidderUsername,
           lastHighBidderId: item.lastHighBidderId,

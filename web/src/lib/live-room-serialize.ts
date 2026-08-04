@@ -221,7 +221,8 @@ export function serializeLiveRoomItem(
       : Math.max(1, quantity);
   const salesFormat = (row as { salesFormat?: LiveItemSalesFormat }).salesFormat ?? "auction";
   // PYT/PYD progress comes from variant soldCount — not BreakSpot claims (often 0 for variant lots).
-  const variantUnitsClaimed =
+  // Item.quantityInitial is forced to 1 at create for variant formats, so pool size must come from variants.
+  const variantSpotSummary =
     isVariantSalesFormat(salesFormat) && Array.isArray(row.variants) && row.variants.length > 0
       ? summarizeVariantSpots(
           row.variants.map((v) => ({
@@ -230,14 +231,21 @@ export function serializeLiveRoomItem(
             status: v.status,
             priceUsd: v.priceUsd,
           })),
-        ).sold
+        )
       : null;
   const unitsClaimed =
-    variantUnitsClaimed != null ? variantUnitsClaimed : (options?.unitsClaimed ?? null);
+    variantSpotSummary != null ? variantSpotSummary.sold : (options?.unitsClaimed ?? null);
   const qtyState = resolveLiveRoomItemQuantityState({
     title: row.title,
-    quantity,
-    quantityInitial,
+    quantity: variantSpotSummary != null ? variantSpotSummary.available : quantity,
+    quantityInitial:
+      variantSpotSummary != null && variantSpotSummary.spotCount > 0
+        ? Math.max(
+            quantityInitial,
+            variantSpotSummary.spotCount,
+            variantSpotSummary.available + variantSpotSummary.sold,
+          )
+        : quantityInitial,
     status: row.status,
     unitsClaimed,
   });

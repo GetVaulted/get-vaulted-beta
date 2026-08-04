@@ -206,9 +206,10 @@ export function useSellerLiveConsole({
   }, [biddingUrgent, onBiddingUrgentChange]);
 
   useEffect(() => {
-    if (roomStatus !== 'live') return;
+    // Poll while scheduled too — pre-sales can change spot inventory before go-live.
+    if (roomStatus !== 'live' && roomStatus !== 'scheduled') return;
     // Poll faster while an auction is about to end so host-console read_sweep can settle promptly.
-    const ms = biddingUrgent ? 3_000 : 25_000;
+    const ms = roomStatus === 'live' && biddingUrgent ? 3_000 : 25_000;
     const id = setInterval(() => {
       void reload({ soft: true });
     }, ms);

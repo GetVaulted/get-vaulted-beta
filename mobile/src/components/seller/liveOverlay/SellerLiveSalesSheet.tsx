@@ -215,8 +215,8 @@ export function SellerLiveSalesSheet({
               </Text>
               <Text style={styles.sectionHint}>
                 {sellerSummary && sellerSummary.paidOrderCount > 0
-                  ? `${sellerSummary.paidOrderCount} paid sale${sellerSummary.paidOrderCount === 1 ? '' : 's'}`
-                  : 'Total paid sales during this show'}
+                  ? `${sellerSummary.paidOrderCount} paid sale${sellerSummary.paidOrderCount === 1 ? '' : 's'} · includes shipping & tax`
+                  : 'Total paid sales during this show (incl. shipping & tax)'}
               </Text>
             </View>
 

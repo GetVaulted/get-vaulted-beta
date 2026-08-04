@@ -100,6 +100,18 @@ export function AccountNotificationsPage() {
     window.dispatchEvent(new Event("gv-notifications-updated"));
   };
 
+  const deleteOne = async (id: string) => {
+    await fetch(`/api/notifications/${encodeURIComponent(id)}`, { method: "DELETE" });
+    window.dispatchEvent(new Event("gv-notifications-updated"));
+  };
+
+  const clearAll = async () => {
+    if (rows.length === 0) return;
+    if (!window.confirm("Clear all notifications? This cannot be undone.")) return;
+    await fetch("/api/notifications/clear", { method: "DELETE" });
+    window.dispatchEvent(new Event("gv-notifications-updated"));
+  };
+
   if (status === "loading" || status === "unauthenticated" || !session?.user) {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
@@ -160,6 +172,11 @@ export function AccountNotificationsPage() {
                 Mark all read
               </button>
             ) : null}
+            {rows.length > 0 ? (
+              <button type="button" onClick={() => void clearAll()} className="font-semibold text-zinc-400 hover:text-red-300">
+                Clear all
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -189,31 +206,44 @@ export function AccountNotificationsPage() {
             </div>
           ) : (
             filtered.map((n) => (
-              <Link
+              <div
                 key={n.id}
-                href={n.href}
-                onClick={() => {
-                  if (!n.readAt) void markRead(n.id);
-                }}
-                className={`block rounded-xl border border-white/[0.08] bg-[#08080a]/90 px-4 py-3 transition hover:border-gold/25 hover:bg-white/[0.02] ${n.readAt ? "opacity-70" : ""}`}
+                className={`flex items-stretch gap-1 rounded-xl border border-white/[0.08] bg-[#08080a]/90 transition hover:border-gold/25 hover:bg-white/[0.02] ${n.readAt ? "opacity-70" : ""}`}
               >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-zinc-100">{n.title}</p>
-                      <span className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-zinc-500">
-                        {notificationTypeChip(n.type)}
-                      </span>
-                      <span className="rounded border border-white/[0.06] px-1.5 py-0.5 text-[9px] font-semibold text-zinc-600">
-                        {notificationLaneLabel(notificationLane(n.type))}
-                      </span>
+                <Link
+                  href={n.href}
+                  onClick={() => {
+                    if (!n.readAt) void markRead(n.id);
+                  }}
+                  className="min-w-0 flex-1 px-4 py-3"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-zinc-100">{n.title}</p>
+                        <span className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-zinc-500">
+                          {notificationTypeChip(n.type)}
+                        </span>
+                        <span className="rounded border border-white/[0.06] px-1.5 py-0.5 text-[9px] font-semibold text-zinc-600">
+                          {notificationLaneLabel(notificationLane(n.type))}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs leading-relaxed text-zinc-500">{n.body}</p>
+                      {!n.readAt ? <p className="mt-2 text-[10px] font-medium text-gold-bright/80">Unread</p> : null}
                     </div>
-                    <p className="mt-1 text-xs leading-relaxed text-zinc-500">{n.body}</p>
-                    {!n.readAt ? <p className="mt-2 text-[10px] font-medium text-gold-bright/80">Unread</p> : null}
+                    <span className="shrink-0 text-[10px] tabular-nums text-zinc-600">{formatTime(n.createdAt)}</span>
                   </div>
-                  <span className="shrink-0 text-[10px] tabular-nums text-zinc-600">{formatTime(n.createdAt)}</span>
-                </div>
-              </Link>
+                </Link>
+                <button
+                  type="button"
+                  aria-label="Delete notification"
+                  title="Delete"
+                  onClick={() => void deleteOne(n.id)}
+                  className="shrink-0 px-3 text-[11px] font-semibold text-zinc-600 transition hover:bg-red-500/10 hover:text-red-300"
+                >
+                  Delete
+                </button>
+              </div>
             ))
           )}
         </section>

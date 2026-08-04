@@ -84,7 +84,7 @@ export function LiveShowSalesTile({ summary, loading, refreshError }: Props) {
       <p className="mt-0.5 text-[10px] text-zinc-400">
         {paidCount === 0
           ? "Total paid sales during this show"
-          : `${paidCount} paid sale${paidCount === 1 ? "" : "s"}`}
+          : `${paidCount} paid sale${paidCount === 1 ? "" : "s"} · includes shipping & tax`}
       </p>
     </div>
   );

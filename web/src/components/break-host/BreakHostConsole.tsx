@@ -107,6 +107,7 @@ import {
   mergeLiveRoomItemsForActiveItemEvent,
   mergeLiveRoomItemsForBidPlaced,
 } from "@/lib/live-room-realtime-merge";
+import { mergeVariantPurchasedIntoItems } from "@/lib/live-room-variant-merge";
 import { estimateClockSkewMs, syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { parsePurchaseCompletedCelebration, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
 import {
@@ -1067,6 +1068,39 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
           : ""
         ).trim() || taken?.label || "a spot";
       flashHostNotice(`@${buyer} took ${label}`);
+      setData((prev) => {
+        if (!prev) return prev;
+        const itemId =
+          typeof payload === "object" && payload && "itemId" in payload
+            ? String((payload as { itemId?: string }).itemId ?? "")
+            : "";
+        const variantId =
+          typeof payload === "object" && payload && "variantId" in payload
+            ? String((payload as { variantId?: string }).variantId ?? "")
+            : "";
+        if (!itemId || !variantId) return prev;
+        const flat = prev.queueItems.map((r) => r.item);
+        const mergedFlat = mergeVariantPurchasedIntoItems(flat, {
+          itemId,
+          variantId,
+          itemVersion:
+            typeof payload === "object" && payload && "itemVersion" in payload
+              ? Number((payload as { itemVersion?: number }).itemVersion)
+              : undefined,
+          quantity:
+            typeof payload === "object" && payload && "quantity" in payload
+              ? Number((payload as { quantity?: number }).quantity)
+              : 1,
+        });
+        const byId = new Map(mergedFlat.map((it) => [it.id, it]));
+        return {
+          ...prev,
+          queueItems: prev.queueItems.map((row) => {
+            const it = byId.get(row.item.id);
+            return it ? { ...row, item: it } : row;
+          }),
+        };
+      });
       void load();
     },
     onBreakSpotsChange: () => {

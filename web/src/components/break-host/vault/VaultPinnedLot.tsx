@@ -292,7 +292,7 @@ export function VaultPinnedLot({
             {item ? (
               <p className={`mt-1 text-left font-semibold text-amber-100/95 ${compactEmbedded ? "text-[10px]" : "text-[11px]"}`}>
                 {isVariantItem && spotStats
-                  ? `${spotStats.available} spots open · ${spotStats.sold} sold`
+                  ? `${spotStats.available} of ${spotStats.available + spotStats.sold} spots open · ${spotStats.sold} sold`
                   : formatAuctionLeaderLine({
                       lastHighBidderUsername: item.lastHighBidderUsername,
                       lastHighBidderId: item.lastHighBidderId,

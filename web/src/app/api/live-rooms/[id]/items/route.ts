@@ -267,8 +267,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     teamBoardMisc,
     teamBoardNcaa,
     customRandomPoolLabels: customRandomPoolLabels ?? undefined,
-    quantity: isVariantSalesFormat(salesFormat) ? 1 : quantity,
-    quantityInitial: isVariantSalesFormat(salesFormat) ? 1 : quantity,
+    quantity: isVariantSalesFormat(salesFormat)
+      ? Math.max(1, variantDrafts.reduce((sum, v) => sum + Math.max(1, Math.floor(v.quantityInitial ?? 1)), 0))
+      : quantity,
+    quantityInitial: isVariantSalesFormat(salesFormat)
+      ? Math.max(1, variantDrafts.reduce((sum, v) => sum + Math.max(1, Math.floor(v.quantityInitial ?? 1)), 0))
+      : quantity,
     salesFormat,
     variantAssignmentMode,
     variantSpotCommerceDefault: isVariantSalesFormat(salesFormat) ? ("hybrid" as const) : undefined,

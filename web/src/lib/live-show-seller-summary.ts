@@ -2,8 +2,12 @@ import { prisma } from "@/lib/prisma";
 import { liveShowFulfillmentOrderIds } from "@/lib/live-show-fulfillment-order-ids";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 import { buildLiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
-import { roundUsd } from "@/lib/round-usd";
 import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
+import {
+  loadOrderChargeTotalsById,
+  orderChargeUsdFromFields,
+  resolveChargeUsdFromFulfillmentOrderMap,
+} from "@/lib/live-purchase-charge-total";
 import {
   aggregateShowSaleContributions,
   feePercentToBps,
@@ -64,6 +68,10 @@ export function buildLiveShowSellerSummaryDTO(args: {
 type OrderSaleRow = {
   id: string;
   itemPriceUsd: number;
+  shippingPriceUsd: number;
+  taxUsd: number;
+  taxAmountCents: number;
+  totalUsd: number;
   paymentStatus: string;
   paymentLabel: string | null;
 };
@@ -71,7 +79,9 @@ type OrderSaleRow = {
 function contributionFromOrder(o: OrderSaleRow): LiveShowSaleContribution | null {
   if (o.paymentLabel === "giveaway") return null;
   if (!isGrossCountablePaymentStatus(o.paymentStatus)) return null;
-  const itemSubtotalUsd = roundUsd(o.itemPriceUsd);
+  // Seller-facing show sales = what the buyer paid (item + shipping + tax).
+  // Fee-tier GMV stays on merchandise via `feeTierGmvUsd` separately.
+  const itemSubtotalUsd = orderChargeUsdFromFields(o);
   if (itemSubtotalUsd <= 0) return null;
   return {
     id: `order:${o.id}`,
@@ -81,8 +91,9 @@ function contributionFromOrder(o: OrderSaleRow): LiveShowSaleContribution | null
 }
 
 /**
- * Collect unique paid merchandise sales for a live show (item subtotals only).
+ * Collect unique paid sales for a live show (buyer charge totals: item + shipping + tax).
  * Dedupes fulfillment orders shared by break spots / variant purchases.
+ * Fee tiers continue to use merchandise GMV from the LiveRoom counter, not this list.
  */
 export async function collectLiveShowSaleContributions(
   liveRoomId: string,
@@ -95,6 +106,16 @@ export async function collectLiveShowSaleContributions(
   const listingIds = [...new Set(listingRows.map((r) => r.listingId).filter((x): x is string => Boolean(x)))];
   const fulfillmentOrderIds = await liveShowFulfillmentOrderIds(liveRoomId);
   const grossStatuses = grossCountablePaymentStatuses();
+  const orderSelect = {
+    id: true,
+    itemPriceUsd: true,
+    shippingPriceUsd: true,
+    taxUsd: true,
+    taxAmountCents: true,
+    totalUsd: true,
+    paymentStatus: true,
+    paymentLabel: true,
+  } as const;
 
   const [ordersBySession, ordersByFulfillment, spots, variantPurchases] = await Promise.all([
     prisma.order.findMany({
@@ -103,7 +124,7 @@ export async function collectLiveShowSaleContributions(
         liveShippingSession: { is: { liveShowId: liveRoomId } },
         paymentStatus: { in: grossStatuses },
       },
-      select: { id: true, itemPriceUsd: true, paymentStatus: true, paymentLabel: true },
+      select: orderSelect,
     }),
     fulfillmentOrderIds.length
       ? prisma.order.findMany({
@@ -112,7 +133,7 @@ export async function collectLiveShowSaleContributions(
             id: { in: fulfillmentOrderIds },
             paymentStatus: { in: grossStatuses },
           },
-          select: { id: true, itemPriceUsd: true, paymentStatus: true, paymentLabel: true },
+          select: orderSelect,
         })
       : Promise.resolve([] as OrderSaleRow[]),
     prisma.breakSpot.findMany({
@@ -153,6 +174,16 @@ export async function collectLiveShowSaleContributions(
     if (!orderById.has(o.id)) orderById.set(o.id, o);
   }
 
+  const orphanFulfillmentIds = [
+    ...new Set(
+      [...spots, ...variantPurchases]
+        .map((r) => r.fulfillmentOrderId?.trim() || "")
+        .filter((id) => id && !orderById.has(id)),
+    ),
+  ];
+  const orphanChargeById =
+    orphanFulfillmentIds.length > 0 ? await loadOrderChargeTotalsById(orphanFulfillmentIds) : new Map<string, number>();
+
   const contributions: LiveShowSaleContribution[] = [];
   const coveredOrderIds = new Set<string>();
 
@@ -171,10 +202,13 @@ export async function collectLiveShowSaleContributions(
       s.breakPaymentStatus === "paid" ||
       s.paidAt != null;
     if (!paid) continue;
-    const itemSubtotalUsd = roundUsd(s.priceUsd);
+    const itemSubtotalUsd = resolveChargeUsdFromFulfillmentOrderMap(
+      s.priceUsd,
+      fulfillmentId || null,
+      orphanChargeById,
+    );
     if (itemSubtotalUsd <= 0) continue;
     if (fulfillmentId) {
-      // Order missing from DB query (edge) — still count once via spot.
       coveredOrderIds.add(fulfillmentId);
       contributions.push({
         id: `order:${fulfillmentId}`,
@@ -193,10 +227,12 @@ export async function collectLiveShowSaleContributions(
   for (const vp of variantPurchases) {
     const fulfillmentId = vp.fulfillmentOrderId?.trim() || "";
     if (fulfillmentId && coveredOrderIds.has(fulfillmentId)) continue;
-    const itemSubtotalUsd = roundUsd(
-      Number.isFinite(vp.totalUsd) && vp.totalUsd > 0
-        ? vp.totalUsd
-        : vp.unitPriceUsd * vp.quantity,
+    const fallbackUsd =
+      Number.isFinite(vp.totalUsd) && vp.totalUsd > 0 ? vp.totalUsd : vp.unitPriceUsd * vp.quantity;
+    const itemSubtotalUsd = resolveChargeUsdFromFulfillmentOrderMap(
+      fallbackUsd,
+      fulfillmentId || null,
+      orphanChargeById,
     );
     if (itemSubtotalUsd <= 0) continue;
     if (fulfillmentId) {

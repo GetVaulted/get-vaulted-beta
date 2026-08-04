@@ -152,6 +152,36 @@ export async function markAllNotificationsRead(userId: string, accessToken?: str
   emitNotificationBadgeChanged();
 }
 
+/** Remove one inbox row. Server-backed ids are deleted remotely so sync cannot revive them. */
+export async function deleteNotification(id: string, accessToken?: string): Promise<void> {
+  const store = await load();
+  const row = store.notifications.find((n) => n.id === id);
+  const userId = row?.userId;
+  store.notifications = store.notifications.filter((n) => n.id !== id);
+  await save(store);
+  if (accessToken && !id.startsWith('nt-')) {
+    const { deleteVaultNotification } = await import('../api/pushTokenRepository');
+    void deleteVaultNotification(accessToken, id);
+  }
+  if (userId) void syncIconBadgeForUser(userId);
+  const { emitNotificationBadgeChanged } = await import('./notificationEvents');
+  emitNotificationBadgeChanged();
+}
+
+/** Clear every notification for this user (local + server). */
+export async function clearUserNotifications(userId: string, accessToken?: string): Promise<void> {
+  if (accessToken) {
+    const { clearVaultNotifications } = await import('../api/pushTokenRepository');
+    await clearVaultNotifications(accessToken);
+  }
+  const store = await load();
+  store.notifications = store.notifications.filter((n) => n.userId !== userId);
+  await save(store);
+  void syncIconBadgeForUser(userId);
+  const { emitNotificationBadgeChanged } = await import('./notificationEvents');
+  emitNotificationBadgeChanged();
+}
+
 /** Re-run Expo push registration (e.g. from notification settings). */
 export function registerPushNotificationHooks(userId: string, accessToken?: string): void {
   void import('../push/pushRegistrationService').then(async ({ registerForPushNotifications, persistPushToken }) => {

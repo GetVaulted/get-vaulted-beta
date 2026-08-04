@@ -7,13 +7,19 @@ export type OrderChargeFields = {
   itemPriceUsd: number;
   shippingPriceUsd: number;
   taxUsd: number;
+  /** Prefer cents when present — some rows write taxAmountCents before taxUsd catches up. */
+  taxAmountCents?: number | null;
 };
 
 /** Settled charge on an order row (item + shipping + tax). */
 export function orderChargeUsdFromFields(order: OrderChargeFields): number {
   const item = order.itemPriceUsd ?? 0;
   const ship = order.shippingPriceUsd ?? 0;
-  const tax = order.taxUsd ?? 0;
+  const taxFromCents =
+    typeof order.taxAmountCents === "number" && Number.isFinite(order.taxAmountCents) && order.taxAmountCents > 0
+      ? order.taxAmountCents / 100
+      : 0;
+  const tax = Math.max(order.taxUsd ?? 0, taxFromCents);
   const computed = item + ship + tax;
   const total = order.totalUsd ?? 0;
   // Some live fulfillment rows keep spot price in totalUsd until tax/shipping land.
@@ -47,6 +53,7 @@ export async function loadOrderChargeTotalsById(orderIds: string[]): Promise<Map
       itemPriceUsd: true,
       shippingPriceUsd: true,
       taxUsd: true,
+      taxAmountCents: true,
     },
   });
   const map = new Map<string, number>();
@@ -61,6 +68,7 @@ function orderChargeFromLookup(order: {
   itemPriceUsd: number;
   shippingPriceUsd: number;
   taxUsd: number;
+  taxAmountCents?: number | null;
 } | null): number | null {
   if (!order) return null;
   const charge = orderChargeUsdFromFields(order);
@@ -96,6 +104,7 @@ export async function resolveLivePurchaseNotificationChargeUsd(args: {
         itemPriceUsd: true,
         shippingPriceUsd: true,
         taxUsd: true,
+        taxAmountCents: true,
       },
     });
     const charge = orderChargeFromLookup(order);

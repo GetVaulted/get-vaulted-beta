@@ -7,8 +7,10 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { fetchBuyerWalletSummary } from '../../api/buyerWalletRepository';
 import { fetchAppAuthConfig } from '../../lib/fetchAppAuthConfig';
+import { colors } from '../../theme';
 
 const STRIPE_MERCHANT_IDENTIFIER = 'merchant.com.getvaulted.app';
 const STRIPE_URL_SCHEME = 'getvaulted';
@@ -82,8 +84,10 @@ function StripeConfirmBridge({ children }: { children: ReactNode }) {
 }
 
 /**
- * Live commerce calls `confirmPayment` on room entry. Room UI paints immediately;
- * Stripe mounts as soon as a publishable key is available (env, cache, or network).
+ * Live commerce needs Stripe. Do **not** mount the room without a provider and then
+ * wrap it later — swapping the tree remounts Stage/HLS and can native-crash on iOS
+ * (build 194 regression). Wait for a key (prefetch usually has it before room entry),
+ * then mount StripeProvider once and keep children stable.
  */
 export function LiveStripeProvider({
   accessToken,
@@ -109,11 +113,9 @@ export function LiveStripeProvider({
 
   if (!publishableKey) {
     return (
-      <LiveStripeReadyContext.Provider value={false}>
-        <LiveConfirmPaymentContext.Provider value={null}>
-          {children}
-        </LiveConfirmPaymentContext.Provider>
-      </LiveStripeReadyContext.Provider>
+      <View style={styles.loading}>
+        <ActivityIndicator size="large" color={colors.gold} />
+      </View>
     );
   }
 
@@ -129,3 +131,12 @@ export function LiveStripeProvider({
     </LiveStripeReadyContext.Provider>
   );
 }
+
+const styles = StyleSheet.create({
+  loading: {
+    flex: 1,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

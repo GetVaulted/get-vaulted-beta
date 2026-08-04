@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { ReactElement } from 'react';
 import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
-import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
+import { isVariantSalesFormat, summarizeVariantSpots } from '../../../lib/liveItemVariant';
 import { formatUsdDisplay, queueItemQuantity } from '../../../lib/liveAuctionPricing';
 import { queueStatusLabel } from '../liveOverlay/SellerQueueStrip';
 import { QueueSaleTypePill } from './QueueSaleTypePill';
@@ -10,13 +10,18 @@ import { colors, radii, spacing } from '../../../theme';
 
 function pricingSummary(item: LiveRoomItemRow): string {
   if (isVariantSalesFormat(item.salesFormat)) {
-    const spots = item.variants?.length ?? (item.salesFormat === 'variant_selection' ? 32 : 8);
-    const pinned = item.variants?.filter((v) => v.isHot).length ?? 0;
+    const stats = summarizeVariantSpots(item.variants);
+    const pool =
+      stats.spotCount > 0
+        ? Math.max(stats.spotCount, stats.available + stats.sold)
+        : (item.variants?.length ?? (item.salesFormat === 'variant_selection' ? 32 : 8));
+    const open = stats.spotCount > 0 ? stats.available : pool;
     const label = item.salesFormat === 'variant_selection' ? 'PYT' : 'PYD';
     const from = item.variants?.length
       ? formatUsdDisplay(Math.min(...item.variants.map((v) => v.priceUsd)))
       : '—';
-    return `${label} · ${spots} spots · from ${from}${pinned ? ` · ${pinned} pinned` : ''}`;
+    const pinned = item.variants?.filter((v) => v.isHot).length ?? 0;
+    return `${label} · ${open} of ${pool} open · from ${from}${pinned ? ` · ${pinned} pinned` : ''}`;
   }
   const qty = queueItemQuantity(item);
   const start = formatUsdDisplay(item.startingBidUsd ?? 1);

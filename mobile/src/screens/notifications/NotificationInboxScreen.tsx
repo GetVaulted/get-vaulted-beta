@@ -1,12 +1,22 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { resolveRealtimeUserId, useCanonicalUserId } from '../../hooks/useCanonicalUserId';
 import {
+  clearUserNotifications,
+  deleteNotification,
   groupNotifications,
   listNotifications,
   markAllNotificationsRead,
@@ -101,6 +111,41 @@ export function NotificationInboxScreen({ navigation }: Props) {
     // the current user is the buyer or seller of that layaway).
   };
 
+  const confirmDeleteOne = (n: AppNotification) => {
+    Alert.alert('Delete notification?', n.title, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          void deleteNotification(n.id, session?.access_token).then(() => {
+            setRows((prev) => prev.filter((r) => r.id !== n.id));
+          });
+        },
+      },
+    ]);
+  };
+
+  const confirmClearAll = () => {
+    if (!inboxUserId || rows.length === 0) return;
+    Alert.alert(
+      'Clear all notifications?',
+      'This permanently removes every notification from your inbox.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear all',
+          style: 'destructive',
+          onPress: () => {
+            void clearUserNotifications(inboxUserId, session?.access_token).then(() => {
+              setRows([]);
+            });
+          },
+        },
+      ],
+    );
+  };
+
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
       <PlatformFlowHeader
@@ -108,15 +153,26 @@ export function NotificationInboxScreen({ navigation }: Props) {
         subtitle="Sales, messages, offers, and vault activity"
         onBack={() => navigation.goBack()}
       />
-      {rows.some((r) => !r.read) ? (
-        <Pressable
-          onPress={() =>
-            inboxUserId &&
-            void markAllNotificationsRead(inboxUserId, session?.access_token).then(() => load({ silent: true }))
-          }
-        >
-          <Text style={styles.markAll}>Mark all read</Text>
-        </Pressable>
+      {rows.length > 0 ? (
+        <View style={styles.actions}>
+          {rows.some((r) => !r.read) ? (
+            <Pressable
+              onPress={() =>
+                inboxUserId &&
+                void markAllNotificationsRead(inboxUserId, session?.access_token).then(() =>
+                  load({ silent: true }),
+                )
+              }
+            >
+              <Text style={styles.actionGold}>Mark all read</Text>
+            </Pressable>
+          ) : (
+            <View />
+          )}
+          <Pressable onPress={confirmClearAll}>
+            <Text style={styles.actionMuted}>Clear all</Text>
+          </Pressable>
+        </View>
       ) : null}
       {loading && !loadedOnceRef.current ? (
         <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.xl }} />
@@ -133,10 +189,13 @@ export function NotificationInboxScreen({ navigation }: Props) {
                   key={n.id}
                   style={[styles.row, !n.read && styles.rowUnread]}
                   onPress={() => void openRow(n)}
+                  onLongPress={() => confirmDeleteOne(n)}
+                  delayLongPress={350}
                 >
                   <Text style={styles.title}>{n.title}</Text>
                   <Text style={styles.body}>{n.body}</Text>
                   <Text style={styles.meta}>{new Date(n.createdAt).toLocaleString()}</Text>
+                  <Text style={styles.deleteHint}>Hold to delete</Text>
                 </Pressable>
               ))}
             </View>
@@ -153,7 +212,14 @@ export function NotificationInboxScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: spacing.lg },
-  markAll: { color: colors.gold, fontWeight: '700', marginBottom: spacing.sm },
+  actions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  actionGold: { color: colors.gold, fontWeight: '700' },
+  actionMuted: { color: colors.textMuted, fontWeight: '700' },
   scroll: { gap: spacing.lg, paddingBottom: spacing.xxxl },
   group: { gap: spacing.sm },
   groupHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -171,5 +237,6 @@ const styles = StyleSheet.create({
   title: { fontSize: 14, fontWeight: '800', color: colors.textPrimary },
   body: { fontSize: 13, color: colors.textSecondary },
   meta: { fontSize: 11, color: colors.textMuted },
+  deleteHint: { fontSize: 10, color: colors.textMuted, marginTop: 2 },
   empty: { color: colors.textMuted, marginTop: spacing.xl, lineHeight: 20 },
 });
