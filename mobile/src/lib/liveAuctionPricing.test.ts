@@ -93,6 +93,21 @@ describe('validateQuickLiveLot', () => {
     expect(r.ok).toBe(false);
   });
 
+  it('allows $1 starting bid when explicitly set by host', () => {
+    const r = validateQuickLiveLot({
+      title: 'Dollar auction',
+      saleType: 'auction',
+      price: '1', // Host explicitly sets $1 starting bid
+      quantity: '1',
+      reservePrice: '',
+      buyNowPrice: '',
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.values.startingBidUsd).toBe(1);
+    }
+  });
+
   it('builds PYT variants for all 32 teams', () => {
     const r = validateQuickLiveLot({
       title: '2024 Prizm Hobby',

@@ -78,6 +78,7 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
   const lastKickAtRef = useRef(0);
   const kickEpochRef = useRef(0);
   const delayedKickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasActiveSourceRef = useRef(false);
   // Do NOT assign refs from state on every render — minimize() writes refs synchronously
   // so leave-room cleanup can see them before setState commits. A parent re-render in
   // that window would otherwise wipe the refs back to the stale null session/warm.
@@ -96,6 +97,9 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
     sessionUrl ||
     warmUrl ||
     null;
+
+  // Track whether we have an active source for proper cleanup
+  hasActiveSourceRef.current = Boolean(playbackSourceUrl);
 
   const player = useVideoPlayer(playbackSourceUrl, (p) => {
     p.loop = false;
@@ -238,11 +242,13 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
           player.muted = false;
           player.volume = 1;
           player.audioMixingMode = 'doNotMix';
+          player.showNowPlayingNotification = true;
           try {
             player.targetOffsetFromLive = 0.35;
           } catch {
             /* ignore */
           }
+          // Force play to ensure immediate resumption when backing out of live show
           player.play();
         } catch {
           /* ignore */
@@ -266,6 +272,12 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
     try {
       player.pause();
       player.muted = true;
+      // Replace with null to properly release the audio session and prevent audio leak
+      // Only call if we currently have a source loaded (use ref to avoid stale state)
+      if (hasActiveSourceRef.current) {
+        player.replace(null);
+        hasActiveSourceRef.current = false;
+      }
     } catch {
       /* ignore */
     }

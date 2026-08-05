@@ -128,6 +128,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       salesFormat: true,
       quantity: true,
       quantityInitial: true,
+      priceUsd: true,
+      startingBidUsd: true,
       variantSpotCommerceDefault: true,
       activeSpotCommerceMode: true,
       auctionVariantId: true,
@@ -181,16 +183,42 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     if (nextFormat !== "buy_now" && nextFormat !== "auction") {
       return NextResponse.json({ error: "salesFormat must be buy_now or auction." }, { status: 400 });
     }
+
+    // Security fix: When switching from buy_now to auction, automatically set startingBidUsd 
+    // based on previous priceUsd to prevent purchase gap. This is atomic with the format change.
+    const prevFormat = item.salesFormat;
+    const updateData: {
+      salesFormat: string;
+      biddingOpen: boolean;
+      auctionEndsAt: Date | null;
+      currentBidUsd: number | null;
+      lastHighBidderId: string | null;
+      itemVersion: { increment: number };
+      startingBidUsd?: number;
+    } = {
+      salesFormat: nextFormat,
+      biddingOpen: false,
+      auctionEndsAt: null,
+      currentBidUsd: null,
+      lastHighBidderId: null,
+      itemVersion: { increment: 1 },
+    };
+
+    // When switching to auction, use the previous buy-it-now price as the starting bid
+    // to prevent a gap where users could buy for $1 (DEFAULT_STARTING_BID_USD)
+    if (prevFormat === "buy_now" && nextFormat === "auction") {
+      // If client explicitly sent startingBidUsd in this request, use it
+      // Otherwise, fall back to the previous priceUsd, then to 1
+      if (typeof body.startingBidUsd === "number" && Number.isFinite(body.startingBidUsd) && body.startingBidUsd > 0) {
+        updateData.startingBidUsd = body.startingBidUsd;
+      } else {
+        updateData.startingBidUsd = item.priceUsd ?? 1;
+      }
+    }
+
     await prisma.liveRoomItem.update({
       where: { id: itemId },
-      data: {
-        salesFormat: nextFormat,
-        biddingOpen: false,
-        auctionEndsAt: null,
-        currentBidUsd: null,
-        lastHighBidderId: null,
-        itemVersion: { increment: 1 },
-      },
+      data: updateData,
     });
     emitLiveRoomQueueItemsChanged(liveRoomId);
     const itemDto = await getLiveRoomItemSnapshotDto(itemId);

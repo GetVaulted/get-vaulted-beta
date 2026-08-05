@@ -120,8 +120,28 @@ export function LiveMiniPlayerOverlay() {
     setOsPipActive(false);
     setSeekEnabled(false);
     void recoverLiveMirrorRef.current({ forceKick: !playbackSourceUrl });
+    
+    // Force immediate playback when session starts (fixes auto-resume issue)
+    const forcePlayTimer = setTimeout(() => {
+      if (playbackSourceUrl && !paused) {
+        try {
+          if (!isMiniSessionActive(session.roomId)) return;
+          player.muted = false;
+          player.volume = 1;
+          player.audioMixingMode = 'doNotMix';
+          player.showNowPlayingNotification = true;
+          player.play();
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 150);
+    
     const seekTimer = setTimeout(() => setSeekEnabled(true), 2_500);
-    return () => clearTimeout(seekTimer);
+    return () => {
+      clearTimeout(forcePlayTimer);
+      clearTimeout(seekTimer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mini room
   }, [session?.roomId]);
 
@@ -138,6 +158,8 @@ export function LiveMiniPlayerOverlay() {
         if (player.playing) return;
         player.muted = false;
         player.volume = 1;
+        player.audioMixingMode = 'doNotMix';
+        player.showNowPlayingNotification = true;
         player.play();
         // One replace if still dead after handoff — not a loop.
         if (!kicked && Date.now() - sessionStartedAtRef.current > 5_000) {
@@ -180,6 +202,9 @@ export function LiveMiniPlayerOverlay() {
           if (!paused) {
             player.muted = false;
             player.volume = 1;
+            player.audioMixingMode = 'doNotMix';
+            player.showNowPlayingNotification = true;
+            // Force play to ensure resumption when returning to app
             player.play();
           }
         } catch {

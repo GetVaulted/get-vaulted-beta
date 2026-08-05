@@ -452,6 +452,21 @@ export function useSellerLiveConsole({
       const prevFormat = existing?.salesFormat ?? 'auction';
       const nextFormat = values.salesFormat;
 
+      // When switching from buy_now to auction, use the previous buy-it-now price as the starting bid
+      // to prevent a gap where users could buy for $1 (DEFAULT_STARTING_BID_USD)
+      let startingBidUsd = values.saleType === 'auction' ? values.startingBidUsd : null;
+      if (prevFormat === 'buy_now' && nextFormat === 'auction' && startingBidUsd == null) {
+        startingBidUsd = existing?.priceUsd ?? null;
+      }
+
+      // Update pricing FIRST, then change format to prevent purchase gap
+      await patchLiveRoomItem(accessToken, roomId, itemId, {
+        quantity: values.quantity,
+        startingBidUsd,
+        reservePriceUsd: values.saleType === 'auction' ? values.reservePriceUsd : null,
+        priceUsd: values.priceUsd,
+      });
+
       if (
         prevFormat !== nextFormat &&
         (nextFormat === 'auction' || nextFormat === 'buy_now') &&
@@ -463,12 +478,6 @@ export function useSellerLiveConsole({
         });
       }
 
-      await patchLiveRoomItem(accessToken, roomId, itemId, {
-        quantity: values.quantity,
-        startingBidUsd: values.saleType === 'auction' ? values.startingBidUsd : null,
-        reservePriceUsd: values.saleType === 'auction' ? values.reservePriceUsd : null,
-        priceUsd: values.priceUsd,
-      });
       setPricingEditItem(null);
     });
   };
