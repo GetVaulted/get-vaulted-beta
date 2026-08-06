@@ -348,19 +348,36 @@ function LiveSlide({
       });
     }
     leaveAllowRef.current = true;
-    // Extra frame so the mini VideoView attaches to the shared player before room unmount.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (stackNav.canGoBack()) {
-            stackNav.goBack();
-            return;
+    // Wait for the shared mini player to actually play before tearing down the room.
+    // OS PiP keeps the in-room surface; Back must not unmount until the handoff is live.
+    const leaveAfterHandoff = async () => {
+      if (canMinimize && miniPlayer?.player) {
+        const deadline = Date.now() + 1_200;
+        while (Date.now() < deadline) {
+          try {
+            if (miniPlayer.player.playing) break;
+          } catch {
+            /* ignore */
           }
-          stackNav.navigate('LiveDiscovery');
-          onBack?.();
+          await new Promise<void>((r) => setTimeout(r, 40));
+        }
+      } else {
+        await new Promise<void>((r) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => r());
+            });
+          });
         });
-      });
-    });
+      }
+      if (stackNav.canGoBack()) {
+        stackNav.goBack();
+        return;
+      }
+      stackNav.navigate('LiveDiscovery');
+      onBack?.();
+    };
+    void leaveAfterHandoff();
   }, [
     accessToken,
     broadcastGate.status,

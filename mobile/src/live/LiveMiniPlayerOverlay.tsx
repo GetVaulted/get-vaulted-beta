@@ -102,6 +102,10 @@ export function LiveMiniPlayerOverlay() {
       const roomId = session.roomId;
       recoverInflightRef.current = true;
       try {
+        // Soft path: already have a warm URL — do not invalidate or replace (that blacks the float).
+        if (!opts?.forceKick && playbackSourceUrlRef.current) {
+          return true;
+        }
         invalidateBuyerLiveStreamCache(roomId);
         const stream = await getBuyerLiveStreamCached(roomId, session.accessToken, {
           healComposition: true,
@@ -127,7 +131,7 @@ export function LiveMiniPlayerOverlay() {
   const recoverLiveMirrorRef = useRef(recoverLiveMirror);
   recoverLiveMirrorRef.current = recoverLiveMirror;
 
-  // Heal composition + poll until HLS exists (Stage WebRTC rooms often have no warm URL yet).
+  // Heal only when minimize opened without a warm HLS URL. Never cold-replace a warm decoder.
   useEffect(() => {
     if (!session?.roomId) {
       setSeekEnabled(false);
@@ -139,6 +143,7 @@ export function LiveMiniPlayerOverlay() {
     let attempts = 0;
     let cancelled = false;
     const roomId = session.roomId;
+    const alreadyWarm = Boolean(playbackSourceUrlRef.current);
 
     const run = async (forceKick: boolean) => {
       if (cancelled || !isMiniSessionActive(roomId)) return;
@@ -146,6 +151,34 @@ export function LiveMiniPlayerOverlay() {
       if (cancelled || ok) return;
       attempts += 1;
     };
+
+    if (alreadyWarm) {
+      // Warm handoff: play/unmute only. Replace only if still dead after a beat.
+      try {
+        player.muted = false;
+        player.volume = 1;
+        player.audioMixingMode = 'doNotMix';
+        player.showNowPlayingNotification = true;
+        player.play();
+      } catch {
+        /* ignore */
+      }
+      const rescueTimer = setTimeout(() => {
+        if (cancelled || !isMiniSessionActive(roomId)) return;
+        try {
+          if (player.playing) return;
+        } catch {
+          /* fall through */
+        }
+        void run(true);
+      }, 1_800);
+      const seekTimer = setTimeout(() => setSeekEnabled(true), 2_500);
+      return () => {
+        cancelled = true;
+        clearTimeout(rescueTimer);
+        clearTimeout(seekTimer);
+      };
+    }
 
     void run(true);
     const pollId = setInterval(() => {
