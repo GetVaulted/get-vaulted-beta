@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   LIVE_BACKGROUND_SUSPEND_DWELL_MS,
   LIVE_PIP_RETRY_DELAYS_MS,
+  LIVE_VIDEO_STICKY_MS,
   canAttemptHostResumeShow,
   shouldAttemptLivePictureInPicture,
   shouldClearStreamPausedAfterHostResume,
@@ -9,6 +10,7 @@ import {
   shouldHostBackgroundAutoPause,
   shouldMuteHlsUnderLiveWebrtc,
   shouldPreferWarmHostResume,
+  shouldPromoteHlsOverStageDuringGap,
   shouldShowHlsLayerForLivePip,
   shouldShowHostResumeControl,
   shouldShowLiveResumeInsteadOfRetry,
@@ -17,6 +19,7 @@ import {
   shouldSuspendHostStagePublish,
   shouldSuspendLiveStageMedia,
   shouldTreatHostResumeAsAlreadyLive,
+  shouldUseStickyLiveVideoPaint,
   shouldWarmLiveHlsPipCompanion,
 } from './livePlaybackAppState';
 
@@ -84,6 +87,48 @@ describe('livePlaybackAppState', () => {
         wentLive: false,
         intentionalStop: false,
         phase: 'live',
+      }),
+    ).toBe(false);
+  });
+
+  it('keeps sticky live paint during brief frame gaps', () => {
+    expect(LIVE_VIDEO_STICKY_MS).toBe(1_800);
+    expect(shouldUseStickyLiveVideoPaint({ videoHasData: true, stickyActive: false })).toBe(true);
+    expect(shouldUseStickyLiveVideoPaint({ videoHasData: false, stickyActive: true })).toBe(true);
+    expect(shouldUseStickyLiveVideoPaint({ videoHasData: false, stickyActive: false })).toBe(false);
+  });
+
+  it('promotes HLS over Stage during remount / missing frames', () => {
+    expect(
+      shouldPromoteHlsOverStageDuringGap({
+        useWebrtc: true,
+        webrtcReady: true,
+        stageRemountCover: true,
+        videoHasData: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPromoteHlsOverStageDuringGap({
+        useWebrtc: true,
+        webrtcReady: true,
+        stageRemountCover: false,
+        videoHasData: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPromoteHlsOverStageDuringGap({
+        useWebrtc: true,
+        webrtcReady: true,
+        stageRemountCover: false,
+        videoHasData: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPromoteHlsOverStageDuringGap({
+        useWebrtc: true,
+        webrtcReady: false,
+        stageRemountCover: true,
+        videoHasData: false,
       }),
     ).toBe(false);
   });

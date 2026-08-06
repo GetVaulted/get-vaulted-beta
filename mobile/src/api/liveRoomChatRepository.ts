@@ -1,4 +1,6 @@
+import { fetchWebApiAuthed } from '../lib/fetchWebApiAuthed';
 import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
+import { resolveSellerAccessToken } from '../lib/resolveSellerAccessToken';
 
 export type LiveRoomChatMessageType = 'chat' | 'bid' | 'purchase' | 'system' | 'tip' | 'staff';
 
@@ -25,12 +27,17 @@ export async function fetchLiveRoomChatMessages(
   roomId: string,
   accessToken?: string,
 ): Promise<LiveRoomChatMessageRow[]> {
+  const headers: Record<string, string> = {};
+  if (accessToken?.trim()) {
+    try {
+      const token = await resolveSellerAccessToken(accessToken);
+      headers.Authorization = `Bearer ${token}`;
+    } catch {
+      headers.Authorization = `Bearer ${accessToken.trim()}`;
+    }
+  }
   const res = await fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(roomId)}/messages`, {
-    headers: accessToken
-      ? {
-          Authorization: `Bearer ${accessToken}`,
-        }
-      : undefined,
+    headers: Object.keys(headers).length ? headers : undefined,
   });
   let j: { messages?: LiveRoomChatMessageRow[]; error?: string } = {};
   try {
@@ -57,14 +64,12 @@ export async function sendLiveRoomChatMessage(args: {
   if (args.staffOnly) payload.staffOnly = true;
   // Chat posts can lag under live-show load; a short timeout made buyers mash Send while the
   // first request was still finishing (draft popped back into the input on each failure).
-  const res = await fetchWebApiMobile(
+  // Use authed fetch so a stale React accessToken mid-show refreshes instead of "Sign in to chat."
+  const res = await fetchWebApiAuthed(
     `/api/live-rooms/${encodeURIComponent(args.roomId)}/messages`,
+    args.accessToken,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${args.accessToken}`,
-      },
       body: JSON.stringify(payload),
     },
     { timeoutMs: 25_000 },
@@ -87,14 +92,14 @@ export async function announceLiveRoomViewerEvent(args: {
   roomId: string;
   kind: ViewerEventKind;
 }): Promise<LiveRoomChatMessageRow> {
-  const res = await fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(args.roomId)}/viewer-event`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${args.accessToken}`,
+  const res = await fetchWebApiAuthed(
+    `/api/live-rooms/${encodeURIComponent(args.roomId)}/viewer-event`,
+    args.accessToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({ kind: args.kind }),
     },
-    body: JSON.stringify({ kind: args.kind }),
-  });
+  );
   let j: { message?: LiveRoomChatMessageRow; error?: string } = {};
   try {
     j = (await res.json()) as typeof j;

@@ -40,6 +40,10 @@ import {
 import { usePaymentFormLightAppearance } from './usePaymentFormLightAppearance';
 import { paymentMethodIdFromSetupIntent } from '../../lib/walletPaymentMethodFinalize';
 import { withLivePlaybackCommerceHold } from '../../lib/livePlaybackCommerceHold';
+import {
+  settleBeforeAndroidPaymentSheet,
+  shouldUseAndroidPaymentSheetForCard,
+} from '../../lib/androidPaymentSheetPresentation';
 import { walletPaymentSetupStyles as ps } from './walletPaymentSetupStyles';
 import {
   catalogEntryIcon,
@@ -54,7 +58,7 @@ const NATIVE_GOOGLE_PAY_ENABLED = false;
 
 /** CardForm inside a React Native Modal crashes on Android — use Stripe Payment Sheet instead. */
 function useAndroidPaymentSheetForCard(): boolean {
-  return Platform.OS === 'android';
+  return shouldUseAndroidPaymentSheetForCard();
 }
 
 const PAYMENT_SETUP_SUBTITLE = "You won't be charged until you win or buy.";
@@ -397,11 +401,20 @@ function WalletPaymentSetupInner({
     startWith === 'wallet' && !(androidPaymentSheet && !NATIVE_GOOGLE_PAY_ENABLED),
   );
   const androidCardSheetAutoRef = useRef(startWith === 'card' && androidPaymentSheet);
+  const sheetAbortRef = useRef(false);
 
   useEffect(() => {
     return () => {
       if (saveSuccessTimerRef.current) clearTimeout(saveSuccessTimerRef.current);
     };
+  }, []);
+
+  const cancelAndroidSheetOpening = useCallback(() => {
+    sheetAbortRef.current = true;
+    setAndroidSheetOpening(false);
+    setBusy(false);
+    setShowPicker(true);
+    setInitError(null);
   }, []);
 
   const finishSaved = useCallback(
@@ -469,10 +482,15 @@ function WalletPaymentSetupInner({
   /** PaymentSheet for card (Android) and redirect wallets (Cash App, Link, Amazon Pay). */
   const presentStripePaymentSheet = useCallback(async (): Promise<'saved' | 'cancelled' | 'failed'> => {
     if (busy) return 'failed';
+    sheetAbortRef.current = false;
     setBusy(true);
     setInitError(null);
     setAndroidSheetOpening(true);
     try {
+      // Nested RN Modal + Stripe Activity on Android eats touches if we present too early.
+      await settleBeforeAndroidPaymentSheet();
+      if (sheetAbortRef.current) return 'cancelled';
+
       return await withLivePlaybackCommerceHold(async () => {
         const { error: initSheetError } = await initPaymentSheet({
           merchantDisplayName: LIVE_PREMIUM_WALLET_TITLE,
@@ -480,11 +498,13 @@ function WalletPaymentSetupInner({
           returnURL: `${STRIPE_URL_SCHEME}://stripe-redirect`,
           allowsDelayedPaymentMethods: false,
         });
+        if (sheetAbortRef.current) return 'cancelled';
         if (initSheetError) {
           setInitError(mapLivePaymentFailureMessage(initSheetError.message, initSheetError.code));
           return 'failed';
         }
         const { error: presentError } = await presentPaymentSheet();
+        if (sheetAbortRef.current) return 'cancelled';
         if (presentError) {
           if (presentError.code === 'Canceled') return 'cancelled';
           setInitError(mapLivePaymentFailureMessage(presentError.message, presentError.code));
@@ -588,10 +608,10 @@ function WalletPaymentSetupInner({
     androidCardSheetAutoRef.current = false;
     void (async () => {
       const result = await presentStripePaymentSheet();
-      if (result === 'cancelled') onClose();
-      if (result === 'failed') setShowPicker(true);
+      // Return to picker — never close the whole recovery wallet on cancel (that left buyers stuck).
+      if (result === 'cancelled' || result === 'failed') setShowPicker(true);
     })();
-  }, [busy, onClose, presentStripePaymentSheet]);
+  }, [busy, presentStripePaymentSheet]);
 
   useEffect(() => {
     if (!walletAutoPresentRef.current || busy || useManualCard || showPicker) return;
@@ -603,12 +623,12 @@ function WalletPaymentSetupInner({
         return;
       }
       if (result.outcome === 'cancelled') {
-        onClose();
+        setShowPicker(true);
         return;
       }
       setShowPicker(true);
     })();
-  }, [busy, useManualCard, showPicker, confirmNativeWalletSetup, completeSavedPaymentMethod, onClose]);
+  }, [busy, useManualCard, showPicker, confirmNativeWalletSetup, completeSavedPaymentMethod]);
 
   const openNativeWallet = useCallback(() => {
     if (busy) return;
@@ -764,6 +784,14 @@ function WalletPaymentSetupInner({
         <LiveRoomText style={ps.loadingText}>
           {androidSheetOpening ? 'Opening secure payment…' : 'Opening Apple Pay…'}
         </LiveRoomText>
+        <Pressable
+          style={ps.loadingCancelBtn}
+          onPress={cancelAndroidSheetOpening}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel opening payment"
+        >
+          <LiveRoomText style={ps.loadingCancelLabel}>Cancel</LiveRoomText>
+        </Pressable>
       </View>
     );
   }

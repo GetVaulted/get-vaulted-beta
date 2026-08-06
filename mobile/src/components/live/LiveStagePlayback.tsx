@@ -23,11 +23,14 @@ import {
 import {
   LIVE_BACKGROUND_SUSPEND_DWELL_MS,
   LIVE_PIP_RETRY_DELAYS_MS,
+  LIVE_VIDEO_STICKY_MS,
   isLivePictureInPictureAppState,
   shouldAttemptLivePictureInPicture,
   shouldMuteHlsUnderLiveWebrtc,
   shouldPrepareLivePictureInPicture,
+  shouldPromoteHlsOverStageDuringGap,
   shouldShowHlsLayerForLivePip,
+  shouldUseStickyLiveVideoPaint,
   shouldWarmLiveHlsPipCompanion,
 } from '../../lib/livePlaybackAppState';
 import { isLivePlaybackCommerceHoldActive } from '../../lib/livePlaybackCommerceHold';
@@ -156,6 +159,14 @@ export function LiveStagePlayback({
   const [blockStageAfterBackgroundLeave, setBlockStageAfterBackgroundLeave] = useState(false);
   // Remount ExpoIVSRemoteStreamView after OS background — reusing the same native surface stays black.
   const [foregroundResumeNonce, setForegroundResumeNonce] = useState(0);
+  /**
+   * After first paint, hold "had video" briefly when frames drop so standby doesn't flash black
+   * on Stage remount / brief disconnect. Cleared after LIVE_VIDEO_STICKY_MS or room change.
+   */
+  const [stickyVideoPaint, setStickyVideoPaint] = useState(false);
+  /** Lift HLS over Stage while the native surface remounts (black until first frame). */
+  const [stageRemountCover, setStageRemountCover] = useState(false);
+  const prevStageSurfaceKeyRef = useRef<string | null>(null);
   const prevAppStateRef = useRef<AppStateStatus>(AppState.currentState);
   const suspendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didCommitSuspendRef = useRef(false);
@@ -322,6 +333,14 @@ export function LiveStagePlayback({
     roomId,
   ]);
 
+  // Soft expand from mini: only dismiss the float once in-room video is painting.
+  useEffect(() => {
+    if (!miniPlayer?.session) return;
+    if (miniPlayer.session.roomId !== roomId) return;
+    if (!isForeground || !playback.videoHasData) return;
+    miniPlayer.close();
+  }, [miniPlayer, roomId, isForeground, playback.videoHasData]);
+
   useEffect(() => {
     if (!useWebrtc || !isForeground) setWebrtcReady(false);
   }, [useWebrtc, isForeground]);
@@ -329,7 +348,38 @@ export function LiveStagePlayback({
   // New room in the pager: never keep the prior show's "WebRTC painted" flag (it hid HLS forever).
   useEffect(() => {
     setWebrtcReady(false);
+    setStickyVideoPaint(false);
+    setStageRemountCover(false);
+    prevStageSurfaceKeyRef.current = null;
   }, [roomId]);
+
+  // Grace window after first paint — brief gaps must not flash the dark standby overlay.
+  useEffect(() => {
+    if (playback.videoHasData) {
+      setStickyVideoPaint(true);
+      return;
+    }
+    const id = setTimeout(() => {
+      setStickyVideoPaint(false);
+    }, LIVE_VIDEO_STICKY_MS);
+    return () => clearTimeout(id);
+  }, [playback.videoHasData]);
+
+  // Native Stage surface remount (subscribe epoch / foreground resume) paints black until first
+  // frame — lift HLS over it for that gap.
+  useEffect(() => {
+    if (!useWebrtc) {
+      prevStageSurfaceKeyRef.current = null;
+      setStageRemountCover(false);
+      return;
+    }
+    const surfaceKey = `${playback.webrtcSubscribeEpoch}:${foregroundResumeNonce}`;
+    const prev = prevStageSurfaceKeyRef.current;
+    prevStageSurfaceKeyRef.current = surfaceKey;
+    if (prev != null && prev !== surfaceKey && webrtcReady) {
+      setStageRemountCover(true);
+    }
+  }, [useWebrtc, playback.webrtcSubscribeEpoch, foregroundResumeNonce, webrtcReady]);
 
   useEffect(() => {
     viewerLifecycleLog(isForeground ? 'screen_focused' : 'screen_blurred', {
@@ -344,8 +394,23 @@ export function LiveStagePlayback({
     // is the in-app equivalent of force-quit for a black IVS view. Clear waiting so buyers aren't
     // stuck on "Waiting for host video" when Stage is live and HLS is still cold.
     setWebrtcReady(true);
+    setStageRemountCover(false);
     playback.onVideoReady();
   }, [playback.onVideoReady]);
+
+  const handleWebrtcDisconnected = useCallback(() => {
+    // Stage remote dropped — promote HLS immediately (don't wait for reconnect UI delay).
+    setStageRemountCover(true);
+    playback.onWebrtcDisconnected();
+  }, [playback.onWebrtcDisconnected]);
+
+  const handleWebrtcFailed = useCallback(
+    (reason: string) => {
+      setStageRemountCover(true);
+      playback.onWebrtcFailed(reason);
+    },
+    [playback.onWebrtcFailed],
+  );
 
   const hlsPlayerSetup = (p: VideoPlayer) => {
     p.loop = false;
@@ -699,16 +764,26 @@ export function LiveStagePlayback({
     roomLifecycleLive,
   });
 
+  const videoPaintForUi = shouldUseStickyLiveVideoPaint({
+    videoHasData: playback.videoHasData,
+    stickyActive: stickyVideoPaint,
+  });
+
   const surface =
     useWebrtc
-      ? playback.videoHasData
+      ? videoPaintForUi
         ? 'live'
         : playback.reconnecting
           ? 'reconnecting'
           : roomLifecycleLive
             ? 'connecting'
             : 'offline'
-      : hlsSurface;
+      : // HLS surface uses sticky paint so health/attach flaps don't flash connecting→standby.
+        videoPaintForUi && hlsSurface === 'connecting'
+          ? 'live'
+          : videoPaintForUi && hlsSurface === 'loading'
+            ? 'live'
+            : hlsSurface;
 
   const scheduledStartMs = useMemo(
     () => parseScheduledStartMs(scheduledStartAtIso),
@@ -743,8 +818,18 @@ export function LiveStagePlayback({
     pipSurfaceActive &&
     !stagePipReady &&
     !stagePipActive;
+  const promoteHlsForStageGap = shouldPromoteHlsOverStageDuringGap({
+    useWebrtc,
+    webrtcReady,
+    stageRemountCover,
+    videoHasData: playback.videoHasData,
+  });
   const hlsCompanionUnderWebrtc =
-    showHlsLayer && showWebrtcLayer && webrtcReady && !promoteHlsForOsPip;
+    showHlsLayer &&
+    showWebrtcLayer &&
+    webrtcReady &&
+    !promoteHlsForOsPip &&
+    !promoteHlsForStageGap;
   const showVideoLayer = showWebrtcLayer || (showHlsLayer && !hlsCompanionUnderWebrtc);
   const teaserUrl = typeof teaserVideoUrl === 'string' ? teaserVideoUrl.trim() : '';
   const showTeaserLayer =
@@ -786,7 +871,7 @@ export function LiveStagePlayback({
   const showThumbnail =
     Boolean(thumbnailUrl) &&
     !showTeaserLayer &&
-    (!showVideoLayer || !playback.videoHasData || surface === 'offline');
+    (!showVideoLayer || !videoPaintForUi || surface === 'offline');
   const showStandby =
     isForeground &&
     (roomStatus === 'ended' ||
@@ -797,7 +882,7 @@ export function LiveStagePlayback({
       surface === 'reconnecting' ||
       surface === 'error' ||
       (!roomLifecycleLive && roomStatus === 'scheduled') ||
-      (roomLifecycleLive && !playback.videoHasData));
+      (roomLifecycleLive && !videoPaintForUi));
 
   const standbyContent = (() => {
     if (streamPaused && roomLifecycleLive) {
@@ -833,7 +918,7 @@ export function LiveStagePlayback({
     if (roomStatus === 'ended') {
       return <StandbyOverlay title="Live has Ended" />;
     }
-    if (roomLifecycleLive && (surface === 'connecting' || surface === 'loading' || !playback.videoHasData)) {
+    if (roomLifecycleLive && (surface === 'connecting' || surface === 'loading' || !videoPaintForUi)) {
       return (
         <StandbyOverlay
           title="Waiting for host video"
@@ -918,8 +1003,8 @@ export function LiveStagePlayback({
             foregroundResumeNonce={foregroundResumeNonce}
             contentFit={webrtcContentFit}
             onConnected={handleWebrtcConnected}
-            onFailed={playback.onWebrtcFailed}
-            onDisconnected={playback.onWebrtcDisconnected}
+            onFailed={handleWebrtcFailed}
+            onDisconnected={handleWebrtcDisconnected}
           />
         </>
       ) : (
@@ -936,8 +1021,8 @@ export function LiveStagePlayback({
               foregroundResumeNonce={foregroundResumeNonce}
               contentFit={webrtcContentFit}
               onConnected={handleWebrtcConnected}
-              onFailed={playback.onWebrtcFailed}
-              onDisconnected={playback.onWebrtcDisconnected}
+              onFailed={handleWebrtcFailed}
+              onDisconnected={handleWebrtcDisconnected}
             />
           ) : null}
           {showHlsLayer ? (

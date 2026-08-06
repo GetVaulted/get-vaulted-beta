@@ -52,6 +52,35 @@ export function isLivePictureInPictureAppState(state: AppStateStatus): boolean {
 /** Retry PiP for several seconds — Stage→HLS composition can lag WebRTC by ~5–15s. */
 export const LIVE_PIP_RETRY_DELAYS_MS = [0, 150, 400, 900, 1500, 2500, 4000, 6000] as const;
 
+/**
+ * After first paint, keep treating the stage as "live" for this long when frames briefly
+ * drop — otherwise standby (dark overlay) flashes on every Stage remount / health flap.
+ * Matches reconnect UI delay so buyers see one consistent grace window.
+ */
+export const LIVE_VIDEO_STICKY_MS = 1_800;
+
+/** Sticky UI paint: real frames OR grace window after a brief gap. */
+export function shouldUseStickyLiveVideoPaint(args: {
+  videoHasData: boolean;
+  stickyActive: boolean;
+}): boolean {
+  return args.videoHasData || args.stickyActive;
+}
+
+/**
+ * Lift the warm HLS mirror above Stage while the native IVS surface is remounting or
+ * briefly empty. Stage on top of a near-invisible HLS companion reads as a full black cut.
+ */
+export function shouldPromoteHlsOverStageDuringGap(args: {
+  useWebrtc: boolean;
+  webrtcReady: boolean;
+  stageRemountCover: boolean;
+  videoHasData: boolean;
+}): boolean {
+  if (!args.useWebrtc || !args.webrtcReady) return false;
+  return args.stageRemountCover || !args.videoHasData;
+}
+
 export function shouldWarmLiveHlsPipCompanion(args: {
   playbackActive: boolean;
   useWebrtc: boolean;

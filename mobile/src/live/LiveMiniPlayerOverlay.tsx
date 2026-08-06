@@ -5,12 +5,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppState,
   PanResponder,
+  Platform,
   Pressable,
   StyleSheet,
   View,
   useWindowDimensions,
   type AppStateStatus,
 } from 'react-native';
+import { FullWindowOverlay } from 'react-native-screens';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LiveRoomText } from '../components/live/LiveRoomText';
 import { useHlsLiveEdgeSeek } from '../hooks/useHlsLiveEdgeSeek';
@@ -30,11 +32,22 @@ import { useLiveMiniPlayer } from './LiveMiniPlayerContext';
 const PLAYER_W = 168;
 const PLAYER_H = 298;
 const EDGE_PAD = 10;
+/** Stage composition mirrors can lag — keep healing until HLS URL appears. */
+const MIRROR_HEAL_POLL_MS = 2_500;
+const MIRROR_HEAL_MAX_ATTEMPTS = 12;
+
+function MiniOverlayHost({ children }: { children: React.ReactNode }) {
+  // Native-stack screen hosts draw above sibling RN views on iOS. FullWindowOverlay
+  // puts the float in a UIWindow above the navigator (Android uses elevated absolute view).
+  if (Platform.OS === 'ios') {
+    return <FullWindowOverlay>{children}</FullWindowOverlay>;
+  }
+  return <>{children}</>;
+}
 
 /**
  * Whatnot / TikTok-style in-app floating live player.
- * Same shared decoder as OS PiP — this shell only re-homes the VideoView.
- * Size roughly matches iOS system PiP for portrait live.
+ * Separate from OS Picture-in-Picture — this shell only re-homes the VideoView in-app.
  */
 export function LiveMiniPlayerOverlay() {
   const {
@@ -53,11 +66,14 @@ export function LiveMiniPlayerOverlay() {
   const [controlsVisible, setControlsVisible] = useState(true);
   const [osPipActive, setOsPipActive] = useState(false);
   const [seekEnabled, setSeekEnabled] = useState(false);
+  const [appActive, setAppActive] = useState(() => AppState.currentState === 'active');
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoRef = useRef<VideoView>(null);
   const prevAppStateRef = useRef<AppStateStatus>(AppState.currentState);
   const recoverInflightRef = useRef(false);
   const sessionStartedAtRef = useRef(0);
+  const playbackSourceUrlRef = useRef(playbackSourceUrl);
+  playbackSourceUrlRef.current = playbackSourceUrl;
 
   const bounds = useMemo(() => {
     const maxX = Math.max(EDGE_PAD, winW - PLAYER_W - EDGE_PAD);
@@ -82,7 +98,7 @@ export function LiveMiniPlayerOverlay() {
 
   const recoverLiveMirror = useCallback(
     async (opts?: { forceKick?: boolean }) => {
-      if (!session || recoverInflightRef.current) return;
+      if (!session || recoverInflightRef.current) return false;
       const roomId = session.roomId;
       recoverInflightRef.current = true;
       try {
@@ -90,17 +106,18 @@ export function LiveMiniPlayerOverlay() {
         const stream = await getBuyerLiveStreamCached(roomId, session.accessToken, {
           healComposition: true,
         });
-        if (!isMiniSessionActive(roomId)) return;
-        if (!stream) return;
+        if (!isMiniSessionActive(roomId)) return false;
+        if (!stream) return false;
         const url = stream.playbackUrl?.trim() || null;
         if (url && shouldAttachHlsPlayback(stream.streamHealth, url)) {
           warmHls(roomId, url);
-          if (opts?.forceKick) kickLivePlayback(url);
-          return;
+          if (opts?.forceKick) kickLivePlayback(url, { force: true });
+          return true;
         }
         if (opts?.forceKick && playbackSourceUrl && isMiniSessionActive(roomId)) {
-          kickLivePlayback(playbackSourceUrl);
+          kickLivePlayback(playbackSourceUrl, { force: true });
         }
+        return false;
       } finally {
         recoverInflightRef.current = false;
       }
@@ -110,7 +127,7 @@ export function LiveMiniPlayerOverlay() {
   const recoverLiveMirrorRef = useRef(recoverLiveMirror);
   recoverLiveMirrorRef.current = recoverLiveMirror;
 
-  // Heal composition quietly — never replace on open (that causes SYNC→LIVE and PiP flash).
+  // Heal composition + poll until HLS exists (Stage WebRTC rooms often have no warm URL yet).
   useEffect(() => {
     if (!session?.roomId) {
       setSeekEnabled(false);
@@ -119,31 +136,57 @@ export function LiveMiniPlayerOverlay() {
     sessionStartedAtRef.current = Date.now();
     setOsPipActive(false);
     setSeekEnabled(false);
-    void recoverLiveMirrorRef.current({ forceKick: !playbackSourceUrl });
-    
-    // Force immediate playback when session starts (fixes auto-resume issue)
-    const forcePlayTimer = setTimeout(() => {
-      if (playbackSourceUrl && !paused) {
-        try {
-          if (!isMiniSessionActive(session.roomId)) return;
-          player.muted = false;
-          player.volume = 1;
-          player.audioMixingMode = 'doNotMix';
-          player.showNowPlayingNotification = true;
-          player.play();
-        } catch {
-          /* ignore */
-        }
+    let attempts = 0;
+    let cancelled = false;
+    const roomId = session.roomId;
+
+    const run = async (forceKick: boolean) => {
+      if (cancelled || !isMiniSessionActive(roomId)) return;
+      const ok = await recoverLiveMirrorRef.current({ forceKick });
+      if (cancelled || ok) return;
+      attempts += 1;
+    };
+
+    void run(true);
+    const pollId = setInterval(() => {
+      if (cancelled || !isMiniSessionActive(roomId)) {
+        clearInterval(pollId);
+        return;
       }
-    }, 150);
-    
+      if (playbackSourceUrlRef.current) {
+        clearInterval(pollId);
+        return;
+      }
+      if (attempts >= MIRROR_HEAL_MAX_ATTEMPTS) {
+        clearInterval(pollId);
+        return;
+      }
+      void run(true);
+    }, MIRROR_HEAL_POLL_MS);
+
     const seekTimer = setTimeout(() => setSeekEnabled(true), 2_500);
     return () => {
-      clearTimeout(forcePlayTimer);
+      cancelled = true;
+      clearInterval(pollId);
       clearTimeout(seekTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mini room
   }, [session?.roomId]);
+
+  // When a late HLS URL arrives, force play (heal/poll may start with null URL).
+  useEffect(() => {
+    if (!session || !playbackSourceUrl || paused) return;
+    try {
+      if (!isMiniSessionActive(session.roomId)) return;
+      player.muted = false;
+      player.volume = 1;
+      player.audioMixingMode = 'doNotMix';
+      player.showNowPlayingNotification = true;
+      player.play();
+    } catch {
+      /* ignore */
+    }
+  }, [session, playbackSourceUrl, paused, player, isMiniSessionActive]);
 
   useHlsLiveEdgeSeek(player, Boolean(session && playbackSourceUrl && !paused && seekEnabled));
 
@@ -161,7 +204,6 @@ export function LiveMiniPlayerOverlay() {
         player.audioMixingMode = 'doNotMix';
         player.showNowPlayingNotification = true;
         player.play();
-        // One replace if still dead after handoff — not a loop.
         if (!kicked && Date.now() - sessionStartedAtRef.current > 5_000) {
           kicked = true;
           kickLivePlayback(playbackSourceUrl);
@@ -174,13 +216,13 @@ export function LiveMiniPlayerOverlay() {
     return () => clearInterval(id);
   }, [session, playbackSourceUrl, paused, player, kickLivePlayback, isMiniSessionActive, osPipActive]);
 
-  // Home swipe: keep audio playing and let automatic PiP own the window.
-  // Manual startPictureInPicture retries restart OS PiP → disappear for a second.
+  // Home swipe: keep audio; enable OS PiP only while leaving foreground (not on the in-app float).
   useEffect(() => {
-    if (!session || !playbackSourceUrl) return;
+    if (!session) return;
     const sub = AppState.addEventListener('change', (next) => {
       const prev = prevAppStateRef.current;
       prevAppStateRef.current = next;
+      setAppActive(next === 'active');
 
       if (
         shouldPrepareLivePictureInPicture(next, prev) ||
@@ -204,7 +246,6 @@ export function LiveMiniPlayerOverlay() {
             player.volume = 1;
             player.audioMixingMode = 'doNotMix';
             player.showNowPlayingNotification = true;
-            // Force play to ensure resumption when returning to app
             player.play();
           }
         } catch {
@@ -213,7 +254,7 @@ export function LiveMiniPlayerOverlay() {
       }
     });
     return () => sub.remove();
-  }, [session, playbackSourceUrl, player, paused]);
+  }, [session, player, paused]);
 
   const showControlsBriefly = useCallback(() => {
     setControlsVisible(true);
@@ -272,86 +313,91 @@ export function LiveMiniPlayerOverlay() {
 
   if (!session) return null;
 
+  // In-app float must not steal OS PiP while foreground — that empties the shell.
+  const allowOsPip = !appActive;
+
   return (
-    <View pointerEvents="box-none" style={StyleSheet.absoluteFill} collapsable={false}>
-      <View
-        style={[styles.shell, { left: pos.x, top: pos.y, width: PLAYER_W, height: PLAYER_H }]}
-        {...panResponder.panHandlers}
-        collapsable={false}
-      >
-        <Pressable style={styles.surface} onPress={showControlsBriefly}>
-          {playbackSourceUrl ? (
-            <VideoView
-              ref={videoRef}
-              player={player}
-              style={StyleSheet.absoluteFill}
-              contentFit="cover"
-              nativeControls={false}
-              allowsPictureInPicture
-              startsPictureInPictureAutomatically
-              onPictureInPictureStart={() => setOsPipActive(true)}
-              onPictureInPictureStop={() => setOsPipActive(false)}
-              collapsable={false}
-            />
-          ) : session.thumbnailUrl ? (
-            <Image
-              source={{ uri: session.thumbnailUrl }}
-              style={StyleSheet.absoluteFill}
-              contentFit="cover"
-            />
-          ) : (
-            <View style={[StyleSheet.absoluteFill, styles.fallback]} />
-          )}
+    <MiniOverlayHost>
+      <View pointerEvents="box-none" style={StyleSheet.absoluteFill} collapsable={false}>
+        <View
+          style={[styles.shell, { left: pos.x, top: pos.y, width: PLAYER_W, height: PLAYER_H }]}
+          {...panResponder.panHandlers}
+          collapsable={false}
+        >
+          <Pressable style={styles.surface} onPress={showControlsBriefly}>
+            {playbackSourceUrl ? (
+              <VideoView
+                ref={videoRef}
+                player={player}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+                nativeControls={false}
+                allowsPictureInPicture={allowOsPip}
+                startsPictureInPictureAutomatically={allowOsPip}
+                onPictureInPictureStart={() => setOsPipActive(true)}
+                onPictureInPictureStop={() => setOsPipActive(false)}
+                collapsable={false}
+              />
+            ) : session.thumbnailUrl ? (
+              <Image
+                source={{ uri: session.thumbnailUrl }}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+              />
+            ) : (
+              <View style={[StyleSheet.absoluteFill, styles.fallback]} />
+            )}
 
-          {!controlsVisible && !osPipActive ? (
-            <View style={styles.livePill} pointerEvents="none">
-              <View style={styles.liveDot} />
-              <LiveRoomText style={styles.liveTxt}>LIVE</LiveRoomText>
-            </View>
-          ) : null}
-
-          {controlsVisible ? (
-            <View style={styles.controls} pointerEvents="box-none">
-              <Pressable
-                style={[styles.ctrlBtn, styles.ctrlBtnCorner, styles.ctrlClose]}
-                onPress={close}
-                hitSlop={8}
-                accessibilityLabel="Close mini player"
-              >
-                <Ionicons name="close" size={15} color="#fff" />
-              </Pressable>
-              <Pressable
-                style={[styles.ctrlBtn, styles.ctrlBtnCorner, styles.ctrlExpand]}
-                onPress={expandToLiveRoom}
-                hitSlop={8}
-                accessibilityLabel="Expand live room"
-              >
-                <Ionicons name="expand" size={14} color="#fff" />
-              </Pressable>
-              <Pressable
-                style={[styles.ctrlBtn, styles.ctrlBtnCenter]}
-                onPress={togglePaused}
-                hitSlop={8}
-                accessibilityLabel={paused ? 'Play' : 'Pause'}
-              >
-                <Ionicons name={paused ? 'play' : 'pause'} size={20} color="#111" />
-              </Pressable>
-            </View>
-          ) : null}
-
-          <View style={styles.caption} pointerEvents="none">
-            <LiveRoomText style={styles.title} numberOfLines={1}>
-              {session.title}
-            </LiveRoomText>
-            {session.hostLabel ? (
-              <LiveRoomText style={styles.host} numberOfLines={1}>
-                {session.hostLabel}
-              </LiveRoomText>
+            {!controlsVisible && !osPipActive ? (
+              <View style={styles.livePill} pointerEvents="none">
+                <View style={styles.liveDot} />
+                <LiveRoomText style={styles.liveTxt}>LIVE</LiveRoomText>
+              </View>
             ) : null}
-          </View>
-        </Pressable>
+
+            {controlsVisible ? (
+              <View style={styles.controls} pointerEvents="box-none">
+                <Pressable
+                  style={[styles.ctrlBtn, styles.ctrlBtnCorner, styles.ctrlClose]}
+                  onPress={close}
+                  hitSlop={8}
+                  accessibilityLabel="Close mini player"
+                >
+                  <Ionicons name="close" size={15} color="#fff" />
+                </Pressable>
+                <Pressable
+                  style={[styles.ctrlBtn, styles.ctrlBtnCorner, styles.ctrlExpand]}
+                  onPress={expandToLiveRoom}
+                  hitSlop={8}
+                  accessibilityLabel="Expand live room"
+                >
+                  <Ionicons name="expand" size={14} color="#fff" />
+                </Pressable>
+                <Pressable
+                  style={[styles.ctrlBtn, styles.ctrlBtnCenter]}
+                  onPress={togglePaused}
+                  hitSlop={8}
+                  accessibilityLabel={paused ? 'Play' : 'Pause'}
+                >
+                  <Ionicons name={paused ? 'play' : 'pause'} size={20} color="#111" />
+                </Pressable>
+              </View>
+            ) : null}
+
+            <View style={styles.caption} pointerEvents="none">
+              <LiveRoomText style={styles.title} numberOfLines={1}>
+                {session.title}
+              </LiveRoomText>
+              {session.hostLabel ? (
+                <LiveRoomText style={styles.host} numberOfLines={1}>
+                  {session.hostLabel}
+                </LiveRoomText>
+              ) : null}
+            </View>
+          </Pressable>
+        </View>
       </View>
-    </View>
+    </MiniOverlayHost>
   );
 }
 
@@ -359,7 +405,7 @@ const styles = StyleSheet.create({
   shell: {
     position: 'absolute',
     zIndex: 9999,
-    elevation: 24,
+    elevation: 40,
     borderRadius: radii.md,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,

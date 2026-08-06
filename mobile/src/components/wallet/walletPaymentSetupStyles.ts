@@ -301,6 +301,20 @@ export const walletPaymentSetupStyles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
+  loadingCancelBtn: {
+    marginTop: spacing.sm,
+    paddingVertical: 12,
+    paddingHorizontal: spacing.xl,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  loadingCancelLabel: {
+    color: '#faf8f2',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   errorStateBlock: {
     flex: 1,
     paddingHorizontal: spacing.lg,

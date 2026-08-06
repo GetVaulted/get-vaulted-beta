@@ -18,6 +18,10 @@ import {
   recoveryStatusMessage,
   PAYMENT_RECOVERY_SUBTITLE,
 } from '../../lib/livePaymentFailureCopy';
+import {
+  shouldOpenWalletPaymentSetupOnRecovery,
+  walletRecoveryPaymentSetupStartWith,
+} from '../../lib/androidPaymentSheetPresentation';
 import { colors, spacing } from '../../theme';
 import { withLivePlaybackCommerceHold } from '../../lib/livePlaybackCommerceHold';
 import { LiveRoomText } from './LiveRoomText';
@@ -60,9 +64,11 @@ export function LivePaymentFailureModal({
 
   const reasonLine = cardSaved ? null : mapLivePaymentFailureMessage(failure.failureReason);
   const shippingRecovery = isShippingAddressRecoveryFailure(failure.failureReason);
-  // Card declines jump straight into New card; shipping failures open the address step.
+  // Card declines jump into payment setup; shipping failures open the address step.
+  // Android must NOT auto-start PaymentSheet (`card`) inside nested Modals — that stuck buyers.
   const walletInitialStep = shippingRecovery ? ('shipping' as const) : ('payment' as const);
-  const openPaymentSetupOnMount = !shippingRecovery;
+  const openPaymentSetupOnMount = shouldOpenWalletPaymentSetupOnRecovery({ shippingRecovery });
+  const paymentSetupStartWith = walletRecoveryPaymentSetupStartWith();
 
   useEffect(() => {
     onBlockerActiveChange?.(visible && !walletOpen);
@@ -234,7 +240,8 @@ export function LivePaymentFailureModal({
         animationType="none"
         transparent
         statusBarTranslucent
-        onRequestClose={() => {}}
+        presentationStyle="overFullScreen"
+        onRequestClose={onLeaveRoom}
       >
         <View style={styles.backdrop} accessibilityViewIsModal>
           <Animated.View
@@ -311,6 +318,7 @@ export function LivePaymentFailureModal({
           recoveryMode
           initialStep={walletInitialStep}
           openPaymentSetupOnMount={openPaymentSetupOnMount}
+          paymentSetupStartWith={paymentSetupStartWith}
           onPaymentMethodSaved={handlePaymentMethodSaved}
           onActiveChange={(active) => {
             if (active) onWalletOverlayChange?.(true);

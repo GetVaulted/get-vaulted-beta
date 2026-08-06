@@ -60,6 +60,7 @@ import {
   liveAcceptedMethodsLabel,
   liveAcceptedWalletMethods,
 } from '../../lib/livePremiumWallet';
+import { walletRecoveryPaymentSetupStartWith } from '../../lib/androidPaymentSheetPresentation';
 
 const referralStyles = StyleSheet.create({
   linkBox: {
@@ -111,6 +112,11 @@ type Props = {
   recoveryMode?: boolean;
   initialStep?: WalletStep;
   openPaymentSetupOnMount?: boolean;
+  /**
+   * When `openPaymentSetupOnMount` is true, which setup surface to show.
+   * Android recovery must use `picker` — auto `card` launches PaymentSheet inside a Modal and sticks.
+   */
+  paymentSetupStartWith?: 'picker' | 'card' | 'wallet';
   /** Recovery — jump straight into Shippo address form (edit default or add new). */
   openAddressFormOnMount?: boolean;
   onPaymentMethodSaved?: (paymentMethodId?: string) => void;
@@ -203,6 +209,7 @@ export function VaultWalletSheet({
   recoveryMode = false,
   initialStep = 'main',
   openPaymentSetupOnMount = false,
+  paymentSetupStartWith: paymentSetupStartWithProp,
   openAddressFormOnMount = false,
   onPaymentMethodSaved,
 }: Props) {
@@ -211,6 +218,8 @@ export function VaultWalletSheet({
   void useKeyboardInset();
   const sheetMaxHeight = Math.min(windowHeight * 0.92, 720);
   const safeBottom = Math.max(insets.bottom, spacing.lg);
+  const recoverySetupStartWith =
+    paymentSetupStartWithProp ?? walletRecoveryPaymentSetupStartWith();
 
   const [step, setStep] = useState<WalletStep>(() =>
     recoveryMode && initialStep ? initialStep : 'main',
@@ -219,7 +228,7 @@ export function VaultWalletSheet({
     () => recoveryMode && openPaymentSetupOnMount,
   );
   const [paymentSetupStartWith, setPaymentSetupStartWith] = useState<'picker' | 'card' | 'wallet'>(
-    () => (recoveryMode && openPaymentSetupOnMount ? 'card' : 'picker'),
+    () => (recoveryMode && openPaymentSetupOnMount ? recoverySetupStartWith : 'picker'),
   );
   const [addressFormDraft, setAddressFormDraft] = useState<CreateShippingAddressInput>(EMPTY_ADDRESS);
   const [addressFormEditing, setAddressFormEditing] = useState(false);
@@ -304,11 +313,11 @@ export function VaultWalletSheet({
     }
     setStep(recoveryMode ? initialStep : 'main');
     if (recoveryMode && openPaymentSetupOnMount) {
-      setPaymentSetupStartWith('card');
+      setPaymentSetupStartWith(recoverySetupStartWith);
       setPaymentSetupOpen(true);
     }
     void loadRef.current();
-  }, [visible, recoveryMode, initialStep, openPaymentSetupOnMount, initialReadiness]);
+  }, [visible, recoveryMode, initialStep, openPaymentSetupOnMount, initialReadiness, recoverySetupStartWith]);
 
   useEffect(() => {
     if (!visible || !openAddressFormOnMount || addressFormSeedAppliedRef.current || loading) return;
@@ -1029,17 +1038,17 @@ export function VaultWalletSheet({
         visible={visible}
         animationType="slide"
         transparent
+        presentationStyle="overFullScreen"
         onRequestClose={
-          recoveryMode
-            ? () => {}
-            : paymentSetupOpen
-              ? () => {
-                  setPaymentSetupOpen(false);
-                  setPaymentSetupStartWith('picker');
-                }
-              : step === 'main'
-                ? onClose
-                : () => setStep(step === 'addressForm' ? addressFormReturnStep.current : 'main')
+          paymentSetupOpen
+            ? () => {
+                setPaymentSetupOpen(false);
+                setPaymentSetupStartWith('picker');
+                if (recoveryMode) setStep('payment');
+              }
+            : step === 'main' || (recoveryMode && step === 'payment')
+              ? onClose
+              : () => setStep(step === 'addressForm' ? addressFormReturnStep.current : 'main')
         }
         statusBarTranslucent
       >
@@ -1048,14 +1057,11 @@ export function VaultWalletSheet({
             <>
               <Pressable
                 style={StyleSheet.absoluteFill}
-                onPress={
-                  recoveryMode
-                    ? undefined
-                    : () => {
-                        setPaymentSetupOpen(false);
-                        setPaymentSetupStartWith('picker');
-                      }
-                }
+                onPress={() => {
+                  setPaymentSetupOpen(false);
+                  setPaymentSetupStartWith('picker');
+                  if (recoveryMode) setStep('payment');
+                }}
                 accessibilityLabel="Dismiss payment setup"
               />
               <View

@@ -84,7 +84,9 @@ function applyStreamToTransport(args: {
   }
 
   if (plan.transport === 'hls') {
-    const attachKey = `${args.safe.playbackUrl ?? ''}|${args.safe.streamHealth}`;
+    // Attach key is URL only — streamHealth live↔connecting flaps must not clear
+    // videoHasData (that black-flashed buyers mid-show via standby / remount).
+    const attachKey = args.safe.playbackUrl ?? '';
     args.applyTransport('hls');
     if (args.lastAttachKeyRef.current !== attachKey) {
       args.lastAttachKeyRef.current = attachKey;

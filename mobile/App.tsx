@@ -2,7 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/auth/AuthContext';
 import { PlatformFeeProvider } from './src/platform/PlatformFeeContext';
@@ -15,6 +15,7 @@ import {
 } from './src/lib/recoverInvalidAuthSession';
 import { AppLayoutProvider } from './src/layout/AppLayoutProvider';
 import { LiveMiniPlayerProvider } from './src/live/LiveMiniPlayerContext';
+import { LiveMiniPlayerOverlay } from './src/live/LiveMiniPlayerOverlay';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -43,7 +44,11 @@ export default function App() {
           <PlatformFeeProvider>
             <AuthProvider>
               <LiveMiniPlayerProvider>
-                <RootNavigator />
+                <View style={styles.root}>
+                  <RootNavigator />
+                  {/* Outside native-stack so the float is not buried under screen hosts. */}
+                  <LiveMiniPlayerOverlay />
+                </View>
               </LiveMiniPlayerProvider>
             </AuthProvider>
           </PlatformFeeProvider>

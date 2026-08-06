@@ -16,21 +16,25 @@ import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
 import { navigateAuthLogin, navigateAuthSignUp } from '../navigation/rootNavigationRef';
 import { useLiveMiniPlayerOptional } from '../live/LiveMiniPlayerContext';
 import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
+import { useStickyLiveAuth } from '../hooks/useStickyLiveAuth';
 import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
+import { pinSelectedLiveStream, mergeLiveFeedStreams } from '../lib/pinSelectedLiveStream';
 import { colors } from '../theme';
 import type { LiveStream } from '../types';
 
 function seedStreamsFromCache(streamId: string): { streams: LiveStream[]; ready: boolean } {
   const cached = getHomeFeedMemorySnapshot()?.live ?? [];
   if (!cached.length) return { streams: [], ready: false };
-  return { streams: cached, ready: cached.some((s) => s.id === streamId) };
+  const pinned = pinSelectedLiveStream(cached, streamId);
+  return { streams: pinned, ready: pinned.some((s) => s.id === streamId) };
 }
 
 export function LiveRoomScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const route = useRoute<RouteProp<LiveStackParamList, 'LiveRoom'>>();
   const { streamId } = route.params;
-  const { user, guestExploreMode, session } = useAuth();
+  const { user, guestExploreMode, session, lastAuthEvent } = useAuth();
+  const liveAuth = useStickyLiveAuth({ user, session, lastAuthEvent });
   const seed = useMemo(() => seedStreamsFromCache(streamId), [streamId]);
   const [streams, setStreams] = useState<LiveStream[]>(seed.streams);
   const [loading, setLoading] = useState(!seed.ready);
@@ -45,16 +49,30 @@ export function LiveRoomScreen() {
 
   useKeepScreenAwakeWhileFocused('live-room-buyer');
 
+  const applyStreams = useCallback(
+    (next: LiveStream[] | ((prev: LiveStream[]) => LiveStream[]), opts?: { pinSelected?: boolean }) => {
+      setStreams((prev) => {
+        const resolved = typeof next === 'function' ? next(prev) : next;
+        // Pin only on cold open — mid-session re-pin reorders under the pager (random swipe).
+        if (opts?.pinSelected || prev.length === 0) {
+          return pinSelectedLiveStream(resolved, streamId);
+        }
+        return mergeLiveFeedStreams(prev, resolved);
+      });
+    },
+    [streamId],
+  );
+
   const reloadStreams = useCallback(async () => {
     if (!isSupabaseConfigured() && !getWebApiBaseUrl()) {
-      setStreams([]);
+      applyStreams([]);
       setLoading(false);
       return;
     }
 
     const cache = getHomeFeedMemorySnapshot() ?? (await loadHomeFeedCache());
     if (cache?.live.length) {
-      setStreams(cache.live);
+      applyStreams(cache.live);
       if (cache.live.some((s) => s.id === streamId)) {
         setLoading(false);
       }
@@ -67,7 +85,7 @@ export function LiveRoomScreen() {
         const row = await fetchLiveRoomPublicById(streamId);
         if (row && (row.status === 'live' || row.status === 'scheduled')) {
           singleRoom = liveRoomRowToLiveStream(row);
-          setStreams((prev) => {
+          applyStreams((prev) => {
             if (prev.some((s) => s.id === streamId)) {
               return prev.map((s) => (s.id === streamId ? { ...s, ...singleRoom! } : s));
             }
@@ -90,18 +108,14 @@ export function LiveRoomScreen() {
           }
         }
       }
-      setStreams(next);
-      if (next.length) {
-        const start = next.findIndex((s) => s.id === streamId);
-        const warm = [start, start - 1, start + 1]
-          .filter((i) => i >= 0 && i < next.length)
-          .map((i) => next[i]!.id);
-        prefetchLiveStreamRooms(warm, session?.access_token);
+      applyStreams(next);
+      if (streamId) {
+        prefetchLiveStreamRooms([streamId], session?.access_token);
       }
     } finally {
       setLoading(false);
     }
-  }, [session?.access_token, streamId]);
+  }, [applyStreams, session?.access_token, streamId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -111,15 +125,10 @@ export function LiveRoomScreen() {
       const mp = miniPlayerRef.current;
       const resumingSameMini = mp?.session?.roomId === streamId;
       if (resumingSameMini) {
-        // Soft handoff from floating mini / warm HLS — keep playback; clear overlay after attach.
-        // Do NOT bump roomVisitNonce (that force-restarts Stage/HLS like a brand-new show).
-        const t = setTimeout(() => {
-          const cur = miniPlayerRef.current;
-          if (cur?.session?.roomId === streamId) cur.close();
-        }, 450);
+        // Keep the float until in-room video paints (LiveStagePlayback closes it).
+        // A blind 450ms close left buyers with neither mini nor room video.
         void reloadStreams();
         return () => {
-          clearTimeout(t);
           viewerLifecycleLog('screen_blurred', { streamId, layer: 'LiveRoomScreen' });
         };
       }
@@ -136,10 +145,12 @@ export function LiveRoomScreen() {
     }, [reloadStreams, streamId]),
   );
 
-  // First entry / stream change only — not every focus re-entry.
+  // First entry / stream change — re-seed the pager list so we don't paint the prior show.
   useLayoutEffect(() => {
+    setStreams(seed.streams);
+    setLoading(!seed.ready);
     setRoomVisitNonce((n) => n + 1);
-  }, [streamId]);
+  }, [streamId, seed]);
 
   const blockGuestLive = guestExploreMode && !user;
 
@@ -170,7 +181,7 @@ export function LiveRoomScreen() {
   }
 
   return (
-    <LiveStripeProvider accessToken={session?.access_token}>
+    <LiveStripeProvider accessToken={liveAuth.accessToken}>
       <View style={styles.screen}>
         <VerticalLiveFeed
           streams={streams}
@@ -184,10 +195,10 @@ export function LiveRoomScreen() {
             }
             navigation.navigate('LiveDiscovery');
           }}
-          signedIn={Boolean(user)}
+          signedIn={liveAuth.signedIn}
           onRequireAuth={onRequireAuth}
-          accessToken={session?.access_token}
-          userId={user?.id}
+          accessToken={liveAuth.accessToken}
+          userId={liveAuth.userId}
         />
       </View>
     </LiveStripeProvider>

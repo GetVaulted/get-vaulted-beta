@@ -81,6 +81,7 @@ import { LivePaymentFailureModal } from './LivePaymentFailureModal';
 import { LiveBuyerWalletGateModal } from './LiveBuyerWalletGateModal';
 import { WalletSheet } from '../wallet/WalletSheet';
 import { PAYMENT_RECOVERY_SUCCESS_TOAST } from '../../lib/livePaymentFailureCopy';
+import { resolveSellerAccessToken } from '../../lib/resolveSellerAccessToken';
 import {
   isWalletIncompleteReadiness,
   walletReadinessFromSnapshot,
@@ -109,6 +110,7 @@ import { isCompactLiveRoomLayout, liveRoomOverlayScale } from '../../lib/liveRoo
 import { LiveRoomShareSheet } from './LiveRoomShareSheet';
 import { invalidateBuyerLiveStreamCache, peekCachedBuyerLiveStream, prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
 import { WARM_NEIGHBOR_RADIUS } from '../../lib/liveStreamPlayback';
+import { resolveLiveFeedPageCorrection } from '../../lib/pinSelectedLiveStream';
 import type { LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import type { LiveRoomLineupItemSnapshot } from '../../lib/liveBuyerQueueProjection';
 import { liveAuctionMinBidUsd } from '../../lib/liveAuctionPricing';
@@ -332,9 +334,8 @@ function LiveSlide({
         miniPlayer?.peekWarmPlaybackUrl(stream.id) ||
         cached?.playbackUrl?.trim() ||
         null;
-      // Drop stale stream cache so mini overlay refetch can heal Stage→HLS composition.
-      invalidateBuyerLiveStreamCache(stream.id);
       // Minimize BEFORE blur/unmount so sessionRef is set when warm HLS cleanup runs.
+      // Do NOT invalidate the stream cache here — that wiped the HLS URL before handoff.
       miniPlayer?.minimize({
         roomId: stream.id,
         title: stream.title?.trim() || 'Live show',
@@ -1063,8 +1064,13 @@ function LiveSlide({
 
   const sendFloatingChat = useCallback(async () => {
     if (!signedIn) {
-      onRequireAuth?.();
-      return;
+      // Last-chance: React auth can briefly look signed-out during token refresh.
+      try {
+        await resolveSellerAccessToken(accessToken);
+      } catch {
+        onRequireAuth?.();
+        return;
+      }
     }
     if (breakParticipationBlocked) {
       Alert.alert('Accept notice', 'Accept the live break notice before chatting.');
@@ -1098,6 +1104,7 @@ function LiveSlide({
     }
   }, [
     signedIn,
+    accessToken,
     onRequireAuth,
     breakParticipationBlocked,
     slowMode.chatBlocked,
@@ -2114,6 +2121,12 @@ export function VerticalLiveFeed({
   const [spotCelebrationHost, setSpotCelebrationHost] = useState<LiveSpotCelebrationHost | null>(null);
   const walletGateActionsRef = useRef<WalletGateHostActions | null>(null);
   const pagerRef = useRef<PagerView>(null);
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  /** Room the buyer is actually watching — survive discovery reorder (index alone drifts). */
+  const activeStreamIdRef = useRef<string | null>(
+    streams[startIndex]?.id ?? initialStreamId ?? null,
+  );
 
   const handleSpotCelebrationHostChange = useCallback((host: LiveSpotCelebrationHost | null) => {
     setSpotCelebrationHost(host);
@@ -2184,9 +2197,31 @@ export function VerticalLiveFeed({
     [page, warmPageIndices, screenFocused],
   );
 
+  // New deep-link / home tap — snap to the requested room (PagerView only honors initialPage once).
   useEffect(() => {
+    activeStreamIdRef.current = initialStreamId ?? streams[startIndex]?.id ?? null;
     setPage(startIndex);
-  }, [startIndex]);
+    requestAnimationFrame(() => {
+      pagerRef.current?.setPageWithoutAnimation(startIndex);
+    });
+  }, [initialStreamId]); // eslint-disable-line react-hooks/exhaustive-deps -- startIndex/streams follow initialStreamId
+
+  // If a rare list replace left the wrong room on the current page, snap back to the
+  // room the buyer was watching. Do nothing when already correct — calling
+  // setPageWithoutAnimation on every discovery refresh felt like a random swipe.
+  useEffect(() => {
+    const keepId = activeStreamIdRef.current ?? initialStreamId ?? null;
+    const target = resolveLiveFeedPageCorrection({
+      streams,
+      currentPage: pageRef.current,
+      keepStreamId: keepId,
+    });
+    if (target == null) return;
+    setPage(target);
+    requestAnimationFrame(() => {
+      pagerRef.current?.setPageWithoutAnimation(target);
+    });
+  }, [streams, initialStreamId]);
 
   useEffect(() => {
     if (!walletOverlayActive) return;
@@ -2330,7 +2365,10 @@ export function VerticalLiveFeed({
             }
           }}
           onPageSelected={(e) => {
-            setPage(e.nativeEvent.position);
+            const nextPage = e.nativeEvent.position;
+            const nextId = streams[nextPage]?.id ?? null;
+            if (nextId) activeStreamIdRef.current = nextId;
+            setPage(nextPage);
             setPeekPage(null);
           }}
         >
