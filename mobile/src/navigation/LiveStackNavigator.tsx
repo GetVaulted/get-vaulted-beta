@@ -16,7 +16,15 @@ export function LiveStackNavigator() {
       }}
     >
       <Stack.Screen name="LiveDiscovery" component={LiveDiscoveryScreen} />
-      <Stack.Screen name="LiveRoom" component={LiveRoomScreen} options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen
+        name="LiveRoom"
+        component={LiveRoomScreen}
+        options={{
+          animation: 'slide_from_right',
+          // Root LiveActiveSessionSurface paints video; room chrome sits on top.
+          contentStyle: { backgroundColor: 'transparent' },
+        }}
+      />
     </Stack.Navigator>
   );
 }

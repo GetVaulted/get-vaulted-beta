@@ -14,6 +14,8 @@ import {
   recoverFromStaleAuthSession,
 } from './src/lib/recoverInvalidAuthSession';
 import { AppLayoutProvider } from './src/layout/AppLayoutProvider';
+import { LiveActiveSessionProvider } from './src/live/LiveActiveSessionContext';
+import { LiveActiveSessionSurface } from './src/live/LiveActiveSessionSurface';
 import { LiveMiniPlayerProvider } from './src/live/LiveMiniPlayerContext';
 import { LiveMiniPlayerOverlay } from './src/live/LiveMiniPlayerOverlay';
 import { RootNavigator } from './src/navigation/RootNavigator';
@@ -43,13 +45,19 @@ export default function App() {
         <AppLayoutProvider>
           <PlatformFeeProvider>
             <AuthProvider>
-              <LiveMiniPlayerProvider>
-                <View style={styles.root}>
-                  <RootNavigator />
-                  {/* Outside native-stack so the float is not buried under screen hosts. */}
-                  <LiveMiniPlayerOverlay />
-                </View>
-              </LiveMiniPlayerProvider>
+              <LiveActiveSessionProvider>
+                <LiveMiniPlayerProvider>
+                  <View style={styles.root}>
+                    {/* One Stage/HLS surface — Back only shrinks this; never leaves Stage. */}
+                    <LiveActiveSessionSurface />
+                    <View style={styles.navigatorHost}>
+                      <RootNavigator />
+                    </View>
+                    {/* Chrome only for mini; video pixels come from LiveActiveSessionSurface. */}
+                    <LiveMiniPlayerOverlay />
+                  </View>
+                </LiveMiniPlayerProvider>
+              </LiveActiveSessionProvider>
             </AuthProvider>
           </PlatformFeeProvider>
         </AppLayoutProvider>
@@ -63,5 +71,9 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: '#050505',
+  },
+  navigatorHost: {
+    flex: 1,
+    zIndex: 1,
   },
 });

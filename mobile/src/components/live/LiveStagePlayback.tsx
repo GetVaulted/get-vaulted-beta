@@ -37,6 +37,7 @@ import { isLivePlaybackCommerceHoldActive } from '../../lib/livePlaybackCommerce
 import { setLiveStagePipKeepAlive } from '../../lib/liveStagePipKeepAlive';
 import { liveStageContentFitForStreamMode, liveStageContentFitForPlayback } from '../../lib/liveRoomViewport';
 import { viewerLifecycleLog } from '../../lib/viewerLifecycleLog';
+import { useLiveActiveSessionOptional } from '../../live/LiveActiveSessionContext';
 import { useLiveMiniPlayerOptional } from '../../live/LiveMiniPlayerContext';
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
@@ -189,6 +190,7 @@ export function LiveStagePlayback({
   );
   const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce, roomVisitNonce });
   const miniPlayer = useLiveMiniPlayerOptional();
+  const activeSession = useLiveActiveSessionOptional();
   const stagePipReadyRef = useRef(false);
 
   useEffect(() => {
@@ -269,10 +271,17 @@ export function LiveStagePlayback({
   const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
   const webrtcReadyRef = useRef(false);
   webrtcReadyRef.current = webrtcReady;
-  // Native Stage PiP — enable once remote WebRTC is painting. Must stay enabled across
-  // home-swipe (do not tie to AppState) or disable() tears down the OS PiP source.
+  // Hoist Stage/HLS pixels to the app-root surface so Back only changes layout.
+  const hostedAtRoot = Boolean(activeSession?.isHostingRoom(roomId));
+  // Active page never mounts a local Stage/HLS view — root surface owns pixels.
+  const skipLocalSurface = Boolean(activeSession) && isForeground;
+  // Native Stage PiP is owned by LiveActiveSessionSurface when hosted. Avoid double-enable.
   const stageRemotePipEnabled =
-    LIVE_PICTURE_IN_PICTURE_ENABLED && useWebrtc && webrtcReady && !streamPaused;
+    LIVE_PICTURE_IN_PICTURE_ENABLED &&
+    useWebrtc &&
+    webrtcReady &&
+    !streamPaused &&
+    !skipLocalSurface;
   const { stagePipReady, stagePipActive } = useStageRemotePictureInPicture({
     enabled: stageRemotePipEnabled,
     roomId,
@@ -305,8 +314,10 @@ export function LiveStagePlayback({
       warmPipCompanion ||
       (LIVE_PICTURE_IN_PICTURE_ENABLED && (pipActive || appBackgrounded) && hlsAttachable));
 
-  // Keep a root-level HLS player buffering the same URL so Back → mini does not cold-start.
+  // Legacy shared-HLS warm only when the root active session host is unavailable.
+  // Stage/WebRTC Back uses LiveActiveSessionSurface — do not warm a Stage surrogate.
   useEffect(() => {
+    if (activeSession) return undefined;
     if (!miniPlayer) return undefined;
     const url = playbackUrl?.trim() || null;
     if (
@@ -324,6 +335,7 @@ export function LiveStagePlayback({
     miniPlayer.clearWarmHls(roomId);
     return undefined;
   }, [
+    activeSession,
     miniPlayer,
     playbackUrl,
     playbackActive,
@@ -407,6 +419,54 @@ export function LiveStagePlayback({
     },
     [playback.onWebrtcFailed],
   );
+
+  // Register / update the root surface while this page is the active room.
+  useEffect(() => {
+    if (!activeSession || !isForeground) return;
+    if (transport !== 'webrtc' && transport !== 'hls') return;
+    if (!roomLifecycleLive) return;
+    const fit =
+      contentFitOverride ??
+      liveStageContentFitForPlayback({
+        streamMode: playback.stream?.streamMode,
+        transport,
+      });
+    return activeSession.attach({
+      roomId,
+      accessToken,
+      transport: transport === 'webrtc' ? 'webrtc' : 'hls',
+      title: 'Live show',
+      hostLabel: '',
+      thumbnailUrl,
+      playbackUrl: playbackUrl ?? null,
+      hostPaused: streamPaused,
+      subscribeEpoch: playback.webrtcSubscribeEpoch,
+      foregroundResumeNonce,
+      contentFit: fit,
+      muted,
+      onConnected: handleWebrtcConnected,
+      onFailed: handleWebrtcFailed,
+      onDisconnected: handleWebrtcDisconnected,
+    });
+  }, [
+    activeSession,
+    isForeground,
+    transport,
+    roomLifecycleLive,
+    roomId,
+    accessToken,
+    thumbnailUrl,
+    playbackUrl,
+    streamPaused,
+    playback.webrtcSubscribeEpoch,
+    playback.stream?.streamMode,
+    foregroundResumeNonce,
+    contentFitOverride,
+    muted,
+    handleWebrtcConnected,
+    handleWebrtcFailed,
+    handleWebrtcDisconnected,
+  ]);
 
   const hlsPlayerSetup = (p: VideoPlayer) => {
     p.loop = false;
@@ -951,8 +1011,8 @@ export function LiveStagePlayback({
   })();
 
   return (
-    <View style={styles.root}>
-      {showThumbnail ? (
+    <View style={[styles.root, skipLocalSurface || hostedAtRoot ? styles.rootHosted : null]}>
+      {showThumbnail && !skipLocalSurface && !hostedAtRoot ? (
         <Image
           source={{ uri: thumbnailUrl }}
           style={StyleSheet.absoluteFill}
@@ -973,7 +1033,7 @@ export function LiveStagePlayback({
         />
       ) : null}
 
-      {hlsCompanionUnderWebrtc ? (
+      {!skipLocalSurface && hlsCompanionUnderWebrtc ? (
         <>
           {/* HLS under Stage — Stage remote PiP captures the visible WebRTC view. */}
           <VideoView
@@ -1003,7 +1063,7 @@ export function LiveStagePlayback({
             onDisconnected={handleWebrtcDisconnected}
           />
         </>
-      ) : (
+      ) : !skipLocalSurface ? (
         <>
           {showWebrtcLayer ? (
             <StageSubscriberVideo
@@ -1036,7 +1096,7 @@ export function LiveStagePlayback({
             />
           ) : null}
         </>
-      )}
+      ) : null}
 
       <LinearGradient
         colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.06)', 'rgba(0,0,0,0.28)']}
@@ -1080,6 +1140,7 @@ export function LiveStagePlayback({
                     : 'loading'
             }`}
             {`\nvisit: ${roomVisitNonce}  attempt: ${playback.playbackAttemptId}`}
+            {skipLocalSurface ? '\nhost: root' : ''}
           </Text>
         </View>
       ) : null}
@@ -1092,6 +1153,9 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',
     overflow: 'hidden',
+  },
+  rootHosted: {
+    backgroundColor: 'transparent',
   },
   video: {
     ...StyleSheet.absoluteFillObject,
