@@ -97,7 +97,8 @@ export function primaryCta(status: VaultEventDisplayStatus): { label: string; ac
       return { label: 'Open command center', action: 'console' };
     case 'processing_recap':
     case 'ended':
-      return { label: 'View recap', action: 'recap' };
+      // Next-day / new-show workflow: finish Mark sold / Supp sold on leftover teams.
+      return { label: 'Finish team sales', action: 'console' };
   }
 }
 

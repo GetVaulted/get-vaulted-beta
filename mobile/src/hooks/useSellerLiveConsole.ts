@@ -274,6 +274,23 @@ export function useSellerLiveConsole({
     }
   };
 
+  /** Mark sold / retire / restore — allowed after the show ends for next-day settlement. */
+  const runSettlement = async (fn: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    setConsoleError(null);
+    try {
+      await fn();
+      await reload({ force: true });
+    } catch (e) {
+      const sanitized = sanitizeLiveError(e, 'console');
+      setConsoleError(sanitized);
+      Alert.alert('Live room', sanitized.userMessage);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onQuickAddLot = (payload: QuickLiveLotSubmitPayload, options?: QuickLiveLotSubmitOptions) => {
     if (busy) {
       Alert.alert('Add to show', 'Still saving the previous change. Try again in a moment.');
@@ -525,7 +542,7 @@ export function useSellerLiveConsole({
     note?: string;
     restoreIfUnavailable?: boolean;
   }) => {
-    void run(async () => {
+    void runSettlement(async () => {
       setMarkSoldBusy(true);
       try {
         if (args.restoreIfUnavailable) {
@@ -622,7 +639,7 @@ export function useSellerLiveConsole({
   };
 
   const onRetireLiveTeam = (args: { itemId: string; variantId: string; label: string }) => {
-    void run(async () => {
+    void runSettlement(async () => {
       setMarkSoldBusy(true);
       try {
         const result = await retireLiveItemVariant({
@@ -663,7 +680,7 @@ export function useSellerLiveConsole({
   };
 
   const onRestoreLiveTeam = (args: { itemId: string; variantId: string; label: string }) => {
-    void run(async () => {
+    void runSettlement(async () => {
       setMarkSoldBusy(true);
       try {
         const result = await restoreLiveItemVariant({

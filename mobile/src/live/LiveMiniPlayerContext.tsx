@@ -48,6 +48,10 @@ type LiveMiniPlayerContextValue = {
   clearWarmHls: (roomId: string) => void;
   /** Minimize the current live show into the TikTok-style floating player. */
   minimize: (session: LiveMiniPlayerSession) => void;
+  /** Epoch ms of the latest minimize() — used to ignore accidental close races. */
+  minimizedAtMs: number;
+  /** True for a short window after Back→minimize while the room is still mounted. */
+  wasMinimizedRecently: (withinMs?: number) => boolean;
   /**
    * Force the shared player onto a fresh live-edge playlist (cache-bust + replace).
    * Coalesced + session-gated — never call after close (native crash risk).
@@ -69,12 +73,16 @@ function normalizeHlsUrl(url: string | null | undefined): string | null {
   return trimmed || null;
 }
 
+const DEFAULT_MINIMIZE_GRACE_MS = 2_500;
+
 export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<LiveMiniPlayerSession | null>(null);
   const [paused, setPaused] = useState(false);
   const [warm, setWarm] = useState<WarmHls | null>(null);
+  const [minimizedAtMs, setMinimizedAtMs] = useState(0);
   const warmRef = useRef<WarmHls | null>(null);
   const sessionRef = useRef<LiveMiniPlayerSession | null>(null);
+  const minimizedAtMsRef = useRef(0);
   const lastKickAtRef = useRef(0);
   const kickEpochRef = useRef(0);
   const delayedKickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -220,6 +228,12 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
     [player],
   );
 
+  const wasMinimizedRecently = useCallback((withinMs = DEFAULT_MINIMIZE_GRACE_MS) => {
+    const at = minimizedAtMsRef.current;
+    if (!at) return false;
+    return Date.now() - at < withinMs;
+  }, []);
+
   const minimize = useCallback(
     (next: LiveMiniPlayerSession) => {
       const fromWarm =
@@ -228,8 +242,11 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
           : null;
       const url = normalizeHlsUrl(next.playbackUrl) || fromWarm;
       const sessionNext = { ...next, playbackUrl: url };
+      const now = Date.now();
       // Sync before setState so leave-room clearWarmHls cannot drop the source.
       sessionRef.current = sessionNext;
+      minimizedAtMsRef.current = now;
+      setMinimizedAtMs(now);
       setSession(sessionNext);
       setPaused(false);
       if (url) {
@@ -266,6 +283,8 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
     }
     sessionRef.current = null;
     warmRef.current = null;
+    minimizedAtMsRef.current = 0;
+    setMinimizedAtMs(0);
     setSession(null);
     setWarm(null);
     setPaused(false);
@@ -305,6 +324,8 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
       warmHls,
       clearWarmHls,
       minimize,
+      minimizedAtMs,
+      wasMinimizedRecently,
       kickLivePlayback,
       close,
       setPaused,
@@ -321,6 +342,8 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
       warmHls,
       clearWarmHls,
       minimize,
+      minimizedAtMs,
+      wasMinimizedRecently,
       kickLivePlayback,
       close,
       togglePaused,

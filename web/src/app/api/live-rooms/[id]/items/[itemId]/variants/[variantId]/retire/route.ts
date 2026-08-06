@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { maybeMarkVariantBreakReady } from "@/lib/live-item-variant-break";
+import { isRoomOpenForHostTeamBoardEdit } from "@/lib/live-room-commerce-guards";
 import { idleVariantSpotCommerceReset } from "@/lib/live-variant-spot-commerce";
 import { prisma } from "@/lib/prisma";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
@@ -26,7 +27,7 @@ export async function POST(
         where: { id: liveRoomId },
         select: { id: true, sellerId: true, status: true },
       });
-      if (!room || (room.status !== "live" && room.status !== "scheduled")) {
+      if (!room || !isRoomOpenForHostTeamBoardEdit(room.status)) {
         throw Object.assign(new Error("ROOM_NOT_EDITABLE"), { code: "ROOM_NOT_EDITABLE" });
       }
 
@@ -108,7 +109,10 @@ export async function POST(
       );
     }
     if (code === "ROOM_NOT_EDITABLE") {
-      return NextResponse.json({ error: "Room must be live or scheduled to remove teams." }, { status: 409 });
+      return NextResponse.json(
+        { error: "Room must be live, scheduled, or ended to remove teams." },
+        { status: 409 },
+      );
     }
     if (code === "ITEM_NOT_FOUND" || code === "VARIANT_NOT_FOUND") {
       return NextResponse.json({ error: "Team not found." }, { status: 404 });

@@ -59,7 +59,7 @@ const EMPTY_COPY: Record<VaultEventSection, { title: string; body: string }> = {
   },
   past: {
     title: 'No past events',
-    body: 'Ended shows and recaps will collect here for analytics and collector replay.',
+    body: 'Ended shows collect here. Open Finish team sales to mark leftover teams or supps sold.',
   },
 };
 

@@ -125,10 +125,15 @@ export function LiveRoomScreen() {
       const mp = miniPlayerRef.current;
       const resumingSameMini = mp?.session?.roomId === streamId;
       if (resumingSameMini) {
-        // Keep the float until in-room video paints (LiveStagePlayback closes it).
-        // A blind 450ms close left buyers with neither mini nor room video.
+        // Soft expand: dismiss the float only after this screen regained focus.
+        // Closing from LiveStagePlayback while still painting on leave wiped the mini.
         void reloadStreams();
+        const dismissTimer = setTimeout(() => {
+          const cur = miniPlayerRef.current;
+          if (cur?.session?.roomId === streamId) cur.close();
+        }, 1_000);
         return () => {
+          clearTimeout(dismissTimer);
           viewerLifecycleLog('screen_blurred', { streamId, layer: 'LiveRoomScreen' });
         };
       }

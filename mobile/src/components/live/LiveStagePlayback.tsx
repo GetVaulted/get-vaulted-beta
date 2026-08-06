@@ -333,13 +333,9 @@ export function LiveStagePlayback({
     roomId,
   ]);
 
-  // Soft expand from mini: only dismiss the float once in-room video is painting.
-  useEffect(() => {
-    if (!miniPlayer?.session) return;
-    if (miniPlayer.session.roomId !== roomId) return;
-    if (!isForeground || !playback.videoHasData) return;
-    miniPlayer.close();
-  }, [miniPlayer, roomId, isForeground, playback.videoHasData]);
+  // NOTE: Do NOT close the mini player here when videoHasData + session match.
+  // minimize() runs while this room is still mounted and painting — that effect
+  // instantly wiped the float and looked like "Back just closes the show."
 
   useEffect(() => {
     if (!useWebrtc || !isForeground) setWebrtcReady(false);

@@ -8,6 +8,7 @@ import {
   parseOffPlatformZeroReason,
 } from "@/lib/off-platform-settlement";
 import { recordLiveShowCompletedSaleTx } from "@/lib/live-show-gmv";
+import { isRoomOpenForHostOffPlatformMarkSold } from "@/lib/live-room-commerce-guards";
 import { prisma } from "@/lib/prisma";
 import {
   emitLiveRoomQueueItemsChanged,
@@ -107,8 +108,9 @@ export async function POST(
           seller: { select: { sellerPlatformFeePercentOverride: true } },
         },
       });
-      if (!room || room.status !== "live") {
-        throw Object.assign(new Error("ROOM_NOT_LIVE"), { code: "ROOM_NOT_LIVE" });
+      // Host off-platform settlement: while live, or after the show ends (next-day cleanup).
+      if (!room || !isRoomOpenForHostOffPlatformMarkSold(room.status)) {
+        throw Object.assign(new Error("ROOM_NOT_SETTLEABLE"), { code: "ROOM_NOT_SETTLEABLE" });
       }
 
       const item = await tx.liveRoomItem.findFirst({
@@ -267,8 +269,11 @@ export async function POST(
     if (code === "SOLD_OUT") {
       return NextResponse.json({ error: "That team is already sold." }, { status: 409 });
     }
-    if (code === "ROOM_NOT_LIVE") {
-      return NextResponse.json({ error: "Room must be live to mark teams sold." }, { status: 409 });
+    if (code === "ROOM_NOT_SETTLEABLE") {
+      return NextResponse.json(
+        { error: "Room must be live or ended to mark teams sold." },
+        { status: 409 },
+      );
     }
     if (code === "ITEM_NOT_FOUND" || code === "VARIANT_NOT_FOUND") {
       return NextResponse.json({ error: "Team not found." }, { status: 404 });

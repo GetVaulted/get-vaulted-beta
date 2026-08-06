@@ -33,6 +33,24 @@ export function isLiveRoomOpenForSpotPurchase(status: string | null | undefined)
 }
 
 /**
+ * Host off-platform Mark sold / Supp sold: while live, or after the show ends
+ * (next-day settlement). Not while still scheduled.
+ */
+export function isRoomOpenForHostOffPlatformMarkSold(status: string | null | undefined): boolean {
+  const s = (status ?? "").trim().toLowerCase();
+  return s === "live" || s === "ended";
+}
+
+/**
+ * Host team board retire / restore: prep before go-live, during the show, or
+ * post-show cleanup. Buyer purchase stays gated separately.
+ */
+export function isRoomOpenForHostTeamBoardEdit(status: string | null | undefined): boolean {
+  const s = (status ?? "").trim().toLowerCase();
+  return s === "live" || s === "scheduled" || s === "ended";
+}
+
+/**
  * Blocks buyer commerce when the host broadcast is offline.
  * `auction` also blocks while the host is paused; `purchase` (Buy Now / spots / shop) stays open.
  */
