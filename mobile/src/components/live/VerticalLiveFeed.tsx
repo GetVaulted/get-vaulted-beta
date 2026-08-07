@@ -32,8 +32,6 @@ import { fetchSellerFollowStatus, toggleSellerFollow } from '../../api/sellerFol
 import type { LiveStream, ChatMessage } from '../../types';
 import type { LiveStackParamList } from '../../navigation/types';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
-import { useLiveMiniPlayerOptional } from '../../live/LiveMiniPlayerContext';
-import { isLiveFeedKeepAlive, setLiveFeedKeepAlive } from '../../lib/liveFeedKeepAlive';
 import { openLiveHostProfile, openUserProfile } from '../../navigation/openPlatform';
 import { UserAvatar } from '../ui/UserAvatar';
 import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
@@ -109,7 +107,7 @@ import {
 } from '../../lib/liveRoomViewport';
 import { isCompactLiveRoomLayout, liveRoomOverlayScale } from '../../lib/liveRoomUiScale';
 import { LiveRoomShareSheet } from './LiveRoomShareSheet';
-import { invalidateBuyerLiveStreamCache, peekCachedBuyerLiveStream, prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
+import { invalidateBuyerLiveStreamCache, prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
 import { WARM_NEIGHBOR_RADIUS } from '../../lib/liveStreamPlayback';
 import { resolveLiveFeedPageCorrection } from '../../lib/pinSelectedLiveStream';
 import type { LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
@@ -239,7 +237,6 @@ function LiveSlide({
   const insets = useSafeAreaInsets();
   const stageInsets = computeLiveStageSafeInsets(stageContainer, screenHeight, insets, spacing.sm);
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
-  const miniPlayer = useLiveMiniPlayerOptional();
   const openWalletRef = useRef<(reason?: string) => void>(() => {});
   const layoutWidth = stageContainer.designWidth;
   const compact = isCompactLiveRoomLayout(layoutWidth);
@@ -317,129 +314,18 @@ function LiveSlide({
     setWalletReadiness(null);
   }, [isActive, roomVisitNonce, stream.id]);
 
-  const leaveAllowRef = useRef(false);
-
+  /** Leave the live room. OS PiP is home-swipe only — no in-app mini float. */
   const leaveRoomSafely = useCallback(() => {
     setWalletGateSheetOpen(false);
     onPaymentBlockerChange?.(false);
     onWalletGateHostChange?.(null, null);
-    const health = (broadcastGate.streamHealth ?? '').toLowerCase();
-    const canMinimize =
-      roomStatus === 'live' ||
-      broadcastGate.status === 'live' ||
-      health === 'live' ||
-      health === 'connecting';
-    if (canMinimize) {
-      const cached = peekCachedBuyerLiveStream(stream.id);
-      const warmUrl =
-        miniPlayer?.peekWarmPlaybackUrl(stream.id) ||
-        cached?.playbackUrl?.trim() ||
-        null;
-      const mode = (broadcastGate.streamMode ?? '').trim().toLowerCase();
-      const transport: 'webrtc' | 'hls' =
-        mode === 'stage_webrtc' ? 'webrtc' : 'hls';
-      // Whatnot / OS PiP model: keep the same Stage feed joined across Back.
-      if (transport === 'webrtc') {
-        setLiveFeedKeepAlive(stream.id);
-      }
-      // Minimize BEFORE blur/unmount so sessionRef is set when warm HLS cleanup runs.
-      miniPlayer?.minimize({
-        roomId: stream.id,
-        title: stream.title?.trim() || 'Live show',
-        hostLabel: stream.host?.handle
-          ? `@${stream.host.handle.replace(/^@/, '')}`
-          : stream.host?.name?.trim() || '',
-        thumbnailUrl: stream.previewImageUrl?.trim() || '',
-        accessToken,
-        playbackUrl: warmUrl,
-        transport,
-      });
+    if (stackNav.canGoBack()) {
+      stackNav.goBack();
+      return;
     }
-    leaveAllowRef.current = true;
-    // Stage keep-alive: leave immediately (same as finishing home-swipe PiP shell).
-    // HLS-only: brief wait when a warm mirror is already playing.
-    const leaveAfterHandoff = async () => {
-      const keepStage = isLiveFeedKeepAlive(stream.id);
-      const warm =
-        Boolean(miniPlayer?.peekWarmPlaybackUrl(stream.id)) ||
-        Boolean(peekCachedBuyerLiveStream(stream.id)?.playbackUrl?.trim());
-      if (!keepStage && canMinimize && warm && miniPlayer?.player) {
-        const deadline = Date.now() + 800;
-        while (Date.now() < deadline) {
-          try {
-            if (miniPlayer.player.playing) break;
-          } catch {
-            /* ignore */
-          }
-          await new Promise<void>((r) => setTimeout(r, 40));
-        }
-      } else {
-        await new Promise<void>((r) => {
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => r());
-          });
-        });
-      }
-      leaveAllowRef.current = true;
-      if (stackNav.canGoBack()) {
-        stackNav.goBack();
-        return;
-      }
-      stackNav.navigate('LiveDiscovery');
-      onBack?.();
-    };
-    void leaveAfterHandoff();
-  }, [
-    accessToken,
-    broadcastGate.status,
-    broadcastGate.streamHealth,
-    broadcastGate.streamMode,
-    miniPlayer,
-    onBack,
-    onPaymentBlockerChange,
-    onWalletGateHostChange,
-    stackNav,
-    stream.host?.handle,
-    stream.host?.name,
-    stream.id,
-    stream.previewImageUrl,
-    roomStatus,
-    stream.title,
-  ]);
-
-  // Hardware back + iOS edge-swipe must minimize like the in-room Back chevron.
-  useEffect(() => {
-    if (!isActive) return;
-    const unsub = stackNav.addListener('beforeRemove', (e) => {
-      if (leaveAllowRef.current) {
-        leaveAllowRef.current = false;
-        return;
-      }
-      const actionType = e.data.action.type;
-      // Only intercept back/pop — do not trap navigates to other screens.
-      if (actionType !== 'GO_BACK' && actionType !== 'POP' && actionType !== 'POP_TO_TOP') {
-        return;
-      }
-      const health = (broadcastGate.streamHealth ?? '').toLowerCase();
-      const canMinimize =
-        roomStatus === 'live' ||
-        broadcastGate.status === 'live' ||
-        health === 'live' ||
-        health === 'connecting';
-      if (!canMinimize || !miniPlayer) return;
-      e.preventDefault();
-      leaveRoomSafely();
-    });
-    return unsub;
-  }, [
-    broadcastGate.status,
-    broadcastGate.streamHealth,
-    isActive,
-    leaveRoomSafely,
-    miniPlayer,
-    roomStatus,
-    stackNav,
-  ]);
+    stackNav.navigate('LiveDiscovery');
+    onBack?.();
+  }, [onBack, onPaymentBlockerChange, onWalletGateHostChange, stackNav]);
 
   const moderation = useLiveRoomModeration({
     roomId: stream.id,

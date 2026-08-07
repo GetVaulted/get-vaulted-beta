@@ -14,8 +14,6 @@ import {
   recoverFromStaleAuthSession,
 } from './src/lib/recoverInvalidAuthSession';
 import { AppLayoutProvider } from './src/layout/AppLayoutProvider';
-import { LiveMiniPlayerProvider } from './src/live/LiveMiniPlayerContext';
-import { LiveMiniPlayerOverlay } from './src/live/LiveMiniPlayerOverlay';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -43,13 +41,9 @@ export default function App() {
         <AppLayoutProvider>
           <PlatformFeeProvider>
             <AuthProvider>
-              <LiveMiniPlayerProvider>
-                <View style={styles.root}>
-                  <RootNavigator />
-                  {/* Outside native-stack so the float is not buried under screen hosts. */}
-                  <LiveMiniPlayerOverlay />
-                </View>
-              </LiveMiniPlayerProvider>
+              <View style={styles.root}>
+                <RootNavigator />
+              </View>
             </AuthProvider>
           </PlatformFeeProvider>
         </AppLayoutProvider>

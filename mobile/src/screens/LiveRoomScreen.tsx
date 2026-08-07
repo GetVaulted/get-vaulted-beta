@@ -1,6 +1,6 @@
 import { useNavigation, useRoute, useFocusEffect, useIsFocused, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 import { fetchLiveShowsForDiscovery } from '../api/liveShowsDiscoveryRepository';
 import { fetchLiveRoomPublicById, liveRoomRowToLiveStream } from '../api/liveRoomsRepository';
@@ -14,7 +14,6 @@ import { useAuth } from '../auth/AuthContext';
 import type { LiveStackParamList } from '../navigation/types';
 import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
 import { navigateAuthLogin, navigateAuthSignUp } from '../navigation/rootNavigationRef';
-import { useLiveMiniPlayerOptional } from '../live/LiveMiniPlayerContext';
 import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
 import { useStickyLiveAuth } from '../hooks/useStickyLiveAuth';
 import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
@@ -43,9 +42,6 @@ export function LiveRoomScreen() {
   // screen). `useIsFocused` is false whenever any parent navigator is also unfocused, so it covers
   // the tab-switch case where the screen stays mounted and would otherwise keep playing audio.
   const isFocused = useIsFocused();
-  const miniPlayer = useLiveMiniPlayerOptional();
-  const miniPlayerRef = useRef(miniPlayer);
-  miniPlayerRef.current = miniPlayer;
 
   useKeepScreenAwakeWhileFocused('live-room-buyer');
 
@@ -122,20 +118,6 @@ export function LiveRoomScreen() {
       // Soft visit — do NOT remount the whole feed via React key;
       // remount racing IVS leave/join blanks video until app kill.
       viewerLifecycleLog('screen_focused', { streamId, layer: 'LiveRoomScreen' });
-      const mp = miniPlayerRef.current;
-      const resumingSameMini = mp?.session?.roomId === streamId;
-      if (resumingSameMini) {
-        // Soft expand: keep Stage joined; only dismiss float chrome so room adopts subscribe.
-        mp.releaseMiniChrome();
-        void reloadStreams();
-        return () => {
-          viewerLifecycleLog('screen_blurred', { streamId, layer: 'LiveRoomScreen' });
-        };
-      }
-      if (mp?.session) {
-        // Different show was minimized — tear down that feed before watching this room.
-        mp.close({ tearDownFeed: true });
-      }
       // Re-focus after in-app nav (profile/DM/Settings) must soft-resume — bumping
       // roomVisitNonce force-restarts Stage/HLS as if opening a brand-new show.
       void reloadStreams();

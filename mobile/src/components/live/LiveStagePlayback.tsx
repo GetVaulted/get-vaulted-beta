@@ -35,10 +35,8 @@ import {
 } from '../../lib/livePlaybackAppState';
 import { isLivePlaybackCommerceHoldActive } from '../../lib/livePlaybackCommerceHold';
 import { setLiveStagePipKeepAlive } from '../../lib/liveStagePipKeepAlive';
-import { isLiveFeedKeepAlive, setLiveFeedKeepAlive } from '../../lib/liveFeedKeepAlive';
 import { liveStageContentFitForStreamMode, liveStageContentFitForPlayback } from '../../lib/liveRoomViewport';
 import { viewerLifecycleLog } from '../../lib/viewerLifecycleLog';
-import { useLiveMiniPlayerOptional } from '../../live/LiveMiniPlayerContext';
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
 import { StageSubscriberVideo } from './StageSubscriberVideo';
@@ -189,8 +187,6 @@ export function LiveStagePlayback({
     () => AppState.currentState === 'background',
   );
   const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce, roomVisitNonce });
-  const miniPlayer = useLiveMiniPlayerOptional();
-  const miniOwnsFeed = miniPlayer?.session?.roomId === roomId;
   const stagePipReadyRef = useRef(false);
 
   useEffect(() => {
@@ -286,13 +282,6 @@ export function LiveStagePlayback({
     };
   }, [stagePipReady, stagePipActive]);
 
-  // Soft expand from mini: room adopted the kept-alive Stage — clear keep-alive flag.
-  useEffect(() => {
-    if (!isForeground || !webrtcReady) return;
-    if (!isLiveFeedKeepAlive(roomId)) return;
-    setLiveFeedKeepAlive(null);
-  }, [isForeground, webrtcReady, roomId]);
-
   const hlsAttachable = Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
   // Hold the HLS mirror under WebRTC until Stage connects (and as a cold-mirror safety net while
   // waiting for first paint). Neighbors buffer HLS muted+hidden for instant switching.
@@ -314,37 +303,7 @@ export function LiveStagePlayback({
       warmPipCompanion ||
       (LIVE_PICTURE_IN_PICTURE_ENABLED && (pipActive || appBackgrounded) && hlsAttachable));
 
-  // Warm shared HLS for Back→mini handoff and OS PiP companion (pre-hoist path).
-  useEffect(() => {
-    if (!miniPlayer) return undefined;
-    const url = playbackUrl?.trim() || null;
-    if (
-      url &&
-      playbackActive &&
-      roomLifecycleLive &&
-      !streamPaused &&
-      shouldAttachHlsPlayback(streamHealth, url)
-    ) {
-      miniPlayer.warmHls(roomId, url);
-      return () => {
-        miniPlayer.clearWarmHls(roomId);
-      };
-    }
-    miniPlayer.clearWarmHls(roomId);
-    return undefined;
-  }, [
-    miniPlayer,
-    playbackUrl,
-    playbackActive,
-    roomLifecycleLive,
-    streamPaused,
-    streamHealth,
-    roomId,
-  ]);
-
-  // NOTE: Do NOT close the mini player here when videoHasData + session match.
-  // minimize() runs while this room is still mounted and painting — that effect
-  // instantly wiped the float and looked like "Back just closes the show."
+  // NOTE: Do NOT close a mini player here — in-app mini was removed; OS PiP owns home-swipe.
 
   useEffect(() => {
     if (!useWebrtc || !isForeground) setWebrtcReady(false);
@@ -1000,12 +959,7 @@ export function LiveStagePlayback({
           <StageSubscriberVideo
             roomId={roomId}
             accessToken={accessToken}
-            active={
-              useWebrtc &&
-              !stageMediaSuspended &&
-              !blockStageAfterBackgroundLeave &&
-              !miniOwnsFeed
-            }
+            active={useWebrtc && !stageMediaSuspended && !blockStageAfterBackgroundLeave}
             hostPaused={streamPaused}
             latchRejoinOnLeave={stageMediaSuspended || blockStageAfterBackgroundLeave}
             refreshNonce={refreshNonce}
@@ -1023,12 +977,7 @@ export function LiveStagePlayback({
             <StageSubscriberVideo
               roomId={roomId}
               accessToken={accessToken}
-              active={
-              useWebrtc &&
-              !stageMediaSuspended &&
-              !blockStageAfterBackgroundLeave &&
-              !miniOwnsFeed
-            }
+              active={useWebrtc && !stageMediaSuspended && !blockStageAfterBackgroundLeave}
               hostPaused={streamPaused}
               latchRejoinOnLeave={stageMediaSuspended || blockStageAfterBackgroundLeave}
               refreshNonce={refreshNonce}
