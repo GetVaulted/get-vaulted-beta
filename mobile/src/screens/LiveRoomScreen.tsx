@@ -128,8 +128,10 @@ export function LiveRoomScreen() {
       viewerLifecycleLog('screen_focused', { streamId, layer: 'LiveRoomScreen' });
       const as = activeSessionRef.current;
       const mp = miniPlayerRef.current;
-      const resumingHoisted = as?.mode === 'mini' && as.session?.roomId === streamId;
-      if (resumingHoisted) {
+      const softResume =
+        Boolean(as?.session?.roomId === streamId) &&
+        (as?.mode === 'mini' || Boolean(as?.wasMinimizedRecently(8_000)));
+      if (softResume && as) {
         // Same Stage surface — restore room layout; do not tear down subscribe.
         as.expand();
         void reloadStreams();
@@ -166,7 +168,14 @@ export function LiveRoomScreen() {
   useLayoutEffect(() => {
     setStreams(seed.streams);
     setLoading(!seed.ready);
-    setRoomVisitNonce((n) => n + 1);
+    const as = activeSessionRef.current;
+    const softResume =
+      Boolean(as?.session?.roomId === streamId) &&
+      (as?.mode === 'mini' || Boolean(as?.wasMinimizedRecently(8_000)));
+    // Soft expand must not bump visit nonce — that remounts Stage and looks like a reload.
+    if (!softResume) {
+      setRoomVisitNonce((n) => n + 1);
+    }
   }, [streamId, seed]);
 
   const blockGuestLive = guestExploreMode && !user;

@@ -1,7 +1,7 @@
 import { useVideoPlayer, VideoView, isPictureInPictureSupported } from 'expo-video';
 import { setStageAudioOutputEnabled } from 'expo-realtime-ivs-broadcast';
 import { useEffect, useMemo, useRef } from 'react';
-import { AppState, type AppStateStatus, StyleSheet, View } from 'react-native';
+import { AppState, type AppStateStatus, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { StageSubscriberVideo } from '../components/live/StageSubscriberVideo';
 import { useHlsLiveEdgeSeek } from '../hooks/useHlsLiveEdgeSeek';
 import { useStageRemotePictureInPicture } from '../hooks/useStageRemotePictureInPicture';
@@ -24,9 +24,13 @@ const LIVE_PICTURE_IN_PICTURE_ENABLED = true;
 /**
  * Whatnot-style single live surface: one Stage/HLS join for the session.
  * Back only changes layout (full-bleed ↔ mini float) — never leaveStage.
+ *
+ * Critical: the native Stage view keeps a stable full-window layout size.
+ * Mini is clip + transform only — resizing the IVS surface blanks video on iOS.
  */
 export function LiveActiveSessionSurface() {
   const { mode, session, paused, miniPos } = useLiveActiveSession();
+  const { width: winW, height: winH } = useWindowDimensions();
   const videoRef = useRef<VideoView>(null);
   const prevAppStateRef = useRef<AppStateStatus>(AppState.currentState);
   const pipRetryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -74,7 +78,8 @@ export function LiveActiveSessionSurface() {
       /* ignore */
     });
     return () => {
-      void setStageAudioOutputEnabled(true).catch(() => {
+      // Never re-enable on cleanup — that leaked audio after mini X close.
+      void setStageAudioOutputEnabled(false).catch(() => {
         /* ignore */
       });
     };
@@ -164,7 +169,13 @@ export function LiveActiveSessionSurface() {
     };
   }, [hlsPipEnabled, player, session?.roomId]);
 
-  const layoutStyle = useMemo(() => {
+  const miniScale = useMemo(() => {
+    if (winW <= 0 || winH <= 0) return 1;
+    // Cover the mini rect (crop overflow) — same idea as contentFit cover.
+    return Math.max(LIVE_MINI_PLAYER_W / winW, LIVE_MINI_PLAYER_H / winH);
+  }, [winW, winH]);
+
+  const outerStyle = useMemo(() => {
     if (mode === 'mini') {
       return {
         position: 'absolute' as const,
@@ -172,11 +183,12 @@ export function LiveActiveSessionSurface() {
         top: miniPos.y,
         width: LIVE_MINI_PLAYER_W,
         height: LIVE_MINI_PLAYER_H,
-        zIndex: 40,
-        elevation: 40,
+        zIndex: 60,
+        elevation: 60,
         overflow: 'hidden' as const,
         borderRadius: 14,
         backgroundColor: '#050505',
+        opacity: paused ? 0 : 1,
       };
     }
     // Full-bleed under the transparent live navigator stack (Whatnot-style).
@@ -185,7 +197,25 @@ export function LiveActiveSessionSurface() {
       zIndex: 0,
       elevation: 0,
     };
-  }, [mode, miniPos.x, miniPos.y]);
+  }, [mode, miniPos.x, miniPos.y, paused]);
+
+  // Inner stage stays full-window sized forever — only transform changes for mini.
+  const innerStyle = useMemo(() => {
+    if (mode !== 'mini') {
+      return StyleSheet.absoluteFillObject;
+    }
+    return {
+      position: 'absolute' as const,
+      width: winW,
+      height: winH,
+      // RN scales from center; shift so the scaled frame fills the mini clip.
+      transform: [
+        { translateX: (LIVE_MINI_PLAYER_W - winW) / 2 },
+        { translateY: (LIVE_MINI_PLAYER_H - winH) / 2 },
+        { scale: miniScale },
+      ],
+    };
+  }, [mode, winW, winH, miniScale]);
 
   if (!active || !session) return null;
 
@@ -193,40 +223,38 @@ export function LiveActiveSessionSurface() {
   const stageSubscribeActive = session.transport === 'webrtc';
 
   return (
-    <View
-      pointerEvents="none"
-      style={[layoutStyle, mode === 'mini' && paused ? { opacity: 0 } : null]}
-      collapsable={false}
-    >
-      {session.transport === 'webrtc' ? (
-        <StageSubscriberVideo
-          roomId={session.roomId}
-          accessToken={session.accessToken}
-          active={stageSubscribeActive}
-          hostPaused={Boolean(session.hostPaused)}
-          latchRejoinOnLeave={false}
-          subscribeEpoch={session.subscribeEpoch}
-          foregroundResumeNonce={session.foregroundResumeNonce ?? 0}
-          contentFit={session.contentFit ?? 'cover'}
-          onConnected={() => session.onConnected?.()}
-          onFailed={(reason) => session.onFailed?.(reason)}
-          onDisconnected={() => session.onDisconnected?.()}
-        />
-      ) : null}
-      {session.transport === 'hls' && hlsUrl ? (
-        <VideoView
-          ref={videoRef}
-          player={player}
-          style={StyleSheet.absoluteFill}
-          contentFit={session.contentFit ?? 'contain'}
-          nativeControls={false}
-          allowsPictureInPicture={LIVE_PICTURE_IN_PICTURE_ENABLED && mode === 'room'}
-          startsPictureInPictureAutomatically={
-            LIVE_PICTURE_IN_PICTURE_ENABLED && mode === 'room'
-          }
-          collapsable={false}
-        />
-      ) : null}
+    <View pointerEvents="none" style={outerStyle} collapsable={false}>
+      <View style={innerStyle} collapsable={false}>
+        {session.transport === 'webrtc' ? (
+          <StageSubscriberVideo
+            roomId={session.roomId}
+            accessToken={session.accessToken}
+            active={stageSubscribeActive}
+            hostPaused={Boolean(session.hostPaused)}
+            latchRejoinOnLeave={false}
+            subscribeEpoch={session.subscribeEpoch}
+            foregroundResumeNonce={session.foregroundResumeNonce ?? 0}
+            contentFit={session.contentFit ?? 'cover'}
+            onConnected={() => session.onConnected?.()}
+            onFailed={(reason) => session.onFailed?.(reason)}
+            onDisconnected={() => session.onDisconnected?.()}
+          />
+        ) : null}
+        {session.transport === 'hls' && hlsUrl ? (
+          <VideoView
+            ref={videoRef}
+            player={player}
+            style={StyleSheet.absoluteFill}
+            contentFit={session.contentFit ?? 'contain'}
+            nativeControls={false}
+            allowsPictureInPicture={LIVE_PICTURE_IN_PICTURE_ENABLED && mode === 'room'}
+            startsPictureInPictureAutomatically={
+              LIVE_PICTURE_IN_PICTURE_ENABLED && mode === 'room'
+            }
+            collapsable={false}
+          />
+        ) : null}
+      </View>
     </View>
   );
 }

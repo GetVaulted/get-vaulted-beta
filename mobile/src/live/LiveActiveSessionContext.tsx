@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { teardownBuyerStageSession } from '../lib/teardownBuyerStageSession';
 
 export type LiveActiveTransport = 'webrtc' | 'hls';
 export type LiveActiveMode = 'room' | 'mini' | 'none';
@@ -169,12 +170,15 @@ export function LiveActiveSessionProvider({ children }: { children: ReactNode })
   }, []);
 
   const close = useCallback(() => {
+    const roomId = sessionRef.current?.roomId;
     sessionRef.current = null;
     modeRef.current = 'none';
     minimizedAtMsRef.current = 0;
     setSession(null);
     setMode('none');
     setPaused(false);
+    // Explicit leave — React unmount alone raced and left Stage audio playing.
+    void teardownBuyerStageSession('mini_close', roomId);
   }, []);
 
   const togglePaused = useCallback(() => {

@@ -352,7 +352,8 @@ export function LiveMiniPlayerOverlay() {
   const expandToLiveRoom = useCallback(() => {
     const roomId = chromeSession?.roomId;
     if (!roomId) return;
-    if (usingHoisted) activeSession?.expand();
+    // Do NOT expand() before navigate — LiveRoomScreen detects mode===mini on focus
+    // for a soft resume. Expanding first forced a cold room reload.
     if (!rootNavigationRef.isReady()) return;
     rootNavigationRef.navigate('MainTabs', {
       screen: 'Live',
@@ -361,7 +362,7 @@ export function LiveMiniPlayerOverlay() {
         params: { streamId: roomId },
       },
     });
-  }, [chromeSession?.roomId, usingHoisted, activeSession]);
+  }, [chromeSession?.roomId]);
 
   const panResponder = useMemo(
     () =>
