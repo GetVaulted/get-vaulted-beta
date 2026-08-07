@@ -13,6 +13,10 @@ export type ObsStreamPayload = {
   ingestEndpoint?: string | null;
   lastStatusSyncAt: string | null;
   streamStartedAt: string | null;
+  /** Configured app default (env). */
+  latencyMode?: string | null;
+  /** Real AWS IVS channel latency from GetChannel (LOW vs NORMAL). */
+  actualLatencyMode?: string | null;
 };
 
 export function useObsStreamSetup(roomId: string | null, roomStatus: string | null) {

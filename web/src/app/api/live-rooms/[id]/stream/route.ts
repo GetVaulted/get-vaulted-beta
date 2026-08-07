@@ -93,7 +93,24 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const refreshed = await getStreamRow(id);
     if (!refreshed) return NextResponse.json({ error: "Room not found." }, { status: 404 });
 
-    return NextResponse.json({ stream: toHostStreamPayload(refreshed), viewerRole: "host" });
+    // Actual AWS channel latency (not just env config) — NORMAL ≈ 10–30s buyer delay.
+    let actualLatencyMode: string | null = null;
+    if (refreshed.ivsChannelArn) {
+      try {
+        const { getIvsChannelLatencyMode } = await import("@/services/ivs");
+        actualLatencyMode = await getIvsChannelLatencyMode(refreshed.ivsChannelArn);
+      } catch {
+        actualLatencyMode = null;
+      }
+    }
+
+    return NextResponse.json({
+      stream: {
+        ...toHostStreamPayload(refreshed),
+        actualLatencyMode,
+      },
+      viewerRole: "host",
+    });
   }
 
   // OBS / channel_hls: buyers previously only saw DB health. Without host ?sync=1 or the IVS

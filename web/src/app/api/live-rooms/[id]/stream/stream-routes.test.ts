@@ -21,6 +21,7 @@ const hoisted = vi.hoisted(() => ({
   cancelPausedBroadcastAwsTeardown: vi.fn(),
   reconcileStagePublisherHealth: vi.fn(async () => "skip" as const),
   ensureChannelLowLatencyMode: vi.fn(async () => true),
+  getIvsChannelLatencyMode: vi.fn(async () => "LOW" as const),
   checkRateLimit: vi.fn(() => ({ ok: true as const, remaining: 29, resetAt: Date.now() + 60_000 })),
   userFindUnique: vi.fn(),
 }));
@@ -196,9 +197,14 @@ describe("live room stream routes", () => {
     expect(hoisted.syncLiveRoomStreamFromIvs).toHaveBeenCalledWith("room_1");
     expect(hoisted.reconcileStaleLiveStreamWithRoomStatus).toHaveBeenCalledWith("room_1");
     expect(hoisted.reconcileStagePublisherHealth).toHaveBeenCalledWith("room_1", { force: true });
-    const body = (await res.json()) as { viewerRole?: string; stream?: Record<string, unknown> };
+    const body = (await res.json()) as {
+      viewerRole?: string;
+      stream?: Record<string, unknown>;
+    };
     expect(body.viewerRole).toBe("host");
     expect(typeof body.stream?.ingestEndpoint).toBe("string");
+    // actualLatencyMode may be null when GetChannel is mocked/unavailable in unit tests
+    expect("actualLatencyMode" in (body.stream ?? {})).toBe(true);
   });
 
   it("GET sync=1 is unauthorized without session", async () => {

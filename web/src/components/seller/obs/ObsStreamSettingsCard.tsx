@@ -96,6 +96,15 @@ export function ObsStreamSettingsCard({
         <p className="mt-1">
           <span className="text-zinc-500">{OBS_STUDIO.lastHeartbeat}:</span> {prettyDate(setup.stream?.lastStatusSyncAt ?? null)}
         </p>
+        <p className="mt-1">
+          <span className="text-zinc-500">{OBS_STUDIO.channelLatency}:</span>{" "}
+          {(() => {
+            const mode = (setup.stream?.actualLatencyMode ?? "").toUpperCase();
+            if (mode === "LOW") return OBS_STUDIO.channelLatencyLow;
+            if (mode === "NORMAL") return OBS_STUDIO.channelLatencyNormal;
+            return OBS_STUDIO.channelLatencyUnknown;
+          })()}
+        </p>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
