@@ -1807,7 +1807,7 @@ export function LiveSaleRoom({
           pinBusy={pinVariantBusy}
         />
       ) : undefined,
-    centerOverlayAlign: spotBoardMinimized ? "bottom" : "center",
+    centerOverlayAlign: (spotBoardMinimized ? "bottom" : "center") as "center" | "bottom",
     onNotifyMe: () => void handleNotifyMe(),
     streamPlaybackRefreshNonce,
     viewerAuthenticated: status === "authenticated",

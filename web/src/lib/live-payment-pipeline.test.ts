@@ -225,4 +225,25 @@ describe("settleLiveItemVariantPurchase — FIX 1: definite-failure gating on in
     expect(releaseVariantPurchaseOnCheckoutExpired).not.toHaveBeenCalled();
     expect(finalizeLiveItemVariantPurchasePaid).toHaveBeenCalledTimes(1);
   });
+
+  it("does NOT sticky-lock the buyer when shipping/fulfillment prep fails before Stripe", async () => {
+    ensureVariantPurchaseFulfillmentOrder.mockRejectedValueOnce(new Error("LIVE_SHIPPING_SESSION_NOT_LINKED"));
+
+    const result = await settleLiveItemVariantPurchase({ buyerId: "buyer_1", purchaseId: "vp_1" });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure");
+    expect(result.code).toBe("FULFILLMENT_ORDER_FAILED");
+    expect(releaseVariantPurchaseOnCheckoutExpired).toHaveBeenCalledWith("vp_1");
+    expect(recordLiveRoomPaymentFailure).not.toHaveBeenCalled();
+  });
+});
+
+describe("isNonStickyLiveChargeErrorCode", () => {
+  it("treats fulfillment/wallet prep codes as non-sticky", async () => {
+    const { isNonStickyLiveChargeErrorCode } = await import("./live-payment-pipeline");
+    expect(isNonStickyLiveChargeErrorCode("FULFILLMENT_ORDER_FAILED")).toBe(true);
+    expect(isNonStickyLiveChargeErrorCode("NO_SAVED_CARD")).toBe(true);
+    expect(isNonStickyLiveChargeErrorCode("CARD_DECLINED")).toBe(false);
+  });
 });

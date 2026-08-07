@@ -1924,7 +1924,9 @@ export function LiveAuctionRoom({
     onBack: () => router.back(),
     centerOverlay: videoStageCenterOverlay,
     centerOverlayOnTop: Boolean(teamBoardOverlay),
-    centerOverlayAlign: !teamBoardOverlay && spotBoardMinimized ? "bottom" : "center",
+    centerOverlayAlign: (!teamBoardOverlay && spotBoardMinimized ? "bottom" : "center") as
+      | "center"
+      | "bottom",
     stageBelowAudience: isBuyerDesktop ? undefined : stageBelowAudience,
     onNotifyMe: () => void handleNotifyMe(),
     streamPlaybackRefreshNonce,
