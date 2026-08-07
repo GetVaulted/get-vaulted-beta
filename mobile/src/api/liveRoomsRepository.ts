@@ -5,6 +5,7 @@ import {
   type TeamBoardLeague,
 } from '../lib/createLiveRoomPayload';
 import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
+import { fetchWebApiMobileWithSellerAuth, resolveSellerAccessToken } from '../lib/resolveSellerAccessToken';
 import { logVaultCommandCenter, supabaseJwtSub } from '../lib/logVaultCommandCenterFlow';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { liveRoomCategoryTagsForRow } from '../lib/liveRoomDisplay';
@@ -162,7 +163,8 @@ export async function createLiveRoom(
     ...input,
     category: input.category?.trim() || 'Other',
   });
-  const sessionSub = supabaseJwtSub(accessToken);
+  const token = await resolveSellerAccessToken(accessToken);
+  const sessionSub = supabaseJwtSub(token);
   const sellerId = logContext?.sellerUserId ?? sessionSub;
   const apiBase = getWebApiBaseUrl();
   logVaultCommandCenter('room_create_request', {
@@ -178,12 +180,11 @@ export async function createLiveRoom(
     apiBase,
   });
 
-  const res = await fetchLiveRoomsApi('/api/live-rooms', {
+  const res = await fetchWebApiMobileWithSellerAuth('/api/live-rooms', token, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(body),
   });
@@ -348,9 +349,9 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
 
 async function fetchMyLiveRoomsFromApi(accessToken: string): Promise<LiveRoomApiRow[]> {
   const path = '/api/live-rooms?mine=1&includeEnded=1&limit=40';
-  const res = await fetchLiveRoomsApi(path, {
+  const res = await fetchWebApiMobileWithSellerAuth(path, accessToken, {
     method: 'GET',
-    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+    headers: { Accept: 'application/json' },
   });
   const logFetch = __DEV__ || process.env.EXPO_PUBLIC_VAULT_EVENTS_DEBUG === '1';
   if (!res.ok) {
@@ -385,9 +386,12 @@ export async function fetchMyLiveRooms(
   accessToken: string,
   options?: { force?: boolean },
 ): Promise<LiveRoomApiRow[]> {
+  // Refresh before cache keying — a stale JWT from React state was returning
+  // "Invalid or expired session" on Vault Events while other seller APIs worked.
+  const token = await resolveSellerAccessToken(accessToken);
   return readThroughSellerLiveRoomsCache(
-    accessToken,
-    () => fetchMyLiveRoomsFromApi(accessToken),
+    token,
+    () => fetchMyLiveRoomsFromApi(token),
     options,
   );
 }
