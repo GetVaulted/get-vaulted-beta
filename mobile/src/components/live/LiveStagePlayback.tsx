@@ -271,9 +271,20 @@ export function LiveStagePlayback({
   const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
   const webrtcReadyRef = useRef(false);
   webrtcReadyRef.current = webrtcReady;
-  // Whatnot-style: root LiveActiveSessionSurface owns Stage/HLS for this room.
-  const hostedAtRoot = Boolean(activeSession?.isHostingRoom(roomId));
+  // Whatnot-style root surface owns pixels only while floated (mini).
+  // In-room playback stays on the local Stage/HLS path — root-under-navigator
+  // hosting caused "Waiting for host" when AVAudioSession / attach raced.
+  const hostedAtRoot = Boolean(
+    activeSession?.mode === 'mini' && activeSession.isHostingRoom(roomId),
+  );
   const skipLocalSurface = hostedAtRoot && isForeground;
+  // Mini X / prior effect cleanup may have deactivated AVAudioSession — re-enable before join.
+  useEffect(() => {
+    if (!useWebrtc || !isForeground || skipLocalSurface) return;
+    void setStageAudioOutputEnabled(true).catch(() => {
+      /* ignore */
+    });
+  }, [useWebrtc, isForeground, skipLocalSurface]);
   // Native Stage PiP is owned by the root surface when hosted.
   const stageRemotePipEnabled =
     LIVE_PICTURE_IN_PICTURE_ENABLED &&

@@ -22,11 +22,9 @@ import {
 const LIVE_PICTURE_IN_PICTURE_ENABLED = true;
 
 /**
- * Whatnot-style single live surface: one Stage/HLS join for the session.
- * Back only changes layout (full-bleed ↔ mini float) — never leaveStage.
- *
- * Critical: the native Stage view keeps a stable full-window layout size.
- * Mini is clip + transform only — resizing the IVS surface blanks video on iOS.
+ * Floated live surface (mini only).
+ * In-room Stage stays in LiveStagePlayback so buyers always get a working join.
+ * Back → minimize mounts this surface; clip+transform keeps a stable Stage layout size.
  */
 export function LiveActiveSessionSurface() {
   const { mode, session, paused, miniPos } = useLiveActiveSession();
@@ -35,15 +33,10 @@ export function LiveActiveSessionSurface() {
   const prevAppStateRef = useRef<AppStateStatus>(AppState.currentState);
   const pipRetryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  const active = mode === 'room' || mode === 'mini';
+  // Only paint/subscribe while floated — room mode uses local LiveStagePlayback.
+  const active = mode === 'mini';
   const hlsUrl = session?.transport === 'hls' ? session.playbackUrl?.trim() || null : null;
-  const hlsPipEnabled =
-    LIVE_PICTURE_IN_PICTURE_ENABLED &&
-    active &&
-    mode === 'room' &&
-    session?.transport === 'hls' &&
-    Boolean(hlsUrl) &&
-    !paused;
+  const hlsPipEnabled = false;
 
   useStageRemotePictureInPicture({
     enabled:
@@ -71,18 +64,12 @@ export function LiveActiveSessionSurface() {
 
   useHlsLiveEdgeSeek(player, Boolean(active && hlsUrl && !paused));
 
-  // Mini pause: mute Stage audio without leaveStage (Whatnot keeps the subscribe).
+  // Mini pause only — never deactivate AVAudioSession on effect cleanup (that broke room joins).
   useEffect(() => {
     if (!active || session?.transport !== 'webrtc') return;
     void setStageAudioOutputEnabled(!paused).catch(() => {
       /* ignore */
     });
-    return () => {
-      // Never re-enable on cleanup — that leaked audio after mini X close.
-      void setStageAudioOutputEnabled(false).catch(() => {
-        /* ignore */
-      });
-    };
   }, [active, paused, session?.transport]);
 
   useEffect(() => {
@@ -92,17 +79,16 @@ export function LiveActiveSessionSurface() {
         player.pause();
         return;
       }
-      const muteInRoom = mode === 'room' && Boolean(session?.muted);
-      player.muted = muteInRoom;
-      player.volume = muteInRoom ? 0 : 1;
-      player.audioMixingMode = mode === 'mini' ? 'doNotMix' : 'mixWithOthers';
-      player.showNowPlayingNotification = mode === 'mini';
+      player.muted = false;
+      player.volume = 1;
+      player.audioMixingMode = 'doNotMix';
+      player.showNowPlayingNotification = true;
       player.staysActiveInBackground = LIVE_PICTURE_IN_PICTURE_ENABLED;
       player.play();
     } catch {
       /* ignore */
     }
-  }, [hlsUrl, active, paused, mode, player, session?.muted]);
+  }, [hlsUrl, active, paused, player]);
 
   useEffect(() => {
     if (!hlsPipEnabled) {
@@ -171,55 +157,42 @@ export function LiveActiveSessionSurface() {
 
   const miniScale = useMemo(() => {
     if (winW <= 0 || winH <= 0) return 1;
-    // Cover the mini rect (crop overflow) — same idea as contentFit cover.
     return Math.max(LIVE_MINI_PLAYER_W / winW, LIVE_MINI_PLAYER_H / winH);
   }, [winW, winH]);
 
-  const outerStyle = useMemo(() => {
-    if (mode === 'mini') {
-      return {
-        position: 'absolute' as const,
-        left: miniPos.x,
-        top: miniPos.y,
-        width: LIVE_MINI_PLAYER_W,
-        height: LIVE_MINI_PLAYER_H,
-        zIndex: 60,
-        elevation: 60,
-        overflow: 'hidden' as const,
-        borderRadius: 14,
-        backgroundColor: '#050505',
-        opacity: paused ? 0 : 1,
-      };
-    }
-    // Full-bleed under the transparent live navigator stack (Whatnot-style).
-    return {
-      ...StyleSheet.absoluteFillObject,
-      zIndex: 0,
-      elevation: 0,
-    };
-  }, [mode, miniPos.x, miniPos.y, paused]);
+  const outerStyle = useMemo(
+    () => ({
+      position: 'absolute' as const,
+      left: miniPos.x,
+      top: miniPos.y,
+      width: LIVE_MINI_PLAYER_W,
+      height: LIVE_MINI_PLAYER_H,
+      zIndex: 60,
+      elevation: 60,
+      overflow: 'hidden' as const,
+      borderRadius: 14,
+      backgroundColor: '#050505',
+      opacity: paused ? 0 : 1,
+    }),
+    [miniPos.x, miniPos.y, paused],
+  );
 
-  // Inner stage stays full-window sized forever — only transform changes for mini.
-  const innerStyle = useMemo(() => {
-    if (mode !== 'mini') {
-      return StyleSheet.absoluteFillObject;
-    }
-    return {
+  const innerStyle = useMemo(
+    () => ({
       position: 'absolute' as const,
       width: winW,
       height: winH,
-      // RN scales from center; shift so the scaled frame fills the mini clip.
       transform: [
         { translateX: (LIVE_MINI_PLAYER_W - winW) / 2 },
         { translateY: (LIVE_MINI_PLAYER_H - winH) / 2 },
         { scale: miniScale },
       ],
-    };
-  }, [mode, winW, winH, miniScale]);
+    }),
+    [winW, winH, miniScale],
+  );
 
   if (!active || !session) return null;
 
-  // Keep Stage joined across mini pause — active=false leaveStages the process singleton.
   const stageSubscribeActive = session.transport === 'webrtc';
 
   return (
@@ -247,10 +220,8 @@ export function LiveActiveSessionSurface() {
             style={StyleSheet.absoluteFill}
             contentFit={session.contentFit ?? 'contain'}
             nativeControls={false}
-            allowsPictureInPicture={LIVE_PICTURE_IN_PICTURE_ENABLED && mode === 'room'}
-            startsPictureInPictureAutomatically={
-              LIVE_PICTURE_IN_PICTURE_ENABLED && mode === 'room'
-            }
+            allowsPictureInPicture={false}
+            startsPictureInPictureAutomatically={false}
             collapsable={false}
           />
         ) : null}
