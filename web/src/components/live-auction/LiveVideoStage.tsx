@@ -24,10 +24,12 @@ type LiveVideoStageProps = {
   onBack?: () => void;
   /** When set, host row shows a working Follow control for this seller user id. */
   hostSellerId?: string;
-  /** Centered overlay above the video plate (e.g. break team board). Keeps top/bottom chrome usable. */
+  /** Overlay above the video plate (e.g. break team board). Keeps top/bottom chrome usable. */
   centerOverlay?: ReactNode;
   /** When true, render center overlay above all stream chrome (e.g. active team board). */
   centerOverlayOnTop?: boolean;
+  /** `bottom` docks the board under the stream so mid-frame video stays clear (PC minimize chip). */
+  centerOverlayAlign?: "center" | "bottom";
   actionOverlay?: ReactNode;
   mobileActionOverlay?: ReactNode;
   /** `fillHeight`: grow with parent. `host916`: legacy alias — video stays 9:16, overlays use full stage on desktop. `buyerShellPlate`: 9:16 plate centered in parent (buyer desktop shell). */
@@ -116,6 +118,7 @@ export function LiveVideoStage({
   hostSellerId,
   centerOverlay,
   centerOverlayOnTop = false,
+  centerOverlayAlign = "center",
   actionOverlay,
   mobileActionOverlay,
   layout = "aspect",
@@ -347,7 +350,9 @@ export function LiveVideoStage({
 
           {centerOverlay ? (
             <div
-              className={`pointer-events-none absolute inset-0 min-[1400px]:hidden ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} flex items-center justify-center p-2 sm:p-4`}
+              className={`pointer-events-none absolute inset-0 min-[1400px]:hidden ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} flex justify-center p-2 sm:p-4 ${
+                centerOverlayAlign === "bottom" ? "items-end pb-3 sm:pb-4" : "items-center"
+              }`}
             >
               <div className="pointer-events-auto max-h-full min-h-0 w-full max-w-full overflow-y-auto">{centerOverlay}</div>
             </div>
@@ -401,7 +406,9 @@ export function LiveVideoStage({
 
       {centerOverlay && !buyerShellMode ? (
         <div
-          className={`pointer-events-none absolute inset-0 hidden min-[1400px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} items-center justify-center p-4`}
+          className={`pointer-events-none absolute inset-0 hidden min-[1400px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} justify-center p-4 ${
+            centerOverlayAlign === "bottom" ? "items-end" : "items-center"
+          }`}
         >
           <div className="pointer-events-auto max-h-full min-h-0 w-full max-w-[1920px] overflow-y-auto">{centerOverlay}</div>
         </div>
@@ -409,7 +416,9 @@ export function LiveVideoStage({
 
       {centerOverlay && buyerShellMode ? (
         <div
-          className={`pointer-events-none absolute inset-0 hidden min-[1280px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} items-center justify-center p-2`}
+          className={`pointer-events-none absolute inset-0 hidden min-[1280px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} justify-center p-2 ${
+            centerOverlayAlign === "bottom" ? "items-end pb-2" : "items-center"
+          }`}
         >
           <div className="pointer-events-auto max-h-full min-h-0 w-full max-w-md overflow-y-auto">{centerOverlay}</div>
         </div>

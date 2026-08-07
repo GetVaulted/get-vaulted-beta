@@ -1684,34 +1684,48 @@ export function LiveSaleRoom({
           )
         : null;
 
+  const buyerSpotBoardExpandAction =
+    spotBoardMinimized && activeHasVariants && activeDb && !isHost ? (
+      <button
+        type="button"
+        onClick={() => setSpotBoardMinimized(false)}
+        className="mb-2 w-full rounded-full border border-white/15 bg-zinc-950/90 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-zinc-100 hover:border-white/25 hover:bg-zinc-900"
+      >
+        Show teams · Expand
+      </button>
+    ) : null;
+
   const buyerVariantClaimActions =
     pytCommerceLive && !isHost ? (
-      hybridSpotCommerce ? (
-        <div className="flex gap-2">
+      <div>
+        {buyerSpotBoardExpandAction}
+        {hybridSpotCommerce ? (
+          <div className="flex gap-2">
+            <BuyerVariantClaimCta
+              label={variantShopLabel}
+              disabled={variantShopDisabled}
+              onClick={() => handleOpenVariantShop()}
+              className="min-h-10 flex-1 rounded-full bg-gradient-to-r from-gold to-gold-bright px-3 text-[10px] font-black uppercase tracking-wide text-zinc-950 shadow-[0_0_22px_-8px_rgba(212,175,55,0.55)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
+            />
+            <button
+              data-testid="live-bid-button"
+              type="button"
+              disabled={variantSpotBidDisabled}
+              onClick={() => void handlePlaceBid()}
+              className="min-h-10 flex-1 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-3 text-[10px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
+            >
+              {variantSelectLabel}
+            </button>
+          </div>
+        ) : (
           <BuyerVariantClaimCta
-            label={variantShopLabel}
-            disabled={variantShopDisabled}
-            onClick={() => handleOpenVariantShop()}
-            className="min-h-10 flex-1 rounded-full bg-gradient-to-r from-gold to-gold-bright px-3 text-[10px] font-black uppercase tracking-wide text-zinc-950 shadow-[0_0_22px_-8px_rgba(212,175,55,0.55)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
+            label={variantSelectLabel}
+            disabled={variantPickerDisabled}
+            onClick={() => void handleBuyerVariantCommerce()}
           />
-          <button
-            data-testid="live-bid-button"
-            type="button"
-            disabled={variantSpotBidDisabled}
-            onClick={() => void handlePlaceBid()}
-            className="min-h-10 flex-1 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-3 text-[10px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
-          >
-            {variantSelectLabel}
-          </button>
-        </div>
-      ) : (
-        <BuyerVariantClaimCta
-          label={variantSelectLabel}
-          disabled={variantPickerDisabled}
-          onClick={() => void handleBuyerVariantCommerce()}
-        />
-      )
-    ) : undefined;
+        )}
+      </div>
+    ) : buyerSpotBoardExpandAction ?? undefined;
 
   const desktopItemBoardOverlay = desktopItemBoardCommerce ? (
     <BuyerLiveItemBoardOverlay commerce={desktopItemBoardCommerce} />
@@ -1774,7 +1788,7 @@ export function LiveSaleRoom({
     hostSellerId: sellerId,
     onBack: () => router.back(),
     centerOverlay:
-      activeHasVariants && activeDb ? (
+      activeHasVariants && activeDb && !(spotBoardMinimized && isBuyerDesktop && !isHost) ? (
         <LiveVariantSpotBoard
           item={activeDb}
           hostMode={isHost}
@@ -1793,6 +1807,7 @@ export function LiveSaleRoom({
           pinBusy={pinVariantBusy}
         />
       ) : undefined,
+    centerOverlayAlign: spotBoardMinimized ? "bottom" : "center",
     onNotifyMe: () => void handleNotifyMe(),
     streamPlaybackRefreshNonce,
     viewerAuthenticated: status === "authenticated",
