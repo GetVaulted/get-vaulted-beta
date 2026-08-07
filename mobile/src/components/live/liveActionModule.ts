@@ -206,6 +206,25 @@ function resolveBuyerVariantItemHud(
 
   const available = availableVariantCount(variants);
   const fromPrice = lowestAvailableVariantPrice(variants) ?? snap.priceUsd ?? snap.startingBidUsd ?? 0;
+  if (variants.length === 0) {
+    // Snapshot lag — keep Claim CTA (do not show Sold out / fall through to bid).
+    return {
+      ...base,
+      format: 'shop',
+      hybridFocus: null,
+      timerMmSs: '—',
+      itemTitle: itemTitleFallback,
+      currentPrefix: 'From',
+      currentAmount: fromPrice > 0 ? formatMoney(fromPrice) : '—',
+      winningLine: '',
+      stateLine: 'Loading spots — tap Claim to refresh the board.',
+      bottomLeftLabel: 'Custom',
+      bottomRightLabel: variantClaimPrimaryLabel(snap.activeItemSalesFormat),
+      bottomRightIsSlide: false,
+      buyerPrimaryDisabled: false,
+      buyerSecondaryDisabled: true,
+    };
+  }
   if (available <= 0) {
     return {
       ...base,

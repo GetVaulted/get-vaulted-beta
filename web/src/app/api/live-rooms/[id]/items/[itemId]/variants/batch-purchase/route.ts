@@ -412,9 +412,22 @@ export async function POST(
     } catch (settleErr) {
       console.error("[variant batch purchase POST] settle failed", settleErr);
       await releaseVariantPurchaseBatchOnCheckoutExpired(result.batchId);
+      const code =
+        settleErr && typeof settleErr === "object" && "code" in settleErr
+          ? String((settleErr as { code: string }).code)
+          : undefined;
+      const rawMessage = settleErr instanceof Error ? settleErr.message.trim() : "";
+      const safeMessage =
+        rawMessage &&
+        rawMessage.length <= 160 &&
+        !/stripe|payment_intent|prisma|sql|undefined|null/i.test(rawMessage) &&
+        !rawMessage.includes(" at ")
+          ? rawMessage
+          : "Could not complete purchase.";
       return NextResponse.json(
         {
-          error: "Could not complete purchase.",
+          error: safeMessage,
+          ...(code ? { code } : {}),
           paymentFailed: true,
           batchId: result.batchId,
           purchaseIds: result.purchaseIds,

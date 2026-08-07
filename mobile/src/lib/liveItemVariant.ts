@@ -103,8 +103,9 @@ export function isActiveVariantBuyerItem(snap: LiveRoomBuyerSnapshot | null | un
   if (!snap?.activeItemId) return false;
   // Pre-sale: host may pin a PYT board while the room is still scheduled.
   if (snap.status !== 'live' && snap.status !== 'scheduled') return false;
-  if (!isVariantSalesFormat(snap.activeItemSalesFormat)) return false;
-  return (snap.activeItemVariants?.length ?? 0) > 0;
+  // Format alone is enough — do not require variants to be hydrated yet. An empty/lagging
+  // `activeItemVariants` array previously fell through to bid UI and could mis-route checkout.
+  return isVariantSalesFormat(snap.activeItemSalesFormat);
 }
 
 /** True when the active PYT/PYD lot has no open spots left (sold roster / break-in-progress). */

@@ -34,7 +34,7 @@ export async function reserveListingInventoryHoldTx(
         data: { status: "expired", releasedAt: now },
       });
     } else if (existing.userId !== args.userId) {
-      throw new Error("LISTING_INVENTORY_HELD");
+      throw Object.assign(new Error("LISTING_INVENTORY_HELD"), { code: "LISTING_INVENTORY_HELD" });
     } else {
       await tx.liveAuctionInventoryHold.update({
         where: { id: existing.id },
@@ -64,7 +64,9 @@ export async function reserveListingInventoryHoldTx(
       const race = await tx.liveAuctionInventoryHold.findFirst({
         where: { listingId: args.listingId, status: "active" },
       });
-      if (race && race.userId !== args.userId) throw new Error("LISTING_INVENTORY_HELD");
+      if (race && race.userId !== args.userId) {
+        throw Object.assign(new Error("LISTING_INVENTORY_HELD"), { code: "LISTING_INVENTORY_HELD" });
+      }
       return;
     }
     throw e;

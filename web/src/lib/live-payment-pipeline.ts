@@ -262,20 +262,35 @@ async function applyOrderTaxPlanForLiveCharge(args: {
       metadata: {} as Record<string, string>,
     };
   }
-  const taxPlan = await resolveConnectPaymentTaxPlan({
-    shipTo: order,
-    itemPriceUsd: args.itemPriceUsd,
-    shippingPriceUsd: args.shippingPriceUsd,
-    applicationFeeCents: args.applicationFeeCents,
-    sellerId: args.sellerId,
-  });
-  await prisma.order.update({ where: { id: args.orderId }, data: orderTaxUpdateData(taxPlan.orderTax) });
-  return {
-    amountCents: taxPlan.amountCents,
-    feeCents: taxPlan.applicationFeeCents,
-    sellerTransferCents: taxPlan.sellerTransferCents,
-    metadata: taxPlan.metadata,
-  };
+  try {
+    const taxPlan = await resolveConnectPaymentTaxPlan({
+      shipTo: order,
+      itemPriceUsd: args.itemPriceUsd,
+      shippingPriceUsd: args.shippingPriceUsd,
+      applicationFeeCents: args.applicationFeeCents,
+      sellerId: args.sellerId,
+    });
+    await prisma.order.update({ where: { id: args.orderId }, data: orderTaxUpdateData(taxPlan.orderTax) });
+    return {
+      amountCents: taxPlan.amountCents,
+      feeCents: taxPlan.applicationFeeCents,
+      sellerTransferCents: taxPlan.sellerTransferCents,
+      metadata: taxPlan.metadata,
+    };
+  } catch (e) {
+    // Defense in depth: estimateSalesTaxCents soft-fails, but jurisdiction / ship-from lookups
+    // must never abort a live spot charge mid-show.
+    console.warn("[live charge] sales tax plan failed; proceeding without tax", {
+      orderId: args.orderId,
+      err: e instanceof Error ? e.message : String(e ?? ""),
+    });
+    return {
+      amountCents: Math.round((args.itemPriceUsd + args.shippingPriceUsd) * 100),
+      feeCents: args.applicationFeeCents,
+      sellerTransferCents: null as number | null,
+      metadata: {},
+    };
+  }
 }
 
 function mapLiveSavedCardStripeError(

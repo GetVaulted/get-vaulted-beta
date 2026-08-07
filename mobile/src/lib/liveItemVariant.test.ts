@@ -32,6 +32,15 @@ describe('isActiveVariantBuyerItem', () => {
     expect(isActiveVariantBuyerItem(snap)).toBe(true);
   });
 
+  it('true for team_break even before variants hydrate', () => {
+    const snap = {
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemSalesFormat: 'team_break',
+    } as LiveRoomBuyerSnapshot;
+    expect(isActiveVariantBuyerItem(snap)).toBe(true);
+  });
+
   it('false for regular auction item', () => {
     const snap = {
       status: 'live',

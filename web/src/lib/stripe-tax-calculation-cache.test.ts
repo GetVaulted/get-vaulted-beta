@@ -70,6 +70,17 @@ describe("tax calculation fingerprint cache", () => {
     expect(createCalcMock).toHaveBeenCalledTimes(2);
   });
 
+  it("soft-fails non-TX tax calculation errors instead of blocking checkout", async () => {
+    createCalcMock.mockRejectedValueOnce(new Error("stripe tax unavailable"));
+    const caShipTo = { ...shipTo, shipState: "CA", shipCity: "Los Angeles", shipZip: "90001" };
+    const result = await estimateSalesTaxCents({
+      itemPriceUsd: 15,
+      shippingPriceUsd: 5,
+      shipTo: caShipTo,
+    });
+    expect(result).toEqual({ taxAmountCents: 0, taxCalculationId: null, collectTax: false });
+  });
+
   it("fingerprint is stable for the same address and amounts", () => {
     const f1 = taxCalculationFingerprint({
       itemCents: 10000,

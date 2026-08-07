@@ -27,7 +27,7 @@ import { createNotification } from "@/lib/notifications";
 import { liveRoomBuyerPaymentConfirmedNotification } from "@/lib/live-room-payment-notify-copy";
 import { resolveLivePurchaseNotificationChargeUsd } from "@/lib/live-purchase-charge-total";
 import { captureLiveRoomItemShippingSnapshotTx } from "@/services/shipping/live-item-shipping-snapshot";
-import { assertSellerStripeCollectReadyFromUser, sellerStripeCollectSelect } from "@/lib/seller-stripe-collect-ready";
+import { liveSavedCardSellerReady, sellerStripeCollectSelect } from "@/lib/seller-stripe-collect-ready";
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 import { reportUrgentPaymentAnomaly } from "@/lib/cron-anomaly-alert";
 import { releaseReferralCreditReservation } from "@/lib/referral-credit";
@@ -411,7 +411,12 @@ export async function createLiveBuyNowOrder(args: {
       if (listingRow.sellerId === args.buyerId) {
         throw Object.assign(new Error("OWN_LISTING"), { code: "OWN_LISTING" });
       }
-      assertSellerStripeCollectReadyFromUser(listingRow.seller);
+      // Same readiness bar as live variant / break-spot saved-card charge — do not use the
+      // stricter Connect requirements check here or buyers get an unmapped STRIPE_ONBOARDING_REQUIRED
+      // → "Could not start purchase." while PYD spots on the same seller still charge fine.
+      if (!liveSavedCardSellerReady(listingRow.seller)) {
+        throw Object.assign(new Error("SELLER_NOT_READY"), { code: "SELLER_NOT_READY" });
+      }
 
       const itemPriceUsd = listingRow.priceUsd;
       const taxUsd = 0;
@@ -489,20 +494,39 @@ export async function createLiveBuyNowOrder(args: {
 
     return { ok: true, ...result };
   } catch (e) {
-    const code =
-      e && typeof e === "object" && "code" in e ? String((e as { code: string }).code) : "ORDER_CREATE_FAILED";
     const messages: Record<string, string> = {
       LIVE_ITEM_INVALID: "This item is not available to buy.",
       NOT_BUY_NOW: "This listing is not buy-now.",
       NOT_AVAILABLE: "This listing is not available.",
       OWN_LISTING: "You cannot buy your own listing.",
       SELLER_NOT_READY: "Seller payouts are not ready.",
+      STRIPE_ONBOARDING_REQUIRED: "Seller payouts are not ready.",
+      LISTING_INVENTORY_HELD: "Another buyer is checking out this item.",
       USE_ESCROW_CHECKOUT: "This purchase requires escrow checkout.",
       ALREADY_SOLD: "This item was already sold.",
       CHECKOUT_IN_PROGRESS: "Another buyer is checking out this item.",
       NO_SAVED_CARD: "Add a saved payment method to your Wallet.",
       NO_PRICE: "This item needs a price before checkout.",
+      NO_SHIPPING: "Add a shipping address to your Wallet before buying.",
+      NO_SHIPPING_ADDRESS: "Add a shipping address to your Wallet before buying.",
+      LIVE_SHIPPING_NOT_APPLICABLE: "Shipping is not set up for this show yet.",
+      LIVE_SHIPPING_SELLER_MISMATCH: "Checkout could not link this purchase to the show — try again.",
+      LIVE_SHIPPING_SESSION_NOT_FOUND: "Could not link this purchase to live shipping — try again.",
+      ORDER_CREATE_FAILED: "Could not start purchase. Try again in a moment.",
     };
+    const rawCode =
+      e && typeof e === "object" && "code" in e && typeof (e as { code: unknown }).code === "string"
+        ? String((e as { code: string }).code).trim()
+        : "";
+    // Prefer explicit `.code`, then SCREAMING_SNAKE Error.message (inventory hold / shipping), else
+    // Prisma P2xxx → generic create failure (never surface raw Prisma codes to buyers).
+    const messageCode =
+      e instanceof Error && /^[A-Z][A-Z0-9_]+$/.test(e.message.trim()) ? e.message.trim() : "";
+    const code =
+      (rawCode && !/^P\d{4}$/.test(rawCode) && rawCode) ||
+      messageCode ||
+      (rawCode.startsWith("P") ? "ORDER_CREATE_FAILED" : "") ||
+      "ORDER_CREATE_FAILED";
     return { ok: false, code, error: messages[code] ?? "Could not start purchase." };
   }
 }
