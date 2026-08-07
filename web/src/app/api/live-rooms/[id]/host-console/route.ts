@@ -308,6 +308,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         discoveryVisibility: room.discoveryVisibility === "private" ? "private" : "public",
         streamHealth: room.streamHealth,
         streamPaused: room.streamPaused,
+        streamMode: room.streamMode,
+        ingestEndpoint: room.ivsIngestEndpoint,
         roomVersion: room.roomVersion,
         thumbnailUrl: room.thumbnailUrl,
         viewerCount: effectiveLiveRoomViewerCount({

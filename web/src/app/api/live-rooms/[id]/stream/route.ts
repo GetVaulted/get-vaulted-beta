@@ -81,6 +81,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       await ensureStageHlsCompositionActive(id);
       // Force past go-live grace: host reopen after kill must not see sticky `live` with 0 pubs.
       await reconcileStagePublisherHealth(id, { force: true });
+      // OBS WHIP (or legacy RTMPS): Start Streaming auto-starts a scheduled show.
+      const { maybeAutoStartObsRoomOnIngestSignal } = await import("@/lib/live-obs-auto-start");
+      await maybeAutoStartObsRoomOnIngestSignal(id).catch(() => {});
       logIvsOpsServer("ivs_stream_sync_pull", {
         roomId: id,
         syncUpdated: syncResult?.kind === "updated",

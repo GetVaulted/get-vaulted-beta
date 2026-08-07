@@ -21,9 +21,9 @@ export const SELLER_CONSOLE = {
   liveLeaveAppHint:
     'Leaving the app pauses your show for buyers. Tap Play when you return. Need the camera to stay on? Use OBS / RTMP.',
   obsBroadcastHint:
-    'This show is set to OBS. Start show opens the room; keep Start Streaming on in OBS. Tap Use this camera only if you want to switch off OBS to the phone.',
+    'This show is set to OBS. Start show opens the room; keep Start Streaming on in OBS (WHIP). Tap Use this camera only if you want to switch off OBS to the phone.',
   obsLiveBadge: 'OBS live',
-  obsWaitingSignal: 'Waiting for OBS — Start Streaming in OBS, then Refresh status.',
+  obsWaitingSignal: 'Waiting for OBS — Start Streaming in OBS (WHIP), then Refresh status.',
   copyLink: 'Copy link',
   nativeShare: 'Share…',
   shareInApp: 'Share in Get Vaulted',

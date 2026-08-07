@@ -23,7 +23,7 @@ import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhile
 import { useMobileStagePublish } from '../hooks/useMobileStagePublish';
 import { shouldClearStreamPausedAfterHostResume } from '../lib/livePlaybackAppState';
 import { isLiveRoomRemotePublisherActive } from '../lib/liveRoomBroadcastOnAir';
-import { isObsChannelHlsMode } from '../lib/liveObsChannelMode';
+import { isObsDesktopBroadcastMode } from '../lib/liveObsChannelMode';
 import { formatIvsObsIngestUrl } from '../lib/ivsObsIngestUrl';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
@@ -207,7 +207,13 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   useEffect(() => {
     if (!token || !room || loading) return;
     if (room.status !== 'scheduled') return;
-    if (!isObsChannelHlsMode(stream?.streamMode)) return;
+    if (
+      !isObsDesktopBroadcastMode({
+        streamMode: stream?.streamMode,
+        ingestEndpoint: stream?.ingestEndpoint ?? ingestEndpoint,
+      })
+    )
+      return;
     let cancelled = false;
     const tick = async () => {
       try {
@@ -373,8 +379,13 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     // Wait for stream status so we can tell companion (already on-air) from crash recovery (offline).
     if (!stream) return;
 
-    // OBS / RTMP shows must never auto-open the phone camera on host room open.
-    if (isObsChannelHlsMode(stream.streamMode)) {
+    // OBS / desktop ingest must never auto-open the phone camera on host room open.
+    if (
+      isObsDesktopBroadcastMode({
+        streamMode: stream.streamMode,
+        ingestEndpoint: stream.ingestEndpoint ?? ingestEndpoint,
+      })
+    ) {
       autoResumeRef.current = true;
       return;
     }

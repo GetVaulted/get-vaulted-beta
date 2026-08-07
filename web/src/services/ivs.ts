@@ -24,6 +24,7 @@ import {
   StopCompositionCommand,
 } from "@aws-sdk/client-ivs-realtime";
 import { decideCompositionHealAction } from "@/lib/live-composition-heal";
+import { IVS_WHIP_SERVER_URL, isIvsWhipIngestEndpoint } from "@/lib/ivs-whip-ingest";
 import type { LiveStreamHealth } from "@/generated/prisma/client";
 import { logIvsOpsServer, type IvsStreamHealthOpSource } from "@/lib/ivs-ops-log";
 import { prisma } from "@/lib/prisma";
@@ -1129,9 +1130,17 @@ export async function reconcileStagePublisherHealth(
       ivsStageArn: true,
       streamStartedAt: true,
       streamHealth: true,
+      ivsIngestEndpoint: true,
     },
   });
-  if (!room || room.status !== "live" || room.streamMode !== "stage_webrtc" || !room.ivsStageArn) {
+  if (!room || room.streamMode !== "stage_webrtc" || !room.ivsStageArn) {
+    return "skip";
+  }
+  // Live rooms always reconcile. Scheduled OBS WHIP rooms also reconcile so Start Streaming
+  // can flip health + auto-start without waiting for an unrelated channel GetStream.
+  const whipScheduled =
+    room.status === "scheduled" && isIvsWhipIngestEndpoint(room.ivsIngestEndpoint);
+  if (room.status !== "live" && !whipScheduled) {
     return "skip";
   }
 
@@ -1140,8 +1149,17 @@ export async function reconcileStagePublisherHealth(
 
   if (publishers > 0) {
     cancelPausedBroadcastAwsTeardown(roomId);
-    await commitStagePublisherDerivedHealth(roomId, "live");
+    if (whipScheduled) {
+      const { maybeAutoStartObsRoomOnIngestSignal } = await import("@/lib/live-obs-auto-start");
+      await maybeAutoStartObsRoomOnIngestSignal(roomId).catch(() => {});
+    } else {
+      await commitStagePublisherDerivedHealth(roomId, "live");
+    }
     return "live";
+  }
+
+  if (whipScheduled) {
+    return "skip";
   }
 
   const msSinceStart = room.streamStartedAt ? Date.now() - room.streamStartedAt.getTime() : Number.POSITIVE_INFINITY;
@@ -1362,6 +1380,109 @@ export function schedulePausedBroadcastAwsTeardown(roomId: string): void {
   }, delayMs);
   pausedBroadcastAwsTeardowns.set(roomId, timer);
   logIvsOpsServer("ivs_pause_aws_teardown_scheduled", { roomId, delayMs });
+}
+
+/**
+ * OBS → Stage via WHIP (Whatnot-style sub-second path for signed-in buyers).
+ * Provisions Stage + channel (HLS mirror for guests), mints a publish token for OBS Bearer Token,
+ * and marks ingest as the global WHIP endpoint so companion clients treat this as desktop OBS.
+ */
+export async function prepareObsWhipSession(
+  roomId: string,
+  userId: string,
+): Promise<{
+  whipServerUrl: string;
+  participantToken: string;
+  expiresInSeconds: number;
+  stageArn: string;
+  participantId: string;
+}> {
+  cancelDelayedCompositionStop(roomId);
+  cancelPausedBroadcastAwsTeardown(roomId);
+
+  const existing = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: { ivsChannelArn: true, ivsPlaybackUrl: true, status: true },
+  });
+  if (!existing) throw new Error("Live room not found.");
+  if (!existing.ivsChannelArn || !existing.ivsPlaybackUrl) {
+    await provisionRoomStream(roomId);
+  }
+
+  const token = await createHostStageToken(roomId, userId);
+  const now = new Date();
+  await prisma.liveRoom.update({
+    where: { id: roomId },
+    data: {
+      streamProvider: "aws_ivs",
+      streamMode: "stage_webrtc",
+      // WHIP marker — phone companion + auto-start treat this as desktop OBS.
+      ivsIngestEndpoint: IVS_WHIP_SERVER_URL,
+      // Wait for OBS Start Streaming (publisher) before claiming live.
+      streamHealth: existing.status === "live" ? "connecting" : "offline",
+      streamStartedAt: existing.status === "live" ? now : null,
+      streamEndedAt: null,
+      lastIvsStatusSyncAt: now,
+      lastIvsError: null,
+      hostAbsentSince: null,
+    },
+  });
+
+  logIvsOpsServer("ivs_obs_whip_provision", { roomId, expiresInSeconds: token.expiresInSeconds });
+
+  // Mirror starts after OBS publishes (reconcile / sync heal). Soft-schedule a first attempt.
+  void (async () => {
+    await sleep(8_000);
+    const room = await prisma.liveRoom.findUnique({
+      where: { id: roomId },
+      select: { status: true, streamPaused: true, ivsStageArn: true },
+    });
+    if (!room || room.status === "ended" || room.streamPaused === true) return;
+    if (!room.ivsStageArn) return;
+    const publishers = await countStagePublishers(room.ivsStageArn);
+    if (publishers == null || publishers <= 0) return;
+    await reconcileStagePublisherHealth(roomId, { force: true });
+    const { maybeAutoStartObsRoomOnIngestSignal } = await import("@/lib/live-obs-auto-start");
+    await maybeAutoStartObsRoomOnIngestSignal(roomId).catch(() => {});
+    await ensureStageHlsCompositionActive(roomId).catch(() => {});
+  })().catch((err) => {
+    console.error("[IVS_OPS] ivs_obs_whip_composition_deferred_failure", {
+      roomId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
+
+  return {
+    whipServerUrl: IVS_WHIP_SERVER_URL,
+    participantToken: token.token,
+    expiresInSeconds: token.expiresInSeconds,
+    stageArn: token.stageArn,
+    participantId: token.participantId,
+  };
+}
+
+/** Mint a fresh OBS WHIP bearer token without flipping stream mode. */
+export async function rotateObsWhipParticipantToken(
+  roomId: string,
+  userId: string,
+): Promise<{ whipServerUrl: string; participantToken: string; expiresInSeconds: number }> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: { streamMode: true, ivsIngestEndpoint: true, ivsStageArn: true },
+  });
+  if (!room?.ivsStageArn) {
+    throw new Error("This room is not set up for OBS WebRTC yet. Connect OBS first.");
+  }
+  if (room.streamMode !== "stage_webrtc" || !isIvsWhipIngestEndpoint(room.ivsIngestEndpoint)) {
+    throw new Error("This room is on RTMPS / HLS OBS. Re-connect OBS for WebRTC (WHIP).");
+  }
+  const token = await createHostStageToken(roomId, userId);
+  logIvsOpsServer("ivs_obs_whip_token_rotated", { roomId, expiresInSeconds: token.expiresInSeconds });
+  return {
+    whipServerUrl: IVS_WHIP_SERVER_URL,
+    participantToken: token.token,
+    expiresInSeconds: token.expiresInSeconds,
+  };
 }
 
 /**
