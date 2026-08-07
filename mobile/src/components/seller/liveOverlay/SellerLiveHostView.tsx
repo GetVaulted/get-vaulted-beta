@@ -30,7 +30,7 @@ import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from '../.
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import { liveRoomChatOpen } from '../../../lib/liveRoomChatPolicy';
 import { isLiveRoomBroadcastOnAir, isLiveRoomRemotePublisherActive } from '../../../lib/liveRoomBroadcastOnAir';
-import { isObsChannelHlsMode, isObsDesktopBroadcastMode } from '../../../lib/liveObsChannelMode';
+import { isObsDesktopBroadcastMode } from '../../../lib/liveObsChannelMode';
 import { resolveHostVideoFeedStatus } from '../../../lib/hostVideoFeedStatus';
 import { useLiveRoomChat } from '../../../hooks/useLiveRoomChat';
 import { resolvePinnedModeratorUsername } from '../../../lib/resolvePinnedModeratorUsername';

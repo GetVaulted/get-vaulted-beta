@@ -40,7 +40,7 @@ import {
   resolveLiveAuctionHostStartLotPhase,
 } from "@/lib/live-auction-host-start";
 import { isLiveRoomBroadcastOnAir } from "@/lib/live-room-broadcast-on-air";
-import { isObsChannelHlsMode, isObsDesktopBroadcastMode } from "@/lib/live-obs-channel-mode";
+import { isObsDesktopBroadcastMode } from "@/lib/live-obs-channel-mode";
 import { canonicalLiveRoomUrl } from "@/lib/live-room-share-metadata";
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import {

@@ -423,6 +423,7 @@ export function LiveAuctionRoom({
   const [variantSheetOpen, setVariantSheetOpen] = useState(false);
   const [variantSheetItemId, setVariantSheetItemId] = useState<string | null>(null);
   const [variantSheetInitialVariantId, setVariantSheetInitialVariantId] = useState<string | null>(null);
+  const [spotBoardMinimized, setSpotBoardMinimized] = useState(false);
   /** Blocks double-submit while bid POST is in flight. */
   const [bidFlight, setBidFlight] = useState(false);
   const [customBidOpen, setCustomBidOpen] = useState(false);
@@ -570,6 +571,7 @@ export function LiveAuctionRoom({
     setUserHighBidUsd(null);
     setCustomBidOpen(false);
     setCustomBidMode(LIVE_CUSTOM_BID_DEFAULT_MODE);
+    setSpotBoardMinimized(false);
   }, [activeDbItem?.id]);
 
   useEffect(() => {
@@ -1868,6 +1870,8 @@ export function LiveAuctionRoom({
         item={activeDbItem}
         hostMode={isHost}
         highlightUsername={!isHost ? session?.user?.username ?? null : null}
+        minimized={spotBoardMinimized}
+        onToggleMinimized={() => setSpotBoardMinimized((v) => !v)}
         onPinVariant={
           isHost &&
           activeDbItem.status === "active" &&

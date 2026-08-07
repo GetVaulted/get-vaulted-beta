@@ -185,6 +185,17 @@ export function LiveVariantSelectionSheet({
     };
   }, [item.id, liveRoomId, open, spotPrice, walletReady]);
 
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || busy) return;
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [busy, onClose, open]);
+
   if (!open || !isVariantSalesFormat(item.salesFormat) || variants.length === 0) return null;
 
   const checkout = async () => {
@@ -301,7 +312,7 @@ export function LiveVariantSelectionSheet({
   const allSold = spotSummary.available <= 0;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[55] flex items-end justify-center">
+    <div className="pointer-events-none fixed inset-0 z-[55] flex items-end justify-center sm:items-center sm:p-4">
       <button
         type="button"
         aria-label="Close checkout"
@@ -310,14 +321,15 @@ export function LiveVariantSelectionSheet({
       />
       <div
         role="dialog"
-        aria-label="Checkout"
-        className="pointer-events-auto relative z-10 flex max-h-[72vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-white/10 bg-[#0b0b10] shadow-2xl"
+        aria-modal="true"
+        aria-label={pickerTitle}
+        className="pointer-events-auto relative z-10 flex max-h-[min(72vh,40rem)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-white/10 bg-[#0b0b10] shadow-2xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/[0.06] px-4 pb-2 pt-3">
           <div>
-            <h2 className="text-lg font-black text-white">Checkout</h2>
+            <h2 className="text-lg font-black text-white">{pickerBase}</h2>
             <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-zinc-500">
               <span aria-hidden>🔒</span>
               Secure checkout · encrypted by Stripe
@@ -327,9 +339,12 @@ export function LiveVariantSelectionSheet({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex size-8 items-center justify-center rounded-full bg-white/[0.06] text-zinc-300"
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-white/12 bg-white/[0.06] px-3 text-xs font-bold text-zinc-200 hover:bg-white/[0.1] hover:text-white"
           >
-            ×
+            <span aria-hidden className="text-base leading-none">
+              ×
+            </span>
+            Close
           </button>
         </div>
 
