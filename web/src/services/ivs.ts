@@ -989,8 +989,14 @@ export async function commitStagePublisherDerivedHealth(
  * - Publisher present → `live` (video can flow / HLS mirror can source).
  * - No publisher after go-live grace → `connecting` (honest “waiting on host”, not fake live).
  * Never ends the room; never throws.
+ *
+ * @param opts.force When true (host `?sync=1`), skip the go-live grace so a force-quit reopen
+ *   does not stay sticky `live` with zero publishers and trap the host in companion mode.
  */
-export async function reconcileStagePublisherHealth(roomId: string): Promise<"live" | "connecting" | "unknown" | "skip"> {
+export async function reconcileStagePublisherHealth(
+  roomId: string,
+  opts?: { force?: boolean },
+): Promise<"live" | "connecting" | "unknown" | "skip"> {
   const room = await prisma.liveRoom.findUnique({
     where: { id: roomId },
     select: {
@@ -1016,7 +1022,8 @@ export async function reconcileStagePublisherHealth(roomId: string): Promise<"li
 
   const msSinceStart = room.streamStartedAt ? Date.now() - room.streamStartedAt.getTime() : Number.POSITIVE_INFINITY;
   // Match stuck-recovery grace — don't flap to connecting during the first minute of Go Live.
-  if (msSinceStart < 60_000) return "skip";
+  // Host sync forces past grace so crash recovery sees honest “waiting on host”.
+  if (!opts?.force && msSinceStart < 60_000) return "skip";
 
   await commitStagePublisherDerivedHealth(roomId, "connecting");
   // No publisher past grace — schedule AWS cut so overnight abandoned shows stop billing.

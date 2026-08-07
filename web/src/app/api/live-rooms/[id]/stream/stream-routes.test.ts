@@ -195,6 +195,7 @@ describe("live room stream routes", () => {
     expect(res.status).toBe(200);
     expect(hoisted.syncLiveRoomStreamFromIvs).toHaveBeenCalledWith("room_1");
     expect(hoisted.reconcileStaleLiveStreamWithRoomStatus).toHaveBeenCalledWith("room_1");
+    expect(hoisted.reconcileStagePublisherHealth).toHaveBeenCalledWith("room_1", { force: true });
     const body = (await res.json()) as { viewerRole?: string; stream?: Record<string, unknown> };
     expect(body.viewerRole).toBe("host");
     expect(typeof body.stream?.ingestEndpoint).toBe("string");

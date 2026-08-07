@@ -201,7 +201,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   }, [host.stream, roomLive]);
   /** Commerce gate: this device publishing OR another device already on air (companion). */
   const broadcastOnAir = roomLive && (localPublishing || roomBroadcastOnAir);
-  /** Another device is actually publishing — not soft Stage warm-up / stale offline grace. */
+  /** Another device is actually publishing (streamHealth=live) — not connecting/waiting. */
   const remotePublisherActive = useMemo(() => {
     if (!roomLive) return false;
     return isLiveRoomRemotePublisherActive({

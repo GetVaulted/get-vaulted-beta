@@ -77,9 +77,12 @@ function isLiveRoomBroadcastSignalReady(room: LiveRoomBroadcastGate): boolean {
 /**
  * Strong signal that another device is actually publishing buyer-facing video.
  * Soft commerce warm-up (`stage_webrtc` / offline grace) must not count as companion/elsewhere.
+ *
+ * `connecting` means “waiting on host / no Stage publisher” — never treat that as a remote
+ * publisher, or a force-quit → reopen falsely enters companion mode and skips camera resume.
  */
 export function isLiveRoomRemotePublisherActive(room: LiveRoomBroadcastGate): boolean {
   if (room.status !== "live") return false;
   if (room.streamPaused === true) return false;
-  return isLiveStreamSignal(room.streamHealth);
+  return room.streamHealth.toLowerCase() === "live";
 }

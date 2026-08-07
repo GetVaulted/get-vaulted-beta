@@ -73,13 +73,17 @@ function isLiveRoomBroadcastSignalReady(room: LiveRoomBroadcastGate): boolean {
 
 /**
  * Strong signal that another device is actually publishing buyer-facing video.
- * Do NOT use the soft commerce warm-up (`stage_webrtc` / default-true) — that falsely
+ * Do NOT use soft commerce warm-up (`stage_webrtc` / default-true) — that falsely
  * marks a lone host phone as “Live elsewhere” when Stage hasn’t started yet.
+ *
+ * `connecting` means “waiting on host / no Stage publisher” (see server
+ * `reconcileStagePublisherHealth`) — never treat that as a remote publisher, or a
+ * force-quit → reopen falsely enters companion mode and skips camera auto-resume.
  */
 export function isLiveRoomRemotePublisherActive(room: LiveRoomBroadcastGate): boolean {
   if (room.status !== 'live') return false;
   if (room.streamPaused === true) return false;
-  return isLiveStreamSignal(room.streamHealth);
+  return room.streamHealth.toLowerCase() === 'live';
 }
 
 export const LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR =
