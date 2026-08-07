@@ -17,6 +17,8 @@ export function MainTabNavigator() {
         headerShown: false,
         lazy: true,
         freezeOnBlur: false,
+        // Transparent so LiveActiveSessionSurface (sibling under App) paints through Live.
+        sceneStyle: { backgroundColor: 'transparent' },
       }}
     >
       <Tab.Screen name="Home" component={HomeScreen} />

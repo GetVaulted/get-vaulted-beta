@@ -1,4 +1,5 @@
 import { useVideoPlayer, VideoView, isPictureInPictureSupported } from 'expo-video';
+import { setStageAudioOutputEnabled } from 'expo-realtime-ivs-broadcast';
 import { useEffect, useMemo, useRef } from 'react';
 import { AppState, type AppStateStatus, StyleSheet, View } from 'react-native';
 import { StageSubscriberVideo } from '../components/live/StageSubscriberVideo';
@@ -21,9 +22,8 @@ import {
 const LIVE_PICTURE_IN_PICTURE_ENABLED = true;
 
 /**
- * Single live playback surface for the active room.
- * Back only changes layout (full-bleed ↔ mini float) — Stage subscribe stays joined.
- * OS home-swipe PiP targets this view (Stage remote PiP / HLS VideoView), not a room-local one.
+ * Whatnot-style single live surface: one Stage/HLS join for the session.
+ * Back only changes layout (full-bleed ↔ mini float) — never leaveStage.
  */
 export function LiveActiveSessionSurface() {
   const { mode, session, paused, miniPos } = useLiveActiveSession();
@@ -41,11 +41,10 @@ export function LiveActiveSessionSurface() {
     Boolean(hlsUrl) &&
     !paused;
 
-  // Native Stage remote PiP — same subscribe as the pixels on this surface.
   useStageRemotePictureInPicture({
     enabled:
       LIVE_PICTURE_IN_PICTURE_ENABLED &&
-      mode === 'room' &&
+      active &&
       session?.transport === 'webrtc' &&
       !paused &&
       !session?.hostPaused,
@@ -68,6 +67,19 @@ export function LiveActiveSessionSurface() {
 
   useHlsLiveEdgeSeek(player, Boolean(active && hlsUrl && !paused));
 
+  // Mini pause: mute Stage audio without leaveStage (Whatnot keeps the subscribe).
+  useEffect(() => {
+    if (!active || session?.transport !== 'webrtc') return;
+    void setStageAudioOutputEnabled(!paused).catch(() => {
+      /* ignore */
+    });
+    return () => {
+      void setStageAudioOutputEnabled(true).catch(() => {
+        /* ignore */
+      });
+    };
+  }, [active, paused, session?.transport]);
+
   useEffect(() => {
     if (!hlsUrl || !active) return;
     try {
@@ -87,7 +99,6 @@ export function LiveActiveSessionSurface() {
     }
   }, [hlsUrl, active, paused, mode, player, session?.muted]);
 
-  // Home-swipe PiP for HLS-only rooms — must use this root VideoView (room-local is skipped).
   useEffect(() => {
     if (!hlsPipEnabled) {
       for (const t of pipRetryTimersRef.current) clearTimeout(t);
@@ -168,6 +179,7 @@ export function LiveActiveSessionSurface() {
         backgroundColor: '#050505',
       };
     }
+    // Full-bleed under the transparent live navigator stack (Whatnot-style).
     return {
       ...StyleSheet.absoluteFillObject,
       zIndex: 0,
@@ -177,18 +189,15 @@ export function LiveActiveSessionSurface() {
 
   if (!active || !session) return null;
 
-  /**
-   * Room pixels stay in LiveStagePlayback (local Stage/HLS) so joining a show
-   * cannot get stuck behind an opaque navigator / attach thrash.
-   * This root surface owns video only in mini float (Back handoff).
-   */
-  if (mode !== 'mini') return null;
-
-  // Mini pause must not set active=false — that calls leaveStage.
+  // Keep Stage joined across mini pause — active=false leaveStages the process singleton.
   const stageSubscribeActive = session.transport === 'webrtc';
 
   return (
-    <View pointerEvents="none" style={layoutStyle} collapsable={false}>
+    <View
+      pointerEvents="none"
+      style={[layoutStyle, mode === 'mini' && paused ? { opacity: 0 } : null]}
+      collapsable={false}
+    >
       {session.transport === 'webrtc' ? (
         <StageSubscriberVideo
           roomId={session.roomId}
@@ -211,8 +220,10 @@ export function LiveActiveSessionSurface() {
           style={StyleSheet.absoluteFill}
           contentFit={session.contentFit ?? 'contain'}
           nativeControls={false}
-          allowsPictureInPicture={false}
-          startsPictureInPictureAutomatically={false}
+          allowsPictureInPicture={LIVE_PICTURE_IN_PICTURE_ENABLED && mode === 'room'}
+          startsPictureInPictureAutomatically={
+            LIVE_PICTURE_IN_PICTURE_ENABLED && mode === 'room'
+          }
           collapsable={false}
         />
       ) : null}

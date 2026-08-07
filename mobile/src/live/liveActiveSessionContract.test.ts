@@ -17,8 +17,9 @@ function reduceActiveSession(
     case 'attach': {
       const gen = state.attachGen + 1;
       // Same-room re-attach patches in place — must not pass through none.
+      // Preserve mini: Back→minimize must not flip back to room on effect re-run.
       if (state.roomId === action.roomId && (state.mode === 'room' || state.mode === 'mini')) {
-        return { mode: 'room', roomId: action.roomId, attachGen: gen };
+        return { mode: state.mode, roomId: action.roomId, attachGen: gen };
       }
       return { mode: 'room', roomId: action.roomId, attachGen: gen };
     }
@@ -69,6 +70,16 @@ describe('live active session Back→mini contract', () => {
     s = reduceActiveSession(s, { type: 'attach', roomId: 'room_1' });
     expect(s).toMatchObject({ mode: 'room', roomId: 'room_1' });
     expect(s.attachGen).toBeGreaterThan(genAfterFirst);
+  });
+
+  it('same-room re-attach while mini stays mini', () => {
+    let s = reduceActiveSession(
+      { mode: 'none', roomId: null, attachGen: 0 },
+      { type: 'attach', roomId: 'room_1' },
+    );
+    s = reduceActiveSession(s, { type: 'minimize' });
+    s = reduceActiveSession(s, { type: 'attach', roomId: 'room_1' });
+    expect(s).toMatchObject({ mode: 'mini', roomId: 'room_1' });
   });
 
   it('close tears down after mini', () => {

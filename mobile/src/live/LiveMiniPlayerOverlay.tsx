@@ -27,11 +27,17 @@ import {
 } from '../lib/livePlaybackAppState';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { radii } from '../theme';
+import {
+  LIVE_MINI_EDGE_PAD,
+  LIVE_MINI_PLAYER_H,
+  LIVE_MINI_PLAYER_W,
+  useLiveActiveSessionOptional,
+} from './LiveActiveSessionContext';
 import { useLiveMiniPlayer } from './LiveMiniPlayerContext';
 
-const PLAYER_W = 168;
-const PLAYER_H = 298;
-const EDGE_PAD = 10;
+const PLAYER_W = LIVE_MINI_PLAYER_W;
+const PLAYER_H = LIVE_MINI_PLAYER_H;
+const EDGE_PAD = LIVE_MINI_EDGE_PAD;
 /** Stage composition mirrors can lag — keep healing until HLS URL appears. */
 const MIRROR_HEAL_POLL_MS = 2_500;
 const MIRROR_HEAL_MAX_ATTEMPTS = 12;
@@ -46,10 +52,12 @@ function MiniOverlayHost({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Whatnot / TikTok-style in-app floating live player.
- * Separate from OS Picture-in-Picture — this shell only re-homes the VideoView in-app.
+ * In-app floating live chrome.
+ * When LiveActiveSession owns Stage/HLS (Whatnot-style), this is chrome-only —
+ * video pixels stay on LiveActiveSessionSurface. Legacy HLS mini still mounts VideoView.
  */
 export function LiveMiniPlayerOverlay() {
+  const activeSession = useLiveActiveSessionOptional();
   const {
     session,
     paused,
@@ -75,6 +83,24 @@ export function LiveMiniPlayerOverlay() {
   const playbackSourceUrlRef = useRef(playbackSourceUrl);
   playbackSourceUrlRef.current = playbackSourceUrl;
 
+  const usingHoisted = activeSession?.mode === 'mini' && Boolean(activeSession.session);
+  const chromeSession = usingHoisted
+    ? {
+        roomId: activeSession!.session!.roomId,
+        title: activeSession!.session!.title,
+        hostLabel: activeSession!.session!.hostLabel,
+        thumbnailUrl: activeSession!.session!.thumbnailUrl,
+      }
+    : session
+      ? {
+          roomId: session.roomId,
+          title: session.title,
+          hostLabel: session.hostLabel,
+          thumbnailUrl: session.thumbnailUrl,
+        }
+      : null;
+  const chromePaused = usingHoisted ? Boolean(activeSession?.paused) : paused;
+
   const bounds = useMemo(() => {
     const maxX = Math.max(EDGE_PAD, winW - PLAYER_W - EDGE_PAD);
     const maxY = Math.max(EDGE_PAD, winH - PLAYER_H - insets.bottom - EDGE_PAD);
@@ -88,6 +114,16 @@ export function LiveMiniPlayerOverlay() {
   const posRef = useRef(pos);
   posRef.current = pos;
   const dragOrigin = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    if (!chromeSession) return;
+    setPos({ x: bounds.maxX, y: Math.max(bounds.minY, 72) });
+  }, [chromeSession?.roomId, bounds.maxX, bounds.minY]);
+
+  useEffect(() => {
+    if (!usingHoisted || !activeSession) return;
+    activeSession.setMiniPos(pos);
+  }, [usingHoisted, activeSession, pos]);
 
   useEffect(() => {
     setPos((p) => ({
@@ -296,17 +332,27 @@ export function LiveMiniPlayerOverlay() {
   }, []);
 
   useEffect(() => {
-    if (!session) return;
+    if (!chromeSession) return;
     showControlsBriefly();
     return () => {
       if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
     };
-  }, [session, showControlsBriefly]);
+  }, [chromeSession?.roomId, showControlsBriefly]);
+
+  const closeMini = useCallback(() => {
+    if (usingHoisted) activeSession?.close();
+    else close();
+  }, [usingHoisted, activeSession, close]);
+
+  const toggleMiniPaused = useCallback(() => {
+    if (usingHoisted) activeSession?.togglePaused();
+    else togglePaused();
+  }, [usingHoisted, activeSession, togglePaused]);
 
   const expandToLiveRoom = useCallback(() => {
-    if (!session) return;
-    const roomId = session.roomId;
-    // Navigate first — LiveRoom soft-hands off the mini. Closing first forced a cold reload.
+    const roomId = chromeSession?.roomId;
+    if (!roomId) return;
+    if (usingHoisted) activeSession?.expand();
     if (!rootNavigationRef.isReady()) return;
     rootNavigationRef.navigate('MainTabs', {
       screen: 'Live',
@@ -315,7 +361,7 @@ export function LiveMiniPlayerOverlay() {
         params: { streamId: roomId },
       },
     });
-  }, [session]);
+  }, [chromeSession?.roomId, usingHoisted, activeSession]);
 
   const panResponder = useMemo(
     () =>
@@ -344,21 +390,30 @@ export function LiveMiniPlayerOverlay() {
     [showControlsBriefly, winW],
   );
 
-  if (!session) return null;
+  if (!chromeSession) return null;
 
   // In-app float must not steal OS PiP while foreground — that empties the shell.
-  const allowOsPip = !appActive;
+  const allowOsPip = !usingHoisted && !appActive;
 
   return (
     <MiniOverlayHost>
       <View pointerEvents="box-none" style={StyleSheet.absoluteFill} collapsable={false}>
         <View
-          style={[styles.shell, { left: pos.x, top: pos.y, width: PLAYER_W, height: PLAYER_H }]}
+          style={[
+            styles.shell,
+            {
+              left: pos.x,
+              top: pos.y,
+              width: PLAYER_W,
+              height: PLAYER_H,
+              backgroundColor: usingHoisted ? 'transparent' : '#000',
+            },
+          ]}
           {...panResponder.panHandlers}
           collapsable={false}
         >
           <Pressable style={styles.surface} onPress={showControlsBriefly}>
-            {playbackSourceUrl ? (
+            {!usingHoisted && playbackSourceUrl ? (
               <VideoView
                 ref={videoRef}
                 player={player}
@@ -371,15 +426,17 @@ export function LiveMiniPlayerOverlay() {
                 onPictureInPictureStop={() => setOsPipActive(false)}
                 collapsable={false}
               />
-            ) : session.thumbnailUrl ? (
+            ) : null}
+            {!usingHoisted && !playbackSourceUrl && chromeSession.thumbnailUrl ? (
               <Image
-                source={{ uri: session.thumbnailUrl }}
+                source={{ uri: chromeSession.thumbnailUrl }}
                 style={StyleSheet.absoluteFill}
                 contentFit="cover"
               />
-            ) : (
+            ) : null}
+            {!usingHoisted && !playbackSourceUrl && !chromeSession.thumbnailUrl ? (
               <View style={[StyleSheet.absoluteFill, styles.fallback]} />
-            )}
+            ) : null}
 
             {!controlsVisible && !osPipActive ? (
               <View style={styles.livePill} pointerEvents="none">
@@ -392,7 +449,7 @@ export function LiveMiniPlayerOverlay() {
               <View style={styles.controls} pointerEvents="box-none">
                 <Pressable
                   style={[styles.ctrlBtn, styles.ctrlBtnCorner, styles.ctrlClose]}
-                  onPress={close}
+                  onPress={closeMini}
                   hitSlop={8}
                   accessibilityLabel="Close mini player"
                 >
@@ -408,22 +465,22 @@ export function LiveMiniPlayerOverlay() {
                 </Pressable>
                 <Pressable
                   style={[styles.ctrlBtn, styles.ctrlBtnCenter]}
-                  onPress={togglePaused}
+                  onPress={toggleMiniPaused}
                   hitSlop={8}
-                  accessibilityLabel={paused ? 'Play' : 'Pause'}
+                  accessibilityLabel={chromePaused ? 'Play' : 'Pause'}
                 >
-                  <Ionicons name={paused ? 'play' : 'pause'} size={20} color="#111" />
+                  <Ionicons name={chromePaused ? 'play' : 'pause'} size={20} color="#111" />
                 </Pressable>
               </View>
             ) : null}
 
             <View style={styles.caption} pointerEvents="none">
               <LiveRoomText style={styles.title} numberOfLines={1}>
-                {session.title}
+                {chromeSession.title}
               </LiveRoomText>
-              {session.hostLabel ? (
+              {chromeSession.hostLabel ? (
                 <LiveRoomText style={styles.host} numberOfLines={1}>
-                  {session.hostLabel}
+                  {chromeSession.hostLabel}
                 </LiveRoomText>
               ) : null}
             </View>

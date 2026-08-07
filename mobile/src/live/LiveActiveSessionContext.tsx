@@ -85,14 +85,14 @@ export function LiveActiveSessionProvider({ children }: { children: ReactNode })
     const prevMode = modeRef.current;
     const next = { ...meta };
     // Same room already hosted: patch in place (effect re-runs must not remount Stage).
+    // Never flip mini → room here — that races with Back→minimize while LiveRoom is
+    // still mounted. expand() (or soft focus resume) owns layout restore.
     if (prev?.roomId === meta.roomId && (prevMode === 'room' || prevMode === 'mini')) {
       sessionRef.current = { ...prev, ...next };
       setSession(sessionRef.current);
-      if (prevMode === 'mini') {
-        modeRef.current = 'room';
-        setMode('room');
+      if (prevMode !== 'mini') {
+        setPaused(false);
       }
-      setPaused(false);
     } else {
       sessionRef.current = next;
       setSession(next);
@@ -165,6 +165,7 @@ export function LiveActiveSessionProvider({ children }: { children: ReactNode })
     if (modeRef.current !== 'mini') return;
     modeRef.current = 'room';
     setMode('room');
+    setPaused(false);
   }, []);
 
   const close = useCallback(() => {
