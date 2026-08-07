@@ -33,7 +33,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: liveRoomId },
-    select: { status: true, streamHealth: true, streamPaused: true, roomVersion: true },
+    select: { status: true, streamHealth: true, streamPaused: true, roomVersion: true, streamMode: true },
   });
   if (!room) {
     return NextResponse.json({ error: "Live room not found." }, { status: 404 });
@@ -63,8 +63,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   });
 
   if (streamPaused) {
-    // After a short grace, stop Stage→HLS composition + channel ingest so overnight pause doesn't burn IVS.
-    schedulePausedBroadcastAwsTeardown(liveRoomId);
+    // Stage rooms: after a short grace, stop composition + channel ingest so overnight pause
+    // doesn't burn IVS. OBS (`channel_hls`) keeps ingest — StopStream would force reconnect loops.
+    if (room.streamMode !== "channel_hls") {
+      schedulePausedBroadcastAwsTeardown(liveRoomId);
+    }
   } else {
     // Host Play: cancel any pending cut and heal Stage→HLS so share-link buyers get video again.
     cancelPausedBroadcastAwsTeardown(liveRoomId);

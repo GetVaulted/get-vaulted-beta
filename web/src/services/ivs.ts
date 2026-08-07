@@ -240,7 +240,32 @@ export async function getIvsChannelLatencyMode(channelArn: string): Promise<stri
   }
 }
 
-export async function getStreamStatus(channelArn: string) {
+export type IvsGetStreamStatusResult = {
+  state: string;
+  health: LiveStreamHealth;
+  /**
+   * True when GetStream failed for a reason other than “not broadcasting”.
+   * Callers must NOT commit offline from a failed probe — that flaps OBS shows.
+   */
+  probeFailed?: boolean;
+};
+
+/** AWS GetStream throws this when the channel has no active ingest (true offline). */
+export function isIvsChannelNotBroadcastingError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const name =
+    "name" in err && typeof (err as { name?: unknown }).name === "string"
+      ? (err as { name: string }).name
+      : "";
+  const code =
+    "Code" in err && typeof (err as { Code?: unknown }).Code === "string"
+      ? (err as { Code: string }).Code
+      : "";
+  const token = `${name} ${code}`.toLowerCase();
+  return token.includes("channelnotbroadcasting");
+}
+
+export async function getStreamStatus(channelArn: string): Promise<IvsGetStreamStatusResult> {
   try {
     const client = makeClient();
     const out = await client.send(new GetStreamCommand({ channelArn }));
@@ -249,9 +274,17 @@ export async function getStreamStatus(channelArn: string) {
       state,
       health: mapIvsStatusToRoomHealth(state),
     };
-  } catch {
-    /** Channel not broadcasting / no active stream — treat as offline (do not log ARNs). */
-    return { state: "OFFLINE", health: "offline" as LiveStreamHealth };
+  } catch (err) {
+    if (isIvsChannelNotBroadcastingError(err)) {
+      return { state: "OFFLINE", health: "offline" };
+    }
+    const message = err instanceof Error ? err.message.slice(0, 160) : "unknown";
+    const name =
+      err && typeof err === "object" && "name" in err && typeof (err as { name?: unknown }).name === "string"
+        ? (err as { name: string }).name
+        : "unknown";
+    logIvsOpsServer("ivs_get_stream_probe_failed", { errorName: name, message });
+    return { state: "UNKNOWN", health: "offline", probeFailed: true };
   }
 }
 
@@ -322,6 +355,69 @@ export async function ignoreChannelHealthDowngradeForActiveStage(args: {
   return startedMs > 0 && Date.now() - startedMs < STAGE_GOLIVE_HEALTH_GRACE_MS;
 }
 
+/**
+ * How long OBS (`channel_hls`) must stay offline/ended before we commit a health downgrade.
+ * Brief IVS GetStream gaps (or OBS encoder reconnect) otherwise flap live ↔ offline and remount buyers.
+ */
+export const OBS_CHANNEL_OFFLINE_CONFIRM_MS = 30_000;
+const OBS_OFFLINE_PENDING_PREFIX = "obs_offline_pending:";
+
+/**
+ * Debounce OBS channel offline/ended transitions.
+ * Returns true when the downgrade should be ignored (still within the confirm window).
+ */
+export async function debounceObsChannelHealthDowngrade(args: {
+  liveRoomId: string;
+  previousHealth: LiveStreamHealth;
+  newHealth: LiveStreamHealth;
+}): Promise<boolean> {
+  const downgrading =
+    args.newHealth === "offline" || args.newHealth === "ended" || args.newHealth === "error";
+  if (!downgrading) return false;
+  if (args.previousHealth !== "live" && args.previousHealth !== "connecting") return false;
+
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: args.liveRoomId },
+    select: { status: true, streamMode: true, lastIvsError: true },
+  });
+  if (!room || room.status !== "live" || room.streamMode !== "channel_hls") {
+    return false;
+  }
+
+  const now = Date.now();
+  const raw = room.lastIvsError ?? "";
+  if (raw.startsWith(OBS_OFFLINE_PENDING_PREFIX)) {
+    const started = Date.parse(raw.slice(OBS_OFFLINE_PENDING_PREFIX.length));
+    if (Number.isFinite(started) && now - started >= OBS_CHANNEL_OFFLINE_CONFIRM_MS) {
+      return false;
+    }
+    await prisma.liveRoom.update({
+      where: { id: args.liveRoomId },
+      data: { lastIvsStatusSyncAt: new Date() },
+    });
+    logIvsOpsServer("ivs_stream_health_obs_offline_debounced", {
+      roomId: args.liveRoomId,
+      attemptedHealth: args.newHealth,
+      phase: "hold",
+    });
+    return true;
+  }
+
+  await prisma.liveRoom.update({
+    where: { id: args.liveRoomId },
+    data: {
+      lastIvsStatusSyncAt: new Date(),
+      lastIvsError: `${OBS_OFFLINE_PENDING_PREFIX}${new Date(now).toISOString()}`,
+    },
+  });
+  logIvsOpsServer("ivs_stream_health_obs_offline_debounced", {
+    roomId: args.liveRoomId,
+    attemptedHealth: args.newHealth,
+    phase: "start",
+  });
+  return true;
+}
+
 export async function commitLiveRoomStreamHealthFromIvs(args: {
   liveRoomId: string;
   newHealth: LiveStreamHealth;
@@ -349,8 +445,18 @@ export async function commitLiveRoomStreamHealthFromIvs(args: {
     return { kind: "unchanged_health", newHealth: room.streamHealth, roomVersion: room.roomVersion };
   }
 
-  const now = new Date();
   const previousHealth = room.streamHealth;
+  if (
+    await debounceObsChannelHealthDowngrade({
+      liveRoomId,
+      previousHealth,
+      newHealth,
+    })
+  ) {
+    return { kind: "unchanged_health", newHealth: previousHealth, roomVersion: room.roomVersion };
+  }
+
+  const now = new Date();
 
   if (previousHealth === newHealth) {
     await prisma.liveRoom.update({
@@ -433,7 +539,12 @@ export async function syncLiveRoomStreamFromIvs(liveRoomId: string): Promise<Str
     return null;
   }
 
-  const { health } = await getStreamStatus(room.ivsChannelArn);
+  const streamStatus = await getStreamStatus(room.ivsChannelArn);
+  if (streamStatus.probeFailed) {
+    logIvsOpsServer("ivs_stream_sync_skipped_probe_failed", { roomId: liveRoomId });
+    return null;
+  }
+  const health = streamStatus.health;
   // Diagnostic: confirm the channel's *actual* latency mode from AWS (not just env), to catch
   // older rooms whose channel was provisioned before LOW-latency config.
   const actualLatencyMode = await getIvsChannelLatencyMode(room.ivsChannelArn);
@@ -442,15 +553,23 @@ export async function syncLiveRoomStreamFromIvs(liveRoomId: string): Promise<Str
     actualLatencyMode: actualLatencyMode ?? "unknown",
     configuredLatencyMode: getEnv().latencyMode,
   });
-  // Older OBS channels may still be NORMAL (~10–30s delay). Await the upgrade so host Refresh /
-  // buyer sync actually flip the channel before the next playback attempt.
+  // Older OBS channels may still be NORMAL (~10–30s delay). Never UpdateChannel while ingest is
+  // live/connecting — mid-stream latency flips can force OBS disconnect/reconnect.
   if (actualLatencyMode && actualLatencyMode.toUpperCase() !== "LOW" && getEnv().latencyMode === "LOW") {
-    const ok = await ensureChannelLowLatencyMode(room.ivsChannelArn);
-    logIvsOpsServer("ivs_channel_latency_upgrade_result", {
-      roomId: liveRoomId,
-      ok,
-      previousLatencyMode: actualLatencyMode,
-    });
+    if (health === "live" || health === "connecting") {
+      logIvsOpsServer("ivs_channel_latency_upgrade_skipped_active_ingest", {
+        roomId: liveRoomId,
+        health,
+        previousLatencyMode: actualLatencyMode,
+      });
+    } else {
+      const ok = await ensureChannelLowLatencyMode(room.ivsChannelArn);
+      logIvsOpsServer("ivs_channel_latency_upgrade_result", {
+        roomId: liveRoomId,
+        ok,
+        previousLatencyMode: actualLatencyMode,
+      });
+    }
   }
   const result = await commitLiveRoomStreamHealthFromIvs({ liveRoomId, newHealth: health, opSource: "sync_get_stream" });
   if (room.streamMode === "channel_hls" && (health === "live" || health === "connecting")) {
@@ -503,7 +622,12 @@ export async function reconcileStaleLiveStreamWithRoomStatus(liveRoomId: string)
   if (!room || room.status !== "live" || room.streamProvider !== "aws_ivs" || !room.ivsChannelArn) {
     return null;
   }
-  const { health } = await getStreamStatus(room.ivsChannelArn);
+  const streamStatus = await getStreamStatus(room.ivsChannelArn);
+  if (streamStatus.probeFailed) {
+    logIvsOpsServer("ivs_stale_reconcile_skipped_probe_failed", { roomId: liveRoomId });
+    return null;
+  }
+  const health = streamStatus.health;
   const ivsDown = health === "offline" || health === "ended";
   const wasExpectingSignal =
     room.streamHealth === "live" ||
@@ -1068,7 +1192,13 @@ export async function ensureStageHlsCompositionActive(roomId: string): Promise<v
   let destinationState: string | null = null;
   let channelHealth: string | null = null;
   if (room.ivsCompositionArn) {
-    ({ health: channelHealth } = await getStreamStatus(room.ivsChannelArn));
+    const channelStatus = await getStreamStatus(room.ivsChannelArn);
+    if (channelStatus.probeFailed) {
+      // Don't assume the channel is offline — fall through to composition state.
+      logIvsOpsServer("ivs_stage_composition_heal_channel_probe_failed", { roomId });
+    } else {
+      channelHealth = channelStatus.health;
+    }
     // Only probe the composition's AWS state when the channel isn't already flowing — this avoids
     // an extra GetComposition call on the common healthy path and only inspects state when we might
     // actually need to recycle a dead mirror.
@@ -1172,6 +1302,16 @@ export async function cutLiveBroadcastAwsBilling(roomId: string): Promise<void> 
     return;
   }
   if (room.status !== "live") return;
+
+  // OBS owns the RTMP encoder. StopStream while the show is still live forces OBS into a
+  // disconnect/reconnect loop. Pause only hides buyer video — never kill OBS ingest mid-show.
+  if (room.streamMode === "channel_hls") {
+    logIvsOpsServer("ivs_pause_aws_cut_skipped_obs_channel", {
+      roomId,
+      streamPaused: room.streamPaused === true,
+    });
+    return;
+  }
 
   // Host already back on Play with a publisher — leave AWS alone.
   if (room.streamPaused !== true && room.streamMode === "stage_webrtc" && room.ivsStageArn) {
@@ -1287,8 +1427,9 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
     if (refreshed.streamPaused === true) return;
     if (refreshed.streamHealth !== "live" && refreshed.streamHealth !== "connecting") return;
     if (refreshed.ivsCompositionArn && refreshed.ivsChannelArn) {
-      const { health: channelHealth } = await getStreamStatus(refreshed.ivsChannelArn);
-      if (channelHealth === "live" || channelHealth === "connecting") return;
+      const channelStatus = await getStreamStatus(refreshed.ivsChannelArn);
+      if (channelStatus.probeFailed) return;
+      if (channelStatus.health === "live" || channelStatus.health === "connecting") return;
       await stopStageComposition(roomId);
     }
     await startStageHlsComposition(roomId);
