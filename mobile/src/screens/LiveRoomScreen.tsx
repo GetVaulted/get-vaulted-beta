@@ -14,7 +14,6 @@ import { useAuth } from '../auth/AuthContext';
 import type { LiveStackParamList } from '../navigation/types';
 import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
 import { navigateAuthLogin, navigateAuthSignUp } from '../navigation/rootNavigationRef';
-import { useLiveActiveSessionOptional } from '../live/LiveActiveSessionContext';
 import { useLiveMiniPlayerOptional } from '../live/LiveMiniPlayerContext';
 import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
 import { useStickyLiveAuth } from '../hooks/useStickyLiveAuth';
@@ -47,9 +46,6 @@ export function LiveRoomScreen() {
   const miniPlayer = useLiveMiniPlayerOptional();
   const miniPlayerRef = useRef(miniPlayer);
   miniPlayerRef.current = miniPlayer;
-  const activeSession = useLiveActiveSessionOptional();
-  const activeSessionRef = useRef(activeSession);
-  activeSessionRef.current = activeSession;
 
   useKeepScreenAwakeWhileFocused('live-room-buyer');
 
@@ -126,24 +122,11 @@ export function LiveRoomScreen() {
       // Soft visit — do NOT remount the whole feed via React key;
       // remount racing IVS leave/join blanks video until app kill.
       viewerLifecycleLog('screen_focused', { streamId, layer: 'LiveRoomScreen' });
-      const as = activeSessionRef.current;
       const mp = miniPlayerRef.current;
-      const softResume =
-        Boolean(as?.session?.roomId === streamId) &&
-        (as?.mode === 'mini' || Boolean(as?.wasMinimizedRecently(8_000)));
-      if (softResume && as) {
-        // Same Stage surface — restore room layout; do not tear down subscribe.
-        as.expand();
-        void reloadStreams();
-        return () => {
-          viewerLifecycleLog('screen_blurred', { streamId, layer: 'LiveRoomScreen' });
-        };
-      }
-      if (as?.mode === 'mini' && as.session && as.session.roomId !== streamId) {
-        as.close();
-      }
-      const resumingLegacyMini = mp?.session?.roomId === streamId;
-      if (resumingLegacyMini) {
+      const resumingSameMini = mp?.session?.roomId === streamId;
+      if (resumingSameMini) {
+        // Soft expand: dismiss the float only after this screen regained focus.
+        // Closing from LiveStagePlayback while still painting on leave wiped the mini.
         void reloadStreams();
         const dismissTimer = setTimeout(() => {
           const cur = miniPlayerRef.current;
@@ -155,8 +138,11 @@ export function LiveRoomScreen() {
         };
       }
       if (mp?.session) {
+        // Different show was minimized — close it before watching this room.
         mp.close();
       }
+      // Re-focus after in-app nav (profile/DM/Settings) must soft-resume — bumping
+      // roomVisitNonce force-restarts Stage/HLS as if opening a brand-new show.
       void reloadStreams();
       return () => {
         viewerLifecycleLog('screen_blurred', { streamId, layer: 'LiveRoomScreen' });
@@ -168,14 +154,7 @@ export function LiveRoomScreen() {
   useLayoutEffect(() => {
     setStreams(seed.streams);
     setLoading(!seed.ready);
-    const as = activeSessionRef.current;
-    const softResume =
-      Boolean(as?.session?.roomId === streamId) &&
-      (as?.mode === 'mini' || Boolean(as?.wasMinimizedRecently(8_000)));
-    // Soft expand must not bump visit nonce — that remounts Stage and looks like a reload.
-    if (!softResume) {
-      setRoomVisitNonce((n) => n + 1);
-    }
+    setRoomVisitNonce((n) => n + 1);
   }, [streamId, seed]);
 
   const blockGuestLive = guestExploreMode && !user;
@@ -234,7 +213,7 @@ export function LiveRoomScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: colors.background,
   },
   centered: {
     justifyContent: 'center',

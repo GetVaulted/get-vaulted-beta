@@ -239,11 +239,7 @@ export function RootNavigator() {
             options={{ animation: 'none', gestureEnabled: false }}
           />
           <Stack.Screen name="AuthWelcome" component={AuthWelcomeScreen} options={{ animation: 'fade' }} />
-          <Stack.Screen
-            name="MainTabs"
-            component={MainTabNavigator}
-            options={{ animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }}
-          />
+          <Stack.Screen name="MainTabs" component={MainTabNavigator} options={{ animation: 'fade' }} />
           <Stack.Screen
             name="AuthLogin"
             component={AuthLoginScreen}

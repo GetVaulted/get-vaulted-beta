@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useIsFocused } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -117,7 +117,6 @@ export function LiveDiscoveryScreen() {
     gap: gridGap,
   } = useMemo(() => computeLiveDiscoveryGrid(windowWidth), [windowWidth]);
   const navigation = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
-  const isFocused = useIsFocused();
   const { guestExploreMode } = useAuth();
   const { remind, isReminderSet } = useLiveEventReminders();
   const [chip, setChip] = useState<string>('All');
@@ -305,12 +304,6 @@ export function LiveDiscoveryScreen() {
     </>
   );
 
-  // When LiveRoom is pushed, stay transparent so the root Stage surface paints through
-  // (Whatnot-style single-surface video). Opaque discovery would block the hole.
-  if (!isFocused) {
-    return <View style={styles.screenPassthrough} />;
-  }
-
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md, paddingHorizontal: gridPad }]}>
       <FlatList
@@ -356,10 +349,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  screenPassthrough: {
-    flex: 1,
-    backgroundColor: 'transparent',
   },
   body: {
     paddingBottom: spacing.xxl,

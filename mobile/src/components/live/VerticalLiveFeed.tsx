@@ -32,7 +32,6 @@ import { fetchSellerFollowStatus, toggleSellerFollow } from '../../api/sellerFol
 import type { LiveStream, ChatMessage } from '../../types';
 import type { LiveStackParamList } from '../../navigation/types';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
-import { useLiveActiveSessionOptional } from '../../live/LiveActiveSessionContext';
 import { useLiveMiniPlayerOptional } from '../../live/LiveMiniPlayerContext';
 import { openLiveHostProfile, openUserProfile } from '../../navigation/openPlatform';
 import { UserAvatar } from '../ui/UserAvatar';
@@ -240,7 +239,6 @@ function LiveSlide({
   const stageInsets = computeLiveStageSafeInsets(stageContainer, screenHeight, insets, spacing.sm);
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const miniPlayer = useLiveMiniPlayerOptional();
-  const activeSession = useLiveActiveSessionOptional();
   const openWalletRef = useRef<(reason?: string) => void>(() => {});
   const layoutWidth = stageContainer.designWidth;
   const compact = isCompactLiveRoomLayout(layoutWidth);
@@ -330,32 +328,15 @@ function LiveSlide({
       broadcastGate.status === 'live' ||
       health === 'live' ||
       health === 'connecting';
-    if (canMinimize && activeSession) {
-      // Whatnot-style: layout-only minimize — root Stage stays joined.
-      const existing = activeSession.session;
-      activeSession.minimize({
-        roomId: stream.id,
-        title: stream.title?.trim() || 'Live show',
-        hostLabel: stream.host?.handle
-          ? `@${stream.host.handle.replace(/^@/, '')}`
-          : stream.host?.name?.trim() || '',
-        thumbnailUrl: stream.previewImageUrl?.trim() || '',
-        accessToken: accessToken ?? existing?.accessToken,
-        transport: existing?.transport,
-        playbackUrl:
-          existing?.playbackUrl ||
-          miniPlayer?.peekWarmPlaybackUrl(stream.id) ||
-          null,
-        subscribeEpoch: existing?.subscribeEpoch,
-        foregroundResumeNonce: existing?.foregroundResumeNonce,
-        contentFit: existing?.contentFit,
-        hostPaused: existing?.hostPaused,
-      });
-    } else if (canMinimize && miniPlayer) {
+    if (canMinimize) {
       const cached = peekCachedBuyerLiveStream(stream.id);
       const warmUrl =
-        miniPlayer.peekWarmPlaybackUrl(stream.id) || cached?.playbackUrl?.trim() || null;
-      miniPlayer.minimize({
+        miniPlayer?.peekWarmPlaybackUrl(stream.id) ||
+        cached?.playbackUrl?.trim() ||
+        null;
+      // Minimize BEFORE blur/unmount so sessionRef is set when warm HLS cleanup runs.
+      // Do NOT invalidate the stream cache here — that wiped the HLS URL before handoff.
+      miniPlayer?.minimize({
         roomId: stream.id,
         title: stream.title?.trim() || 'Live show',
         hostLabel: stream.host?.handle
@@ -367,19 +348,39 @@ function LiveSlide({
       });
     }
     leaveAllowRef.current = true;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (stackNav.canGoBack()) {
-          stackNav.goBack();
-          return;
+    // Handoff to shared mini HLS when warm; never block Back if the mirror is cold.
+    const leaveAfterHandoff = async () => {
+      const warm =
+        Boolean(miniPlayer?.peekWarmPlaybackUrl(stream.id)) ||
+        Boolean(peekCachedBuyerLiveStream(stream.id)?.playbackUrl?.trim());
+      if (canMinimize && warm && miniPlayer?.player) {
+        const deadline = Date.now() + 800;
+        while (Date.now() < deadline) {
+          try {
+            if (miniPlayer.player.playing) break;
+          } catch {
+            /* ignore */
+          }
+          await new Promise<void>((r) => setTimeout(r, 40));
         }
-        stackNav.navigate('LiveDiscovery');
-        onBack?.();
-      });
-    });
+      } else {
+        await new Promise<void>((r) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => r());
+          });
+        });
+      }
+      leaveAllowRef.current = true;
+      if (stackNav.canGoBack()) {
+        stackNav.goBack();
+        return;
+      }
+      stackNav.navigate('LiveDiscovery');
+      onBack?.();
+    };
+    void leaveAfterHandoff();
   }, [
     accessToken,
-    activeSession,
     broadcastGate.status,
     broadcastGate.streamHealth,
     miniPlayer,
@@ -414,13 +415,12 @@ function LiveSlide({
         broadcastGate.status === 'live' ||
         health === 'live' ||
         health === 'connecting';
-      if (!canMinimize || (!activeSession && !miniPlayer)) return;
+      if (!canMinimize || !miniPlayer) return;
       e.preventDefault();
       leaveRoomSafely();
     });
     return unsub;
   }, [
-    activeSession,
     broadcastGate.status,
     broadcastGate.streamHealth,
     isActive,
@@ -1297,23 +1297,19 @@ function LiveSlide({
         viewerUsername={myChatSender.username}
         viewerUserId={userId}
       />
-      <View style={[styles.slide, activeSession?.isHostingRoom(stream.id) && isActive ? styles.slideHosted : null]}>
+      <View style={styles.slide}>
         <KeyboardDismissStageShield active={keyboardOffset > 0} />
         <View style={computeLiveStageHostStyle(stageContainer)}>
           <View
             style={[
               styles.stageRoot,
-              activeSession?.isHostingRoom(stream.id) && isActive ? styles.stageRootHosted : null,
               computeLiveStageRootStyle(stageContainer),
             ]}
           >
             <GestureDetector gesture={stageGestures}>
               <View style={styles.stageGestureRoot}>
             <View
-              style={[
-                styles.stageVideoFrame,
-                activeSession?.isHostingRoom(stream.id) && isActive ? styles.stageVideoFrameHosted : null,
-              ]}
+              style={styles.stageVideoFrame}
               pointerEvents="box-none"
               onLayout={onStageVideoLayout}
             >
