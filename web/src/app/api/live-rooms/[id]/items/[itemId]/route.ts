@@ -119,6 +119,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
   const item = await prisma.liveRoomItem.findFirst({
     where: { id: itemId, liveRoomId },
     select: {
+      id: true,
       listingId: true,
       status: true,
       itemVersion: true,
