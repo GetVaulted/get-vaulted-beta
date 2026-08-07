@@ -57,13 +57,15 @@ async function teardownBuyerStage(
   if (opts?.latchRejoin) {
     markBuyerStageSubscribeTornDown(opts.roomId);
   }
+  // Clear joined marker BEFORE await leave — otherwise a same-tick remount can
+  // "adopt" a join that is already being torn down (Waiting for host loop).
+  markBuyerStageLeft(opts?.roomId);
   viewerLifecycleLog('stage_teardown', {
     reason,
     latchRejoin: Boolean(opts?.latchRejoin),
     roomId: opts?.roomId ?? null,
   });
   await leaveStageSerialized(() => leaveStage());
-  markBuyerStageLeft(opts?.roomId);
   viewerLifecycleLog('cleanup_completed', { reason });
 }
 
@@ -323,8 +325,12 @@ export function useMobileStageSubscribe(args: {
         return;
       }
 
-      // Back→mini remount: Stage singleton still joined — attach view only, no leave/rejoin.
-      if (getBuyerStageJoinedRoomId() === args.roomId) {
+      // ONLY when Back→mini keep-alive is set. Never adopt on normal in-room effect
+      // re-runs — that races leaveStage and leaves buyers on Waiting for host.
+      if (
+        isLiveFeedKeepAlive(args.roomId) &&
+        getBuyerStageJoinedRoomId() === args.roomId
+      ) {
         viewerLifecycleLog('stage_adopt_existing_join', { roomId: args.roomId });
         hasJoinedStageRef.current = true;
         setPhase('connecting');
