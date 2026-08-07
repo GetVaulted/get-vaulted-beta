@@ -135,6 +135,7 @@ function mimeFromUri(uri: string): string {
   return 'image/jpeg';
 }
 
+/** Upload a listing image. Refreshes the seller JWT before POST (and once on 401). */
 export async function uploadListingImageViaWeb(accessToken: string, localUri: string): Promise<string> {
   const mime = mimeFromUri(localUri);
   const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
@@ -145,11 +146,19 @@ export async function uploadListingImageViaWeb(accessToken: string, localUri: st
     type: mime,
   } as unknown as Blob);
 
-  const res = await fetchWebApi('/api/uploads/listing-image', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
-    body: form,
-  });
+  const post = async (bearer: string) =>
+    fetchWebApi('/api/uploads/listing-image', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bearer}` },
+      body: form,
+    });
+
+  let token = await resolveSellerAccessToken(accessToken);
+  let res = await post(token);
+  if (res.status === 401) {
+    token = await resolveSellerAccessToken(accessToken);
+    res = await post(token);
+  }
   const body = (await res.json().catch(() => null)) as { url?: string; error?: string } | null;
   if (!res.ok) throw new Error(publishApiErrorMessage(res, body));
   const url = body?.url?.trim();
@@ -179,11 +188,19 @@ export async function uploadLiveTeaserViaWeb(
   } as unknown as Blob);
   form.append('durationMs', String(Math.round(durationMs)));
 
-  const res = await fetchWebApi('/api/uploads/live-teaser', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
-    body: form,
-  });
+  const post = async (bearer: string) =>
+    fetchWebApi('/api/uploads/live-teaser', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bearer}` },
+      body: form,
+    });
+
+  let token = await resolveSellerAccessToken(accessToken);
+  let res = await post(token);
+  if (res.status === 401) {
+    token = await resolveSellerAccessToken(accessToken);
+    res = await post(token);
+  }
   const body = (await res.json().catch(() => null)) as {
     url?: string;
     durationMs?: number;

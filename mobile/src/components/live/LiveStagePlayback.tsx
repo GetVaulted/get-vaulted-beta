@@ -269,15 +269,9 @@ export function LiveStagePlayback({
   const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
   const webrtcReadyRef = useRef(false);
   webrtcReadyRef.current = webrtcReady;
-  // In-room Stage owns pixels + native Stage PiP. Back→mini uses shared HLS warm player.
-  const hostedAtRoot = false;
-  const skipLocalSurface = false;
+  // In-room Stage owns pixels. Back→mini uses shared HLS warm player (pre-hoist path).
   const stageRemotePipEnabled =
-    LIVE_PICTURE_IN_PICTURE_ENABLED &&
-    useWebrtc &&
-    webrtcReady &&
-    !streamPaused &&
-    !skipLocalSurface;
+    LIVE_PICTURE_IN_PICTURE_ENABLED && useWebrtc && webrtcReady && !streamPaused;
   const { stagePipReady, stagePipActive } = useStageRemotePictureInPicture({
     enabled: stageRemotePipEnabled,
     roomId,
@@ -956,8 +950,8 @@ export function LiveStagePlayback({
   })();
 
   return (
-    <View style={[styles.root, skipLocalSurface || hostedAtRoot ? styles.rootHosted : null]}>
-      {showThumbnail && !skipLocalSurface && !hostedAtRoot ? (
+    <View style={styles.root}>
+      {showThumbnail ? (
         <Image
           source={{ uri: thumbnailUrl }}
           style={StyleSheet.absoluteFill}
@@ -978,7 +972,7 @@ export function LiveStagePlayback({
         />
       ) : null}
 
-      {!skipLocalSurface && hlsCompanionUnderWebrtc ? (
+      {hlsCompanionUnderWebrtc ? (
         <>
           {/* HLS under Stage — Stage remote PiP captures the visible WebRTC view. */}
           <VideoView
@@ -1008,7 +1002,7 @@ export function LiveStagePlayback({
             onDisconnected={handleWebrtcDisconnected}
           />
         </>
-      ) : !skipLocalSurface ? (
+      ) : (
         <>
           {showWebrtcLayer ? (
             <StageSubscriberVideo
@@ -1041,7 +1035,7 @@ export function LiveStagePlayback({
             />
           ) : null}
         </>
-      ) : null}
+      )}
 
       <LinearGradient
         colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.06)', 'rgba(0,0,0,0.28)']}
@@ -1097,9 +1091,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',
     overflow: 'hidden',
-  },
-  rootHosted: {
-    backgroundColor: 'transparent',
   },
   video: {
     ...StyleSheet.absoluteFillObject,
