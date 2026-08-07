@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
-import { formatLiveWinnerAnnouncement, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
+import { useEffect, useRef } from "react";
+import {
+  formatLiveWinnerAnnouncement,
+  soldCelebrationDismissKey,
+  SOLD_CELEBRATION_DISPLAY_MS,
+  type LiveAuctionCloseCelebration,
+} from "@/lib/live-auction-winner-display";
 
 type Props = {
   celebration: LiveAuctionCloseCelebration | null;
@@ -9,15 +14,42 @@ type Props = {
   viewerRole?: "buyer" | "seller";
 };
 
-const DISPLAY_MS = 2800;
+const DISPLAY_MS = SOLD_CELEBRATION_DISPLAY_MS;
 
 /** Minimal winner flash — no backdrop card, room-wide "@user won (item)". */
 export function LiveAuctionSoldCelebration({ celebration, onDone }: Props) {
+  const onDoneRef = useRef(onDone);
+  const shownAtRef = useRef<number | null>(null);
+
   useEffect(() => {
-    if (!celebration || celebration.kind !== "sold") return undefined;
-    const id = window.setTimeout(onDone, DISPLAY_MS);
-    return () => window.clearTimeout(id);
-  }, [celebration, onDone]);
+    onDoneRef.current = onDone;
+  }, [onDone]);
+
+  const dismissKey =
+    celebration?.kind === "sold" ? soldCelebrationDismissKey(celebration) : null;
+
+  useEffect(() => {
+    if (!dismissKey) {
+      shownAtRef.current = null;
+      return undefined;
+    }
+
+    shownAtRef.current = Date.now();
+    const id = window.setTimeout(() => onDoneRef.current(), DISPLAY_MS);
+
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible" || shownAtRef.current == null) return;
+      if (Date.now() - shownAtRef.current >= DISPLAY_MS) {
+        onDoneRef.current();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      window.clearTimeout(id);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [dismissKey]);
 
   if (!celebration || celebration.kind !== "sold") return null;
 
