@@ -3,27 +3,42 @@ import { Image } from 'expo-image';
 import { VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AppState,
   PanResponder,
   Platform,
   Pressable,
   StyleSheet,
   View,
   useWindowDimensions,
+  type AppStateStatus,
 } from 'react-native';
 import { FullWindowOverlay } from 'react-native-screens';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LiveRoomText } from '../components/live/LiveRoomText';
+import { useHlsLiveEdgeSeek } from '../hooks/useHlsLiveEdgeSeek';
+import {
+  getBuyerLiveStreamCached,
+  invalidateBuyerLiveStreamCache,
+} from '../lib/liveStreamPrefetchCache';
+import { shouldAttachHlsPlayback } from '../lib/liveStreamPlayback';
+import {
+  shouldAttemptLivePictureInPicture,
+  shouldPrepareLivePictureInPicture,
+} from '../lib/livePlaybackAppState';
 import { rootNavigationRef } from '../navigation/rootNavigationRef';
 import { radii } from '../theme';
-import {
-  LIVE_MINI_EDGE_PAD,
-  LIVE_MINI_PLAYER_H,
-  LIVE_MINI_PLAYER_W,
-  useLiveActiveSessionOptional,
-} from './LiveActiveSessionContext';
-import { useLiveMiniPlayerOptional } from './LiveMiniPlayerContext';
+import { useLiveMiniPlayer } from './LiveMiniPlayerContext';
+
+const PLAYER_W = 168;
+const PLAYER_H = 298;
+const EDGE_PAD = 10;
+/** Stage composition mirrors can lag — keep healing until HLS URL appears. */
+const MIRROR_HEAL_POLL_MS = 2_500;
+const MIRROR_HEAL_MAX_ATTEMPTS = 12;
 
 function MiniOverlayHost({ children }: { children: React.ReactNode }) {
+  // Native-stack screen hosts draw above sibling RN views on iOS. FullWindowOverlay
+  // puts the float in a UIWindow above the navigator (Android uses elevated absolute view).
   if (Platform.OS === 'ios') {
     return <FullWindowOverlay>{children}</FullWindowOverlay>;
   }
@@ -31,44 +46,38 @@ function MiniOverlayHost({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * In-app mini chrome (drag / close / expand / pause).
- * Video pixels for Stage (and hoisted HLS) come from LiveActiveSessionSurface —
- * this overlay must NOT mount a second player for those sessions.
+ * Whatnot / TikTok-style in-app floating live player.
+ * Separate from OS Picture-in-Picture — this shell only re-homes the VideoView in-app.
  */
 export function LiveMiniPlayerOverlay() {
-  const activeSession = useLiveActiveSessionOptional();
-  const legacyMini = useLiveMiniPlayerOptional();
+  const {
+    session,
+    paused,
+    close,
+    togglePaused,
+    player,
+    playbackSourceUrl,
+    warmHls,
+    kickLivePlayback,
+    isMiniSessionActive,
+  } = useLiveMiniPlayer();
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
-
-  const usingHoisted = activeSession?.mode === 'mini' && Boolean(activeSession.session);
-  const legacySession = !usingHoisted ? legacyMini?.session ?? null : null;
-  const chromeSession = usingHoisted
-    ? {
-        roomId: activeSession!.session!.roomId,
-        title: activeSession!.session!.title,
-        hostLabel: activeSession!.session!.hostLabel,
-        thumbnailUrl: activeSession!.session!.thumbnailUrl,
-      }
-    : legacySession
-      ? {
-          roomId: legacySession.roomId,
-          title: legacySession.title,
-          hostLabel: legacySession.hostLabel,
-          thumbnailUrl: legacySession.thumbnailUrl,
-        }
-      : null;
-
-  const paused = usingHoisted ? Boolean(activeSession?.paused) : Boolean(legacyMini?.paused);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [osPipActive, setOsPipActive] = useState(false);
+  const [seekEnabled, setSeekEnabled] = useState(false);
+  const [appActive, setAppActive] = useState(() => AppState.currentState === 'active');
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const videoRef = useRef<VideoView>(null);
+  const prevAppStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const recoverInflightRef = useRef(false);
+  const sessionStartedAtRef = useRef(0);
+  const playbackSourceUrlRef = useRef(playbackSourceUrl);
+  playbackSourceUrlRef.current = playbackSourceUrl;
 
   const bounds = useMemo(() => {
-    const maxX = Math.max(LIVE_MINI_EDGE_PAD, winW - LIVE_MINI_PLAYER_W - LIVE_MINI_EDGE_PAD);
-    const maxY = Math.max(
-      LIVE_MINI_EDGE_PAD,
-      winH - LIVE_MINI_PLAYER_H - insets.bottom - LIVE_MINI_EDGE_PAD,
-    );
+    const maxX = Math.max(EDGE_PAD, winW - PLAYER_W - EDGE_PAD);
+    const maxY = Math.max(EDGE_PAD, winH - PLAYER_H - insets.bottom - EDGE_PAD);
     const minY = insets.top + 8;
     return { maxX, maxY, minY };
   }, [winW, winH, insets.bottom, insets.top]);
@@ -80,52 +89,224 @@ export function LiveMiniPlayerOverlay() {
   posRef.current = pos;
   const dragOrigin = useRef({ x: 0, y: 0 });
 
-  // Sync default top-right + share pos with the root surface.
-  useEffect(() => {
-    if (!chromeSession) return;
-    setPos({ x: bounds.maxX, y: Math.max(bounds.minY, 72) });
-  }, [chromeSession?.roomId, bounds.maxX, bounds.minY]);
-
-  useEffect(() => {
-    if (!usingHoisted || !activeSession) return;
-    activeSession.setMiniPos(pos);
-  }, [usingHoisted, activeSession, pos]);
-
   useEffect(() => {
     setPos((p) => ({
-      x: Math.min(bounds.maxX, Math.max(LIVE_MINI_EDGE_PAD, p.x)),
+      x: Math.min(bounds.maxX, Math.max(EDGE_PAD, p.x)),
       y: Math.min(bounds.maxY, Math.max(bounds.minY, p.y)),
     }));
   }, [bounds.maxX, bounds.maxY, bounds.minY]);
 
+  const recoverLiveMirror = useCallback(
+    async (opts?: { forceKick?: boolean }) => {
+      if (!session || recoverInflightRef.current) return false;
+      const roomId = session.roomId;
+      recoverInflightRef.current = true;
+      try {
+        // Soft path: already have a warm URL — do not invalidate or replace (that blacks the float).
+        if (!opts?.forceKick && playbackSourceUrlRef.current) {
+          return true;
+        }
+        invalidateBuyerLiveStreamCache(roomId);
+        const stream = await getBuyerLiveStreamCached(roomId, session.accessToken, {
+          healComposition: true,
+        });
+        if (!isMiniSessionActive(roomId)) return false;
+        if (!stream) return false;
+        const url = stream.playbackUrl?.trim() || null;
+        if (url && shouldAttachHlsPlayback(stream.streamHealth, url)) {
+          warmHls(roomId, url);
+          if (opts?.forceKick) kickLivePlayback(url, { force: true });
+          return true;
+        }
+        if (opts?.forceKick && playbackSourceUrl && isMiniSessionActive(roomId)) {
+          kickLivePlayback(playbackSourceUrl, { force: true });
+        }
+        return false;
+      } finally {
+        recoverInflightRef.current = false;
+      }
+    },
+    [session, warmHls, kickLivePlayback, playbackSourceUrl, isMiniSessionActive],
+  );
+  const recoverLiveMirrorRef = useRef(recoverLiveMirror);
+  recoverLiveMirrorRef.current = recoverLiveMirror;
+
+  // Heal only when minimize opened without a warm HLS URL. Never cold-replace a warm decoder.
+  useEffect(() => {
+    if (!session?.roomId) {
+      setSeekEnabled(false);
+      return;
+    }
+    sessionStartedAtRef.current = Date.now();
+    setOsPipActive(false);
+    setSeekEnabled(false);
+    let attempts = 0;
+    let cancelled = false;
+    const roomId = session.roomId;
+    const alreadyWarm = Boolean(playbackSourceUrlRef.current);
+
+    const run = async (forceKick: boolean) => {
+      if (cancelled || !isMiniSessionActive(roomId)) return;
+      const ok = await recoverLiveMirrorRef.current({ forceKick });
+      if (cancelled || ok) return;
+      attempts += 1;
+    };
+
+    if (alreadyWarm) {
+      // Warm handoff: play/unmute only. Replace only if still dead after a beat.
+      try {
+        player.muted = false;
+        player.volume = 1;
+        player.audioMixingMode = 'doNotMix';
+        player.showNowPlayingNotification = true;
+        player.play();
+      } catch {
+        /* ignore */
+      }
+      const rescueTimer = setTimeout(() => {
+        if (cancelled || !isMiniSessionActive(roomId)) return;
+        try {
+          if (player.playing) return;
+        } catch {
+          /* fall through */
+        }
+        void run(true);
+      }, 1_800);
+      const seekTimer = setTimeout(() => setSeekEnabled(true), 2_500);
+      return () => {
+        cancelled = true;
+        clearTimeout(rescueTimer);
+        clearTimeout(seekTimer);
+      };
+    }
+
+    void run(true);
+    const pollId = setInterval(() => {
+      if (cancelled || !isMiniSessionActive(roomId)) {
+        clearInterval(pollId);
+        return;
+      }
+      if (playbackSourceUrlRef.current) {
+        clearInterval(pollId);
+        return;
+      }
+      if (attempts >= MIRROR_HEAL_MAX_ATTEMPTS) {
+        clearInterval(pollId);
+        return;
+      }
+      void run(true);
+    }, MIRROR_HEAL_POLL_MS);
+
+    const seekTimer = setTimeout(() => setSeekEnabled(true), 2_500);
+    return () => {
+      cancelled = true;
+      clearInterval(pollId);
+      clearTimeout(seekTimer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mini room
+  }, [session?.roomId]);
+
+  // When a late HLS URL arrives, force play (heal/poll may start with null URL).
+  useEffect(() => {
+    if (!session || !playbackSourceUrl || paused) return;
+    try {
+      if (!isMiniSessionActive(session.roomId)) return;
+      player.muted = false;
+      player.volume = 1;
+      player.audioMixingMode = 'doNotMix';
+      player.showNowPlayingNotification = true;
+      player.play();
+    } catch {
+      /* ignore */
+    }
+  }, [session, playbackSourceUrl, paused, player, isMiniSessionActive]);
+
+  useHlsLiveEdgeSeek(player, Boolean(session && playbackSourceUrl && !paused && seekEnabled));
+
+  // Keep-alive: only play() if stopped. Never treat live currentTime as "stalled" (false SYNC).
+  useEffect(() => {
+    if (!session || paused || !playbackSourceUrl) return undefined;
+    let kicked = false;
+    const id = setInterval(() => {
+      try {
+        if (!isMiniSessionActive(session.roomId)) return;
+        if (osPipActive) return;
+        if (player.playing) return;
+        player.muted = false;
+        player.volume = 1;
+        player.audioMixingMode = 'doNotMix';
+        player.showNowPlayingNotification = true;
+        player.play();
+        if (!kicked && Date.now() - sessionStartedAtRef.current > 5_000) {
+          kicked = true;
+          kickLivePlayback(playbackSourceUrl);
+          void recoverLiveMirrorRef.current({ forceKick: false });
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 1_000);
+    return () => clearInterval(id);
+  }, [session, playbackSourceUrl, paused, player, kickLivePlayback, isMiniSessionActive, osPipActive]);
+
+  // Home swipe: keep audio; enable OS PiP only while leaving foreground (not on the in-app float).
+  useEffect(() => {
+    if (!session) return;
+    const sub = AppState.addEventListener('change', (next) => {
+      const prev = prevAppStateRef.current;
+      prevAppStateRef.current = next;
+      setAppActive(next === 'active');
+
+      if (
+        shouldPrepareLivePictureInPicture(next, prev) ||
+        shouldAttemptLivePictureInPicture(next, prev)
+      ) {
+        try {
+          player.muted = false;
+          player.volume = 1;
+          player.audioMixingMode = 'doNotMix';
+          player.play();
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+
+      if (next === 'active') {
+        try {
+          if (!paused) {
+            player.muted = false;
+            player.volume = 1;
+            player.audioMixingMode = 'doNotMix';
+            player.showNowPlayingNotification = true;
+            player.play();
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [session, player, paused]);
+
   const showControlsBriefly = useCallback(() => {
     setControlsVisible(true);
     if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
-    controlsTimerRef.current = setTimeout(() => setControlsVisible(false), 2_800);
+    controlsTimerRef.current = setTimeout(() => setControlsVisible(false), 3200);
   }, []);
 
   useEffect(() => {
-    if (!chromeSession) return;
+    if (!session) return;
     showControlsBriefly();
     return () => {
       if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
     };
-  }, [chromeSession?.roomId, showControlsBriefly]);
-
-  const close = useCallback(() => {
-    if (usingHoisted) activeSession?.close();
-    else legacyMini?.close();
-  }, [usingHoisted, activeSession, legacyMini]);
-
-  const togglePaused = useCallback(() => {
-    if (usingHoisted) activeSession?.togglePaused();
-    else legacyMini?.togglePaused();
-  }, [usingHoisted, activeSession, legacyMini]);
+  }, [session, showControlsBriefly]);
 
   const expandToLiveRoom = useCallback(() => {
-    const roomId = chromeSession?.roomId;
-    if (!roomId) return;
-    if (usingHoisted) activeSession?.expand();
+    if (!session) return;
+    const roomId = session.roomId;
+    // Navigate first — LiveRoom soft-hands off the mini. Closing first forced a cold reload.
     if (!rootNavigationRef.isReady()) return;
     rootNavigationRef.navigate('MainTabs', {
       screen: 'Live',
@@ -134,7 +315,7 @@ export function LiveMiniPlayerOverlay() {
         params: { streamId: roomId },
       },
     });
-  }, [chromeSession?.roomId, usingHoisted, activeSession]);
+  }, [session]);
 
   const panResponder = useMemo(
     () =>
@@ -148,14 +329,14 @@ export function LiveMiniPlayerOverlay() {
         onPanResponderMove: (_e, g) => {
           const b = boundsRef.current;
           setPos({
-            x: Math.min(b.maxX, Math.max(LIVE_MINI_EDGE_PAD, dragOrigin.current.x + g.dx)),
+            x: Math.min(b.maxX, Math.max(EDGE_PAD, dragOrigin.current.x + g.dx)),
             y: Math.min(b.maxY, Math.max(b.minY, dragOrigin.current.y + g.dy)),
           });
         },
         onPanResponderRelease: () => {
           const b = boundsRef.current;
           setPos((p) => ({
-            x: p.x + LIVE_MINI_PLAYER_W / 2 < winW / 2 ? LIVE_MINI_EDGE_PAD : b.maxX,
+            x: p.x + PLAYER_W / 2 < winW / 2 ? EDGE_PAD : b.maxX,
             y: p.y,
           }));
         },
@@ -163,49 +344,44 @@ export function LiveMiniPlayerOverlay() {
     [showControlsBriefly, winW],
   );
 
-  if (!chromeSession) return null;
+  if (!session) return null;
 
-  const showLegacyVideo = Boolean(!usingHoisted && legacyMini?.playbackSourceUrl);
+  // In-app float must not steal OS PiP while foreground — that empties the shell.
+  const allowOsPip = !appActive;
 
   return (
     <MiniOverlayHost>
       <View pointerEvents="box-none" style={StyleSheet.absoluteFill} collapsable={false}>
         <View
-          style={[
-            styles.shell,
-            {
-              left: pos.x,
-              top: pos.y,
-              width: LIVE_MINI_PLAYER_W,
-              height: LIVE_MINI_PLAYER_H,
-              // Hoisted surface paints video underneath — chrome shell is transparent.
-              backgroundColor: usingHoisted ? 'transparent' : '#000',
-            },
-          ]}
+          style={[styles.shell, { left: pos.x, top: pos.y, width: PLAYER_W, height: PLAYER_H }]}
           {...panResponder.panHandlers}
           collapsable={false}
         >
           <Pressable style={styles.surface} onPress={showControlsBriefly}>
-            {showLegacyVideo && legacyMini ? (
+            {playbackSourceUrl ? (
               <VideoView
-                player={legacyMini.player}
+                ref={videoRef}
+                player={player}
                 style={StyleSheet.absoluteFill}
                 contentFit="cover"
                 nativeControls={false}
-                allowsPictureInPicture={false}
-                startsPictureInPictureAutomatically={false}
+                allowsPictureInPicture={allowOsPip}
+                startsPictureInPictureAutomatically={allowOsPip}
+                onPictureInPictureStart={() => setOsPipActive(true)}
+                onPictureInPictureStop={() => setOsPipActive(false)}
                 collapsable={false}
               />
-            ) : null}
-            {!usingHoisted && !showLegacyVideo && chromeSession.thumbnailUrl ? (
+            ) : session.thumbnailUrl ? (
               <Image
-                source={{ uri: chromeSession.thumbnailUrl }}
+                source={{ uri: session.thumbnailUrl }}
                 style={StyleSheet.absoluteFill}
                 contentFit="cover"
               />
-            ) : null}
+            ) : (
+              <View style={[StyleSheet.absoluteFill, styles.fallback]} />
+            )}
 
-            {!controlsVisible ? (
+            {!controlsVisible && !osPipActive ? (
               <View style={styles.livePill} pointerEvents="none">
                 <View style={styles.liveDot} />
                 <LiveRoomText style={styles.liveTxt}>LIVE</LiveRoomText>
@@ -243,11 +419,11 @@ export function LiveMiniPlayerOverlay() {
 
             <View style={styles.caption} pointerEvents="none">
               <LiveRoomText style={styles.title} numberOfLines={1}>
-                {chromeSession.title}
+                {session.title}
               </LiveRoomText>
-              {chromeSession.hostLabel ? (
+              {session.hostLabel ? (
                 <LiveRoomText style={styles.host} numberOfLines={1}>
-                  {chromeSession.hostLabel}
+                  {session.hostLabel}
                 </LiveRoomText>
               ) : null}
             </View>
@@ -262,11 +438,12 @@ const styles = StyleSheet.create({
   shell: {
     position: 'absolute',
     zIndex: 9999,
-    elevation: 41,
+    elevation: 40,
     borderRadius: radii.md,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: '#000',
     shadowColor: '#000',
     shadowOpacity: 0.45,
     shadowRadius: 12,
@@ -274,6 +451,9 @@ const styles = StyleSheet.create({
   },
   surface: {
     flex: 1,
+  },
+  fallback: {
+    backgroundColor: '#111',
   },
   livePill: {
     position: 'absolute',
@@ -291,56 +471,68 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#ff3b30',
+    backgroundColor: '#ef4444',
   },
   liveTxt: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.6,
     color: '#fff',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.4,
   },
   controls: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
   },
   ctrlBtn: {
-    position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   ctrlBtnCorner: {
+    position: 'absolute',
+    top: 6,
     width: 28,
     height: 28,
     borderRadius: 14,
   },
-  ctrlClose: { top: 6, left: 6 },
-  ctrlExpand: { top: 6, right: 6 },
+  ctrlClose: {
+    left: 6,
+  },
+  ctrlExpand: {
+    right: 6,
+  },
   ctrlBtnCenter: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginTop: -22,
+    marginLeft: -22,
     width: 44,
     height: 44,
     borderRadius: 22,
-    left: '50%',
-    top: '50%',
-    marginLeft: -22,
-    marginTop: -22,
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderColor: 'rgba(255,255,255,0.9)',
   },
   caption: {
     position: 'absolute',
-    left: 8,
-    right: 8,
-    bottom: 8,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
   title: {
-    color: '#fff',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
+    color: '#fff',
   },
   host: {
-    color: 'rgba(255,255,255,0.75)',
+    marginTop: 1,
     fontSize: 10,
     fontWeight: '600',
-    marginTop: 2,
+    color: 'rgba(255,255,255,0.72)',
   },
 });

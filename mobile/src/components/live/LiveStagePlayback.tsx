@@ -37,7 +37,6 @@ import { isLivePlaybackCommerceHoldActive } from '../../lib/livePlaybackCommerce
 import { setLiveStagePipKeepAlive } from '../../lib/liveStagePipKeepAlive';
 import { liveStageContentFitForStreamMode, liveStageContentFitForPlayback } from '../../lib/liveRoomViewport';
 import { viewerLifecycleLog } from '../../lib/viewerLifecycleLog';
-import { useLiveActiveSessionOptional } from '../../live/LiveActiveSessionContext';
 import { useLiveMiniPlayerOptional } from '../../live/LiveMiniPlayerContext';
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
@@ -190,7 +189,6 @@ export function LiveStagePlayback({
   );
   const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce, roomVisitNonce });
   const miniPlayer = useLiveMiniPlayerOptional();
-  const activeSession = useLiveActiveSessionOptional();
   const stagePipReadyRef = useRef(false);
 
   useEffect(() => {
@@ -271,11 +269,9 @@ export function LiveStagePlayback({
   const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
   const webrtcReadyRef = useRef(false);
   webrtcReadyRef.current = webrtcReady;
-  // Mini float is owned by LiveActiveSessionSurface. In-room Stage/HLS stays local so
-  // viewers are not stuck on "Waiting for host video" behind an opaque navigator stack.
-  const hostedAtRoot = Boolean(activeSession?.mode === 'mini' && activeSession.isHostingRoom(roomId));
+  // In-room Stage owns pixels + native Stage PiP. Back→mini uses shared HLS warm player.
+  const hostedAtRoot = false;
   const skipLocalSurface = false;
-  // Native Stage PiP is owned by LiveActiveSessionSurface when hosted. Avoid double-enable.
   const stageRemotePipEnabled =
     LIVE_PICTURE_IN_PICTURE_ENABLED &&
     useWebrtc &&
@@ -314,10 +310,8 @@ export function LiveStagePlayback({
       warmPipCompanion ||
       (LIVE_PICTURE_IN_PICTURE_ENABLED && (pipActive || appBackgrounded) && hlsAttachable));
 
-  // Legacy shared-HLS warm only when the root active session host is unavailable.
-  // Stage/WebRTC Back uses LiveActiveSessionSurface — do not warm a Stage surrogate.
+  // Warm shared HLS for Back→mini handoff and OS PiP companion (pre-hoist path).
   useEffect(() => {
-    if (activeSession) return undefined;
     if (!miniPlayer) return undefined;
     const url = playbackUrl?.trim() || null;
     if (
@@ -335,7 +329,6 @@ export function LiveStagePlayback({
     miniPlayer.clearWarmHls(roomId);
     return undefined;
   }, [
-    activeSession,
     miniPlayer,
     playbackUrl,
     playbackActive,
@@ -419,54 +412,6 @@ export function LiveStagePlayback({
     },
     [playback.onWebrtcFailed],
   );
-
-  // Register / update the root surface while this page is the active room.
-  useEffect(() => {
-    if (!activeSession || !isForeground) return;
-    if (transport !== 'webrtc' && transport !== 'hls') return;
-    if (!roomLifecycleLive) return;
-    const fit =
-      contentFitOverride ??
-      liveStageContentFitForPlayback({
-        streamMode: playback.stream?.streamMode,
-        transport,
-      });
-    return activeSession.attach({
-      roomId,
-      accessToken,
-      transport: transport === 'webrtc' ? 'webrtc' : 'hls',
-      title: 'Live show',
-      hostLabel: '',
-      thumbnailUrl,
-      playbackUrl: playbackUrl ?? null,
-      hostPaused: streamPaused,
-      subscribeEpoch: playback.webrtcSubscribeEpoch,
-      foregroundResumeNonce,
-      contentFit: fit,
-      muted,
-      onConnected: handleWebrtcConnected,
-      onFailed: handleWebrtcFailed,
-      onDisconnected: handleWebrtcDisconnected,
-    });
-  }, [
-    activeSession,
-    isForeground,
-    transport,
-    roomLifecycleLive,
-    roomId,
-    accessToken,
-    thumbnailUrl,
-    playbackUrl,
-    streamPaused,
-    playback.webrtcSubscribeEpoch,
-    playback.stream?.streamMode,
-    foregroundResumeNonce,
-    contentFitOverride,
-    muted,
-    handleWebrtcConnected,
-    handleWebrtcFailed,
-    handleWebrtcDisconnected,
-  ]);
 
   const hlsPlayerSetup = (p: VideoPlayer) => {
     p.loop = false;
@@ -1140,8 +1085,7 @@ export function LiveStagePlayback({
                     : 'loading'
             }`}
             {`\nvisit: ${roomVisitNonce}  attempt: ${playback.playbackAttemptId}`}
-            {skipLocalSurface ? '\nhost: root' : ''}
-          </Text>
+                      </Text>
         </View>
       ) : null}
     </View>
