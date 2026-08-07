@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { withLivePlaybackCacheBust } from '../lib/liveStreamPlayback';
+import { tearDownKeptAliveLiveFeed } from '../lib/tearDownKeptAliveLiveFeed';
 
 export type LiveMiniPlayerSession = {
   roomId: string;
@@ -19,6 +20,11 @@ export type LiveMiniPlayerSession = {
   accessToken?: string;
   /** Warm HLS URL handed off from the in-room player (same string — no cache-bust). */
   playbackUrl?: string | null;
+  /**
+   * Whatnot model: prefer Stage when the room was on WebRTC so Back keeps the same feed
+   * (same as OS PiP). HLS is fallback / OBS rooms.
+   */
+  transport?: 'webrtc' | 'hls';
 };
 
 type WarmHls = {
@@ -57,8 +63,13 @@ type LiveMiniPlayerContextValue = {
    * Coalesced + session-gated — never call after close (native crash risk).
    */
   kickLivePlayback: (playbackUrl: string, opts?: { force?: boolean }) => void;
-  /** Close the floating player and stop playback. */
-  close: () => void;
+  /** Close the floating player. Default tears down the kept-alive live feed (Stage + HLS). */
+  close: (opts?: { tearDownFeed?: boolean }) => void;
+  /**
+   * Soft expand into the same room: hide the float chrome but keep Stage joined
+   * so the in-room view can adopt the existing subscribe (no reconnect).
+   */
+  releaseMiniChrome: () => void;
   setPaused: (paused: boolean) => void;
   togglePaused: () => void;
 };
@@ -275,24 +286,21 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
     [player],
   );
 
-  const close = useCallback(() => {
+  const releaseMiniChrome = useCallback(() => {
     kickEpochRef.current += 1;
     if (delayedKickTimerRef.current) {
       clearTimeout(delayedKickTimerRef.current);
       delayedKickTimerRef.current = null;
     }
+    // Keep Stage keep-alive + joined room — in-room view adopts the same subscribe.
     sessionRef.current = null;
     warmRef.current = null;
-    minimizedAtMsRef.current = 0;
-    setMinimizedAtMs(0);
     setSession(null);
     setWarm(null);
     setPaused(false);
     try {
       player.pause();
       player.muted = true;
-      // Replace with null to properly release the audio session and prevent audio leak
-      // Only call if we currently have a source loaded (use ref to avoid stale state)
       if (hasActiveSourceRef.current) {
         player.replace(null);
         hasActiveSourceRef.current = false;
@@ -301,6 +309,39 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
       /* ignore */
     }
   }, [player]);
+
+  const close = useCallback(
+    (opts?: { tearDownFeed?: boolean }) => {
+      const tearDownFeed = opts?.tearDownFeed !== false;
+      const roomId = sessionRef.current?.roomId;
+      kickEpochRef.current += 1;
+      if (delayedKickTimerRef.current) {
+        clearTimeout(delayedKickTimerRef.current);
+        delayedKickTimerRef.current = null;
+      }
+      sessionRef.current = null;
+      warmRef.current = null;
+      minimizedAtMsRef.current = 0;
+      setMinimizedAtMs(0);
+      setSession(null);
+      setWarm(null);
+      setPaused(false);
+      try {
+        player.pause();
+        player.muted = true;
+        if (hasActiveSourceRef.current) {
+          player.replace(null);
+          hasActiveSourceRef.current = false;
+        }
+      } catch {
+        /* ignore */
+      }
+      if (tearDownFeed) {
+        void tearDownKeptAliveLiveFeed('mini_close', roomId);
+      }
+    },
+    [player],
+  );
 
   useEffect(() => {
     return () => {
@@ -328,6 +369,7 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
       wasMinimizedRecently,
       kickLivePlayback,
       close,
+      releaseMiniChrome,
       setPaused,
       togglePaused,
     }),
@@ -346,6 +388,7 @@ export function LiveMiniPlayerProvider({ children }: { children: ReactNode }) {
       wasMinimizedRecently,
       kickLivePlayback,
       close,
+      releaseMiniChrome,
       togglePaused,
     ],
   );

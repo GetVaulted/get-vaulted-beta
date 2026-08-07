@@ -33,6 +33,7 @@ import type { LiveStream, ChatMessage } from '../../types';
 import type { LiveStackParamList } from '../../navigation/types';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
 import { useLiveMiniPlayerOptional } from '../../live/LiveMiniPlayerContext';
+import { isLiveFeedKeepAlive, setLiveFeedKeepAlive } from '../../lib/liveFeedKeepAlive';
 import { openLiveHostProfile, openUserProfile } from '../../navigation/openPlatform';
 import { UserAvatar } from '../ui/UserAvatar';
 import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
@@ -334,8 +335,14 @@ function LiveSlide({
         miniPlayer?.peekWarmPlaybackUrl(stream.id) ||
         cached?.playbackUrl?.trim() ||
         null;
+      const mode = (broadcastGate.streamMode ?? '').trim().toLowerCase();
+      const transport: 'webrtc' | 'hls' =
+        mode === 'stage_webrtc' ? 'webrtc' : 'hls';
+      // Whatnot / OS PiP model: keep the same Stage feed joined across Back.
+      if (transport === 'webrtc') {
+        setLiveFeedKeepAlive(stream.id);
+      }
       // Minimize BEFORE blur/unmount so sessionRef is set when warm HLS cleanup runs.
-      // Do NOT invalidate the stream cache here — that wiped the HLS URL before handoff.
       miniPlayer?.minimize({
         roomId: stream.id,
         title: stream.title?.trim() || 'Live show',
@@ -345,15 +352,18 @@ function LiveSlide({
         thumbnailUrl: stream.previewImageUrl?.trim() || '',
         accessToken,
         playbackUrl: warmUrl,
+        transport,
       });
     }
     leaveAllowRef.current = true;
-    // Handoff to shared mini HLS when warm; never block Back if the mirror is cold.
+    // Stage keep-alive: leave immediately (same as finishing home-swipe PiP shell).
+    // HLS-only: brief wait when a warm mirror is already playing.
     const leaveAfterHandoff = async () => {
+      const keepStage = isLiveFeedKeepAlive(stream.id);
       const warm =
         Boolean(miniPlayer?.peekWarmPlaybackUrl(stream.id)) ||
         Boolean(peekCachedBuyerLiveStream(stream.id)?.playbackUrl?.trim());
-      if (canMinimize && warm && miniPlayer?.player) {
+      if (!keepStage && canMinimize && warm && miniPlayer?.player) {
         const deadline = Date.now() + 800;
         while (Date.now() < deadline) {
           try {
@@ -383,6 +393,7 @@ function LiveSlide({
     accessToken,
     broadcastGate.status,
     broadcastGate.streamHealth,
+    broadcastGate.streamMode,
     miniPlayer,
     onBack,
     onPaymentBlockerChange,

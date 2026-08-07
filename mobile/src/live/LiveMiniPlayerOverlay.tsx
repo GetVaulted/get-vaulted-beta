@@ -15,12 +15,15 @@ import {
 import { FullWindowOverlay } from 'react-native-screens';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LiveRoomText } from '../components/live/LiveRoomText';
+import { StageSubscriberVideo } from '../components/live/StageSubscriberVideo';
 import { useHlsLiveEdgeSeek } from '../hooks/useHlsLiveEdgeSeek';
+import { setStageAudioOutputEnabled } from 'expo-realtime-ivs-broadcast';
 import {
   getBuyerLiveStreamCached,
   invalidateBuyerLiveStreamCache,
 } from '../lib/liveStreamPrefetchCache';
 import { shouldAttachHlsPlayback } from '../lib/liveStreamPlayback';
+import { isLiveFeedKeepAlive } from '../lib/liveFeedKeepAlive';
 import {
   shouldAttemptLivePictureInPicture,
   shouldPrepareLivePictureInPicture,
@@ -47,7 +50,8 @@ function MiniOverlayHost({ children }: { children: React.ReactNode }) {
 
 /**
  * Whatnot / TikTok-style in-app floating live player.
- * Separate from OS Picture-in-Picture — this shell only re-homes the VideoView in-app.
+ * Back keeps the same feed joined (Stage keep-alive = OS PiP model).
+ * Tear down only on X or when opening a different show.
  */
 export function LiveMiniPlayerOverlay() {
   const {
@@ -74,6 +78,11 @@ export function LiveMiniPlayerOverlay() {
   const sessionStartedAtRef = useRef(0);
   const playbackSourceUrlRef = useRef(playbackSourceUrl);
   playbackSourceUrlRef.current = playbackSourceUrl;
+
+  const useStage =
+    Boolean(session) &&
+    (session?.transport === 'webrtc' || isLiveFeedKeepAlive(session?.roomId));
+  const useHlsVideo = Boolean(session) && !useStage && Boolean(playbackSourceUrl);
 
   const bounds = useMemo(() => {
     const maxX = Math.max(EDGE_PAD, winW - PLAYER_W - EDGE_PAD);
@@ -131,9 +140,13 @@ export function LiveMiniPlayerOverlay() {
   const recoverLiveMirrorRef = useRef(recoverLiveMirror);
   recoverLiveMirrorRef.current = recoverLiveMirror;
 
-  // Heal only when minimize opened without a warm HLS URL. Never cold-replace a warm decoder.
+  // Heal only for HLS mini. Stage keep-alive already has the live feed.
   useEffect(() => {
     if (!session?.roomId) {
+      setSeekEnabled(false);
+      return;
+    }
+    if (session.transport === 'webrtc' || isLiveFeedKeepAlive(session.roomId)) {
       setSeekEnabled(false);
       return;
     }
@@ -204,11 +217,31 @@ export function LiveMiniPlayerOverlay() {
       clearTimeout(seekTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mini room
-  }, [session?.roomId]);
+  }, [session?.roomId, session?.transport]);
+
+  // Stage mini pause: mute output without leaveStage (same session as OS PiP).
+  useEffect(() => {
+    if (!useStage) return;
+    void setStageAudioOutputEnabled(!paused).catch(() => {
+      /* ignore */
+    });
+  }, [useStage, paused]);
+
+  // When Stage owns the float, mute the shared HLS companion so audio isn't doubled.
+  useEffect(() => {
+    if (!useStage) return;
+    try {
+      player.pause();
+      player.muted = true;
+    } catch {
+      /* ignore */
+    }
+  }, [useStage, player]);
 
   // When a late HLS URL arrives, force play (heal/poll may start with null URL).
   useEffect(() => {
     if (!session || !playbackSourceUrl || paused) return;
+    if (useStage) return;
     try {
       if (!isMiniSessionActive(session.roomId)) return;
       player.muted = false;
@@ -219,13 +252,13 @@ export function LiveMiniPlayerOverlay() {
     } catch {
       /* ignore */
     }
-  }, [session, playbackSourceUrl, paused, player, isMiniSessionActive]);
+  }, [session, playbackSourceUrl, paused, player, isMiniSessionActive, useStage]);
 
-  useHlsLiveEdgeSeek(player, Boolean(session && playbackSourceUrl && !paused && seekEnabled));
+  useHlsLiveEdgeSeek(player, Boolean(session && playbackSourceUrl && !paused && seekEnabled && !useStage));
 
   // Keep-alive: only play() if stopped. Never treat live currentTime as "stalled" (false SYNC).
   useEffect(() => {
-    if (!session || paused || !playbackSourceUrl) return undefined;
+    if (!session || paused || !playbackSourceUrl || useStage) return undefined;
     let kicked = false;
     const id = setInterval(() => {
       try {
@@ -358,7 +391,30 @@ export function LiveMiniPlayerOverlay() {
           collapsable={false}
         >
           <Pressable style={styles.surface} onPress={showControlsBriefly}>
-            {playbackSourceUrl ? (
+            {useStage && session ? (
+              <View
+                style={[StyleSheet.absoluteFill, paused ? { opacity: 0 } : null]}
+                pointerEvents="none"
+              >
+                <StageSubscriberVideo
+                  roomId={session.roomId}
+                  accessToken={session.accessToken}
+                  active
+                  hostPaused={false}
+                  latchRejoinOnLeave={false}
+                  contentFit="cover"
+                  onConnected={() => {
+                    /* keep-alive adopt — already live */
+                  }}
+                  onFailed={() => {
+                    /* stay on keep-alive; buyer can expand or close */
+                  }}
+                  onDisconnected={() => {
+                    /* rejoin loop inside hook */
+                  }}
+                />
+              </View>
+            ) : useHlsVideo ? (
               <VideoView
                 ref={videoRef}
                 player={player}
@@ -392,7 +448,7 @@ export function LiveMiniPlayerOverlay() {
               <View style={styles.controls} pointerEvents="box-none">
                 <Pressable
                   style={[styles.ctrlBtn, styles.ctrlBtnCorner, styles.ctrlClose]}
-                  onPress={close}
+                  onPress={() => close({ tearDownFeed: true })}
                   hitSlop={8}
                   accessibilityLabel="Close mini player"
                 >

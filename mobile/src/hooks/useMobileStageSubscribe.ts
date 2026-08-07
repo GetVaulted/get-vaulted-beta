@@ -7,6 +7,12 @@ import {
   useStageParticipants,
 } from 'expo-realtime-ivs-broadcast';
 import { joinStageSerialized, leaveStageSerialized } from '../lib/ivsStageGate';
+import {
+  getBuyerStageJoinedRoomId,
+  markBuyerStageJoined,
+  markBuyerStageLeft,
+} from '../lib/buyerStageJoinState';
+import { isLiveFeedKeepAlive } from '../lib/liveFeedKeepAlive';
 import { markBuyerStageSubscribeTornDown } from '../lib/liveStreamPlayback';
 import { invalidateViewerStageToken, resolveViewerStageToken } from '../lib/liveStreamPrefetchCache';
 import { ensureStageSdkInitialized } from '../lib/stageSdk';
@@ -37,8 +43,17 @@ async function teardownBuyerStage(
     /** True only for committed home/background leave — never for feed swipe. */
     latchRejoin?: boolean;
     roomId?: string;
+    /** Back→mini / OS-PiP style: detach view only — Stage stays joined. */
+    keepAlive?: boolean;
   },
 ): Promise<void> {
+  if (opts?.keepAlive) {
+    viewerLifecycleLog('stage_teardown_skipped_keepalive', {
+      reason,
+      roomId: opts.roomId ?? null,
+    });
+    return;
+  }
   if (opts?.latchRejoin) {
     markBuyerStageSubscribeTornDown(opts.roomId);
   }
@@ -48,15 +63,16 @@ async function teardownBuyerStage(
     roomId: opts?.roomId ?? null,
   });
   await leaveStageSerialized(() => leaveStage());
+  markBuyerStageLeft(opts?.roomId);
   viewerLifecycleLog('cleanup_completed', { reason });
 }
 
 /**
  * Buyer-side native IVS Real-Time Stage subscriber.
  *
- * On leave (`active=false` / unmount): always `leaveStage` so the process-wide Stage singleton is
- * free for the next show. Only latch “never rejoin WebRTC” when `latchRejoinOnLeave` is set
- * (committed background suspend) — feed swipe must stay able to hybrid-upgrade the next room.
+ * On leave (`active=false` / unmount): `leaveStage` unless live-feed keep-alive is set
+ * (Back→mini / same session as OS PiP). Latch “never rejoin WebRTC” only when
+ * `latchRejoinOnLeave` is set (committed background suspend).
  */
 export function useMobileStageSubscribe(args: {
   roomId: string;
@@ -160,14 +176,16 @@ export function useMobileStageSubscribe(args: {
     if (!args.active) {
       viewerLifecycleLog('screen_blurred_or_inactive', { roomId: args.roomId });
       const hadJoin = hasJoinedStageRef.current;
+      const keepAlive = isLiveFeedKeepAlive(args.roomId);
       connectedRef.current = false;
       hasJoinedStageRef.current = false;
       setPhase('idle');
       setConnectionState('disconnected');
       if (hadJoin) {
         void teardownBuyerStage('active_false', {
-          latchRejoin: Boolean(cbRef.current.latchRejoinOnLeave),
+          latchRejoin: keepAlive ? false : Boolean(cbRef.current.latchRejoinOnLeave),
           roomId: cbRef.current.roomId,
+          keepAlive,
         });
       }
       return;
@@ -255,30 +273,21 @@ export function useMobileStageSubscribe(args: {
       void attemptRejoin(trigger);
     };
 
-    const joinOnce = async () => {
-      if (cancelled) return;
-
-      if (!args.accessToken?.trim()) {
-        setPhase('idle');
-        connectTimeoutId = setTimeout(() => fail('auth_required'), AUTH_WAIT_MS);
-        return;
-      }
-
-      setPhase('connecting');
-      setConnectionState('connecting');
-
+    const attachConnectionListeners = () => {
       connSub = addOnStageConnectionStateChangedListener((evt) => {
         if (cancelled) return;
         setConnectionState(evt.state);
         viewerLifecycleLog('player_state_changed', { roomId: args.roomId, state: evt.state });
         if (evt.state === 'connected' && !evt.error) {
           rejoinAttempts = 0;
+          markBuyerStageJoined(args.roomId);
           scheduleTokenRefresh();
           return;
         }
         if (evt.state === 'disconnected' && connectedRef.current) {
           connectedRef.current = false;
           hasJoinedStageRef.current = false;
+          markBuyerStageLeft(args.roomId);
           setPhase('connecting');
           cbRef.current.onDisconnected();
           void attemptRejoin('connection_disconnected');
@@ -303,6 +312,31 @@ export function useMobileStageSubscribe(args: {
           fail(evt.description || `stage_error_${evt.code}`);
         }
       });
+    };
+
+    const joinOnce = async () => {
+      if (cancelled) return;
+
+      if (!args.accessToken?.trim()) {
+        setPhase('idle');
+        connectTimeoutId = setTimeout(() => fail('auth_required'), AUTH_WAIT_MS);
+        return;
+      }
+
+      // Back→mini remount: Stage singleton still joined — attach view only, no leave/rejoin.
+      if (getBuyerStageJoinedRoomId() === args.roomId) {
+        viewerLifecycleLog('stage_adopt_existing_join', { roomId: args.roomId });
+        hasJoinedStageRef.current = true;
+        setPhase('connecting');
+        setConnectionState('connected');
+        attachConnectionListeners();
+        scheduleTokenRefresh();
+        return;
+      }
+
+      setPhase('connecting');
+      setConnectionState('connecting');
+      attachConnectionListeners();
 
       try {
         await ensureStageSdkInitialized('subscribeOnly');
@@ -323,10 +357,12 @@ export function useMobileStageSubscribe(args: {
         await joinStageSerialized(joinStage, token);
         viewerLifecycleLog('stage_join_serialized_end', { roomId: args.roomId });
         hasJoinedStageRef.current = true;
+        markBuyerStageJoined(args.roomId);
         if (cancelled) {
           await teardownBuyerStage('cancelled_after_join', {
             latchRejoin: Boolean(cbRef.current.latchRejoinOnLeave),
             roomId: cbRef.current.roomId,
+            keepAlive: isLiveFeedKeepAlive(args.roomId),
           });
           return;
         }
@@ -351,14 +387,16 @@ export function useMobileStageSubscribe(args: {
       clearTimers();
       teardownListeners();
       const hadJoin = hasJoinedStageRef.current;
+      const keepAlive = isLiveFeedKeepAlive(args.roomId);
       connectedRef.current = false;
       hasJoinedStageRef.current = false;
       setPhase('idle');
       setConnectionState('disconnected');
       if (hadJoin) {
         void teardownBuyerStage('effect_cleanup', {
-          latchRejoin: Boolean(cbRef.current.latchRejoinOnLeave),
+          latchRejoin: keepAlive ? false : Boolean(cbRef.current.latchRejoinOnLeave),
           roomId: cbRef.current.roomId,
+          keepAlive,
         });
       }
     };

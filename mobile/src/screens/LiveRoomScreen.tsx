@@ -125,21 +125,16 @@ export function LiveRoomScreen() {
       const mp = miniPlayerRef.current;
       const resumingSameMini = mp?.session?.roomId === streamId;
       if (resumingSameMini) {
-        // Soft expand: dismiss the float only after this screen regained focus.
-        // Closing from LiveStagePlayback while still painting on leave wiped the mini.
+        // Soft expand: keep Stage joined; only dismiss float chrome so room adopts subscribe.
+        mp.releaseMiniChrome();
         void reloadStreams();
-        const dismissTimer = setTimeout(() => {
-          const cur = miniPlayerRef.current;
-          if (cur?.session?.roomId === streamId) cur.close();
-        }, 1_000);
         return () => {
-          clearTimeout(dismissTimer);
           viewerLifecycleLog('screen_blurred', { streamId, layer: 'LiveRoomScreen' });
         };
       }
       if (mp?.session) {
-        // Different show was minimized — close it before watching this room.
-        mp.close();
+        // Different show was minimized — tear down that feed before watching this room.
+        mp.close({ tearDownFeed: true });
       }
       // Re-focus after in-app nav (profile/DM/Settings) must soft-resume — bumping
       // roomVisitNonce force-restarts Stage/HLS as if opening a brand-new show.

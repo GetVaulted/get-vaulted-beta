@@ -35,6 +35,7 @@ import {
 } from '../../lib/livePlaybackAppState';
 import { isLivePlaybackCommerceHoldActive } from '../../lib/livePlaybackCommerceHold';
 import { setLiveStagePipKeepAlive } from '../../lib/liveStagePipKeepAlive';
+import { isLiveFeedKeepAlive, setLiveFeedKeepAlive } from '../../lib/liveFeedKeepAlive';
 import { liveStageContentFitForStreamMode, liveStageContentFitForPlayback } from '../../lib/liveRoomViewport';
 import { viewerLifecycleLog } from '../../lib/viewerLifecycleLog';
 import { useLiveMiniPlayerOptional } from '../../live/LiveMiniPlayerContext';
@@ -189,6 +190,7 @@ export function LiveStagePlayback({
   );
   const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce, roomVisitNonce });
   const miniPlayer = useLiveMiniPlayerOptional();
+  const miniOwnsFeed = miniPlayer?.session?.roomId === roomId;
   const stagePipReadyRef = useRef(false);
 
   useEffect(() => {
@@ -283,6 +285,14 @@ export function LiveStagePlayback({
       setLiveStagePipKeepAlive(false);
     };
   }, [stagePipReady, stagePipActive]);
+
+  // Soft expand from mini: room adopted the kept-alive Stage — clear keep-alive flag.
+  useEffect(() => {
+    if (!isForeground || !webrtcReady) return;
+    if (!isLiveFeedKeepAlive(roomId)) return;
+    setLiveFeedKeepAlive(null);
+  }, [isForeground, webrtcReady, roomId]);
+
   const hlsAttachable = Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
   // Hold the HLS mirror under WebRTC until Stage connects (and as a cold-mirror safety net while
   // waiting for first paint). Neighbors buffer HLS muted+hidden for instant switching.
@@ -990,7 +1000,12 @@ export function LiveStagePlayback({
           <StageSubscriberVideo
             roomId={roomId}
             accessToken={accessToken}
-            active={useWebrtc && !stageMediaSuspended && !blockStageAfterBackgroundLeave}
+            active={
+              useWebrtc &&
+              !stageMediaSuspended &&
+              !blockStageAfterBackgroundLeave &&
+              !miniOwnsFeed
+            }
             hostPaused={streamPaused}
             latchRejoinOnLeave={stageMediaSuspended || blockStageAfterBackgroundLeave}
             refreshNonce={refreshNonce}
@@ -1008,7 +1023,12 @@ export function LiveStagePlayback({
             <StageSubscriberVideo
               roomId={roomId}
               accessToken={accessToken}
-              active={useWebrtc && !stageMediaSuspended && !blockStageAfterBackgroundLeave}
+              active={
+              useWebrtc &&
+              !stageMediaSuspended &&
+              !blockStageAfterBackgroundLeave &&
+              !miniOwnsFeed
+            }
               hostPaused={streamPaused}
               latchRejoinOnLeave={stageMediaSuspended || blockStageAfterBackgroundLeave}
               refreshNonce={refreshNonce}
