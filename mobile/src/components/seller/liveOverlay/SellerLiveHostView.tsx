@@ -1198,6 +1198,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         roomId={roomId}
         onClose={() => console.setInventoryOpen(false)}
         onSubmit={console.onQuickAddLot}
+        onSubmitFromShop={console.onSubmitFromShop}
+        onImportFromPriorRoom={console.onImportFromPriorRoom}
         busy={console.busy}
       />
       <EditQueueItemPricingModal
