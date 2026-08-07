@@ -271,10 +271,10 @@ export function LiveStagePlayback({
   const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
   const webrtcReadyRef = useRef(false);
   webrtcReadyRef.current = webrtcReady;
-  // Hoist Stage/HLS pixels to the app-root surface so Back only changes layout.
-  const hostedAtRoot = Boolean(activeSession?.isHostingRoom(roomId));
-  // Active page never mounts a local Stage/HLS view — root surface owns pixels.
-  const skipLocalSurface = Boolean(activeSession) && isForeground;
+  // Mini float is owned by LiveActiveSessionSurface. In-room Stage/HLS stays local so
+  // viewers are not stuck on "Waiting for host video" behind an opaque navigator stack.
+  const hostedAtRoot = Boolean(activeSession?.mode === 'mini' && activeSession.isHostingRoom(roomId));
+  const skipLocalSurface = false;
   // Native Stage PiP is owned by LiveActiveSessionSurface when hosted. Avoid double-enable.
   const stageRemotePipEnabled =
     LIVE_PICTURE_IN_PICTURE_ENABLED &&

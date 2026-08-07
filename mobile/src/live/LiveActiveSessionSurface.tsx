@@ -177,9 +177,15 @@ export function LiveActiveSessionSurface() {
 
   if (!active || !session) return null;
 
-  // Stage stays joined for room + mini. Never leave on Back.
+  /**
+   * Room pixels stay in LiveStagePlayback (local Stage/HLS) so joining a show
+   * cannot get stuck behind an opaque navigator / attach thrash.
+   * This root surface owns video only in mini float (Back handoff).
+   */
+  if (mode !== 'mini') return null;
+
   // Mini pause must not set active=false — that calls leaveStage.
-  const stageSubscribeActive = session.transport === 'webrtc' && active;
+  const stageSubscribeActive = session.transport === 'webrtc';
 
   return (
     <View pointerEvents="none" style={layoutStyle} collapsable={false}>
@@ -205,10 +211,8 @@ export function LiveActiveSessionSurface() {
           style={StyleSheet.absoluteFill}
           contentFit={session.contentFit ?? 'contain'}
           nativeControls={false}
-          allowsPictureInPicture={LIVE_PICTURE_IN_PICTURE_ENABLED && mode === 'room'}
-          startsPictureInPictureAutomatically={
-            LIVE_PICTURE_IN_PICTURE_ENABLED && mode === 'room'
-          }
+          allowsPictureInPicture={false}
+          startsPictureInPictureAutomatically={false}
           collapsable={false}
         />
       ) : null}

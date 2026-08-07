@@ -74,19 +74,24 @@ export function LiveActiveSessionProvider({ children }: { children: ReactNode })
   const modeRef = useRef(mode);
   const sessionRef = useRef(session);
   const minimizedAtMsRef = useRef(0);
+  /** Bumps on every attach so React effect re-runs do not tear down Stage. */
+  const attachGenerationRef = useRef(0);
   modeRef.current = mode;
   sessionRef.current = session;
 
   const attach = useCallback((meta: LiveActiveSessionMeta) => {
+    const generation = ++attachGenerationRef.current;
     const prev = sessionRef.current;
     const prevMode = modeRef.current;
     const next = { ...meta };
-    // Expanding from mini into the same room: restore full layout, keep Stage joined.
-    if (prevMode === 'mini' && prev?.roomId === meta.roomId) {
+    // Same room already hosted: patch in place (effect re-runs must not remount Stage).
+    if (prev?.roomId === meta.roomId && (prevMode === 'room' || prevMode === 'mini')) {
       sessionRef.current = { ...prev, ...next };
       setSession(sessionRef.current);
-      modeRef.current = 'room';
-      setMode('room');
+      if (prevMode === 'mini') {
+        modeRef.current = 'room';
+        setMode('room');
+      }
       setPaused(false);
     } else {
       sessionRef.current = next;
@@ -97,18 +102,25 @@ export function LiveActiveSessionProvider({ children }: { children: ReactNode })
     }
 
     return () => {
+      // Effect re-run: a newer attach already replaced this one — keep Stage joined.
+      if (attachGenerationRef.current !== generation) return;
       // Back → mini: LiveStagePlayback unmounts but Stage must stay joined.
       if (modeRef.current === 'mini' && sessionRef.current?.roomId === meta.roomId) {
         return;
       }
-      // Left the room without minimizing (or switched rooms).
-      if (sessionRef.current?.roomId === meta.roomId && modeRef.current === 'room') {
-        sessionRef.current = null;
-        modeRef.current = 'none';
-        setSession(null);
-        setMode('none');
-        setPaused(false);
-      }
+      // Defer so a same-tick re-attach (React cleanup → effect) can bump generation first.
+      const roomId = meta.roomId;
+      queueMicrotask(() => {
+        if (attachGenerationRef.current !== generation) return;
+        if (modeRef.current === 'mini' && sessionRef.current?.roomId === roomId) return;
+        if (sessionRef.current?.roomId === roomId && modeRef.current === 'room') {
+          sessionRef.current = null;
+          modeRef.current = 'none';
+          setSession(null);
+          setMode('none');
+          setPaused(false);
+        }
+      });
     };
   }, []);
 
