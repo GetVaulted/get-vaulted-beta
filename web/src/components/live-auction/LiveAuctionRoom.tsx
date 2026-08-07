@@ -1848,6 +1848,7 @@ export function LiveAuctionRoom({
         }
         busy={teamBoardBusy}
         onPick={handleTeamPick}
+        onClose={() => setTeamBoardUiOpen(false)}
       />
     ) : null;
 

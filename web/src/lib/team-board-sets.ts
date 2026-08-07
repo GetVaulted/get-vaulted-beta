@@ -322,3 +322,91 @@ export function teamBoardLeagueKey(league: string): TeamBoardLeagueKey {
   const p = parseTeamBoardLeague(league);
   return p ?? "nba";
 }
+
+/** Resolve a PYT variant row to a board abbr (color stores abbr for presets). */
+export function resolveTeamAbbrFromVariantLabel(
+  league: TeamBoardLeagueKey,
+  label: string,
+  color?: string | null,
+): string | null {
+  const raw = color?.trim() ?? "";
+  if (raw) {
+    const lower = raw.toLowerCase();
+    if (!lower.endsWith("_teams") && lower !== "nfl_divisions" && lower !== "player") {
+      const fromColor = normalizeTeamAbbr(raw);
+      if (fromColor === "MISC" || fromColor === "NCAA") return fromColor;
+      if (TEAM_BOARD_SETS[league].includes(fromColor)) return fromColor;
+    }
+  }
+
+  const needle = label.trim().toLowerCase();
+  if (!needle) return null;
+  const names = TEAM_BOARD_DISPLAY_NAMES[league];
+  for (const [abbr, name] of Object.entries(names)) {
+    const nameLower = name.toLowerCase();
+    if (needle === nameLower || needle === abbr.toLowerCase()) return abbr;
+    if (needle.endsWith(` ${nameLower}`) || needle.endsWith(nameLower)) return abbr;
+  }
+  return null;
+}
+
+export type TeamBoardItemVariantLite = {
+  label: string;
+  color?: string | null;
+  status?: string | null;
+};
+
+/**
+ * Team Board roster for the active lot.
+ * Pick-your-team items with a custom subset use those teams; random / full packs / non-PYT keep the league set.
+ */
+export function teamBoardTeamsForActiveItem(opts: {
+  league: TeamBoardLeagueKey;
+  salesFormat?: string | null;
+  variantAssignmentMode?: string | null;
+  variants?: TeamBoardItemVariantLite[] | null;
+  includeMisc?: boolean;
+  includeNcaa?: boolean;
+}): string[] {
+  const base = TEAM_BOARD_SETS[opts.league];
+  const appendExtras = (teams: string[]): string[] => {
+    const out = [...teams];
+    if (opts.includeMisc && opts.league === "nfl" && !out.includes("MISC")) out.push("MISC");
+    if (opts.includeNcaa && opts.league === "nfl" && !out.includes("NCAA")) out.push("NCAA");
+    return out;
+  };
+
+  if (opts.salesFormat !== "variant_selection" || opts.variantAssignmentMode === "random") {
+    return appendExtras([...base]);
+  }
+
+  const variants = (opts.variants ?? []).filter((v) => v.status !== "removed");
+  if (variants.length === 0) return appendExtras([...base]);
+
+  const resolved: string[] = [];
+  const seen = new Set<string>();
+  for (const v of variants) {
+    const abbr = resolveTeamAbbrFromVariantLabel(opts.league, v.label, v.color);
+    if (!abbr || seen.has(abbr)) continue;
+    if (
+      !isValidTeamForLeague(opts.league, abbr, {
+        allowMisc: Boolean(opts.includeMisc),
+        allowNcaa: Boolean(opts.includeNcaa),
+      })
+    ) {
+      continue;
+    }
+    seen.add(abbr);
+    resolved.push(abbr);
+  }
+
+  if (resolved.length === 0) return appendExtras([...base]);
+
+  const coreResolved = resolved.filter((a) => a !== "MISC" && a !== "NCAA");
+  if (coreResolved.length >= base.length) return appendExtras([...base]);
+
+  const order = new Map(appendExtras([...base]).map((abbr, i) => [abbr, i]));
+  const sorted = resolved.sort((a, b) => (order.get(a) ?? 999) - (order.get(b) ?? 999));
+  return appendExtras(sorted);
+}
+
