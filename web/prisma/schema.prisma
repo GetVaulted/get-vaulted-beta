@@ -1928,6 +1928,18 @@ model Order {
   payoutMethod               OrderPayoutMethod          @default(standard)
   payoutReserveAmountCents   Int                        @default(0)
   payoutHoldUntil            DateTime?
+  /// Referral + platform credit applied beyond what the platform fee could absorb (cents) — the
+  /// gap Get Vaulted funds directly so the seller still receives full sale price. Null when no
+  /// shortfall exists on this order.
+  sellerCreditShortfallCents Int?
+  /// Stripe Connect Transfer id (`tr_…`) that funded the shortfall above, once sent.
+  sellerCreditShortfallTransferId String?
+  sellerCreditShortfallFundedAt   DateTime?
+  /// Set when the automatic top-up transfer failed (no Connect account, low platform balance,
+  /// Stripe error) — paired with `payoutStatus = manual_review` so it surfaces in admin queues.
+  sellerCreditShortfallFailedAt   DateTime?
+  sellerCreditShortfallFailureDetail String?
+  sellerCreditShortfallIdempotencyKey String?
   /// When a valid Shippo label was created (instant payout trigger).
   labelCreatedAt             DateTime?
   /// First carrier acceptance scan (fast payout trigger).
