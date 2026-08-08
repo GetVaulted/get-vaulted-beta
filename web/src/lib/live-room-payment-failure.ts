@@ -594,9 +594,8 @@ export async function retryLiveRoomPaymentFailure(args: {
               liveRoomId: args.liveRoomId,
               liveRoomItemId: failureRow.liveRoomItemId,
               paymentMethodId: recoveryPmId,
-              // Same auto-apply as the initial attempt (see live-payment-pipeline.ts) — a retry
-              // after a decline/3DS hiccup should not silently drop previously-available credit.
-              applyReferralCredit: true,
+              // TEMP ROLLBACK (incident): matches live-payment-pipeline.ts revert above.
+              applyReferralCredit: false,
             })
           : await chargeMarketplaceOrderWithSavedPaymentMethod({
               buyerId: args.buyerId,

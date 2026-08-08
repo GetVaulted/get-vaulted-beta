@@ -15,7 +15,8 @@ import {
   releasePlatformCreditReservation,
   reservePlatformCreditForCheckout,
 } from "@/lib/giveaway/platform-credit";
-import { fundSellerCreditShortfallIfNeeded } from "@/services/payout/fund-seller-credit-shortfall";
+// TEMP DISABLED (incident) — re-enable alongside the call site below once diagnosed.
+// import { fundSellerCreditShortfallIfNeeded } from "@/services/payout/fund-seller-credit-shortfall";
 import {
   orderItemSaleBasisUsd,
   referralCreditAppliedCents,
@@ -2001,12 +2002,11 @@ export async function finalizeStripeMarketplaceOrderPaid(
     console.error("[platform-credit] commit failed", { orderId, error: e }),
   );
 
-  // Make the seller whole when applied credit exceeded what the platform fee could absorb —
-  // see fund-seller-credit-shortfall.ts. Best-effort; failures flag the order for manual review
-  // rather than blocking checkout finalize.
-  void fundSellerCreditShortfallIfNeeded(orderId).catch((e) =>
-    console.error("[credit-shortfall] fund attempt failed", { orderId, error: e }),
-  );
+  // TEMP DISABLED (incident): buyers were failing to check out after this shipped. Disabling the
+  // call (not the feature) while we diagnose — see fund-seller-credit-shortfall.ts.
+  // void fundSellerCreditShortfallIfNeeded(orderId).catch((e) =>
+  //   console.error("[credit-shortfall] fund attempt failed", { orderId, error: e }),
+  // );
 
   void import("@/lib/giveaway/purchase-entries")
     .then((m) => m.onOrderPaidForGiveaways(orderId))
