@@ -118,6 +118,27 @@ type ReferralSnapshot = {
   }>;
 };
 
+type PlatformCreditRow = {
+  id: string;
+  amountUsd: number;
+  status: string;
+  sourceType: string;
+  sourceRef: string;
+  spentOrderId: string | null;
+  spentAt: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+  createdAt: string;
+};
+
+type PlatformCreditSnapshot = {
+  availableUsd: number;
+  pendingUsd: number;
+  spentUsd: number;
+  voidedUsd: number;
+  credits: PlatformCreditRow[];
+};
+
 type LinkedPeer = {
   userId: string;
   username: string;
@@ -163,6 +184,13 @@ export function AdminUserDetailPage() {
   const [linkedLoading, setLinkedLoading] = useState(true);
   const [referral, setReferral] = useState<ReferralSnapshot | null>(null);
   const [referralLoading, setReferralLoading] = useState(true);
+  const [platformCredit, setPlatformCredit] = useState<PlatformCreditSnapshot | null>(null);
+  const [platformCreditLoading, setPlatformCreditLoading] = useState(true);
+  const [creditAmount, setCreditAmount] = useState("");
+  const [creditReason, setCreditReason] = useState("");
+  const [creditBusy, setCreditBusy] = useState(false);
+  const [creditError, setCreditError] = useState<string | null>(null);
+  const [creditMessage, setCreditMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -189,12 +217,14 @@ export function AdminUserDetailPage() {
     setActivityLoading(true);
     setLinkedLoading(true);
     setReferralLoading(true);
+    setPlatformCreditLoading(true);
     void (async () => {
       try {
-        const [actRes, linkRes, refRes] = await Promise.all([
+        const [actRes, linkRes, refRes, creditRes] = await Promise.all([
           fetch(`/api/admin/users/${encodeURIComponent(userId)}/activity`, { cache: "no-store" }),
           fetch(`/api/admin/users/${encodeURIComponent(userId)}/linked-accounts`, { cache: "no-store" }),
           fetch(`/api/admin/users/${encodeURIComponent(userId)}/referral-credits`, { cache: "no-store" }),
+          fetch(`/api/admin/users/${encodeURIComponent(userId)}/platform-credit`, { cache: "no-store" }),
         ]);
         if (cancelled) return;
         if (actRes.ok) setActivity((await actRes.json()) as ActivityPayload);
@@ -205,11 +235,14 @@ export function AdminUserDetailPage() {
           const j = (await refRes.json()) as { referral?: ReferralSnapshot };
           setReferral(j.referral ?? null);
         } else setReferral(null);
+        if (creditRes.ok) setPlatformCredit((await creditRes.json()) as PlatformCreditSnapshot);
+        else setPlatformCredit(null);
       } finally {
         if (!cancelled) {
           setActivityLoading(false);
           setLinkedLoading(false);
           setReferralLoading(false);
+          setPlatformCreditLoading(false);
         }
       }
     })();
@@ -259,6 +292,39 @@ export function AdminUserDetailPage() {
       await load();
     } finally {
       setUsernameBusy(false);
+    }
+  };
+
+  const grantCredit = async () => {
+    const amount = Number(creditAmount);
+    if (!creditReason.trim()) {
+      setCreditError("Reason is required.");
+      return;
+    }
+    if (!Number.isFinite(amount) || amount < 0.01) {
+      setCreditError("Enter an amount of at least $0.01.");
+      return;
+    }
+    setCreditBusy(true);
+    setCreditError(null);
+    setCreditMessage(null);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/platform-credit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amountUsd: amount, reason: creditReason.trim() }),
+      });
+      const j = (await res.json().catch(() => ({}))) as PlatformCreditSnapshot & { error?: string };
+      if (!res.ok) {
+        setCreditError(typeof j.error === "string" ? j.error : "Grant failed.");
+        return;
+      }
+      setPlatformCredit(j);
+      setCreditMessage(`Granted $${amount.toFixed(2)} in Get Vaulted Credit.`);
+      setCreditAmount("");
+      setCreditReason("");
+    } finally {
+      setCreditBusy(false);
     }
   };
 
@@ -453,6 +519,99 @@ export function AdminUserDetailPage() {
               </ul>
             ) : (
               <p className="mt-3 text-zinc-500">No credit ledger rows for this user.</p>
+            )}
+          </>
+        )}
+      </section>
+
+      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+        <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Get Vaulted Credit</h2>
+        <p className="mt-1 text-[10px] text-zinc-600">
+          Spendable platform store credit (not withdrawable). Grants here are logged with your reason to this
+          user's audit trail below.
+        </p>
+        {creditError ? (
+          <p className="mt-3 rounded-lg border border-rose-400/25 bg-rose-950/30 px-3 py-2 text-rose-100">
+            {creditError}
+          </p>
+        ) : null}
+        {creditMessage ? (
+          <p className="mt-3 rounded-lg border border-emerald-400/25 bg-emerald-950/30 px-3 py-2 text-emerald-100">
+            {creditMessage}
+          </p>
+        ) : null}
+        {platformCreditLoading ? (
+          <p className="mt-3 text-zinc-500">Loading…</p>
+        ) : !platformCredit ? (
+          <p className="mt-3 text-zinc-500">Could not load credit data.</p>
+        ) : (
+          <>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <p className="text-[10px] text-zinc-500">Available</p>
+                <p className="font-semibold text-emerald-300">${platformCredit.availableUsd.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-zinc-500">Pending (in checkout)</p>
+                <p className="font-semibold text-amber-300">${platformCredit.pendingUsd.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-zinc-500">Spent</p>
+                <p className="font-semibold text-zinc-200">${platformCredit.spentUsd.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-zinc-500">Voided</p>
+                <p className="font-semibold text-zinc-200">${platformCredit.voidedUsd.toFixed(2)}</p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-white/[0.06] pt-4">
+              <label className="flex w-28 flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+                Amount (USD)
+                <input
+                  type="number"
+                  min={0.01}
+                  step={0.01}
+                  value={creditAmount}
+                  onChange={(e) => setCreditAmount(e.target.value)}
+                  placeholder="25.00"
+                  className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+                />
+              </label>
+              <label className="flex min-w-[14rem] flex-1 flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+                Reason (required)
+                <input
+                  value={creditReason}
+                  onChange={(e) => setCreditReason(e.target.value)}
+                  placeholder="Goodwill credit for delayed shipment, promo, testing, etc."
+                  className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+                />
+              </label>
+              <button
+                type="button"
+                disabled={creditBusy || !creditAmount.trim() || !creditReason.trim()}
+                onClick={() => void grantCredit()}
+                className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-200 disabled:opacity-40"
+              >
+                {creditBusy ? "Granting…" : "Grant credit"}
+              </button>
+            </div>
+
+            {platformCredit.credits.length > 0 ? (
+              <ul className="mt-4 max-h-48 space-y-1.5 overflow-y-auto border-t border-white/[0.04] pt-3">
+                {platformCredit.credits.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                    <span className="text-zinc-400">
+                      {c.sourceType.replace(/_/g, " ")} · {c.status}
+                      {c.voidReason ? ` (${c.voidReason})` : ""}
+                    </span>
+                    <span className="tabular-nums text-zinc-200">${c.amountUsd.toFixed(2)}</span>
+                    <span className="text-zinc-600">{new Date(c.createdAt).toLocaleString()}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-4 text-zinc-500">No credit ledger rows for this user.</p>
             )}
           </>
         )}

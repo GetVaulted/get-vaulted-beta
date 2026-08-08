@@ -1670,6 +1670,10 @@ export async function settleLiveBuyNowPurchase(args: {
     liveRoomId: args.liveRoomId,
     liveRoomItemId: args.liveRoomItemId,
     paymentMethodId: args.paymentMethodId,
+    // Live Buy Now is a one-tap instant purchase (no checkout confirmation step), so — unlike
+    // marketplace checkout's explicit opt-in checkbox — available referral + Get Vaulted Credit is
+    // applied automatically here. It can only lower the charge, never block or delay the purchase.
+    applyReferralCredit: true,
   });
 
   if (charge.outcome === "paid") {
