@@ -6,6 +6,7 @@ export type AdminModuleId =
   | "shipping-profiles"
   | "seller-risk"
   | "bank-payouts"
+  | "paypal-payouts"
   | "moderation"
   | "users"
   | "fulfillment"
@@ -80,6 +81,13 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
     description: "Shipped Stripe orders ready for you to push Connect bank payouts.",
     href: "/admin/payouts",
     accent: "emerald",
+  },
+  {
+    id: "paypal-payouts",
+    title: "PayPal Payouts",
+    description: "Every paid order on the PayPal seller-payout rail and exactly where it stands.",
+    href: "/admin/payouts/paypal",
+    accent: "sky",
   },
   {
     id: "moderation",
@@ -194,6 +202,7 @@ export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
     "shipping-profiles",
     "seller-risk",
     "bank-payouts",
+    "paypal-payouts",
     "moderation",
     "users",
     "fulfillment",
@@ -217,6 +226,7 @@ export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[]
   { href: "/admin/shipping-profiles", label: "Shipping" },
   { href: "/admin/seller-risk", label: "Seller Risk" },
   { href: "/admin/payouts", label: "Bank payouts" },
+  { href: "/admin/payouts/paypal", label: "PayPal payouts" },
   { href: "/admin/moderation", label: "Moderation" },
   { href: "/admin/users-management", label: "Users" },
   { href: "/admin/fulfillment", label: "Fulfillment" },

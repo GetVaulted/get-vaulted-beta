@@ -32,6 +32,7 @@ import { fetchSellerFollowStatus, toggleSellerFollow } from '../../api/sellerFol
 import type { LiveStream, ChatMessage } from '../../types';
 import type { LiveStackParamList } from '../../navigation/types';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
+import { useLiveActiveSessionOptional } from '../../live/LiveActiveSessionContext';
 import { useLiveMiniPlayerOptional } from '../../live/LiveMiniPlayerContext';
 import { openLiveHostProfile, openUserProfile } from '../../navigation/openPlatform';
 import { UserAvatar } from '../ui/UserAvatar';
@@ -239,6 +240,7 @@ function LiveSlide({
   const stageInsets = computeLiveStageSafeInsets(stageContainer, screenHeight, insets, spacing.sm);
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const miniPlayer = useLiveMiniPlayerOptional();
+  const activeSession = useLiveActiveSessionOptional();
   const openWalletRef = useRef<(reason?: string) => void>(() => {});
   const layoutWidth = stageContainer.designWidth;
   const compact = isCompactLiveRoomLayout(layoutWidth);
@@ -328,15 +330,29 @@ function LiveSlide({
       broadcastGate.status === 'live' ||
       health === 'live' ||
       health === 'connecting';
-    if (canMinimize) {
+    if (canMinimize && activeSession) {
+      // Layout-only minimize: root Stage/HLS surface stays joined (OS PiP parity).
+      const existing = activeSession.session;
+      activeSession.minimize({
+        roomId: stream.id,
+        title: stream.title?.trim() || 'Live show',
+        hostLabel: stream.host?.handle
+          ? `@${stream.host.handle.replace(/^@/, '')}`
+          : stream.host?.name?.trim() || '',
+        thumbnailUrl: stream.previewImageUrl?.trim() || '',
+        accessToken: accessToken ?? existing?.accessToken,
+        transport: existing?.transport,
+        playbackUrl: existing?.playbackUrl,
+        subscribeEpoch: existing?.subscribeEpoch,
+        foregroundResumeNonce: existing?.foregroundResumeNonce,
+        contentFit: existing?.contentFit,
+        hostPaused: existing?.hostPaused,
+      });
+    } else if (canMinimize && miniPlayer) {
       const cached = peekCachedBuyerLiveStream(stream.id);
       const warmUrl =
-        miniPlayer?.peekWarmPlaybackUrl(stream.id) ||
-        cached?.playbackUrl?.trim() ||
-        null;
-      // Minimize BEFORE blur/unmount so sessionRef is set when warm HLS cleanup runs.
-      // Do NOT invalidate the stream cache here — that wiped the HLS URL before handoff.
-      miniPlayer?.minimize({
+        miniPlayer.peekWarmPlaybackUrl(stream.id) || cached?.playbackUrl?.trim() || null;
+      miniPlayer.minimize({
         roomId: stream.id,
         title: stream.title?.trim() || 'Live show',
         hostLabel: stream.host?.handle
@@ -348,38 +364,19 @@ function LiveSlide({
       });
     }
     leaveAllowRef.current = true;
-    // Wait for the shared mini player to actually play before tearing down the room.
-    // OS PiP keeps the in-room surface; Back must not unmount until the handoff is live.
-    const leaveAfterHandoff = async () => {
-      if (canMinimize && miniPlayer?.player) {
-        const deadline = Date.now() + 1_200;
-        while (Date.now() < deadline) {
-          try {
-            if (miniPlayer.player.playing) break;
-          } catch {
-            /* ignore */
-          }
-          await new Promise<void>((r) => setTimeout(r, 40));
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (stackNav.canGoBack()) {
+          stackNav.goBack();
+          return;
         }
-      } else {
-        await new Promise<void>((r) => {
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => r());
-            });
-          });
-        });
-      }
-      if (stackNav.canGoBack()) {
-        stackNav.goBack();
-        return;
-      }
-      stackNav.navigate('LiveDiscovery');
-      onBack?.();
-    };
-    void leaveAfterHandoff();
+        stackNav.navigate('LiveDiscovery');
+        onBack?.();
+      });
+    });
   }, [
     accessToken,
+    activeSession,
     broadcastGate.status,
     broadcastGate.streamHealth,
     miniPlayer,
@@ -414,12 +411,13 @@ function LiveSlide({
         broadcastGate.status === 'live' ||
         health === 'live' ||
         health === 'connecting';
-      if (!canMinimize || !miniPlayer) return;
+      if (!canMinimize || (!activeSession && !miniPlayer)) return;
       e.preventDefault();
       leaveRoomSafely();
     });
     return unsub;
   }, [
+    activeSession,
     broadcastGate.status,
     broadcastGate.streamHealth,
     isActive,
@@ -2472,7 +2470,7 @@ const styles = StyleSheet.create({
   slide: {
     flex: 1,
     overflow: 'hidden',
-    backgroundColor: '#000',
+    backgroundColor: 'transparent',
   },
   connectionBanner: {
     position: 'absolute',
@@ -2515,7 +2513,7 @@ const styles = StyleSheet.create({
   },
   recoveryToastTxt: { color: colors.gold, fontSize: 12, fontWeight: '700', textAlign: 'center' },
   stageRoot: {
-    backgroundColor: '#000',
+    backgroundColor: 'transparent',
     overflow: 'hidden',
   },
   stageGestureRoot: {
@@ -2530,7 +2528,7 @@ const styles = StyleSheet.create({
   stageVideoFrame: {
     ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
-    backgroundColor: '#000',
+    backgroundColor: 'transparent',
   },
   topBar: {
     position: 'absolute',

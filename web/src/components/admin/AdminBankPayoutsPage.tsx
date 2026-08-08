@@ -203,6 +203,12 @@ export function AdminBankPayoutsPage() {
       subtitle="Seller Connect balances only — Push never pays more than available."
       actions={
         <div className="flex flex-wrap gap-2">
+          <Link
+            href="/admin/payouts/paypal"
+            className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:bg-white/[0.04]"
+          >
+            PayPal payouts
+          </Link>
           <button
             type="button"
             onClick={() => void syncStripe()}
