@@ -594,8 +594,8 @@ export async function retryLiveRoomPaymentFailure(args: {
               liveRoomId: args.liveRoomId,
               liveRoomItemId: failureRow.liveRoomItemId,
               paymentMethodId: recoveryPmId,
-              // TEMP ROLLBACK (incident): matches live-payment-pipeline.ts revert above.
-              applyReferralCredit: false,
+              // Re-enabled — see live-payment-pipeline.ts for why this was safe to restore.
+              applyReferralCredit: true,
             })
           : await chargeMarketplaceOrderWithSavedPaymentMethod({
               buyerId: args.buyerId,

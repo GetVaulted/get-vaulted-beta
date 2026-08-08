@@ -1670,10 +1670,12 @@ export async function settleLiveBuyNowPurchase(args: {
     liveRoomId: args.liveRoomId,
     liveRoomItemId: args.liveRoomItemId,
     paymentMethodId: args.paymentMethodId,
-    // TEMP ROLLBACK (incident): live buy-now purchases were failing for buyers after this was
-    // enabled. Reverted to prior behavior (no auto-apply) while we diagnose. See fund-seller-
-    // credit-shortfall.ts / this file's history for the intended feature.
-    applyReferralCredit: false,
+    // Live Buy Now is a one-tap instant purchase, so available referral + Get Vaulted Credit is
+    // applied automatically (no confirmation step). Re-enabled after the 2026-08-08 incident —
+    // that outage traced to the separate shortfall-funding feature (see services/payments.ts),
+    // not this flag; this reuses the same credit-reservation code marketplace checkout already
+    // relies on, unmodified.
+    applyReferralCredit: true,
   });
 
   if (charge.outcome === "paid") {
