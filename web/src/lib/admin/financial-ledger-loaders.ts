@@ -223,9 +223,10 @@ async function loadOrdersForLedger(filters: FinancialLedgerFilters): Promise<Ord
   const saleAt = prismaSaleAtFilter(range);
 
   const where: Prisma.OrderWhereInput = {
-    ...saleAt,
     paymentStatus: { in: [...PAID_STATUSES] },
   };
+  const andParts: Prisma.OrderWhereInput[] = [];
+  if (Object.keys(saleAt).length > 0) andParts.push(saleAt);
 
   if (filters.orderId?.trim()) where.id = filters.orderId.trim();
   if (filters.paymentStatuses?.trim()) {
@@ -241,7 +242,6 @@ async function loadOrdersForLedger(filters: FinancialLedgerFilters): Promise<Ord
   } else if (filters.payoutStatus?.trim()) {
     where.payoutStatus = filters.payoutStatus.trim() as never;
   }
-  const andParts: Prisma.OrderWhereInput[] = [];
   if (filters.hasLabel === "1") {
     andParts.push({
       OR: [

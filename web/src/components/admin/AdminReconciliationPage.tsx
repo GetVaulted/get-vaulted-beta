@@ -188,7 +188,14 @@ export function AdminReconciliationPage() {
     try {
       if (tab === "overview") {
         const res = await fetch(`/api/admin/reconciliation/overview?${qs()}`, { cache: "no-store" });
-        if (!res.ok) throw new Error(`Overview failed (${res.status})`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          const detail =
+            body && typeof body === "object" && typeof (body as { message?: unknown }).message === "string"
+              ? (body as { message: string }).message
+              : null;
+          throw new Error(detail ? `Overview failed (${res.status}): ${detail}` : `Overview failed (${res.status})`);
+        }
         setOverview(await res.json());
       } else if (tab === "orders") {
         const p = qs();

@@ -90,15 +90,11 @@ async function main() {
   const orders = await prisma.order.findMany({
     where: {
       paymentStatus: { in: [...paidStatuses] },
-      OR: [
-        { paidAt: { gte: windowStart, lt: windowEnd } },
-        { paidAt: null, createdAt: { gte: windowStart, lt: windowEnd } },
-      ],
+      createdAt: { gte: windowStart, lt: windowEnd },
     },
     select: {
       id: true,
       createdAt: true,
-      paidAt: true,
       itemPriceUsd: true,
       shippingPriceUsd: true,
       taxUsd: true,
@@ -126,7 +122,7 @@ async function main() {
         },
       },
     },
-    orderBy: [{ paidAt: "asc" }, { createdAt: "asc" }],
+    orderBy: [{ createdAt: "asc" }],
   });
 
   const variantPurchases = await prisma.liveItemVariantPurchase.findMany({
@@ -250,7 +246,7 @@ async function main() {
     if (isCompany) bucket.companySellerNetUsd = usd(bucket.companySellerNetUsd + sellerNetUsd);
     else bucket.marketplaceSellerNetUsd = usd(bucket.marketplaceSellerNetUsd + sellerNetUsd);
 
-    const when = o.paidAt ?? o.createdAt;
+    const when = o.createdAt;
     bucket.orders.push({
       orderId: o.id,
       day: dayKey(when),
@@ -266,7 +262,7 @@ async function main() {
       processingFeeUsd: processingUsd,
       sellerNetUsd,
       payoutStatus: o.payoutStatus,
-      paidAt: o.paidAt?.toISOString() ?? null,
+      paidAt: o.createdAt.toISOString(),
     });
   }
 
@@ -428,7 +424,7 @@ async function main() {
         bankPayoutOwedUsesSameRule: true,
         sellerHqUsesSameRule: true,
         reconLedgerUsesSameRule: true,
-        calendar: "Admin Today/Yesterday = America/Chicago paidAt (same as this script).",
+        calendar: "Admin Today/Yesterday = America/Chicago Order.createdAt (Order has no paidAt).",
       },
     },
     generatedAt: new Date().toISOString(),

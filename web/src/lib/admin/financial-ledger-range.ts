@@ -1,3 +1,4 @@
+import type { Prisma } from "@/generated/prisma/client";
 import {
   addCalendarDays,
   calendarDayBoundsUtc,
@@ -136,17 +137,11 @@ export function prismaCreatedAtFilter(range: LedgerDateRange): { createdAt?: { g
 }
 
 /**
- * Sales window: prefer `paidAt` (when the money landed). Fall back to `createdAt` when paidAt is null
- * so older rows still appear. Matches payout source scripts and seller HQ day buckets.
+ * Order sale window filter.
+ *
+ * Note: `Order` has no `paidAt` column (unlike LiveTip / LiveItemVariantPurchase).
+ * Use `createdAt` as the ledger clock until a charge-time timestamp is added to Order.
  */
-export function prismaSaleAtFilter(range: LedgerDateRange): {
-  OR?: Array<{ paidAt: { gte?: Date; lt?: Date } } | { paidAt: null; createdAt: { gte?: Date; lt?: Date } }>;
-} {
-  if (!range.rangeStart && !range.rangeEnd) return {};
-  const window: { gte?: Date; lt?: Date } = {};
-  if (range.rangeStart) window.gte = range.rangeStart;
-  if (range.rangeEnd) window.lt = range.rangeEnd;
-  return {
-    OR: [{ paidAt: window }, { paidAt: null, createdAt: window }],
-  };
+export function prismaSaleAtFilter(range: LedgerDateRange): Prisma.OrderWhereInput {
+  return prismaCreatedAtFilter(range);
 }

@@ -96,16 +96,11 @@ async function main() {
     where: {
       sellerId: seller.id,
       paymentStatus: { in: ["paid", "layaway_completed", "refunded", "chargeback"] },
-      ...(since
-        ? {
-            OR: [{ paidAt: { gte: since } }, { paidAt: null, createdAt: { gte: since } }],
-          }
-        : {}),
+      ...(since ? { createdAt: { gte: since } } : {}),
     },
     select: {
       id: true,
       createdAt: true,
-      paidAt: true,
       itemPriceUsd: true,
       shippingPriceUsd: true,
       taxUsd: true,
@@ -140,7 +135,7 @@ async function main() {
         },
       },
     },
-    orderBy: [{ paidAt: "desc" }, { createdAt: "desc" }],
+    orderBy: { createdAt: "desc" },
   });
 
   type Flag =
@@ -220,7 +215,7 @@ async function main() {
 
     const row = {
       orderId: o.id,
-      paidAt: (o.paidAt ?? o.createdAt).toISOString(),
+      paidAt: o.createdAt.toISOString(),
       paymentStatus: o.paymentStatus,
       payoutStatus: o.payoutStatus,
       title: o.listing.title,
@@ -305,7 +300,7 @@ async function main() {
     window: {
       days,
       since: since?.toISOString() ?? null,
-      note: days == null ? "all paid/refunded/chargeback orders for seller" : `last ${days} days by paidAt`,
+      note: days == null ? "all paid/refunded/chargeback orders for seller" : `last ${days} days by createdAt`,
     },
     totals: {
       orderCount: orders.length,
