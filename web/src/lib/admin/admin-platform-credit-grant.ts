@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { PlatformCreditSourceType, PlatformCreditStatus } from "@/generated/prisma/enums";
-import { awardPlatformCredit, getAvailablePlatformCreditUsd } from "@/lib/giveaway/draw";
+import { awardPlatformCredit, getAvailablePlatformCreditUsd } from "@/lib/giveaway/platform-credit";
 import { logPayoutEligibilityDecision } from "@/lib/payout-audit-log";
 
 export type AdminPlatformCreditRow = {
