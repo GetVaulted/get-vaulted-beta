@@ -48,6 +48,10 @@ export type OrderLedgerInput = {
   stripeBalanceTransactionId: string | null;
   stripeProcessingFeeCents: number | null;
   stripeApplicationFeeCents: number | null;
+  /** Charge-time platform fee snapshot (prefer over reconstructed %). */
+  platformFeeCents?: number | null;
+  platformFeePercentApplied?: number | null;
+  platformFeeBasisCents?: number | null;
   stripeNetCents: number | null;
   stripeTransferId: string | null;
   /** Seller payout rail for this order (STRIPE Connect vs PAYPAL). */
@@ -250,20 +254,28 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
   const amountRefundedCents = isRefunded || isChargeback ? customerTotalCents : 0;
   const finalBuyerPaidCents = Math.max(0, customerTotalCents - amountRefundedCents);
 
-  const platformFeePercent = resolveOrderPlatformFeePercent({
+  const platformFeePercentResolved = resolveOrderPlatformFeePercent({
     ...input,
     itemPriceUsd: saleBasisUsd,
   });
-  // Platform fee on full sale basis — never Stripe application_fee_amount.
-  // Taxed reduced-transfer charges omit application_fee_amount entirely; untaxed charges often set
-  // application_fee_amount = platformFee + seller-paid processing − referralCredit, so
-  // stripeApplicationFeeCents is not the platform fee.
-  const platformFeeAmountCents = applicationFeeCentsFromSubtotalUsd(saleBasisUsd, platformFeePercent);
+  // Prefer immutable charge-time snapshot — never invent a higher fee than was charged.
+  const hasPersistedPlatformFee =
+    input.platformFeeCents != null &&
+    Number.isFinite(input.platformFeeCents) &&
+    input.platformFeePercentApplied != null &&
+    Number.isFinite(input.platformFeePercentApplied);
+  const platformFeePercent = hasPersistedPlatformFee
+    ? Math.max(0, input.platformFeePercentApplied!)
+    : platformFeePercentResolved;
+  const platformFeeAmountCents = hasPersistedPlatformFee
+    ? Math.max(0, Math.round(input.platformFeeCents!))
+    : applicationFeeCentsFromSubtotalUsd(saleBasisUsd, platformFeePercent);
   const platformFeeCents: LabeledCents = {
     cents: platformFeeAmountCents,
-    source: "actual",
-    formula:
-      "order platform fee = round((itemSubtotal + referralCredit) × feeRate) — not stripeApplicationFeeCents (taxed path has no app fee; untaxed app fee may include processing − referral)",
+    source: hasPersistedPlatformFee ? "actual" : "derived",
+    formula: hasPersistedPlatformFee
+      ? "Order.platformFeeCents (charge-time snapshot)"
+      : "order platform fee = round((itemSubtotal + referralCredit) × feeRate) — not stripeApplicationFeeCents (taxed path has no app fee; untaxed app fee may include processing − referral)",
   };
 
   const processingEstimated = estimateStripeProcessingFeeCents(customerTotalCents);

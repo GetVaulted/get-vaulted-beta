@@ -7,6 +7,8 @@ import {
   resolveSellerAbsorbedProcessingFeeUsd,
 } from "@/lib/seller-payout-estimate";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
+import { ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
 
 export type ReconciliationRangeKey = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -32,6 +34,8 @@ const orderSelect = {
   shippingLabelCostCents: true,
   shippingLabelCostReversedCents: true,
   stripeProcessingFeeCents: true,
+  platformFeeCents: true,
+  platformFeePercentApplied: true,
   listing: { select: { isCompanyListing: true } },
   liveShippingSession: {
     select: {
@@ -110,6 +114,10 @@ export type AdminReconciliationReport = {
 export async function loadAdminReconciliationReport(
   rangeKey: ReconciliationRangeKey = "30d",
 ): Promise<AdminReconciliationReport> {
+  await Promise.all([
+    ensureMarketplacePlatformFeeCache(true),
+    ensureLiveShowFeeCache(true),
+  ]);
   const rangeStart = resolveReconciliationRangeStart(rangeKey);
   const createdAtFilter = rangeStart ? { createdAt: { gte: rangeStart } } : {};
 
@@ -152,8 +160,15 @@ export async function loadAdminReconciliationReport(
     if (PAID_PAYMENT_STATUSES.has(o.paymentStatus)) {
       paidOrderCount += 1;
       const item = Math.max(0, o.itemPriceUsd);
-      const feePct = resolveOrderFeePercent(o);
-      const feeUsd = o.listing.isCompanyListing ? 0 : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
+      const feePct =
+        o.platformFeePercentApplied != null && Number.isFinite(o.platformFeePercentApplied)
+          ? Math.max(0, o.platformFeePercentApplied)
+          : resolveOrderFeePercent(o);
+      const feeUsd = o.listing.isCompanyListing
+        ? 0
+        : o.platformFeeCents != null && Number.isFinite(o.platformFeeCents)
+          ? Math.max(0, o.platformFeeCents) / 100
+          : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
 
       grossSalesUsd += Math.max(0, o.totalUsd);
       gmvUsd += item;
@@ -189,10 +204,15 @@ export async function loadAdminReconciliationReport(
       refundedGrossUsd += Math.max(0, o.totalUsd);
       taxReversedUsd += Math.max(0, o.taxRefundedCents) / 100;
       const item = Math.max(0, o.itemPriceUsd);
-      const feePct = resolveOrderFeePercent(o);
+      const feePct =
+        o.platformFeePercentApplied != null && Number.isFinite(o.platformFeePercentApplied)
+          ? Math.max(0, o.platformFeePercentApplied)
+          : resolveOrderFeePercent(o);
       platformFeeOnRefundedOrdersUsd += o.listing.isCompanyListing
         ? 0
-        : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
+        : o.platformFeeCents != null && Number.isFinite(o.platformFeeCents)
+          ? Math.max(0, o.platformFeeCents) / 100
+          : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
     }
   }
 

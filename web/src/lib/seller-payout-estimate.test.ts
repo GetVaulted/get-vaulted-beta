@@ -127,10 +127,10 @@ describe("seller-payout-estimate", () => {
     const pct = resolvePlatformFeePercentForSellerOrder({
       isCompanyListing: false,
       liveShowId: "room_1",
-      liveShowCompletedGmvUsd: 1500,
+      liveShowCompletedGmvUsd: 3500,
       orderItemPriceUsd: 50,
       orderPaymentStatus: "paid",
     });
-    expect(pct).toBe(7.25);
+    expect(pct).toBe(5.75);
   });
 });

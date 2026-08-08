@@ -7,6 +7,8 @@ import {
   resolveSellerAbsorbedProcessingFeeUsd,
 } from "@/lib/seller-payout-estimate";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
+import { ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
 
 /**
  * Same per-order fee-tier resolution the seller sales report uses (`mapSellerSalesOrderForApi`).
@@ -68,6 +70,7 @@ export type AdminFinanceSummary = {
 
 export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
   const notes: string[] = [];
+  await Promise.all([ensureMarketplacePlatformFeeCache(true), ensureLiveShowFeeCache(true)]);
 
   const paidOrders = await prisma.order.findMany({
     where: paidOrderWhere,
@@ -81,6 +84,8 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
       shippingLabelCostCents: true,
       shippingLabelCostReversedCents: true,
       stripeProcessingFeeCents: true,
+      platformFeeCents: true,
+      platformFeePercentApplied: true,
       sellerPayoutProcessor: true,
       listing: { select: { isCompanyListing: true } },
       liveShippingSession: {
@@ -110,8 +115,15 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
   for (const o of paidOrders) {
     const item = Math.max(0, o.itemPriceUsd);
     gmvUsd += item;
-    const feePct = resolveOrderFeePercent(o);
-    const feeUsd = o.listing.isCompanyListing ? 0 : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
+    const feePct =
+      o.platformFeePercentApplied != null && Number.isFinite(o.platformFeePercentApplied)
+        ? Math.max(0, o.platformFeePercentApplied)
+        : resolveOrderFeePercent(o);
+    const feeUsd = o.listing.isCompanyListing
+      ? 0
+      : o.platformFeeCents != null && Number.isFinite(o.platformFeeCents)
+        ? Math.max(0, o.platformFeeCents) / 100
+        : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
     platformFeesUsd += feeUsd;
     const processingUsd = resolveSellerAbsorbedProcessingFeeUsd({
       isCompanyListing: Boolean(o.listing.isCompanyListing),
@@ -179,6 +191,7 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
 export type AdminFinanceChartPoint = { label: string; gmvUsd: number; platformFeesUsd: number };
 
 export async function loadAdminFinanceCharts(period: "daily" | "weekly" | "monthly"): Promise<AdminFinanceChartPoint[]> {
+  await Promise.all([ensureMarketplacePlatformFeeCache(true), ensureLiveShowFeeCache(true)]);
   const now = new Date();
   const buckets: { start: Date; end: Date; label: string }[] = [];
 
@@ -223,6 +236,8 @@ export async function loadAdminFinanceCharts(period: "daily" | "weekly" | "month
       createdAt: true,
       itemPriceUsd: true,
       paymentStatus: true,
+      platformFeeCents: true,
+      platformFeePercentApplied: true,
       listing: { select: { isCompanyListing: true } },
       liveShippingSession: {
         select: {
@@ -243,10 +258,17 @@ export async function loadAdminFinanceCharts(period: "daily" | "weekly" | "month
       const item = Math.max(0, o.itemPriceUsd);
       gmvUsd += item;
       if (!o.listing.isCompanyListing) {
-        platformFeesUsd += estimatePlatformFeeUsd({
-          itemPriceUsd: item,
-          platformFeePercent: resolveOrderFeePercent(o),
-        });
+        const feePct =
+          o.platformFeePercentApplied != null && Number.isFinite(o.platformFeePercentApplied)
+            ? Math.max(0, o.platformFeePercentApplied)
+            : resolveOrderFeePercent(o);
+        platformFeesUsd +=
+          o.platformFeeCents != null && Number.isFinite(o.platformFeeCents)
+            ? Math.max(0, o.platformFeeCents) / 100
+            : estimatePlatformFeeUsd({
+                itemPriceUsd: item,
+                platformFeePercent: feePct,
+              });
       }
     }
     return {

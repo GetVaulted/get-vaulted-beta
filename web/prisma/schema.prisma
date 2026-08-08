@@ -2950,7 +2950,7 @@ model ShipmentLabelFinance {
 /// Admin-editable marketplace platform fee (single-row config).
 model PlatformMarketplaceFeeConfig {
   id                 String   @id @default("default")
-  platformFeePercent Float    @default(8)
+  platformFeePercent Float    @default(6.75)
   updatedAt          DateTime @updatedAt
   updatedByUserId    String?
 }
@@ -2976,11 +2976,11 @@ model PlatformAppBanner {
 /// Admin-editable live show volume fee tiers (single-row config).
 model PlatformLiveShowFeeConfig {
   id                String   @id @default("default")
-  tier1FeePercent   Float    @default(8)
-  tier2ThresholdUsd Float    @default(1000)
-  tier2FeePercent   Float    @default(7.25)
-  tier3ThresholdUsd Float    @default(3000)
-  tier3FeePercent   Float    @default(6.5)
+  tier1FeePercent   Float    @default(6.75)
+  tier2ThresholdUsd Float    @default(3000)
+  tier2FeePercent   Float    @default(5.75)
+  tier3ThresholdUsd Float    @default(5500)
+  tier3FeePercent   Float    @default(5)
   updatedAt         DateTime @updatedAt
   updatedByUserId   String?
 }

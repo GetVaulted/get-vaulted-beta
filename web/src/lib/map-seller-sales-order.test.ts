@@ -106,7 +106,7 @@ describe("mapSellerSalesOrderForApi — live-show fee-tier stability after a sho
       },
     });
     const mapped = mapSellerSalesOrderForApi(baseUser, order);
-    expect(mapped.platformFeePercent).toBe(8);
+    expect(mapped.platformFeePercent).toBe(6.75);
   });
 
   it("uses seller platform fee override when set on the user context", () => {

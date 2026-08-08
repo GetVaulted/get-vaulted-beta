@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/services/platform-fee-settings", () => ({
-  getCachedMarketplacePlatformFeePercent: () => 8,
+  getCachedMarketplacePlatformFeePercent: () => 6.75,
   ensureMarketplacePlatformFeeCache: vi.fn(),
 }));
 
 vi.mock("@/services/live-show-fee-settings", () => ({
   getCachedLiveShowFeeConfig: () => ({
-    tier1FeePercent: 8,
-    tier2ThresholdUsd: 1000,
-    tier2FeePercent: 7.25,
-    tier3ThresholdUsd: 3000,
-    tier3FeePercent: 6.5,
+    tier1FeePercent: 6.75,
+    tier2ThresholdUsd: 3000,
+    tier2FeePercent: 5.75,
+    tier3ThresholdUsd: 5500,
+    tier3FeePercent: 5,
   }),
   ensureLiveShowFeeCache: vi.fn(),
 }));

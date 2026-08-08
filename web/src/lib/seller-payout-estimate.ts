@@ -1,9 +1,9 @@
 import { marketplacePlatformFeePercent } from "@/lib/platform-fee-policy";
 import {
   completedLiveShowGmvBeforeSale,
-  liveShowPlatformFeePercent,
   resolvePlatformFeePercentForCheckout,
 } from "@/lib/platform-fee-policy";
+import { clampPlatformFeePercent } from "@/lib/platform-fee-defaults";
 
 /** Estimated seller net on an order (excludes tips; platform fee on item only). */
 export function estimateSellerOrderPayoutUsd(args: {
@@ -117,7 +117,7 @@ export function resolvePlatformFeePercentForSellerOrder(args: {
 }): number {
   if (args.isCompanyListing) return 0;
   if (args.sellerPlatformFeePercentOverride != null) {
-    return args.sellerPlatformFeePercentOverride;
+    return clampPlatformFeePercent(args.sellerPlatformFeePercentOverride);
   }
   if (!args.liveShowId) return marketplacePlatformFeePercent();
   const currentGmv = args.liveShowCompletedGmvUsd ?? 0;

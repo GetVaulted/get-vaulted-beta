@@ -4,6 +4,20 @@ const prismaMock = vi.hoisted(() => ({
   order: { findMany: vi.fn() },
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
+vi.mock("@/services/platform-fee-settings", () => ({
+  ensureMarketplacePlatformFeeCache: vi.fn(),
+  getCachedMarketplacePlatformFeePercent: () => 6.75,
+}));
+vi.mock("@/services/live-show-fee-settings", () => ({
+  ensureLiveShowFeeCache: vi.fn(),
+  getCachedLiveShowFeeConfig: () => ({
+    tier1FeePercent: 6.75,
+    tier2ThresholdUsd: 3000,
+    tier2FeePercent: 5.75,
+    tier3ThresholdUsd: 5500,
+    tier3FeePercent: 5,
+  }),
+}));
 
 import { loadAdminReconciliationReport, resolveReconciliationRangeStart } from "@/lib/admin/admin-reconciliation";
 
@@ -38,14 +52,14 @@ describe("loadAdminReconciliationReport", () => {
     expect(report.paidOrderCount).toBe(1);
     expect(report.grossSalesUsd).toBe(118);
     expect(report.gmvUsd).toBe(100);
-    // Flat 8% marketplace fee on $100 item.
-    expect(report.platformRevenueUsd).toBe(8);
+    // Flat 6.75% marketplace fee on $100 item.
+    expect(report.platformRevenueUsd).toBe(6.75);
     expect(report.salesTaxCollectedUsd).toBe(8);
     expect(report.shippingCollectedUsd).toBe(10);
     // Sales tax and shipping must never leak into platform revenue.
     expect(report.platformRevenueUsd).not.toBe(report.grossSalesUsd);
-    // Seller net = item - fee + shipping - processing(2.9%×118+$0.30) = 100 - 8 + 10 - 3.72 = 98.28
-    expect(report.sellerNetUsd).toBe(98.28);
+    // Seller net = item - fee + shipping - processing(2.9%×118+$0.30) = 100 - 6.75 + 10 - 3.72 = 99.53
+    expect(report.sellerNetUsd).toBe(99.53);
     expect(report.processingFeesUsd).toBe(3.72);
   });
 
@@ -87,8 +101,8 @@ describe("loadAdminReconciliationReport", () => {
     expect(report.refundAdjustments.taxReversedUsd).toBe(8);
     // Documents current (flagged) behavior: platform fee on the refunded order is tracked but not
     // subtracted from platformRevenueUsd / companyNetRevenueUsd since it isn't reversed today.
-    expect(report.refundAdjustments.platformFeeOnRefundedOrdersUsd).toBe(8);
-    expect(report.platformRevenueUsd).toBe(8);
+    expect(report.refundAdjustments.platformFeeOnRefundedOrdersUsd).toBe(6.75);
+    expect(report.platformRevenueUsd).toBe(6.75);
   });
 
   it("treats lost disputes (chargebacks) like refunds for reconciliation purposes", async () => {
@@ -130,8 +144,8 @@ describe("loadAdminReconciliationReport", () => {
 
     expect(report.shippingLabelCostUsd).toBe(7.5);
     expect(report.companyNetRevenueUsd).toBe(report.platformRevenueUsd);
-    // Seller net = 100 - 8 + 10 - 7.5 - 3.72 processing = 90.78
-    expect(report.sellerNetUsd).toBe(90.78);
+    // Seller net = 100 - 6.75 + 10 - 7.5 - 3.72 processing = 92.03
+    expect(report.sellerNetUsd).toBe(92.03);
   });
 
   it("applies the live-show tiered fee instead of the flat marketplace rate for live orders", async () => {
@@ -146,7 +160,7 @@ describe("loadAdminReconciliationReport", () => {
 
     const report = await loadAdminReconciliationReport("30d");
 
-    expect(report.platformRevenueUsd).toBeLessThan(8);
+    expect(report.platformRevenueUsd).toBeLessThan(6.75);
     expect(report.platformRevenueUsd).toBeGreaterThan(0);
   });
 
