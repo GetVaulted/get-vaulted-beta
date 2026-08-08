@@ -25,6 +25,7 @@ import { createLiveRoom, streamFormatToRoomType } from '../../../api/liveRoomsRe
 import { fetchSellerLiveReadiness, type SellerLiveReadiness } from '../../../api/liveHostRepository';
 import { logVaultCommandCenter, supabaseJwtSub } from '../../../lib/logVaultCommandCenterFlow';
 import { resolveSellerAccessToken } from '../../../lib/resolveSellerAccessToken';
+import { navigateAuthLogin } from '../../../navigation/rootNavigationRef';
 import { uploadListingImageViaWeb, uploadLiveTeaserViaWeb } from '../../../api/webListingsRepository';
 import {
   LIVE_TEASER_MAX_BYTES,
@@ -448,6 +449,11 @@ export function ScheduleVaultEventModal({
         sellerId: freshReadiness.sellerUserId ?? sessionSub,
         userId: freshReadiness.sellerUserId ?? sessionSub,
       });
+      const sessionExpired =
+        msg.includes('Invalid or expired session') ||
+        msg.includes('Unauthorized') ||
+        msg.includes('Sign in to continue') ||
+        msg.includes('session expired');
       const title =
         msg.includes('suspended') || msg.includes('ACCOUNT_SUSPENDED')
           ? 'Account suspended'
@@ -455,10 +461,17 @@ export function ScheduleVaultEventModal({
             ? 'Account unavailable'
             : msg.includes('LIVE_NOT_READY') || msg.includes('Complete seller setup')
               ? 'Setup required'
-              : msg.includes('Invalid or expired session') || msg.includes('Unauthorized')
+              : sessionExpired
                 ? 'Session expired'
                 : 'Could not create event';
-      Alert.alert(title, msg);
+      if (sessionExpired) {
+        Alert.alert(title, 'Your login expired. Sign in again to continue.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign in', onPress: () => navigateAuthLogin() },
+        ]);
+      } else {
+        Alert.alert(title, msg);
+      }
     } finally {
       submittingRef.current = false;
       setBusy(false);

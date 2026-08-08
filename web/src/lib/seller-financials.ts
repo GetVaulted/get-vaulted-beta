@@ -14,7 +14,7 @@ import { resolveSellerPlatformFeeDisplay } from "@/lib/seller-platform-fee-displ
 import { resolveSellerShippingBreakdown } from "@/lib/seller-shipping-breakdown";
 import {
   estimateSellerOrderPayoutUsd,
-  estimateStripeProcessingFeeUsd,
+  resolveSellerAbsorbedProcessingFeeUsd,
 } from "@/lib/seller-payout-estimate";
 import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
 import { ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
@@ -282,10 +282,15 @@ export async function buildSellerFinancialsSummary(
     const platformFeeUsd = money(fee.platformFeeUsd);
     const platformFeePercent = money(fee.platformFeePercent);
 
+    const processingFeeUsd = resolveSellerAbsorbedProcessingFeeUsd({
+      isCompanyListing: Boolean(o.listing.isCompanyListing),
+      stripeProcessingFeeCents: o.stripeProcessingFeeCents,
+      buyerChargeTotalUsd: o.totalUsd,
+    });
     const processingFeeActual = centsToUsd(o.stripeProcessingFeeCents);
-    const processingFeeEstimate = estimateStripeProcessingFeeUsd(o.totalUsd);
-    const processingFeeUsd = processingFeeActual ?? processingFeeEstimate;
-    const feesAreEstimates = fee.source === "reconstructed" || processingFeeActual == null;
+    const feesAreEstimates =
+      fee.source === "reconstructed" ||
+      (!o.listing.isCompanyListing && processingFeeActual == null);
     if (feesAreEstimates) estimateFeeCount += 1;
 
     const shippingBreakdown = resolveSellerShippingBreakdown({

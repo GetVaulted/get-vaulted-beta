@@ -2,10 +2,13 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   estimatePlatformFeeUsd,
-  estimateStripeProcessingFeeUsd,
+  estimateSellerOrderPayoutUsd,
   resolvePlatformFeePercentForSellerOrder,
+  resolveSellerAbsorbedProcessingFeeUsd,
 } from "@/lib/seller-payout-estimate";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
+import { ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
 
 export type ReconciliationRangeKey = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -30,6 +33,9 @@ const orderSelect = {
   payoutReserveAmountCents: true,
   shippingLabelCostCents: true,
   shippingLabelCostReversedCents: true,
+  stripeProcessingFeeCents: true,
+  platformFeeCents: true,
+  platformFeePercentApplied: true,
   listing: { select: { isCompanyListing: true } },
   liveShippingSession: {
     select: {
@@ -77,7 +83,7 @@ export type AdminReconciliationReport = {
   gmvUsd: number;
   /** Per-order tiered/flat platform application fee actually assessed (same resolver as seller reports). */
   platformRevenueUsd: number;
-  /** Estimated Stripe processing cost on buyer charges — paid by sellers on Connect, shown for reference only. */
+  /** Estimated Stripe processing cost absorbed by sellers on Connect (company listings = $0). */
   processingFeesUsd: number;
   salesTaxCollectedUsd: number;
   shippingCollectedUsd: number;
@@ -108,6 +114,10 @@ export type AdminReconciliationReport = {
 export async function loadAdminReconciliationReport(
   rangeKey: ReconciliationRangeKey = "30d",
 ): Promise<AdminReconciliationReport> {
+  await Promise.all([
+    ensureMarketplacePlatformFeeCache(true),
+    ensureLiveShowFeeCache(true),
+  ]);
   const rangeStart = resolveReconciliationRangeStart(rangeKey);
   const createdAtFilter = rangeStart ? { createdAt: { gte: rangeStart } } : {};
 
@@ -150,23 +160,38 @@ export async function loadAdminReconciliationReport(
     if (PAID_PAYMENT_STATUSES.has(o.paymentStatus)) {
       paidOrderCount += 1;
       const item = Math.max(0, o.itemPriceUsd);
-      const feePct = resolveOrderFeePercent(o);
-      const feeUsd = o.listing.isCompanyListing ? 0 : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
+      const feePct =
+        o.platformFeePercentApplied != null && Number.isFinite(o.platformFeePercentApplied)
+          ? Math.max(0, o.platformFeePercentApplied)
+          : resolveOrderFeePercent(o);
+      const feeUsd = o.listing.isCompanyListing
+        ? 0
+        : o.platformFeeCents != null && Number.isFinite(o.platformFeeCents)
+          ? Math.max(0, o.platformFeeCents) / 100
+          : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
 
       grossSalesUsd += Math.max(0, o.totalUsd);
       gmvUsd += item;
       platformRevenueUsd += feeUsd;
-      processingFeesUsd += estimateStripeProcessingFeeUsd(o.totalUsd);
+      const processingUsd = resolveSellerAbsorbedProcessingFeeUsd({
+        isCompanyListing: Boolean(o.listing.isCompanyListing),
+        stripeProcessingFeeCents: o.stripeProcessingFeeCents,
+        buyerChargeTotalUsd: o.totalUsd,
+      });
+      processingFeesUsd += processingUsd;
       salesTaxCollectedUsd += Math.max(0, o.taxUsd);
       shippingCollectedUsd += Math.max(0, o.shippingPriceUsd);
 
-      // Shipping is pass-through to the seller; Get Vaulted label cost is clawed back when purchased.
-      const shippingUsd = Math.max(0, o.shippingPriceUsd ?? 0);
-      const labelCostUsd =
-        o.shippingLabelCostReversedCents != null && o.shippingLabelCostReversedCents > 0
-          ? o.shippingLabelCostReversedCents / 100
-          : Math.max(0, o.shippingLabelCostCents ?? 0) / 100;
-      const net = item - feeUsd - Math.max(0, o.payoutReserveAmountCents) / 100 + shippingUsd - labelCostUsd;
+      // Same seller-net formula as Admin Bank Payouts / Seller HQ.
+      const net = estimateSellerOrderPayoutUsd({
+        itemPriceUsd: item,
+        shippingPriceUsd: o.shippingPriceUsd,
+        platformFeePercent: feePct,
+        payoutReserveAmountCents: o.payoutReserveAmountCents,
+        shippingLabelCostCents: o.shippingLabelCostCents,
+        shippingLabelCostReversedCents: o.shippingLabelCostReversedCents,
+        stripeProcessingFeeUsd: processingUsd,
+      });
       sellerNetUsd += Math.max(0, net);
 
       const bucket = payoutBuckets.get(o.payoutStatus) ?? { orderCount: 0, sellerNetUsd: 0 };
@@ -179,10 +204,15 @@ export async function loadAdminReconciliationReport(
       refundedGrossUsd += Math.max(0, o.totalUsd);
       taxReversedUsd += Math.max(0, o.taxRefundedCents) / 100;
       const item = Math.max(0, o.itemPriceUsd);
-      const feePct = resolveOrderFeePercent(o);
+      const feePct =
+        o.platformFeePercentApplied != null && Number.isFinite(o.platformFeePercentApplied)
+          ? Math.max(0, o.platformFeePercentApplied)
+          : resolveOrderFeePercent(o);
       platformFeeOnRefundedOrdersUsd += o.listing.isCompanyListing
         ? 0
-        : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
+        : o.platformFeeCents != null && Number.isFinite(o.platformFeeCents)
+          ? Math.max(0, o.platformFeeCents) / 100
+          : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
     }
   }
 
@@ -219,7 +249,7 @@ export async function loadAdminReconciliationReport(
     assumptions: [
       "Orders are grouped by creation date (createdAt), not by payment or refund event date.",
       "Platform fees use the same tiered/flat resolver as the seller sales report (marketplace flat % vs live-show GMV tiers).",
-      "Stripe processing fees are estimated (2.9% + $0.30 default) and paid by sellers on Connect — shown for reference only, not deducted from company net revenue.",
+      "Stripe processing fees on marketplace sales are absorbed by sellers on Connect (stored Order.stripeProcessingFeeCents, else 2.9%+$0.30). Official/company listings do not pass processing through — seller net and processingFeesUsd both use $0 for those rows.",
       "ASSUMPTION FLAGGED FOR REVIEW: platform application fees are currently kept in full even when an order is fully refunded or charged back — only the seller's transferred share is clawed back (reverse_transfer). If the business intends to also refund the platform's own fee, add refund_application_fee: true to the Stripe refund calls.",
       "Seller net excludes tips (item price + shipping − platform fee − payout reserve − Get Vaulted label cost when a platform label was purchased), matching the seller-facing Sales report's payout estimate for the same order.",
       "Shipping label cost is recovered from the seller via Stripe transfer reversal when a Get Vaulted label is purchased. External (non-platform) shipping leaves shipping with the seller and is not deducted here. Label cost still appears in shippingLabelCostUsd for carrier spend tracking; company net treats recovered label costs as offset when reversal succeeds.",

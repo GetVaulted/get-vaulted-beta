@@ -105,8 +105,18 @@ describe("isLiveRoomBroadcastOnAir", () => {
       }),
     ).toBe(true);
   });
-});
 
+  it("does not treat connecting (waiting on host) as a remote publisher", () => {
+    expect(
+      isLiveRoomRemotePublisherActive({
+        status: "live",
+        streamHealth: "connecting",
+        streamPaused: false,
+        streamMode: "stage_webrtc",
+      }),
+    ).toBe(false);
+  });
+});
 describe("isLiveRoomBroadcastPurchasable", () => {
   it("stays purchasable while the host is paused", () => {
     expect(

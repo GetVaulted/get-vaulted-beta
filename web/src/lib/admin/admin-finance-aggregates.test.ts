@@ -7,6 +7,20 @@ const prismaMock = vi.hoisted(() => ({
   sellerPayoutMetrics: { aggregate: vi.fn().mockResolvedValue({ _sum: { unresolvedDisputeCount: 0 } }) },
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
+vi.mock("@/services/platform-fee-settings", () => ({
+  ensureMarketplacePlatformFeeCache: vi.fn(),
+  getCachedMarketplacePlatformFeePercent: () => 6.75,
+}));
+vi.mock("@/services/live-show-fee-settings", () => ({
+  ensureLiveShowFeeCache: vi.fn(),
+  getCachedLiveShowFeeConfig: () => ({
+    tier1FeePercent: 6.75,
+    tier2ThresholdUsd: 3000,
+    tier2FeePercent: 5.75,
+    tier3ThresholdUsd: 5500,
+    tier3FeePercent: 5,
+  }),
+}));
 
 import { loadAdminFinanceSummary } from "@/lib/admin/admin-finance-aggregates";
 
@@ -14,9 +28,9 @@ describe("loadAdminFinanceSummary fee-tier consistency with seller reports", () 
   beforeEach(() => vi.clearAllMocks());
 
   it("uses the live-show tiered fee percent for live orders instead of the flat marketplace percent", async () => {
-    // Show has already completed $3,500 in GMV (past the tier-3 threshold), so per
-    // `resolvePlatformFeePercentForSellerOrder` this $100 sale should fee at the tier-3 rate
-    // (6.5%), NOT the flat 8% marketplace rate the admin dashboard used before this fix.
+    // Show has already completed $3,500 in GMV (past the tier-2 threshold), so per
+    // `resolvePlatformFeePercentForSellerOrder` this $100 sale should fee at 5.75%,
+    // NOT the flat 6.75% marketplace rate.
     const liveOrder = {
       itemPriceUsd: 100,
       totalUsd: 105,
@@ -33,8 +47,6 @@ describe("loadAdminFinanceSummary fee-tier consistency with seller reports", () 
 
     const summary = await loadAdminFinanceSummary();
 
-    // Sanity: confirm the seller-report resolver actually picks the tiered (non-flat) percent for
-    // this fixture, so this test would fail loudly if the fee policy itself changes.
     const expectedPct = resolvePlatformFeePercentForSellerOrder({
       isCompanyListing: false,
       liveShowId: "room_1",
@@ -42,12 +54,12 @@ describe("loadAdminFinanceSummary fee-tier consistency with seller reports", () 
       orderItemPriceUsd: 100,
       orderPaymentStatus: "paid",
     });
-    expect(expectedPct).not.toBe(8);
-    expect(expectedPct).toBeLessThan(8);
+    expect(expectedPct).not.toBe(6.75);
+    expect(expectedPct).toBe(5.75);
 
     const expectedFeeUsd = Math.round(((100 * expectedPct) / 100) * 100) / 100;
     expect(summary.platformFeesUsd).toBe(expectedFeeUsd);
-    expect(summary.platformFeesUsd).not.toBe(8); // would be 8 if flat 8% were (wrongly) applied
+    expect(summary.platformFeesUsd).not.toBe(6.75);
   });
 
   it("applies the flat marketplace fee for non-live marketplace orders", async () => {
@@ -65,7 +77,7 @@ describe("loadAdminFinanceSummary fee-tier consistency with seller reports", () 
 
     const summary = await loadAdminFinanceSummary();
 
-    expect(summary.platformFeesUsd).toBe(8);
+    expect(summary.platformFeesUsd).toBe(6.75);
     expect(summary.gmvUsd).toBe(100);
   });
 
@@ -105,8 +117,9 @@ describe("loadAdminFinanceSummary fee-tier consistency with seller reports", () 
 
     const summary = await loadAdminFinanceSummary();
 
-    // Seller net = item(100) - fee(8) - reserve(0) + shipping(15) = 107; "held" counts as pending.
-    expect(summary.pendingPayoutsUsd).toBe(107);
+    // Seller net = item(100) - fee(6.75) + shipping(15) - processing(2.9%×123+$0.30)
+    // processing = round(3.867*100)/100 = 3.87 → 100 - 6.75 + 15 - 3.87 = 104.38
+    expect(summary.pendingPayoutsUsd).toBe(104.38);
   });
 
   it("subtracts Get Vaulted label cost from pending seller payout after debit", async () => {
@@ -126,7 +139,8 @@ describe("loadAdminFinanceSummary fee-tier consistency with seller reports", () 
     ]);
 
     const summary = await loadAdminFinanceSummary();
-    expect(summary.pendingPayoutsUsd).toBe(92);
+    // 104.38 - 15 label = 89.38
+    expect(summary.pendingPayoutsUsd).toBe(89.38);
   });
 
   it("counts marketplace order refunds and chargebacks, not just layaway refunds", async () => {

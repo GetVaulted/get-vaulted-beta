@@ -257,6 +257,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
             itemVersion: { increment: 1 },
           },
         });
+        if (nextEndsAt) {
+          await tx.listing.update({
+            where: { id: listingId },
+            data: { auctionEndsAt: nextEndsAt },
+          });
+        }
         const roomWrite = await tx.liveRoom.update({
           where: { id: liveRoomId },
           data: { roomVersion: { increment: 1 }, auctionEventSeq: { increment: 1 } },

@@ -20,7 +20,7 @@ import {
 } from "@/lib/live-room-realtime-merge";
 import { estimateClockSkewMs } from "@/lib/server-clock-sync";
 import { liveChatFallbackPollMs, liveRoomReconcilePollMs } from "@/lib/live-fallback-poll-intervals";
-import { parsePurchaseCompletedCelebration, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
+import { parsePurchaseCompletedCelebration, soldCelebrationDismissKey, SOLD_CELEBRATION_DISPLAY_MS, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
 import {
   parseAuctionWinSpotCelebration,
   parseVariantPurchasedCelebration,
@@ -87,6 +87,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const [recoveryPaymentMethodId, setRecoveryPaymentMethodId] = useState<string | null>(null);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const seenSpotCelebrationKeysRef = useRef<Set<string>>(new Set());
+  const seenSoldCelebrationKeysRef = useRef<Set<string>>(new Set());
   /** Sticky last known count — must stay above loading/null early returns (React hooks rules). */
   const stickyViewerCountRef = useRef<number | null>(null);
 
@@ -100,7 +101,22 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     }, SPOT_CELEBRATION_DISPLAY_MS + 1000);
   }, []);
 
+  const showSoldCelebration = useCallback((celebration: LiveAuctionCloseCelebration) => {
+    if (celebration.kind !== "sold") {
+      setSoldCelebration(celebration);
+      return;
+    }
+    const key = soldCelebrationDismissKey(celebration);
+    if (seenSoldCelebrationKeysRef.current.has(key)) return;
+    seenSoldCelebrationKeysRef.current.add(key);
+    setSoldCelebration(celebration);
+    window.setTimeout(() => {
+      seenSoldCelebrationKeysRef.current.delete(key);
+    }, SOLD_CELEBRATION_DISPLAY_MS + 1000);
+  }, []);
+
   const clearSpotCelebration = useCallback(() => setSpotCelebration(null), []);
+  const clearSoldCelebration = useCallback(() => setSoldCelebration(null), []);
   const appendSystemMessage = useCallback((body: string, chatLabel = "System") => {
     setMessages((prev) => {
       const next: LiveRoomMessageDTO = {
@@ -856,7 +872,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       });
       if (!shouldProcessRealtimePayload("purchase_completed", payload)) return;
       const celebration = parsePurchaseCompletedCelebration(payload, session?.user?.id);
-      if (celebration?.kind === "sold") setSoldCelebration(celebration);
+      if (celebration?.kind === "sold") showSoldCelebration(celebration);
       if (
         payload.paymentStatus === "payment_failed" &&
         payload.winnerId &&
@@ -1095,7 +1111,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           broadcastPurchaseBlocked={broadcastPurchaseBlocked}
           broadcastCommerceHint={broadcastCommerceHint}
         />
-        <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+        <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={clearSoldCelebration} />
         <LiveSpotTakenCelebration
           celebration={spotCelebration}
           onDone={clearSpotCelebration}
@@ -1158,7 +1174,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       broadcastPurchaseBlocked={broadcastPurchaseBlocked}
       broadcastCommerceHint={broadcastCommerceHint}
     />
-      <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+      <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={clearSoldCelebration} />
       <LiveSpotTakenCelebration
         celebration={spotCelebration}
         onDone={clearSpotCelebration}

@@ -593,7 +593,14 @@ export async function estimateSalesTaxCents(args: {
           collectTax: true,
         };
       }
-      throw e;
+      // Never block live / marketplace checkout on Stripe Tax outages or address edge cases.
+      // Layaway already soft-fails the same way; throwing here aborted PYD/spot charges with an
+      // opaque "Could not complete purchase" for non-TX buyers while TX buyers still succeeded.
+      console.warn("[stripe-tax] estimateSalesTaxCents soft-fail; proceeding without tax", {
+        buyerState,
+        fingerprint,
+      });
+      return { taxAmountCents: 0, taxCalculationId: null, collectTax: false };
     }
 
     let taxAmountCents = sumTaxBreakdownCents(calculation);

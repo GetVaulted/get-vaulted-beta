@@ -7,6 +7,7 @@ import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
 import {
   estimateSellerOrderPayoutUsd,
   resolvePlatformFeePercentForSellerOrder,
+  resolveSellerAbsorbedProcessingFeeUsd,
 } from "@/lib/seller-payout-estimate";
 import { isStripeBankPayoutId } from "@/services/payout/stripe-seller-payout";
 
@@ -152,6 +153,10 @@ async function estimateReadyOrderNets(
       id: true,
       itemPriceUsd: true,
       shippingPriceUsd: true,
+      totalUsd: true,
+      referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
+      stripeProcessingFeeCents: true,
       paymentStatus: true,
       shippingLabelCostCents: true,
       shippingLabelCostReversedCents: true,
@@ -183,8 +188,13 @@ async function estimateReadyOrderNets(
       shippingPriceUsd: o.shippingPriceUsd,
       platformFeePercent: feePct,
       payoutReserveAmountCents: 0,
-      shippingLabelCostCents: o.shippingLabelCostCents ?? 0,
-      shippingLabelCostReversedCents: o.shippingLabelCostReversedCents ?? 0,
+      shippingLabelCostCents: o.shippingLabelCostCents,
+      shippingLabelCostReversedCents: o.shippingLabelCostReversedCents,
+      stripeProcessingFeeUsd: resolveSellerAbsorbedProcessingFeeUsd({
+        isCompanyListing: o.listing.isCompanyListing,
+        stripeProcessingFeeCents: o.stripeProcessingFeeCents,
+        buyerChargeTotalUsd: o.totalUsd,
+      }),
     });
     const sortAt =
       o.shippedAt?.getTime() ?? o.carrierAcceptedAt?.getTime() ?? o.createdAt.getTime();

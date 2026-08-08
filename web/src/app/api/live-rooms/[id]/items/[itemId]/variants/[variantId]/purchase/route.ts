@@ -346,8 +346,25 @@ export async function POST(
     } catch (settleErr) {
       console.error("[variant purchase POST] settle failed", settleErr);
       await releaseVariantPurchaseOnCheckoutExpired(result.id);
+      const code =
+        settleErr && typeof settleErr === "object" && "code" in settleErr
+          ? String((settleErr as { code: string }).code)
+          : undefined;
+      const rawMessage = settleErr instanceof Error ? settleErr.message.trim() : "";
+      const safeMessage =
+        rawMessage &&
+        rawMessage.length <= 160 &&
+        !/stripe|payment_intent|prisma|sql|undefined|null/i.test(rawMessage) &&
+        !rawMessage.includes(" at ")
+          ? rawMessage
+          : "Could not complete purchase.";
       return NextResponse.json(
-        { error: "Could not complete purchase.", paymentFailed: true, purchaseId: result.id },
+        {
+          error: safeMessage,
+          ...(code ? { code } : {}),
+          paymentFailed: true,
+          purchaseId: result.id,
+        },
         { status: 500 },
       );
     }

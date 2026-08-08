@@ -1,3 +1,10 @@
+import type { Prisma } from "@/generated/prisma/client";
+import {
+  addCalendarDays,
+  calendarDayBoundsUtc,
+  calendarDayInTimeZone,
+} from "@/lib/calendar-day-bounds";
+
 export type LedgerRangeKey =
   | "today"
   | "yesterday"
@@ -18,17 +25,18 @@ export type LedgerDateRange = {
   rangeEnd: Date | null;
 };
 
-function startOfUtcDay(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-}
+/** Admin Today/Yesterday/MTD use US business calendar (same as Seller HQ default). */
+export const ADMIN_LEDGER_TIMEZONE = "America/Chicago";
 
 export function resolveLedgerDateRange(args: {
   range?: string | null;
   from?: string | null;
   to?: string | null;
   now?: Date;
+  timeZone?: string;
 }): LedgerDateRange {
   const now = args.now ?? new Date();
+  const timeZone = args.timeZone ?? ADMIN_LEDGER_TIMEZONE;
   const raw = (args.range ?? "30d").trim().toLowerCase();
 
   if (raw === "custom") {
@@ -42,25 +50,43 @@ export function resolveLedgerDateRange(args: {
   }
 
   if (raw === "today") {
-    const start = startOfUtcDay(now);
+    const todayYmd = calendarDayInTimeZone(now, timeZone);
+    const { start } = calendarDayBoundsUtc(todayYmd, timeZone);
     return { rangeKey: "today", rangeStart: start, rangeEnd: null };
   }
 
   if (raw === "yesterday") {
-    const today = startOfUtcDay(now);
-    const start = new Date(today.getTime() - 24 * 3600_000);
-    return { rangeKey: "yesterday", rangeStart: start, rangeEnd: today };
+    const todayYmd = calendarDayInTimeZone(now, timeZone);
+    const yesterdayYmd = addCalendarDays(todayYmd, -1);
+    const { start } = calendarDayBoundsUtc(yesterdayYmd, timeZone);
+    const { start: todayStart } = calendarDayBoundsUtc(todayYmd, timeZone);
+    return {
+      rangeKey: "yesterday",
+      rangeStart: start,
+      rangeEnd: todayStart,
+    };
   }
 
   if (raw === "mtd") {
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const todayYmd = calendarDayInTimeZone(now, timeZone);
+    const monthStartYmd = `${todayYmd.slice(0, 8)}01`;
+    const { start } = calendarDayBoundsUtc(monthStartYmd, timeZone);
     return { rangeKey: "mtd", rangeStart: start, rangeEnd: null };
   }
 
   if (raw === "prev_month") {
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    return { rangeKey: "prev_month", rangeStart: start, rangeEnd: end };
+    const todayYmd = calendarDayInTimeZone(now, timeZone);
+    const thisMonthStartYmd = `${todayYmd.slice(0, 8)}01`;
+    const { start: thisMonthStart } = calendarDayBoundsUtc(thisMonthStartYmd, timeZone);
+    const insidePrev = new Date(thisMonthStart.getTime() - 12 * 3600_000);
+    const prevMonthYmd = calendarDayInTimeZone(insidePrev, timeZone);
+    const prevMonthStartYmd = `${prevMonthYmd.slice(0, 8)}01`;
+    const { start: prevMonthStart } = calendarDayBoundsUtc(prevMonthStartYmd, timeZone);
+    return {
+      rangeKey: "prev_month",
+      rangeStart: prevMonthStart,
+      rangeEnd: thisMonthStart,
+    };
   }
 
   if (raw === "24h") {
@@ -108,4 +134,14 @@ export function prismaCreatedAtFilter(range: LedgerDateRange): { createdAt?: { g
   if (range.rangeStart) createdAt.gte = range.rangeStart;
   if (range.rangeEnd) createdAt.lt = range.rangeEnd;
   return { createdAt };
+}
+
+/**
+ * Order sale window filter.
+ *
+ * Note: `Order` has no `paidAt` column (unlike LiveTip / LiveItemVariantPurchase).
+ * Use `createdAt` as the ledger clock until a charge-time timestamp is added to Order.
+ */
+export function prismaSaleAtFilter(range: LedgerDateRange): Prisma.OrderWhereInput {
+  return prismaCreatedAtFilter(range);
 }

@@ -5,6 +5,7 @@ import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
 import {
   estimateSellerOrderPayoutUsd,
   resolvePlatformFeePercentForSellerOrder,
+  resolveSellerAbsorbedProcessingFeeUsd,
 } from "@/lib/seller-payout-estimate";
 import { ensureSellerStripeManualPayouts } from "@/lib/seller-stripe-connect";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
@@ -77,6 +78,10 @@ export async function releaseSellerStripePayout(
       payoutStatus: true,
       itemPriceUsd: true,
       shippingPriceUsd: true,
+      totalUsd: true,
+      referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
+      stripeProcessingFeeCents: true,
       shippingLabelCostCents: true,
       shippingLabelCostReversedCents: true,
       shippoTransactionId: true,
@@ -194,6 +199,11 @@ export async function releaseSellerStripePayout(
     payoutReserveAmountCents: 0,
     shippingLabelCostCents: order.shippingLabelCostCents,
     shippingLabelCostReversedCents: order.shippingLabelCostReversedCents,
+    stripeProcessingFeeUsd: resolveSellerAbsorbedProcessingFeeUsd({
+      isCompanyListing: order.listing.isCompanyListing,
+      stripeProcessingFeeCents: order.stripeProcessingFeeCents,
+      buyerChargeTotalUsd: order.totalUsd,
+    }),
   });
   const amountCents = Math.round(netUsd * 100);
 

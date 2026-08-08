@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/services/platform-fee-settings", () => ({
-  getCachedMarketplacePlatformFeePercent: () => 8,
+  getCachedMarketplacePlatformFeePercent: () => 6.75,
   ensureMarketplacePlatformFeeCache: vi.fn(),
 }));
 
 vi.mock("@/services/live-show-fee-settings", () => ({
   getCachedLiveShowFeeConfig: () => ({
-    tier1FeePercent: 8,
-    tier2ThresholdUsd: 1000,
-    tier2FeePercent: 7.25,
-    tier3ThresholdUsd: 3000,
-    tier3FeePercent: 6.5,
+    tier1FeePercent: 6.75,
+    tier2ThresholdUsd: 3000,
+    tier2FeePercent: 5.75,
+    tier3ThresholdUsd: 5500,
+    tier3FeePercent: 5,
   }),
   ensureLiveShowFeeCache: vi.fn(),
 }));
@@ -115,6 +115,21 @@ describe("buildOrderFinancialLedger", () => {
     const ledger = buildOrderFinancialLedger(base({ stripeProcessingFeeCents: null }));
     expect(ledger.stripeProcessingFeeCents.source).toBe("estimated");
     expect(ledger.stripeProcessingFeeCents.cents).toBeGreaterThan(0);
+  });
+
+  it("company listing with missing BT fee does not invent processing on seller transfer", () => {
+    const ledger = buildOrderFinancialLedger(
+      base({
+        isCompanyListing: true,
+        stripeProcessingFeeCents: null,
+        stripeTransferAmountCents: null,
+        sellerPlatformFeePercentOverride: null,
+      }),
+    );
+    expect(ledger.stripeProcessingFeeCents.cents).toBe(0);
+    expect(ledger.stripeProcessingFeeCents.source).toBe("actual");
+    // Company fee 0 → desired transfer = item + shipping (no processing haircut)
+    expect(ledger.sellerTransferCents.cents).toBe(3300 + 100);
   });
 
   it("non-taxed path has zero tax liability", () => {

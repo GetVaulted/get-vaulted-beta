@@ -954,6 +954,10 @@ export function LivePinnedActionBar({
               void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(
                 () => {},
               );
+            } else {
+              // Hold-to-Bid is fire-and-forget — without an alert, a failed bid only briefly
+              // flashes "You're winning" then disappears (stale listing clock / wallet / etc.).
+              Alert.alert('Bid did not go through', display.message);
             }
             onBidNotice?.(display);
           });

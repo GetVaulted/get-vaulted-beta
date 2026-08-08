@@ -161,14 +161,18 @@ export async function placeListingBid(
  * Live-room bid on a linked marketplace listing (Whatnot-style).
  * `amountUsd` becomes the public hammer immediately — Exact jumps and min-next floors alike.
  * Standalone marketplace auctions keep using {@link placeListingProxyBid}.
+ *
+ * **Clock of record:** `LiveRoomItem.biddingOpen` / `auctionEndsAt` (validated by
+ * `lockActiveLiveRoomItemForBid` before this runs). Do **not** call `closeAuctionIfDue` or
+ * reject on `Listing.auctionEndsAt` here — shop listings often carry a stale marketplace end
+ * time, which made Hold-to-Bid flash "you're winning" then snap back when the listing clock
+ * falsely closed the auction mid-show.
  */
 export async function placeLiveListingBid(
   tx: TransactionClient,
   args: { listingId: string; bidderId: string; amountUsd: number },
 ): Promise<PlaceListingBidResult> {
   const { listingId, bidderId, amountUsd } = args;
-
-  await closeAuctionIfDue(tx, listingId);
 
   const listing = await tx.listing.findUnique({
     where: { id: listingId },
@@ -181,7 +185,6 @@ export async function placeLiveListingBid(
       startingBidUsd: true,
       currentBidUsd: true,
       priceUsd: true,
-      auctionEndsAt: true,
       moderationRemovedAt: true,
     },
   });
@@ -200,11 +203,6 @@ export async function placeLiveListingBid(
   }
   if (listing.sellerId === bidderId) {
     throw new Error("OWN_LISTING");
-  }
-
-  const now = await getTransactionServerNow(tx);
-  if (listing.auctionEndsAt && listing.auctionEndsAt <= now) {
-    throw new Error("ENDED");
   }
 
   if (!Number.isFinite(amountUsd) || amountUsd < 1) {
@@ -246,10 +244,8 @@ export async function placeLiveListingBid(
 
   await tx.listing.update({
     where: { id: listingId },
-    data: { currentBidUsd: amountUsd },
+    data: { currentBidUsd: amountUsd, status: "auction_live" },
   });
-
-  await closeAuctionIfDue(tx, listingId);
 
   const prevLeaderId =
     oldResolved.leaderBidderId && oldResolved.leaderBidderId !== bidderId

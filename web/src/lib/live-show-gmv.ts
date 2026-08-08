@@ -7,6 +7,7 @@ import {
   platformFeeBaseUsd,
   resolvePlatformFeePercentForCheckout,
 } from "@/lib/platform-fee-policy";
+import { clampPlatformFeePercent } from "@/lib/platform-fee-defaults";
 import { prisma } from "@/lib/prisma";
 import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
 import { ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
@@ -43,10 +44,11 @@ export async function resolveCheckoutPlatformFeeSnapshot(args: {
 
   const sellerOverride = args.sellerId ? await loadSellerPlatformFeePercentOverride(args.sellerId) : null;
   if (sellerOverride != null) {
+    const pct = clampPlatformFeePercent(sellerOverride);
     return {
       platformFeeBasisCents,
-      platformFeePercentApplied: sellerOverride,
-      platformFeeCents: applicationFeeCentsFromSubtotalUsd(basisUsd, sellerOverride),
+      platformFeePercentApplied: pct,
+      platformFeeCents: applicationFeeCentsFromSubtotalUsd(basisUsd, pct),
       platformFeePriorShowGmvUsd: args.liveRoomId ? await getLiveRoomCompletedSalesGmvUsd(args.liveRoomId) : null,
       platformFeeSellerOverrideApplied: true,
     };
@@ -55,7 +57,7 @@ export async function resolveCheckoutPlatformFeeSnapshot(args: {
   if (args.liveRoomId) {
     await ensureLiveShowFeeCache(true);
     const priorGmv = await getLiveRoomCompletedSalesGmvUsd(args.liveRoomId);
-    const pct = liveShowPlatformFeePercent(priorGmv);
+    const pct = clampPlatformFeePercent(liveShowPlatformFeePercent(priorGmv));
     return {
       platformFeeBasisCents,
       platformFeePercentApplied: pct,
@@ -66,7 +68,7 @@ export async function resolveCheckoutPlatformFeeSnapshot(args: {
   }
 
   await ensureMarketplacePlatformFeeCache(true);
-  const pct = marketplacePlatformFeePercent();
+  const pct = clampPlatformFeePercent(marketplacePlatformFeePercent());
   return {
     platformFeeBasisCents,
     platformFeePercentApplied: pct,

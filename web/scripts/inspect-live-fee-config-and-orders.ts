@@ -170,11 +170,11 @@ async function main() {
         cachedConfigAfterEnsure: cached,
         marketplaceFeePercent: marketplacePlatformFeePercent(),
         codeDefaultsStillInSource: {
-          tier1: 8,
-          tier2Threshold: 1000,
-          tier2: 7.25,
-          tier3Threshold: 3000,
-          tier3: 6.5,
+          tier1: 6.75,
+          tier2Threshold: 3000,
+          tier2: 5.75,
+          tier3Threshold: 5500,
+          tier3: 5.0,
         },
         intendedConfigFromUser: {
           tier1: 6.75,

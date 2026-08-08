@@ -1,15 +1,16 @@
 import { prisma } from "@/lib/prisma";
+import {
+  LIVE_SHOW_FEE_TIER_2_THRESHOLD_USD,
+  LIVE_SHOW_FEE_TIER_3_THRESHOLD_USD,
+  LIVE_SHOW_TIER_1_FEE_PERCENT,
+  LIVE_SHOW_TIER_2_FEE_PERCENT,
+  LIVE_SHOW_TIER_3_FEE_PERCENT,
+  clampPlatformFeePercent,
+} from "@/lib/platform-fee-defaults";
 
 const CONFIG_ID = "default";
 /** Short TTL so host consoles pick up /admin/fees edits quickly across serverless instances. */
 const CACHE_TTL_MS = 5_000;
-
-/** Code fallback when DB is unavailable — keep aligned with platform-fee-policy.ts. */
-const DEFAULT_TIER_1_FEE_PERCENT = 8;
-const DEFAULT_TIER_2_THRESHOLD_USD = 1000;
-const DEFAULT_TIER_2_FEE_PERCENT = 7.25;
-const DEFAULT_TIER_3_THRESHOLD_USD = 3000;
-const DEFAULT_TIER_3_FEE_PERCENT = 6.5;
 
 export type LiveShowFeeConfig = {
   tier1FeePercent: number;
@@ -20,19 +21,18 @@ export type LiveShowFeeConfig = {
 };
 
 const DEFAULT_CONFIG: LiveShowFeeConfig = {
-  tier1FeePercent: DEFAULT_TIER_1_FEE_PERCENT,
-  tier2ThresholdUsd: DEFAULT_TIER_2_THRESHOLD_USD,
-  tier2FeePercent: DEFAULT_TIER_2_FEE_PERCENT,
-  tier3ThresholdUsd: DEFAULT_TIER_3_THRESHOLD_USD,
-  tier3FeePercent: DEFAULT_TIER_3_FEE_PERCENT,
+  tier1FeePercent: LIVE_SHOW_TIER_1_FEE_PERCENT,
+  tier2ThresholdUsd: LIVE_SHOW_FEE_TIER_2_THRESHOLD_USD,
+  tier2FeePercent: LIVE_SHOW_TIER_2_FEE_PERCENT,
+  tier3ThresholdUsd: LIVE_SHOW_FEE_TIER_3_THRESHOLD_USD,
+  tier3FeePercent: LIVE_SHOW_TIER_3_FEE_PERCENT,
 };
 
 let cachedConfig: LiveShowFeeConfig | null = null;
 let cachedAt = 0;
 
 function clampFeePercent(raw: number, fallback: number): number {
-  if (!Number.isFinite(raw)) return fallback;
-  return Math.min(25, Math.max(0, Math.round(raw * 100) / 100));
+  return clampPlatformFeePercent(raw, fallback);
 }
 
 function clampThreshold(raw: number, fallback: number): number {
@@ -41,18 +41,33 @@ function clampThreshold(raw: number, fallback: number): number {
 }
 
 export function normalizeLiveShowFeeConfig(raw: Partial<LiveShowFeeConfig>): LiveShowFeeConfig {
-  const tier2ThresholdUsd = clampThreshold(raw.tier2ThresholdUsd ?? DEFAULT_CONFIG.tier2ThresholdUsd, DEFAULT_CONFIG.tier2ThresholdUsd);
-  let tier3ThresholdUsd = clampThreshold(raw.tier3ThresholdUsd ?? DEFAULT_CONFIG.tier3ThresholdUsd, DEFAULT_CONFIG.tier3ThresholdUsd);
+  const tier2ThresholdUsd = clampThreshold(
+    raw.tier2ThresholdUsd ?? DEFAULT_CONFIG.tier2ThresholdUsd,
+    DEFAULT_CONFIG.tier2ThresholdUsd,
+  );
+  let tier3ThresholdUsd = clampThreshold(
+    raw.tier3ThresholdUsd ?? DEFAULT_CONFIG.tier3ThresholdUsd,
+    DEFAULT_CONFIG.tier3ThresholdUsd,
+  );
   if (tier3ThresholdUsd <= tier2ThresholdUsd) {
     tier3ThresholdUsd = tier2ThresholdUsd + 1;
   }
 
   return {
-    tier1FeePercent: clampFeePercent(raw.tier1FeePercent ?? DEFAULT_CONFIG.tier1FeePercent, DEFAULT_CONFIG.tier1FeePercent),
+    tier1FeePercent: clampFeePercent(
+      raw.tier1FeePercent ?? DEFAULT_CONFIG.tier1FeePercent,
+      DEFAULT_CONFIG.tier1FeePercent,
+    ),
     tier2ThresholdUsd: Math.max(1, tier2ThresholdUsd),
-    tier2FeePercent: clampFeePercent(raw.tier2FeePercent ?? DEFAULT_CONFIG.tier2FeePercent, DEFAULT_CONFIG.tier2FeePercent),
+    tier2FeePercent: clampFeePercent(
+      raw.tier2FeePercent ?? DEFAULT_CONFIG.tier2FeePercent,
+      DEFAULT_CONFIG.tier2FeePercent,
+    ),
     tier3ThresholdUsd,
-    tier3FeePercent: clampFeePercent(raw.tier3FeePercent ?? DEFAULT_CONFIG.tier3FeePercent, DEFAULT_CONFIG.tier3FeePercent),
+    tier3FeePercent: clampFeePercent(
+      raw.tier3FeePercent ?? DEFAULT_CONFIG.tier3FeePercent,
+      DEFAULT_CONFIG.tier3FeePercent,
+    ),
   };
 }
 

@@ -5,7 +5,7 @@ import { getLiveRoomBroadcastCommerceBlock } from "@/lib/live-room-commerce-guar
 import { prisma } from "@/lib/prisma";
 import { emitLiveRoomMessageById, emitTeamBoardChanged } from "@/lib/realtime-emit-server";
 import { getTeamBoardPublicPayload } from "@/lib/team-board-public-server";
-import { isValidTeamForLeague, normalizeTeamAbbr } from "@/lib/team-board-sets";
+import { isValidTeamForLeague, normalizeTeamAbbr, teamBoardLeagueKey, teamBoardTeamsForActiveItem } from "@/lib/team-board-sets";
 
 type PostBody = { teamAbbr?: string; forUserId?: string | null };
 
@@ -32,7 +32,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       items: {
         where: { status: "active" },
         take: 1,
-        select: { teamBoardMisc: true, teamBoardNcaa: true },
+        select: {
+          teamBoardMisc: true,
+          teamBoardNcaa: true,
+          salesFormat: true,
+          variantAssignmentMode: true,
+          variants: {
+            select: { label: true, color: true, status: true, sortOrder: true },
+            orderBy: { sortOrder: "asc" },
+          },
+        },
       },
     },
   });
@@ -78,10 +87,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const league = room.teamBoardLeague ?? board.league;
-  const allowMisc = league === "nfl" && room.items[0]?.teamBoardMisc === true;
-  const allowNcaa = league === "nfl" && room.items[0]?.teamBoardNcaa === true;
+  const activeItem = room.items[0] ?? null;
+  const allowMisc = league === "nfl" && activeItem?.teamBoardMisc === true;
+  const allowNcaa = league === "nfl" && activeItem?.teamBoardNcaa === true;
   if (!isValidTeamForLeague(league, teamAbbr, { allowMisc, allowNcaa })) {
     return NextResponse.json({ error: "Unknown team for this league." }, { status: 400 });
+  }
+  const allowedTeams = new Set(
+    teamBoardTeamsForActiveItem({
+      league: teamBoardLeagueKey(league),
+      salesFormat: activeItem?.salesFormat,
+      variantAssignmentMode: activeItem?.variantAssignmentMode,
+      variants: activeItem?.variants,
+      includeMisc: allowMisc,
+      includeNcaa: allowNcaa,
+    }),
+  );
+  if (!allowedTeams.has(teamAbbr)) {
+    return NextResponse.json({ error: "That team is not on this break's board." }, { status: 400 });
   }
 
   let targetUserId: string;

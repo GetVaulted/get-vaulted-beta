@@ -4,6 +4,7 @@ import {
   estimateStripeProcessingFeeCents,
   estimateStripeProcessingFeeUsd,
   resolvePlatformFeePercentForSellerOrder,
+  resolveSellerAbsorbedProcessingFeeUsd,
 } from "@/lib/seller-payout-estimate";
 
 describe("seller-payout-estimate", () => {
@@ -88,14 +89,48 @@ describe("seller-payout-estimate", () => {
     expect(withProcessing).toBe(88.8);
   });
 
+  it("resolveSellerAbsorbedProcessingFeeUsd: company never invents a processing haircut", () => {
+    expect(
+      resolveSellerAbsorbedProcessingFeeUsd({
+        isCompanyListing: true,
+        stripeProcessingFeeCents: null,
+        buyerChargeTotalUsd: 100,
+      }),
+    ).toBe(0);
+    expect(
+      resolveSellerAbsorbedProcessingFeeUsd({
+        isCompanyListing: true,
+        stripeProcessingFeeCents: 0,
+        buyerChargeTotalUsd: 100,
+      }),
+    ).toBe(0);
+  });
+
+  it("resolveSellerAbsorbedProcessingFeeUsd: marketplace prefers stored cents then estimate", () => {
+    expect(
+      resolveSellerAbsorbedProcessingFeeUsd({
+        isCompanyListing: false,
+        stripeProcessingFeeCents: 250,
+        buyerChargeTotalUsd: 100,
+      }),
+    ).toBe(2.5);
+    expect(
+      resolveSellerAbsorbedProcessingFeeUsd({
+        isCompanyListing: false,
+        stripeProcessingFeeCents: null,
+        buyerChargeTotalUsd: 100,
+      }),
+    ).toBe(3.2);
+  });
+
   it("uses live tier percent for live show orders", () => {
     const pct = resolvePlatformFeePercentForSellerOrder({
       isCompanyListing: false,
       liveShowId: "room_1",
-      liveShowCompletedGmvUsd: 1500,
+      liveShowCompletedGmvUsd: 3500,
       orderItemPriceUsd: 50,
       orderPaymentStatus: "paid",
     });
-    expect(pct).toBe(7.25);
+    expect(pct).toBe(5.75);
   });
 });

@@ -30,7 +30,7 @@ import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from '../.
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import { liveRoomChatOpen } from '../../../lib/liveRoomChatPolicy';
 import { isLiveRoomBroadcastOnAir, isLiveRoomRemotePublisherActive } from '../../../lib/liveRoomBroadcastOnAir';
-import { isObsChannelHlsMode } from '../../../lib/liveObsChannelMode';
+import { isObsDesktopBroadcastMode } from '../../../lib/liveObsChannelMode';
 import { resolveHostVideoFeedStatus } from '../../../lib/hostVideoFeedStatus';
 import { useLiveRoomChat } from '../../../hooks/useLiveRoomChat';
 import { resolvePinnedModeratorUsername } from '../../../lib/resolvePinnedModeratorUsername';
@@ -201,7 +201,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   }, [host.stream, roomLive]);
   /** Commerce gate: this device publishing OR another device already on air (companion). */
   const broadcastOnAir = roomLive && (localPublishing || roomBroadcastOnAir);
-  /** Another device is actually publishing — not soft Stage warm-up / stale offline grace. */
+  /** Another device is actually publishing (streamHealth=live) — not connecting/waiting. */
   const remotePublisherActive = useMemo(() => {
     if (!roomLive) return false;
     return isLiveRoomRemotePublisherActive({
@@ -213,7 +213,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       streamEndedAt: host.stream?.streamEndedAt,
     });
   }, [host.stream, roomLive]);
-  const obsMode = isObsChannelHlsMode(host.stream?.streamMode);
+  const obsMode = isObsDesktopBroadcastMode({
+    streamMode: host.stream?.streamMode,
+    ingestEndpoint: host.stream?.ingestEndpoint,
+  });
   /** Room is live from another device / OBS; this phone is queue / start-auction only. */
   const hostCompanionMode = (remotePublisherActive || (obsMode && roomLive)) && !localPublishing;
   /** Header pill — buyer-facing video, not just room status. */
@@ -697,8 +700,13 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       Alert.alert('Finish setup', host.readinessBlocked.join('\n'));
       return;
     }
-    // OBS / RTMP: open the room only — never auto-publish the phone camera.
-    if (isObsChannelHlsMode(host.stream?.streamMode)) {
+    // OBS (WHIP WebRTC or legacy RTMPS): open the room only — never auto-publish the phone camera.
+    if (
+      isObsDesktopBroadcastMode({
+        streamMode: host.stream?.streamMode,
+        ingestEndpoint: host.stream?.ingestEndpoint,
+      })
+    ) {
       if (host.room?.status === 'scheduled') {
         host.onStartShow();
         return;
@@ -1198,6 +1206,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         roomId={roomId}
         onClose={() => console.setInventoryOpen(false)}
         onSubmit={console.onQuickAddLot}
+        onSubmitFromShop={console.onSubmitFromShop}
+        onImportFromPriorRoom={console.onImportFromPriorRoom}
         busy={console.busy}
       />
       <EditQueueItemPricingModal

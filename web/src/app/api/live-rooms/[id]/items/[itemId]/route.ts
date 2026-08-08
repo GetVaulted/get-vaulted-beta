@@ -120,6 +120,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     where: { id: itemId, liveRoomId },
     select: {
       id: true,
+      listingId: true,
       status: true,
       itemVersion: true,
       biddingOpen: true,
@@ -530,6 +531,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
             data: { biddingOpen: true, auctionEndsAt: ends, clutchTimeEnabled, itemVersion: { increment: 1 } },
           });
           if (u.count === 0) throw new Error("START_AUCTION_CONFLICT");
+          // Keep marketplace listing clock in sync with the live lot — otherwise
+          // placeLiveListingBid / closeAuctionIfDue can treat a stale listing.auctionEndsAt
+          // as ended while Hold-to-Bid is still open on the show.
+          if (item.listingId?.trim()) {
+            await tx.listing.update({
+              where: { id: item.listingId.trim() },
+              data: { status: "auction_live", auctionEndsAt: ends },
+            });
+          }
           const roomNext = await tx.liveRoom.update({
             where: { id: liveRoomId },
             data: { roomVersion: { increment: 1 } },

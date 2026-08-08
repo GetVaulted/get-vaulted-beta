@@ -27,6 +27,7 @@ import {
   createLiveBuyNowOrder,
   finalizeBreakSpotPaid,
   refreshBuyerShippingOnOrderIfIncomplete,
+  releaseBreakSpotOnDefiniteFailure,
 } from "@/lib/live-buy-now-purchase";
 import { resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
 import {
@@ -106,6 +107,36 @@ export type LiveSavedCardChargeOutcome =
        */
       definiteFailure?: boolean;
     };
+
+/**
+ * Pre-Stripe / wallet-setup failures must NOT sticky-lock the buyer out of the show
+ * (`LIVE_PAYMENT_BLOCKED`). Only card declines and post-charge recovery states should.
+ */
+export function isNonStickyLiveChargeErrorCode(code: string | null | undefined): boolean {
+  const c = (code ?? "").trim().toUpperCase();
+  return (
+    c === "FULFILLMENT_ORDER_FAILED" ||
+    c === "NO_SAVED_CARD" ||
+    c === "NO_SHIPPING_ADDRESS" ||
+    c === "NO_SHIPPING" ||
+    c === "BUYER_STRIPE_CUSTOMER_MISSING" ||
+    c === "SELLER_NOT_READY" ||
+    c === "ROOM_NOT_LIVE" ||
+    c === "STRIPE_NOT_CONFIGURED" ||
+    c === "PURCHASE_NOT_FOUND" ||
+    c === "PURCHASE_NOT_PAYABLE" ||
+    c === "INVALID_AMOUNT" ||
+    c === "PM_VALIDATION_FAILED" ||
+    c === "SPOT_NOT_FOUND" ||
+    c === "STRIPE_ONBOARDING_REQUIRED"
+  );
+}
+
+function shouldRecordStickyLiveChargeFailure(charge: LiveSavedCardChargeOutcome): boolean {
+  if (charge.outcome === "requires_action" || charge.outcome === "processing") return true;
+  if (charge.outcome !== "error") return false;
+  return !isNonStickyLiveChargeErrorCode(charge.code);
+}
 
 export async function getLiveBuyerPaymentSessionState(args: {
   buyerId: string;
@@ -262,20 +293,35 @@ async function applyOrderTaxPlanForLiveCharge(args: {
       metadata: {} as Record<string, string>,
     };
   }
-  const taxPlan = await resolveConnectPaymentTaxPlan({
-    shipTo: order,
-    itemPriceUsd: args.itemPriceUsd,
-    shippingPriceUsd: args.shippingPriceUsd,
-    applicationFeeCents: args.applicationFeeCents,
-    sellerId: args.sellerId,
-  });
-  await prisma.order.update({ where: { id: args.orderId }, data: orderTaxUpdateData(taxPlan.orderTax) });
-  return {
-    amountCents: taxPlan.amountCents,
-    feeCents: taxPlan.applicationFeeCents,
-    sellerTransferCents: taxPlan.sellerTransferCents,
-    metadata: taxPlan.metadata,
-  };
+  try {
+    const taxPlan = await resolveConnectPaymentTaxPlan({
+      shipTo: order,
+      itemPriceUsd: args.itemPriceUsd,
+      shippingPriceUsd: args.shippingPriceUsd,
+      applicationFeeCents: args.applicationFeeCents,
+      sellerId: args.sellerId,
+    });
+    await prisma.order.update({ where: { id: args.orderId }, data: orderTaxUpdateData(taxPlan.orderTax) });
+    return {
+      amountCents: taxPlan.amountCents,
+      feeCents: taxPlan.applicationFeeCents,
+      sellerTransferCents: taxPlan.sellerTransferCents,
+      metadata: taxPlan.metadata,
+    };
+  } catch (e) {
+    // Defense in depth: estimateSalesTaxCents soft-fails, but jurisdiction / ship-from lookups
+    // must never abort a live spot charge mid-show.
+    console.warn("[live charge] sales tax plan failed; proceeding without tax", {
+      orderId: args.orderId,
+      err: e instanceof Error ? e.message : String(e ?? ""),
+    });
+    return {
+      amountCents: Math.round((args.itemPriceUsd + args.shippingPriceUsd) * 100),
+      feeCents: args.applicationFeeCents,
+      sellerTransferCents: null as number | null,
+      metadata: {},
+    };
+  }
 }
 
 function mapLiveSavedCardStripeError(
@@ -805,17 +851,20 @@ export async function settleLiveItemVariantPurchase(args: {
           : "Payment is still processing.";
     const status =
       charge.outcome === "error" ? ("payment_failed" as const) : ("recovery_pending" as const);
-    const failure = await recordLiveRoomPaymentFailure({
-      liveRoomId: purchaseMeta.liveRoomId,
-      buyerId: args.buyerId,
-      kind: "variant_purchase",
-      liveRoomItemId: purchaseMeta.liveRoomItemId,
-      variantPurchaseId: args.purchaseId,
-      amountUsd: purchaseMeta.totalUsd,
-      status,
-      failureReason,
-      itemTitle: purchaseMeta.variant.label,
-    });
+    const sticky = shouldRecordStickyLiveChargeFailure(charge);
+    const failure = sticky
+      ? await recordLiveRoomPaymentFailure({
+          liveRoomId: purchaseMeta.liveRoomId,
+          buyerId: args.buyerId,
+          kind: "variant_purchase",
+          liveRoomItemId: purchaseMeta.liveRoomItemId,
+          variantPurchaseId: args.purchaseId,
+          amountUsd: purchaseMeta.totalUsd,
+          status,
+          failureReason,
+          itemTitle: purchaseMeta.variant.label,
+        })
+      : null;
     if (charge.outcome === "requires_action") {
       return {
         ok: true,
@@ -843,9 +892,9 @@ export async function settleLiveItemVariantPurchase(args: {
       ok: false,
       purchaseId: args.purchaseId,
       code: charge.code,
-      message: failure.failureReason ?? "Payment failed.",
+      message: failure?.failureReason ?? failureReason,
       paymentFailed: true,
-      paymentFailureId: failure.id,
+      paymentFailureId: failure?.id,
       fulfillmentDetail: charge.outcome === "error" ? charge.fulfillmentDetail : undefined,
     };
   }
@@ -1248,17 +1297,20 @@ export async function settleLiveItemVariantPurchaseBatch(args: {
           : "Payment is still processing.";
     const status =
       charge.outcome === "error" ? ("payment_failed" as const) : ("recovery_pending" as const);
-    const failure = await recordLiveRoomPaymentFailure({
-      liveRoomId: purchases[0].liveRoomId,
-      buyerId: args.buyerId,
-      kind: "variant_purchase",
-      liveRoomItemId: purchases[0].liveRoomItemId,
-      variantPurchaseId: purchases[0].id,
-      amountUsd: itemSumUsd,
-      status,
-      failureReason,
-      itemTitle,
-    });
+    const sticky = shouldRecordStickyLiveChargeFailure(charge);
+    const failure = sticky
+      ? await recordLiveRoomPaymentFailure({
+          liveRoomId: purchases[0].liveRoomId,
+          buyerId: args.buyerId,
+          kind: "variant_purchase",
+          liveRoomItemId: purchases[0].liveRoomItemId,
+          variantPurchaseId: purchases[0].id,
+          amountUsd: itemSumUsd,
+          status,
+          failureReason,
+          itemTitle,
+        })
+      : null;
     if (charge.outcome === "requires_action") {
       return {
         ok: true,
@@ -1286,9 +1338,9 @@ export async function settleLiveItemVariantPurchaseBatch(args: {
       batchId: args.batchId,
       purchaseIds,
       code: charge.code,
-      message: failure.failureReason ?? "Payment failed.",
+      message: failure?.failureReason ?? failureReason,
       paymentFailed: true,
-      paymentFailureId: failure.id,
+      paymentFailureId: failure?.id,
       fulfillmentDetail: charge.outcome === "error" ? charge.fulfillmentDetail : undefined,
     };
   }
@@ -1700,17 +1752,20 @@ export async function settleLiveBreakSpotPayment(args: {
         ? "Your bank requires additional verification."
         : "Payment is still processing.";
   const status = charge.outcome === "error" ? ("payment_failed" as const) : ("recovery_pending" as const);
-  const failure = await recordLiveRoomPaymentFailure({
-    liveRoomId: spot.liveRoomId,
-    buyerId: args.buyerId,
-    kind: "break_spot",
-    liveRoomItemId: spot.liveRoomItemId,
-    breakSpotId: spot.id,
-    amountUsd: spot.priceUsd,
-    status,
-    failureReason,
-    itemTitle: spot.spotLabel,
-  });
+  const sticky = shouldRecordStickyLiveChargeFailure(charge);
+  const failure = sticky
+    ? await recordLiveRoomPaymentFailure({
+        liveRoomId: spot.liveRoomId,
+        buyerId: args.buyerId,
+        kind: "break_spot",
+        liveRoomItemId: spot.liveRoomItemId,
+        breakSpotId: spot.id,
+        amountUsd: spot.priceUsd,
+        status,
+        failureReason,
+        itemTitle: spot.spotLabel,
+      })
+    : null;
 
   if (charge.outcome === "requires_action") {
     return {
@@ -1726,11 +1781,15 @@ export async function settleLiveBreakSpotPayment(args: {
 
   // Keep the BreakSpot claimed while an unresolved payment failure exists so the buyer can
   // update their card and retry. Host "Cancel retry" releases via releaseBreakSpotOnDefiniteFailure.
+  // Pre-Stripe prep failures (fulfillment/shipping) are non-sticky — release so they can re-claim.
+  if (charge.outcome === "error" && !sticky && charge.definiteFailure !== false) {
+    await releaseBreakSpotOnDefiniteFailure(spot.id);
+  }
   return {
     ok: false,
     code: charge.code,
-    message: failure.failureReason ?? "Payment failed. Update your card and try again.",
+    message: failure?.failureReason ?? failureReason,
     paymentFailed: true,
-    paymentFailureId: failure.id,
+    paymentFailureId: failure?.id,
   };
 }

@@ -34,5 +34,5 @@ export const SELLER_CONSOLE = {
   addSourceShop: 'From my shop',
   addSourceCopyShow: 'Copy last show',
   addSourceShopHint: 'Pull Live show or Marketplace inventory into this lineup.',
-  addSourceCopyHint: 'Clone unsold lots from a previous show.',
+  addSourceCopyHint: 'Bring unsold lots from a previous show — finish a break you did not complete.',
 } as const;

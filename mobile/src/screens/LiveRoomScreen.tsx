@@ -1,6 +1,6 @@
 import { useNavigation, useRoute, useFocusEffect, useIsFocused, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 import { fetchLiveShowsForDiscovery } from '../api/liveShowsDiscoveryRepository';
 import { fetchLiveRoomPublicById, liveRoomRowToLiveStream } from '../api/liveRoomsRepository';
@@ -14,8 +14,6 @@ import { useAuth } from '../auth/AuthContext';
 import type { LiveStackParamList } from '../navigation/types';
 import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
 import { navigateAuthLogin, navigateAuthSignUp } from '../navigation/rootNavigationRef';
-import { useLiveActiveSessionOptional } from '../live/LiveActiveSessionContext';
-import { useLiveMiniPlayerOptional } from '../live/LiveMiniPlayerContext';
 import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
 import { useStickyLiveAuth } from '../hooks/useStickyLiveAuth';
 import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
@@ -44,12 +42,6 @@ export function LiveRoomScreen() {
   // screen). `useIsFocused` is false whenever any parent navigator is also unfocused, so it covers
   // the tab-switch case where the screen stays mounted and would otherwise keep playing audio.
   const isFocused = useIsFocused();
-  const miniPlayer = useLiveMiniPlayerOptional();
-  const miniPlayerRef = useRef(miniPlayer);
-  miniPlayerRef.current = miniPlayer;
-  const activeSession = useLiveActiveSessionOptional();
-  const activeSessionRef = useRef(activeSession);
-  activeSessionRef.current = activeSession;
 
   useKeepScreenAwakeWhileFocused('live-room-buyer');
 
@@ -126,35 +118,8 @@ export function LiveRoomScreen() {
       // Soft visit — do NOT remount the whole feed via React key;
       // remount racing IVS leave/join blanks video until app kill.
       viewerLifecycleLog('screen_focused', { streamId, layer: 'LiveRoomScreen' });
-      const as = activeSessionRef.current;
-      const mp = miniPlayerRef.current;
-      const resumingHoisted = as?.mode === 'mini' && as.session?.roomId === streamId;
-      if (resumingHoisted) {
-        // Same Stage surface — restore room layout; do not tear down subscribe.
-        as.expand();
-        void reloadStreams();
-        return () => {
-          viewerLifecycleLog('screen_blurred', { streamId, layer: 'LiveRoomScreen' });
-        };
-      }
-      if (as?.mode === 'mini' && as.session && as.session.roomId !== streamId) {
-        as.close();
-      }
-      const resumingLegacyMini = mp?.session?.roomId === streamId;
-      if (resumingLegacyMini) {
-        void reloadStreams();
-        const dismissTimer = setTimeout(() => {
-          const cur = miniPlayerRef.current;
-          if (cur?.session?.roomId === streamId) cur.close();
-        }, 1_000);
-        return () => {
-          clearTimeout(dismissTimer);
-          viewerLifecycleLog('screen_blurred', { streamId, layer: 'LiveRoomScreen' });
-        };
-      }
-      if (mp?.session) {
-        mp.close();
-      }
+      // Re-focus after in-app nav (profile/DM/Settings) must soft-resume — bumping
+      // roomVisitNonce force-restarts Stage/HLS as if opening a brand-new show.
       void reloadStreams();
       return () => {
         viewerLifecycleLog('screen_blurred', { streamId, layer: 'LiveRoomScreen' });
@@ -225,7 +190,7 @@ export function LiveRoomScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: colors.background,
   },
   centered: {
     justifyContent: 'center',

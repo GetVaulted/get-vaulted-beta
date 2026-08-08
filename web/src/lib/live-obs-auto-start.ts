@@ -1,13 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
+import { isIvsWhipIngestEndpoint } from "@/lib/ivs-whip-ingest";
 import { emitAuctionStarted, emitLiveDiscoveryChanged, emitTeamBoardChanged } from "@/lib/realtime-emit-server";
 import { notifyFollowersSellerWentLive } from "@/lib/seller-follow-notify";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
 import { isLiveStreamSignal } from "@/lib/live-stream-playback";
 
 /**
- * When OBS starts pushing into a `channel_hls` room that is still scheduled, promote the room to
- * live so host commerce (pin / start auction) works without tapping Play on the phone.
+ * When OBS starts pushing (legacy RTMPS HLS **or** WHIP → Stage) into a room that is still
+ * scheduled, promote the room to live so host commerce works without tapping Play on the phone.
  *
  * Returns true when the room was started by this call.
  */
@@ -19,6 +20,8 @@ export async function maybeAutoStartObsRoomOnIngestSignal(liveRoomId: string): P
       status: true,
       streamMode: true,
       streamHealth: true,
+      ivsIngestEndpoint: true,
+      ivsStageArn: true,
       sellerId: true,
       roomType: true,
       discoveryVisibility: true,
@@ -27,8 +30,23 @@ export async function maybeAutoStartObsRoomOnIngestSignal(liveRoomId: string): P
   });
   if (!room) return false;
   if (room.status !== "scheduled") return false;
-  if (room.streamMode !== "channel_hls") return false;
-  if (!isLiveStreamSignal(room.streamHealth)) return false;
+
+  const legacyRtmps = room.streamMode === "channel_hls" && isLiveStreamSignal(room.streamHealth);
+  const whipStage =
+    room.streamMode === "stage_webrtc" &&
+    isIvsWhipIngestEndpoint(room.ivsIngestEndpoint) &&
+    Boolean(room.ivsStageArn);
+
+  if (!legacyRtmps && !whipStage) return false;
+
+  if (whipStage && room.ivsStageArn) {
+    const { countStagePublishers } = await import("@/services/ivs");
+    const publishers = await countStagePublishers(room.ivsStageArn);
+    if (publishers == null || publishers <= 0) {
+      // Also accept streamHealth already promoted by a prior reconcile.
+      if (!isLiveStreamSignal(room.streamHealth)) return false;
+    }
+  }
 
   const otherLiveCount = await prisma.liveRoom.count({
     where: { sellerId: room.sellerId, status: "live", NOT: { id: liveRoomId } },
@@ -47,14 +65,17 @@ export async function maybeAutoStartObsRoomOnIngestSignal(liveRoomId: string): P
     return false;
   }
 
+  const now = new Date();
   const started = await prisma.liveRoom.updateMany({
     where: { id: liveRoomId, status: "scheduled" },
     data: {
       status: "live",
-      startedAt: new Date(),
+      startedAt: now,
       endedAt: null,
       streamEndedAt: null,
       streamPaused: false,
+      streamHealth: "live",
+      streamStartedAt: now,
       completedSalesGmvUsd: 0,
       roomVersion: { increment: 1 },
     },
@@ -95,7 +116,8 @@ export async function maybeAutoStartObsRoomOnIngestSignal(liveRoomId: string): P
   emitLiveDiscoveryChanged({ roomId: liveRoomId, status: "live", reason: "obs_ingest_auto_start" });
   logIvsOpsServer("ivs_obs_auto_start", {
     roomId: liveRoomId,
-    streamHealth: room.streamHealth,
+    streamHealth: "live",
+    ingest: whipStage ? "whip" : "rtmps",
   });
   return true;
 }

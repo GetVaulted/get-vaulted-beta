@@ -100,6 +100,8 @@ describe("stage HLS composition (guest HLS mirror)", () => {
       ivsChannelArn: "arn:aws:ivs:us-east-1:123:channel/abc",
       streamStartedAt: new Date(Date.now() - 60_000),
     });
+    // GetStream probe fails (not ChannelNotBroadcasting) → composition state decides heal.
+    hoisted.channelSend.mockRejectedValueOnce({ name: "ThrottlingException" });
     // GetComposition probe reports the mirror still ACTIVE → it must not be stopped/restarted.
     hoisted.compositionSend.mockResolvedValueOnce({
       composition: { state: "ACTIVE", destinations: [{ state: "ACTIVE" }] },
@@ -240,6 +242,22 @@ describe("stage HLS composition (guest HLS mirror)", () => {
     );
   });
 
+  it("cutLiveBroadcastAwsBilling never StopStreams a live OBS channel_hls room", async () => {
+    const { cutLiveBroadcastAwsBilling } = await import("@/services/ivs");
+    hoisted.liveRoomFindUnique.mockResolvedValueOnce({
+      status: "live",
+      streamPaused: true,
+      streamMode: "channel_hls",
+      ivsStageArn: null,
+      ivsChannelArn: "arn:aws:ivs:us-east-1:123:channel/obs",
+    });
+
+    await cutLiveBroadcastAwsBilling("room_1");
+
+    expect(hoisted.channelSend).not.toHaveBeenCalled();
+    expect(hoisted.compositionSend).not.toHaveBeenCalled();
+  });
+
   it("cutLiveBroadcastAwsBilling skips when host is not paused and a publisher is still present", async () => {
     const { cutLiveBroadcastAwsBilling } = await import("@/services/ivs");
     hoisted.liveRoomFindUnique.mockResolvedValueOnce({
@@ -335,5 +353,64 @@ describe("ignoreChannelHealthDowngradeForActiveStage (Go Live race guard)", () =
     expect(
       await ignoreChannelHealthDowngradeForActiveStage({ liveRoomId: "room_1", newHealth: "offline" }),
     ).toBe(false);
+  });
+});
+
+describe("OBS channel health flap guards", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("isIvsChannelNotBroadcastingError detects AWS not-broadcasting faults", async () => {
+    const { isIvsChannelNotBroadcastingError } = await import("@/services/ivs");
+    expect(isIvsChannelNotBroadcastingError({ name: "ChannelNotBroadcasting" })).toBe(true);
+    expect(isIvsChannelNotBroadcastingError({ name: "ThrottlingException" })).toBe(false);
+  });
+
+  it("debounceObsChannelHealthDowngrade holds the first OBS offline sample", async () => {
+    const { debounceObsChannelHealthDowngrade } = await import("@/services/ivs");
+    hoisted.liveRoomFindUnique.mockResolvedValueOnce({
+      status: "live",
+      streamMode: "channel_hls",
+      lastIvsError: null,
+    });
+    hoisted.liveRoomUpdate.mockResolvedValueOnce({});
+
+    expect(
+      await debounceObsChannelHealthDowngrade({
+        liveRoomId: "room_obs",
+        previousHealth: "live",
+        newHealth: "offline",
+      }),
+    ).toBe(true);
+    expect(hoisted.liveRoomUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "room_obs" },
+        data: expect.objectContaining({
+          lastIvsError: expect.stringMatching(/^obs_offline_pending:/),
+        }),
+      }),
+    );
+  });
+
+  it("debounceObsChannelHealthDowngrade confirms offline after the grace window", async () => {
+    const { debounceObsChannelHealthDowngrade, OBS_CHANNEL_OFFLINE_CONFIRM_MS } = await import(
+      "@/services/ivs"
+    );
+    const started = new Date(Date.now() - OBS_CHANNEL_OFFLINE_CONFIRM_MS - 1_000).toISOString();
+    hoisted.liveRoomFindUnique.mockResolvedValueOnce({
+      status: "live",
+      streamMode: "channel_hls",
+      lastIvsError: `obs_offline_pending:${started}`,
+    });
+
+    expect(
+      await debounceObsChannelHealthDowngrade({
+        liveRoomId: "room_obs",
+        previousHealth: "live",
+        newHealth: "offline",
+      }),
+    ).toBe(false);
+    expect(hoisted.liveRoomUpdate).not.toHaveBeenCalled();
   });
 });

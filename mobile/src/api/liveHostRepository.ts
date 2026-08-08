@@ -326,7 +326,12 @@ export async function provisionHostStream(
   );
   let j: {
     stream?: HostStreamPayload;
-    ingest?: { endpoint?: string; oneTimeStreamKey?: string };
+    ingest?: {
+      endpoint?: string;
+      oneTimeStreamKey?: string;
+      participantToken?: string;
+      whipServerUrl?: string;
+    };
     error?: string;
   } = {};
   try {
@@ -335,8 +340,12 @@ export async function provisionHostStream(
     /* ignore */
   }
   if (!res.ok) throw new Error(apiErrorMessage(res, j));
-  const endpoint = j.ingest?.endpoint?.trim() ?? j.stream?.ingestEndpoint?.trim() ?? '';
-  const key = j.ingest?.oneTimeStreamKey?.trim() ?? '';
+  const endpoint =
+    j.ingest?.whipServerUrl?.trim() ??
+    j.ingest?.endpoint?.trim() ??
+    j.stream?.ingestEndpoint?.trim() ??
+    '';
+  const key = j.ingest?.oneTimeStreamKey?.trim() ?? j.ingest?.participantToken?.trim() ?? '';
   if (!endpoint || !key) throw new Error('Stream provision did not return ingest details.');
   if (!j.stream) throw new Error('Stream provision incomplete.');
   return { stream: j.stream, ingestEndpoint: endpoint, oneTimeStreamKey: key };

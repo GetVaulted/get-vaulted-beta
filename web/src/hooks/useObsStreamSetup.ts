@@ -13,6 +13,12 @@ export type ObsStreamPayload = {
   ingestEndpoint?: string | null;
   lastStatusSyncAt: string | null;
   streamStartedAt: string | null;
+  /** Configured app default (env). */
+  latencyMode?: string | null;
+  /** Real AWS IVS channel latency from GetChannel (LOW vs NORMAL). */
+  actualLatencyMode?: string | null;
+  ingestProtocol?: "whip" | "rtmps" | null;
+  whipServerUrl?: string | null;
 };
 
 export function useObsStreamSetup(roomId: string | null, roomStatus: string | null) {
@@ -70,16 +76,27 @@ export function useObsStreamSetup(roomId: string | null, roomStatus: string | nu
       });
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
+        protocol?: string;
         stream?: ObsStreamPayload;
-        ingest?: { endpoint?: string; oneTimeStreamKey?: string };
+        ingest?: {
+          endpoint?: string;
+          oneTimeStreamKey?: string;
+          participantToken?: string;
+          whipServerUrl?: string;
+          expiresInSeconds?: number;
+        };
       };
       if (!res.ok) {
         setError(typeof j.error === "string" ? j.error : "Stream setup failed.");
         return;
       }
       setStream(j.stream ?? null);
-      setOneTimeKey(j.ingest?.oneTimeStreamKey ?? null);
-      setNotice("Stream ready. Copy RTMPS URL and stream key into OBS, then Start Streaming.");
+      setOneTimeKey(j.ingest?.oneTimeStreamKey ?? j.ingest?.participantToken ?? null);
+      setNotice(
+        j.protocol === "whip" || j.ingest?.whipServerUrl
+          ? "OBS WebRTC ready. In OBS 30+: Settings → Stream → Service WHIP. Paste Server + Bearer Token, then Start Streaming."
+          : "Stream ready. Copy RTMPS URL and stream key into OBS, then Start Streaming.",
+      );
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -100,16 +117,26 @@ export function useObsStreamSetup(roomId: string | null, roomStatus: string | nu
       });
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
+        protocol?: string;
         stream?: ObsStreamPayload;
-        ingest?: { oneTimeStreamKey?: string };
+        ingest?: {
+          oneTimeStreamKey?: string;
+          participantToken?: string;
+          whipServerUrl?: string;
+          expiresInSeconds?: number;
+        };
       };
       if (!res.ok) {
         setError(typeof j.error === "string" ? j.error : "Could not rotate stream key.");
         return;
       }
       setStream(j.stream ?? null);
-      setOneTimeKey(j.ingest?.oneTimeStreamKey ?? null);
-      setNotice("New stream key issued. Update OBS immediately.");
+      setOneTimeKey(j.ingest?.oneTimeStreamKey ?? j.ingest?.participantToken ?? null);
+      setNotice(
+        j.protocol === "whip"
+          ? "New WHIP bearer token issued. Paste it into OBS → Stream → Bearer Token, then Start Streaming."
+          : "New stream key issued. Update OBS immediately.",
+      );
     } catch {
       setError("Network error. Please try again.");
     } finally {

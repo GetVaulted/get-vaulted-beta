@@ -253,10 +253,12 @@ export default function TermsPage() {
             checkout, or in seller tools. As of the date above, our standard fees are:
           </p>
           <ul className="mt-2 list-disc space-y-2 pl-5 text-muted">
-            <li>Marketplace (Buy Now) sales: an 8% platform fee on the item price (shipping and tax are excluded);</li>
             <li>
-              Vault Events / live-show sales: a tiered platform fee based on your show’s gross sales — 8% on the first
-              $1,000, 7.25% from $1,000 up to $3,000, and 6.5% above $3,000 in a single show;
+              Marketplace (Buy Now) sales: a 6.75% platform fee on the item price (shipping and tax are excluded);
+            </li>
+            <li>
+              Vault Events / live-show sales: a tiered platform fee based on your show’s gross sales — 6.75% until
+              $3,000, 5.75% from $3,000 up to $5,500, and 5% above $5,500 in a single show;
             </li>
             <li>
               Trade Center: one charge per party of a $2.99 Get Vaulted platform fee plus that party’s outbound shipping

@@ -1,6 +1,6 @@
 import type { TeamBoardLeague } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { TEAM_BOARD_SETS, teamBoardLeagueKey } from "@/lib/team-board-sets";
+import { teamBoardLeagueKey, teamBoardTeamsForActiveItem } from "@/lib/team-board-sets";
 import type { TeamBoardPickDTO, TeamBoardPublicPayload, TeamBoardStateDTO } from "@/lib/team-board-public-dto";
 
 export type { TeamBoardPickDTO, TeamBoardPublicPayload, TeamBoardStateDTO } from "@/lib/team-board-public-dto";
@@ -25,7 +25,16 @@ export async function getTeamBoardPublicPayload(liveRoomId: string): Promise<Tea
       items: {
         where: { status: "active" },
         take: 1,
-        select: { teamBoardMisc: true, teamBoardNcaa: true },
+        select: {
+          teamBoardMisc: true,
+          teamBoardNcaa: true,
+          salesFormat: true,
+          variantAssignmentMode: true,
+          variants: {
+            select: { label: true, color: true, status: true, sortOrder: true },
+            orderBy: { sortOrder: "asc" },
+          },
+        },
       },
     },
   });
@@ -46,16 +55,19 @@ export async function getTeamBoardPublicPayload(liveRoomId: string): Promise<Tea
   });
 
   const league: TeamBoardLeague = room.teamBoardLeague ?? board?.league ?? "nba";
-  const activeMisc = room.items[0]?.teamBoardMisc === true;
-  const activeNcaa = room.items[0]?.teamBoardNcaa === true;
+  const activeItem = room.items[0] ?? null;
+  const activeMisc = activeItem?.teamBoardMisc === true;
+  const activeNcaa = activeItem?.teamBoardNcaa === true;
   const includeMisc = league === "nfl" && activeMisc;
   const includeNcaa = league === "nfl" && activeNcaa;
-  const base = TEAM_BOARD_SETS[teamBoardLeagueKey(league)];
-  const teams = [
-    ...base,
-    ...(includeMisc ? (["MISC"] as const) : []),
-    ...(includeNcaa ? (["NCAA"] as const) : []),
-  ];
+  const teams = teamBoardTeamsForActiveItem({
+    league: teamBoardLeagueKey(league),
+    salesFormat: activeItem?.salesFormat,
+    variantAssignmentMode: activeItem?.variantAssignmentMode,
+    variants: activeItem?.variants,
+    includeMisc,
+    includeNcaa,
+  });
 
   const state: TeamBoardStateDTO = {
     liveRoomId,

@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/services/platform-fee-settings", () => ({
-  getCachedMarketplacePlatformFeePercent: () => 8,
+  getCachedMarketplacePlatformFeePercent: () => 6.75,
 }));
 
 vi.mock("@/services/live-show-fee-settings", () => ({
   getCachedLiveShowFeeConfig: () => ({
-    tier1FeePercent: 8,
-    tier2FeePercent: 7.25,
-    tier3FeePercent: 6.5,
-    tier2ThresholdUsd: 1000,
-    tier3ThresholdUsd: 3000,
+    tier1FeePercent: 6.75,
+    tier2FeePercent: 5.75,
+    tier3FeePercent: 5,
+    tier2ThresholdUsd: 3000,
+    tier3ThresholdUsd: 5500,
   }),
 }));
 
@@ -50,7 +50,7 @@ describe("off-platform settlement", () => {
       liveShowCompletedGmvUsd: 0,
     });
     expect(paid.feeStatus).toBe("unpaid");
-    expect(paid.feePercent).toBe(8);
-    expect(paid.feeCents).toBe(800);
+    expect(paid.feePercent).toBe(6.75);
+    expect(paid.feeCents).toBe(675);
   });
 });

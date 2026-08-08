@@ -1,20 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { resolveLedgerDateRange, ledgerRangeToLegacy } from "@/lib/admin/financial-ledger-range";
+import {
+  resolveLedgerDateRange,
+  ledgerRangeToLegacy,
+  ADMIN_LEDGER_TIMEZONE,
+} from "@/lib/admin/financial-ledger-range";
 
 describe("resolveLedgerDateRange", () => {
+  // 2026-07-19 15:00 UTC = 10:00 America/Chicago (CDT, UTC-5)
   const now = new Date("2026-07-19T15:00:00.000Z");
 
-  it("resolves today to UTC midnight", () => {
+  it("resolves today to Chicago midnight", () => {
     const r = resolveLedgerDateRange({ range: "today", now });
     expect(r.rangeKey).toBe("today");
-    expect(r.rangeStart?.toISOString()).toBe("2026-07-19T00:00:00.000Z");
+    expect(r.rangeStart?.toISOString()).toBe("2026-07-19T05:00:00.000Z");
     expect(r.rangeEnd).toBeNull();
   });
 
-  it("resolves yesterday with exclusive end", () => {
+  it("resolves yesterday with exclusive end at Chicago midnight", () => {
     const r = resolveLedgerDateRange({ range: "yesterday", now });
-    expect(r.rangeStart?.toISOString()).toBe("2026-07-18T00:00:00.000Z");
-    expect(r.rangeEnd?.toISOString()).toBe("2026-07-19T00:00:00.000Z");
+    expect(r.rangeStart?.toISOString()).toBe("2026-07-18T05:00:00.000Z");
+    expect(r.rangeEnd?.toISOString()).toBe("2026-07-19T05:00:00.000Z");
+  });
+
+  it("uses America/Chicago by default", () => {
+    expect(ADMIN_LEDGER_TIMEZONE).toBe("America/Chicago");
   });
 
   it("maps custom from/to", () => {

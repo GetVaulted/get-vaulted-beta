@@ -23,7 +23,7 @@ import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhile
 import { useMobileStagePublish } from '../hooks/useMobileStagePublish';
 import { shouldClearStreamPausedAfterHostResume } from '../lib/livePlaybackAppState';
 import { isLiveRoomRemotePublisherActive } from '../lib/liveRoomBroadcastOnAir';
-import { isObsChannelHlsMode } from '../lib/liveObsChannelMode';
+import { isObsDesktopBroadcastMode } from '../lib/liveObsChannelMode';
 import { formatIvsObsIngestUrl } from '../lib/ivsObsIngestUrl';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
@@ -207,7 +207,13 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   useEffect(() => {
     if (!token || !room || loading) return;
     if (room.status !== 'scheduled') return;
-    if (!isObsChannelHlsMode(stream?.streamMode)) return;
+    if (
+      !isObsDesktopBroadcastMode({
+        streamMode: stream?.streamMode,
+        ingestEndpoint: stream?.ingestEndpoint ?? ingestEndpoint,
+      })
+    )
+      return;
     let cancelled = false;
     const tick = async () => {
       try {
@@ -372,14 +378,19 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     if (autoResumeRef.current) return;
     // Wait for stream status so we can tell companion (already on-air) from crash recovery (offline).
     if (!stream) return;
-    autoResumeRef.current = true;
 
-    // OBS / RTMP shows must never auto-open the phone camera on host room open.
-    if (isObsChannelHlsMode(stream.streamMode)) {
+    // OBS / desktop ingest must never auto-open the phone camera on host room open.
+    if (
+      isObsDesktopBroadcastMode({
+        streamMode: stream.streamMode,
+        ingestEndpoint: stream.ingestEndpoint ?? ingestEndpoint,
+      })
+    ) {
+      autoResumeRef.current = true;
       return;
     }
 
-    // Strong publisher signal only — soft Stage warm-up must not block crash auto-resume.
+    // Strong publisher signal only — `connecting` is “waiting on host”, not companion.
     const remotePublisherActive = isLiveRoomRemotePublisherActive({
       status: room.status,
       streamHealth: stream.streamHealth ?? 'offline',
@@ -390,9 +401,11 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     });
     if (remotePublisherActive) {
       // Companion: keep this device as command center; don't fight the publishing device for Stage.
+      autoResumeRef.current = true;
       return;
     }
 
+    autoResumeRef.current = true;
     void onResumeBroadcast();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once per live room open
   }, [

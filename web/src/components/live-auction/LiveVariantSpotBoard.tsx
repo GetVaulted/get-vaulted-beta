@@ -55,7 +55,7 @@ export function LiveVariantSpotBoard({
   const canHostEdit = hostMode && !breakRoster;
   const viewerKey = highlightUsername?.trim().replace(/^@+/, "").toLowerCase() ?? "";
 
-  if (hostMode && minimized) {
+  if (minimized) {
     return (
       <div className="pointer-events-auto flex max-w-lg items-center gap-2 rounded-full border border-white/10 bg-zinc-950/90 py-1.5 pl-3 pr-1.5 shadow-lg backdrop-blur-xl">
         <div className="min-w-0 flex-1">
@@ -104,7 +104,7 @@ export function LiveVariantSpotBoard({
             {canHostEdit && onPinVariant ? " · use Pin on a team to feature it for buyers" : ""}
           </p>
         </div>
-        {hostMode ? (
+        {hostMode || onToggleMinimized ? (
           <div className="flex shrink-0 items-center gap-1">
             {canHostEdit && onEditSpots ? (
               <button
@@ -130,9 +130,10 @@ export function LiveVariantSpotBoard({
               <button
                 type="button"
                 onClick={onToggleMinimized}
+                aria-label={hostMode ? "Minimize spot board" : "Close spot board"}
                 className="rounded-lg border border-white/12 bg-black/40 px-2 py-1 text-[8px] font-black uppercase tracking-wide text-zinc-400 hover:text-zinc-200"
               >
-                −
+                {hostMode ? "−" : "Close"}
               </button>
             ) : null}
           </div>

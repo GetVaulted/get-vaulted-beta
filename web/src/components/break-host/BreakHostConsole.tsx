@@ -40,7 +40,7 @@ import {
   resolveLiveAuctionHostStartLotPhase,
 } from "@/lib/live-auction-host-start";
 import { isLiveRoomBroadcastOnAir } from "@/lib/live-room-broadcast-on-air";
-import { isObsChannelHlsMode } from "@/lib/live-obs-channel-mode";
+import { isObsDesktopBroadcastMode } from "@/lib/live-obs-channel-mode";
 import { canonicalLiveRoomUrl } from "@/lib/live-room-share-metadata";
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import {
@@ -146,6 +146,7 @@ type RoomPayload = {
   streamHealth?: string;
   streamPaused?: boolean;
   streamMode?: string;
+  ingestEndpoint?: string | null;
   thumbnailUrl?: string | null;
 };
 
@@ -920,11 +921,17 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     return () => clearInterval(t);
   }, [load, data?.room?.status]);
 
-  // OBS scheduled rooms: poll IVS sync so Start Streaming auto-starts commerce without Play.
+  // OBS scheduled rooms (legacy RTMPS or WHIP): poll IVS sync so Start Streaming auto-starts commerce.
   useEffect(() => {
     if (!roomId) return;
     if (data?.room?.status !== "scheduled") return;
-    if (!isObsChannelHlsMode(data.room.streamMode)) return;
+    if (
+      !isObsDesktopBroadcastMode({
+        streamMode: data.room.streamMode,
+        ingestEndpoint: data.room.ingestEndpoint,
+      })
+    )
+      return;
     let cancelled = false;
     const tick = async () => {
       try {
@@ -947,7 +954,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [roomId, data?.room?.status, data?.room?.streamMode, load]);
+  }, [roomId, data?.room?.status, data?.room?.streamMode, data?.room?.ingestEndpoint, load]);
 
   useEffect(() => {
     void loadTeamBoard();
@@ -1776,8 +1783,13 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
    */
   const handleGoLive = useCallback(() => {
     setVaultCommandOpen(false);
-    // OBS / RTMP path: open the room only — PC webcam Go Live would steal buyers off OBS.
-    if (isObsChannelHlsMode(data?.room?.streamMode)) {
+    // OBS path: open the room only — PC webcam Go Live would steal buyers off OBS.
+    if (
+      isObsDesktopBroadcastMode({
+        streamMode: data?.room?.streamMode,
+        ingestEndpoint: data?.room?.ingestEndpoint,
+      })
+    ) {
       goLivePatchRequestedRef.current = true;
       void patchRoom("start");
       setToast("Show started — keep Start Streaming on in OBS. Video comes from OBS, not this camera.");
@@ -1786,14 +1798,19 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     goLivePatchRequestedRef.current = true;
     void webcamBroadcast.start();
     void patchRoom("start");
-  }, [data?.room?.streamMode, patchRoom, webcamBroadcast]);
+  }, [data?.room?.streamMode, data?.room?.ingestEndpoint, patchRoom, webcamBroadcast]);
 
   // Preview only when this PC will be the camera. If the show is already on air from the phone,
   // stay in companion mode (no getUserMedia) so the console loads without a stream error.
-  // OBS / RTMP rooms never need a PC webcam preview — video comes from OBS.
+  // OBS rooms never need a PC webcam preview — video comes from OBS.
   useEffect(() => {
     if (!data?.room) return;
-    if (isObsChannelHlsMode(data.room.streamMode)) {
+    if (
+      isObsDesktopBroadcastMode({
+        streamMode: data.room.streamMode,
+        ingestEndpoint: data.room.ingestEndpoint,
+      })
+    ) {
       webcamBroadcast.releasePreview();
       return;
     }

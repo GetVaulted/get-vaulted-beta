@@ -32,8 +32,6 @@ import { fetchSellerFollowStatus, toggleSellerFollow } from '../../api/sellerFol
 import type { LiveStream, ChatMessage } from '../../types';
 import type { LiveStackParamList } from '../../navigation/types';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
-import { useLiveActiveSessionOptional } from '../../live/LiveActiveSessionContext';
-import { useLiveMiniPlayerOptional } from '../../live/LiveMiniPlayerContext';
 import { openLiveHostProfile, openUserProfile } from '../../navigation/openPlatform';
 import { UserAvatar } from '../ui/UserAvatar';
 import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
@@ -109,7 +107,7 @@ import {
 } from '../../lib/liveRoomViewport';
 import { isCompactLiveRoomLayout, liveRoomOverlayScale } from '../../lib/liveRoomUiScale';
 import { LiveRoomShareSheet } from './LiveRoomShareSheet';
-import { invalidateBuyerLiveStreamCache, peekCachedBuyerLiveStream, prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
+import { invalidateBuyerLiveStreamCache, prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
 import { WARM_NEIGHBOR_RADIUS } from '../../lib/liveStreamPlayback';
 import { resolveLiveFeedPageCorrection } from '../../lib/pinSelectedLiveStream';
 import type { LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
@@ -239,8 +237,6 @@ function LiveSlide({
   const insets = useSafeAreaInsets();
   const stageInsets = computeLiveStageSafeInsets(stageContainer, screenHeight, insets, spacing.sm);
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
-  const miniPlayer = useLiveMiniPlayerOptional();
-  const activeSession = useLiveActiveSessionOptional();
   const openWalletRef = useRef<(reason?: string) => void>(() => {});
   const layoutWidth = stageContainer.designWidth;
   const compact = isCompactLiveRoomLayout(layoutWidth);
@@ -318,114 +314,18 @@ function LiveSlide({
     setWalletReadiness(null);
   }, [isActive, roomVisitNonce, stream.id]);
 
-  const leaveAllowRef = useRef(false);
-
+  /** Leave the live room. OS PiP is home-swipe only — no in-app mini float. */
   const leaveRoomSafely = useCallback(() => {
     setWalletGateSheetOpen(false);
     onPaymentBlockerChange?.(false);
     onWalletGateHostChange?.(null, null);
-    const health = (broadcastGate.streamHealth ?? '').toLowerCase();
-    const canMinimize =
-      roomStatus === 'live' ||
-      broadcastGate.status === 'live' ||
-      health === 'live' ||
-      health === 'connecting';
-    if (canMinimize && activeSession) {
-      // Layout-only minimize: root Stage/HLS surface stays joined (OS PiP parity).
-      const existing = activeSession.session;
-      activeSession.minimize({
-        roomId: stream.id,
-        title: stream.title?.trim() || 'Live show',
-        hostLabel: stream.host?.handle
-          ? `@${stream.host.handle.replace(/^@/, '')}`
-          : stream.host?.name?.trim() || '',
-        thumbnailUrl: stream.previewImageUrl?.trim() || '',
-        accessToken: accessToken ?? existing?.accessToken,
-        transport: existing?.transport,
-        playbackUrl: existing?.playbackUrl,
-        subscribeEpoch: existing?.subscribeEpoch,
-        foregroundResumeNonce: existing?.foregroundResumeNonce,
-        contentFit: existing?.contentFit,
-        hostPaused: existing?.hostPaused,
-      });
-    } else if (canMinimize && miniPlayer) {
-      const cached = peekCachedBuyerLiveStream(stream.id);
-      const warmUrl =
-        miniPlayer.peekWarmPlaybackUrl(stream.id) || cached?.playbackUrl?.trim() || null;
-      miniPlayer.minimize({
-        roomId: stream.id,
-        title: stream.title?.trim() || 'Live show',
-        hostLabel: stream.host?.handle
-          ? `@${stream.host.handle.replace(/^@/, '')}`
-          : stream.host?.name?.trim() || '',
-        thumbnailUrl: stream.previewImageUrl?.trim() || '',
-        accessToken,
-        playbackUrl: warmUrl,
-      });
+    if (stackNav.canGoBack()) {
+      stackNav.goBack();
+      return;
     }
-    leaveAllowRef.current = true;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (stackNav.canGoBack()) {
-          stackNav.goBack();
-          return;
-        }
-        stackNav.navigate('LiveDiscovery');
-        onBack?.();
-      });
-    });
-  }, [
-    accessToken,
-    activeSession,
-    broadcastGate.status,
-    broadcastGate.streamHealth,
-    miniPlayer,
-    onBack,
-    onPaymentBlockerChange,
-    onWalletGateHostChange,
-    stackNav,
-    stream.host?.handle,
-    stream.host?.name,
-    stream.id,
-    stream.previewImageUrl,
-    roomStatus,
-    stream.title,
-  ]);
-
-  // Hardware back + iOS edge-swipe must minimize like the in-room Back chevron.
-  useEffect(() => {
-    if (!isActive) return;
-    const unsub = stackNav.addListener('beforeRemove', (e) => {
-      if (leaveAllowRef.current) {
-        leaveAllowRef.current = false;
-        return;
-      }
-      const actionType = e.data.action.type;
-      // Only intercept back/pop — do not trap navigates to other screens.
-      if (actionType !== 'GO_BACK' && actionType !== 'POP' && actionType !== 'POP_TO_TOP') {
-        return;
-      }
-      const health = (broadcastGate.streamHealth ?? '').toLowerCase();
-      const canMinimize =
-        roomStatus === 'live' ||
-        broadcastGate.status === 'live' ||
-        health === 'live' ||
-        health === 'connecting';
-      if (!canMinimize || (!activeSession && !miniPlayer)) return;
-      e.preventDefault();
-      leaveRoomSafely();
-    });
-    return unsub;
-  }, [
-    activeSession,
-    broadcastGate.status,
-    broadcastGate.streamHealth,
-    isActive,
-    leaveRoomSafely,
-    miniPlayer,
-    roomStatus,
-    stackNav,
-  ]);
+    stackNav.navigate('LiveDiscovery');
+    onBack?.();
+  }, [onBack, onPaymentBlockerChange, onWalletGateHostChange, stackNav]);
 
   const moderation = useLiveRoomModeration({
     roomId: stream.id,
@@ -1297,7 +1197,12 @@ function LiveSlide({
       <View style={styles.slide}>
         <KeyboardDismissStageShield active={keyboardOffset > 0} />
         <View style={computeLiveStageHostStyle(stageContainer)}>
-          <View style={[styles.stageRoot, computeLiveStageRootStyle(stageContainer)]}>
+          <View
+            style={[
+              styles.stageRoot,
+              computeLiveStageRootStyle(stageContainer),
+            ]}
+          >
             <GestureDetector gesture={stageGestures}>
               <View style={styles.stageGestureRoot}>
             <View
@@ -2470,6 +2375,9 @@ const styles = StyleSheet.create({
   slide: {
     flex: 1,
     overflow: 'hidden',
+    backgroundColor: '#000',
+  },
+  slideHosted: {
     backgroundColor: 'transparent',
   },
   connectionBanner: {
@@ -2513,8 +2421,11 @@ const styles = StyleSheet.create({
   },
   recoveryToastTxt: { color: colors.gold, fontSize: 12, fontWeight: '700', textAlign: 'center' },
   stageRoot: {
-    backgroundColor: 'transparent',
+    backgroundColor: '#000',
     overflow: 'hidden',
+  },
+  stageRootHosted: {
+    backgroundColor: 'transparent',
   },
   stageGestureRoot: {
     ...StyleSheet.absoluteFillObject,
@@ -2528,6 +2439,9 @@ const styles = StyleSheet.create({
   stageVideoFrame: {
     ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
+    backgroundColor: '#000',
+  },
+  stageVideoFrameHosted: {
     backgroundColor: 'transparent',
   },
   topBar: {

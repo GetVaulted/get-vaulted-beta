@@ -23,8 +23,8 @@ describe("live show fee settings cache", () => {
   });
 
   it("falls back to code defaults only before the cache is warmed", () => {
-    expect(getCachedLiveShowFeeConfig().tier1FeePercent).toBe(8);
-    expect(getCachedLiveShowFeeConfig().tier2FeePercent).toBe(7.25);
+    expect(getCachedLiveShowFeeConfig().tier1FeePercent).toBe(6.75);
+    expect(getCachedLiveShowFeeConfig().tier2FeePercent).toBe(5.75);
   });
 
   it("keeps admin DB values on sync reads after warm, even past TTL", async () => {

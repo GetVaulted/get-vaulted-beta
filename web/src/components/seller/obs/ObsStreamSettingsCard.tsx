@@ -47,13 +47,24 @@ export function ObsStreamSettingsCard({
 
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         <div className="rounded-xl border border-white/10 bg-zinc-950/70 p-3">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">RTMPS ingest URL</p>
-          <p className="mt-1 break-all text-xs text-zinc-200">{setup.stream?.ingestEndpoint || "Not set up yet"}</p>
-          {setup.stream?.ingestEndpoint ? (
+          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+            {setup.stream?.ingestProtocol === "whip" || setup.stream?.whipServerUrl
+              ? "WHIP server"
+              : "RTMPS ingest URL"}
+          </p>
+          <p className="mt-1 break-all text-xs text-zinc-200">
+            {setup.stream?.whipServerUrl || setup.stream?.ingestEndpoint || "Not set up yet"}
+          </p>
+          {setup.stream?.whipServerUrl || setup.stream?.ingestEndpoint ? (
             <button
               type="button"
               className="mt-2 min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold text-zinc-200 hover:bg-white/[0.06]"
-              onClick={() => void setup.copyText(setup.stream!.ingestEndpoint!, "RTMPS URL")}
+              onClick={() =>
+                void setup.copyText(
+                  setup.stream?.whipServerUrl || setup.stream!.ingestEndpoint!,
+                  setup.stream?.ingestProtocol === "whip" ? "WHIP server" : "RTMPS URL",
+                )
+              }
             >
               {OBS_STUDIO.copyServer}
             </button>
@@ -61,12 +72,16 @@ export function ObsStreamSettingsCard({
         </div>
 
         <div className="rounded-xl border border-white/10 bg-zinc-950/70 p-3">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Stream key</p>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+            {setup.stream?.ingestProtocol === "whip" ? "Bearer token" : "Stream key"}
+          </p>
           <p className="mt-1 break-all text-xs text-zinc-200">{setup.maskedKey}</p>
           {setup.hasIngest && !setup.oneTimeKey ? (
             <p className="mt-2 text-[11px] leading-relaxed text-amber-200/90">{OBS_STUDIO.keyMissingHint}</p>
           ) : (
-            <p className="mt-1 text-[11px] text-amber-200/85">Private — anyone with this key can stream to your room.</p>
+            <p className="mt-1 text-[11px] text-amber-200/85">
+              Private — anyone with this token can publish into your live Stage.
+            </p>
           )}
           <div className="mt-2 flex flex-wrap gap-2">
             <button
@@ -81,7 +96,14 @@ export function ObsStreamSettingsCard({
               type="button"
               disabled={!setup.oneTimeKey}
               className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold text-zinc-200 hover:bg-white/[0.06] disabled:opacity-40"
-              onClick={() => (setup.oneTimeKey ? void setup.copyText(setup.oneTimeKey, "Stream key") : undefined)}
+              onClick={() =>
+                setup.oneTimeKey
+                  ? void setup.copyText(
+                      setup.oneTimeKey,
+                      setup.stream?.ingestProtocol === "whip" ? "Bearer token" : "Stream key",
+                    )
+                  : undefined
+              }
             >
               {OBS_STUDIO.copyKey}
             </button>
@@ -91,10 +113,27 @@ export function ObsStreamSettingsCard({
 
       <div className="mt-3 rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-xs text-zinc-300">
         <p>
+          <span className="text-zinc-500">{OBS_STUDIO.whipPath}:</span>{" "}
+          {setup.stream?.ingestProtocol === "whip" || setup.stream?.whipServerUrl
+            ? OBS_STUDIO.whipPathLabel
+            : setup.stream?.ingestEndpoint
+              ? "Legacy RTMPS / HLS (~3–5s)"
+              : "Not connected"}
+        </p>
+        <p className="mt-1">
           <span className="text-zinc-500">{OBS_STUDIO.connectionState}:</span> {obsConnectionLabel(setup.connectionState)}
         </p>
         <p className="mt-1">
           <span className="text-zinc-500">{OBS_STUDIO.lastHeartbeat}:</span> {prettyDate(setup.stream?.lastStatusSyncAt ?? null)}
+        </p>
+        <p className="mt-1">
+          <span className="text-zinc-500">{OBS_STUDIO.channelLatency}:</span>{" "}
+          {(() => {
+            const mode = (setup.stream?.actualLatencyMode ?? "").toUpperCase();
+            if (mode === "LOW") return OBS_STUDIO.channelLatencyLow;
+            if (mode === "NORMAL") return OBS_STUDIO.channelLatencyNormal;
+            return OBS_STUDIO.channelLatencyUnknown;
+          })()}
         </p>
       </div>
 

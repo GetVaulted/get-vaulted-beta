@@ -13,6 +13,7 @@ import {
 import {
   ledgerRangeToLegacy,
   prismaCreatedAtFilter,
+  prismaSaleAtFilter,
   resolveLedgerDateRange,
   type LedgerRangeKey,
 } from "@/lib/admin/financial-ledger-range";
@@ -41,6 +42,9 @@ const orderLedgerSelect = {
   stripeBalanceTransactionId: true,
   stripeProcessingFeeCents: true,
   stripeApplicationFeeCents: true,
+  platformFeeCents: true,
+  platformFeePercentApplied: true,
+  platformFeeBasisCents: true,
   stripeNetCents: true,
   stripeTransferId: true,
   sellerPayoutProcessor: true,
@@ -146,6 +150,9 @@ function toLedgerInput(o: OrderRow): OrderLedgerInput {
     stripeBalanceTransactionId: o.stripeBalanceTransactionId,
     stripeProcessingFeeCents: o.stripeProcessingFeeCents,
     stripeApplicationFeeCents: o.stripeApplicationFeeCents,
+    platformFeeCents: o.platformFeeCents,
+    platformFeePercentApplied: o.platformFeePercentApplied,
+    platformFeeBasisCents: o.platformFeeBasisCents,
     stripeNetCents: o.stripeNetCents,
     stripeTransferId: o.stripeTransferId,
     sellerPayoutProcessor: o.sellerPayoutProcessor,
@@ -213,12 +220,13 @@ export type FinancialLedgerFilters = {
 
 async function loadOrdersForLedger(filters: FinancialLedgerFilters): Promise<OrderRow[]> {
   const range = resolveLedgerDateRange(filters);
-  const createdAt = prismaCreatedAtFilter(range);
+  const saleAt = prismaSaleAtFilter(range);
 
   const where: Prisma.OrderWhereInput = {
-    ...createdAt,
     paymentStatus: { in: [...PAID_STATUSES] },
   };
+  const andParts: Prisma.OrderWhereInput[] = [];
+  if (Object.keys(saleAt).length > 0) andParts.push(saleAt);
 
   if (filters.orderId?.trim()) where.id = filters.orderId.trim();
   if (filters.paymentStatuses?.trim()) {
@@ -234,7 +242,6 @@ async function loadOrdersForLedger(filters: FinancialLedgerFilters): Promise<Ord
   } else if (filters.payoutStatus?.trim()) {
     where.payoutStatus = filters.payoutStatus.trim() as never;
   }
-  const andParts: Prisma.OrderWhereInput[] = [];
   if (filters.hasLabel === "1") {
     andParts.push({
       OR: [

@@ -41,7 +41,7 @@ vi.mock("@/services/shipping/live-item-shipping-snapshot", () => ({
   captureLiveRoomItemShippingSnapshotTx: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@/lib/seller-stripe-collect-ready", () => ({
-  assertSellerStripeCollectReadyFromUser: vi.fn(),
+  liveSavedCardSellerReady: vi.fn().mockReturnValue(true),
   sellerStripeCollectSelect: {},
 }));
 vi.mock("@/lib/live-giveaway", () => ({ recordBuyerGiveawayPurchaseEntries: vi.fn().mockResolvedValue(undefined) }));
