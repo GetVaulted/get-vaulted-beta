@@ -2,8 +2,9 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   estimatePlatformFeeUsd,
-  estimateStripeProcessingFeeUsd,
+  estimateSellerOrderPayoutUsd,
   resolvePlatformFeePercentForSellerOrder,
+  resolveSellerAbsorbedProcessingFeeUsd,
 } from "@/lib/seller-payout-estimate";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 
@@ -46,7 +47,7 @@ const paidOrderWhere: Prisma.OrderWhereInput = {
 export type AdminFinanceSummary = {
   gmvUsd: number | null;
   platformFeesUsd: number | null;
-  /** Stripe card processing on buyer charges — paid by sellers, shown for reference only. */
+  /** Stripe card processing absorbed by sellers on Connect (company listings = $0). */
   processingFeesUsd: number | null;
   processingFeesEstimated: boolean;
   /** Platform application fees collected on sales (not net of Stripe processing). */
@@ -79,6 +80,7 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
       payoutReserveAmountCents: true,
       shippingLabelCostCents: true,
       shippingLabelCostReversedCents: true,
+      stripeProcessingFeeCents: true,
       sellerPayoutProcessor: true,
       listing: { select: { isCompanyListing: true } },
       liveShippingSession: {
@@ -111,15 +113,22 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
     const feePct = resolveOrderFeePercent(o);
     const feeUsd = o.listing.isCompanyListing ? 0 : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
     platformFeesUsd += feeUsd;
-    processingFeesUsd += estimateStripeProcessingFeeUsd(o.totalUsd);
+    const processingUsd = resolveSellerAbsorbedProcessingFeeUsd({
+      isCompanyListing: Boolean(o.listing.isCompanyListing),
+      stripeProcessingFeeCents: o.stripeProcessingFeeCents,
+      buyerChargeTotalUsd: o.totalUsd,
+    });
+    processingFeesUsd += processingUsd;
 
-    // Shipping is pass-through to the seller; GV label cost is deducted when purchased.
-    const shippingUsd = Math.max(0, o.shippingPriceUsd ?? 0);
-    const labelCostUsd =
-      o.shippingLabelCostReversedCents != null && o.shippingLabelCostReversedCents > 0
-        ? o.shippingLabelCostReversedCents / 100
-        : Math.max(0, o.shippingLabelCostCents ?? 0) / 100;
-    const sellerNet = item - feeUsd - Math.max(0, o.payoutReserveAmountCents) / 100 + shippingUsd - labelCostUsd;
+    const sellerNet = estimateSellerOrderPayoutUsd({
+      itemPriceUsd: item,
+      shippingPriceUsd: o.shippingPriceUsd,
+      platformFeePercent: feePct,
+      payoutReserveAmountCents: o.payoutReserveAmountCents,
+      shippingLabelCostCents: o.shippingLabelCostCents,
+      shippingLabelCostReversedCents: o.shippingLabelCostReversedCents,
+      stripeProcessingFeeUsd: processingUsd,
+    });
 
     if (o.payoutStatus === "paid_out") {
       const net = Math.max(0, sellerNet);

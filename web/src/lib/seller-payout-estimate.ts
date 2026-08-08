@@ -82,6 +82,31 @@ export function estimatePlatformFeeUsd(args: {
   return Math.max(0, Math.round(((item * pct) / 100) * 100) / 100);
 }
 
+/**
+ * Seller-absorbed Stripe processing fee for payout estimates — must match Connect transfer math.
+ *
+ * - Official/company listings: application fee is $0 and processing is NOT passed through to the
+ *   seller (`processingFeeCents = 0` at charge time). Never invent a 2.9%+$0.30 haircut.
+ * - Marketplace: prefer `Order.stripeProcessingFeeCents` when present; otherwise estimate from the
+ *   buyer charge total (same policy as charge-time pass-through).
+ */
+export function resolveSellerAbsorbedProcessingFeeUsd(args: {
+  isCompanyListing: boolean;
+  stripeProcessingFeeCents?: number | null;
+  buyerChargeTotalUsd: number;
+}): number {
+  if (args.isCompanyListing) {
+    if (args.stripeProcessingFeeCents != null) {
+      return Math.max(0, Math.round(args.stripeProcessingFeeCents) / 100);
+    }
+    return 0;
+  }
+  if (args.stripeProcessingFeeCents != null) {
+    return Math.max(0, Math.round(args.stripeProcessingFeeCents) / 100);
+  }
+  return estimateStripeProcessingFeeUsd(args.buyerChargeTotalUsd);
+}
+
 export function resolvePlatformFeePercentForSellerOrder(args: {
   isCompanyListing: boolean;
   liveShowId: string | null;

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import {
   estimateSellerOrderPayoutUsd,
   resolvePlatformFeePercentForSellerOrder,
+  resolveSellerAbsorbedProcessingFeeUsd,
 } from "@/lib/seller-payout-estimate";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
@@ -65,6 +66,10 @@ export async function listOrdersReadyForAdminBankPayout(limit = 100): Promise<Ad
       sellerId: true,
       itemPriceUsd: true,
       shippingPriceUsd: true,
+      totalUsd: true,
+      referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
+      stripeProcessingFeeCents: true,
       paymentStatus: true,
       payoutStatus: true,
       processorTransferId: true,
@@ -106,8 +111,13 @@ export async function listOrdersReadyForAdminBankPayout(limit = 100): Promise<Ad
         shippingPriceUsd: o.shippingPriceUsd,
         platformFeePercent: feePct,
         payoutReserveAmountCents: 0,
-        shippingLabelCostCents: o.shippingLabelCostCents ?? 0,
-        shippingLabelCostReversedCents: o.shippingLabelCostReversedCents ?? 0,
+        shippingLabelCostCents: o.shippingLabelCostCents,
+        shippingLabelCostReversedCents: o.shippingLabelCostReversedCents,
+        stripeProcessingFeeUsd: resolveSellerAbsorbedProcessingFeeUsd({
+          isCompanyListing: o.listing.isCompanyListing,
+          stripeProcessingFeeCents: o.stripeProcessingFeeCents,
+          buyerChargeTotalUsd: o.totalUsd,
+        }),
       });
       return {
         orderId: o.id,

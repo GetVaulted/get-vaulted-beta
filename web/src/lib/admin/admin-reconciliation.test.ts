@@ -20,6 +20,7 @@ function marketplaceOrder(overrides: Record<string, unknown> = {}) {
     payoutReserveAmountCents: 0,
     shippingLabelCostCents: null,
     shippingLabelCostReversedCents: 0,
+    stripeProcessingFeeCents: null,
     listing: { isCompanyListing: false },
     liveShippingSession: null,
     ...overrides,
@@ -43,16 +44,18 @@ describe("loadAdminReconciliationReport", () => {
     expect(report.shippingCollectedUsd).toBe(10);
     // Sales tax and shipping must never leak into platform revenue.
     expect(report.platformRevenueUsd).not.toBe(report.grossSalesUsd);
-    // Seller net = item - fee - reserve + shipping = 100 - 8 - 0 + 10 = 102.
-    expect(report.sellerNetUsd).toBe(102);
+    // Seller net = item - fee + shipping - processing(2.9%×118+$0.30) = 100 - 8 + 10 - 3.72 = 98.28
+    expect(report.sellerNetUsd).toBe(98.28);
+    expect(report.processingFeesUsd).toBe(3.72);
   });
 
-  it("excludes company listings from platform revenue and seller net", async () => {
+  it("excludes company listings from platform revenue; company seller net has no processing haircut", async () => {
     prismaMock.order.findMany.mockResolvedValue([marketplaceOrder({ listing: { isCompanyListing: true } })]);
 
     const report = await loadAdminReconciliationReport("30d");
 
     expect(report.platformRevenueUsd).toBe(0);
+    expect(report.processingFeesUsd).toBe(0);
     expect(report.sellerNetUsd).toBe(110);
   });
 
@@ -127,8 +130,8 @@ describe("loadAdminReconciliationReport", () => {
 
     expect(report.shippingLabelCostUsd).toBe(7.5);
     expect(report.companyNetRevenueUsd).toBe(report.platformRevenueUsd);
-    // Seller net = 100 - 8 + 10 - 7.5 = 94.5
-    expect(report.sellerNetUsd).toBe(94.5);
+    // Seller net = 100 - 8 + 10 - 7.5 - 3.72 processing = 90.78
+    expect(report.sellerNetUsd).toBe(90.78);
   });
 
   it("applies the live-show tiered fee instead of the flat marketplace rate for live orders", async () => {

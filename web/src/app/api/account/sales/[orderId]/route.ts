@@ -60,6 +60,7 @@ const orderSelect = {
   platformFeeBasisCents: true,
   platformFeePriorShowGmvUsd: true,
   platformFeeSellerOverrideApplied: true,
+  stripeProcessingFeeCents: true,
   labelFinances: {
     select: {
       id: true,

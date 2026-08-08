@@ -3,6 +3,7 @@ import { resolveOrderCommerceSnapshot } from "@/lib/marketplace/commerce-state";
 import {
   estimateSellerOrderPayoutUsd,
   estimateStripeProcessingFeeUsd,
+  resolveSellerAbsorbedProcessingFeeUsd,
 } from "@/lib/seller-payout-estimate";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 import { resolveSellerPlatformFeeDisplay } from "@/lib/seller-platform-fee-display";
@@ -64,6 +65,7 @@ export type SellerSalesOrderRowInput = {
   platformFeeBasisCents?: number | null;
   platformFeePriorShowGmvUsd?: number | null;
   platformFeeSellerOverrideApplied?: boolean | null;
+  stripeProcessingFeeCents?: number | null;
   labelFinances?: LabelFinanceRow[] | null;
   liveShippingSession: {
     liveShowId: string | null;
@@ -123,6 +125,11 @@ export function mapSellerSalesOrderForApi(user: SellerSalesOrderUser, o: SellerS
 
   const taxAmountCents = Math.max(0, o.taxAmountCents ?? 0);
   const taxUsd = Math.max(o.taxUsd ?? 0, taxAmountCents / 100);
+  const processingFeeUsd = resolveSellerAbsorbedProcessingFeeUsd({
+    isCompanyListing: Boolean(o.listing.isCompanyListing),
+    stripeProcessingFeeCents: o.stripeProcessingFeeCents,
+    buyerChargeTotalUsd: o.totalUsd,
+  });
 
   return {
     id: o.id,
@@ -193,8 +200,8 @@ export function mapSellerSalesOrderForApi(user: SellerSalesOrderUser, o: SellerS
       platformFeePercent: fee.platformFeePercent,
       shippingLabelCostCents: o.shippingLabelCostCents,
       shippingLabelCostReversedCents: o.shippingLabelCostReversedCents,
-      // Seller absorbs Stripe processing on Connect, so the shown net payout must subtract it.
-      stripeProcessingFeeUsd: estimateStripeProcessingFeeUsd(o.totalUsd),
+      // Match Connect transfer: company = $0 processing pass-through; marketplace = actual/estimate.
+      stripeProcessingFeeUsd: processingFeeUsd,
     }),
     listing: o.listing,
     buyer: o.buyer,

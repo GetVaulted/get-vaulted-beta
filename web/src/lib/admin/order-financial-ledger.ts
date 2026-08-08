@@ -267,6 +267,7 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
   };
 
   const processingEstimated = estimateStripeProcessingFeeCents(customerTotalCents);
+  // Company/Official charges do not pass processing through to Connect — never invent a haircut.
   const stripeProcessingFeeCents: LabeledCents =
     input.stripeProcessingFeeCents != null
       ? {
@@ -274,11 +275,17 @@ export function buildOrderFinancialLedger(input: OrderLedgerInput): OrderFinanci
           source: "actual",
           formula: "balance_transaction.fee → Order.stripeProcessingFeeCents",
         }
-      : {
-          cents: processingEstimated,
-          source: "estimated",
-          formula: "round(customerTotal × 2.9% + $0.30)",
-        };
+      : input.isCompanyListing
+        ? {
+            cents: 0,
+            source: "actual",
+            formula: "company listing: processing not passed through to seller Connect (application_fee=0)",
+          }
+        : {
+            cents: processingEstimated,
+            source: "estimated",
+            formula: "round(customerTotal × 2.9% + $0.30)",
+          };
 
   const feeForTransfer = platformFeeCents.cents ?? 0;
   const procForTransfer = stripeProcessingFeeCents.cents ?? 0;

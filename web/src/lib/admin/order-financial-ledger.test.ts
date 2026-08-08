@@ -117,6 +117,21 @@ describe("buildOrderFinancialLedger", () => {
     expect(ledger.stripeProcessingFeeCents.cents).toBeGreaterThan(0);
   });
 
+  it("company listing with missing BT fee does not invent processing on seller transfer", () => {
+    const ledger = buildOrderFinancialLedger(
+      base({
+        isCompanyListing: true,
+        stripeProcessingFeeCents: null,
+        stripeTransferAmountCents: null,
+        sellerPlatformFeePercentOverride: null,
+      }),
+    );
+    expect(ledger.stripeProcessingFeeCents.cents).toBe(0);
+    expect(ledger.stripeProcessingFeeCents.source).toBe("actual");
+    // Company fee 0 → desired transfer = item + shipping (no processing haircut)
+    expect(ledger.sellerTransferCents.cents).toBe(3300 + 100);
+  });
+
   it("non-taxed path has zero tax liability", () => {
     const ledger = buildOrderFinancialLedger(
       base({ taxAmountCents: 0, taxUsd: 0, totalUsd: 34, stripeTaxTransactionId: null }),

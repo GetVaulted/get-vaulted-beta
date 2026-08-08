@@ -13,6 +13,7 @@ import {
 import {
   ledgerRangeToLegacy,
   prismaCreatedAtFilter,
+  prismaSaleAtFilter,
   resolveLedgerDateRange,
   type LedgerRangeKey,
 } from "@/lib/admin/financial-ledger-range";
@@ -213,10 +214,10 @@ export type FinancialLedgerFilters = {
 
 async function loadOrdersForLedger(filters: FinancialLedgerFilters): Promise<OrderRow[]> {
   const range = resolveLedgerDateRange(filters);
-  const createdAt = prismaCreatedAtFilter(range);
+  const saleAt = prismaSaleAtFilter(range);
 
   const where: Prisma.OrderWhereInput = {
-    ...createdAt,
+    ...saleAt,
     paymentStatus: { in: [...PAID_STATUSES] },
   };
 
