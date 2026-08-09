@@ -766,6 +766,7 @@ export async function releaseBreakSpotOnDefiniteFailure(breakSpotId: string): Pr
       liveRoomItemId: true,
       claimStatus: true,
       breakPaymentStatus: true,
+      fulfillmentOrderId: true,
     },
   });
   if (!spot) return;
@@ -788,6 +789,17 @@ export async function releaseBreakSpotOnDefiniteFailure(breakSpotId: string): Pr
     const code = e && typeof e === "object" && "code" in e ? String((e as { code: string }).code) : "";
     if (code !== "P2025") throw e;
     return;
+  }
+
+  if (spot.fulfillmentOrderId) {
+    const { releaseStoreCreditAndRestoreOrder } = await import("@/lib/store-credit-release");
+    releaseStoreCreditAndRestoreOrder(spot.fulfillmentOrderId).catch((e) =>
+      console.error("[store-credit] release failed (break spot definite failure)", {
+        breakSpotId,
+        orderId: spot.fulfillmentOrderId,
+        error: e,
+      }),
+    );
   }
 
   const { emitBreakSpotsChanged } = await import("@/lib/realtime-emit-server");

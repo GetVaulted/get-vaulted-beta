@@ -144,10 +144,15 @@ export async function listPayPalPayoutQueue(limit = 300): Promise<AdminPayPalPay
 
     const isPaidOut =
       o.payoutStatus === OrderPayoutStatus.paid_out || Boolean(o.processorTransferId?.trim());
+    // A seller without a verified PayPal email can't actually receive a payout — flag any of their
+    // still-owed orders as needing attention too, not just ones with a blocked/failed order status.
+    const sellerEmailReady =
+      Boolean(o.seller.paypalPayoutEmail?.trim()) && Boolean(o.seller.paypalPayoutVerifiedAt);
     const needsAttention =
       NEEDS_ATTENTION_ORDER_STATUSES.includes(o.payoutStatus) ||
       (Boolean(o.paypalPayoutStatus) &&
-        NEEDS_ATTENTION_PAYPAL_STATUSES.includes((o.paypalPayoutStatus ?? "").toLowerCase()));
+        NEEDS_ATTENTION_PAYPAL_STATUSES.includes((o.paypalPayoutStatus ?? "").toLowerCase())) ||
+      (!sellerEmailReady && !isPaidOut);
 
     if (needsAttention) needsAttentionCount += 1;
     if (!isPaidOut) totalOwedUsd += estimatedNetUsd;

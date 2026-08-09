@@ -15,8 +15,7 @@ import { releaseVariantPurchaseBatchOnCheckoutExpired } from "@/lib/live-item-va
 import { finalizeBreakSpotPaid, releaseBreakSpotOnDefiniteFailure } from "@/lib/live-buy-now-purchase";
 import { releaseActiveInventoryHoldsForOrderId } from "@/lib/live-auction-inventory-hold";
 import { prisma } from "@/lib/prisma";
-import { releaseReferralCreditReservation } from "@/lib/referral-credit";
-import { releasePlatformCreditReservation } from "@/lib/giveaway/platform-credit";
+import { releaseStoreCreditAndRestoreOrder } from "@/lib/store-credit-release";
 import {
   emitLiveRoomPaymentFailed,
   emitLiveRoomPaymentRecovered,
@@ -977,14 +976,8 @@ export async function cancelLiveRoomPaymentFailureBySeller(args: {
         data: { paymentStatus: "failed", status: "cancelled", stripePaymentIntentId: null },
       })
       .catch(() => {});
-    releaseReferralCreditReservation(failure.orderId).catch((e) =>
-      console.error("[referral-credit] release failed (host cancel payment retry)", {
-        orderId: failure.orderId,
-        error: e,
-      }),
-    );
-    releasePlatformCreditReservation(failure.orderId).catch((e) =>
-      console.error("[platform-credit] release failed (host cancel payment retry)", {
+    releaseStoreCreditAndRestoreOrder(failure.orderId).catch((e) =>
+      console.error("[store-credit] release failed (host cancel payment retry)", {
         orderId: failure.orderId,
         error: e,
       }),

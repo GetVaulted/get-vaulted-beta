@@ -207,7 +207,8 @@ export function AdminPayPalPayoutsPage() {
           </div>
 
           <p className="mb-4 text-xs text-zinc-500">
-            "Needs attention" = blocked, sent to manual review, or PayPal reported the payout failed / returned.
+            "Needs attention" = blocked, sent to manual review, PayPal reported the payout failed / returned, or
+            the seller doesn't have a verified PayPal email yet (so this can't be released no matter what).
             Releasing here calls the same PayPal Payouts API as the order detail page — it requires the order to be
             shipped (or delivered) and the seller's PayPal email to be verified.
           </p>

@@ -6,8 +6,7 @@ import { markVariantPurchaseExternalFulfillmentRequired } from "@/services/shipp
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 import { reportUrgentPaymentAnomaly } from "@/lib/cron-anomaly-alert";
 import { finalizeStripeMarketplaceOrderPaid } from "@/services/payments";
-import { releaseReferralCreditReservation } from "@/lib/referral-credit";
-import { releasePlatformCreditReservation } from "@/lib/giveaway/platform-credit";
+import { releaseStoreCreditAndRestoreOrder } from "@/lib/store-credit-release";
 import { prisma } from "@/lib/prisma";
 import { isLiveRoomOpenForSpotPurchase } from "@/lib/live-room-commerce-guards";
 import {
@@ -177,15 +176,8 @@ export async function releaseVariantPurchaseBatchOnCheckoutExpired(batchId: stri
 
   const fulfillmentOrderId = purchases.find((p) => p.fulfillmentOrderId)?.fulfillmentOrderId ?? null;
   if (fulfillmentOrderId) {
-    releaseReferralCreditReservation(fulfillmentOrderId).catch((e) =>
-      console.error("[referral-credit] release failed (variant batch checkout expired)", {
-        batchId,
-        orderId: fulfillmentOrderId,
-        error: e,
-      }),
-    );
-    releasePlatformCreditReservation(fulfillmentOrderId).catch((e) =>
-      console.error("[platform-credit] release failed (variant batch checkout expired)", {
+    releaseStoreCreditAndRestoreOrder(fulfillmentOrderId).catch((e) =>
+      console.error("[store-credit] release failed (variant batch checkout expired)", {
         batchId,
         orderId: fulfillmentOrderId,
         error: e,
