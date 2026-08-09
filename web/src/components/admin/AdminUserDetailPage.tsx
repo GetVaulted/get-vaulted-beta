@@ -328,6 +328,36 @@ export function AdminUserDetailPage() {
     }
   };
 
+  /** Unstick credit left in "reserved" limbo by a checkout attempt that never cleanly finished. */
+  const releaseStuckCredit = async () => {
+    setCreditBusy(true);
+    setCreditError(null);
+    setCreditMessage(null);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/platform-credit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "release_stuck" }),
+      });
+      const j = (await res.json().catch(() => ({}))) as PlatformCreditSnapshot & {
+        error?: string;
+        releasedCount?: number;
+      };
+      if (!res.ok) {
+        setCreditError(typeof j.error === "string" ? j.error : "Release failed.");
+        return;
+      }
+      setPlatformCredit(j);
+      setCreditMessage(
+        (j.releasedCount ?? 0) > 0
+          ? `Released ${j.releasedCount} stuck reservation(s) back to available.`
+          : "No stuck reservations found — nothing to release.",
+      );
+    } finally {
+      setCreditBusy(false);
+    }
+  };
+
   const act = async (action: string, extra?: Record<string, unknown>) => {
     if (action !== "recalculate" && !reason.trim()) {
       setError("Reason is required.");
@@ -554,6 +584,17 @@ export function AdminUserDetailPage() {
               <div>
                 <p className="text-[10px] text-zinc-500">Pending (in checkout)</p>
                 <p className="font-semibold text-amber-300">${platformCredit.pendingUsd.toFixed(2)}</p>
+                {platformCredit.pendingUsd > 0 ? (
+                  <button
+                    type="button"
+                    disabled={creditBusy}
+                    onClick={() => void releaseStuckCredit()}
+                    className="mt-1 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[10px] font-semibold text-amber-100/90 disabled:opacity-40"
+                    title="If this has been sitting here longer than a checkout normally takes, it's likely stuck from an interrupted attempt — not lost, just not spendable until released."
+                  >
+                    {creditBusy ? "Releasing…" : "Release stuck reservations"}
+                  </button>
+                ) : null}
               </div>
               <div>
                 <p className="text-[10px] text-zinc-500">Spent</p>

@@ -3,6 +3,7 @@ import {
   getAdminUserPlatformCreditSnapshot,
   grantAdminPlatformCredit,
 } from "@/lib/admin/admin-platform-credit-grant";
+import { releaseAllReservedPlatformCreditForUser } from "@/lib/giveaway/platform-credit";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
 
@@ -22,9 +23,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   return NextResponse.json(snapshot);
 }
 
-type Body = { amountUsd?: unknown; reason?: unknown };
+type Body = { amountUsd?: unknown; reason?: unknown; action?: unknown };
 
-/** POST — admin grants Get Vaulted Credit to this user. Reason is required and logged. */
+/** POST — admin grants Get Vaulted Credit to this user, or releases stuck reservations. Reason is required for grants and logged. */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
@@ -39,6 +40,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     body = (await req.json()) as Body;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (body.action === "release_stuck") {
+    const { releasedCount } = await releaseAllReservedPlatformCreditForUser(id);
+    const snapshot = await getAdminUserPlatformCreditSnapshot(id);
+    return NextResponse.json({ ...snapshot, releasedCount });
   }
 
   const amountUsd = typeof body.amountUsd === "number" ? body.amountUsd : Number(body.amountUsd);

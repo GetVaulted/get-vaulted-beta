@@ -127,3 +127,23 @@ export async function releasePlatformCreditReservation(checkoutRef: string): Pro
     },
   });
 }
+
+/**
+ * Admin unstick: release every reservation on a user's credit back to available, regardless of
+ * age. Normal reservations clear themselves within seconds (checkout succeeds or fails cleanly);
+ * this is for the rare case where a checkout attempt died mid-flight and left credit stuck in
+ * `reserved` limbo — the credit isn't lost, just invisible to `getAvailablePlatformCreditUsd`
+ * until the 24h staleness sweep would otherwise clear it. Safe to call any time: it only ever
+ * flips already-owned reserved credit back to available, never creates or destroys value.
+ */
+export async function releaseAllReservedPlatformCreditForUser(userId: string): Promise<{ releasedCount: number }> {
+  const result = await prisma.platformCredit.updateMany({
+    where: { userId, status: PlatformCreditStatus.reserved },
+    data: {
+      status: PlatformCreditStatus.available,
+      reservedForRef: null,
+      reservedAt: null,
+    },
+  });
+  return { releasedCount: result.count };
+}
