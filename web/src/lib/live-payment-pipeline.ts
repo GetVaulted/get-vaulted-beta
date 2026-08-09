@@ -54,6 +54,7 @@ import {
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 import {
+  applyStoreCreditsForSavedCardOrder,
   buildStripeChargeErrorDebug,
   chargeLiveBuyNowOrderWithSavedCard,
   isDefiniteStripeCardDecline,
@@ -65,6 +66,7 @@ import {
 import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
 import { orderTaxUpdateData } from "@/lib/sales-tax-order";
 import { stripeOffSessionPaymentIntentOptions } from "@/lib/stripe-payment-method-config";
+import { orderItemSaleBasisUsd, referralCreditAppliedCents } from "@/lib/referral-credit-payout";
 
 export const LIVE_VARIANT_PURCHASE_PI_KIND = "variant_purchase_saved_pm" as const;
 export const LIVE_VARIANT_BATCH_PURCHASE_PI_KIND = "variant_batch_purchase_saved_pm" as const;
@@ -272,6 +274,9 @@ async function applyOrderTaxPlanForLiveCharge(args: {
   itemPriceUsd: number;
   shippingPriceUsd: number;
   applicationFeeCents: number;
+  /** Store credit already subtracted from itemPriceUsd — seller transfer still uses the full basis. */
+  referralCreditAppliedUsd?: number | null;
+  platformCreditAppliedUsd?: number | null;
 }) {
   await refreshBuyerShippingOnOrderIfIncomplete(args.orderId);
   const order = await prisma.order.findUnique({
@@ -299,6 +304,8 @@ async function applyOrderTaxPlanForLiveCharge(args: {
       itemPriceUsd: args.itemPriceUsd,
       shippingPriceUsd: args.shippingPriceUsd,
       applicationFeeCents: args.applicationFeeCents,
+      referralCreditAppliedUsd: args.referralCreditAppliedUsd,
+      platformCreditAppliedUsd: args.platformCreditAppliedUsd,
       sellerId: args.sellerId,
     });
     await prisma.order.update({ where: { id: args.orderId }, data: orderTaxUpdateData(taxPlan.orderTax) });
@@ -452,6 +459,8 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
   buyerId: string;
   purchaseId: string;
   paymentMethodId?: string | null;
+  /** Auto-applied for this instant one-tap purchase, same as Live Buy Now. */
+  applyReferralCredit?: boolean;
 }): Promise<LiveSavedCardChargeOutcome> {
   if (!isStripeConfigured()) {
     return { outcome: "error", code: "STRIPE_NOT_CONFIGURED", message: "Payments are not configured." };
@@ -514,23 +523,38 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
         fulfillmentDetail: err instanceof Error ? err.message : String(err ?? ""),
       };
     }
+    const orderRowRailPre = await prisma.order.findUnique({
+      where: { id: fulfillmentRail.orderId },
+      select: {
+        itemPriceUsd: true,
+        shippingPriceUsd: true,
+        referralCreditAppliedUsd: true,
+        platformCreditAppliedUsd: true,
+      },
+    });
+    const creditRail = await applyStoreCreditsForSavedCardOrder(
+      fulfillmentRail.orderId,
+      args.buyerId,
+      orderRowRailPre?.itemPriceUsd ?? purchase.totalUsd,
+      orderRowRailPre?.referralCreditAppliedUsd ?? 0,
+      orderRowRailPre?.platformCreditAppliedUsd ?? 0,
+      args.applyReferralCredit === true,
+    );
     const feeCentsRawRail = await resolveCheckoutApplicationFeeCents({
-      saleAmountUsd: purchase.totalUsd,
+      saleAmountUsd: orderItemSaleBasisUsd(creditRail),
       isCompanyListing: false,
       liveRoomId: purchase.liveRoomId,
       sellerId: purchase.liveRoom.sellerId,
       orderId: fulfillmentRail.orderId,
     });
-    const orderRowRail = await prisma.order.findUnique({
-      where: { id: fulfillmentRail.orderId },
-      select: { itemPriceUsd: true, shippingPriceUsd: true },
-    });
     const taxChargeRail = await applyOrderTaxPlanForLiveCharge({
       orderId: fulfillmentRail.orderId,
       sellerId: purchase.liveRoom.sellerId,
-      itemPriceUsd: orderRowRail?.itemPriceUsd ?? purchase.totalUsd,
-      shippingPriceUsd: orderRowRail?.shippingPriceUsd ?? 0,
+      itemPriceUsd: creditRail.itemPriceUsd,
+      shippingPriceUsd: orderRowRailPre?.shippingPriceUsd ?? 0,
       applicationFeeCents: feeCentsRawRail,
+      referralCreditAppliedUsd: creditRail.referralCreditAppliedUsd,
+      platformCreditAppliedUsd: creditRail.platformCreditAppliedUsd,
     });
     const amountCentsRail = taxChargeRail.amountCents;
     if (amountCentsRail < 50) {
@@ -594,27 +618,41 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
       fulfillmentDetail,
     };
   }
+  const orderRowPre = await prisma.order.findUnique({
+    where: { id: fulfillment.orderId },
+    select: {
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
+      referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
+    },
+  });
+  const credit = await applyStoreCreditsForSavedCardOrder(
+    fulfillment.orderId,
+    args.buyerId,
+    orderRowPre?.itemPriceUsd ?? purchase.totalUsd,
+    orderRowPre?.referralCreditAppliedUsd ?? 0,
+    orderRowPre?.platformCreditAppliedUsd ?? 0,
+    args.applyReferralCredit === true,
+  );
+  const shipUsd = orderRowPre?.shippingPriceUsd ?? 0;
+
   const feeCentsRaw = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: purchase.totalUsd,
+    saleAmountUsd: orderItemSaleBasisUsd(credit),
     isCompanyListing: false,
     liveRoomId: purchase.liveRoomId,
     sellerId: purchase.liveRoom.sellerId,
     orderId: fulfillment.orderId,
   });
 
-  const orderRow = await prisma.order.findUnique({
-    where: { id: fulfillment.orderId },
-    select: { itemPriceUsd: true, shippingPriceUsd: true },
-  });
-  const itemUsd = orderRow?.itemPriceUsd ?? purchase.totalUsd;
-  const shipUsd = orderRow?.shippingPriceUsd ?? 0;
-
   const taxCharge = await applyOrderTaxPlanForLiveCharge({
     orderId: fulfillment.orderId,
     sellerId: purchase.liveRoom.sellerId,
-    itemPriceUsd: itemUsd,
+    itemPriceUsd: credit.itemPriceUsd,
     shippingPriceUsd: shipUsd,
     applicationFeeCents: feeCentsRaw,
+    referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: credit.platformCreditAppliedUsd,
   });
   const amountCents = taxCharge.amountCents;
   if (amountCents < 50) {
@@ -663,6 +701,8 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
           applicationFeeCents: feeCents,
           sellerTransferCents: taxCharge.sellerTransferCents,
           processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
+          referralCreditAppliedCents: referralCreditAppliedCents(credit),
+          maxSellerTransferCents: Math.round(credit.itemPriceUsd * 100) + Math.round(shipUsd * 100),
         }),
       },
       {
@@ -834,7 +874,11 @@ export async function settleLiveItemVariantPurchase(args: {
     },
   });
 
-  const charge = await chargeLiveItemVariantPurchaseWithSavedCard(args);
+  const charge = await chargeLiveItemVariantPurchaseWithSavedCard({
+    ...args,
+    // Instant one-tap purchase, same category as Live Buy Now — auto-apply available credit.
+    applyReferralCredit: true,
+  });
 
   if (charge.outcome === "paid") {
     await finalizeLiveItemVariantPurchasePaid(args.purchaseId, charge.paymentIntentId, charge.chargeUsd);
@@ -937,6 +981,8 @@ export async function chargeLiveItemVariantPurchaseBatchWithSavedCard(args: {
   buyerId: string;
   batchId: string;
   paymentMethodId?: string | null;
+  /** Auto-applied for this instant one-tap purchase, same as Live Buy Now. */
+  applyReferralCredit?: boolean;
 }): Promise<LiveSavedCardChargeOutcome> {
   if (!isStripeConfigured()) {
     return { outcome: "error", code: "STRIPE_NOT_CONFIGURED", message: "Payments are not configured." };
@@ -1015,23 +1061,38 @@ export async function chargeLiveItemVariantPurchaseBatchWithSavedCard(args: {
         fulfillmentDetail,
       };
     }
+    const orderRowRailPre = await prisma.order.findUnique({
+      where: { id: fulfillmentRail.orderId },
+      select: {
+        itemPriceUsd: true,
+        shippingPriceUsd: true,
+        referralCreditAppliedUsd: true,
+        platformCreditAppliedUsd: true,
+      },
+    });
+    const creditRail = await applyStoreCreditsForSavedCardOrder(
+      fulfillmentRail.orderId,
+      args.buyerId,
+      orderRowRailPre?.itemPriceUsd ?? fulfillmentRail.itemPriceUsd,
+      orderRowRailPre?.referralCreditAppliedUsd ?? 0,
+      orderRowRailPre?.platformCreditAppliedUsd ?? 0,
+      args.applyReferralCredit === true,
+    );
     const feeCentsRawRail = await resolveCheckoutApplicationFeeCents({
-      saleAmountUsd: fulfillmentRail.itemPriceUsd,
+      saleAmountUsd: orderItemSaleBasisUsd(creditRail),
       isCompanyListing: false,
       liveRoomId: primary.liveRoomId,
       sellerId: primary.liveRoom.sellerId,
       orderId: fulfillmentRail.orderId,
     });
-    const orderRowRail = await prisma.order.findUnique({
-      where: { id: fulfillmentRail.orderId },
-      select: { itemPriceUsd: true, shippingPriceUsd: true },
-    });
     const taxChargeRail = await applyOrderTaxPlanForLiveCharge({
       orderId: fulfillmentRail.orderId,
       sellerId: primary.liveRoom.sellerId,
-      itemPriceUsd: orderRowRail?.itemPriceUsd ?? fulfillmentRail.itemPriceUsd,
-      shippingPriceUsd: orderRowRail?.shippingPriceUsd ?? 0,
+      itemPriceUsd: creditRail.itemPriceUsd,
+      shippingPriceUsd: orderRowRailPre?.shippingPriceUsd ?? 0,
       applicationFeeCents: feeCentsRawRail,
+      referralCreditAppliedUsd: creditRail.referralCreditAppliedUsd,
+      platformCreditAppliedUsd: creditRail.platformCreditAppliedUsd,
     });
     const amountCentsRail = taxChargeRail.amountCents;
     if (amountCentsRail < 50) {
@@ -1094,27 +1155,41 @@ export async function chargeLiveItemVariantPurchaseBatchWithSavedCard(args: {
     };
   }
 
+  const orderRowPre = await prisma.order.findUnique({
+    where: { id: fulfillment.orderId },
+    select: {
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
+      referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
+    },
+  });
+  const credit = await applyStoreCreditsForSavedCardOrder(
+    fulfillment.orderId,
+    args.buyerId,
+    orderRowPre?.itemPriceUsd ?? fulfillment.itemPriceUsd,
+    orderRowPre?.referralCreditAppliedUsd ?? 0,
+    orderRowPre?.platformCreditAppliedUsd ?? 0,
+    args.applyReferralCredit === true,
+  );
+  const shipUsd = orderRowPre?.shippingPriceUsd ?? 0;
+
   const feeCentsRaw = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: fulfillment.itemPriceUsd,
+    saleAmountUsd: orderItemSaleBasisUsd(credit),
     isCompanyListing: false,
     liveRoomId: primary.liveRoomId,
     sellerId: primary.liveRoom.sellerId,
     orderId: fulfillment.orderId,
   });
 
-  const orderRow = await prisma.order.findUnique({
-    where: { id: fulfillment.orderId },
-    select: { itemPriceUsd: true, shippingPriceUsd: true },
-  });
-  const itemUsd = orderRow?.itemPriceUsd ?? fulfillment.itemPriceUsd;
-  const shipUsd = orderRow?.shippingPriceUsd ?? 0;
-
   const taxCharge = await applyOrderTaxPlanForLiveCharge({
     orderId: fulfillment.orderId,
     sellerId: primary.liveRoom.sellerId,
-    itemPriceUsd: itemUsd,
+    itemPriceUsd: credit.itemPriceUsd,
     shippingPriceUsd: shipUsd,
     applicationFeeCents: feeCentsRaw,
+    referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: credit.platformCreditAppliedUsd,
   });
   const amountCents = taxCharge.amountCents;
   if (amountCents < 50) {
@@ -1164,6 +1239,8 @@ export async function chargeLiveItemVariantPurchaseBatchWithSavedCard(args: {
           applicationFeeCents: feeCents,
           sellerTransferCents: taxCharge.sellerTransferCents,
           processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
+          referralCreditAppliedCents: referralCreditAppliedCents(credit),
+          maxSellerTransferCents: Math.round(credit.itemPriceUsd * 100) + Math.round(shipUsd * 100),
         }),
       },
       {
@@ -1280,7 +1357,11 @@ export async function settleLiveItemVariantPurchaseBatch(args: {
   const itemSumUsd = Math.round(purchases.reduce((s, p) => s + p.totalUsd, 0) * 100) / 100;
   const itemTitle = formatVariantBatchOrderTitle(purchases.map((p) => p.variant.label));
 
-  const charge = await chargeLiveItemVariantPurchaseBatchWithSavedCard(args);
+  const charge = await chargeLiveItemVariantPurchaseBatchWithSavedCard({
+    ...args,
+    // Instant one-tap purchase, same category as Live Buy Now — auto-apply available credit.
+    applyReferralCredit: true,
+  });
 
   if (charge.outcome === "paid") {
     await finalizeLiveItemVariantPurchaseBatchPaid(args.batchId, charge.paymentIntentId, charge.chargeUsd);
@@ -1382,6 +1463,8 @@ export async function chargeBreakSpotWithSavedCard(args: {
   buyerId: string;
   breakSpotId: string;
   paymentMethodId?: string | null;
+  /** Auto-applied for this instant one-tap purchase, same as Live Buy Now. */
+  applyReferralCredit?: boolean;
 }): Promise<LiveSavedCardChargeOutcome> {
   if (!isStripeConfigured()) {
     return { outcome: "error", code: "STRIPE_NOT_CONFIGURED", message: "Payments are not configured." };
@@ -1437,23 +1520,38 @@ export async function chargeBreakSpotWithSavedCard(args: {
         fulfillmentDetail: err instanceof Error ? err.message : String(err ?? ""),
       };
     }
+    const orderRowRailPre = await prisma.order.findUnique({
+      where: { id: fulfillmentRail.orderId },
+      select: {
+        itemPriceUsd: true,
+        shippingPriceUsd: true,
+        referralCreditAppliedUsd: true,
+        platformCreditAppliedUsd: true,
+      },
+    });
+    const creditRail = await applyStoreCreditsForSavedCardOrder(
+      fulfillmentRail.orderId,
+      args.buyerId,
+      orderRowRailPre?.itemPriceUsd ?? spot.priceUsd,
+      orderRowRailPre?.referralCreditAppliedUsd ?? 0,
+      orderRowRailPre?.platformCreditAppliedUsd ?? 0,
+      args.applyReferralCredit === true,
+    );
     const feeCentsRawRail = await resolveCheckoutApplicationFeeCents({
-      saleAmountUsd: spot.priceUsd,
+      saleAmountUsd: orderItemSaleBasisUsd(creditRail),
       isCompanyListing: false,
       liveRoomId: spot.liveRoomId,
       sellerId: spot.liveRoom.sellerId,
       orderId: fulfillmentRail.orderId,
     });
-    const orderRowRail = await prisma.order.findUnique({
-      where: { id: fulfillmentRail.orderId },
-      select: { itemPriceUsd: true, shippingPriceUsd: true },
-    });
     const taxChargeRail = await applyOrderTaxPlanForLiveCharge({
       orderId: fulfillmentRail.orderId,
       sellerId: spot.liveRoom.sellerId,
-      itemPriceUsd: orderRowRail?.itemPriceUsd ?? spot.priceUsd,
-      shippingPriceUsd: orderRowRail?.shippingPriceUsd ?? 0,
+      itemPriceUsd: creditRail.itemPriceUsd,
+      shippingPriceUsd: orderRowRailPre?.shippingPriceUsd ?? 0,
       applicationFeeCents: feeCentsRawRail,
+      referralCreditAppliedUsd: creditRail.referralCreditAppliedUsd,
+      platformCreditAppliedUsd: creditRail.platformCreditAppliedUsd,
     });
     const amountCentsRail = taxChargeRail.amountCents;
     if (amountCentsRail < 50) {
@@ -1510,25 +1608,41 @@ export async function chargeBreakSpotWithSavedCard(args: {
       fulfillmentDetail,
     };
   }
+  const orderRowPre = await prisma.order.findUnique({
+    where: { id: fulfillment.orderId },
+    select: {
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
+      referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
+    },
+  });
+  const credit = await applyStoreCreditsForSavedCardOrder(
+    fulfillment.orderId,
+    args.buyerId,
+    orderRowPre?.itemPriceUsd ?? spot.priceUsd,
+    orderRowPre?.referralCreditAppliedUsd ?? 0,
+    orderRowPre?.platformCreditAppliedUsd ?? 0,
+    args.applyReferralCredit === true,
+  );
+  const shipUsd = orderRowPre?.shippingPriceUsd ?? 0;
+
   const feeCentsRaw = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: spot.priceUsd,
+    saleAmountUsd: orderItemSaleBasisUsd(credit),
     isCompanyListing: false,
     liveRoomId: spot.liveRoomId,
     sellerId: spot.liveRoom.sellerId,
     orderId: fulfillment.orderId,
   });
 
-  const orderRow = await prisma.order.findUnique({
-    where: { id: fulfillment.orderId },
-    select: { itemPriceUsd: true, shippingPriceUsd: true },
-  });
-
   const taxCharge = await applyOrderTaxPlanForLiveCharge({
     orderId: fulfillment.orderId,
     sellerId: spot.liveRoom.sellerId,
-    itemPriceUsd: orderRow?.itemPriceUsd ?? spot.priceUsd,
-    shippingPriceUsd: orderRow?.shippingPriceUsd ?? 0,
+    itemPriceUsd: credit.itemPriceUsd,
+    shippingPriceUsd: shipUsd,
     applicationFeeCents: feeCentsRaw,
+    referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: credit.platformCreditAppliedUsd,
   });
   const amountCents = taxCharge.amountCents;
   if (amountCents < 50) {
@@ -1578,6 +1692,8 @@ export async function chargeBreakSpotWithSavedCard(args: {
           applicationFeeCents: feeCents,
           sellerTransferCents: taxCharge.sellerTransferCents,
           processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
+          referralCreditAppliedCents: referralCreditAppliedCents(credit),
+          maxSellerTransferCents: Math.round(credit.itemPriceUsd * 100) + Math.round(shipUsd * 100),
         }),
       },
       {
@@ -1745,6 +1861,8 @@ export async function settleLiveBreakSpotPayment(args: {
     buyerId: args.buyerId,
     breakSpotId: args.breakSpotId,
     paymentMethodId: args.paymentMethodId,
+    // Instant one-tap purchase, same category as Live Buy Now — auto-apply available credit.
+    applyReferralCredit: true,
   });
 
   if (charge.outcome === "paid") {

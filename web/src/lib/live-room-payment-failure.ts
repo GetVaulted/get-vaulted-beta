@@ -661,6 +661,8 @@ export async function retryLiveRoomPaymentFailure(args: {
       buyerId: args.buyerId,
       purchaseId: failureRow.variantPurchaseId,
       paymentMethodId: recoveryPmId,
+      // Re-enabled — see live-payment-pipeline.ts for why this was safe to restore.
+      applyReferralCredit: true,
     });
     logRecoveryChargeResult(
       {
@@ -710,6 +712,8 @@ export async function retryLiveRoomPaymentFailure(args: {
       buyerId: args.buyerId,
       breakSpotId: failureRow.breakSpotId,
       paymentMethodId: recoveryPmId,
+      // Re-enabled — see live-payment-pipeline.ts for why this was safe to restore.
+      applyReferralCredit: true,
     });
     logRecoveryChargeResult(
       { failureId: failureRow.id, breakSpotId: failureRow.breakSpotId, paymentMethodId: recoveryPmId },

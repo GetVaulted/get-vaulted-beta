@@ -53,7 +53,7 @@ const MIN_STRIPE_CHARGE_USD = 0.5;
  * Applies (or re-applies) referral + platform store credit to a saved-card order charge.
  * Guards against double-reserving when credit fields are already set on the order.
  */
-async function applyStoreCreditsForSavedCardOrder(
+export async function applyStoreCreditsForSavedCardOrder(
   orderId: string,
   buyerId: string,
   itemPriceUsd: number,
@@ -624,7 +624,9 @@ export async function chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard(args: {
     buyerId: args.buyerId,
     orderId: args.orderId,
     paymentMethodId: pmId,
-    applyReferralCredit: false,
+    // Live auction win is an instant saved-card settlement, same category as Live Buy Now — auto-apply
+    // available referral + Get Vaulted Credit here too, for parity across every live purchase path.
+    applyReferralCredit: true,
   });
 }
 
