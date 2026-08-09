@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { Prisma } from "@/generated/prisma/client";
 import { PlatformCreditSourceType, PlatformCreditStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
@@ -85,6 +86,7 @@ export async function reservePlatformCreditForCheckout(
   for (const row of available) {
     if (remaining < 0.01) break;
     if (row.amountUsd <= remaining + 1e-9) {
+      // Whole chunk fits within what's still needed — reserve it entirely.
       const updated = await prisma.platformCredit.updateMany({
         where: { id: row.id, status: PlatformCreditStatus.available },
         data: {
@@ -97,7 +99,36 @@ export async function reservePlatformCreditForCheckout(
         reserved += row.amountUsd;
         remaining -= row.amountUsd;
       }
+      continue;
     }
+
+    // Chunk is bigger than what's needed (e.g. a $150 grant against a $19 purchase) — split it:
+    // shrink the original available row and carve out a new reserved row for just the amount used.
+    // Guarded by matching `amountUsd` in the WHERE so a concurrent reservation on the same row can
+    // never cause us to shrink it twice or reserve more than actually exists.
+    const splitUsd = Math.round(remaining * 100) / 100;
+    const remainderUsd = Math.round((row.amountUsd - splitUsd) * 100) / 100;
+    if (remainderUsd < 0.01) continue; // rounding edge case — leave the whole row for next pass
+
+    const shrunk = await prisma.platformCredit.updateMany({
+      where: { id: row.id, status: PlatformCreditStatus.available, amountUsd: row.amountUsd },
+      data: { amountUsd: remainderUsd },
+    });
+    if (shrunk.count !== 1) continue; // lost the race to another reservation — try the next row
+
+    await prisma.platformCredit.create({
+      data: {
+        userId,
+        amountUsd: splitUsd,
+        status: PlatformCreditStatus.reserved,
+        sourceType: row.sourceType,
+        sourceRef: `${row.sourceRef}:split:${randomUUID()}`,
+        reservedForRef: checkoutRef,
+        reservedAt: now,
+      },
+    });
+    reserved += splitUsd;
+    remaining -= splitUsd;
   }
   return Math.round(reserved * 100) / 100;
 }
