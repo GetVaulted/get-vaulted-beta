@@ -10,6 +10,7 @@ import {
 } from "@/lib/live-auction-inventory-hold";
 import { getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
+import { sanitizeStripePaymentIntentId } from "@/lib/stripe-payment-intent-id";
 import {
   addOrderToLiveShippingSessionTx,
   estimateFirstItemLiveShippingCentsForListingTx,
@@ -537,6 +538,11 @@ export async function finalizeLiveBuyNowPurchaseComplete(args: {
   liveRoomItemId: string;
   paymentIntentId?: string | null;
 }): Promise<void> {
+  // Guard (bug #18): callers charging via the PayPal/Venmo buyer rail pass their PayPal capture
+  // id through `paymentIntentId` — only a real Stripe PaymentIntent id may reach
+  // `finalizeStripeMarketplaceOrderPaid` (which itself sanitizes too, but fail closest to the
+  // source). PayPal-rail orders are already stamped correctly via `stampOrderPaidViaPayPalRail`.
+  const stripePaymentIntentId = sanitizeStripePaymentIntentId(args.paymentIntentId);
   const order = await prisma.order.findUnique({
     where: { id: args.orderId },
     select: {
@@ -552,7 +558,7 @@ export async function finalizeLiveBuyNowPurchaseComplete(args: {
   if (!order) return;
 
   if (order.paymentStatus !== PAYMENT_PAID) {
-    await finalizeStripeMarketplaceOrderPaid(args.orderId, args.paymentIntentId ?? null, null);
+    await finalizeStripeMarketplaceOrderPaid(args.orderId, stripePaymentIntentId, null);
   }
 
   const item = await prisma.liveRoomItem.findFirst({
@@ -632,6 +638,10 @@ export async function finalizeBreakSpotPaid(args: {
   breakSpotId: string;
   paymentIntentId?: string | null;
 }): Promise<{ liveRoomId: string; buyerId: string; amountUsd: number; spotLabel: string } | null> {
+  // Guard (bug #18): the PayPal/Venmo break-spot rail (live-payment-pipeline.ts) passes its PayPal
+  // capture id through this same slot — never let it reach BreakSpot.stripePaymentIntentId or
+  // Order.stripePaymentIntentId.
+  const stripePaymentIntentId = sanitizeStripePaymentIntentId(args.paymentIntentId);
   const spot = await prisma.breakSpot.findUnique({
     where: { id: args.breakSpotId },
     select: {
@@ -655,7 +665,7 @@ export async function finalizeBreakSpotPaid(args: {
     try {
       await finalizeStripeMarketplaceOrderPaid(
         spotWithOrder.fulfillmentOrderId,
-        args.paymentIntentId ?? spotWithOrder.stripePaymentIntentId ?? null,
+        stripePaymentIntentId ?? sanitizeStripePaymentIntentId(spotWithOrder.stripePaymentIntentId),
         null,
       );
     } catch (e) {
@@ -692,7 +702,7 @@ export async function finalizeBreakSpotPaid(args: {
       claimStatus: "paid",
       paidAt: new Date(),
       breakPaymentStatus: PAYMENT_PAID,
-      stripePaymentIntentId: args.paymentIntentId ?? undefined,
+      stripePaymentIntentId: stripePaymentIntentId ?? undefined,
       stripeCheckoutSessionId: null,
     },
   });
@@ -729,7 +739,7 @@ export async function finalizeBreakSpotPaid(args: {
     const chargeTotalUsd = await resolveLivePurchaseNotificationChargeUsd({
       fallbackUsd: spot.priceUsd,
       fulfillmentOrderId: spotWithOrder?.fulfillmentOrderId,
-      stripePaymentIntentId: args.paymentIntentId ?? spotWithOrder?.stripePaymentIntentId,
+      stripePaymentIntentId: stripePaymentIntentId ?? sanitizeStripePaymentIntentId(spotWithOrder?.stripePaymentIntentId),
     });
     const paymentNote = liveRoomBuyerPaymentConfirmedNotification({
       amountUsd: chargeTotalUsd,

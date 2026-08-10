@@ -6,6 +6,7 @@ import { markVariantPurchaseExternalFulfillmentRequired } from "@/services/shipp
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 import { reportUrgentPaymentAnomaly } from "@/lib/cron-anomaly-alert";
 import { finalizeStripeMarketplaceOrderPaid } from "@/services/payments";
+import { sanitizeStripePaymentIntentId } from "@/lib/stripe-payment-intent-id";
 import { releaseStoreCreditAndRestoreOrder } from "@/lib/store-credit-release";
 import { prisma } from "@/lib/prisma";
 import { isLiveRoomOpenForSpotPurchase } from "@/lib/live-room-commerce-guards";
@@ -43,9 +44,12 @@ export function formatVariantBatchCelebrationLabel(labels: string[]): string {
  */
 export async function finalizeLiveItemVariantPurchaseBatchPaid(
   batchId: string,
-  stripePaymentIntentId?: string | null,
+  rawStripePaymentIntentId?: string | null,
   notificationChargeUsd?: number | null,
 ) {
+  // Guard (bug #18): see live-item-variant-purchase.ts — the PayPal/Venmo buyer rail returns a
+  // PayPal capture id through this same slot. Only a Stripe-shaped id ever passes through.
+  const stripePaymentIntentId = sanitizeStripePaymentIntentId(rawStripePaymentIntentId);
   const purchases = await prisma.liveItemVariantPurchase.findMany({
     where: { batchId },
     include: {
@@ -61,7 +65,7 @@ export async function finalizeLiveItemVariantPurchaseBatchPaid(
     try {
       await finalizeStripeMarketplaceOrderPaid(
         fulfillmentOrderId,
-        stripePaymentIntentId ?? purchases[0]?.stripePaymentIntentId ?? null,
+        stripePaymentIntentId ?? sanitizeStripePaymentIntentId(purchases[0]?.stripePaymentIntentId),
         null,
       );
     } catch (e) {
@@ -146,7 +150,7 @@ export async function finalizeLiveItemVariantPurchaseBatchPaid(
         : await resolveLivePurchaseNotificationChargeUsd({
             fallbackUsd: itemSumUsd,
             fulfillmentOrderId,
-            stripePaymentIntentId: stripePaymentIntentId ?? primary.stripePaymentIntentId,
+            stripePaymentIntentId: stripePaymentIntentId ?? sanitizeStripePaymentIntentId(primary.stripePaymentIntentId),
           });
     const paymentNote = liveRoomBuyerPaymentConfirmedNotification({
       amountUsd: chargeTotalUsd,

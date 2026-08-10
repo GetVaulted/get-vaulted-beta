@@ -19,7 +19,9 @@ import { fullRefundAmountCents } from "@/lib/sales-tax-charge";
 import { prisma } from "@/lib/prisma";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { isStripePaymentIntentId } from "@/lib/stripe-payment-intent-id";
 import { reportUrgentPaymentAnomaly } from "@/lib/cron-anomaly-alert";
+import { refundPayPalRailCapture } from "@/lib/paypal-buyer-rail";
 import { removeOrderFromLiveShippingSessionOnRefundTx } from "@/services/shipping/live-shipping-pricing";
 import { isStripeBankPayoutId } from "@/services/payout/stripe-seller-payout";
 import { PAYMENT_REFUNDED } from "@/services/payments";
@@ -732,7 +734,9 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
       listingId: true,
       paymentStatus: true,
       paymentMethod: true,
+      paymentProcessor: true,
       stripePaymentIntentId: true,
+      processorPaymentId: true,
       itemPriceUsd: true,
       shippingPriceUsd: true,
       taxAmountCents: true,
@@ -765,11 +769,41 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
     // never live-show orders — this guard exists as defense-in-depth against future callers.
     throw new RefundRequestError("LAYAWAY_NOT_SUPPORTED", 400);
   }
-  if (!order.stripePaymentIntentId) {
-    throw new RefundRequestError("NO_PAYMENT_INTENT", 400);
-  }
-  if (!isStripeConfigured()) {
-    throw new RefundRequestError("STRIPE_NOT_CONFIGURED", 503);
+  // Route by the processor that actually took the buyer's money (bug #18 follow-up) — never
+  // assume Stripe just because that used to be the only rail. `paymentProcessor` defaults to
+  // STRIPE at the schema level; treat a missing value (e.g. an older row/test fixture) the same
+  // way. Missing or unrecognized processor metadata fails safely — an urgent anomaly plus a
+  // distinct error — instead of silently attempting the wrong rail.
+  const processor = order.paymentProcessor ?? "STRIPE";
+  if (processor === "STRIPE") {
+    if (!isStripePaymentIntentId(order.stripePaymentIntentId)) {
+      reportUrgentPaymentAnomaly(
+        "refund_missing_or_invalid_stripe_payment_intent",
+        `orderId=${orderId} refundRequestId=${refundRequestId} paymentProcessor=STRIPE but ` +
+          `stripePaymentIntentId=${order.stripePaymentIntentId ?? "null"} is missing or not ` +
+          `Stripe-shaped — refusing to attempt a Stripe refund with it.`,
+      );
+      throw new RefundRequestError("NO_PAYMENT_INTENT", 400);
+    }
+    if (!isStripeConfigured()) {
+      throw new RefundRequestError("STRIPE_NOT_CONFIGURED", 503);
+    }
+  } else if (processor === "PAYPAL_VENMO") {
+    if (!order.processorPaymentId?.trim()) {
+      reportUrgentPaymentAnomaly(
+        "refund_missing_processor_payment_id",
+        `orderId=${orderId} refundRequestId=${refundRequestId} paymentProcessor=PAYPAL_VENMO but ` +
+          `processorPaymentId is missing — refusing to attempt a PayPal refund without it.`,
+      );
+      throw new RefundRequestError("NO_PROCESSOR_PAYMENT_ID", 400);
+    }
+  } else {
+    reportUrgentPaymentAnomaly(
+      "refund_unknown_payment_processor",
+      `orderId=${orderId} refundRequestId=${refundRequestId} paymentProcessor=${String(processor)} ` +
+        `is not a recognized rail — refusing to guess which processor to refund through.`,
+    );
+    throw new RefundRequestError("UNKNOWN_PAYMENT_PROCESSOR", 500);
   }
 
   const refundAmountCents = fullRefundAmountCents({
@@ -816,14 +850,15 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
   // attempting a reverse_transfer against a seller who may have already been paid to their bank.
   // We still proceed with the refund either way — the buyer's refund cannot wait on this — but a
   // seller whose Connect balance can't cover the reversal needs a loud, verified alert raised
-  // *before* the attempt, not just a note discovered after the fact.
+  // *before* the attempt, not just a note discovered after the fact. Connect balance only exists
+  // on the Stripe rail — the PayPal seller-payout rail has no equivalent check available here.
   const alreadyPaidOut = order.payoutStatus === "paid_out";
   const sellerAccountId = order.seller.stripeAccountId?.trim() || null;
   const preRefundBalance =
-    alreadyPaidOut && sellerAccountId
+    processor === "STRIPE" && alreadyPaidOut && sellerAccountId
       ? await readSellerConnectUsdBalanceCents(sellerAccountId)
       : null;
-  if (alreadyPaidOut && preRefundBalance) {
+  if (processor === "STRIPE" && alreadyPaidOut && preRefundBalance) {
     const availablePlusPending = preRefundBalance.availableCents + preRefundBalance.pendingCents;
     if (availablePlusPending < refundAmountCents) {
       const payoutKind = isStripeBankPayoutId(order.processorTransferId)
@@ -840,42 +875,86 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
       );
     }
   }
+  if (processor === "PAYPAL_VENMO" && alreadyPaidOut) {
+    // Stripe's reverse_transfer automatically claws back the seller's share from their Connect
+    // balance; the PayPal seller-payout rail (`createSellerPayPalPayout`) has no equivalent —
+    // once a PayPal payout has gone out, this refund cannot automatically recover it. The buyer's
+    // refund still proceeds (it can't wait on manual seller recovery), but ops needs a loud,
+    // upfront alert rather than discovering the gap later.
+    reportUrgentPaymentAnomaly(
+      "refund_after_paypal_payout_no_clawback",
+      `orderId=${orderId} sellerId=${order.sellerId} refundRequestId=${refundRequestId} ` +
+        `refundAmountCents=${refundAmountCents} — seller was already paid out via the PayPal rail; ` +
+        `there is no automated clawback for this refund. Manual follow-up required.`,
+    );
+  }
 
-  const stripe = getStripe();
-  let stripeRefundId: string | null = null;
-  try {
-    const refund = await stripe.refunds.create({
-      payment_intent: order.stripePaymentIntentId,
-      amount: refundAmountCents,
-      // Destination-charge orders transfer (item + shipping - fee) to the seller's Connect
-      // account at charge time. Without reverse_transfer, Stripe refunds the buyer entirely out
-      // of the PLATFORM's own balance while the seller keeps the transferred funds — a silent
-      // platform loss on every refund. reverse_transfer claws the seller's share back first.
-      reverse_transfer: true,
-      metadata: { orderId, refundRequestId, kind: "live_order_refund" },
-    }, { idempotencyKey });
-    stripeRefundId = refund.id;
-  } catch (e) {
-    console.error("[order-refund] stripe refund failed", orderId, e);
-    // Only roll back when Stripe *definitely* rejected this request before any money moved (see
-    // `isDefiniteStripeRefundFailure`) and this row's status right before this attempt wasn't
-    // already `refund_processing`/`refunded` (which would mean either an earlier attempt is
-    // ambiguously still in flight, or the refund already completed — never safe to touch either).
-    // A network/timeout/rate-limit error leaves the row `refund_processing`: Stripe may have
-    // actually processed the refund despite us not getting confirmation, so it must stay pending
-    // reconciliation rather than reopening the request for a new attempt.
-    if (
-      isDefiniteStripeRefundFailure(e) &&
-      statusBeforeThisAttempt &&
-      statusBeforeThisAttempt !== OrderRefundRequestStatus.refund_processing &&
-      statusBeforeThisAttempt !== OrderRefundRequestStatus.refunded
-    ) {
-      await prisma.orderRefundRequest.updateMany({
-        where: { id: refundRequestId, status: OrderRefundRequestStatus.refund_processing },
-        data: { status: statusBeforeThisAttempt },
-      });
+  let refundId: string | null = null;
+  if (processor === "STRIPE") {
+    const stripe = getStripe();
+    try {
+      const refund = await stripe.refunds.create({
+        payment_intent: order.stripePaymentIntentId,
+        amount: refundAmountCents,
+        // Destination-charge orders transfer (item + shipping - fee) to the seller's Connect
+        // account at charge time. Without reverse_transfer, Stripe refunds the buyer entirely out
+        // of the PLATFORM's own balance while the seller keeps the transferred funds — a silent
+        // platform loss on every refund. reverse_transfer claws the seller's share back first.
+        reverse_transfer: true,
+        metadata: { orderId, refundRequestId, kind: "live_order_refund" },
+      }, { idempotencyKey });
+      refundId = refund.id;
+    } catch (e) {
+      console.error("[order-refund] stripe refund failed", orderId, e);
+      // Only roll back when Stripe *definitely* rejected this request before any money moved (see
+      // `isDefiniteStripeRefundFailure`) and this row's status right before this attempt wasn't
+      // already `refund_processing`/`refunded` (which would mean either an earlier attempt is
+      // ambiguously still in flight, or the refund already completed — never safe to touch either).
+      // A network/timeout/rate-limit error leaves the row `refund_processing`: Stripe may have
+      // actually processed the refund despite us not getting confirmation, so it must stay pending
+      // reconciliation rather than reopening the request for a new attempt.
+      if (
+        isDefiniteStripeRefundFailure(e) &&
+        statusBeforeThisAttempt &&
+        statusBeforeThisAttempt !== OrderRefundRequestStatus.refund_processing &&
+        statusBeforeThisAttempt !== OrderRefundRequestStatus.refunded
+      ) {
+        await prisma.orderRefundRequest.updateMany({
+          where: { id: refundRequestId, status: OrderRefundRequestStatus.refund_processing },
+          data: { status: statusBeforeThisAttempt },
+        });
+      }
+      throw new RefundRequestError("STRIPE_REFUND_FAILED", 502);
     }
-    throw new RefundRequestError("STRIPE_REFUND_FAILED", 502);
+  } else {
+    // processor === "PAYPAL_VENMO" — every other value was already rejected above.
+    const result = await refundPayPalRailCapture({
+      processorPaymentId: order.processorPaymentId!,
+      amountUsd: refundAmountCents / 100,
+    });
+    if (result.outcome !== "refunded") {
+      console.error("[order-refund] paypal rail refund failed", orderId, result);
+      // Mirrors `isDefiniteStripeRefundFailure`: only these two codes fire before any PayPal API
+      // call is made (misconfiguration / missing id caught above), so only they are safe to treat
+      // as "definitely nothing happened". Any actual API-level failure is ambiguous — PayPal may
+      // have processed the refund despite the response not reaching us — so the row stays
+      // `refund_processing` pending manual reconciliation, same as the Stripe ambiguous case.
+      const isDefinitePreflightFailure =
+        result.code === "PAYPAL_RAIL_NOT_CONFIGURED" || result.code === "MISSING_PROCESSOR_PAYMENT_ID";
+      if (
+        isDefinitePreflightFailure &&
+        statusBeforeThisAttempt &&
+        statusBeforeThisAttempt !== OrderRefundRequestStatus.refund_processing &&
+        statusBeforeThisAttempt !== OrderRefundRequestStatus.refunded
+      ) {
+        await prisma.orderRefundRequest.updateMany({
+          where: { id: refundRequestId, status: OrderRefundRequestStatus.refund_processing },
+          data: { status: statusBeforeThisAttempt },
+        });
+      }
+      throw new RefundRequestError("PAYPAL_REFUND_FAILED", 502);
+    }
+    refundId = result.refundId;
   }
 
   const now = new Date();
@@ -909,46 +988,53 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
         data: {
           status: OrderRefundRequestStatus.refunded,
           refundedAt: now,
-          stripeRefundId,
+          // `stripeRefundId` stays Stripe-only (bug #18) — `processorRefundId` records the refund
+          // id for whichever rail actually processed it.
+          stripeRefundId: processor === "STRIPE" ? refundId : null,
+          processorRefundId: refundId,
         },
       });
     });
 
     const { reverseStripeTaxTransaction } = await import("@/lib/stripe-tax");
     const { moneyFlowLog } = await import("@/lib/money-flow-log");
-    moneyFlowLog("refund_created", { orderId, stripeRefundId, refundAmountCents });
+    moneyFlowLog("refund_created", { orderId, processor, refundId, refundAmountCents });
     void reverseStripeTaxTransaction({
       orderId,
       reverseAmountCents: order.taxAmountCents ?? 0,
       reason: "live_order_refund",
     });
   } catch (e) {
-    // CRITICAL: Stripe has ALREADY refunded the buyer at this point (`stripeRefundId` is set).
-    // Do NOT retry the Stripe call here (that would just re-hit the same idempotency key) and do
-    // NOT swallow this — surface a distinct error so the caller/UI knows the refund is genuinely
-    // in flight rather than failed outright. The row stays `refund_processing`: the DB and Stripe
-    // are temporarily out of sync but never *permanently* — `reconcileStripeWithDatabase` runs on
-    // a schedule (see its cron route) and will find this Stripe refund, discover the order/row
-    // don't yet reflect it, and finish the job (order fields + this row -> `refunded` + buyer/
-    // seller notifications), all via the same idempotent `charge.refunded` handling the real
-    // webhook uses. Nothing here can cause a double refund: the finalize write above is a no-op
-    // once it eventually succeeds (webhook or this function retried), guarded by the `refunded`
-    // terminal status.
+    // CRITICAL: the processor has ALREADY refunded the buyer at this point (`refundId` is set).
+    // Do NOT retry the refund call here (Stripe would just re-hit the same idempotency key; PayPal
+    // has no automatic retry-safety beyond that) and do NOT swallow this — surface a distinct error
+    // so the caller/UI knows the refund is genuinely in flight rather than failed outright. The row
+    // stays `refund_processing`: the DB and the processor are temporarily out of sync but never
+    // *permanently* for Stripe — `reconcileStripeWithDatabase` runs on a schedule (see its cron
+    // route) and will find this Stripe refund, discover the order/row don't yet reflect it, and
+    // finish the job (order fields + this row -> `refunded` + buyer/seller notifications), all via
+    // the same idempotent `charge.refunded` handling the real webhook uses. There is no equivalent
+    // reconciliation cron for the PayPal rail yet — a `refund_processing` PayPal row left here needs
+    // manual follow-up until one exists. Nothing here can cause a double refund: the finalize write
+    // above is a no-op once it eventually succeeds (webhook or this function retried), guarded by
+    // the `refunded` terminal status.
     console.error(
-      "[order-refund] Stripe refund succeeded but DB finalize failed — order/request left as refund_processing pending reconciliation",
-      { orderId, refundRequestId, stripeRefundId },
+      "[order-refund] processor refund succeeded but DB finalize failed — order/request left as refund_processing pending reconciliation",
+      { orderId, refundRequestId, processor, refundId },
       e,
     );
     throw new RefundRequestError("REFUND_ISSUED_PENDING_DB_SYNC", 500);
   }
 
-  if (alreadyPaidOut) {
+  if (processor === "STRIPE" && alreadyPaidOut) {
     // Money was already released to the seller before this refund ran (e.g. an admin approved
     // payout while a buyer's refund request was in flight) — `reverse_transfer` still claws the
     // funds back from Stripe's side, but this needs to stand out from routine refunds in the
     // payout audit trail since the platform absorbed a timing gap instead of holding the money.
     // Re-read the REAL post-reversal balance (rather than assuming reverse_transfer worked) so
     // this record reflects verified Stripe state, not just what the DB believed going in.
+    // (PayPal-rail alreadyPaidOut orders were already handled via the pre-refund anomaly above —
+    // there is no Connect-style balance to re-check on that rail.)
     const postRefundBalance = sellerAccountId
       ? await readSellerConnectUsdBalanceCents(sellerAccountId)
       : null;
@@ -957,7 +1043,7 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
       reportUrgentPaymentAnomaly(
         "refund_after_payout_drove_balance_negative",
         `orderId=${orderId} sellerId=${order.sellerId} refundRequestId=${refundRequestId} ` +
-          `stripeRefundId=${stripeRefundId} sellerConnectAvailableCentsAfter=${postRefundBalance.availableCents} ` +
+          `refundId=${refundId} sellerConnectAvailableCentsAfter=${postRefundBalance.availableCents} ` +
           `— reverse_transfer completed but the seller's Connect balance is now negative; verify recovery via future transfers.`,
       );
     }

@@ -2024,6 +2024,11 @@ model OrderRefundRequest {
   returnReceivedAt     DateTime?
   refundedAt           DateTime?
   stripeRefundId       String?
+  /// Refund id from whichever processor actually completed this refund — Stripe refund (`re_…`)
+  /// or a PayPal/Venmo capture-refund id. Populated for every processor; `stripeRefundId` above
+  /// stays Stripe-only (kept for backward compatibility with existing tooling that reads it
+  /// directly) rather than being overloaded to also hold non-Stripe ids — see bug #18.
+  processorRefundId    String?
   createdAt            DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
 

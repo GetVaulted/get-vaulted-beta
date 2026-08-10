@@ -63,6 +63,7 @@ import {
 } from "@/lib/stripe-tax";
 import { persistOrderStripeChargeLedger } from "@/lib/stripe-charge-ledger";
 import { moneyFlowLog } from "@/lib/money-flow-log";
+import { sanitizeStripePaymentIntentId } from "@/lib/stripe-payment-intent-id";
 import {
   resolveBuyNowCheckoutLane,
   resolveOrderCheckoutLane,
@@ -1871,9 +1872,17 @@ export async function reconcileStalePendingCheckoutSessionsGlobal(limit = 25): P
 
 export async function finalizeStripeMarketplaceOrderPaid(
   orderId: string,
-  paymentIntentId: string | null,
+  rawPaymentIntentId: string | null,
   sessionId: string | null,
 ) {
+  // Guard (financial-reconciliation-audit-2026-08 bug #18): several live-purchase finalize paths
+  // (variant purchase, variant batch, live buy-now, break spot) historically forwarded whatever id
+  // their charge returned through this same parameter — a real Stripe PaymentIntent id for the
+  // Stripe rail, but a PayPal/Venmo capture id for the PayPal buyer rail. Never let anything that
+  // isn't Stripe-shaped reach `stripePaymentIntentId`, the Stripe tax-from-PI lookup, or the
+  // charge-ledger persist below — PayPal/Venmo orders are stamped correctly via
+  // `stampOrderPaidViaPayPalRail` (paymentProcessor + processorPaymentId) before this ever runs.
+  const paymentIntentId = sanitizeStripePaymentIntentId(rawPaymentIntentId);
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     select: {

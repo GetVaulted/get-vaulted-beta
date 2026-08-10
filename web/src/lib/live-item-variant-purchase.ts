@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { isLiveRoomOpenForSpotPurchase } from "@/lib/live-room-commerce-guards";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { sanitizeStripePaymentIntentId } from "@/lib/stripe-payment-intent-id";
 import { stripeCheckoutSessionPaymentOptions } from "@/lib/stripe-payment-method-config";
 import { buildCheckoutTaxSessionFields, STRIPE_TAX_CODE_TANGIBLE, stripeLineItemProductData } from "@/lib/stripe-tax";
 import { recordLiveShowCompletedSaleTx, resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
@@ -107,9 +108,13 @@ async function refundOrAlertOnFailedRandomReveal(purchase: {
 
 export async function finalizeLiveItemVariantPurchasePaid(
   purchaseId: string,
-  stripePaymentIntentId?: string | null,
+  rawStripePaymentIntentId?: string | null,
   notificationChargeUsd?: number | null,
 ) {
+  // Guard (bug #18): the PayPal/Venmo buyer rail (see live-payment-pipeline.ts) returns a PayPal
+  // capture id through the same "paymentIntentId" slot used by the real Stripe rail. Only a
+  // Stripe-shaped id (`pi_…`) is ever allowed past this point.
+  const stripePaymentIntentId = sanitizeStripePaymentIntentId(rawStripePaymentIntentId);
   const purchase = await prisma.liveItemVariantPurchase.findUnique({
     where: { id: purchaseId },
     include: {
@@ -123,7 +128,7 @@ export async function finalizeLiveItemVariantPurchasePaid(
     try {
       await finalizeStripeMarketplaceOrderPaid(
         purchase.fulfillmentOrderId,
-        stripePaymentIntentId ?? purchase.stripePaymentIntentId ?? null,
+        stripePaymentIntentId ?? sanitizeStripePaymentIntentId(purchase.stripePaymentIntentId),
         null,
       );
     } catch (e) {
@@ -244,7 +249,8 @@ export async function finalizeLiveItemVariantPurchasePaid(
           fallbackUsd: paidMeta?.totalUsd ?? purchase.totalUsd,
           fulfillmentOrderId: paidMeta?.fulfillmentOrderId ?? purchase.fulfillmentOrderId,
           stripePaymentIntentId:
-            stripePaymentIntentId ?? paidMeta?.stripePaymentIntentId ?? purchase.stripePaymentIntentId,
+            stripePaymentIntentId ??
+            sanitizeStripePaymentIntentId(paidMeta?.stripePaymentIntentId ?? purchase.stripePaymentIntentId),
         });
 
   emitVariantPurchased(purchase.liveRoomId, {
