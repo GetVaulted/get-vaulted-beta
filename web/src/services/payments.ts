@@ -36,6 +36,8 @@ import {
   logIgnoredMarketplacePaymentIntentWebhook,
 } from "@/lib/stripe-payment-intent-webhook";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { logPayoutEligibilityDecision } from "@/lib/payout-audit-log";
+import { reportUrgentPaymentAnomaly } from "@/lib/cron-anomaly-alert";
 import {
   liveSavedCardSellerReady,
   resolveLiveSellerDestinationAccount,
@@ -2968,16 +2970,19 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
               buyerId: true,
               listingId: true,
               paymentMethod: true,
+              payoutStatus: true,
               payoutBlockedReason: true,
               itemPriceUsd: true,
               taxAmountCents: true,
               listing: { select: { title: true } },
               liveShippingSession: { select: { liveShowId: true } },
+              seller: { select: { stripeAccountId: true } },
             },
           })
         : null;
       if (!order) break;
       const title = order.listing?.title ?? "an order";
+      const wasAlreadyPaidOutBeforeDisputeLoss = order.payoutStatus === "paid_out";
       if (dispute.status === "won") {
         // Only clear a hold this handler itself set — never override an unrelated admin block.
         await prisma.order.updateMany({
@@ -2996,6 +3001,12 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         // this app. Mirror `charge.refunded` bookkeeping — permanently block payout, mark the
         // order, and roll back any live-show GMV so later sales in the same show aren't taxed
         // at an incorrectly low tier because of a sale that was ultimately unwound.
+        //
+        // The "Stripe reverses the seller's transferred share outside this app" line above is an
+        // ASSUMPTION, not a verified fact — it was never checked against the seller's actual
+        // Connect balance (financial reconciliation audit, bug #14). If this order was already
+        // bank-paid-out before the dispute was lost, or if the reversal leaves the seller's
+        // Connect balance negative, that needs a loud, verified alert rather than silence.
         await prisma.$transaction(async (tx) => {
           await tx.order.update({
             where: { id: order.id },
@@ -3045,6 +3056,47 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
             }
           }
         });
+
+        // Verify against real Stripe state instead of trusting the "Stripe already handled it"
+        // assumption. Only bother reading the balance when there's an actual elevated-risk
+        // signal (order was already paid out) — routine chargebacks on held funds don't need it.
+        if (wasAlreadyPaidOutBeforeDisputeLoss) {
+          const sellerAccountId = order.seller.stripeAccountId?.trim() || null;
+          let balanceNote = "seller has no Stripe Connect account on file";
+          let balanceLooksNegative = false;
+          if (sellerAccountId) {
+            try {
+              const balance = await stripe.balance.retrieve({ stripeAccount: sellerAccountId });
+              const availableCents = balance.available
+                .filter((b) => b.currency === "usd")
+                .reduce((sum, b) => sum + b.amount, 0);
+              const pendingCents = balance.pending
+                .filter((b) => b.currency === "usd")
+                .reduce((sum, b) => sum + b.amount, 0);
+              balanceLooksNegative = availableCents < 0;
+              balanceNote = `available=${availableCents}c pending=${pendingCents}c`;
+            } catch (e) {
+              balanceNote = `balance check failed: ${e instanceof Error ? e.message : String(e)}`;
+            }
+          }
+          reportUrgentPaymentAnomaly(
+            "chargeback_lost_after_payout_already_released",
+            `orderId=${order.id} sellerId=${order.sellerId} disputeId=${dispute.id} ` +
+              `— this order was already paid_out to the seller before the dispute was lost. ` +
+              `Stripe's own chargeback reversal is assumed to claw back the seller's share, but that ` +
+              `has NOT been independently verified here. Seller Connect balance: ${balanceNote}.` +
+              (balanceLooksNegative ? " Balance is negative — needs manual follow-up." : ""),
+          );
+          await logPayoutEligibilityDecision({
+            sellerId: order.sellerId,
+            orderId: order.id,
+            action: "order_payout_blocked",
+            previousStatus: "paid_out",
+            newStatus: "blocked",
+            reason: `Chargeback lost after payout was already released (disputeId=${dispute.id}). Seller Connect balance: ${balanceNote}.`,
+          });
+        }
+
         await createNotification(prisma, {
           userId: order.sellerId,
           type: "stripe_dispute",

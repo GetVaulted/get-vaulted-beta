@@ -19,8 +19,39 @@ import { fullRefundAmountCents } from "@/lib/sales-tax-charge";
 import { prisma } from "@/lib/prisma";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { reportUrgentPaymentAnomaly } from "@/lib/cron-anomaly-alert";
 import { removeOrderFromLiveShippingSessionOnRefundTx } from "@/services/shipping/live-shipping-pricing";
+import { isStripeBankPayoutId } from "@/services/payout/stripe-seller-payout";
 import { PAYMENT_REFUNDED } from "@/services/payments";
+
+/**
+ * Real (not DB-guessed) USD available+pending balance on a seller's Connect account, in cents.
+ * Used only to make a refund-after-payout exception verifiable against actual Stripe state
+ * instead of a bare "payoutStatus said paid_out" note — see the financial reconciliation audit
+ * (bug #14): the app previously never checked whether the seller's Connect balance could
+ * actually absorb a reverse_transfer once their bank payout had already emptied it.
+ */
+async function readSellerConnectUsdBalanceCents(
+  stripeAccountId: string,
+): Promise<{ availableCents: number; pendingCents: number } | null> {
+  try {
+    const stripe = getStripe();
+    const balance = await stripe.balance.retrieve({ stripeAccount: stripeAccountId });
+    const availableCents = balance.available
+      .filter((b) => b.currency === "usd")
+      .reduce((sum, b) => sum + b.amount, 0);
+    const pendingCents = balance.pending
+      .filter((b) => b.currency === "usd")
+      .reduce((sum, b) => sum + b.amount, 0);
+    return { availableCents, pendingCents };
+  } catch (e) {
+    console.warn("[order-refund] could not read seller Connect balance for payout-safety check", {
+      stripeAccountId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return null;
+  }
+}
 
 export type { OrderRefundRequestDto } from "@/lib/order-refund-types";
 export { serializeOrderRefundRequest } from "@/lib/order-refund-types";
@@ -706,8 +737,10 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
       shippingPriceUsd: true,
       taxAmountCents: true,
       payoutStatus: true,
+      processorTransferId: true,
       listing: { select: { title: true } },
       liveShippingSession: { select: { liveShowId: true } },
+      seller: { select: { stripeAccountId: true } },
     },
   });
   if (!order) throw new RefundRequestError("NOT_FOUND", 404);
@@ -778,6 +811,35 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
     },
     data: { status: OrderRefundRequestStatus.refund_processing },
   });
+
+  // Verify against REAL Stripe balance state, not just the DB's payoutStatus label, before
+  // attempting a reverse_transfer against a seller who may have already been paid to their bank.
+  // We still proceed with the refund either way — the buyer's refund cannot wait on this — but a
+  // seller whose Connect balance can't cover the reversal needs a loud, verified alert raised
+  // *before* the attempt, not just a note discovered after the fact.
+  const alreadyPaidOut = order.payoutStatus === "paid_out";
+  const sellerAccountId = order.seller.stripeAccountId?.trim() || null;
+  const preRefundBalance =
+    alreadyPaidOut && sellerAccountId
+      ? await readSellerConnectUsdBalanceCents(sellerAccountId)
+      : null;
+  if (alreadyPaidOut && preRefundBalance) {
+    const availablePlusPending = preRefundBalance.availableCents + preRefundBalance.pendingCents;
+    if (availablePlusPending < refundAmountCents) {
+      const payoutKind = isStripeBankPayoutId(order.processorTransferId)
+        ? "confirmed_stripe_bank_payout"
+        : "heuristic_or_manual_paid_out_marker";
+      reportUrgentPaymentAnomaly(
+        "refund_after_payout_insufficient_connect_balance",
+        `orderId=${orderId} sellerId=${order.sellerId} refundRequestId=${refundRequestId} ` +
+          `refundAmountCents=${refundAmountCents} sellerConnectAvailableCents=${preRefundBalance.availableCents} ` +
+          `sellerConnectPendingCents=${preRefundBalance.pendingCents} processorTransferId=${order.processorTransferId ?? "null"} ` +
+          `payoutKind=${payoutKind} — reverse_transfer is about to be attempted against a Connect balance that ` +
+          `cannot fully cover it; this will likely drive the seller's balance negative or fail outright. ` +
+          `Needs manual follow-up regardless of outcome.`,
+      );
+    }
+  }
 
   const stripe = getStripe();
   let stripeRefundId: string | null = null;
@@ -880,18 +942,37 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
     throw new RefundRequestError("REFUND_ISSUED_PENDING_DB_SYNC", 500);
   }
 
-  if (order.payoutStatus === "paid_out") {
+  if (alreadyPaidOut) {
     // Money was already released to the seller before this refund ran (e.g. an admin approved
     // payout while a buyer's refund request was in flight) — `reverse_transfer` still claws the
     // funds back from Stripe's side, but this needs to stand out from routine refunds in the
     // payout audit trail since the platform absorbed a timing gap instead of holding the money.
+    // Re-read the REAL post-reversal balance (rather than assuming reverse_transfer worked) so
+    // this record reflects verified Stripe state, not just what the DB believed going in.
+    const postRefundBalance = sellerAccountId
+      ? await readSellerConnectUsdBalanceCents(sellerAccountId)
+      : null;
+    const wentNegative = postRefundBalance != null && postRefundBalance.availableCents < 0;
+    if (wentNegative) {
+      reportUrgentPaymentAnomaly(
+        "refund_after_payout_drove_balance_negative",
+        `orderId=${orderId} sellerId=${order.sellerId} refundRequestId=${refundRequestId} ` +
+          `stripeRefundId=${stripeRefundId} sellerConnectAvailableCentsAfter=${postRefundBalance.availableCents} ` +
+          `— reverse_transfer completed but the seller's Connect balance is now negative; verify recovery via future transfers.`,
+      );
+    }
     await logPayoutEligibilityDecision({
       sellerId: order.sellerId,
       orderId: order.id,
       action: "order_payout_blocked",
       previousStatus: "paid_out",
       newStatus: "blocked",
-      reason: `Refund executed after payout was already released (refundRequestId=${refundRequestId})`,
+      reason:
+        `Refund executed after payout was already released (refundRequestId=${refundRequestId}). ` +
+        `Pre-refund Connect balance: available=${preRefundBalance?.availableCents ?? "unknown"}c ` +
+        `pending=${preRefundBalance?.pendingCents ?? "unknown"}c. ` +
+        `Post-refund Connect balance: available=${postRefundBalance?.availableCents ?? "unknown"}c ` +
+        `pending=${postRefundBalance?.pendingCents ?? "unknown"}c.`,
     });
   }
 

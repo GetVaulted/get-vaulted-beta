@@ -10,6 +10,7 @@ import {
   resolveSellerAbsorbedProcessingFeeUsd,
 } from "@/lib/seller-payout-estimate";
 import { isStripeBankPayoutId } from "@/services/payout/stripe-seller-payout";
+import type { PayoutAuditAction } from "@/lib/payout-audit-log";
 
 const READY_STATUSES: OrderPayoutStatus[] = [
   OrderPayoutStatus.fast_payout_ready,
@@ -206,10 +207,21 @@ async function estimateReadyOrderNets(
   });
 }
 
+/**
+ * Marks orders `paid_out` from a heuristic (estimated net vs. Stripe Connect balance), not a
+ * specific matched Stripe payout object. Every order marked this way gets its own
+ * PayoutEligibilityAuditLog entry recording the mechanism + diagnostic numbers used, so a
+ * heuristic-driven mark is always distinguishable and reviewable later — never silent. See the
+ * financial reconciliation audit (bug #13) for why this matters: these marks are the one path in
+ * the payout system that previously had no audit trail at all.
+ */
 async function markOrdersPaidOutFromBulkPayout(args: {
   orderIds: string[];
   payoutId: string;
   now: Date;
+  sellerId: string;
+  mechanism: "connect_shortfall" | "full_clear";
+  diagnostics: Record<string, number | string>;
 }): Promise<number> {
   if (args.orderIds.length === 0) return 0;
   const transferId = `bulk-bank:${args.payoutId}`;
@@ -229,6 +241,24 @@ async function markOrdersPaidOutFromBulkPayout(args: {
     where: { id: { in: args.orderIds }, fundsReleasedAt: null },
     data: { fundsReleasedAt: args.now },
   });
+
+  const action: PayoutAuditAction =
+    args.mechanism === "connect_shortfall"
+      ? "order_payout_marked_paid_from_connect_shortfall_heuristic"
+      : "order_payout_marked_paid_from_full_clear_heuristic";
+  const reason = `Heuristic bulk-bank match (${args.mechanism}), anchor=${args.payoutId}, diagnostics=${JSON.stringify(args.diagnostics)}`;
+  const { logPayoutEligibilityDecision } = await import("@/lib/payout-audit-log");
+  for (const orderId of args.orderIds) {
+    await logPayoutEligibilityDecision({
+      sellerId: args.sellerId,
+      orderId,
+      action,
+      previousStatus: "ready",
+      newStatus: OrderPayoutStatus.paid_out,
+      reason,
+    });
+  }
+
   return result.count;
 }
 
@@ -298,7 +328,7 @@ export async function reconcileStripeBankPayoutsForReadySellers(opts?: {
   let matchedBulkFromBalance = 0;
   let matchedFromConnectShortfall = 0;
 
-  for (const [, { accountId, orderIds }] of bySeller) {
+  for (const [sellerId, { accountId, orderIds }] of bySeller) {
     try {
       const payouts = await stripe.payouts.list(
         { limit: limitPerSeller },
@@ -361,6 +391,14 @@ export async function reconcileStripeBankPayoutsForReadySellers(opts?: {
           orderIds: markPaidIds,
           payoutId: anchor,
           now,
+          sellerId,
+          mechanism: "connect_shortfall",
+          diagnostics: {
+            availableUsdCents,
+            pendingUsdCents,
+            estimatedReadyNetUsdCents,
+            markedCount: markPaidIds.length,
+          },
         });
         for (const id of markPaidIds) {
           matchedIds.add(id);
@@ -386,6 +424,15 @@ export async function reconcileStripeBankPayoutsForReadySellers(opts?: {
             orderIds: remaining,
             payoutId: anchor,
             now,
+            sellerId,
+            mechanism: "full_clear",
+            diagnostics: {
+              availableUsdCents,
+              pendingUsdCents,
+              paidPayoutUsdCents,
+              estimatedReadyNetUsdCents: remainingCents || estimatedReadyNetUsdCents,
+              markedCount: remaining.length,
+            },
           });
           for (const id of remaining) matchedIds.add(id);
           matchedBulkFromBalance += marked;
