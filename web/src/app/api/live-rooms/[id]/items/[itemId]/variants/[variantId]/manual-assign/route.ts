@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { maybeMarkVariantBreakReady } from "@/lib/live-item-variant-break";
 import { idleVariantSpotCommerceReset } from "@/lib/live-variant-spot-commerce";
+import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
 import {
   computeOffPlatformPlatformFee,
   normalizeOffPlatformSaleAmountUsd,
@@ -178,6 +179,9 @@ export async function POST(
           where: { id: itemId },
           data: { ...idleVariantSpotCommerceReset(), itemVersion: { increment: 1 } },
         });
+        // Manually assigning the spot that was mid-auction must clear its standing bids too —
+        // otherwise the next spot pinned on this lot inherits them (see settle-winner fix).
+        await clearLiveAuctionProxyBidsForItem(tx, { liveRoomId, itemId });
       } else {
         await tx.liveRoomItem.update({
           where: { id: itemId },

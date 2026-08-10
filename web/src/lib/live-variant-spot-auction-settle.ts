@@ -11,6 +11,7 @@ import {
   endVariantSpotAuctionNoBidsReset,
   idleVariantSpotCommerceReset,
 } from "@/lib/live-variant-spot-commerce";
+import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
 import type { FinalizeTrigger } from "@/lib/live-auction-finalize";
 import { resolveSoldUnitDisplayTitle } from "@/lib/live-room-item-quantity-display";
 import { summarizeVariantSpots } from "@/lib/live-item-variant-presets";
@@ -109,6 +110,10 @@ export async function settleVariantSpotAuctionWinner(args: {
       where: { id: args.itemId },
       data: { ...idleVariantSpotCommerceReset(), itemVersion: { increment: 1 } },
     });
+    // Drop standing/proxy bids now that this spot is sold — otherwise the next spot pinned on
+    // this same lot inherits them (proxy bids are keyed by liveRoomItemId, not by variant) and
+    // an uninvolved bidder from this round gets auto-applied as the leader on the next spot.
+    await clearLiveAuctionProxyBidsForItem(tx, { liveRoomId: args.liveRoomId, itemId: args.itemId });
 
     variantId = row.auctionVariantId;
     buyerId = row.lastHighBidderId.trim();
