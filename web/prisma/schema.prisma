@@ -1956,6 +1956,25 @@ model Order {
   platformCreditsSpent       PlatformCredit[]           @relation("PlatformCreditSpentOrder")
   createdAt                  DateTime                   @default(now())
   updatedAt                  DateTime                   @updatedAt
+  /// When the buyer's payment actually cleared (Stripe charge.created once the async ledger
+  /// backfill runs; a `new Date()` placeholder is written synchronously the moment paymentStatus
+  /// first flips to a paid-bucket value, so this is never null for any order that ever reached
+  /// paid/layaway_completed/refunded/chargeback). Financial reconciliation against Stripe MUST use
+  /// this field, not createdAt — an order can be created well before it's actually paid (deferred
+  /// auction-win payment, saved-card retries, layaway). Operational reports (order lists, seller
+  /// sales history, buyer order history) intentionally keep using createdAt — do not repoint those.
+  /// See web/docs/financial-reconciliation-audit-2026-08.md.
+  paidAt                     DateTime?
+  /// Provenance of `paidAt` — set ONLY when conclusively known:
+  /// - stripe_authoritative: paidAt is the real Stripe Charge.created (persistOrderStripeChargeLedger).
+  /// - created_at_fallback: no recoverable Stripe charge existed (no PaymentIntent, or the Stripe
+  ///   fetch failed) — paidAt was copied from createdAt and must NOT be treated as Stripe-verified.
+  /// Null means "not yet determined" (a placeholder paidAt was just written and the async Stripe
+  /// ledger upgrade hasn't run yet) OR "not applicable" (escrow / $0 giveaway orders, which never
+  /// have a Stripe charge and whose paidAt is a genuine non-Stripe confirmation moment, not a
+  /// fallback copy of createdAt). Never infer Stripe-verification from a null value either way —
+  /// query this field explicitly.
+  paidAtSource               OrderPaidAtSource?
 
   @@index([escrowTransactionId])
   @@index([liveShippingSessionId])
@@ -1968,6 +1987,17 @@ model Order {
   @@index([status, createdAt])
   // processAuctionPaymentExpiries scans unpaid orders past their payment deadline.
   @@index([paymentStatus, paymentDeadlineAt])
+  // Financial reconciliation's payment-date window (admin-reconciliation.ts, prismaSaleAtFilter).
+  @@index([paidAt])
+  // Backfill verification: count STRIPE_AUTHORITATIVE vs CREATED_AT_FALLBACK.
+  @@index([paidAtSource])
+}
+
+/// Provenance tag for Order.paidAt — see the field comment. Financial reconciliation must be able
+/// to tell a real Stripe-verified payment date apart from a createdAt-copied stand-in.
+enum OrderPaidAtSource {
+  stripe_authoritative
+  created_at_fallback
 }
 
 /// Live show order cancel / return refund workflow (buyer request → seller → optional support escalation).
@@ -2512,6 +2542,9 @@ model Message {
   kind        MessageKind   @default(user)
   systemEvent String?
   body        String
+  /// Optional photo attachment (Supabase Storage public URL). Messages may have text, an
+  /// image, or both — `body` may be "" when the message is image-only.
+  imageUrl    String?
   readAt      DateTime?
   createdAt   DateTime      @default(now())
 
