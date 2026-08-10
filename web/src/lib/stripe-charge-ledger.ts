@@ -10,6 +10,8 @@ export type StripeChargeLedgerSnapshot = {
   stripeApplicationFeeCents: number | null;
   stripeTransferId: string | null;
   stripeNetCents: number | null;
+  /** Authoritative payment date — Charge.created (Unix seconds) converted to a Date. */
+  paidAt: Date | null;
 };
 
 function asExpanded<T extends object>(value: string | T | null | undefined): T | null {
@@ -30,6 +32,7 @@ export function extractChargeLedgerFromPaymentIntent(
       stripeApplicationFeeCents: null,
       stripeTransferId: null,
       stripeNetCents: null,
+      paidAt: null,
     };
   }
 
@@ -60,6 +63,10 @@ export function extractChargeLedgerFromPaymentIntent(
           : null,
     stripeTransferId: transferId,
     stripeNetCents: bt != null ? bt.net : null,
+    // Charge.created is always present on a real charge — this is the moment Stripe itself
+    // considers the payment to have happened, the correct basis for reconciling against Stripe's
+    // own activity-dated exports (financial reconciliation audit, bug #1).
+    paidAt: typeof charge.created === "number" ? new Date(charge.created * 1000) : null,
   };
 }
 
@@ -109,6 +116,8 @@ export async function loadPaymentIntentChargeLedger(
 /**
  * Persist Stripe charge / BT fee fields on an order. Only fills null columns unless `force`.
  * Does not overwrite non-null values without force (safe for backfill + finalize races).
+ * Exception: `paidAt` is always upgraded to the real Stripe charge.created when available,
+ * regardless of `force` — see the comment at that assignment below for why.
  */
 export async function persistOrderStripeChargeLedger(args: {
   orderId: string;
@@ -128,12 +137,13 @@ export async function persistOrderStripeChargeLedger(args: {
       stripeApplicationFeeCents: true,
       stripeTransferId: true,
       stripeNetCents: true,
+      paidAt: true,
     },
   });
   if (!existing) return snap;
 
   const force = args.force === true;
-  const data: Record<string, string | number> = {};
+  const data: Record<string, string | number | Date> = {};
   if (snap.stripeChargeId && (force || !existing.stripeChargeId)) {
     data.stripeChargeId = snap.stripeChargeId;
   }
@@ -151,6 +161,17 @@ export async function persistOrderStripeChargeLedger(args: {
   }
   if (snap.stripeNetCents != null && (force || existing.stripeNetCents == null)) {
     data.stripeNetCents = snap.stripeNetCents;
+  }
+  // Unlike the fields above, paidAt is always upgraded when a real Stripe timestamp is available —
+  // it started as a "when GV learned about it" placeholder (set synchronously at finalize time),
+  // and the whole point of this backfill is to replace that placeholder with the authoritative
+  // charge.created value. Never regresses: once set from Stripe, re-running this with the same
+  // paymentIntentId just writes the same value again (idempotent), and force has no bearing here.
+  // paidAtSource is the ONLY place this codebase ever writes "stripe_authoritative" — do not set
+  // it anywhere else, and do not infer it from paidAt being non-null alone.
+  if (snap.paidAt != null) {
+    data.paidAt = snap.paidAt;
+    data.paidAtSource = "stripe_authoritative";
   }
 
   if (Object.keys(data).length > 0) {

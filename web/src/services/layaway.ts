@@ -1070,6 +1070,11 @@ export async function completeLayawayPlan(layawayId: string): Promise<void> {
         // `totalUsd` reconciles exactly like a normal taxable sale (item + shipping + tax).
         totalUsd: roundUsd(lay.originalPriceUsd + lay.shippingPriceUsd + (lay.order.taxUsd ?? 0)),
         stripePaymentIntentId: lastPayment?.stripePaymentIntentId ?? lay.order.stripePaymentIntentId ?? undefined,
+        // Placeholder — the persistOrderStripeChargeLedger call below (final installment's PI)
+        // upgrades this to the authoritative Stripe charge.created timestamp once fetched. The
+        // order only becomes a genuine "sale" for reconciliation purposes once fully paid off, so
+        // this moment — not the deposit's — is the correct payment date for the whole order.
+        paidAt: new Date(),
       },
     });
     await consumeListingInventoryHoldTx(tx, {
@@ -1086,6 +1091,18 @@ export async function completeLayawayPlan(layawayId: string): Promise<void> {
   });
 
   await initializeOrderPayoutOnPayment(lay.orderId);
+
+  // Upgrade the paidAt placeholder above to the final installment's real Stripe charge.created,
+  // and pick up its fee/charge/transfer fields — this call was missing entirely before (the
+  // deposit's own persistOrderStripeChargeLedger call at finalizeLayawayDepositPaid only ever
+  // covers the deposit's PI, not the installment that actually completed the plan).
+  const finalPaymentIntentId = lastPayment?.stripePaymentIntentId ?? lay.order.stripePaymentIntentId ?? null;
+  if (finalPaymentIntentId) {
+    void persistOrderStripeChargeLedger({
+      orderId: lay.orderId,
+      paymentIntentId: finalPaymentIntentId,
+    }).catch((e) => console.warn("[layaway] final charge ledger persist failed", lay.orderId, e));
+  }
 
   // Referral program: a layaway order only counts as "paid" once fully paid off (not at
   // deposit) — this is the layaway equivalent of `finalizeStripeMarketplaceOrderPaid`'s grant

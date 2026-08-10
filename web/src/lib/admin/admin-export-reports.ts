@@ -89,7 +89,7 @@ export async function buildAdminExportPayload(
     case "tax-nexus":
       return buildTaxNexusExport();
     case "orders":
-      return buildOrdersExport(params.status);
+      return buildOrdersExport(params.status, parseDateParam(params.from), parseDateParam(params.to));
     case "seller-risk":
       return buildSellerRiskExport(params.tier, params.pending === "1");
     case "refund-requests":
@@ -255,10 +255,34 @@ async function buildTaxNexusExport(): Promise<CsvExportPayload> {
   };
 }
 
-async function buildOrdersExport(statusRaw: string | undefined): Promise<CsvExportPayload> {
+/**
+ * One Order per row, with the actual Stripe identifiers/amounts needed to match each row against
+ * a Stripe activity export line-by-line — not just GV's own summary. Filters by `paidAt` (falling
+ * back to `createdAt` only for rows not yet backfilled, matching prismaSaleAtFilter/
+ * admin-reconciliation.ts) rather than `createdAt`, so the same window used for the 30-day
+ * reconciliation report is the same window exported here.
+ */
+async function buildOrdersExport(
+  statusRaw: string | undefined,
+  from?: Date,
+  to?: Date,
+): Promise<CsvExportPayload> {
   const status = (statusRaw ?? "all").trim();
   const where: Prisma.OrderWhereInput = {};
   if (status !== "all" && status.length > 0) where.status = status;
+  if (from || to) {
+    const paidAt: { gte?: Date; lt?: Date } = {};
+    const createdAt: { gte?: Date; lt?: Date } = {};
+    if (from) {
+      paidAt.gte = from;
+      createdAt.gte = from;
+    }
+    if (to) {
+      paidAt.lt = to;
+      createdAt.lt = to;
+    }
+    where.OR = [{ paidAt }, { AND: [{ paidAt: null }, { createdAt }] }];
+  }
 
   const rows = await prisma.order.findMany({
     where,
@@ -276,6 +300,8 @@ async function buildOrdersExport(statusRaw: string | undefined): Promise<CsvExpo
     headers: [
       "orderId",
       "createdAt",
+      "paidAt",
+      "paidAtSource",
       "status",
       "paymentStatus",
       "fulfillmentStatus",
@@ -288,6 +314,12 @@ async function buildOrdersExport(statusRaw: string | undefined): Promise<CsvExpo
       "shipState",
       "shipCountry",
       "taxJurisdictionState",
+      "stripePaymentIntentId",
+      "stripeChargeId",
+      "stripeBalanceTransactionId",
+      "stripeProcessingFeeCents",
+      "stripeTransferId",
+      "stripeNetCents",
       "listingId",
       "listingTitle",
       "isCompanyListing",
@@ -301,6 +333,10 @@ async function buildOrdersExport(statusRaw: string | undefined): Promise<CsvExpo
     rows: rows.map((o) => [
       o.id,
       o.createdAt.toISOString(),
+      o.paidAt?.toISOString() ?? "",
+      // Never blank this out or infer it — null means genuinely undetermined (see the schema
+      // comment on Order.paidAtSource), not "assume Stripe-verified".
+      o.paidAtSource ?? "",
       o.status,
       o.paymentStatus,
       o.fulfillmentStatus,
@@ -313,6 +349,12 @@ async function buildOrdersExport(statusRaw: string | undefined): Promise<CsvExpo
       o.shipState,
       o.shipCountry,
       o.taxJurisdictionState ?? "",
+      o.stripePaymentIntentId ?? "",
+      o.stripeChargeId ?? "",
+      o.stripeBalanceTransactionId ?? "",
+      o.stripeProcessingFeeCents ?? "",
+      o.stripeTransferId ?? "",
+      o.stripeNetCents ?? "",
       o.listingId,
       o.listing.title,
       o.listing.isCompanyListing,

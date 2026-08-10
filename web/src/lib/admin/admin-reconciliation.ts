@@ -119,10 +119,21 @@ export async function loadAdminReconciliationReport(
     ensureLiveShowFeeCache(true),
   ]);
   const rangeStart = resolveReconciliationRangeStart(rangeKey);
-  const createdAtFilter = rangeStart ? { createdAt: { gte: rangeStart } } : {};
+  // Payment-date window, not order-creation date — an order can be created well before it's
+  // actually paid (deferred auction-win payment, saved-card retries, layaway). Falls back to
+  // createdAt only for orders not yet backfilled with paidAt. See the financial reconciliation
+  // audit, bug #1 — this is the exact field swap that fixes the createdAt/Stripe date mismatch.
+  const dateFilter: Prisma.OrderWhereInput = rangeStart
+    ? {
+        OR: [
+          { paidAt: { gte: rangeStart } },
+          { AND: [{ paidAt: null }, { createdAt: { gte: rangeStart } }] },
+        ],
+      }
+    : {};
 
   const orders = await prisma.order.findMany({
-    where: { ...createdAtFilter },
+    where: dateFilter,
     select: orderSelect,
     take: 10000,
   });
@@ -247,7 +258,7 @@ export async function loadAdminReconciliationReport(
     platformFeeRetainedOnRefunds: true,
     companyNetRevenueUsd: round2(companyNetRevenueUsd),
     assumptions: [
-      "Orders are grouped by creation date (createdAt), not by payment or refund event date.",
+      "Orders are grouped by payment date (Order.paidAt — the real Stripe charge.created once the ledger backfill runs; a same-moment placeholder until then), not by order creation date. Falls back to createdAt only for orders not yet backfilled with paidAt. Refund/dispute event timing is a separate, not-yet-tracked date basis — refunded/charged-back orders here are still bucketed by their original payment date, matching how Stripe's own activity export dates a refunded charge.",
       "Platform fees use the same tiered/flat resolver as the seller sales report (marketplace flat % vs live-show GMV tiers).",
       "Stripe processing fees on marketplace sales are absorbed by sellers on Connect (stored Order.stripeProcessingFeeCents, else 2.9%+$0.30). Official/company listings do not pass processing through — seller net and processingFeesUsd both use $0 for those rows.",
       "ASSUMPTION FLAGGED FOR REVIEW: platform application fees are currently kept in full even when an order is fully refunded or charged back — only the seller's transferred share is clawed back (reverse_transfer). If the business intends to also refund the platform's own fee, add refund_application_fee: true to the Stripe refund calls.",

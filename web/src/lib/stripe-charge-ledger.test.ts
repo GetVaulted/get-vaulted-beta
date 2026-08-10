@@ -1,7 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
-import { extractChargeLedgerFromPaymentIntent } from "@/lib/stripe-charge-ledger";
 import { connectPaymentIntentTransferData } from "@/lib/sales-tax-charge";
+
+const prismaMock = vi.hoisted(() => ({
+  order: { findUnique: vi.fn(), update: vi.fn() },
+}));
+vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
+
+const stripeMock = vi.hoisted(() => ({
+  paymentIntents: { retrieve: vi.fn() },
+}));
+vi.mock("@/lib/stripe", () => ({
+  getStripe: () => stripeMock,
+  isStripeConfigured: () => true,
+}));
+
+import { extractChargeLedgerFromPaymentIntent, persistOrderStripeChargeLedger } from "@/lib/stripe-charge-ledger";
 
 describe("extractChargeLedgerFromPaymentIntent", () => {
   it("reads fee/net from expanded balance_transaction (cents, not dollars)", () => {
@@ -28,6 +42,80 @@ describe("extractChargeLedgerFromPaymentIntent", () => {
     expect(snap.stripeApplicationFeeCents).toBe(1173);
     expect(snap.stripeTransferId).toBe("tr_1");
     expect(snap.stripeNetCents).toBe(11452);
+  });
+
+  it("converts Charge.created (Unix seconds) to paidAt — the financial reconciliation payment date", () => {
+    const pi = {
+      id: "pi_2",
+      latest_charge: {
+        id: "ch_2",
+        created: 1_800_000_000, // 2027-01-15T06:40:00.000Z
+        balance_transaction: { id: "txn_2", fee: 100, net: 900, amount: 1000 },
+      },
+    } as unknown as Stripe.PaymentIntent;
+
+    const snap = extractChargeLedgerFromPaymentIntent(pi);
+    expect(snap.paidAt).toEqual(new Date(1_800_000_000 * 1000));
+  });
+
+  it("paidAt is null when there is no expanded charge at all", () => {
+    const pi = { id: "pi_3", latest_charge: "ch_3" } as unknown as Stripe.PaymentIntent;
+    const snap = extractChargeLedgerFromPaymentIntent(pi);
+    expect(snap.paidAt).toBeNull();
+    expect(snap.stripeChargeId).toBe("ch_3");
+  });
+});
+
+describe("persistOrderStripeChargeLedger", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("tags paidAtSource=stripe_authoritative whenever a real charge.created is recovered", async () => {
+    prismaMock.order.findUnique.mockResolvedValue({
+      stripeChargeId: null,
+      stripeBalanceTransactionId: null,
+      stripeProcessingFeeCents: null,
+      stripeApplicationFeeCents: null,
+      stripeTransferId: null,
+      stripeNetCents: null,
+      paidAt: null,
+    });
+    stripeMock.paymentIntents.retrieve.mockResolvedValue({
+      id: "pi_1",
+      latest_charge: {
+        id: "ch_1",
+        created: 1_800_000_000,
+        balance_transaction: { id: "txn_1", fee: 100, net: 900, amount: 1000 },
+      },
+    });
+
+    await persistOrderStripeChargeLedger({ orderId: "order_1", paymentIntentId: "pi_1" });
+
+    expect(prismaMock.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "order_1" },
+        data: expect.objectContaining({
+          paidAt: new Date(1_800_000_000 * 1000),
+          paidAtSource: "stripe_authoritative",
+        }),
+      }),
+    );
+  });
+
+  it("never writes paidAtSource when there is no recoverable charge (no false authoritative tag)", async () => {
+    prismaMock.order.findUnique.mockResolvedValue({
+      stripeChargeId: null,
+      stripeBalanceTransactionId: null,
+      stripeProcessingFeeCents: null,
+      stripeApplicationFeeCents: null,
+      stripeTransferId: null,
+      stripeNetCents: null,
+      paidAt: null,
+    });
+    stripeMock.paymentIntents.retrieve.mockResolvedValue({ id: "pi_2", latest_charge: null });
+
+    await persistOrderStripeChargeLedger({ orderId: "order_2", paymentIntentId: "pi_2" });
+
+    expect(prismaMock.order.update).not.toHaveBeenCalled();
   });
 });
 

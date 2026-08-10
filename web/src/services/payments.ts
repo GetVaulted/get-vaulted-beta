@@ -525,6 +525,9 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
         status: "paid",
         escrowStatus: EscrowStatus.buyer_paid,
         shippingChargedCents,
+        // Escrow isn't a Stripe balance transaction — this confirmation moment is the
+        // authoritative payment date for this order, nothing to upgrade it to later.
+        paidAt: new Date(),
       },
     });
 
@@ -1954,6 +1957,9 @@ export async function finalizeStripeMarketplaceOrderPaid(
         ...taxFields,
         itemPriceUsd,
         shippingPriceUsd,
+        // Placeholder — persistOrderStripeChargeLedger below upgrades this to the authoritative
+        // Stripe charge.created timestamp once the async ledger fetch completes. Never left null.
+        paidAt: new Date(),
       },
     });
     if (claim.count === 0) return { claimed: false as const, closedLayaways: [] };

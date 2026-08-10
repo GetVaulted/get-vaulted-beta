@@ -190,4 +190,25 @@ describe("loadAdminReconciliationReport", () => {
     expect(ageMs).toBeGreaterThanOrEqual(24 * 3600000 - 50);
     expect(after - start!.getTime()).toBeLessThanOrEqual(24 * 3600000 + 50);
   });
+
+  it("queries by paidAt (falling back to createdAt only when paidAt is null) — financial reconciliation audit bug #1", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-10T00:00:00.000Z"));
+    prismaMock.order.findMany.mockResolvedValue([]);
+
+    await loadAdminReconciliationReport("30d");
+
+    const rangeStart = new Date("2026-07-11T00:00:00.000Z");
+    expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            { paidAt: { gte: rangeStart } },
+            { AND: [{ paidAt: null }, { createdAt: { gte: rangeStart } }] },
+          ],
+        },
+      }),
+    );
+    vi.useRealTimers();
+  });
 });

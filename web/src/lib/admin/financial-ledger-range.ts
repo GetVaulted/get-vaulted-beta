@@ -137,11 +137,23 @@ export function prismaCreatedAtFilter(range: LedgerDateRange): { createdAt?: { g
 }
 
 /**
- * Order sale window filter.
+ * Order sale window filter — the payment-date basis for financial reconciliation.
  *
- * Note: `Order` has no `paidAt` column (unlike LiveTip / LiveItemVariantPurchase).
- * Use `createdAt` as the ledger clock until a charge-time timestamp is added to Order.
+ * `Order.paidAt` is the actual Stripe charge.created (or equivalent confirmation moment for
+ * escrow/layaway/giveaway orders) — see the financial reconciliation audit, bug #1. Falls back to
+ * `createdAt` only for orders not yet backfilled (paidAt still null): every order that has ever
+ * reached a paid-bucket status gets paidAt set synchronously at that moment, so this fallback
+ * branch only matters for historical rows awaiting the backfill job, never for new orders.
  */
 export function prismaSaleAtFilter(range: LedgerDateRange): Prisma.OrderWhereInput {
-  return prismaCreatedAtFilter(range);
+  if (!range.rangeStart && !range.rangeEnd) return {};
+  const paidAt: { gte?: Date; lt?: Date } = {};
+  if (range.rangeStart) paidAt.gte = range.rangeStart;
+  if (range.rangeEnd) paidAt.lt = range.rangeEnd;
+  const createdAt: { gte?: Date; lt?: Date } = {};
+  if (range.rangeStart) createdAt.gte = range.rangeStart;
+  if (range.rangeEnd) createdAt.lt = range.rangeEnd;
+  return {
+    OR: [{ paidAt }, { AND: [{ paidAt: null }, { createdAt }] }],
+  };
 }
