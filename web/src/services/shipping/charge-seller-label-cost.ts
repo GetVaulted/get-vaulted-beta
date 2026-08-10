@@ -153,6 +153,18 @@ export async function chargeSellerForLabelCost(
       },
     });
 
+    // Bundled-label debit failover (see bundled-labels.ts) retries the SAME package + Shippo
+    // transaction against a DIFFERENT orderId when the first order's Stripe reversal fails.
+    // shipmentPackageId is a hard one-row-per-package unique constraint, so a naive create()
+    // on retry collides with the row the failed first attempt already persisted. Look that row
+    // up so we can reuse/release it instead of crashing on the unique constraint.
+    const existingForPackage =
+      !existing && args.shipmentPackageId?.trim()
+        ? await tx.shipmentLabelFinance.findUnique({
+            where: { shipmentPackageId: args.shipmentPackageId.trim() },
+          })
+        : null;
+
     if (existing && labelHasSuccessfulClawback(existing)) {
       const summary = await recalculateOrderLabelFinanceSummary(order.id, tx);
       return {
@@ -207,34 +219,64 @@ export async function chargeSellerForLabelCost(
       labelCostCents,
     });
 
-    const finance = existing
-      ? await tx.shipmentLabelFinance.update({
-          where: { id: existing.id },
-          data: {
-            labelCostCents,
-            shippoShipmentId: args.shippoShipmentId?.trim() || existing.shippoShipmentId,
-            shipmentPackageId: args.shipmentPackageId?.trim() || existing.shipmentPackageId,
-            liveShippingSessionId: args.liveShippingSessionId?.trim() || existing.liveShippingSessionId,
-            purpose,
-            replacesShippoTransactionId: replacesTx || existing.replacesShippoTransactionId,
-            clawbackIdempotencyKey,
-            status: existing.status === "replaced" ? existing.status : "active",
-          },
-        })
-      : await tx.shipmentLabelFinance.create({
-          data: {
-            orderId: order.id,
-            liveShippingSessionId: args.liveShippingSessionId?.trim() || null,
-            shipmentPackageId: args.shipmentPackageId?.trim() || null,
-            shippoTransactionId: shippoTx,
-            shippoShipmentId: args.shippoShipmentId?.trim() || null,
-            labelCostCents,
-            purpose,
-            replacesShippoTransactionId: replacesTx,
-            status: "active",
-            clawbackIdempotencyKey,
-          },
+    let finance;
+    if (existing) {
+      finance = await tx.shipmentLabelFinance.update({
+        where: { id: existing.id },
+        data: {
+          labelCostCents,
+          shippoShipmentId: args.shippoShipmentId?.trim() || existing.shippoShipmentId,
+          shipmentPackageId: args.shipmentPackageId?.trim() || existing.shipmentPackageId,
+          liveShippingSessionId: args.liveShippingSessionId?.trim() || existing.liveShippingSessionId,
+          purpose,
+          replacesShippoTransactionId: replacesTx || existing.replacesShippoTransactionId,
+          clawbackIdempotencyKey,
+          status: existing.status === "replaced" ? existing.status : "active",
+        },
+      });
+    } else if (existingForPackage && existingForPackage.shippoTransactionId === shippoTx) {
+      // Same package + same Shippo transaction, just being retried against a new debit order
+      // after the first order's reversal failed — re-point the existing row rather than
+      // creating a duplicate that would collide on shipmentPackageId.
+      finance = await tx.shipmentLabelFinance.update({
+        where: { id: existingForPackage.id },
+        data: {
+          orderId: order.id,
+          labelCostCents,
+          shippoShipmentId: args.shippoShipmentId?.trim() || existingForPackage.shippoShipmentId,
+          liveShippingSessionId:
+            args.liveShippingSessionId?.trim() || existingForPackage.liveShippingSessionId,
+          purpose,
+          replacesShippoTransactionId: replacesTx || existingForPackage.replacesShippoTransactionId,
+          clawbackIdempotencyKey,
+          status: existingForPackage.status === "replaced" ? existingForPackage.status : "active",
+        },
+      });
+    } else {
+      if (existingForPackage) {
+        // A different Shippo transaction now owns this package (e.g. a reprint not linked via
+        // replacesShippoTransactionId). Release the stale pointer so create() below doesn't
+        // collide — history stays on the old row, it just no longer claims the package.
+        await tx.shipmentLabelFinance.update({
+          where: { id: existingForPackage.id },
+          data: { shipmentPackageId: null },
         });
+      }
+      finance = await tx.shipmentLabelFinance.create({
+        data: {
+          orderId: order.id,
+          liveShippingSessionId: args.liveShippingSessionId?.trim() || null,
+          shipmentPackageId: args.shipmentPackageId?.trim() || null,
+          shippoTransactionId: shippoTx,
+          shippoShipmentId: args.shippoShipmentId?.trim() || null,
+          labelCostCents,
+          purpose,
+          replacesShippoTransactionId: replacesTx,
+          status: "active",
+          clawbackIdempotencyKey,
+        },
+      });
+    }
 
     return { kind: "ready" as const, order, finance, purpose, clawbackIdempotencyKey };
   });
