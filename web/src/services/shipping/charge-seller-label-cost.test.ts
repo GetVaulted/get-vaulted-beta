@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const createReversal = vi.hoisted(() => vi.fn());
 const retrievePi = vi.hoisted(() => vi.fn());
+const transfersList = vi.hoisted(() => vi.fn());
+const isStripeConfiguredMock = vi.hoisted(() => vi.fn().mockReturnValue(true));
 const reportUrgentPaymentAnomaly = vi.hoisted(() => vi.fn());
 const verifyShippoLabelRefundStatus = vi.hoisted(() => vi.fn());
 const creditSellerForLabelCost = vi.hoisted(() => vi.fn());
@@ -67,6 +69,16 @@ const prismaMock = vi.hoisted(() => {
         }
         throw new Error("finance not found");
       }),
+      updateMany: vi.fn(async ({ where, data }: any) => {
+        let count = 0;
+        for (const row of financeStore.rows.values()) {
+          if (row.id !== where.id) continue;
+          if ("liabilityEstablishedAt" in where && row.liabilityEstablishedAt != null) continue;
+          Object.assign(row, data);
+          count += 1;
+        }
+        return { count };
+      }),
       findMany: vi.fn(async ({ where }: any) =>
         [...financeStore.rows.values()].filter((r) => r.orderId === where.orderId),
       ),
@@ -78,10 +90,10 @@ const prismaMock = vi.hoisted(() => {
 
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 vi.mock("@/lib/stripe", () => ({
-  isStripeConfigured: () => true,
+  isStripeConfigured: () => isStripeConfiguredMock(),
   getStripe: () => ({
     paymentIntents: { retrieve: retrievePi },
-    transfers: { createReversal },
+    transfers: { createReversal, list: transfersList },
   }),
 }));
 vi.mock("@/lib/cron-anomaly-alert", () => ({ reportUrgentPaymentAnomaly }));
@@ -118,6 +130,8 @@ describe("chargeSellerForLabelCost", () => {
       shippingLabelCostChargedShippoTransactionId: null,
     });
     prismaMock.order.update.mockImplementation(async ({ data }: any) => ({ id: "ord_1", ...data }));
+    isStripeConfiguredMock.mockReturnValue(true);
+    transfersList.mockResolvedValue({ data: [] });
     retrievePi.mockResolvedValue({
       latest_charge: { transfer: { id: "tr_1" } },
     });
@@ -389,5 +403,175 @@ describe("chargeSellerForLabelCost", () => {
         shippingStatus: "label_cost_reversal_failed",
       },
     });
+  });
+
+  it("establishes outstanding liability on REVERSAL_FAILED instead of silently dropping it", async () => {
+    createReversal.mockRejectedValue(new Error("insufficient funds"));
+    await chargeSellerForLabelCost({
+      orderId: "ord_1",
+      labelCostCents: 548,
+      shippoTransactionId: "shippo_tx_1",
+    });
+    const row = financeStore.rows.get(financeStore.key("ord_1", "shippo_tx_1"));
+    expect(row?.liabilityEstablishedAt).toBeInstanceOf(Date);
+    expect(row?.sellerClawbackCents).toBe(0);
+    expect(row?.labelCostCents).toBe(548);
+  });
+
+  it("still ledgers a durable finance row and establishes liability when the bank payout already went out", async () => {
+    prismaMock.order.findUnique.mockResolvedValue({
+      id: "ord_1",
+      sellerId: "seller_1",
+      stripePaymentIntentId: "pi_1",
+      stripeTransferId: "tr_1",
+      paymentProcessor: "STRIPE",
+      sellerPayoutProcessor: "STRIPE",
+      processorTransferId: "po_already_sent",
+      shippingLabelCostReversedCents: 0,
+      shippingLabelCostReversalId: null,
+      shippingLabelCostChargedShippoTransactionId: null,
+    });
+
+    const result = await chargeSellerForLabelCost({
+      orderId: "ord_1",
+      labelCostCents: 548,
+      shippoTransactionId: "shippo_tx_1",
+    });
+
+    expect(result).toMatchObject({ ok: false, code: "BANK_PAYOUT_ALREADY_SENT" });
+    expect(createReversal).not.toHaveBeenCalled();
+    const row = financeStore.rows.get(financeStore.key("ord_1", "shippo_tx_1"));
+    expect(row).toBeTruthy();
+    expect(row?.labelCostCents).toBe(548);
+    expect(row?.liabilityEstablishedAt).toBeInstanceOf(Date);
+  });
+
+  it("PayPal-net rail records exactly one clawback with no legacy-field double-write (regression for the confirmed 2x bug)", async () => {
+    prismaMock.order.findUnique.mockResolvedValue({
+      id: "ord_1",
+      sellerId: "seller_1",
+      stripePaymentIntentId: "pi_1",
+      stripeTransferId: "tr_1",
+      paymentProcessor: "STRIPE",
+      sellerPayoutProcessor: "PAYPAL",
+      processorTransferId: null,
+      shippingLabelCostReversedCents: 0,
+      shippingLabelCostReversalId: null,
+      shippingLabelCostChargedShippoTransactionId: null,
+    });
+
+    const result = await chargeSellerForLabelCost({
+      orderId: "ord_1",
+      labelCostCents: 1751,
+      shippoTransactionId: "shippo_tx_1",
+    });
+
+    expect(result).toMatchObject({ ok: true, reversedCents: 1751, reversalId: "paypal-net:shippo_tx_1" });
+    const row = financeStore.rows.get(financeStore.key("ord_1", "shippo_tx_1"));
+    expect(row?.sellerClawbackCents).toBe(1751);
+    // Exactly one order.update call recalculates the summary; no second increment-based write.
+    const orderUpdateCalls = prismaMock.order.update.mock.calls.map((c: any) => c[0].data);
+    const incrementCalls = orderUpdateCalls.filter((d: any) => d.shippingLabelCostReversedCents?.increment != null);
+    expect(incrementCalls).toHaveLength(0);
+  });
+
+  it("establishes outstanding liability for NO_STRIPE_PAYMENT (order has no Stripe payment to reverse against)", async () => {
+    prismaMock.order.findUnique.mockResolvedValue({
+      id: "ord_1",
+      sellerId: "seller_1",
+      stripePaymentIntentId: null,
+      stripeTransferId: null,
+      paymentProcessor: "STRIPE",
+      sellerPayoutProcessor: "STRIPE",
+      processorTransferId: null,
+      shippingLabelCostReversedCents: 0,
+      shippingLabelCostReversalId: null,
+      shippingLabelCostChargedShippoTransactionId: null,
+    });
+
+    const result = await chargeSellerForLabelCost({
+      orderId: "ord_1",
+      labelCostCents: 548,
+      shippoTransactionId: "shippo_tx_1",
+    });
+
+    expect(result).toMatchObject({ ok: false, code: "NO_STRIPE_PAYMENT" });
+    expect(createReversal).not.toHaveBeenCalled();
+    const row = financeStore.rows.get(financeStore.key("ord_1", "shippo_tx_1"));
+    expect(row?.liabilityEstablishedAt).toBeInstanceOf(Date);
+    expect(row?.labelCostCents).toBe(548);
+  });
+
+  it("establishes outstanding liability for TRANSFER_LOOKUP_FAILED (Stripe PI lookup throws)", async () => {
+    // stripeTransferId must be unset here — if it's already known, chargeSellerForLabelCost never
+    // needs to resolve it via the PaymentIntent lookup at all, and retrievePi is never called.
+    prismaMock.order.findUnique.mockResolvedValue({
+      id: "ord_1",
+      sellerId: "seller_1",
+      stripePaymentIntentId: "pi_1",
+      stripeTransferId: null,
+      paymentProcessor: "STRIPE",
+      sellerPayoutProcessor: "STRIPE",
+      processorTransferId: null,
+      shippingLabelCostReversedCents: 0,
+      shippingLabelCostReversalId: null,
+      shippingLabelCostChargedShippoTransactionId: null,
+    });
+    retrievePi.mockRejectedValue(new Error("stripe api down"));
+
+    const result = await chargeSellerForLabelCost({
+      orderId: "ord_1",
+      labelCostCents: 548,
+      shippoTransactionId: "shippo_tx_1",
+    });
+
+    expect(result).toMatchObject({ ok: false, code: "TRANSFER_LOOKUP_FAILED" });
+    expect(createReversal).not.toHaveBeenCalled();
+    const row = financeStore.rows.get(financeStore.key("ord_1", "shippo_tx_1"));
+    expect(row?.liabilityEstablishedAt).toBeInstanceOf(Date);
+  });
+
+  it("establishes outstanding liability for TRANSFER_NOT_FOUND (no transfer resolvable, no crash)", async () => {
+    prismaMock.order.findUnique.mockResolvedValue({
+      id: "ord_1",
+      sellerId: "seller_1",
+      stripePaymentIntentId: "pi_1",
+      stripeTransferId: null,
+      paymentProcessor: "STRIPE",
+      sellerPayoutProcessor: "STRIPE",
+      processorTransferId: null,
+      shippingLabelCostReversedCents: 0,
+      shippingLabelCostReversalId: null,
+      shippingLabelCostChargedShippoTransactionId: null,
+    });
+    // No expandable transfer on the charge and no chargeId to fall back on — resolves cleanly to null.
+    retrievePi.mockResolvedValue({ latest_charge: null });
+
+    const result = await chargeSellerForLabelCost({
+      orderId: "ord_1",
+      labelCostCents: 548,
+      shippoTransactionId: "shippo_tx_1",
+    });
+
+    expect(result).toMatchObject({ ok: false, code: "TRANSFER_NOT_FOUND" });
+    expect(transfersList).not.toHaveBeenCalled();
+    expect(createReversal).not.toHaveBeenCalled();
+    const row = financeStore.rows.get(financeStore.key("ord_1", "shippo_tx_1"));
+    expect(row?.liabilityEstablishedAt).toBeInstanceOf(Date);
+  });
+
+  it("establishes outstanding liability for STRIPE_NOT_CONFIGURED", async () => {
+    isStripeConfiguredMock.mockReturnValue(false);
+
+    const result = await chargeSellerForLabelCost({
+      orderId: "ord_1",
+      labelCostCents: 548,
+      shippoTransactionId: "shippo_tx_1",
+    });
+
+    expect(result).toMatchObject({ ok: false, code: "STRIPE_NOT_CONFIGURED" });
+    expect(createReversal).not.toHaveBeenCalled();
+    const row = financeStore.rows.get(financeStore.key("ord_1", "shippo_tx_1"));
+    expect(row?.liabilityEstablishedAt).toBeInstanceOf(Date);
   });
 });

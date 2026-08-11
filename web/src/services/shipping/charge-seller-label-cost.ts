@@ -14,6 +14,7 @@ import {
 } from "@/services/shipping/shippo-label-refund-status";
 import { creditSellerForLabelCost } from "@/services/shipping/credit-seller-label-cost";
 import { isStripeBankPayoutId } from "@/services/payout/stripe-seller-payout";
+import { markLiabilityEstablishedIfNeeded } from "@/services/shipping/label-liability";
 
 export type ChargeSellerLabelCostResult =
   | { ok: true; reversedCents: number; reversalId: string | null; skipped: boolean }
@@ -143,9 +144,10 @@ export async function chargeSellerForLabelCost(
     });
     if (!order) return { kind: "missing_order" as const };
 
-    if (isStripeBankPayoutId(order.processorTransferId)) {
-      return { kind: "bank_already_paid" as const, order };
-    }
+    // Note: the bank-payout-already-sent gate is intentionally NOT checked here, before the finance
+    // row exists. A successful Shippo purchase must always get exactly one durable
+    // ShipmentLabelFinance ledger row regardless of whether the clawback can actually be attempted —
+    // see the gate re-check further below, after the row is resolved.
 
     const existing = await tx.shipmentLabelFinance.findUnique({
       where: {
@@ -278,6 +280,15 @@ export async function chargeSellerForLabelCost(
       });
     }
 
+    // Bank-payout-already-sent gate: checked here (after the finance row durably exists) rather
+    // than before it. The ledger row must exist regardless of whether we can still attempt the
+    // Connect reversal — otherwise this Shippo transaction would be a real GV cost with zero trace
+    // in ShipmentLabelFinance. The immediate 100%-of-cost outstanding liability this leaves behind
+    // is established by the caller below via markLiabilityEstablishedIfNeeded.
+    if (order.sellerPayoutProcessor !== "PAYPAL" && isStripeBankPayoutId(order.processorTransferId)) {
+      return { kind: "bank_already_paid" as const, order, finance };
+    }
+
     return { kind: "ready" as const, order, finance, purpose, clawbackIdempotencyKey };
   });
 
@@ -286,6 +297,7 @@ export async function chargeSellerForLabelCost(
   }
 
   if (prepared.kind === "bank_already_paid") {
+    await markLiabilityEstablishedIfNeeded(prepared.finance.id);
     return {
       ok: false,
       code: "BANK_PAYOUT_ALREADY_SENT",
@@ -383,6 +395,17 @@ export async function chargeSellerForLabelCost(
 
   if (order.sellerPayoutProcessor === "PAYPAL") {
     // Platform-held PayPal rail: net label cost from upcoming PayPal payout (no Connect reversal).
+    // Fix (2026-08-10): `recalculateOrderLabelFinanceSummary` is the SOLE writer of
+    // `Order.shippingLabelCostReversedCents` — it derives the field from the full
+    // `ShipmentLabelFinance` ledger (sum of sellerClawbackCents - sellerCreditCents across every
+    // row for this order). A previous version of this branch ALSO applied a manual
+    // `{ increment: labelCostCents }` on top of that derived write, which double-counted this
+    // clawback on the legacy Order summary field (confirmed via live Stripe ground-truth: the six
+    // affected PayPal-net orders never had a duplicate real transfer/reversal — it was purely this
+    // display/summary field being written twice). Do not reintroduce a second write path here;
+    // `Order.shippingLabelCost*` fields are derived-display-only and must only ever be written by
+    // `recalculateOrderLabelFinanceSummary`.
+    let summary!: Awaited<ReturnType<typeof recalculateOrderLabelFinanceSummary>>;
     await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${order.id} FOR UPDATE`;
       await tx.shipmentLabelFinance.update({
@@ -395,20 +418,21 @@ export async function chargeSellerForLabelCost(
           clawbackFailureDetail: null,
         },
       });
-      await recalculateOrderLabelFinanceSummary(order.id, tx);
-      await tx.order.update({
-        where: { id: order.id },
-        data: {
-          shippingLabelCostReversedCents: {
-            increment: labelCostCents,
-          },
-          shippingLabelCostChargedShippoTransactionId: shippoTx,
-        },
-      });
+      summary = await recalculateOrderLabelFinanceSummary(order.id, tx);
+    });
+    console.info("[label_cost_charge_persisted]", {
+      orderId: order.id,
+      shippoTransactionId: shippoTx,
+      labelCostCents,
+      reversalId: `paypal-net:${shippoTx}`,
+      netSellerDeductionCents: summary.shippingLabelCostReversedCents,
+      chargeableLabelCostCents: summary.shippingLabelCostCents,
+      idempotencyKey: clawbackIdempotencyKey,
+      rail: "paypal-net",
     });
     return {
       ok: true,
-      reversedCents: labelCostCents,
+      reversedCents: summary.shippingLabelCostReversedCents,
       reversalId: `paypal-net:${shippoTx}`,
       skipped: false,
     };
@@ -422,6 +446,7 @@ export async function chargeSellerForLabelCost(
         clawbackFailureDetail: "NO_STRIPE_PAYMENT",
       },
     });
+    await markLiabilityEstablishedIfNeeded(finance.id);
     return {
       ok: false,
       code: "NO_STRIPE_PAYMENT",
@@ -430,6 +455,7 @@ export async function chargeSellerForLabelCost(
   }
 
   if (!isStripeConfigured()) {
+    await markLiabilityEstablishedIfNeeded(finance.id);
     return {
       ok: false,
       code: "STRIPE_NOT_CONFIGURED",
@@ -447,6 +473,7 @@ export async function chargeSellerForLabelCost(
         orderId: order.id,
         error: e instanceof Error ? e.message : String(e),
       });
+      await markLiabilityEstablishedIfNeeded(finance.id);
       return {
         ok: false,
         code: "TRANSFER_LOOKUP_FAILED",
@@ -455,6 +482,7 @@ export async function chargeSellerForLabelCost(
     }
   }
   if (!transferId) {
+    await markLiabilityEstablishedIfNeeded(finance.id);
     return {
       ok: false,
       code: "TRANSFER_NOT_FOUND",
@@ -538,6 +566,7 @@ export async function chargeSellerForLabelCost(
       "label_cost_reversal_failed",
       `order=${order.id} seller=${order.sellerId} transfer=${transferId} labelCostCents=${labelCostCents} shippoTx=${shippoTx} error=${message}`,
     );
+    await markLiabilityEstablishedIfNeeded(finance.id);
     return {
       ok: false,
       code: "REVERSAL_FAILED",

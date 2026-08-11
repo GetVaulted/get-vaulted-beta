@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { OrderPayoutStatus } from "@/generated/prisma/enums";
-import { buildOrderShippingReconciliation, buyerShippingCentsFromOrder } from "@/lib/admin/shipping-reconciliation";
+import {
+  buildOrderShippingReconciliation,
+  buyerShippingCentsFromOrder,
+  loadAdminOutstandingShippingLiabilityReport,
+} from "@/lib/admin/shipping-reconciliation";
 
 function order(overrides: Record<string, unknown> = {}) {
   return {
@@ -102,5 +106,98 @@ describe("buildOrderShippingReconciliation", () => {
     expect(row.deductionStatus).toBe("reversal_failed");
     expect(row.labelStatus).toBe("exception");
     expect(row.flagged).toBe(true);
+  });
+});
+
+function financeRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "lf_1",
+    orderId: "ord_1",
+    shippoTransactionId: "tx_1",
+    liveShippingSessionId: null as string | null,
+    labelCostCents: 1000,
+    status: "active",
+    sellerClawbackCents: 0,
+    sellerRecoveredCents: 0,
+    writtenOffCents: 0,
+    sellerCreditCents: 0,
+    sellerCreditTransferId: null as string | null,
+    liabilityEstablishedAt: null as Date | null,
+    clawbackFailureDetail: null as string | null,
+    createdAt: new Date("2026-08-01T00:00:00.000Z"),
+    order: { sellerId: "seller_1" },
+    ...overrides,
+  };
+}
+
+function fakeOutstandingLiabilityDb(rows: ReturnType<typeof financeRow>[]) {
+  return {
+    shipmentLabelFinance: {
+      findMany: async () => rows,
+    },
+  } as any;
+}
+
+describe("loadAdminOutstandingShippingLiabilityReport", () => {
+  it("computes status counts and totals across all six statuses", async () => {
+    const db = fakeOutstandingLiabilityDb([
+      financeRow({ id: "lf_outstanding", labelCostCents: 1000 }),
+      financeRow({ id: "lf_partial", labelCostCents: 1000, sellerClawbackCents: 400 }),
+      financeRow({ id: "lf_recovered", labelCostCents: 1000, sellerClawbackCents: 1000 }),
+      financeRow({ id: "lf_refund_pending", status: "refund_pending" }),
+      financeRow({
+        id: "lf_credited",
+        status: "refunded",
+        sellerClawbackCents: 1000,
+        sellerCreditCents: 1000,
+        sellerCreditTransferId: "tr_credit_1",
+      }),
+      financeRow({ id: "lf_written_off", labelCostCents: 1000, writtenOffCents: 1000 }),
+    ]);
+
+    const report = await loadAdminOutstandingShippingLiabilityReport(undefined, db);
+
+    expect(report.rowCount).toBe(6);
+    expect(report.statusCounts).toEqual({
+      outstanding: 1,
+      partially_recovered: 1,
+      recovered: 1,
+      refund_pending: 1,
+      credited: 1,
+      written_off: 1,
+    });
+    // lf_outstanding (1000) + lf_partial remainder (600) + lf_refund_pending (still chargeable
+    // while awaiting Shippo confirmation, so still counted as owed: 1000) + lf_recovered/lf_credited/
+    // lf_written_off (each fully covered, 0 remaining).
+    expect(report.totalOutstandingCents).toBe(1000 + 600 + 1000);
+    expect(report.totalRecoveredCents).toBe(0);
+    expect(report.totalWrittenOffCents).toBe(1000);
+  });
+
+  it("sorts rows by outstandingCents descending", async () => {
+    const db = fakeOutstandingLiabilityDb([
+      financeRow({ id: "lf_small", labelCostCents: 200 }),
+      financeRow({ id: "lf_large", labelCostCents: 900 }),
+      financeRow({ id: "lf_mid", labelCostCents: 500 }),
+    ]);
+
+    const report = await loadAdminOutstandingShippingLiabilityReport(undefined, db);
+
+    expect(report.rows.map((r) => r.shipmentLabelFinanceId)).toEqual(["lf_large", "lf_mid", "lf_small"]);
+  });
+
+  it("filters by statusFilter without affecting the aggregate totals", async () => {
+    const db = fakeOutstandingLiabilityDb([
+      financeRow({ id: "lf_outstanding", labelCostCents: 1000 }),
+      financeRow({ id: "lf_recovered", labelCostCents: 1000, sellerClawbackCents: 1000 }),
+    ]);
+
+    const report = await loadAdminOutstandingShippingLiabilityReport({ statusFilter: "outstanding" }, db);
+
+    expect(report.rows).toHaveLength(1);
+    expect(report.rows[0]?.shipmentLabelFinanceId).toBe("lf_outstanding");
+    // Aggregates reflect the full unfiltered ledger, not just the filtered rows shown.
+    expect(report.rowCount).toBe(2);
+    expect(report.totalOutstandingCents).toBe(1000);
   });
 });

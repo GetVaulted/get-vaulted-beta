@@ -2984,6 +2984,21 @@ model ShipmentLabelFinance {
   clawbackFailureDetail         String?
   creditFailedAt                DateTime?
   creditFailureDetail           String?
+  /// Cumulative amount recovered via a SECONDARY mechanism (e.g. payout offset, admin manual
+  /// recovery) after the primary immediate clawback (sellerClawbackCents) failed or fell short.
+  /// Distinct from sellerClawbackCents so the primary-vs-secondary recovery path stays auditable.
+  sellerRecoveredCents           Int                          @default(0)
+  /// First moment this label had chargeable cost with no successful primary clawback covering it —
+  /// i.e. when an "outstanding shipping liability" was first established. Never cleared/reset; a
+  /// permanent audit marker even after the liability is later fully recovered or written off.
+  liabilityEstablishedAt         DateTime?
+  /// Admin-absorbed loss for this label (e.g. seller account closed, balance permanently
+  /// unrecoverable). Reduces outstanding liability without claiming a real recovery occurred.
+  writtenOffCents                Int                          @default(0)
+  writtenOffAt                   DateTime?
+  writtenOffReason               String?
+  writtenOffByAdminId            String?
+  liabilityRecoveries            ShipmentLabelLiabilityRecovery[]
   createdAt                     DateTime                     @default(now())
   updatedAt                     DateTime                     @updatedAt
 
@@ -2995,6 +3010,47 @@ model ShipmentLabelFinance {
   @@index([sellerClawbackReversalId])
   @@index([sellerCreditTransferId])
   @@index([repairCreditIdempotencyKey])
+  @@index([liabilityEstablishedAt])
+}
+
+enum ShipmentLabelLiabilityRecoveryMethod {
+  /// Offset deducted from a Stripe Connect bank payout before it was sent.
+  payout_offset_stripe
+  /// Offset deducted from a PayPal seller payout before it was sent.
+  payout_offset_paypal
+  /// Admin-triggered manual retry of the original Connect transfer reversal.
+  retry_clawback
+  /// Admin manually recorded a recovery outside the automated mechanisms (rare).
+  manual_admin
+}
+
+enum ShipmentLabelLiabilityRecoveryOutcome {
+  recovered
+  failed
+  /// Attempted but a prior attempt with the same transactionId already recorded this recovery.
+  skipped_idempotent
+}
+
+/// Append-only audit trail of every attempt to recover outstanding shipping liability for a label,
+/// whether it succeeded, failed, or was a no-op idempotency skip. Never mutated after insert.
+model ShipmentLabelLiabilityRecovery {
+  id                      String                                @id @default(cuid())
+  shipmentLabelFinanceId  String
+  shipmentLabelFinance    ShipmentLabelFinance                  @relation(fields: [shipmentLabelFinanceId], references: [id], onDelete: Cascade)
+  sellerId                String
+  method                  ShipmentLabelLiabilityRecoveryMethod
+  outcome                 ShipmentLabelLiabilityRecoveryOutcome
+  amountCents             Int
+  /// Stripe payout id / PayPal payout item id / admin action id this recovery rode on; used for
+  /// idempotency (never apply the same transactionId twice against the same label).
+  transactionId           String?
+  detail                  String?
+  createdAt               DateTime                              @default(now())
+
+  @@index([shipmentLabelFinanceId])
+  @@index([sellerId])
+  @@index([transactionId])
+  @@index([shipmentLabelFinanceId, transactionId])
 }
 
 /// Admin-editable marketplace platform fee (single-row config).

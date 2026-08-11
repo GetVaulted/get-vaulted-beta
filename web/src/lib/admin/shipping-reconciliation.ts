@@ -4,6 +4,11 @@ import {
   resolveReconciliationRangeStart,
   type ReconciliationRangeKey,
 } from "@/lib/admin/admin-reconciliation";
+import {
+  outstandingLiabilityCentsForRow,
+  resolveLabelLiabilityDisplayStatus,
+  type LabelLiabilityDisplayStatus,
+} from "@/services/shipping/label-liability";
 
 export type ShippingDeductionStatus =
   | "no_label"
@@ -238,5 +243,130 @@ export async function loadAdminShippingReconciliationReport(
       "LiveShippingSession.finalLabelCostCents may equal the shipping estimate before any Shippo purchase — only Order.shippingLabelCostCents proves a purchased label.",
       "Bundled live labels attribute the full carrier cost to one debit order; sibling orders may show $0 label cost by design.",
     ],
+  };
+}
+
+/**
+ * Outstanding shipping liability report — the label-ledger-level counterpart to
+ * `loadAdminShippingReconciliationReport`. That report is order-level and driven off the derived
+ * `Order.shippingLabelCost*` summary fields; this one is per-Shippo-transaction and driven directly
+ * off `ShipmentLabelFinance` (the sole financial source of truth), so it correctly separates
+ * bundled/session labels, replacement labels, and each label's independent recovery state instead
+ * of only seeing whichever single order currently holds the summary numbers.
+ */
+export type OutstandingLiabilityRow = {
+  shipmentLabelFinanceId: string;
+  orderId: string;
+  sellerId: string;
+  shippoTransactionId: string;
+  liveShippingSessionId: string | null;
+  labelCostCents: number;
+  sellerClawbackCents: number;
+  sellerRecoveredCents: number;
+  writtenOffCents: number;
+  outstandingCents: number;
+  liabilityStatus: LabelLiabilityDisplayStatus;
+  liabilityEstablishedAt: string | null;
+  clawbackFailureDetail: string | null;
+  createdAt: string;
+};
+
+export type AdminOutstandingShippingLiabilityReport = {
+  generatedAt: string;
+  rowCount: number;
+  totalOutstandingCents: number;
+  totalRecoveredCents: number;
+  totalWrittenOffCents: number;
+  statusCounts: Record<LabelLiabilityDisplayStatus, number>;
+  rows: OutstandingLiabilityRow[];
+};
+
+type OutstandingLiabilityDbClient = Pick<typeof prisma, "shipmentLabelFinance">;
+
+export async function loadAdminOutstandingShippingLiabilityReport(
+  opts?: {
+    statusFilter?: LabelLiabilityDisplayStatus;
+    limit?: number;
+  },
+  db: OutstandingLiabilityDbClient = prisma,
+): Promise<AdminOutstandingShippingLiabilityReport> {
+  const limit = Math.min(Math.max(opts?.limit ?? 500, 1), 5000);
+
+  const financeRows = await db.shipmentLabelFinance.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 10000,
+    select: {
+      id: true,
+      orderId: true,
+      shippoTransactionId: true,
+      liveShippingSessionId: true,
+      labelCostCents: true,
+      status: true,
+      sellerClawbackCents: true,
+      sellerRecoveredCents: true,
+      writtenOffCents: true,
+      sellerCreditCents: true,
+      sellerCreditTransferId: true,
+      liabilityEstablishedAt: true,
+      clawbackFailureDetail: true,
+      createdAt: true,
+      order: { select: { sellerId: true } },
+    },
+  });
+
+  const statusCounts: Record<LabelLiabilityDisplayStatus, number> = {
+    recovered: 0,
+    partially_recovered: 0,
+    outstanding: 0,
+    refund_pending: 0,
+    credited: 0,
+    written_off: 0,
+  };
+
+  let totalOutstandingCents = 0;
+  let totalRecoveredCents = 0;
+  let totalWrittenOffCents = 0;
+  const rows: OutstandingLiabilityRow[] = [];
+
+  for (const f of financeRows) {
+    const liabilityStatus = resolveLabelLiabilityDisplayStatus(f);
+    const outstandingCents = outstandingLiabilityCentsForRow(f);
+    statusCounts[liabilityStatus] += 1;
+    totalOutstandingCents += outstandingCents;
+    totalRecoveredCents += Math.max(0, f.sellerRecoveredCents);
+    totalWrittenOffCents += Math.max(0, f.writtenOffCents);
+
+    rows.push({
+      shipmentLabelFinanceId: f.id,
+      orderId: f.orderId,
+      sellerId: f.order.sellerId,
+      shippoTransactionId: f.shippoTransactionId,
+      liveShippingSessionId: f.liveShippingSessionId,
+      labelCostCents: f.labelCostCents,
+      sellerClawbackCents: f.sellerClawbackCents,
+      sellerRecoveredCents: f.sellerRecoveredCents,
+      writtenOffCents: f.writtenOffCents,
+      outstandingCents,
+      liabilityStatus,
+      liabilityEstablishedAt: f.liabilityEstablishedAt ? f.liabilityEstablishedAt.toISOString() : null,
+      clawbackFailureDetail: f.clawbackFailureDetail,
+      createdAt: f.createdAt.toISOString(),
+    });
+  }
+
+  const filtered = opts?.statusFilter
+    ? rows.filter((r) => r.liabilityStatus === opts.statusFilter)
+    : rows;
+
+  const sorted = [...filtered].sort((a, b) => b.outstandingCents - a.outstandingCents);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    rowCount: rows.length,
+    totalOutstandingCents,
+    totalRecoveredCents,
+    totalWrittenOffCents,
+    statusCounts,
+    rows: sorted.slice(0, limit),
   };
 }

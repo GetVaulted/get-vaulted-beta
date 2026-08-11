@@ -1,10 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+
+vi.mock("@/lib/shippo", () => ({
+  shippoFetch: vi.fn(),
+  shippoGetTransaction: vi.fn(),
+}));
+
+import { shippoFetch, shippoGetTransaction } from "@/lib/shippo";
 import {
   classifyShippoLabelRefundVerdict,
   extractProvenNoShippoCharge,
   extractShippoPurchaseProof,
   financeStatusFromShippoVerdict,
   isShippoLabelPurchaseSuccessful,
+  verifyShippoLabelRefundStatus,
 } from "@/services/shipping/shippo-label-refund-status";
 
 const purchased = extractShippoPurchaseProof({
@@ -129,5 +137,155 @@ describe("isShippoLabelPurchaseSuccessful", () => {
         objectState: "INVALID",
       }),
     ).toBe(false);
+  });
+});
+
+// Regression coverage for a confirmed production bug: Shippo's `/refunds/?transaction=<id>`
+// does not actually filter by transaction — it returns the same account-wide refund list
+// regardless of which transaction id is queried. Before the fix, any single unrelated
+// PENDING/QUEUED refund anywhere on the account would poison the verdict of every other
+// transaction to "refund_pending", including ones that were affirmatively SUCCESS-purchased
+// and never had any refund of their own. These tests must pass only once
+// `verifyShippoLabelRefundStatus` filters `list.results` down to entries whose own
+// `transaction` field matches the id being verified.
+describe("verifyShippoLabelRefundStatus — must not trust Shippo's query-param filtering", () => {
+  beforeEach(() => {
+    vi.mocked(shippoFetch).mockReset();
+    vi.mocked(shippoGetTransaction).mockReset();
+  });
+
+  it("an unrelated account-wide PENDING refund must not classify an unrelated SUCCESS transaction as refund_pending", async () => {
+    vi.mocked(shippoGetTransaction).mockResolvedValue({
+      object_id: "tx_real_success",
+      status: "SUCCESS",
+      label_url: "https://example.com/label.pdf",
+      tracking_number: "9400111111",
+    });
+    // Simulates Shippo ignoring `?transaction=tx_real_success` and echoing back an unrelated
+    // refund that belongs to a completely different transaction.
+    vi.mocked(shippoFetch).mockResolvedValue({
+      results: [
+        {
+          object_id: "refund_unrelated",
+          status: "PENDING",
+          transaction: "tx_totally_different_order",
+          amount: "5.00",
+        },
+      ],
+    });
+
+    const evidence = await verifyShippoLabelRefundStatus("tx_real_success");
+
+    expect(evidence.verdict).toBe("chargeable");
+    expect(evidence.refundStatuses).toEqual([]);
+    expect(evidence.refunds).toEqual([]);
+  });
+
+  it("still honors a refund whose transaction field genuinely matches the queried id", async () => {
+    vi.mocked(shippoGetTransaction).mockResolvedValue({
+      object_id: "tx_real_refunded",
+      status: "SUCCESS",
+      label_url: "https://example.com/label.pdf",
+      tracking_number: "9400222222",
+    });
+    vi.mocked(shippoFetch).mockResolvedValue({
+      results: [
+        { object_id: "refund_real", status: "SUCCESS", transaction: "tx_real_refunded", amount: "5.00" },
+      ],
+    });
+
+    const evidence = await verifyShippoLabelRefundStatus("tx_real_refunded");
+
+    expect(evidence.verdict).toBe("refunded");
+    expect(evidence.refundStatuses).toEqual(["SUCCESS"]);
+    expect(evidence.refunds).toHaveLength(1);
+    expect(evidence.refunds[0]?.objectId).toBe("refund_real");
+  });
+
+  it("filters a mixed account-wide refund list down to only entries matching the queried transaction", async () => {
+    vi.mocked(shippoGetTransaction).mockResolvedValue({
+      object_id: "tx_mixed",
+      status: "SUCCESS",
+      label_url: "https://example.com/label.pdf",
+      tracking_number: "9400333333",
+    });
+    vi.mocked(shippoFetch).mockResolvedValue({
+      results: [
+        { object_id: "refund_other_1", status: "PENDING", transaction: "tx_other_1", amount: "9.00" },
+        { object_id: "refund_match", status: "SUCCESS", transaction: "tx_mixed", amount: "6.37" },
+        { object_id: "refund_other_2", status: "QUEUED", transaction: "tx_other_2", amount: "3.00" },
+      ],
+    });
+
+    const evidence = await verifyShippoLabelRefundStatus("tx_mixed");
+
+    expect(evidence.refunds).toHaveLength(1);
+    expect(evidence.refunds[0]?.objectId).toBe("refund_match");
+    expect(evidence.refundStatuses).toEqual(["SUCCESS"]);
+    expect(evidence.verdict).toBe("refunded");
+  });
+
+  it("an unrelated refund list entry with no transaction field at all is also excluded", async () => {
+    vi.mocked(shippoGetTransaction).mockResolvedValue({
+      object_id: "tx_no_transaction_field",
+      status: "SUCCESS",
+      label_url: "https://example.com/label.pdf",
+      tracking_number: "9400444444",
+    });
+    vi.mocked(shippoFetch).mockResolvedValue({
+      results: [{ object_id: "refund_malformed", status: "PENDING", amount: "5.00" }],
+    });
+
+    const evidence = await verifyShippoLabelRefundStatus("tx_no_transaction_field");
+
+    expect(evidence.refunds).toEqual([]);
+    expect(evidence.verdict).toBe("chargeable");
+  });
+
+  it("an unrelated account-wide SUCCESS (refunded) entry must not mark an unrelated SUCCESS transaction as refunded", async () => {
+    vi.mocked(shippoGetTransaction).mockResolvedValue({
+      object_id: "tx_should_stay_chargeable",
+      status: "SUCCESS",
+      label_url: "https://example.com/label.pdf",
+      tracking_number: "9400555555",
+    });
+    // Simulates Shippo echoing back a fully-refunded receipt that belongs to a different label.
+    vi.mocked(shippoFetch).mockResolvedValue({
+      results: [
+        {
+          object_id: "refund_unrelated_success",
+          status: "SUCCESS",
+          transaction: "tx_some_other_label_entirely",
+          amount: "12.34",
+        },
+      ],
+    });
+
+    const evidence = await verifyShippoLabelRefundStatus("tx_should_stay_chargeable");
+
+    expect(evidence.verdict).toBe("chargeable");
+    expect(evidence.refunds).toEqual([]);
+    expect(evidence.refundStatuses).toEqual([]);
+  });
+
+  it("a refund whose transaction field genuinely matches and is still PENDING returns refund_pending, not chargeable or refunded", async () => {
+    vi.mocked(shippoGetTransaction).mockResolvedValue({
+      object_id: "tx_genuinely_pending",
+      status: "SUCCESS",
+      label_url: "https://example.com/label.pdf",
+      tracking_number: "9400666666",
+    });
+    vi.mocked(shippoFetch).mockResolvedValue({
+      results: [
+        { object_id: "refund_genuine_pending", status: "PENDING", transaction: "tx_genuinely_pending", amount: "8.00" },
+      ],
+    });
+
+    const evidence = await verifyShippoLabelRefundStatus("tx_genuinely_pending");
+
+    expect(evidence.verdict).toBe("refund_pending");
+    expect(evidence.refundStatuses).toEqual(["PENDING"]);
+    expect(evidence.refunds).toHaveLength(1);
+    expect(evidence.refunds[0]?.transaction).toBe("tx_genuinely_pending");
   });
 });

@@ -45,6 +45,7 @@ import {
 } from "@/lib/unified-shipping-engine";
 import { isShippoLabelPurchaseSuccessful } from "@/services/shipping/shippo-label-refund-status";
 import { orderHasUsableShippingLabel } from "@/lib/seller-shipping-label-state";
+import { ensureShipmentLabelFinanceRecord } from "@/services/shipping/label-finance";
 
 export type GenerateBundledShippoLabelResult = {
   alreadyExisted: boolean;
@@ -526,6 +527,13 @@ export async function generateBundledShippoLabelForSession(
     }
   }
 
+  // Computed up-front (depends only on already-loaded order fields, not purchase outcomes) so the
+  // per-package purchase loop below can durably ledger each successful Shippo purchase against its
+  // eventual debit order immediately — never deferred to a later loop that might not run to
+  // completion. See ensureShipmentLabelFinanceRecord call below.
+  const debitOrder = pickBundledLabelDebitOrder(eligible);
+  const debitOrderId = debitOrder?.id ?? eligible[0]?.id ?? null;
+
   try {
     for (const group of packageGroups) {
       const parcel = buildParcelFromPackageGroup(group);
@@ -658,11 +666,41 @@ export async function generateBundledShippoLabelForSession(
           replacesShippoTransactionId,
           purpose,
         });
+
+        // Fix (2026-08-10): establish the durable ledger row THE MOMENT Shippo confirms purchase,
+        // not deferred to the debit loop further below. Previously, if the process crashed or threw
+        // between here and that later loop (e.g. mid-bundle on package 2 of 3), packages already
+        // purchased from Shippo — real GV spend — had a ShipmentPackage row but NO
+        // ShipmentLabelFinance row at all: an orphaned transaction with zero ledger trace. Every
+        // successful Shippo purchase now always gets exactly one durable ShipmentLabelFinance
+        // record before moving on, regardless of whether the clawback attempt below ever runs.
+        if (debitOrderId) {
+          try {
+            await ensureShipmentLabelFinanceRecord({
+              orderId: debitOrderId,
+              shippoTransactionId: transactionId,
+              shippoShipmentId: sid,
+              shipmentPackageId: createdPackage.id,
+              liveShippingSessionId: sessionId,
+              labelCostCents: packageCostCents,
+              purpose,
+              replacesShippoTransactionId,
+            });
+          } catch (ledgerErr) {
+            // Never let a ledger-row hiccup abort a purchase loop that already spent real money —
+            // log loudly; the debit loop / admin retry route below can still recover via the
+            // existingForPackage matching in chargeSellerForLabelCost.
+            console.error("[shippo] ensureShipmentLabelFinanceRecord failed for purchased package", {
+              sessionId,
+              debitOrderId,
+              packageId: createdPackage.id,
+              shippoTransactionId: transactionId,
+              error: ledgerErr instanceof Error ? ledgerErr.message : String(ledgerErr),
+            });
+          }
+        }
       }
     }
-
-    const debitOrder = pickBundledLabelDebitOrder(eligible);
-    const debitOrderId = debitOrder?.id ?? eligible[0]?.id ?? null;
 
     const transactionId = primaryTxIds[0] ?? null;
     const labelUrl = primaryLabelUrls[0]?.trim() || null;

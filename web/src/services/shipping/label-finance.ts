@@ -21,7 +21,68 @@ export type LabelFinanceRow = Pick<
   | "sellerCreditTransferId"
   | "clawbackIdempotencyKey"
   | "creditIdempotencyKey"
+  | "sellerRecoveredCents"
+  | "writtenOffCents"
 >;
+
+/**
+ * Ensure exactly one durable ShipmentLabelFinance ledger row exists for a Shippo transaction the
+ * moment it is affirmatively purchased — decoupled from whether/when a clawback is later attempted.
+ * Idempotent: reuses an existing row for (orderId, shippoTransactionId) or for the same
+ * shipmentPackageId (bundled debit-order failover re-points rather than duplicating). Never touches
+ * clawback/credit/liability fields on an existing row — those are owned by chargeSellerForLabelCost.
+ */
+export async function ensureShipmentLabelFinanceRecord(
+  args: {
+    orderId: string;
+    shippoTransactionId: string;
+    shippoShipmentId?: string | null;
+    shipmentPackageId?: string | null;
+    liveShippingSessionId?: string | null;
+    labelCostCents: number;
+    purpose: ShipmentLabelFinancePurpose;
+    replacesShippoTransactionId?: string | null;
+  },
+  db: DbClient = prisma,
+): Promise<{ id: string; created: boolean }> {
+  const shippoTx = args.shippoTransactionId.trim();
+  const existing = await db.shipmentLabelFinance.findUnique({
+    where: { orderId_shippoTransactionId: { orderId: args.orderId, shippoTransactionId: shippoTx } },
+    select: { id: true },
+  });
+  if (existing) return { id: existing.id, created: false };
+
+  const shipmentPackageId = args.shipmentPackageId?.trim() || null;
+  const existingForPackage = shipmentPackageId
+    ? await db.shipmentLabelFinance.findUnique({ where: { shipmentPackageId }, select: { id: true, shippoTransactionId: true } })
+    : null;
+  // Same package, different Shippo transaction id already recorded (e.g. a reprint) — release the
+  // stale pointer rather than colliding on the shipmentPackageId unique constraint.
+  if (existingForPackage && existingForPackage.shippoTransactionId !== shippoTx) {
+    await db.shipmentLabelFinance.update({
+      where: { id: existingForPackage.id },
+      data: { shipmentPackageId: null },
+    });
+  } else if (existingForPackage) {
+    return { id: existingForPackage.id, created: false };
+  }
+
+  const created = await db.shipmentLabelFinance.create({
+    data: {
+      orderId: args.orderId,
+      liveShippingSessionId: args.liveShippingSessionId?.trim() || null,
+      shipmentPackageId,
+      shippoTransactionId: shippoTx,
+      shippoShipmentId: args.shippoShipmentId?.trim() || null,
+      labelCostCents: Math.max(0, Math.round(args.labelCostCents)),
+      purpose: args.purpose,
+      replacesShippoTransactionId: args.replacesShippoTransactionId?.trim() || null,
+      status: "active",
+    },
+    select: { id: true },
+  });
+  return { id: created.id, created: true };
+}
 
 /** Labels that still cost the platform (purchased and not voided/refunded/failed). */
 export function isLabelCostChargeable(status: ShipmentLabelFinanceStatus): boolean {

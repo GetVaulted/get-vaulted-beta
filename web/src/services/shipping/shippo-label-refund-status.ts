@@ -218,7 +218,13 @@ export async function verifyShippoLabelRefundStatus(
     const list = (await shippoFetch(`/refunds/?transaction=${encodeURIComponent(txId)}`)) as {
       results?: ShippoRefundListItem[];
     };
+    // Do not trust Shippo's `?transaction=` query param — confirmed (2026-08-10 audit) that it is
+    // not honored and the endpoint can return the same account-wide refund list regardless of the
+    // transaction id queried. A single unrelated PENDING/QUEUED refund anywhere on the account
+    // would otherwise poison the verdict of every unrelated transaction to "refund_pending". Only
+    // trust a refund whose own `transaction` field matches the id we asked about.
     for (const r of list.results ?? []) {
+      if (typeof r.transaction !== "string" || r.transaction !== txId) continue;
       if (typeof r.status === "string") refundStatuses.push(r.status.toUpperCase());
       refunds.push({
         objectId: typeof r.object_id === "string" ? r.object_id : null,
@@ -227,7 +233,7 @@ export async function verifyShippoLabelRefundStatus(
         currency: typeof r.currency === "string" ? r.currency : null,
         createdAt: typeof r.object_created === "string" ? r.object_created : null,
         updatedAt: typeof r.object_updated === "string" ? r.object_updated : null,
-        transaction: typeof r.transaction === "string" ? r.transaction : null,
+        transaction: r.transaction,
       });
     }
   } catch (e) {

@@ -9,6 +9,10 @@ import {
 } from "@/lib/seller-payout-estimate";
 import { ensureSellerStripeManualPayouts } from "@/lib/seller-stripe-connect";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import {
+  applyOutstandingLiabilityRecovery,
+  planOutstandingLiabilityRecoveryForSeller,
+} from "@/services/shipping/label-liability-recovery";
 
 /** Stripe Connect bank payout ids are `po_…` (distinct from charge transfers `tr_…`). */
 export function isStripeBankPayoutId(id: string | null | undefined): boolean {
@@ -216,15 +220,43 @@ export async function releaseSellerStripePayout(
   }
 
   try {
+    // Recover outstanding shipping liability (any seller-owed label cost that a prior clawback
+    // attempt failed to collect, across ANY of this seller's orders — not just this one) by
+    // offsetting it out of the bank payout that is about to leave the platform, before the funds
+    // are actually sent. This is the safest point in the payout architecture to do it: it is the
+    // literal moment Get Vaulted funds cross from the connected account to the seller's bank.
+    const liabilityPlan = await planOutstandingLiabilityRecoveryForSeller(order.sellerId, amountCents);
+    const payoutAmountCents = amountCents - liabilityPlan.totalCents;
+
+    if (payoutAmountCents < 1) {
+      // Entire payout absorbed by outstanding liability recovery — no real Stripe payout to send.
+      const withheldMarker = `liability-withheld:${orderId}`;
+      const applied = await applyOutstandingLiabilityRecovery(liabilityPlan, {
+        method: "payout_offset_stripe",
+        transactionId: withheldMarker,
+      });
+      await prisma.order.update({
+        where: { id: orderId },
+        data: { processorTransferId: withheldMarker, payoutBlockedReason: null },
+      });
+      console.info("[releaseSellerStripePayout] payout fully withheld to recover outstanding liability", {
+        orderId,
+        sellerId: order.sellerId,
+        amountCents,
+        recoveredCents: applied.appliedCents,
+      });
+      return { ok: true, reason: "withheld_for_liability_recovery" };
+    }
+
     const balance = await stripe.balance.retrieve({ stripeAccount: accountId });
     const availableUsd = balance.available
       .filter((b) => b.currency === "usd")
       .reduce((sum, b) => sum + b.amount, 0);
-    if (availableUsd < amountCents) {
+    if (availableUsd < payoutAmountCents) {
       await prisma.order.update({
         where: { id: orderId },
         data: {
-          payoutBlockedReason: `stripe_available_balance_insufficient:${availableUsd}_need_${amountCents}`,
+          payoutBlockedReason: `stripe_available_balance_insufficient:${availableUsd}_need_${payoutAmountCents}`,
         },
       });
       return { ok: false, reason: "insufficient_available_balance" };
@@ -232,7 +264,7 @@ export async function releaseSellerStripePayout(
 
     const payout = await stripe.payouts.create(
       {
-        amount: amountCents,
+        amount: payoutAmountCents,
         currency: "usd",
         metadata: { orderId, sellerId: order.sellerId, source: "get_vaulted_ship_release" },
         statement_descriptor: "GETVAULTED",
@@ -242,6 +274,13 @@ export async function releaseSellerStripePayout(
         idempotencyKey: `gv_seller_bank_payout_${orderId}`,
       },
     );
+
+    if (liabilityPlan.items.length > 0) {
+      await applyOutstandingLiabilityRecovery(liabilityPlan, {
+        method: "payout_offset_stripe",
+        transactionId: payout.id,
+      });
+    }
 
     await prisma.order.update({
       where: { id: orderId },
@@ -255,7 +294,8 @@ export async function releaseSellerStripePayout(
       orderId,
       accountId,
       payoutId: payout.id,
-      amountCents,
+      amountCents: payoutAmountCents,
+      liabilityRecoveredCents: liabilityPlan.totalCents,
     });
     return { ok: true };
   } catch (e) {

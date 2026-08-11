@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildLabelClawbackIdempotencyKey,
   buildLabelCreditIdempotencyKey,
+  ensureShipmentLabelFinanceRecord,
   inferLabelPurpose,
   isLabelCostChargeable,
   resolveLabelFinanceActionStatus,
@@ -25,6 +26,8 @@ function row(overrides: Partial<LabelFinanceRow> = {}): LabelFinanceRow {
     sellerCreditTransferId: null,
     clawbackIdempotencyKey: "k1",
     creditIdempotencyKey: null,
+    sellerRecoveredCents: 0,
+    writtenOffCents: 0,
     ...overrides,
   };
 }
@@ -168,5 +171,100 @@ describe("label-finance helpers", () => {
     ]);
     expect(summary.chargeableLabelCostCents).toBe(1800);
     expect(summary.netSellerDeductionCents).toBe(1800);
+  });
+});
+
+/** Minimal in-memory fake standing in for the `db` param — no need to mock the real prisma client. */
+function fakeFinanceDb() {
+  const rows = new Map<string, any>();
+  const byPackage = new Map<string, string>();
+  return {
+    rows,
+    db: {
+      shipmentLabelFinance: {
+        findUnique: async ({ where }: any) => {
+          if (where.orderId_shippoTransactionId) {
+            const { orderId, shippoTransactionId } = where.orderId_shippoTransactionId;
+            for (const r of rows.values()) {
+              if (r.orderId === orderId && r.shippoTransactionId === shippoTransactionId) return r;
+            }
+            return null;
+          }
+          if (where.shipmentPackageId) {
+            const id = byPackage.get(where.shipmentPackageId);
+            return id ? rows.get(id) : null;
+          }
+          return null;
+        },
+        update: async ({ where, data }: any) => {
+          const row = rows.get(where.id);
+          Object.assign(row, data);
+          return row;
+        },
+        create: async ({ data }: any) => {
+          const id = `lf_${rows.size + 1}`;
+          const row = { id, ...data };
+          rows.set(id, row);
+          if (row.shipmentPackageId) byPackage.set(row.shipmentPackageId, id);
+          return row;
+        },
+      },
+    } as any,
+  };
+}
+
+describe("ensureShipmentLabelFinanceRecord", () => {
+  it("creates exactly one durable row for a fresh Shippo transaction", async () => {
+    const { db, rows } = fakeFinanceDb();
+    const result = await ensureShipmentLabelFinanceRecord(
+      {
+        orderId: "ord_1",
+        shippoTransactionId: "tx_1",
+        shippoShipmentId: "sh_1",
+        shipmentPackageId: "pkg_1",
+        liveShippingSessionId: "sess_1",
+        labelCostCents: 548,
+        purpose: "initial",
+      },
+      db,
+    );
+    expect(result.created).toBe(true);
+    expect(rows.size).toBe(1);
+    const stored = [...rows.values()][0];
+    expect(stored).toMatchObject({
+      orderId: "ord_1",
+      shippoTransactionId: "tx_1",
+      labelCostCents: 548,
+      status: "active",
+      shipmentPackageId: "pkg_1",
+    });
+  });
+
+  it("is idempotent for the same (orderId, shippoTransactionId) — never creates a second row", async () => {
+    const { db, rows } = fakeFinanceDb();
+    await ensureShipmentLabelFinanceRecord(
+      { orderId: "ord_1", shippoTransactionId: "tx_1", labelCostCents: 548, purpose: "initial" },
+      db,
+    );
+    const second = await ensureShipmentLabelFinanceRecord(
+      { orderId: "ord_1", shippoTransactionId: "tx_1", labelCostCents: 548, purpose: "initial" },
+      db,
+    );
+    expect(second.created).toBe(false);
+    expect(rows.size).toBe(1);
+  });
+
+  it("reuses the existing row when the same package is retried against a new debit order", async () => {
+    const { db, rows } = fakeFinanceDb();
+    const first = await ensureShipmentLabelFinanceRecord(
+      { orderId: "ord_1", shippoTransactionId: "tx_1", shipmentPackageId: "pkg_1", labelCostCents: 548, purpose: "initial" },
+      db,
+    );
+    const second = await ensureShipmentLabelFinanceRecord(
+      { orderId: "ord_1", shippoTransactionId: "tx_1", shipmentPackageId: "pkg_1", labelCostCents: 548, purpose: "initial" },
+      db,
+    );
+    expect(second.id).toBe(first.id);
+    expect(rows.size).toBe(1);
   });
 });

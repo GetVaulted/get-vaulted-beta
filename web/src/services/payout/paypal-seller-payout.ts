@@ -10,6 +10,10 @@ import {
   OrderPayoutStatus,
   OrderPaymentMethod,
 } from "@/generated/prisma/enums";
+import {
+  applyOutstandingLiabilityRecovery,
+  planOutstandingLiabilityRecoveryForSeller,
+} from "@/services/shipping/label-liability-recovery";
 
 /**
  * Execute PayPal Payout for a platform-held order and stamp processor ids.
@@ -103,7 +107,9 @@ export async function releaseSellerPayPalPayout(orderId: string): Promise<{
     shippingLabelCostReversedCents: order.shippingLabelCostReversedCents,
   });
 
-  if (netUsd < 0.01) {
+  const amountCents = Math.round(netUsd * 100);
+
+  if (amountCents < 1) {
     await prisma.order.update({
       where: { id: orderId },
       data: {
@@ -115,13 +121,48 @@ export async function releaseSellerPayPalPayout(orderId: string): Promise<{
     return { ok: true, reason: "zero_net" };
   }
 
+  // Same safe hook point as the Stripe bank-payout rail: recover outstanding shipping liability
+  // by offsetting it out of this PayPal payout before it is sent, rather than a separate charge.
+  const liabilityPlan = await planOutstandingLiabilityRecoveryForSeller(order.sellerId, amountCents);
+  const payoutAmountCents = amountCents - liabilityPlan.totalCents;
+
+  if (payoutAmountCents < 1) {
+    const withheldMarker = `liability-withheld:${orderId}`;
+    const applied = await applyOutstandingLiabilityRecovery(liabilityPlan, {
+      method: "payout_offset_paypal",
+      transactionId: withheldMarker,
+    });
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        paypalPayoutStatus: "success",
+        paypalPayoutFeeCents: 0,
+        processorTransferId: withheldMarker,
+      },
+    });
+    console.info("[releaseSellerPayPalPayout] payout fully withheld to recover outstanding liability", {
+      orderId,
+      sellerId: order.sellerId,
+      amountCents,
+      recoveredCents: applied.appliedCents,
+    });
+    return { ok: true, reason: "withheld_for_liability_recovery" };
+  }
+
   try {
     const result = await createSellerPayPalPayout({
       orderId,
       sellerEmail: email,
-      amountUsd: netUsd,
+      amountUsd: payoutAmountCents / 100,
       note: `Get Vaulted seller payout for order ${orderId}`,
     });
+
+    if (liabilityPlan.items.length > 0) {
+      await applyOutstandingLiabilityRecovery(liabilityPlan, {
+        method: "payout_offset_paypal",
+        transactionId: result.payoutItemId,
+      });
+    }
 
     await prisma.order.update({
       where: { id: orderId },
