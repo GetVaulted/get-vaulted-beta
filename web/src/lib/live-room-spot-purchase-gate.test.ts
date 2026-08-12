@@ -20,14 +20,14 @@ describe("isLiveRoomOpenForSpotPurchase", () => {
 });
 
 describe("isRoomOpenForHostOffPlatformMarkSold", () => {
-  it("allows live and ended (post-show settlement)", () => {
+  it("allows scheduled (pre-live), live, and ended (post-show settlement)", () => {
+    expect(isRoomOpenForHostOffPlatformMarkSold("scheduled")).toBe(true);
     expect(isRoomOpenForHostOffPlatformMarkSold("live")).toBe(true);
     expect(isRoomOpenForHostOffPlatformMarkSold("ended")).toBe(true);
     expect(isRoomOpenForHostOffPlatformMarkSold("ENDED")).toBe(true);
   });
 
-  it("blocks scheduled and unknown rooms", () => {
-    expect(isRoomOpenForHostOffPlatformMarkSold("scheduled")).toBe(false);
+  it("blocks unknown rooms", () => {
     expect(isRoomOpenForHostOffPlatformMarkSold("")).toBe(false);
     expect(isRoomOpenForHostOffPlatformMarkSold(null)).toBe(false);
   });

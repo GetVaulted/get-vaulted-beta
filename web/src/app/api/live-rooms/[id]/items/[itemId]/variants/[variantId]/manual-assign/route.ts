@@ -109,7 +109,7 @@ export async function POST(
           seller: { select: { sellerPlatformFeePercentOverride: true } },
         },
       });
-      // Host off-platform settlement: while live, or after the show ends (next-day cleanup).
+      // Host off-platform settlement: pre-sale before Go Live, while live, or after the show ends.
       if (!room || !isRoomOpenForHostOffPlatformMarkSold(room.status)) {
         throw Object.assign(new Error("ROOM_NOT_SETTLEABLE"), { code: "ROOM_NOT_SETTLEABLE" });
       }
@@ -275,7 +275,7 @@ export async function POST(
     }
     if (code === "ROOM_NOT_SETTLEABLE") {
       return NextResponse.json(
-        { error: "Room must be live or ended to mark teams sold." },
+        { error: "Room must be scheduled, live, or ended to mark teams sold." },
         { status: 409 },
       );
     }

@@ -33,12 +33,14 @@ export function isLiveRoomOpenForSpotPurchase(status: string | null | undefined)
 }
 
 /**
- * Host off-platform Mark sold / Supp sold: while live, or after the show ends
- * (next-day settlement). Not while still scheduled.
+ * Host off-platform Mark sold / Supp sold: pre-sale before Go Live (scheduled),
+ * while live, or after the show ends (next-day settlement). Mirrors
+ * `isRoomOpenForHostTeamBoardEdit` so a host can pre-sell supps against a break
+ * roster before the room ever goes live, same as they can retire/restore spots.
  */
 export function isRoomOpenForHostOffPlatformMarkSold(status: string | null | undefined): boolean {
   const s = (status ?? "").trim().toLowerCase();
-  return s === "live" || s === "ended";
+  return s === "live" || s === "scheduled" || s === "ended";
 }
 
 /**
