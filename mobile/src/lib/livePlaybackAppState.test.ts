@@ -4,9 +4,12 @@ import {
   LIVE_PIP_RETRY_DELAYS_MS,
   LIVE_VIDEO_STICKY_MS,
   canAttemptHostResumeShow,
+  isAndroidStagePipStoppedADismissal,
+  isStagePipUserDismissal,
   shouldAttemptLivePictureInPicture,
   shouldClearStreamPausedAfterHostResume,
   shouldCommitLiveBackgroundAfterDwell,
+  shouldForceLocalStreamRefreshBeforeHostResume,
   shouldHostBackgroundAutoPause,
   shouldMuteHlsUnderLiveWebrtc,
   shouldPreferWarmHostResume,
@@ -199,6 +202,19 @@ describe('livePlaybackAppState', () => {
     ).toBe(false);
   });
 
+  it('mutes HLS once the buyer closes PiP while still backgrounded, even though appBackgrounded stays true', () => {
+    expect(
+      shouldMuteHlsUnderLiveWebrtc({
+        webrtcReady: true,
+        useWebrtc: true,
+        stageSuspended: false,
+        pipActive: false,
+        appBackgrounded: true,
+        pipDismissedWhileBackgrounded: true,
+      }),
+    ).toBe(true);
+  });
+
   it('keeps HLS VideoView mounted for warm companion and PiP after Stage paints', () => {
     expect(
       shouldShowHlsLayerForLivePip({
@@ -342,6 +358,29 @@ describe('livePlaybackAppState', () => {
     expect(shouldStayPausedAfterIntentionalUnpublish(false)).toBe(false);
   });
 
+  it('treats a bare native "stopped" (no preceding restore) as the user closing PiP with the X', () => {
+    expect(isStagePipUserDismissal({ state: 'stopped', precededByRestore: false })).toBe(true);
+  });
+
+  it('does not treat "stopped" as a dismissal when it was preceded by a restore-tap', () => {
+    expect(isStagePipUserDismissal({ state: 'stopped', precededByRestore: true })).toBe(false);
+  });
+
+  it('never treats "started" or "restored" as a dismissal, regardless of restore history', () => {
+    expect(isStagePipUserDismissal({ state: 'started', precededByRestore: false })).toBe(false);
+    expect(isStagePipUserDismissal({ state: 'started', precededByRestore: true })).toBe(false);
+    expect(isStagePipUserDismissal({ state: 'restored', precededByRestore: false })).toBe(false);
+    expect(isStagePipUserDismissal({ state: 'restored', precededByRestore: true })).toBe(false);
+  });
+
+  it('Android restore-tap (stopped then restored within the debounce) is not a dismissal', () => {
+    expect(isAndroidStagePipStoppedADismissal(true)).toBe(false);
+  });
+
+  it('Android real dismissal (no restored within the debounce) is a dismissal', () => {
+    expect(isAndroidStagePipStoppedADismissal(false)).toBe(true);
+  });
+
   it('while room is live shows Resume recovery instead of pre-live Retry', () => {
     expect(
       shouldShowLiveResumeInsteadOfRetry({
@@ -364,5 +403,32 @@ describe('livePlaybackAppState', () => {
         hasBroadcastError: true,
       }),
     ).toBe(true);
+  });
+
+  it('forces a local camera stream refresh before Android resumes from a real backgrounding', () => {
+    expect(
+      shouldForceLocalStreamRefreshBeforeHostResume({
+        platform: 'android',
+        backgroundedWhilePaused: true,
+      }),
+    ).toBe(true);
+  });
+
+  it('does not force a refresh for a foreground Pause-button tap (Surface never torn down)', () => {
+    expect(
+      shouldForceLocalStreamRefreshBeforeHostResume({
+        platform: 'android',
+        backgroundedWhilePaused: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('never forces a refresh on iOS — camera sessions survive backgrounding there', () => {
+    expect(
+      shouldForceLocalStreamRefreshBeforeHostResume({
+        platform: 'ios',
+        backgroundedWhilePaused: true,
+      }),
+    ).toBe(false);
   });
 });

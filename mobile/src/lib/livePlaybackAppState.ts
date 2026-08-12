@@ -99,6 +99,11 @@ export function shouldWarmLiveHlsPipCompanion(args: {
  * Mute the HLS mirror under live Stage so buyers only hear WebRTC.
  * Unmute when backgrounded / Stage suspended / PiP so the OS window has audio
  * (never leave Stage + HLS both audible — that caused the delayed echo).
+ *
+ * `pipDismissedWhileBackgrounded` overrides everything else: once the buyer has explicitly
+ * closed the OS PiP window (its native X) while the app is still backgrounded, there is no
+ * surface left playing the video anywhere — `appBackgrounded` staying true must not be read as
+ * "PiP is still showing, keep it audible." Without this, audio kept playing after PiP was closed.
  */
 export function shouldMuteHlsUnderLiveWebrtc(args: {
   webrtcReady: boolean;
@@ -106,7 +111,9 @@ export function shouldMuteHlsUnderLiveWebrtc(args: {
   stageSuspended: boolean;
   pipActive: boolean;
   appBackgrounded: boolean;
+  pipDismissedWhileBackgrounded?: boolean;
 }): boolean {
+  if (args.pipDismissedWhileBackgrounded) return true;
   if (args.appBackgrounded || args.stageSuspended || args.pipActive) return false;
   return args.webrtcReady && args.useWebrtc;
 }
@@ -255,6 +262,25 @@ export function shouldStayPausedAfterIntentionalUnpublish(intentionalPause: bool
 }
 
 /**
+ * Android only: a true app backgrounding (home / app-switcher, e.g. reading a text) tears
+ * down the camera preview's native Surface — Android SurfaceView lifecycle, not an IVS bug.
+ * The local camera stream object survives (`minimizeShow` never calls destroyLocalStreams),
+ * so a normal warm/cold `resumeShow()` republishes on a stream still bound to that destroyed
+ * Surface: `setStreamsPublished` succeeds and fires "published", but buyers see a frozen/black
+ * feed until the app is force-closed (the only thing that fully releases the camera handle).
+ *
+ * A foreground Pause-button tap never leaves the Activity, so the Surface stays valid and
+ * does NOT need this — only pause triggered by an actual backgrounding does. iOS camera
+ * sessions survive backgrounding without losing their Surface, so this never applies there.
+ */
+export function shouldForceLocalStreamRefreshBeforeHostResume(args: {
+  platform: 'ios' | 'android' | 'web' | 'windows' | 'macos';
+  backgroundedWhilePaused: boolean;
+}): boolean {
+  return args.platform === 'android' && args.backgroundedWhilePaused === true;
+}
+
+/**
  * Whatnot invariant: while the room is live, Stage failures map to minimized + Resume —
  * never the pre-live idle Retry banner.
  */
@@ -285,4 +311,53 @@ export function shouldShowPreLiveRetryBanner(args: {
 /** @deprecated Use shouldWarmLiveHlsPipCompanion — warm player must exist before background. */
 export function shouldAttachLiveHlsPipCompanion(appState: AppStateStatus): boolean {
   return appState === 'background';
+}
+
+/**
+ * Native Stage PiP (expo-realtime-ivs-broadcast → IVSPictureInPictureController) state machine.
+ * Mirrors the payload the native module actually emits — see
+ * `ExpoRealtimeIvsBroadcast.types.ts` `PiPStateChangedPayload`.
+ */
+export type StagePipNativeState = 'started' | 'stopped' | 'restored';
+
+/**
+ * Distinguishes "user tapped the PiP window to return to the app" from "user tapped the PiP
+ * window's own close (X) button" — using the actual native delegate callbacks, not AppState.
+ *
+ * On iOS, `AVPictureInPictureControllerDelegate` calls
+ * `pictureInPictureController(_:restoreUserInterfaceForPictureInPictureStopWithCompletionHandler:)`
+ * — surfaced here as the `'restored'` state — ONLY when the user taps the PiP window to restore
+ * the app. That delegate method is never invoked when the user instead taps the window's own
+ * close (X) button; only the unconditional `pictureInPictureControllerDidStopPictureInPicture`
+ * (surfaced as `'stopped'`) fires in that case. Both fire, in that order, for a restore-tap; only
+ * `'stopped'` fires alone for a real dismissal. `precededByRestore` is true only when a
+ * `'restored'` event was seen immediately before this `'stopped'` event.
+ */
+export function isStagePipUserDismissal(args: {
+  state: StagePipNativeState;
+  precededByRestore: boolean;
+}): boolean {
+  return args.state === 'stopped' && !args.precededByRestore;
+}
+
+/**
+ * Android's `PictureInPictureManager` fires the pair in the OPPOSITE order from iOS for a
+ * restore-tap: `onActivityResumed` calls `onPictureInPictureModeChanged(false)` — emitting
+ * `'stopped'` — and only then emits `'restored'` right after. `isStagePipUserDismissal`'s
+ * look-back (`precededByRestore`) assumes iOS's order and misreads Android's leading `'stopped'`
+ * as a dismissal, incorrectly killing video/audio on an ordinary restore-tap.
+ *
+ * Android can't classify a bare `'stopped'` by looking backward, so the hook holds it for
+ * `ANDROID_STAGE_PIP_STOPPED_DEBOUNCE_MS` and looks forward instead: if `'restored'` arrives
+ * within that window, the whole pair was a restore-tap, not a dismissal.
+ */
+export const ANDROID_STAGE_PIP_STOPPED_DEBOUNCE_MS = 200;
+
+/**
+ * Decision for the Android look-ahead above, once the debounce window has elapsed (or been
+ * short-circuited by an incoming `'restored'`). Kept separate from the timer so the decision
+ * itself is a pure, testable function — see `isStagePipUserDismissal` for the iOS equivalent.
+ */
+export function isAndroidStagePipStoppedADismissal(followedByRestoreWithinWindow: boolean): boolean {
+  return !followedByRestoreWithinWindow;
 }

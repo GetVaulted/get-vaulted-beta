@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
+import { AppState, Platform, type AppStateStatus } from 'react-native';
 import {
   addOnPublishStateChangedListener,
   addOnStageErrorListener,
@@ -22,6 +22,7 @@ import {
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import {
   LIVE_BACKGROUND_SUSPEND_DWELL_MS,
+  shouldForceLocalStreamRefreshBeforeHostResume,
   shouldHostBackgroundAutoPause,
   shouldPreferWarmHostResume,
   shouldStayPausedAfterIntentionalUnpublish,
@@ -103,6 +104,14 @@ export function useMobileStagePublish(args: {
   const intentionalPauseRef = useRef(false);
   /** Wall clock when minimize / Pause started — drives warm vs cold Play after long holds. */
   const pauseStartedAtRef = useRef<number | null>(null);
+  /**
+   * True only when the current pause was triggered by the app actually backgrounding
+   * (AppState timer below) — never by a foreground Pause-button tap. Android tears down the
+   * camera preview's native Surface on a real backgrounding; resumeShow() consumes this to
+   * force a local camera stream refresh so buyers don't end up on a frozen feed.
+   * See shouldForceLocalStreamRefreshBeforeHostResume.
+   */
+  const backgroundedWhilePausedRef = useRef(false);
   const reconnectInFlightRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
   /** Bumped to cancel stale reconnect/AppState timers after stop / failed start / Retry. */
@@ -223,6 +232,9 @@ export function useMobileStagePublish(args: {
         minimizeTimer = setTimeout(() => {
           minimizeTimer = null;
           if (AppState.currentState !== 'background') return;
+          // Real backgrounding (not a foreground Pause tap) — resumeShow() must force a
+          // fresh camera stream on Android. See shouldForceLocalStreamRefreshBeforeHostResume.
+          backgroundedWhilePausedRef.current = true;
           void minimizeShowRef.current();
         }, LIVE_BACKGROUND_SUSPEND_DWELL_MS);
         return;
@@ -302,6 +314,7 @@ export function useMobileStagePublish(args: {
   const releaseLocalDevices = useCallback(async () => {
     intentionalStopRef.current = true;
     intentionalPauseRef.current = false;
+    backgroundedWhilePausedRef.current = false;
     await withIvsStageSerialized(async () => {
       clearTokenRefreshTimer();
       clearStageListeners();
@@ -952,6 +965,21 @@ export function useMobileStagePublish(args: {
     const pauseDurationMs =
       pauseStartedAtRef.current != null ? Date.now() - pauseStartedAtRef.current : undefined;
 
+    // Android: a real backgrounding tore down the camera preview's Surface while the local
+    // stream object survived, so the normal warm/cold republish below would reuse a stream
+    // bound to a dead Surface — buyers get a frozen feed until force-close. Force a full
+    // destroy + recreate of the local camera/mic before republishing. Never applies to a
+    // foreground Pause tap, and never applies on iOS (see the guard function's doc comment).
+    if (
+      shouldForceLocalStreamRefreshBeforeHostResume({
+        platform: Platform.OS,
+        backgroundedWhilePaused: backgroundedWhilePausedRef.current,
+      })
+    ) {
+      backgroundedWhilePausedRef.current = false;
+      await retryPreviewPermission();
+    }
+
     const previewOk = localStreamsReadyRef.current || (await ensureLocalPreview());
     if (!previewOk) {
       const msg = permissionError ?? cameraPermissionDeniedMessage();
@@ -1106,6 +1134,7 @@ export function useMobileStagePublish(args: {
     clearTokenRefreshTimer,
     ensureLocalPreview,
     permissionError,
+    retryPreviewPermission,
     scheduleTokenRefresh,
     setPublishingActive,
   ]);
