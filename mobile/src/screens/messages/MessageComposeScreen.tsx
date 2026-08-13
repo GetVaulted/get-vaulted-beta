@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { Image } from 'expo-image';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,8 +16,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MentionComposerInput } from '../../components/mentions/MentionComposerInput';
-import { startConversation } from '../../api/messagesRepository';
+import { startConversation, uploadThreadImage } from '../../api/messagesRepository';
 import { useAuth } from '../../auth/AuthContext';
+import { pickSingleImageFromLibrary } from '../../createListing/pickListingMedia';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 
@@ -28,6 +30,8 @@ export function MessageComposeScreen({ navigation, route }: Props) {
   const token = session?.access_token;
   const [draft, setDraft] = useState(route.params.initialDraft ?? '');
   const [busy, setBusy] = useState(false);
+  const [pendingImageUri, setPendingImageUri] = useState<string | null>(null);
+  const [pickingImage, setPickingImage] = useState(false);
 
   const sellerLabel = route.params.sellerUsername?.trim();
   const profileTarget = route.params.sellerUserId?.trim();
@@ -39,10 +43,24 @@ export function MessageComposeScreen({ navigation, route }: Props) {
   const fromLive = Boolean(route.params.liveRoomId);
   const fromProfile = Boolean(profileTarget && !route.params.listingId && !route.params.liveRoomId);
 
+  const onPickImage = async () => {
+    if (pickingImage || busy) return;
+    setPickingImage(true);
+    try {
+      const result = await pickSingleImageFromLibrary();
+      const uri = result && !result.canceled ? result.assets[0]?.uri : null;
+      if (uri) setPendingImageUri(uri);
+    } catch (e) {
+      Alert.alert('Could not open photos', e instanceof Error ? e.message : 'Try again.');
+    } finally {
+      setPickingImage(false);
+    }
+  };
+
   const onSend = async () => {
     const text = draft.trim();
-    if (!text) {
-      Alert.alert('Message', 'Write a note before sending.');
+    if (!text && !pendingImageUri) {
+      Alert.alert('Message', 'Write a note or attach a photo before sending.');
       return;
     }
     if (!token) {
@@ -51,11 +69,16 @@ export function MessageComposeScreen({ navigation, route }: Props) {
     }
     setBusy(true);
     try {
+      let imageUrl: string | undefined;
+      if (pendingImageUri) {
+        imageUrl = await uploadThreadImage(token, pendingImageUri);
+      }
       const { threadId, inbox } = await startConversation(token, {
         listingId: route.params.listingId,
         liveRoomId: route.params.liveRoomId,
         sellerUserId: profileTarget,
         body: text,
+        imageUrl,
         conversationKind: fromLive ? 'live_networking' : 'buyer_seller',
       });
       Keyboard.dismiss();
@@ -115,13 +138,37 @@ export function MessageComposeScreen({ navigation, route }: Props) {
           autoFocus
           maxLength={2000}
         />
+
+        {pendingImageUri ? (
+          <View style={styles.imagePreviewRow}>
+            <Image source={{ uri: pendingImageUri }} style={styles.imagePreview} contentFit="cover" />
+            <Pressable onPress={() => setPendingImageUri(null)} hitSlop={10} style={styles.imagePreviewRemove}>
+              <Ionicons name="close-circle" size={22} color={colors.textPrimary} />
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            style={styles.attachRow}
+            onPress={() => void onPickImage()}
+            disabled={pickingImage || busy}
+            accessibilityRole="button"
+            accessibilityLabel="Attach photo"
+          >
+            {pickingImage ? (
+              <ActivityIndicator color={colors.textSecondary} size="small" />
+            ) : (
+              <Ionicons name="image-outline" size={18} color={colors.textSecondary} />
+            )}
+            <Text style={styles.attachTxt}>Attach photo</Text>
+          </Pressable>
+        )}
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
         <Pressable
-          style={[styles.send, (!draft.trim() || busy) && styles.sendDim]}
+          style={[styles.send, ((!draft.trim() && !pendingImageUri) || busy) && styles.sendDim]}
           onPress={() => void onSend()}
-          disabled={busy || !draft.trim()}
+          disabled={busy || (!draft.trim() && !pendingImageUri)}
           accessibilityLabel="Send message"
         >
           {busy ? (
@@ -152,6 +199,24 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   hint: { fontSize: 13, color: colors.textMuted, lineHeight: 18, marginBottom: spacing.md },
+  attachRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    alignSelf: 'flex-start',
+    marginTop: spacing.md,
+    paddingVertical: 6,
+  },
+  attachTxt: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+  imagePreviewRow: { marginTop: spacing.md, alignSelf: 'flex-start' },
+  imagePreview: { width: 84, height: 84, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.06)' },
+  imagePreviewRemove: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: 'rgba(10,10,10,0.9)',
+    borderRadius: 11,
+  },
   input: {
     minHeight: 160,
     maxHeight: 240,

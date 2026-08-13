@@ -81,6 +81,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
     id: true,
     senderId: true,
     body: true,
+    imageUrl: true,
     kind: true,
     systemEvent: true,
     readAt: true,
@@ -156,6 +157,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
       id: m.id,
       senderId: m.senderId,
       body: m.body,
+      imageUrl: m.imageUrl,
       kind: m.kind,
       systemEvent: m.systemEvent,
       readAt: m.readAt?.toISOString() ?? null,
@@ -167,12 +169,20 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
   });
 }
 
-type PostBody = { body?: unknown };
+type PostBody = { body?: unknown; imageUrl?: unknown };
 
 function trimBody(s: unknown, max = 8000): string | null {
   if (typeof s !== "string") return null;
   const t = s.trim().slice(0, max);
   return t.length ? t : null;
+}
+
+/** Photo attachment must be an https URL from our own upload endpoint's response. */
+function trimImageUrl(s: unknown, max = 2000): string | null {
+  if (typeof s !== "string") return null;
+  const t = s.trim().slice(0, max);
+  if (!t || !/^https:\/\//i.test(t)) return null;
+  return t;
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
@@ -190,8 +200,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const text = trimBody(body.body, 8000);
-  if (!text) return NextResponse.json({ error: "Enter a message." }, { status: 400 });
+  const text = trimBody(body.body, 8000) ?? "";
+  const imageUrl = trimImageUrl(body.imageUrl);
+  if (!text && !imageUrl) {
+    return NextResponse.json({ error: "Enter a message or attach a photo." }, { status: 400 });
+  }
 
   const thread = await prisma.messageThread.findFirst({
     where: {
@@ -250,6 +263,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
         recipientId,
         listingId: thread.listingId,
         body: text,
+        imageUrl,
         kind: "user",
       },
       select: { id: true, createdAt: true },
@@ -279,7 +293,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
   });
 
   if (!recipientParticipant?.muted) {
-    const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
+    const preview = text
+      ? text.length > 120
+        ? `${text.slice(0, 117)}…`
+        : text
+      : "📷 Sent a photo";
     await createNotification(prisma, {
       userId: recipientId,
       type: REPLY_MESSAGE_NOTIFICATION.type,
@@ -294,6 +312,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       id: msg.id,
       senderId: uid,
       body: text,
+      imageUrl,
       kind: "user" as const,
       systemEvent: null,
       readAt: null as string | null,

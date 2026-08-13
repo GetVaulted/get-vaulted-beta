@@ -25,12 +25,21 @@ type Body = {
   orderId?: string;
   conversationKind?: string;
   body?: unknown;
+  imageUrl?: unknown;
 };
 
 function trimBody(s: unknown, max = 8000): string | null {
   if (typeof s !== "string") return null;
   const t = s.trim().slice(0, max);
   return t.length ? t : null;
+}
+
+/** Photo attachment must be an https URL from our own upload endpoint's response. */
+function trimImageUrl(s: unknown, max = 2000): string | null {
+  if (typeof s !== "string") return null;
+  const t = s.trim().slice(0, max);
+  if (!t || !/^https:\/\//i.test(t)) return null;
+  return t;
 }
 
 const KINDS = new Set<MessageConversationKind>([
@@ -60,7 +69,8 @@ export async function POST(req: Request) {
     (typeof body.sellerUserId === "string" ? body.sellerUserId.trim() : "");
   const offerId = typeof body.offerId === "string" ? body.offerId.trim() : "";
   const orderId = typeof body.orderId === "string" ? body.orderId.trim() : "";
-  const text = trimBody(body.body, 8000);
+  const text = trimBody(body.body, 8000) ?? "";
+  const imageUrl = trimImageUrl(body.imageUrl);
   const conversationKind =
     typeof body.conversationKind === "string" && KINDS.has(body.conversationKind as MessageConversationKind)
       ? (body.conversationKind as MessageConversationKind)
@@ -72,7 +82,9 @@ export async function POST(req: Request) {
             ? "order_support"
             : "buyer_seller";
 
-  if (!text) return NextResponse.json({ error: "Enter a message." }, { status: 400 });
+  if (!text && !imageUrl) {
+    return NextResponse.json({ error: "Enter a message or attach a photo." }, { status: 400 });
+  }
   if (!listingId && !liveRoomId && !recipientUserId) {
     return NextResponse.json({ error: "Missing recipient, listing, or live show." }, { status: 400 });
   }
@@ -181,6 +193,7 @@ export async function POST(req: Request) {
             recipientId: sellerId,
             listingId: resolvedListingId,
             body: text,
+            imageUrl,
             kind: "user",
           },
           select: { id: true },
@@ -202,7 +215,11 @@ export async function POST(req: Request) {
     });
 
     if (!recipientParticipant?.muted) {
-      const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
+      const preview = text
+        ? text.length > 120
+          ? `${text.slice(0, 117)}…`
+          : text
+        : "📷 Sent a photo";
       const lt = listingTitle.length > 60 ? `${listingTitle.slice(0, 57)}…` : listingTitle;
       const notify = firstMessageNotification(result.inbox);
       const notifyBody =

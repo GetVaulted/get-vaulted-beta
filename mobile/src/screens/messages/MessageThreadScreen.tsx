@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { Image } from 'expo-image';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -18,8 +19,10 @@ import {
   fetchMessageThread,
   patchThreadAction,
   sendThreadMessage,
+  uploadThreadImage,
 } from '../../api/messagesRepository';
 import { useAuth } from '../../auth/AuthContext';
+import { pickSingleImageFromLibrary } from '../../createListing/pickListingMedia';
 import { MentionComposerInput } from '../../components/mentions/MentionComposerInput';
 import { MessageBubble } from '../../components/messages/MessageBubble';
 import { MessageContextBanner } from '../../components/messages/MessageContextBanner';
@@ -43,6 +46,8 @@ export function MessageThreadScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [pendingImageUri, setPendingImageUri] = useState<string | null>(null);
+  const [pickingImage, setPickingImage] = useState(false);
   const listRef = useRef<FlatList>(null);
 
   const load = useCallback(async () => {
@@ -72,13 +77,32 @@ export function MessageThreadScreen({ navigation, route }: Props) {
     return () => clearInterval(poll);
   }, [load]);
 
+  const onPickImage = async () => {
+    if (pickingImage || sending) return;
+    setPickingImage(true);
+    try {
+      const result = await pickSingleImageFromLibrary();
+      const uri = result && !result.canceled ? result.assets[0]?.uri : null;
+      if (uri) setPendingImageUri(uri);
+    } catch (e) {
+      Alert.alert('Could not open photos', e instanceof Error ? e.message : 'Try again.');
+    } finally {
+      setPickingImage(false);
+    }
+  };
+
   const onSend = async () => {
     const text = draft.trim();
-    if (!text || !token || sending) return;
+    if ((!text && !pendingImageUri) || !token || sending) return;
     setSending(true);
     try {
-      const msg = await sendThreadMessage(token, threadId, text);
+      let imageUrl: string | undefined;
+      if (pendingImageUri) {
+        imageUrl = await uploadThreadImage(token, pendingImageUri);
+      }
+      const msg = await sendThreadMessage(token, threadId, text, imageUrl);
       setDraft('');
+      setPendingImageUri(null);
       setMessages((prev) => [...prev, msg]);
       requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
     } catch (e) {
@@ -198,10 +222,13 @@ export function MessageThreadScreen({ navigation, route }: Props) {
         keyExtractor={(m) => m.id}
         contentContainerStyle={styles.messages}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <MessageBubble
             message={item}
             isMine={item.senderId === uid}
+            // Only the most recent message you sent shows "Sent"/"Read" — matches the
+            // standard iMessage/WhatsApp convention instead of a status line under every bubble.
+            showStatus={index === messages.length - 1}
             onPressMentionUser={(userId) => navigation.navigate('UserProfile', { userId })}
           />
         )}
@@ -215,24 +242,51 @@ export function MessageThreadScreen({ navigation, route }: Props) {
           </Text>
         </View>
       ) : (
-        <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
-          <MentionComposerInput
-            style={styles.input}
-            value={draft}
-            onChangeText={setDraft}
-            accessToken={token}
-            placeholder="Message…"
-            placeholderTextColor={colors.textMuted}
-            multiline
-            maxLength={2000}
-          />
-          <Pressable style={[styles.send, !draft.trim() && styles.sendDim]} onPress={() => void onSend()} disabled={sending}>
-            {sending ? (
-              <ActivityIndicator color="#0a0a0a" size="small" />
-            ) : (
-              <Ionicons name="send" size={18} color="#0a0a0a" />
-            )}
-          </Pressable>
+        <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
+          {pendingImageUri ? (
+            <View style={styles.imagePreviewRow}>
+              <Image source={{ uri: pendingImageUri }} style={styles.imagePreview} contentFit="cover" />
+              <Pressable onPress={() => setPendingImageUri(null)} hitSlop={10} style={styles.imagePreviewRemove}>
+                <Ionicons name="close-circle" size={22} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+          ) : null}
+          <View style={styles.composer}>
+            <Pressable
+              style={styles.attach}
+              onPress={() => void onPickImage()}
+              disabled={pickingImage || sending}
+              accessibilityRole="button"
+              accessibilityLabel="Attach photo"
+            >
+              {pickingImage ? (
+                <ActivityIndicator color={colors.textSecondary} size="small" />
+              ) : (
+                <Ionicons name="image-outline" size={22} color={colors.textSecondary} />
+              )}
+            </Pressable>
+            <MentionComposerInput
+              style={styles.input}
+              value={draft}
+              onChangeText={setDraft}
+              accessToken={token}
+              placeholder="Message…"
+              placeholderTextColor={colors.textMuted}
+              multiline
+              maxLength={2000}
+            />
+            <Pressable
+              style={[styles.send, !draft.trim() && !pendingImageUri && styles.sendDim]}
+              onPress={() => void onSend()}
+              disabled={sending}
+            >
+              {sending ? (
+                <ActivityIndicator color="#0a0a0a" size="small" />
+              ) : (
+                <Ionicons name="send" size={18} color="#0a0a0a" />
+              )}
+            </Pressable>
+          </View>
         </View>
       )}
     </KeyboardAvoidingView>
@@ -264,15 +318,42 @@ const styles = StyleSheet.create({
   },
   acceptTxt: { fontWeight: '900', fontSize: 13, color: '#0a0a0a' },
   messages: { paddingVertical: spacing.sm, flexGrow: 1 },
+  composerWrap: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    backgroundColor: 'rgba(8,8,10,0.98)',
+  },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    backgroundColor: 'rgba(8,8,10,0.98)',
+  },
+  attach: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  imagePreviewRow: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+  },
+  imagePreview: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  imagePreviewRemove: {
+    position: 'absolute',
+    top: -6,
+    left: 64,
+    backgroundColor: 'rgba(10,10,10,0.9)',
+    borderRadius: 11,
   },
   input: {
     flex: 1,
