@@ -47,7 +47,17 @@ import { StageSubscriberVideo } from './StageSubscriberVideo';
  * - channel_hls: expo-video PiP
  *
  * Manual QA: home swipe on WebRTC live; HLS-only live; PaymentSheet must not PiP;
- * return restores room; mute respected; no double audio.
+ * return restores room; mute respected; no double audio; closing the PiP window's own X (both
+ * stage_webrtc and channel_hls) stops video AND audio without a force-quit, and returning to the
+ * show afterward re-initializes playback normally.
+ *
+ * stage_webrtc dismissal (native IVS): driven by `useStageRemotePictureInPicture`'s
+ * `stagePipDismissed`, which is set from the real native PiP delegate distinction (restore-tap vs.
+ * the window's own close/X — see `isStagePipUserDismissal`), not from AppState. A 2026-08 attempt
+ * at this crashed in TestFlight (build 216) by deactivating the iOS audio session while the native
+ * PiP controller was still armed; the fix now disables the PiP controller first (inside the hook,
+ * on the real dismissal event) and only then lets this component deactivate Stage audio / leave
+ * the Stage session — see the `stagePipDismissed` effect below.
  */
 const LIVE_PICTURE_IN_PICTURE_ENABLED = true;
 
@@ -186,6 +196,17 @@ export function LiveStagePlayback({
   const [appBackgrounded, setAppBackgrounded] = useState(
     () => AppState.currentState === 'background',
   );
+  // True once the buyer explicitly closes the OS PiP window (native X) while the app is still
+  // backgrounded. Nothing is visibly playing the video at that point, so audio (HLS or Stage)
+  // must stop — appBackgrounded staying true must not be read as "PiP is still up."
+  const [pipDismissedWhileBackgrounded, setPipDismissedWhileBackgrounded] = useState(false);
+  // Same idea, but latched from the native Stage `stagePipDismissed` signal (see the effect near
+  // `player`). That flag is only true for one tick — cleared immediately after this component
+  // reacts to it — so it can't gate the HLS-companion mute effect below, which re-runs whenever
+  // `stageMediaSuspended` changes and would otherwise unmute + replay the companion right after
+  // this effect paused it. This stays true for the rest of the background dwell instead.
+  const [stageAudioDismissed, setStageAudioDismissed] = useState(false);
+  const prevPipActiveRef = useRef(false);
   const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce, roomVisitNonce });
   const stagePipReadyRef = useRef(false);
 
@@ -270,10 +291,11 @@ export function LiveStagePlayback({
   // In-room Stage owns pixels. Back→mini uses shared HLS warm player (pre-hoist path).
   const stageRemotePipEnabled =
     LIVE_PICTURE_IN_PICTURE_ENABLED && useWebrtc && webrtcReady && !streamPaused;
-  const { stagePipReady, stagePipActive } = useStageRemotePictureInPicture({
-    enabled: stageRemotePipEnabled,
-    roomId,
-  });
+  const { stagePipReady, stagePipActive, stagePipDismissed, clearStagePipDismissed } =
+    useStageRemotePictureInPicture({
+      enabled: stageRemotePipEnabled,
+      roomId,
+    });
   stagePipReadyRef.current = stagePipReady || stagePipActive;
   useEffect(() => {
     setLiveStagePipKeepAlive(stagePipReady || stagePipActive);
@@ -424,16 +446,66 @@ export function LiveStagePlayback({
 
   useHlsLiveEdgeSeek(player, attachHls && playback.videoHasData);
 
+  // Detect the expo-video PiP window being explicitly stopped (buyer tapped its own X) while
+  // still backgrounded. `appBackgrounded` alone stays true either way, so it can't tell us this
+  // happened — only the start→stop transition on `pipActive` can.
+  useEffect(() => {
+    const wasActive = prevPipActiveRef.current;
+    prevPipActiveRef.current = pipActive;
+    if (wasActive && !pipActive && (appBackgrounded || pipSurfaceActive)) {
+      setPipDismissedWhileBackgrounded(true);
+    } else if (pipActive) {
+      setPipDismissedWhileBackgrounded(false);
+    }
+  }, [pipActive, appBackgrounded, pipSurfaceActive]);
+  useEffect(() => {
+    if (!appBackgrounded && !pipSurfaceActive) {
+      setPipDismissedWhileBackgrounded(false);
+      setStageAudioDismissed(false);
+    }
+  }, [appBackgrounded, pipSurfaceActive]);
+
+  // Native Stage (WebRTC) PiP window explicitly closed via its own X — `stagePipDismissed` only
+  // fires for that real native dismissal, never for a restore-tap (see `isStagePipUserDismissal`).
+  // `useStageRemotePictureInPicture` has already disabled the PiP controller by this point; finish
+  // the teardown here: stop Stage audio, leave the Stage session (stops WebRTC video + audio at
+  // the source, same path as a committed background suspend), and quiet the HLS companion so
+  // nothing keeps playing into the backgrounded void. Marking the suspend as committed lets the
+  // existing AppState 'active' handler remount Stage fresh when the buyer reopens the app.
+  useEffect(() => {
+    if (!stagePipDismissed) return;
+    if (isLivePlaybackCommerceHoldActive()) {
+      clearStagePipDismissed();
+      return;
+    }
+    void setStageAudioOutputEnabled(false).catch(() => {});
+    didCommitSuspendRef.current = true;
+    setStageMediaSuspended(true);
+    setStageAudioDismissed(true);
+    try {
+      player.pause();
+      player.muted = true;
+    } catch {
+      /* player may be released during teardown */
+    }
+    viewerLifecycleLog('stage_pip_dismissed_teardown', { roomId });
+    clearStagePipDismissed();
+  }, [stagePipDismissed, clearStagePipDismissed, player, roomId]);
+
   useEffect(() => {
     if (!attachHls) return;
     // Prefer Stage audio when joined (lower latency) but keep HLS video as the visible safety net
-    // until webrtcReady flips the layer order. In PiP / background, HLS is the only audible path.
+    // until webrtcReady flips the layer order. In PiP / background, HLS is the only audible path —
+    // unless the buyer just closed that PiP window, in which case nothing is visible and we must
+    // mute + pause rather than keep playing into the void.
+    const dismissedWhileBackgrounded = pipDismissedWhileBackgrounded || stageAudioDismissed;
     const muteForWebrtcAudio = shouldMuteHlsUnderLiveWebrtc({
       webrtcReady,
       useWebrtc,
       stageSuspended: stageMediaSuspended,
       pipActive,
       appBackgrounded: appBackgrounded || pipSurfaceActive,
+      pipDismissedWhileBackgrounded: dismissedWhileBackgrounded,
     });
     try {
       player.muted = muted || muteForWebrtcAudio;
@@ -442,7 +514,9 @@ export function LiveStagePlayback({
       player.audioMixingMode =
         isForeground || pipSurfaceActive || pipActive || appBackgrounded ? 'doNotMix' : 'mixWithOthers';
       player.staysActiveInBackground = LIVE_PICTURE_IN_PICTURE_ENABLED;
-      if (pipSurfaceActive || pipActive || appBackgrounded) {
+      if (dismissedWhileBackgrounded) {
+        player.pause();
+      } else if (pipSurfaceActive || pipActive || appBackgrounded) {
         player.play();
       }
     } catch {
@@ -459,11 +533,23 @@ export function LiveStagePlayback({
     pipActive,
     appBackgrounded,
     pipSurfaceActive,
+    pipDismissedWhileBackgrounded,
+    stageAudioDismissed,
   ]);
 
   // WebRTC Stage audio ignores expo-video `muted` — apply the buyer mute toggle via the patched
   // Stage audio-output gate. NEVER deactivate Stage audio while native Stage PiP is ready/active —
-  // setActive(false) kills the PiP source. HLS-surrogate PiP still mutes Stage.
+  // setActive(false) kills the PiP source (and has caused native crashes when called in that state).
+  // HLS-surrogate PiP still mutes Stage.
+  //
+  // `usingStagePip` below (false → deactivate) is now SAFE to act on: `useStageRemotePictureInPicture`
+  // only flips `stagePipReady` false AFTER it has already called `disablePictureInPicture()` on a
+  // genuine window dismissal (never on a restore-tap — see `isStagePipUserDismissal`), so this
+  // effect's `setStageAudioOutputEnabled(false)` below can no longer race the still-armed PiP
+  // controller. A 2026-08 attempt added that same call here without that ordering guarantee —
+  // `stagePipReady` could still be true at the moment it ran — and crashed in TestFlight (build
+  // 216). The primary teardown (leaving the Stage session, pausing the HLS companion) happens in
+  // the `stagePipDismissed` effect above; this effect is a second, now-safe layer for audio.
   useEffect(() => {
     const usingStagePip = stagePipReady || stagePipActive;
     if (!usingStagePip && (appBackgrounded || pipActive || pipSurfaceActive)) {
@@ -866,7 +952,10 @@ export function LiveStagePlayback({
         />
       );
     }
-    if (surface === 'reconnecting') {
+    // Only a real live show can be "reconnecting" — a scheduled show that hasn't gone live yet
+    // has nothing to reconnect to. A premature WebRTC/HLS attach attempt failing here must fall
+    // through to the scheduled-phase messaging below, not claim we lost a connection we never had.
+    if (surface === 'reconnecting' && roomLifecycleLive) {
       return (
         <StandbyOverlay title="Reconnecting…" body="Restoring your live stream connection." />
       );
