@@ -97,13 +97,21 @@ export function shouldWarmLiveHlsPipCompanion(args: {
 
 /**
  * Mute the HLS mirror under live Stage so buyers only hear WebRTC.
- * Unmute when backgrounded / Stage suspended / PiP so the OS window has audio
+ * Unmute when backgrounded / Stage suspended so the OS window has audio
  * (never leave Stage + HLS both audible — that caused the delayed echo).
  *
  * `pipDismissedWhileBackgrounded` overrides everything else: once the buyer has explicitly
  * closed the OS PiP window (its native X) while the app is still backgrounded, there is no
  * surface left playing the video anywhere — `appBackgrounded` staying true must not be read as
  * "PiP is still showing, keep it audible." Without this, audio kept playing after PiP was closed.
+ *
+ * `pipActive` (native Stage remote PiP genuinely active — see `useStageRemotePictureInPicture`)
+ * must NOT unmute the HLS mirror. Stage PiP already supplies its own audio via
+ * `setStageAudioOutputEnabled`, so unmuting HLS here played the low-latency Stage feed and the
+ * several-seconds-behind HLS mirror simultaneously — audible as garbled/choppy "echo" audio
+ * while in the mini viewer, lingering briefly after returning to the app. Only fall through to
+ * the HLS-surrogate unmute when Stage's own audio has been suspended (`stageSuspended`), i.e.
+ * Stage is no longer the one providing audio.
  */
 export function shouldMuteHlsUnderLiveWebrtc(args: {
   webrtcReady: boolean;
@@ -114,7 +122,8 @@ export function shouldMuteHlsUnderLiveWebrtc(args: {
   pipDismissedWhileBackgrounded?: boolean;
 }): boolean {
   if (args.pipDismissedWhileBackgrounded) return true;
-  if (args.appBackgrounded || args.stageSuspended || args.pipActive) return false;
+  if (args.pipActive && !args.stageSuspended) return true;
+  if (args.appBackgrounded || args.stageSuspended) return false;
   return args.webrtcReady && args.useWebrtc;
 }
 

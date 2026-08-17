@@ -131,11 +131,24 @@ export function useStageRemotePictureInPicture(args: {
     // crashed in TestFlight (build 216). Disabling here fully tears the controller down before
     // any consumer touches AVAudioSession, and resets readiness so this session can't be
     // silently treated as "still using Stage PiP" downstream. Shared by both platforms' paths.
+    //
+    // Must actually AWAIT the native disable before flipping `stagePipDismissed` — the previous
+    // version fired `disablePictureInPicture()` and immediately set state in the same tick.
+    // Consumers (LiveStagePlayback) react to `stagePipDismissed` synchronously on the next
+    // render and deactivate the audio session / leave Stage right away; that JS-side state
+    // update can easily outrun the native bridge round-trip for `disablePictureInPicture()`,
+    // reintroducing the exact "audio session torn down while the PiP controller is still armed"
+    // race that crashed TestFlight build 216 — just one level up. Awaiting here guarantees the
+    // controller is confirmed torn down (or the attempt is confirmed failed) before any consumer
+    // touches AVAudioSession or leaves the Stage session.
     const commitStagePipDismissal = () => {
-      void disablePictureInPicture().catch(() => {});
       setStagePipReady(false);
-      setStagePipDismissed(true);
-      viewerLifecycleLog('stage_pip_dismissed', { roomId: roomIdRef.current });
+      void disablePictureInPicture()
+        .catch(() => {})
+        .finally(() => {
+          setStagePipDismissed(true);
+          viewerLifecycleLog('stage_pip_dismissed', { roomId: roomIdRef.current });
+        });
     };
 
     const stateSub = addOnPiPStateChangedListener((event) => {

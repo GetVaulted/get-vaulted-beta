@@ -191,11 +191,24 @@ describe('livePlaybackAppState', () => {
         appBackgrounded: false,
       }),
     ).toBe(false);
+    // Native Stage PiP already supplies its own audio — HLS must stay muted, or buyers hear
+    // both the Stage feed and the several-seconds-behind HLS mirror at once (choppy echo).
     expect(
       shouldMuteHlsUnderLiveWebrtc({
         webrtcReady: true,
         useWebrtc: true,
         stageSuspended: false,
+        pipActive: true,
+        appBackgrounded: false,
+      }),
+    ).toBe(true);
+    // Once Stage's own audio has been suspended (no longer providing PiP audio), HLS becomes the
+    // fallback and must unmute even if `pipActive` is still momentarily true.
+    expect(
+      shouldMuteHlsUnderLiveWebrtc({
+        webrtcReady: true,
+        useWebrtc: true,
+        stageSuspended: true,
         pipActive: true,
         appBackgrounded: false,
       }),
