@@ -451,17 +451,29 @@ export async function createLiveBuyNowOrder(args: {
       if (existing?.paymentStatus === PAYMENT_PAID) {
         throw Object.assign(new Error("ALREADY_SOLD"), { code: "ALREADY_SOLD" });
       }
-      if (existing && existing.buyerId !== args.buyerId) {
-        throw Object.assign(new Error("CHECKOUT_IN_PROGRESS"), { code: "CHECKOUT_IN_PROGRESS" });
-      }
-      if (existing?.paymentStatus === PAYMENT_FAILED || existing?.paymentStatus === PAYMENT_PENDING) {
+      // A FAILED charge is a final outcome — it can never later succeed, so it must never lock
+      // every other buyer out of the listing. This used to only get cleaned up when the SAME
+      // buyer who was declined came back and retried (the `existing.buyerId !== args.buyerId`
+      // check below threw CHECKOUT_IN_PROGRESS first for anyone else). One buyer's declined card
+      // permanently blocked every other buyer with "Another buyer is checking out this item"
+      // until that exact buyer retried. Clear it here regardless of whose order it was.
+      if (existing?.paymentStatus === PAYMENT_FAILED) {
         await releaseActiveInventoryHoldsForListingAndBuyerTx(tx, {
           listingId: listingRow.id,
           userId: existing.buyerId,
         });
-        if (existing.paymentStatus === PAYMENT_FAILED || existing.paymentStatus === PAYMENT_PENDING) {
-          await tx.order.delete({ where: { id: existing.id } });
-        }
+        await tx.order.delete({ where: { id: existing.id } });
+      } else if (existing && existing.buyerId !== args.buyerId) {
+        // A genuinely in-flight PENDING order from a different buyer is real protection against
+        // two buyers racing to check out the same listing at once — still block that case.
+        throw Object.assign(new Error("CHECKOUT_IN_PROGRESS"), { code: "CHECKOUT_IN_PROGRESS" });
+      } else if (existing?.paymentStatus === PAYMENT_PENDING) {
+        // Same buyer retrying their own still-pending order.
+        await releaseActiveInventoryHoldsForListingAndBuyerTx(tx, {
+          listingId: listingRow.id,
+          userId: existing.buyerId,
+        });
+        await tx.order.delete({ where: { id: existing.id } });
       }
 
       await reserveListingInventoryHoldTx(tx, {
