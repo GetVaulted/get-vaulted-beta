@@ -371,6 +371,15 @@ export async function createLiveBuyNowOrder(args: {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
+      // Serialize concurrent purchase attempts for the SAME live item before touching anything.
+      // Without this, two requests racing "does this item already have a linked listing" (in
+      // `ensureLiveBuyNowItemCheckoutListingTx` below) could both read no-listing-yet and each
+      // independently mint their own Listing + Order for what should be a single unit — a buyer
+      // ends up owning two items while only one payment actually goes through. A transaction-
+      // scoped advisory lock queues the second request behind the first and releases itself
+      // automatically on commit or rollback (no separate unlock call, no orphaned-lock risk).
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.liveRoomItemId}))`;
+
       const item = await tx.liveRoomItem.findFirst({
         where: {
           id: args.liveRoomItemId,
