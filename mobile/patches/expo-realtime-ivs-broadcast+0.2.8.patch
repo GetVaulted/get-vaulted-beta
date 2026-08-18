@@ -1,5 +1,5 @@
 diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
-index 7f05628..528b71c 100644
+index 7f05628..5075a08 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
 +++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
 @@ -73,6 +73,10 @@ class ExpoRealtimeIvsBroadcastModule : Module(), IVSStageManagerDelegate, Pictur
@@ -39,6 +39,20 @@ index 7f05628..528b71c 100644
          AsyncFunction("setMicrophoneMuted") { muted: Boolean ->
              IVSStageManager.instance?.setMicrophoneMuted(muted)
          }
+@@ -219,4 +235,13 @@ class ExpoRealtimeIvsBroadcastModule : Module(), IVSStageManagerDelegate, Pictur
+     override fun onPiPError(error: String) {
+         sendEvent("onPiPError", mapOf("error" to error))
+     }
++
++    override fun onPiPActivityDestroyedWhileActive() {
++        // Last-chance synchronous cleanup — see the doc comment on the interface method. The JS
++        // bridge cannot be relied on here: this single-Activity app is closing, so there is no
++        // guarantee a "stopped" event reaches JS in time (or at all) for it to call
++        // setStageAudioOutputEnabled(false) itself. Call straight into the native stage manager.
++        Log.w("ExpoRealtimeIvsBroadcast", "PiP Activity destroyed while active — muting Stage audio synchronously")
++        IVSStageManager.instance?.setStageAudioOutputEnabled(false)
++    }
+ }
 diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
 index b1047d4..fb89e4e 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
@@ -153,6 +167,44 @@ index b1047d4..fb89e4e 100644
      fun swapCamera() {
          if (cameraStream == null) {
              Log.e("ExpoIVSStageManager", "❌ Cannot swap camera, stream not initialized.")
+diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/PictureInPictureManager.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/PictureInPictureManager.kt
+index 422d078..7fd653c
+--- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/PictureInPictureManager.kt
++++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/PictureInPictureManager.kt
+@@ -35,6 +35,16 @@ data class PiPOptions(
+ interface PictureInPictureDelegate {
+     fun onPiPStateChanged(state: String)
+     fun onPiPError(error: String)
++    /**
++     * Fired synchronously from Activity.onDestroy() when the Activity is torn down while still in
++     * PiP mode — e.g. the user tapped the system PiP window's own Close (X) button. Unlike a normal
++     * PiP exit (onPictureInPictureModeChanged -> "stopped"), Android does not route this through the
++     * regular JS event bridge in time: this app has a single Activity, so destroying it ends the
++     * whole session, and any teardown that only runs in response to a JS-side "stopped"/"dismissed"
++     * event can lose the race entirely. Implementers must do any audio/session cleanup here
++     * synchronously and on the main thread — this is the last reliable chance to run it.
++     */
++    fun onPiPActivityDestroyedWhileActive() {}
+ }
+ 
+ /**
+@@ -414,6 +424,16 @@ class PictureInPictureManager private constructor() : Application.ActivityLifecy
+     
+     override fun onActivityDestroyed(activity: Activity) {
+         if (activity == currentActivity) {
++            // The system PiP window's own Close (X) button finishes this Activity directly rather
++            // than going through onPictureInPictureModeChanged("stopped") first. This app has a
++            // single Activity, so this destroy IS the app closing — there is no later point where a
++            // JS-driven "stopped"/"dismissed" event can still reliably run cleanup. Fire the
++            // synchronous native callback now, while isActive still reflects PiP being live, so the
++            // delegate gets one last chance to mute/release audio before the process goes away.
++            if (isActive) {
++                Log.i(TAG, "Activity destroyed while still in PiP — firing synchronous cleanup")
++                delegate?.onPiPActivityDestroyedWhileActive()
++            }
+             currentActivity = null
+         }
+     }
 diff --git a/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts b/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts
 index 7173e36..9da7603 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts
