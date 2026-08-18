@@ -1138,24 +1138,7 @@ export function LivePinnedActionBar({
     useLiveAuctionBidFlow,
   ]);
 
-  const tryPurchaseLiveBuyNow = useCallback(async () => {
-    if (!accessToken) {
-      onRequireAuth?.();
-      return;
-    }
-    if (broadcastPurchaseBlocked) {
-      Alert.alert(
-        'Not available',
-        broadcastPurchaseBlockMessage ?? 'Purchases are paused until the host reconnects.',
-      );
-      return;
-    }
-    if (participationBlocked) {
-      Alert.alert('Not ready yet', participationBlockMessage);
-      return;
-    }
-    if (bidInFlightRef.current || bidBusy) return;
-
+  const performPurchaseLiveBuyNow = useCallback(async () => {
     bidInFlightRef.current = true;
     setBidBusy(true);
     let openedWallet = false;
@@ -1256,20 +1239,55 @@ export function LivePinnedActionBar({
     }
   }, [
     accessToken,
-    bidBusy,
     confirmPayment,
-    onRequireAuth,
-    openFullLiveRoom,
     openWalletSetup,
-    broadcastPurchaseBlocked,
-    broadcastPurchaseBlockMessage,
-    participationBlocked,
-    participationBlockMessage,
     refreshRoomSnapshot,
     resetBidControl,
     roomSnap,
     stream.id,
     walletSheetOpen,
+  ]);
+
+  const tryPurchaseLiveBuyNow = useCallback(async () => {
+    if (!accessToken) {
+      onRequireAuth?.();
+      return;
+    }
+    if (broadcastPurchaseBlocked) {
+      Alert.alert(
+        'Not available',
+        broadcastPurchaseBlockMessage ?? 'Purchases are paused until the host reconnects.',
+      );
+      return;
+    }
+    if (participationBlocked) {
+      Alert.alert('Not ready yet', participationBlockMessage);
+      return;
+    }
+    if (bidInFlightRef.current || bidBusy) return;
+
+    const itemTitle = roomSnap?.activeItemTitle ?? m.itemTitle ?? 'this item';
+    const priceLabel = m.bottomRightLabel.replace(/^Buy Now\s*/i, '').trim();
+    Alert.alert(
+      'Confirm purchase',
+      `Buy "${itemTitle}"${priceLabel ? ` for ${priceLabel}` : ''}? Your saved card will be charged right away.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Buy Now', onPress: () => void performPurchaseLiveBuyNow() },
+      ],
+    );
+  }, [
+    accessToken,
+    bidBusy,
+    broadcastPurchaseBlocked,
+    broadcastPurchaseBlockMessage,
+    m.bottomRightLabel,
+    m.itemTitle,
+    onRequireAuth,
+    participationBlocked,
+    participationBlockMessage,
+    performPurchaseLiveBuyNow,
+    roomSnap?.activeItemTitle,
   ]);
 
   const runPrimaryLiveCommerceAction = useCallback(() => {

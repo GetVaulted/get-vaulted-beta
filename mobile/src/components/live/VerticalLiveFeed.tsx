@@ -1054,6 +1054,49 @@ function LiveSlide({
     return Boolean(r && r.paymentReady && r.shippingReady);
   }, [liveSession.roomSnap, walletReadiness]);
 
+  const performShopBuyNow = useCallback(
+    async (item: LiveRoomLineupItemSnapshot) => {
+      if (!accessToken) {
+        onRequireAuth?.();
+        return;
+      }
+      try {
+        const paymentSession = await fetchLiveBuyerPaymentSession(accessToken, stream.id);
+        const res = await purchaseLiveBuyNow({
+          accessToken,
+          liveRoomId: stream.id,
+          itemId: item.id,
+          paymentMethodId: paymentSession?.activePaymentMethodId ?? undefined,
+        });
+        if (!res.ok) {
+          if (res.walletIncomplete) {
+            openWalletRef.current('shop_buy_now');
+            return;
+          }
+          Alert.alert('Could not buy', mapLivePaymentFailureMessage(res.error, res.code));
+          return;
+        }
+        if ('requiresAction' in res && res.requiresAction && res.clientSecret && res.orderId) {
+          const synced = await syncLiveBuyNowPurchase({
+            accessToken,
+            liveRoomId: stream.id,
+            itemId: item.id,
+            orderId: res.orderId,
+          });
+          if (!synced.ok) {
+            Alert.alert('Payment incomplete', mapLivePaymentFailureMessage(synced.error, synced.code));
+            return;
+          }
+        }
+        void liveSession.fetchSnapshot();
+        Alert.alert('Purchased', 'Your buy-now order is confirmed.');
+      } catch (e) {
+        Alert.alert('Could not buy', e instanceof Error ? e.message : 'Try again.');
+      }
+    },
+    [accessToken, liveSession, onRequireAuth, stream.id],
+  );
+
   const handleShopItemPress = useCallback(
     async (item: LiveRoomLineupItemSnapshot) => {
       setShopOpen(false);
@@ -1075,42 +1118,18 @@ function LiveSlide({
         // a fixed-price item during a PYT/PYD break or auction show, not just a sale room. Pinning a
         // lot only spotlights it on screen; it does not gate purchasing other listed Buy Now items.
         // Missing listingId is healed server-side on purchase (host "New lot" without From my shop).
-        try {
-          const paymentSession = await fetchLiveBuyerPaymentSession(accessToken, stream.id);
-          const res = await purchaseLiveBuyNow({
-            accessToken,
-            liveRoomId: stream.id,
-            itemId: item.id,
-            paymentMethodId: paymentSession?.activePaymentMethodId ?? undefined,
-          });
-          if (!res.ok) {
-            if (res.walletIncomplete) {
-              openWalletRef.current('shop_buy_now');
-              return;
-            }
-            Alert.alert('Could not buy', mapLivePaymentFailureMessage(res.error, res.code));
-            return;
-          }
-          if ('requiresAction' in res && res.requiresAction && res.clientSecret && res.orderId) {
-            const synced = await syncLiveBuyNowPurchase({
-              accessToken,
-              liveRoomId: stream.id,
-              itemId: item.id,
-              orderId: res.orderId,
-            });
-            if (!synced.ok) {
-              Alert.alert('Payment incomplete', mapLivePaymentFailureMessage(synced.error, synced.code));
-              return;
-            }
-          }
-          void liveSession.fetchSnapshot();
-          Alert.alert('Purchased', 'Your buy-now order is confirmed.');
-        } catch (e) {
-          Alert.alert('Could not buy', e instanceof Error ? e.message : 'Try again.');
-        }
+        const priceLabel = item.metaLine.replace(/^Buy now\s*·?\s*/i, '').trim();
+        Alert.alert(
+          'Confirm purchase',
+          `Buy "${item.displayTitle}"${priceLabel ? ` for ${priceLabel}` : ''}? Your saved card will be charged right away.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Buy Now', onPress: () => void performShopBuyNow(item) },
+          ],
+        );
       }
     },
-    [accessToken, liveSession, onRequireAuth, signedIn, stream.id],
+    [onRequireAuth, performShopBuyNow, signedIn, accessToken],
   );
 
   const preBidMinUsd = useMemo(() => {
