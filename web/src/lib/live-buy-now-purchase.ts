@@ -358,6 +358,17 @@ export async function createLiveBuyNowOrder(args: {
     return { ok: false, code: "NO_SHIPPING", error: "Add a shipping address to your Wallet before buying." };
   }
 
+  // Resolved BEFORE opening the transaction below — this calls out to Stripe
+  // (`assertPaymentMethodOwnedByUser` / `resolveDefaultPaymentMethodId`), and Prisma's default
+  // interactive-transaction timeout is 5s. Running it inside `prisma.$transaction()` let ordinary
+  // Stripe API latency blow the transaction's time budget, aborting with an unrecognized Prisma
+  // timeout error that fell into the generic "Could not start purchase. Try again in a moment."
+  // catch-all below — every buy-now purchase was exposed to this, not just newly added items.
+  const pmId = await getBuyerDefaultCardPaymentMethodId(args.buyerId);
+  if (!pmId || !isStripePaymentMethodId(pmId)) {
+    return { ok: false, code: "NO_SAVED_CARD", error: "Add a saved payment method to your Wallet." };
+  }
+
   try {
     const result = await prisma.$transaction(async (tx) => {
       const item = await tx.liveRoomItem.findFirst({
@@ -451,11 +462,6 @@ export async function createLiveBuyNowOrder(args: {
         liveRoomItemId: item.id,
       });
 
-      const pmId = await getBuyerDefaultCardPaymentMethodId(args.buyerId);
-      if (!pmId || !isStripePaymentMethodId(pmId)) {
-        throw Object.assign(new Error("NO_SAVED_CARD"), { code: "NO_SAVED_CARD" });
-      }
-
       const orderRow = await tx.order.create({
         data: {
           listingId: listingRow.id,
@@ -528,6 +534,19 @@ export async function createLiveBuyNowOrder(args: {
       messageCode ||
       (rawCode.startsWith("P") ? "ORDER_CREATE_FAILED" : "") ||
       "ORDER_CREATE_FAILED";
+    // The buyer-facing message for an unmapped code is a generic "try again" — log the real
+    // error here or every occurrence is undiagnosable from the client alone.
+    if (!messages[code]) {
+      console.error("[live-buy-now] order create failed", {
+        liveRoomId: args.liveRoomId,
+        liveRoomItemId: args.liveRoomItemId,
+        buyerId: args.buyerId,
+        code,
+        rawCode,
+        message: e instanceof Error ? e.message : String(e),
+        stack: e instanceof Error ? e.stack : undefined,
+      });
+    }
     return { ok: false, code, error: messages[code] ?? "Could not start purchase." };
   }
 }
