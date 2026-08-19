@@ -210,6 +210,32 @@ export function LiveStagePlayback({
   const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce, roomVisitNonce });
   const stagePipReadyRef = useRef(false);
 
+  // `setStageAudioOutputEnabled` is NOT a cheap flag flip: iOS deactivates/reactivates the whole
+  // AVAudioSession (`session.setActive`), and Android mutes/unmutes the device's entire
+  // STREAM_MUSIC channel. Either one produces an audible glitch/pop when it actually fires.
+  // Several effects below recompute the desired enabled state and re-run on every dependency
+  // change (appBackgrounded, pipSurfaceActive, stagePipReady, stagePipActive, isForeground, ...) —
+  // several of which flip in quick succession during a single PiP-enter or PiP-return gesture.
+  // One of those effects also unconditionally re-armed `enabled: true` in its cleanup on every
+  // re-run, so a single gesture could fire true→false→true→false native calls within under a
+  // second — audible as choppy/stuttering audio, independent of the double-audio-source bug
+  // fixed separately in `muteForWebrtcAudio`. Route every call through this wrapper so only a
+  // genuine change in the target value ever reaches the native layer.
+  const stageAudioOutputEnabledRef = useRef<boolean | null>(null);
+  const setStageAudioOutputEnabledDeduped = useCallback(
+    (enabled: boolean, reason: string) => {
+      if (stageAudioOutputEnabledRef.current === enabled) return;
+      stageAudioOutputEnabledRef.current = enabled;
+      viewerLifecycleLog('stage_audio_output_enabled', { roomId: roomIdRef.current, enabled, reason });
+      void setStageAudioOutputEnabled(enabled).catch(() => {
+        // Unknown native state after a failed call — allow the next divergent value through
+        // rather than trusting a dedup value that may not actually be applied.
+        stageAudioOutputEnabledRef.current = null;
+      });
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!blockStageAfterBackgroundLeave) return;
     // Parked on HLS/none, first frame painted, or watchdog cleared the leave latch for remount.
@@ -478,7 +504,7 @@ export function LiveStagePlayback({
       clearStagePipDismissed();
       return;
     }
-    void setStageAudioOutputEnabled(false).catch(() => {});
+    setStageAudioOutputEnabledDeduped(false, 'stage_pip_dismissed');
     didCommitSuspendRef.current = true;
     setStageMediaSuspended(true);
     setStageAudioDismissed(true);
@@ -490,7 +516,7 @@ export function LiveStagePlayback({
     }
     viewerLifecycleLog('stage_pip_dismissed_teardown', { roomId });
     clearStagePipDismissed();
-  }, [stagePipDismissed, clearStagePipDismissed, player, roomId]);
+  }, [stagePipDismissed, clearStagePipDismissed, player, roomId, setStageAudioOutputEnabledDeduped]);
 
   useEffect(() => {
     if (!attachHls) return;
@@ -563,23 +589,29 @@ export function LiveStagePlayback({
   // `stagePipReady` could still be true at the moment it ran — and crashed in TestFlight (build
   // 216). The primary teardown (leaving the Stage session, pausing the HLS companion) happens in
   // the `stagePipDismissed` effect above; this effect is a second, now-safe layer for audio.
+  //
+  // No cleanup here on purpose: this used to unconditionally re-enable audio in its cleanup on
+  // EVERY re-run (not just a genuine exit from the "stageLive" branch), so a single PiP-enter or
+  // PiP-return gesture — which flips several of this effect's dependencies in quick succession —
+  // could fire several true/false native toggles within under a second. Each branch below already
+  // computes the fully-correct desired state for the current inputs on every render, and
+  // `setStageAudioOutputEnabledDeduped` only lets an actual change reach native, so no separate
+  // "restore" step is needed when deps change. A real unmount (component leaving entirely) still
+  // needs its own restore — see the dedicated effect right below this one.
   useEffect(() => {
     const usingStagePip = stagePipReady || stagePipActive;
     if (!usingStagePip && (appBackgrounded || pipActive || pipSurfaceActive)) {
-      void setStageAudioOutputEnabled(false).catch(() => {});
+      setStageAudioOutputEnabledDeduped(false, 'backgrounded_no_stage_pip');
       return;
     }
     const stageLive = useWebrtc && !stageMediaSuspended;
     if (!stageLive) {
       if (isForeground) {
-        void setStageAudioOutputEnabled(true).catch(() => {});
+        setStageAudioOutputEnabledDeduped(true, 'foreground_stage_not_live');
       }
       return;
     }
-    void setStageAudioOutputEnabled(!muted).catch(() => {});
-    return () => {
-      void setStageAudioOutputEnabled(true).catch(() => {});
-    };
+    setStageAudioOutputEnabledDeduped(!muted, 'stage_live');
   }, [
     useWebrtc,
     stageMediaSuspended,
@@ -590,7 +622,17 @@ export function LiveStagePlayback({
     pipSurfaceActive,
     stagePipReady,
     stagePipActive,
+    setStageAudioOutputEnabledDeduped,
   ]);
+
+  // Unmount-only safety net: if this playback surface goes away entirely (pager swipe to a
+  // different show, screen unmount) while the effect above had left Stage audio disabled, restore
+  // it so we don't leave the shared audio session/stream muted behind us.
+  useEffect(() => {
+    return () => {
+      setStageAudioOutputEnabledDeduped(true, 'unmount_restore');
+    };
+  }, [setStageAudioOutputEnabledDeduped]);
 
   // Hard-stop HLS audio whenever this slide is not the active playback surface. Adjacent pager
   // pages stay mounted (page ± 1 are kept warm), and on Android an expo-video player keeps
@@ -646,7 +688,7 @@ export function LiveStagePlayback({
         return;
       }
       clearPipRetries();
-      void setStageAudioOutputEnabled(false).catch(() => {});
+      setStageAudioOutputEnabledDeduped(false, 'hls_pip_fallback_start');
       try {
         const p = playerRef.current;
         const userMuted = mutedRef.current;
