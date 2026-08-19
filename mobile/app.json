@@ -18,7 +18,7 @@
       "usesAppleSignIn": true,
       "bundleIdentifier": "com.getvaulted.app",
       "version": "1.0.9",
-      "buildNumber": "221",
+      "buildNumber": "222",
       "appStoreUrl": "https://apps.apple.com/app/id6780714456",
       "associatedDomains": [
         "applinks:shopgetvaulted.com",
@@ -38,7 +38,7 @@
     "android": {
       "package": "com.getvaulted.app",
       "version": "1.0.8",
-      "versionCode": 221,
+      "versionCode": 222,
       "playStoreUrl": "https://play.google.com/store/apps/details?id=com.getvaulted.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
