@@ -499,11 +499,23 @@ export function LiveStagePlayback({
     // unless the buyer just closed that PiP window, in which case nothing is visible and we must
     // mute + pause rather than keep playing into the void.
     const dismissedWhileBackgrounded = pipDismissedWhileBackgrounded || stageAudioDismissed;
+    // `shouldMuteHlsUnderLiveWebrtc`'s `pipActive` param means "native Stage remote PiP is
+    // genuinely active" (see its doc comment) — it must be `stagePipActive`, not the local
+    // `pipActive` state, which only tracks the OLD expo-video/HLS PiP surface and is never true
+    // while Stage remote PiP is what's actually showing (Stage PiP is preferred whenever
+    // available; HLS PiP is only a fallback — see `attemptHlsPictureInPicture`'s
+    // `if (stagePipReadyRef.current) return;` guard). Passing the wrong flag here meant this
+    // branch never fired during a real Stage PiP session, so HLS stayed unmuted the entire time
+    // the buyer was in the mini viewer — playing at the same time as Stage's own native audio
+    // output (`setStageAudioOutputEnabled`), which is exactly the garbled/choppy "echo" audio
+    // this function's doc comment describes, and the residual audio briefly surviving the
+    // return to full-screen while state settles back to the terminal `webrtcReady && useWebrtc`
+    // mute case below.
     const muteForWebrtcAudio = shouldMuteHlsUnderLiveWebrtc({
       webrtcReady,
       useWebrtc,
       stageSuspended: stageMediaSuspended,
-      pipActive,
+      pipActive: pipActive || stagePipActive,
       appBackgrounded: appBackgrounded || pipSurfaceActive,
       pipDismissedWhileBackgrounded: dismissedWhileBackgrounded,
     });
@@ -531,6 +543,7 @@ export function LiveStagePlayback({
     useWebrtc,
     stageMediaSuspended,
     pipActive,
+    stagePipActive,
     appBackgrounded,
     pipSurfaceActive,
     pipDismissedWhileBackgrounded,
