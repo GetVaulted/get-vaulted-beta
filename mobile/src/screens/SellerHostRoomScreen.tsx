@@ -120,10 +120,41 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     await patchLiveRoomAction(token, roomId, 'start');
   }, [room, roomId, token, reloadRoom]);
 
+  // Second-device "Command Center" support: another device (or OBS) is already the confirmed,
+  // healthy publisher for this room. Mirrors the exact signal SellerLiveHostView uses to decide
+  // hostCompanionMode, computed here too so it can gate camera/mic preview before that child even
+  // mounts. Without this, opening the same live room on a second phone immediately requested
+  // camera + microphone permission and lit up the camera on a device that was only ever meant to
+  // run the queue and chat — Take over camera (onStartBroadcast, below) still initializes the
+  // camera on demand if the seller explicitly chooses to start publishing from this device.
+  const remotePublisherActive = useMemo(() => {
+    if (!room || room.status !== 'live' || !stream) return false;
+    return isLiveRoomRemotePublisherActive({
+      status: 'live',
+      streamHealth: stream.streamHealth ?? 'offline',
+      streamPaused: stream.streamPaused,
+      streamMode: stream.streamMode,
+      streamStartedAt: stream.streamStartedAt,
+      streamEndedAt: stream.streamEndedAt,
+    });
+  }, [room, stream]);
+  const obsLiveElsewhere =
+    room?.status === 'live' &&
+    isObsDesktopBroadcastMode({
+      streamMode: stream?.streamMode,
+      ingestEndpoint: stream?.ingestEndpoint ?? ingestEndpoint,
+    });
+
   const stagePublish = useMobileStagePublish({
     roomId,
     accessToken: token ?? '',
-    previewEnabled: stageWebrtcEnabled && Boolean(token) && !loading && Boolean(room),
+    previewEnabled:
+      stageWebrtcEnabled &&
+      Boolean(token) &&
+      !loading &&
+      Boolean(room) &&
+      !remotePublisherActive &&
+      !obsLiveElsewhere,
     onBroadcastStarted: async () => {
       try {
         // Only runs after publish is confirmed — never mark the room live on a half-open Stage join.
@@ -380,25 +411,12 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     if (!stream) return;
 
     // OBS / desktop ingest must never auto-open the phone camera on host room open.
-    if (
-      isObsDesktopBroadcastMode({
-        streamMode: stream.streamMode,
-        ingestEndpoint: stream.ingestEndpoint ?? ingestEndpoint,
-      })
-    ) {
+    if (obsLiveElsewhere) {
       autoResumeRef.current = true;
       return;
     }
 
     // Strong publisher signal only — `connecting` is “waiting on host”, not companion.
-    const remotePublisherActive = isLiveRoomRemotePublisherActive({
-      status: room.status,
-      streamHealth: stream.streamHealth ?? 'offline',
-      streamPaused: stream.streamPaused,
-      streamMode: stream.streamMode,
-      streamStartedAt: stream.streamStartedAt,
-      streamEndedAt: stream.streamEndedAt,
-    });
     if (remotePublisherActive) {
       // Companion: keep this device as command center; don't fight the publishing device for Stage.
       autoResumeRef.current = true;
@@ -418,6 +436,8 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     stagePublish.localPreviewReady,
     busy,
     stream,
+    remotePublisherActive,
+    obsLiveElsewhere,
   ]);
 
   // Heal stuck streamPaused only when the host is actually on-air (publishing), not merely phase=live.
