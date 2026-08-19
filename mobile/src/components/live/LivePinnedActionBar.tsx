@@ -1139,6 +1139,9 @@ export function LivePinnedActionBar({
   ]);
 
   const performPurchaseLiveBuyNow = useCallback(async () => {
+    // Re-check (already gated in tryPurchaseLiveBuyNow before this is scheduled) — TS narrowing
+    // of accessToken from string | undefined to string doesn't carry across a separate closure.
+    if (!accessToken) return;
     bidInFlightRef.current = true;
     setBidBusy(true);
     let openedWallet = false;
