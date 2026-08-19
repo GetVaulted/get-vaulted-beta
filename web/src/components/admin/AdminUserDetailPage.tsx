@@ -139,6 +139,28 @@ type PlatformCreditSnapshot = {
   credits: PlatformCreditRow[];
 };
 
+type AddressRow = {
+  id: string;
+  type: string;
+  name: string;
+  fullName: string;
+  company: string | null;
+  line1: string;
+  line2: string | null;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  phone: string | null;
+  email: string | null;
+  isDefault: boolean;
+  isVerified: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type AddressPayload = { addresses: AddressRow[] };
+
 type LinkedPeer = {
   userId: string;
   username: string;
@@ -182,6 +204,8 @@ export function AdminUserDetailPage() {
   const [activityLoading, setActivityLoading] = useState(true);
   const [linked, setLinked] = useState<LinkedPayload | null>(null);
   const [linkedLoading, setLinkedLoading] = useState(true);
+  const [addresses, setAddresses] = useState<AddressRow[] | null>(null);
+  const [addressesLoading, setAddressesLoading] = useState(true);
   const [referral, setReferral] = useState<ReferralSnapshot | null>(null);
   const [referralLoading, setReferralLoading] = useState(true);
   const [platformCredit, setPlatformCredit] = useState<PlatformCreditSnapshot | null>(null);
@@ -218,13 +242,15 @@ export function AdminUserDetailPage() {
     setLinkedLoading(true);
     setReferralLoading(true);
     setPlatformCreditLoading(true);
+    setAddressesLoading(true);
     void (async () => {
       try {
-        const [actRes, linkRes, refRes, creditRes] = await Promise.all([
+        const [actRes, linkRes, refRes, creditRes, addrRes] = await Promise.all([
           fetch(`/api/admin/users/${encodeURIComponent(userId)}/activity`, { cache: "no-store" }),
           fetch(`/api/admin/users/${encodeURIComponent(userId)}/linked-accounts`, { cache: "no-store" }),
           fetch(`/api/admin/users/${encodeURIComponent(userId)}/referral-credits`, { cache: "no-store" }),
           fetch(`/api/admin/users/${encodeURIComponent(userId)}/platform-credit`, { cache: "no-store" }),
+          fetch(`/api/admin/users/${encodeURIComponent(userId)}/addresses`, { cache: "no-store" }),
         ]);
         if (cancelled) return;
         if (actRes.ok) setActivity((await actRes.json()) as ActivityPayload);
@@ -237,12 +263,17 @@ export function AdminUserDetailPage() {
         } else setReferral(null);
         if (creditRes.ok) setPlatformCredit((await creditRes.json()) as PlatformCreditSnapshot);
         else setPlatformCredit(null);
+        if (addrRes.ok) {
+          const j = (await addrRes.json()) as AddressPayload;
+          setAddresses(j.addresses);
+        } else setAddresses(null);
       } finally {
         if (!cancelled) {
           setActivityLoading(false);
           setLinkedLoading(false);
           setReferralLoading(false);
           setPlatformCreditLoading(false);
+          setAddressesLoading(false);
         }
       }
     })();
@@ -441,6 +472,56 @@ export function AdminUserDetailPage() {
           {usernameMessage}
         </p>
       ) : null}
+
+      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+        <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Addresses</h2>
+        <p className="mt-1 text-[10px] text-zinc-600">
+          Shipping, billing, return, and ship-from addresses saved on this account.
+        </p>
+        {addressesLoading ? (
+          <p className="mt-3 text-zinc-500">Loading…</p>
+        ) : !addresses?.length ? (
+          <p className="mt-3 text-zinc-500">No addresses saved for this user.</p>
+        ) : (
+          <ul className="mt-3 grid gap-3 sm:grid-cols-2">
+            {addresses.map((a) => (
+              <li key={a.id} className="rounded-lg border border-white/[0.06] bg-[#050506] p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-gold-bright">
+                    {a.type.replace(/_/g, " ")}
+                  </span>
+                  <span className="flex gap-1">
+                    {a.isDefault ? (
+                      <span className="rounded-full border border-emerald-400/30 bg-emerald-950/30 px-2 py-0.5 text-[9px] font-bold uppercase text-emerald-200">
+                        Default
+                      </span>
+                    ) : null}
+                    {a.isVerified ? (
+                      <span className="rounded-full border border-sky-400/30 bg-sky-950/30 px-2 py-0.5 text-[9px] font-bold uppercase text-sky-200">
+                        Verified
+                      </span>
+                    ) : null}
+                  </span>
+                </div>
+                <p className="mt-2 font-semibold text-zinc-100">{a.fullName}</p>
+                {a.company ? <p className="text-zinc-400">{a.company}</p> : null}
+                <p className="mt-1 text-zinc-300">
+                  {a.line1}
+                  {a.line2 ? `, ${a.line2}` : ""}
+                </p>
+                <p className="text-zinc-300">
+                  {a.city}, {a.state} {a.postalCode} · {a.country}
+                </p>
+                {a.phone ? <p className="mt-1 text-zinc-500">{a.phone}</p> : null}
+                {a.email ? <p className="text-zinc-500">{a.email}</p> : null}
+                <p className="mt-2 text-[10px] text-zinc-600">
+                  Updated {new Date(a.updatedAt).toLocaleString()}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
         <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Change username</h2>
