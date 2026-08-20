@@ -744,6 +744,21 @@ export function LiveSaleRoom({
       setActionError("Checkout is not available for this slot.");
       return;
     }
+    // Buy Now was one-tap instant purchase: clicking charged the saved card immediately with no
+    // confirmation. Mirrors the mobile app's confirm-purchase fix (Alert.alert in
+    // LivePinnedActionBar.tsx / VerticalLiveFeed.tsx) — this web room never had it, so a slipped
+    // click here charged a real card with no way to back out.
+    const priceLabel =
+      typeof activeDb.priceUsd === "number" && activeDb.priceUsd > 0
+        ? ` for $${activeDb.priceUsd.toFixed(2)}`
+        : "";
+    if (
+      !window.confirm(
+        `Buy "${activeDb.title}"${priceLabel}? Your saved card will be charged right away.`,
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     try {
       const res = await purchaseLiveBuyNowWithSca({
