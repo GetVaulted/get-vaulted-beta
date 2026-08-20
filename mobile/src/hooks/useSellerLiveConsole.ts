@@ -259,7 +259,16 @@ export function useSellerLiveConsole({
   }, []);
 
   const run = async (fn: () => Promise<void>) => {
-    if (busy || roomStatus === 'ended') return;
+    if (busy) return;
+    // The server blocks every queue mutation (delete/pin/reorder/pricing/etc.) once the room has
+    // ended — see the live-room item DELETE/PATCH routes' "This room has ended" 409. This used to
+    // silently no-op here too (same early return as the `busy` guard above), so a seller tapping
+    // Remove on an ended show's queue saw the confirm dialog, tapped Remove, and then... nothing.
+    // No error, no toast — looked exactly like a broken delete button. Tell them why instead.
+    if (roomStatus === 'ended') {
+      Alert.alert('Show has ended', 'This room has ended, so its queue can no longer be changed.');
+      return;
+    }
     setBusy(true);
     setConsoleError(null);
     try {
