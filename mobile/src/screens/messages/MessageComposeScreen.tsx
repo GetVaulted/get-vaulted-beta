@@ -19,6 +19,7 @@ import { MentionComposerInput } from '../../components/mentions/MentionComposerI
 import { startConversation, uploadThreadImage } from '../../api/messagesRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { pickSingleImageFromLibrary } from '../../createListing/pickListingMedia';
+import { prepareMessageImageForUpload } from '../../lib/messageImagePrepare';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 
@@ -71,7 +72,10 @@ export function MessageComposeScreen({ navigation, route }: Props) {
     try {
       let imageUrl: string | undefined;
       if (pendingImageUri) {
-        imageUrl = await uploadThreadImage(token, pendingImageUri);
+        // Normalize to real JPEG bytes first — the server rejects a claimed image/jpeg upload
+        // whose bytes don't actually match (e.g. HEIC straight from the photo library).
+        const preparedUri = await prepareMessageImageForUpload(pendingImageUri);
+        imageUrl = await uploadThreadImage(token, preparedUri);
       }
       const { threadId, inbox } = await startConversation(token, {
         listingId: route.params.listingId,

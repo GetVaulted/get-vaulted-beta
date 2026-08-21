@@ -23,6 +23,7 @@ import {
 } from '../../api/messagesRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { pickSingleImageFromLibrary } from '../../createListing/pickListingMedia';
+import { prepareMessageImageForUpload } from '../../lib/messageImagePrepare';
 import { MentionComposerInput } from '../../components/mentions/MentionComposerInput';
 import { MessageBubble } from '../../components/messages/MessageBubble';
 import { MessageContextBanner } from '../../components/messages/MessageContextBanner';
@@ -98,7 +99,10 @@ export function MessageThreadScreen({ navigation, route }: Props) {
     try {
       let imageUrl: string | undefined;
       if (pendingImageUri) {
-        imageUrl = await uploadThreadImage(token, pendingImageUri);
+        // Normalize to real JPEG bytes first — the server rejects a claimed image/jpeg upload
+        // whose bytes don't actually match (e.g. HEIC straight from the photo library).
+        const preparedUri = await prepareMessageImageForUpload(pendingImageUri);
+        imageUrl = await uploadThreadImage(token, preparedUri);
       }
       const msg = await sendThreadMessage(token, threadId, text, imageUrl);
       setDraft('');
