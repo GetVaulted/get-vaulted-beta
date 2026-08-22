@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { countRoomPresenceViewers } from '../lib/liveRoomPresenceCount';
 import { buildPresenceChannelKey } from '../lib/liveRoomPresenceKey';
+import { isLiveStagePipKeepAliveActive } from '../lib/liveStagePipKeepAlive';
 import {
   parseViewerCountBroadcast,
   shouldPublishViewerCountBroadcast,
@@ -166,6 +167,18 @@ export function useRealtimeRoomPresence(opts: {
         updateCount();
       };
 
+      // A buyer who backgrounds/closes the app while still on the live room screen previously
+      // stayed counted until the presence heartbeat/connection eventually timed out server-side —
+      // the room's own JS (including this 45s heartbeat) is itself paused while backgrounded, so
+      // that could linger a while. Untracking immediately on background keeps the viewer count to
+      // people actually watching. Skipped while Stage remote PiP is genuinely keeping the room open
+      // (`isLiveStagePipKeepAliveActive`) — that buyer is still actively watching in the mini window.
+      const untrackPresence = async () => {
+        if (!channel || !trackSelf) return;
+        if (isLiveStagePipKeepAliveActive()) return;
+        await channel.untrack();
+      };
+
       unbindPresence = bindLiveRoomPresenceHandlers(liveRoomId, {
         onSync: updateCount,
         onJoin: updateCount,
@@ -182,6 +195,7 @@ export function useRealtimeRoomPresence(opts: {
         broadcastFreshId = setInterval(() => setTick((t) => t + 1), 2_000);
         appStateSub = AppState.addEventListener('change', (next: AppStateStatus) => {
           if (next === 'active') void trackPresence();
+          else if (next === 'background') void untrackPresence();
         });
       }
 
