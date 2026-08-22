@@ -1,4 +1,8 @@
 import { shippoGetTransaction, type ShippoTransaction } from "@/lib/shippo";
+import {
+  isShippoPlatformBillingMessage,
+  SHIPPO_PLATFORM_BILLING_USER_MESSAGE,
+} from "@/lib/shippo-platform-billing-message";
 
 export type ResolvedShippoLabel = {
   transactionId: string;
@@ -48,7 +52,13 @@ function resolvedFromTransaction(tx: ShippoTransaction, transactionId: string): 
 }
 
 function shippoFailureMessage(tx: ShippoTransaction, fallback: string): string {
-  return formatShippoTransactionMessages(tx.messages) ?? fallback;
+  const raw = formatShippoTransactionMessages(tx.messages);
+  if (!raw) return fallback;
+  if (isShippoPlatformBillingMessage(raw)) {
+    console.error("[shippo-transaction-label] platform billing issue on Shippo account", { raw });
+    return SHIPPO_PLATFORM_BILLING_USER_MESSAGE;
+  }
+  return raw;
 }
 
 /** Poll Shippo until a transaction yields a printable label or fails. */

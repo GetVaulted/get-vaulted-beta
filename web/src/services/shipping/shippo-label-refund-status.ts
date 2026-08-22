@@ -1,4 +1,5 @@
 import { shippoFetch, shippoGetTransaction, type ShippoTransaction } from "@/lib/shippo";
+import { isShippoPlatformBillingMessage } from "@/lib/shippo-platform-billing-message";
 
 export type ShippoLabelRefundVerdict =
   | "refunded"
@@ -94,12 +95,7 @@ export function extractProvenNoShippoCharge(
     typeof billing === "object" &&
     Array.isArray((billing as { payments?: unknown }).payments) &&
     (billing as { payments: unknown[] }).payments.length === 0;
-  const billingFailureMessage = messages.some(
-    (m) =>
-      /billing issue/i.test(m) ||
-      /invoices are past due/i.test(m) ||
-      /labels are not available while invoices/i.test(m),
-  );
+  const billingFailureMessage = messages.some((m) => isShippoPlatformBillingMessage(m));
   // Empty payments on a failed/invalid tx is proof no postage payment was collected.
   if (paymentsEmpty && (objectState === "INVALID" || billingFailureMessage || status === "ERROR")) {
     return true;
