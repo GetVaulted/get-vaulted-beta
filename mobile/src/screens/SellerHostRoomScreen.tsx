@@ -20,7 +20,7 @@ import { SellerLiveHostView } from '../components/seller/liveOverlay/SellerLiveH
 import { LiveConsoleWarningBanner } from '../components/seller/liveConsole/LiveConsoleWarningBanner';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
 import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
-import { useMobileStagePublish } from '../hooks/useMobileStagePublish';
+import { useMobileStagePublish, type MobileHostBroadcastPhase } from '../hooks/useMobileStagePublish';
 import { shouldClearStreamPausedAfterHostResume } from '../lib/livePlaybackAppState';
 import { isLiveRoomRemotePublisherActive } from '../lib/liveRoomBroadcastOnAir';
 import { isObsDesktopBroadcastMode } from '../lib/liveObsChannelMode';
@@ -120,14 +120,26 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     await patchLiveRoomAction(token, roomId, 'start');
   }, [room, roomId, token, reloadRoom]);
 
-  // Second-device "Command Center" support: another device (or OBS) is already the confirmed,
-  // healthy publisher for this room. Mirrors the exact signal SellerLiveHostView uses to decide
-  // hostCompanionMode, computed here too so it can gate camera/mic preview before that child even
-  // mounts. Without this, opening the same live room on a second phone immediately requested
-  // camera + microphone permission and lit up the camera on a device that was only ever meant to
-  // run the queue and chat — Take over camera (onStartBroadcast, below) still initializes the
-  // camera on demand if the seller explicitly chooses to start publishing from this device.
+  // `isLiveRoomRemotePublisherActive` only reads room/stream-level health — it has no idea which
+  // device produced that health, because the server doesn't distinguish "me" from "some other
+  // device" at that level. It was written for BUYER-side gating, where that distinction genuinely
+  // doesn't matter. Reusing it here for the HOST's own companion-mode detection was the bug: once
+  // this exact device's own publish goes live, the room naturally reports streamHealth: 'live' —
+  // this function then reads that as "a remote publisher is active" about the device that IS the
+  // publisher, forcing a real solo host into companion mode (hiding their own camera controls /
+  // showing "Live on another device") on nothing more than a re-render, a brief background dip
+  // (e.g. opening the share sheet), or any other refresh of room/stream state while genuinely live.
+  // Sellers had to abandon and restart shows over this.
+  //
+  // `localPublishPhase` mirrors this device's OWN `stagePublish.phase` (see the effect below) and
+  // is the one signal that actually answers "am I the publisher." Whenever it's anything other
+  // than 'idle' — starting, live, paused, or stopping — this device unambiguously owns the
+  // broadcast, so remote-publisher / companion detection must be forced off regardless of what the
+  // room-level signal says. Only while this device has never (yet) started publishing (still
+  // 'idle') does the room-level heuristic apply, to correctly detect a genuine second device.
+  const [localPublishPhase, setLocalPublishPhase] = useState<MobileHostBroadcastPhase>('idle');
   const remotePublisherActive = useMemo(() => {
+    if (localPublishPhase !== 'idle') return false;
     if (!room || room.status !== 'live' || !stream) return false;
     return isLiveRoomRemotePublisherActive({
       status: 'live',
@@ -137,7 +149,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       streamStartedAt: stream.streamStartedAt,
       streamEndedAt: stream.streamEndedAt,
     });
-  }, [room, stream]);
+  }, [room, stream, localPublishPhase]);
   const obsLiveElsewhere =
     room?.status === 'live' &&
     isObsDesktopBroadcastMode({
@@ -177,6 +189,13 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       await patchLiveRoomStreamPaused(token, roomId, true);
     },
   });
+
+  // Mirrors this device's own publish phase into state so `remotePublisherActive` above can react
+  // to it without a circular dependency (that computation feeds `stagePublish`'s own
+  // `previewEnabled` input, so it can't read `stagePublish.phase` directly on the same render).
+  useEffect(() => {
+    setLocalPublishPhase(stagePublish.phase);
+  }, [stagePublish.phase]);
 
   useEffect(() => {
     if (!token) {
