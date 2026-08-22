@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -32,7 +32,11 @@ import {
   loadHomeFeedCache,
   saveHomeFeedCache,
 } from '../lib/homeFeedCache';
-import { orderLiveDiscoveryRooms, orderScheduledStreamsByStartTime } from '../lib/liveDiscoveryOrder';
+import {
+  orderLiveDiscoveryRooms,
+  orderScheduledStreamsByStartTime,
+  stabilizeLiveDiscoveryOrder,
+} from '../lib/liveDiscoveryOrder';
 import {
   markLiveDiscoveryFetchAttempt,
   markLiveDiscoveryFetchResult,
@@ -126,6 +130,9 @@ export function LiveDiscoveryScreen() {
   const [liveAll, setLiveAll] = useState<LiveStream[]>(seed.live);
   const [scheduledAll, setScheduledAll] = useState<ScheduledStream[]>(seed.scheduled);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  // Card order is locked between explicit refreshes so background polling/realtime viewer-count
+  // updates never reshuffle the grid under a scrolling/tapping finger — see stabilizeLiveDiscoveryOrder.
+  const stableOrderRef = useRef<{ chip: string; orderIds: string[] } | null>(null);
 
   const load = useCallback(async (opts?: { hadCache?: boolean; bustCache?: boolean; force?: boolean }) => {
     if (!isSupabaseConfigured() && !getWebApiBaseUrl()) {
@@ -135,6 +142,8 @@ export function LiveDiscoveryScreen() {
     }
     const force = Boolean(opts?.force || opts?.bustCache);
     if (shouldThrottleLiveDiscoveryFetch({ force })) return;
+    // Explicit pull-to-refresh (bustCache) is the one moment a re-shuffle is expected/welcome.
+    if (opts?.bustCache) stableOrderRef.current = null;
 
     markLiveDiscoveryFetchAttempt();
     if (opts?.hadCache) setRefreshing(true);
@@ -190,7 +199,14 @@ export function LiveDiscoveryScreen() {
     () => filterScheduledByChip(scheduledAll, chip),
     [scheduledAll, chip],
   );
-  const orderedRooms = useMemo(() => orderLiveDiscoveryRooms(filteredLive), [filteredLive]);
+  const orderedRooms = useMemo(() => {
+    const fresh = orderLiveDiscoveryRooms(filteredLive);
+    const prevIds = stableOrderRef.current?.chip === chip ? stableOrderRef.current.orderIds : null;
+    const { result, nextOrderIds } = stabilizeLiveDiscoveryOrder(fresh, prevIds);
+    stableOrderRef.current = { chip, orderIds: nextOrderIds };
+    return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stableOrderRef is intentionally mutated, not a dep
+  }, [filteredLive, chip]);
   const scheduledTiles = useMemo(
     () =>
       orderScheduledStreamsByStartTime(filteredScheduled).map((event) =>

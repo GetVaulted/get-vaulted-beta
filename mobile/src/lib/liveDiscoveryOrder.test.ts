@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { orderScheduledStreamsByStartTime } from './liveDiscoveryOrder';
+import {
+  orderScheduledStreamsByStartTime,
+  stabilizeLiveDiscoveryOrder,
+  type OrderedLiveRoom,
+} from './liveDiscoveryOrder';
+import type { LiveStream } from '../types';
 
 type Row = { id: string; scheduledStartAtIso?: string | null };
 
@@ -51,5 +56,52 @@ describe('orderScheduledStreamsByStartTime', () => {
     const before = rows.map((r) => r.id);
     orderScheduledStreamsByStartTime(rows);
     expect(rows.map((r) => r.id)).toEqual(before);
+  });
+});
+
+function room(id: string, viewers: number): OrderedLiveRoom {
+  return { stream: { id, viewers } as LiveStream, promoBadge: undefined };
+}
+
+describe('stabilizeLiveDiscoveryOrder', () => {
+  it('uses the fresh viewer-sorted order on first load (no previous order)', () => {
+    const fresh = [room('a', 100), room('b', 50), room('c', 10)];
+    const { result, nextOrderIds } = stabilizeLiveDiscoveryOrder(fresh, null);
+    expect(nextOrderIds).toEqual(['a', 'b', 'c']);
+    expect(result).toBe(fresh);
+  });
+
+  it('regression: keeps existing card positions when only viewer counts change', () => {
+    // b now out-viewing a — a naive re-sort would swap their positions mid-scroll.
+    const fresh = [room('b', 500), room('a', 100), room('c', 10)];
+    const { result, nextOrderIds } = stabilizeLiveDiscoveryOrder(fresh, ['a', 'b', 'c']);
+    expect(nextOrderIds).toEqual(['a', 'b', 'c']);
+    // Position is frozen, but the room's own data (viewer count) is still fresh.
+    expect(result.find((r) => r.stream.id === 'b')?.stream.viewers).toBe(500);
+  });
+
+  it('drops a room that is no longer present, preserving the rest of the order', () => {
+    const fresh = [room('a', 100), room('c', 10)]; // b ended
+    const { result, nextOrderIds } = stabilizeLiveDiscoveryOrder(fresh, ['a', 'b', 'c']);
+    expect(nextOrderIds).toEqual(['a', 'c']);
+    expect(result.map((r) => r.stream.id)).toEqual(['a', 'c']);
+  });
+
+  it('appends a brand-new room at the end even with a high viewer count', () => {
+    const fresh = [room('d', 9999), room('a', 100), room('b', 50), room('c', 10)];
+    const { nextOrderIds } = stabilizeLiveDiscoveryOrder(fresh, ['a', 'b', 'c']);
+    expect(nextOrderIds).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('appends multiple newcomers in their own sorted order', () => {
+    const fresh = [room('a', 5), room('e', 20), room('f', 80)];
+    const { nextOrderIds } = stabilizeLiveDiscoveryOrder(fresh, ['a']);
+    expect(nextOrderIds).toEqual(['a', 'e', 'f']);
+  });
+
+  it('treats an empty previous order the same as no previous order', () => {
+    const fresh = [room('a', 1)];
+    const { nextOrderIds } = stabilizeLiveDiscoveryOrder(fresh, []);
+    expect(nextOrderIds).toEqual(['a']);
   });
 });
