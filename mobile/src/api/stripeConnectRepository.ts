@@ -1,8 +1,10 @@
 import { fetchSellerAccount } from './sellerAccountRepository';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { getSupabase } from '../lib/supabase';
+import { CONNECTION_ERROR_MESSAGE } from '../lib/friendlyErrorText';
 
-function connectNetworkFailureMessage(base: string, err: unknown): string {
+/** Full transport/config detail for our own logs only — never shown to the user (see CONNECTION_ERROR_MESSAGE). */
+function connectNetworkFailureDevDetail(base: string, err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   const looksLikeTransport =
     msg === 'Network request failed' ||
@@ -11,13 +13,11 @@ function connectNetworkFailureMessage(base: string, err: unknown): string {
     err instanceof TypeError;
   const loopback = /localhost|127\.0\.0\.1|\[::1\]/i.test(base);
   const lines = [
-    looksLikeTransport
-      ? 'Could not reach the Vaulted API (connection failed before any response).'
-      : `Request error: ${msg}`,
+    looksLikeTransport ? 'connection failed before any response' : `request error: ${msg}`,
     `API base in this build: ${base}`,
     loopback
-      ? 'You are using localhost. On a real phone that is the phone itself, not your computer. Set EXPO_PUBLIC_SITE_URL (or EXPO_PUBLIC_WEB_API_URL) to your deployed https site, or use your dev machine LAN IP with http only if your platform allows cleartext.'
-      : 'Check EXPO_PUBLIC_SITE_URL / EXPO_PUBLIC_WEB_API_URL, VPN, and that the site is reachable in the device browser. Rebuild the app after changing env (Expo bakes EXPO_PUBLIC_* at bundle time).',
+      ? 'Using localhost — on a real phone that is the phone itself, not your computer.'
+      : 'Check EXPO_PUBLIC_SITE_URL / EXPO_PUBLIC_WEB_API_URL, VPN, and that the site is reachable in the device browser.',
   ];
   return lines.join(' ');
 }
@@ -27,7 +27,8 @@ async function fetchConnect(path: string, init: RequestInit, base: string): Prom
   try {
     return await fetch(url, init);
   } catch (e) {
-    throw new Error(connectNetworkFailureMessage(base, e));
+    console.error('[stripeConnectRepository]', connectNetworkFailureDevDetail(base, e));
+    throw new Error(CONNECTION_ERROR_MESSAGE);
   }
 }
 

@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { checkUsernameAvailable, validateUsernameFormat } from '../../api/profilesRepository';
 import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
+import { friendlyErrorText } from '../../lib/friendlyErrorText';
 import { SocialAuthButtons, socialAuthErrorMessage } from '../../components/auth/SocialAuthButtons';
 import { GetVaultedBrandMark } from '../../components/branding/GetVaultedBrandMark';
 import { LegalConsentNote } from '../../components/legal/LegalConsentNote';
@@ -169,12 +170,7 @@ export function AuthSignUpScreen({ navigation, route }: Props) {
       if (__DEV__) console.log('[auth:signup] success → notification gate / Home');
       await finishBuyerHome();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Sign-up failed';
-      setErr(
-        msg === 'Invalid API key'
-          ? 'Account setup could not reach Supabase. Update the app to the latest build, check your connection, and try again.'
-          : msg,
-      );
+      setErr(friendlyErrorText(e, 'Sign-up failed. Please try again.'));
     } finally {
       setBusy(false);
     }

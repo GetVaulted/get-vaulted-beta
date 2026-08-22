@@ -1,3 +1,5 @@
+import { CONNECTION_ERROR_MESSAGE } from './friendlyErrorText';
+
 /**
  * RN `fetch` + AbortController often fails to abort in-flight requests (multipart especially).
  * XMLHttpRequest.timeout is reliable on both iOS and Android.
@@ -19,8 +21,14 @@ export function postJsonWithTimeout(
     xhr.onload = () => {
       resolve({ status: xhr.status, text: typeof xhr.responseText === 'string' ? xhr.responseText : '' });
     };
-    xhr.onerror = () => reject(new Error('Network request failed'));
-    xhr.ontimeout = () => reject(new Error(`Request timed out after ${timeoutMs}ms`));
+    xhr.onerror = () => {
+      console.warn('[postJsonWithTimeout] XHR error', { url });
+      reject(new Error(CONNECTION_ERROR_MESSAGE));
+    };
+    xhr.ontimeout = () => {
+      console.warn('[postJsonWithTimeout] XHR timeout', { url, timeoutMs });
+      reject(new Error(CONNECTION_ERROR_MESSAGE));
+    };
     xhr.send(body);
   });
 }

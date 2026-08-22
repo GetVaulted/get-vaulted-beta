@@ -24,8 +24,16 @@ describe('deriveMessagesInboxViewState', () => {
 });
 
 describe('describeInboxLoadError', () => {
-  it('uses the thrown error message when present', () => {
-    expect(describeInboxLoadError(new Error('Network request failed'))).toBe('Network request failed');
+  it('uses the thrown error message when present and not a raw transport error', () => {
+    expect(describeInboxLoadError(new Error('This vault event could not be found.'))).toBe(
+      'This vault event could not be found.',
+    );
+  });
+
+  it('replaces raw transport errors with professional copy instead of leaking them to the user', () => {
+    expect(describeInboxLoadError(new Error('Network request failed'))).toBe(
+      'Network error. Please check your connection and try again.',
+    );
   });
 
   it('falls back to a friendly default for errors with no message', () => {
