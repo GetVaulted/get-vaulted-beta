@@ -1218,6 +1218,16 @@ model LiveRoom {
   hostAbsentSince         DateTime?
   /// Set when the T−15 host “get ready” notification was sent. Cleared if `scheduledStartAt` changes.
   hostPreStartNotifiedAt  DateTime?
+  /// Set when the T−30 host reminder push was sent. Cleared if `scheduledStartAt` changes.
+  hostT30NotifiedAt       DateTime?
+  /// Set when the T−5 host reminder push was sent. Cleared if `scheduledStartAt` changes.
+  hostT5NotifiedAt        DateTime?
+  /// Set when the T-0 "time to go live" push was sent. Cleared if `scheduledStartAt` changes.
+  hostGoLiveNotifiedAt    DateTime?
+  /// Set when a scheduled show was auto-cancelled (status → `ended`) for never going live within
+  /// an hour of `scheduledStartAt`. Distinguishes a no-show auto-cancel from a normal completed
+  /// show or a seller/admin-initiated cancel, both of which also land on `ended`.
+  autoCancelledAt         DateTime?
   /// SHA-256 hash of OBS browser-source widget token (plain token shown once on rotate).
   obsWidgetTokenHash      String?
   obsWidgetTokenRotatedAt DateTime?

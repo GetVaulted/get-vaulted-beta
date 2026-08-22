@@ -282,7 +282,14 @@ function serverTypeToKind(type: string): NotificationKind {
   if (type.startsWith('order_') || type === 'item_sold' || type === 'seller_ready_to_ship') return 'order';
   if (type.includes('auction') || type.includes('purchase') || type.includes('break_')) return 'order';
   if (type === 'stripe_dispute') return 'dispute';
-  if (type === 'seller_live' || type === 'live_host_starting_soon') return 'live_event';
+  if (
+    type === 'seller_live' ||
+    type === 'live_host_starting_soon' ||
+    type === 'live_host_go_live_now' ||
+    type === 'live_host_auto_cancelled'
+  ) {
+    return 'live_event';
+  }
   if (type === 'new_follower') return 'follow';
   return 'order';
 }

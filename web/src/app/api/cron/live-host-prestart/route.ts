@@ -1,10 +1,20 @@
 import { NextResponse } from "next/server";
 import { notifyHostsLiveShowStartingSoon } from "@/lib/live-host-prestart-notify";
+import {
+  autoCancelNoShowScheduledShows,
+  notifyHostsGoLiveNow,
+  notifyHostsShowStartingT30,
+  notifyHostsShowStartingT5,
+} from "@/lib/live-host-show-reminders";
 import { reportCronAnomaly } from "@/lib/cron-anomaly-alert";
 
 /**
- * Frequent cron: hype push to hosts ~15 minutes before scheduledStartAt.
- * Protect with CRON_SECRET. Recommended schedule: every 5 minutes.
+ * Frequent cron: the full scheduled-show host reminder lineup (T−30, T−15, T−5, "go live now"),
+ * plus the no-show auto-cancel (ends a scheduled show — and lets the seller start a new one — if
+ * it never went live within an hour of `scheduledStartAt`).
+ *
+ * All five run off this single tick rather than separate cron entries, since this endpoint is
+ * already wired up externally on a 5-minute schedule. Protect with CRON_SECRET.
  */
 export async function POST(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -19,11 +29,30 @@ export async function POST(req: Request) {
     }
   }
 
-  try {
-    const result = await notifyHostsLiveShowStartingSoon();
-    return NextResponse.json({ ok: true, ...result });
-  } catch (e) {
-    reportCronAnomaly("live-host-prestart", e instanceof Error ? e.message : String(e));
-    return NextResponse.json({ error: "Live host prestart notify failed" }, { status: 500 });
+  const now = new Date();
+  const results: Record<string, unknown> = {};
+  let anyFailed = false;
+
+  const steps: Array<[string, () => Promise<unknown>]> = [
+    ["t30", () => notifyHostsShowStartingT30(now)],
+    ["t15", () => notifyHostsLiveShowStartingSoon(now)],
+    ["t5", () => notifyHostsShowStartingT5(now)],
+    ["goLive", () => notifyHostsGoLiveNow(now)],
+    ["autoCancel", () => autoCancelNoShowScheduledShows(now)],
+  ];
+
+  for (const [key, run] of steps) {
+    try {
+      results[key] = await run();
+    } catch (e) {
+      anyFailed = true;
+      results[key] = { error: e instanceof Error ? e.message : String(e) };
+      reportCronAnomaly(`live-host-prestart:${key}`, e instanceof Error ? e.message : String(e));
+    }
   }
+
+  if (anyFailed) {
+    return NextResponse.json({ ok: false, ...results }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true, ...results });
 }
