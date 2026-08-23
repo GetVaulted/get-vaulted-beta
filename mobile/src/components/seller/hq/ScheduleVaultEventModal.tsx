@@ -26,7 +26,8 @@ import { fetchSellerLiveReadiness, type SellerLiveReadiness } from '../../../api
 import { logVaultCommandCenter, supabaseJwtSub } from '../../../lib/logVaultCommandCenterFlow';
 import { resolveSellerAccessToken } from '../../../lib/resolveSellerAccessToken';
 import { navigateAuthLogin } from '../../../navigation/rootNavigationRef';
-import { uploadListingImageViaWeb, uploadLiveTeaserViaWeb } from '../../../api/webListingsRepository';
+import { uploadListingImageViaWeb } from '../../../api/webListingsRepository';
+import { uploadLiveTeaserToSupabase } from '../../../api/liveTeaserRepository';
 import {
   LIVE_TEASER_MAX_BYTES,
   LIVE_TEASER_MAX_DURATION_MS,
@@ -274,9 +275,14 @@ export function ScheduleVaultEventModal({
       setTeaserError('Preview video must be 40MB or smaller.');
       return;
     }
+    const sellerId = supabaseJwtSub(accessToken);
+    if (!sellerId) {
+      setTeaserError('Sign in again to upload a preview video.');
+      return;
+    }
     setTeaserUploading(true);
     try {
-      const uploaded = await uploadLiveTeaserViaWeb(accessToken, asset.uri, normalizedMs);
+      const uploaded = await uploadLiveTeaserToSupabase(sellerId, asset.uri, normalizedMs);
       setTeaserUrl(uploaded.url);
       setTeaserDurationMs(uploaded.durationMs);
     } catch (e) {

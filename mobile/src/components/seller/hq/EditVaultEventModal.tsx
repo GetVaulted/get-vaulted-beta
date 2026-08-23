@@ -19,8 +19,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LiveRoomApiRow } from '../../../api/liveRoomsRepository';
 import { patchLiveRoomMetadata } from '../../../api/liveHostRepository';
-import { uploadListingImageViaWeb, uploadLiveTeaserViaWeb } from '../../../api/webListingsRepository';
+import { uploadListingImageViaWeb } from '../../../api/webListingsRepository';
+import { uploadLiveTeaserToSupabase } from '../../../api/liveTeaserRepository';
 import { alignScheduleToQuarterHour, isQuarterHourSchedule } from '../../../lib/createLiveRoomPayload';
+import { supabaseJwtSub } from '../../../lib/logVaultCommandCenterFlow';
 import {
   LIVE_TEASER_MAX_BYTES,
   LIVE_TEASER_MAX_DURATION_MS,
@@ -175,9 +177,14 @@ export function EditVaultEventModal({
       setTeaserError('Preview video must be 40MB or smaller.');
       return;
     }
+    const sellerId = supabaseJwtSub(accessToken);
+    if (!sellerId) {
+      setTeaserError('Sign in again to upload a preview video.');
+      return;
+    }
     setTeaserUploading(true);
     try {
-      const uploaded = await uploadLiveTeaserViaWeb(accessToken, asset.uri, normalizedMs);
+      const uploaded = await uploadLiveTeaserToSupabase(sellerId, asset.uri, normalizedMs);
       setTeaserUrl(uploaded.url);
       setTeaserDurationMs(uploaded.durationMs);
     } catch (e) {
