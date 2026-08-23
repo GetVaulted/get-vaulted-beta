@@ -2,7 +2,7 @@
   "expo": {
     "name": "Get Vaulted",
     "slug": "get-vaulted",
-    "version": "1.0.8",
+    "version": "1.0.10",
     "scheme": "getvaulted",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -17,8 +17,8 @@
       "supportsTablet": true,
       "usesAppleSignIn": true,
       "bundleIdentifier": "com.getvaulted.app",
-      "version": "1.0.8",
-      "buildNumber": "223",
+      "version": "1.0.10",
+      "buildNumber": "224",
       "appStoreUrl": "https://apps.apple.com/app/id6780714456",
       "associatedDomains": [
         "applinks:shopgetvaulted.com",
@@ -37,8 +37,8 @@
     },
     "android": {
       "package": "com.getvaulted.app",
-      "version": "1.0.8",
-      "versionCode": 223,
+      "version": "1.0.10",
+      "versionCode": 224,
       "playStoreUrl": "https://play.google.com/store/apps/details?id=com.getvaulted.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
