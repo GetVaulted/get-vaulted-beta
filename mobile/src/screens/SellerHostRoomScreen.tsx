@@ -157,6 +157,12 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       ingestEndpoint: stream?.ingestEndpoint ?? ingestEndpoint,
     });
 
+  // `onResumeBroadcast` is defined further down (it calls `stagePublish.resumeShow()`, so it
+  // can't be referenced directly in this same `useMobileStagePublish` call — circular). Routed
+  // through a ref, refreshed every render below, so `onBackgroundAutoResume` always calls the
+  // latest closure.
+  const onResumeBroadcastRef = useRef<() => Promise<void>>(async () => {});
+
   const stagePublish = useMobileStagePublish({
     roomId,
     accessToken: token ?? '',
@@ -188,6 +194,10 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       if (!token) return;
       await patchLiveRoomStreamPaused(token, roomId, true);
     },
+    // Host asked: closing out (home swipe, a call, a text notification — anything that
+    // backgrounds the app) and coming back should just go straight back to live. Same recovery
+    // path as tapping Resume, including the streamPaused=false PATCH so buyers come back too.
+    onBackgroundAutoResume: () => onResumeBroadcastRef.current(),
   });
 
   // Mirrors this device's own publish phase into state so `remotePublisherActive` above can react
@@ -414,6 +424,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       setBusy(null);
     }
   };
+  onResumeBroadcastRef.current = onResumeBroadcast;
 
   // Force-quit / cold reopen: room still live but Stage remounted idle → one resumeShow.
   // Do NOT auto-run when phase is paused (host tapped Pause / leave-app — they tap Resume).

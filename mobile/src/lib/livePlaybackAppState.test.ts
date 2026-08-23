@@ -10,6 +10,7 @@ import {
   shouldClearStreamPausedAfterHostResume,
   shouldCommitLiveBackgroundAfterDwell,
   shouldForceLocalStreamRefreshBeforeHostResume,
+  shouldAutoResumeOnForeground,
   shouldHostBackgroundAutoPause,
   shouldMuteHlsUnderLiveWebrtc,
   shouldPreferWarmHostResume,
@@ -91,6 +92,24 @@ describe('livePlaybackAppState', () => {
         intentionalStop: false,
         phase: 'live',
       }),
+    ).toBe(false);
+  });
+
+  // Host asked for this explicitly: close out (home swipe, a call, a text notification —
+  // anything that backgrounds the app) and come back should go straight back to live, no manual
+  // Resume tap. A genuine foreground Pause-button tap must still require an explicit tap.
+  it('auto-resumes on foreground return only when the pause was caused by a real backgrounding', () => {
+    expect(
+      shouldAutoResumeOnForeground({ intentionalPause: true, causedByBackground: true }),
+    ).toBe(true);
+    expect(
+      shouldAutoResumeOnForeground({ intentionalPause: true, causedByBackground: false }),
+    ).toBe(false);
+    expect(
+      shouldAutoResumeOnForeground({ intentionalPause: false, causedByBackground: true }),
+    ).toBe(false);
+    expect(
+      shouldAutoResumeOnForeground({ intentionalPause: false, causedByBackground: false }),
     ).toBe(false);
   });
 

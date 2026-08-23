@@ -22,6 +22,7 @@ import {
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import {
   LIVE_BACKGROUND_SUSPEND_DWELL_MS,
+  shouldAutoResumeOnForeground,
   shouldForceLocalStreamRefreshBeforeHostResume,
   shouldHostBackgroundAutoPause,
   shouldPreferWarmHostResume,
@@ -84,6 +85,15 @@ export function useMobileStagePublish(args: {
    * May return a Promise; foreground re-fire awaits it so the DB catches up before Play.
    */
   onBackgroundAutoPause?: () => void | Promise<void>;
+  /**
+   * Fired on foreground return after a real backgrounding (never a foreground Pause-button tap —
+   * see `minimizeShow`'s `causedByBackground`) — should do the full screen-level Resume (Stage
+   * republish + PATCH streamPaused=false), the same as a Resume-button tap. The host asked for
+   * this explicitly: closing out (home swipe, a call, a text notification, anything that
+   * backgrounds the app) and coming back should just go straight back to live, no manual tap
+   * required. A genuine Pause-button tap still requires an explicit Resume tap — unchanged.
+   */
+  onBackgroundAutoResume?: () => void | Promise<void>;
 }) {
   const startInFlightRef = useRef(false);
   const wentLiveRef = useRef(false);
@@ -165,13 +175,19 @@ export function useMobileStagePublish(args: {
   /**
    * Whatnot-style Minimize: Pause button and leave-app share this path.
    * Unpublish only — Stage stays joined (keep-session-alive). Never idle/Retry/leaveStage.
+   *
+   * `causedByBackground` distinguishes a real app-background from a foreground Pause-button tap —
+   * unconditionally set here (not just on the background path) so a stale `true` from an earlier
+   * backgrounding this session can never leak into a later manual Pause and wrongly auto-resume it
+   * on the next foreground return. See the AppState 'active' handler below for the actual auto-resume.
    */
-  const minimizeShow = useCallback(async () => {
+  const minimizeShow = useCallback(async (opts?: { causedByBackground?: boolean }) => {
     if (intentionalStopRef.current) return;
     const p = phaseRef.current;
     if (p !== 'live' && p !== 'paused' && p !== 'starting') return;
     const alreadyMinimized = intentionalPauseRef.current && p === 'paused' && !publishingRef.current;
 
+    backgroundedWhilePausedRef.current = Boolean(opts?.causedByBackground);
     intentionalPauseRef.current = true;
     interruptedPublishRef.current = true;
     if (pauseStartedAtRef.current == null) {
@@ -234,16 +250,34 @@ export function useMobileStagePublish(args: {
           if (AppState.currentState !== 'background') return;
           // Real backgrounding (not a foreground Pause tap) — resumeShow() must force a
           // fresh camera stream on Android. See shouldForceLocalStreamRefreshBeforeHostResume.
-          backgroundedWhilePausedRef.current = true;
-          void minimizeShowRef.current();
+          // Also what tells the 'active' handler below to auto-resume rather than wait for a tap.
+          void minimizeShowRef.current({ causedByBackground: true });
         }, LIVE_BACKGROUND_SUSPEND_DWELL_MS);
         return;
       }
 
       if (next !== 'active') return;
       clearMinimizeTimer();
-      // Stay minimized until host taps Resume — re-fire Host paused (background PATCH often dies).
       if (intentionalPauseRef.current || (phaseRef.current === 'paused' && !publishingRef.current)) {
+        // Real backgrounding (home swipe, phone call, notification swiped into another app, etc.)
+        // — the host never chose to pause, so go straight back to live without making them tap
+        // Resume. A genuine foreground Pause-button tap (causedByBackground false) still stays
+        // minimized until the host explicitly taps Resume — that choice is unchanged.
+        if (
+          shouldAutoResumeOnForeground({
+            intentionalPause: intentionalPauseRef.current,
+            causedByBackground: backgroundedWhilePausedRef.current,
+          })
+        ) {
+          // Delegate to the screen-level resume — the hook's own resumeShow only republishes to
+          // Stage; it never PATCHes streamPaused=false server-side (see onBackgroundAutoPause's
+          // symmetric PATCH true). Calling resumeShow() directly here would bring the host's own
+          // camera back live while leaving buyers stuck on "Host paused" forever — the exact bug
+          // just fixed for the crash-recovery path, reintroduced for the plain-background path.
+          void cbRef.current.onBackgroundAutoResume?.();
+          return;
+        }
+        // Stay minimized until host taps Resume — re-fire Host paused (background PATCH often dies).
         if (intentionalPauseRef.current) {
           if (mountedRef.current) {
             setPhase('paused');

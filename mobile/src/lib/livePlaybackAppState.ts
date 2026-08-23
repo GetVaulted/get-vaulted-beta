@@ -202,6 +202,20 @@ export function shouldHostBackgroundAutoPause(args: {
 }
 
 /**
+ * On foreground return, auto-resume (go straight back to live, no Resume tap) only when the
+ * current pause was caused by a real backgrounding (home swipe, phone call, notification swiped
+ * into another app, etc.) — never a foreground Pause-button tap, which stays minimized until the
+ * host explicitly taps Resume. See `minimizeShow`'s `causedByBackground` for how the two are
+ * told apart; both set `intentionalPause` true, so that flag alone can't distinguish them.
+ */
+export function shouldAutoResumeOnForeground(args: {
+  intentionalPause: boolean;
+  causedByBackground: boolean;
+}): boolean {
+  return args.intentionalPause && args.causedByBackground;
+}
+
+/**
  * After leave-app pause, clear streamPaused for buyers only once Stage publish is back.
  * (PATCH false before publish leaves buyers off Host paused with a black feed.)
  */
