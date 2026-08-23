@@ -697,30 +697,41 @@ export function VaultWalletSheet({
           paymentMethods.map((pm) => {
             const pmType = normalizePmType(pm.type);
             return (
-              <Pressable
+              <View
                 key={pm.id}
                 style={[t.savedPmCard, (pm.isDefault || pm.id === primaryPayment?.id) && t.savedPmCardSelected]}
-                onPress={() => void handleSetDefaultPm(pm)}
               >
-                <View style={t.pmIcon}>
-                  <Ionicons name={walletPmIcon(pmType)} size={20} color="#fff" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <LiveRoomText style={t.detailTitle}>{walletPmLabel(pm)}</LiveRoomText>
-                  {pmType === 'card' && pm.last4 ? (
-                    <LiveRoomText style={t.detailBody}>
-                      ···· {pm.last4} · Exp {formatCardExp(pm.expMonth, pm.expYear)}
-                    </LiveRoomText>
-                  ) : (
-                    <LiveRoomText style={t.detailBody}>Saved for live checkout</LiveRoomText>
-                  )}
-                </View>
-                {pm.isDefault ? (
-                  <LiveRoomText style={[t.pmActionTxt, { color: '#93c5fd' }]}>Default</LiveRoomText>
-                ) : (
-                  <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
-                )}
-              </Pressable>
+                <Pressable
+                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}
+                  onPress={() => void handleSetDefaultPm(pm)}
+                >
+                  <View style={t.pmIcon}>
+                    <Ionicons name={walletPmIcon(pmType)} size={20} color="#fff" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <LiveRoomText style={t.detailTitle}>{walletPmLabel(pm)}</LiveRoomText>
+                    {pmType === 'card' && pm.last4 ? (
+                      <LiveRoomText style={t.detailBody}>
+                        ···· {pm.last4} · Exp {formatCardExp(pm.expMonth, pm.expYear)}
+                      </LiveRoomText>
+                    ) : (
+                      <LiveRoomText style={t.detailBody}>Saved for live checkout</LiveRoomText>
+                    )}
+                  </View>
+                  {pm.isDefault ? (
+                    <LiveRoomText style={[t.pmActionTxt, { color: '#93c5fd' }]}>Default</LiveRoomText>
+                  ) : null}
+                </Pressable>
+                <Pressable
+                  onPress={() => handleRemovePm(pm)}
+                  hitSlop={10}
+                  style={{ paddingHorizontal: spacing.xs, paddingVertical: spacing.xs }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${walletPmLabel(pm)}`}
+                >
+                  <Ionicons name="trash-outline" size={18} color="#fca5a5" />
+                </Pressable>
+              </View>
             );
           })
         )}
