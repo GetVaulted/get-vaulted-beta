@@ -215,6 +215,64 @@ describe('livePlaybackAppState', () => {
     ).toBe(false);
   });
 
+  // Regression: swipe-to-PiP audio echo. iOS reports `active → inactive` (flipping
+  // `appBackgrounded` true) before the native PiP controller confirms `started` (`pipActive`).
+  // In that gap, without `usingStagePip`, `appBackgrounded` alone fell through to the unmute
+  // branch and the HLS mirror briefly played alongside still-live Stage audio — an audible
+  // glitch right at the swipe, and again for a moment on the way back.
+  it('stays muted through the swipe-to-PiP gap where Stage PiP is armed but not yet active', () => {
+    expect(
+      shouldMuteHlsUnderLiveWebrtc({
+        webrtcReady: true,
+        useWebrtc: true,
+        stageSuspended: false,
+        pipActive: false,
+        appBackgrounded: true,
+        usingStagePip: true,
+      }),
+    ).toBe(true);
+  });
+
+  it('still unmutes on appBackgrounded when Stage PiP was never armed (HLS-surrogate PiP fallback)', () => {
+    expect(
+      shouldMuteHlsUnderLiveWebrtc({
+        webrtcReady: true,
+        useWebrtc: true,
+        stageSuspended: false,
+        pipActive: false,
+        appBackgrounded: true,
+        usingStagePip: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('unmutes once Stage has actually been suspended even while usingStagePip is still true', () => {
+    expect(
+      shouldMuteHlsUnderLiveWebrtc({
+        webrtcReady: true,
+        useWebrtc: true,
+        stageSuspended: true,
+        pipActive: false,
+        appBackgrounded: true,
+        usingStagePip: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('pipDismissedWhileBackgrounded still wins even when usingStagePip is true', () => {
+    expect(
+      shouldMuteHlsUnderLiveWebrtc({
+        webrtcReady: true,
+        useWebrtc: true,
+        stageSuspended: false,
+        pipActive: false,
+        appBackgrounded: true,
+        usingStagePip: true,
+        pipDismissedWhileBackgrounded: true,
+      }),
+    ).toBe(true);
+  });
+
   it('mutes HLS once the buyer closes PiP while still backgrounded, even though appBackgrounded stays true', () => {
     expect(
       shouldMuteHlsUnderLiveWebrtc({

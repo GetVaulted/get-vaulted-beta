@@ -112,6 +112,17 @@ export function shouldWarmLiveHlsPipCompanion(args: {
  * while in the mini viewer, lingering briefly after returning to the app. Only fall through to
  * the HLS-surrogate unmute when Stage's own audio has been suspended (`stageSuspended`), i.e.
  * Stage is no longer the one providing audio.
+ *
+ * `usingStagePip` (pass `stagePipReady || stagePipActive`) closes a narrower version of the same
+ * echo bug at the swipe-to-PiP moment itself: iOS reports `active → inactive` (which flips
+ * `appBackgrounded` true here, pre-emptively, so PiP has time to start) before the native
+ * `AVPictureInPictureController` actually reports `started` (`stagePipActive`). In that gap,
+ * `pipActive` is still false but Stage audio is still very much live and unsuspended — without
+ * this check, `appBackgrounded` alone fell through to the unmute branch below and the HLS mirror
+ * briefly played alongside live Stage audio, an audible glitch right as the buyer swipes into the
+ * mini viewer (and symmetrically for a moment on the way back, before `appBackgrounded` clears).
+ * `stagePipReady` covers that gap since it's set as soon as the PiP controller is armed —
+ * foreground, well before any background transition — and only clears on a genuine dismissal.
  */
 export function shouldMuteHlsUnderLiveWebrtc(args: {
   webrtcReady: boolean;
@@ -120,9 +131,11 @@ export function shouldMuteHlsUnderLiveWebrtc(args: {
   pipActive: boolean;
   appBackgrounded: boolean;
   pipDismissedWhileBackgrounded?: boolean;
+  usingStagePip?: boolean;
 }): boolean {
   if (args.pipDismissedWhileBackgrounded) return true;
   if (args.pipActive && !args.stageSuspended) return true;
+  if (args.usingStagePip && !args.stageSuspended) return true;
   if (args.appBackgrounded || args.stageSuspended) return false;
   return args.webrtcReady && args.useWebrtc;
 }

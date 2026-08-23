@@ -537,6 +537,15 @@ export function LiveStagePlayback({
     // this function's doc comment describes, and the residual audio briefly surviving the
     // return to full-screen while state settles back to the terminal `webrtcReady && useWebrtc`
     // mute case below.
+    //
+    // `usingStagePip: stagePipReady || stagePipActive` — not just `stagePipActive` — closes the
+    // narrower gap right at the swipe itself: `appBackgrounded` flips true pre-emptively (iOS
+    // `inactive`) before the native controller confirms `started`, and in that window `pipActive`
+    // is still false while Stage audio is still live. `stagePipReady` is armed well before any
+    // background transition (see `useStageRemotePictureInPicture`), so it's true for that whole
+    // gap and keeps the HLS mirror muted through it — matching the audio-output effect above,
+    // which already used `stagePipReady || stagePipActive` for the same reason.
+    const usingStagePip = stagePipReady || stagePipActive;
     const muteForWebrtcAudio = shouldMuteHlsUnderLiveWebrtc({
       webrtcReady,
       useWebrtc,
@@ -544,6 +553,7 @@ export function LiveStagePlayback({
       pipActive: pipActive || stagePipActive,
       appBackgrounded: appBackgrounded || pipSurfaceActive,
       pipDismissedWhileBackgrounded: dismissedWhileBackgrounded,
+      usingStagePip,
     });
     try {
       player.muted = muted || muteForWebrtcAudio;
@@ -570,6 +580,7 @@ export function LiveStagePlayback({
     stageMediaSuspended,
     pipActive,
     stagePipActive,
+    stagePipReady,
     appBackgrounded,
     pipSurfaceActive,
     pipDismissedWhileBackgrounded,
