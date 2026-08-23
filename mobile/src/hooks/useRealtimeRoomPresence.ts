@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { countRoomPresenceViewers } from '../lib/liveRoomPresenceCount';
-import { buildPresenceChannelKey } from '../lib/liveRoomPresenceKey';
+import { buildPresenceChannelKey, warmPresenceSlot } from '../lib/liveRoomPresenceKey';
 import { isLiveStagePipKeepAliveActive } from '../lib/liveStagePipKeepAlive';
 import {
   parseViewerCountBroadcast,
@@ -84,7 +84,10 @@ export function useRealtimeRoomPresence(opts: {
       return undefined;
     }
 
-    const presenceKey = presenceKeyRef.current;
+    // `let`, not `const` — trackSelf sessions may correct this once the persisted presence
+    // identity loads (see the warmPresenceSlot call below). `wire()` closes over this variable
+    // by reference, so reassigning it before `wire()` runs is picked up correctly.
+    let presenceKey = presenceKeyRef.current;
     if (!presenceKey) return undefined;
 
     let cancelled = false;
@@ -217,6 +220,18 @@ export function useRealtimeRoomPresence(opts: {
     };
 
     void (async () => {
+      // Belt-and-suspenders alongside the AuthContext bootstrap warm-up: covers a cold start that
+      // deep-links straight into a live room (e.g. tapping a "time to go live" push or a shared
+      // live link) before AuthContext's own warm-up has necessarily resolved. Correct the
+      // presence key here, before the channel is ever retained/tracked, so the identity used for
+      // the whole session is the real persisted one rather than a throwaway cold-start random ID.
+      if (trackSelf) {
+        await warmPresenceSlot(userIdRef.current ?? null);
+        if (cancelled) return;
+        const corrected = buildPresenceChannelKey(liveRoomId, userIdRef.current ?? null, true);
+        presenceKey = corrected;
+        presenceKeyRef.current = corrected;
+      }
       await ensureSupabaseReady();
       if (cancelled) return;
       supabase = getSupabase();

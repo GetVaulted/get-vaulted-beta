@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 import { updateMyProfile } from '../api/profilesRepository';
 import { setKeepMeLoggedInPreference } from '../lib/authSessionStorage';
+import { warmPresenceSlot } from '../lib/liveRoomPresenceKey';
 import { resolveInitialAuthSession } from '../lib/recoverInvalidAuthSession';
 import { ensureSupabaseReady, getSupabase, isSupabaseConfigured, resetSupabaseBootstrap } from '../lib/supabase';
 import { runSupabaseAuthOp } from '../lib/supabaseAuthRetry';
@@ -63,9 +64,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(initial);
         setGuestExploreMode(false);
 
+        // Load the persisted live-room presence identity before any screen (including a live
+        // room) can mount, so viewer presence tracking never falls back to minting a fresh
+        // random identity on cold start — see liveRoomPresenceKey.ts for why that mattered.
+        await warmPresenceSlot(initial?.user?.id ?? null);
+        if (cancelled) return;
+
         const { data: sub } = sb.auth.onAuthStateChange((event, next) => {
           setLastAuthEvent(event);
           setSession(next);
+          // Defense-in-depth for sign-in after guest browsing: non-blocking, since login already
+          // has enough network latency to make the cold-start race here vanishingly unlikely.
+          void warmPresenceSlot(next?.user?.id ?? null);
         });
         unsubscribe = () => sub.subscription.unsubscribe();
       } catch {
