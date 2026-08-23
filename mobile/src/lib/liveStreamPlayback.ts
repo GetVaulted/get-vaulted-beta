@@ -79,6 +79,30 @@ export function mergeRealtimeStreamPaused(
   return { ...stream, streamPaused };
 }
 
+/**
+ * Reconcile a stale `realtimeStreamPaused` hint against the periodic GET /stream poll.
+ *
+ * `realtimeStreamPaused` is normally set ONLY by a realtime `stream_status` broadcast
+ * (`onStreamPausedHint`) and deliberately never cleared on a generic hard-refresh — clearing it
+ * there previously self-clobbered the very broadcast that just set it (same event, same tick).
+ * But if the matching "unpaused" broadcast is ever missed outright — plausible during a realtime
+ * resubscribe race right around a host crash + reconnect — nothing else clears it, and buyers
+ * stay on the "Host paused" overlay forever even after the poll (which keeps running regardless
+ * of realtime delivery) confirms playback has genuinely resumed.
+ *
+ * Only reconciles toward "no hint" (`null`, deferring to the poll) when the poll confirms
+ * unpaused. A poll that still says paused must never override a fresher realtime "unpaused" hint
+ * that just hasn't been re-polled yet — so `polledStreamPaused: true` is always a no-op here.
+ */
+export function reconcilePolledStreamPaused(
+  realtimeHint: boolean | null,
+  polledStreamPaused: boolean,
+): boolean | null {
+  if (polledStreamPaused) return realtimeHint;
+  if (realtimeHint === true) return null;
+  return realtimeHint;
+}
+
 /** Warm publish toggle failed → Play must leave/rejoin Stage (OS often kills it in background). */
 export function shouldEscalateHostResumeToFullRejoin(warmPublishSucceeded: boolean): boolean {
   return !warmPublishSucceeded;

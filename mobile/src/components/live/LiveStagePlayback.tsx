@@ -85,6 +85,18 @@ type Props = {
   /** Override auto fit (cover for phone Stage, contain for OBS/HLS). */
   contentFit?: 'cover' | 'contain';
   onBroadcastGateChange?: (gate: LiveRoomBroadcastGate) => void;
+  /**
+   * Fires with the RAW polled `streamPaused` from GET /stream — deliberately not merged with
+   * `realtimeStreamPaused`. The caller owns that merge (see `VerticalLiveFeed`'s
+   * `realtimeStreamPaused` state) and needs the unmerged signal to reconcile a stale realtime
+   * "paused" hint that never got its matching "unpaused" broadcast (dropped message / a
+   * resubscribe race during the exact moment the host resumed — most likely right after a host
+   * app crash + reconnect). The GET /stream poll here keeps running and self-heals regardless of
+   * realtime delivery, so once it confirms unpaused, the parent can safely clear a stuck latch —
+   * see this component's own `realtimeStreamPaused` doc comment above ("boolean overrides until
+   * the next stream fetch confirms"), which this callback is what actually fulfills.
+   */
+  onPolledStreamPausedChange?: (paused: boolean) => void;
 };
 
 function StandbyOverlay({
@@ -153,6 +165,7 @@ export function LiveStagePlayback({
   onMutedChange,
   contentFit: contentFitOverride,
   onBroadcastGateChange,
+  onPolledStreamPausedChange,
 }: Props) {
   const mode: LivePlaybackMode = playbackMode ?? (enabled ? 'active' : 'off');
   const isForeground = mode === 'active';
@@ -304,6 +317,12 @@ export function LiveStagePlayback({
     streamHealth,
     streamPaused,
   ]);
+
+  // Raw polled value only — deliberately NOT the `streamPaused` above, which is already OR'd
+  // with `realtimeStreamPaused`. See this callback's doc comment on `Props`.
+  useEffect(() => {
+    onPolledStreamPausedChange?.(playback.stream?.streamPaused === true);
+  }, [onPolledStreamPausedChange, playback.stream?.streamPaused]);
 
   const streamSignalLive = streamHealth.toLowerCase() === 'live' || streamHealth.toLowerCase() === 'connecting';
   const roomLifecycleLive = roomStatus === 'live' || streamSignalLive;

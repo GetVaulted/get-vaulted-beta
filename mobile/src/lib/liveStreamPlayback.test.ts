@@ -8,6 +8,7 @@ import {
   mergeRealtimeStreamPaused,
   parseBuyerSafeStreamPayload,
   preferHlsOverWebrtcOnClient,
+  reconcilePolledStreamPaused,
   resetBuyerStageSubscribeTornDownForTests,
   resolveLivePlaybackSurfaceState,
   resolveSurfaceTransportPlan,
@@ -407,6 +408,33 @@ describe('liveStreamPlayback', () => {
     };
     expect(mergeRealtimeStreamPaused(base, true)?.streamPaused).toBe(true);
     expect(mergeRealtimeStreamPaused(null, true)).toBeNull();
+  });
+
+  // Regression: buyer stuck on the "Host paused" overlay after a host crash + reconnect where
+  // the matching "unpaused" realtime broadcast never arrived, even though GET /stream (and
+  // therefore actual playback) had already confirmed the host resumed.
+  it('reconciles a stuck realtime "paused" hint once the poll confirms unpaused', () => {
+    // The exact bug: realtime latched true, poll self-healed to false — must clear to null (defer
+    // to poll) rather than staying stuck true forever.
+    expect(reconcilePolledStreamPaused(true, false)).toBeNull();
+  });
+
+  it('does not touch a "no hint" state when the poll confirms unpaused', () => {
+    expect(reconcilePolledStreamPaused(null, false)).toBeNull();
+  });
+
+  it('does not touch an already-false hint when the poll confirms unpaused', () => {
+    expect(reconcilePolledStreamPaused(false, false)).toBe(false);
+  });
+
+  it('never lets a stale "still paused" poll override a fresher realtime "unpaused" hint', () => {
+    // Poll hasn't caught up yet (still reports paused) — realtime's `false` is newer and must win.
+    expect(reconcilePolledStreamPaused(false, true)).toBe(false);
+  });
+
+  it('a paused poll result is always a no-op regardless of the current hint', () => {
+    expect(reconcilePolledStreamPaused(true, true)).toBe(true);
+    expect(reconcilePolledStreamPaused(null, true)).toBeNull();
   });
 
   it('escalates host Play to full Stage rejoin when warm publish toggle fails', () => {

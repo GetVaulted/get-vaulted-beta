@@ -108,7 +108,7 @@ import {
 import { isCompactLiveRoomLayout, liveRoomOverlayScale } from '../../lib/liveRoomUiScale';
 import { LiveRoomShareSheet } from './LiveRoomShareSheet';
 import { invalidateBuyerLiveStreamCache, prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
-import { WARM_NEIGHBOR_RADIUS } from '../../lib/liveStreamPlayback';
+import { reconcilePolledStreamPaused, WARM_NEIGHBOR_RADIUS } from '../../lib/liveStreamPlayback';
 import { resolveLiveFeedPageCorrection } from '../../lib/pinSelectedLiveStream';
 import type { LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import type { LiveRoomLineupItemSnapshot } from '../../lib/liveBuyerQueueProjection';
@@ -276,6 +276,19 @@ function LiveSlide({
   });
   const handleBroadcastGateChange = useCallback((gate: LiveRoomBroadcastGate) => {
     setBroadcastGate(gate);
+  }, []);
+  // Reconciliation for a stale `realtimeStreamPaused` latch: `onStreamPausedHint` is the only
+  // thing that normally sets it, and the hard-refresh handler above deliberately never clears it
+  // (see that comment) to avoid self-clobbering the SAME stream_status event that just set it.
+  // But if the matching "unpaused" broadcast is ever missed entirely — a realtime resubscribe
+  // race is quite plausible right around a host crash + reconnect, which is exactly when this
+  // matters most — nothing else was clearing it, and the buyer stayed on the "Host paused"
+  // overlay indefinitely even once playback had genuinely resumed (GET /stream self-heals on its
+  // own poll cadence regardless of realtime delivery). Only reconcile true -> null (defer back to
+  // the poll) here; a poll that still says paused must never override a fresher realtime
+  // "unpaused" hint that just hasn't been re-polled yet.
+  const handlePolledStreamPausedChange = useCallback((paused: boolean) => {
+    setRealtimeStreamPaused((prev) => reconcilePolledStreamPaused(prev, paused));
   }, []);
   const broadcastCommerceBlocked = useMemo(
     () => isLiveBroadcastCommerceBlocked({ ...broadcastGate, status: roomStatus }),
@@ -1245,6 +1258,7 @@ function LiveSlide({
                   muted={isActive && screenFocused ? streamMuted : true}
                   onMutedChange={setStreamMuted}
                   onBroadcastGateChange={handleBroadcastGateChange}
+                  onPolledStreamPausedChange={handlePolledStreamPausedChange}
                 />
               </Animated.View>
               <LinearGradient
