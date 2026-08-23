@@ -16,6 +16,13 @@ function readApiErrorBody(body: unknown): ApiErrorBody {
 }
 
 function formatApiErrorMessage(res: Response, body: unknown, context: string): string {
+  // A 413 means the server/hosting platform rejected the request before it ever reached our own
+  // route logic, so `body` is almost never our own JSON error shape (it's usually an empty or
+  // platform-generated response). Special-case it so the user sees a plain "file too large"
+  // message instead of a raw "Request failed (413)".
+  if (res.status === 413) {
+    return `${context}: That file is too large. Please choose a smaller file and try again.`;
+  }
   const o = readApiErrorBody(body);
   const detail = typeof o.detail === 'string' ? o.detail.trim() : '';
   const hint = typeof o.hint === 'string' ? o.hint.trim() : '';

@@ -71,6 +71,18 @@ export async function uploadLiveTeaserToSupabase(
     if (msg.includes('row-level security') || msg.includes('permission') || msg.includes('not authorized')) {
       throw new Error('Preview video upload denied — sign in again or check storage permissions.');
     }
+    // Storage itself can reject an object as oversized (its own bucket limit, independent of our
+    // 40MB app-level check above) — surface that plainly as "too large" instead of Supabase's raw
+    // wording (e.g. "The object exceeded the maximum allowed size", "Payload too large", "413").
+    if (
+      msg.includes('exceeded the maximum') ||
+      msg.includes('maximum allowed size') ||
+      msg.includes('payload too large') ||
+      msg.includes('too large') ||
+      msg.includes('413')
+    ) {
+      throw new Error('Preview video is too large. Please choose a shorter or lower-resolution clip.');
+    }
     throw new Error(upErr.message || 'Could not upload preview video.');
   }
 
