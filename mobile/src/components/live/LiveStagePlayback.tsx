@@ -197,6 +197,10 @@ export function LiveStagePlayback({
   const isForegroundRef = useRef(isForeground);
   const roomIdRef = useRef(roomId);
   const mutedRef = useRef(muted);
+  // Full computed "should this page's HLS audio be silent" state (buyer mute OR the WebRTC-takes-
+  // audio case below) — kept current every render so `useHlsLiveEdgeSeek`'s poll loop can
+  // re-assert it (see that hook's own comment for why this redundancy is needed on Android).
+  const desiredHlsMutedRef = useRef(true);
   isForegroundRef.current = isForeground;
   roomIdRef.current = roomId;
   mutedRef.current = muted;
@@ -489,7 +493,7 @@ export function LiveStagePlayback({
   const playerRef = useRef(player);
   playerRef.current = player;
 
-  useHlsLiveEdgeSeek(player, attachHls && playback.videoHasData);
+  useHlsLiveEdgeSeek(player, attachHls && playback.videoHasData, desiredHlsMutedRef);
 
   // Detect the expo-video PiP window being explicitly stopped (buyer tapped its own X) while
   // still backgrounded. `appBackgrounded` alone stays true either way, so it can't tell us this
@@ -574,6 +578,7 @@ export function LiveStagePlayback({
       pipDismissedWhileBackgrounded: dismissedWhileBackgrounded,
       usingStagePip,
     });
+    desiredHlsMutedRef.current = muted || muteForWebrtcAudio;
     try {
       player.muted = muted || muteForWebrtcAudio;
       player.volume = muted || muteForWebrtcAudio ? 0 : 1;

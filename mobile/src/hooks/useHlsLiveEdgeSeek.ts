@@ -61,8 +61,24 @@ function seekTowardLiveEdge(player: VideoPlayer, now: number, lastSeekAtRef: { c
  * Also sets iOS `targetOffsetFromLive` when available.
  *
  * Critical for mini-player: a fresh attach often starts at the DVR window head (looks like a replay).
+ *
+ * `mutedRef` (optional) is the caller's current "should be silent" state. Warm/prefetch pager
+ * neighbors are kept continuously playing (muted) rather than paused — so they're already sitting
+ * at the live edge for an instant, in-sync swipe — and this loop is what keeps them playing every
+ * tick (`if (!player.playing) player.play()` below). On Android, a live-edge correction seek
+ * (`player.currentTime = ...` in `seekTowardLiveEdge`) can occasionally reset the underlying
+ * ExoPlayer track's mute/volume state, silently un-muting a neighbor for a moment — this is what
+ * buyers were hearing as 2-3 shows' audio overlapping on every single pager swipe on Android.
+ * Re-asserting mute/volume here, every tick, self-heals that within one `LIVE_EDGE_TICK_MS` window
+ * regardless of what caused the reset, instead of relying solely on the one-shot reactive effect
+ * in `LiveStagePlayback` (which only re-applies mute when its own dependencies change, not on a
+ * timer, so it can't catch a native-side reset that happens in between).
  */
-export function useHlsLiveEdgeSeek(player: VideoPlayer, active: boolean) {
+export function useHlsLiveEdgeSeek(
+  player: VideoPlayer,
+  active: boolean,
+  mutedRef?: { current: boolean },
+) {
   const lastSeekAtRef = useRef(0);
   const attachedAtRef = useRef(0);
 
@@ -91,10 +107,20 @@ export function useHlsLiveEdgeSeek(player: VideoPlayer, active: boolean) {
       } catch {
         /* ignore */
       }
+      if (mutedRef) {
+        try {
+          const shouldBeMuted = mutedRef.current;
+          if (player.muted !== shouldBeMuted) player.muted = shouldBeMuted;
+          const targetVolume = shouldBeMuted ? 0 : 1;
+          if (player.volume !== targetVolume) player.volume = targetVolume;
+        } catch {
+          /* ignore */
+        }
+      }
     };
 
     tick();
     const id = setInterval(tick, LIVE_EDGE_TICK_MS);
     return () => clearInterval(id);
-  }, [active, player]);
+  }, [active, player, mutedRef]);
 }
