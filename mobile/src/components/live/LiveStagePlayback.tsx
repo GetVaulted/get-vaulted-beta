@@ -639,6 +639,19 @@ export function LiveStagePlayback({
       setStageAudioOutputEnabledDeduped(false, 'backgrounded_no_stage_pip');
       return;
     }
+    // Buyer backed out to a different in-app screen/tab (not an OS background — `appBackgrounded`
+    // stays false for that). `resolvePlaybackMode`'s "soft keep on blur" drops this page to
+    // 'prefetch' instead of tearing Stage down, so it can resume instantly if the buyer comes
+    // right back — but that means `isForeground` goes false while Stage can still be the one that
+    // was actually joined a moment ago. The branch below only ever *enables* audio when
+    // `isForeground`; it never explicitly disables it for "not foreground, but also not
+    // backgrounded/PiP" — so a Stage session already playing when the buyer navigated away kept
+    // outputting audio with nothing to stop it (reported as "backed out and it kept playing until
+    // I closed the app"). Explicitly silence it here for that gap.
+    if (!usingStagePip && !isForeground) {
+      setStageAudioOutputEnabledDeduped(false, 'screen_not_focused');
+      return;
+    }
     const stageLive = useWebrtc && !stageMediaSuspended;
     if (!stageLive) {
       if (isForeground) {
