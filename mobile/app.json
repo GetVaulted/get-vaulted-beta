@@ -39,6 +39,7 @@
       "package": "com.getvaulted.app",
       "version": "1.0.10",
       "versionCode": 226,
+      "googleServicesFile": "./google-services.json",
       "playStoreUrl": "https://play.google.com/store/apps/details?id=com.getvaulted.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
