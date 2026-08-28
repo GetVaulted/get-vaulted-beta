@@ -3,10 +3,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, ActivityIndicator, StyleSheet, Text, View, type AppStateStatus } from 'react-native';
 import { useVideoPlayer, VideoView, isPictureInPictureSupported, type VideoPlayer } from 'expo-video';
-import { setStageAudioOutputEnabled } from 'expo-realtime-ivs-broadcast';
+import { setStageAudioOutputEnabled, leaveStage } from 'expo-realtime-ivs-broadcast';
 import { useLiveStagePlayback, type LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import { useHlsLiveEdgeSeek } from '../../hooks/useHlsLiveEdgeSeek';
 import { useStageRemotePictureInPicture } from '../../hooks/useStageRemotePictureInPicture';
+import { leaveStageSerialized } from '../../lib/ivsStageGate';
 import {
   isBuyerStageWebrtcRejoinBlocked,
   resolveLivePlaybackSurfaceState,
@@ -201,6 +202,10 @@ export function LiveStagePlayback({
   // audio case below) — kept current every render so `useHlsLiveEdgeSeek`'s poll loop can
   // re-assert it (see that hook's own comment for why this redundancy is needed on Android).
   const desiredHlsMutedRef = useRef(true);
+  // Tracks whether THIS page instance was ever the one actually joined to Stage — see the
+  // redundant-leave-on-unmount effect further down for why this guard matters (every pager page,
+  // including neighbors that never joined, mounts its own LiveStagePlayback).
+  const useWebrtcRef = useRef(false);
   isForegroundRef.current = isForeground;
   roomIdRef.current = roomId;
   mutedRef.current = muted;
@@ -335,6 +340,7 @@ export function LiveStagePlayback({
   // Keep Stage subscribed while Host paused (TikTok/Whatnot/eBay). Unmounting Stage on pause
   // leave-latches buyers onto a dead HLS mirror and "Waiting for host video" after Play.
   const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
+  useWebrtcRef.current = useWebrtc;
   const webrtcReadyRef = useRef(false);
   webrtcReadyRef.current = webrtcReady;
   // In-room Stage owns pixels. Back→mini uses shared HLS warm player (pre-hoist path).
@@ -681,6 +687,32 @@ export function LiveStagePlayback({
       setStageAudioOutputEnabledDeduped(true, 'unmount_restore');
     };
   }, [setStageAudioOutputEnabledDeduped]);
+
+  // Redundant, forceful leave on a REAL unmount of this playback surface (buyer backed all the way
+  // out of the live room — the screen itself leaves the navigation stack, not just loses focus).
+  // `StageSubscriberVideo`/`useMobileStageSubscribe` already leave the Stage session when their own
+  // `active` prop goes false, but that depends on this component staying mounted long enough for a
+  // render with the updated prop to land before the whole tree is torn down — not guaranteed during
+  // a stack pop. Buyers reported Stage audio continuing to play until they force-closed the app
+  // after backing out, which matches exactly that gap.
+  //
+  // GUARDED by `useWebrtcRef`: the Stage SDK is a process-wide singleton (see
+  // `StageSubscriberVideo`'s own comment) — every pager page, including warm neighbors that never
+  // joined Stage, mounts its own `LiveStagePlayback` and will eventually unmount too (falling out of
+  // the warm radius as the buyer scrolls on). An unconditional `leaveStage()` here would risk a
+  // neighbor's unmount kicking the *actually* active page off Stage. Only call it if this specific
+  // page instance was the one that had `useWebrtc` true at some point — if the normal `active`-prop
+  // path already left cleanly beforehand, `useWebrtcRef.current` is already false here and this is a
+  // no-op. Declared after the effect above so its cleanup (leave the Stage session) runs before that
+  // one's (restore the shared audio-output gate) on unmount, since cleanups fire in reverse
+  // declaration order.
+  useEffect(() => {
+    return () => {
+      if (useWebrtcRef.current) {
+        void leaveStageSerialized(() => leaveStage());
+      }
+    };
+  }, []);
 
   // Hard-stop HLS audio whenever this slide is not the active playback surface. Adjacent pager
   // pages stay mounted (page ± 1 are kept warm), and on Android an expo-video player keeps
