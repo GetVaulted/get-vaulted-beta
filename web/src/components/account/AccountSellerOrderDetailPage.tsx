@@ -108,6 +108,7 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
   const [regenerateBusy, setRegenerateBusy] = useState(false);
   const [labelError, setLabelError] = useState<string | null>(null);
   const [markShippedBusy, setMarkShippedBusy] = useState(false);
+  const [shipOwnCarrierBusy, setShipOwnCarrierBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -170,6 +171,27 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
       setLabelError("Something went wrong.");
     } finally {
       setMarkShippedBusy(false);
+    }
+  };
+
+  const shipOwnCarrier = async (trackingNumber: string | null) => {
+    setShipOwnCarrierBusy(true);
+    try {
+      const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markShipped: true, ...(trackingNumber ? { trackingNumber } : {}) }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setLabelError(data.error ?? "Could not mark shipped.");
+        return;
+      }
+      await load();
+    } catch {
+      setLabelError("Something went wrong.");
+    } finally {
+      setShipOwnCarrierBusy(false);
     }
   };
 
@@ -364,6 +386,12 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
                     ? () => void markShipped()
                     : undefined
                 }
+                onShipOwnCarrier={
+                  order.status === "paid" || order.status === "pending"
+                    ? (trackingNumber) => void shipOwnCarrier(trackingNumber)
+                    : undefined
+                }
+                shipOwnCarrierBusy={shipOwnCarrierBusy}
               />
             ) : null}
             <SellerOrderSidebarSections

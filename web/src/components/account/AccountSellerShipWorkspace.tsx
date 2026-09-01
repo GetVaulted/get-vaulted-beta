@@ -103,12 +103,13 @@ function PrimaryButton({
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
-  tone?: "gold" | "sky" | "emerald";
+  tone?: "gold" | "sky" | "emerald" | "muted";
 }) {
   const tones = {
     gold: "bg-gradient-to-r from-gold to-gold-bright text-zinc-950 hover:brightness-110",
     sky: "border border-sky-400/40 bg-sky-500/20 text-sky-50 hover:bg-sky-500/30",
     emerald: "border border-emerald-400/35 bg-emerald-500/15 text-emerald-50 hover:bg-emerald-500/25",
+    muted: "border border-white/12 bg-white/[0.03] text-zinc-300 hover:border-white/20 hover:bg-white/[0.06]",
   };
   return (
     <button
@@ -228,6 +229,11 @@ function ShipOrderCard({
         {phase === "needs_label" ? (
           <PrimaryButton tone="sky" disabled={busy} onClick={() => setShowParcelModal(true)}>
             {busy ? "Creating…" : "Create label"}
+          </PrimaryButton>
+        ) : null}
+        {phase === "needs_label" ? (
+          <PrimaryButton tone="muted" disabled={busy} onClick={() => onMarkShipped(order)}>
+            Ship it yourself
           </PrimaryButton>
         ) : null}
         {(phase === "print_and_ship" || phase === "awaiting_carrier") && order.labelUrl ? (

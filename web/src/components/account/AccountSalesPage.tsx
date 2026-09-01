@@ -96,6 +96,8 @@ function ShipModal({
   const [tracking, setTracking] = useState(order.trackingNumber ?? "");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const hasLabel = Boolean(order.labelUrl?.trim() || order.shippoTransactionId?.trim());
+  const isOwnCarrier = mode === "markShipped" && !hasLabel;
 
   const submit = async () => {
     setError(null);
@@ -136,11 +138,13 @@ function ShipModal({
     >
       <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#111114] p-5 shadow-2xl">
         <h2 className="font-display text-lg font-bold text-foreground">
-          {mode === "markShipped" ? "Mark as shipped" : "Tracking number"}
+          {mode === "markShipped" ? (isOwnCarrier ? "Ship it yourself" : "Mark as shipped") : "Tracking number"}
         </h2>
         <p className="mt-1 text-xs text-zinc-500">
           {mode === "markShipped"
-            ? "Confirms you dropped the package off. The buyer is notified when the carrier scans it (Shipped → In transit → Out for delivery → Delivered)."
+            ? isOwnCarrier
+              ? "Confirms you're shipping this order with your own carrier (no Get Vaulted label). Add your tracking number so the buyer can follow it."
+              : "Confirms you dropped the package off. The buyer is notified when the carrier scans it (Shipped → In transit → Out for delivery → Delivered)."
             : "Add or update the tracking number for this shipment."}
         </p>
         <label className="mt-4 block">

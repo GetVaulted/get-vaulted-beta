@@ -39,6 +39,9 @@ export type SellerShippingLabelPanelProps = {
   labelError?: string | null;
   onMarkShipped?: () => void;
   markShippedBusy?: boolean;
+  /** Seller is shipping this order themselves (no Get Vaulted / Shippo label). */
+  onShipOwnCarrier?: (trackingNumber: string | null) => void | Promise<void>;
+  shipOwnCarrierBusy?: boolean;
 };
 
 function formatDate(iso: string | null) {
@@ -162,18 +165,23 @@ export function SellerShippingLabelPanel(props: SellerShippingLabelPanelProps) {
     labelError,
     onMarkShipped,
     markShippedBusy,
+    onShipOwnCarrier,
+    shipOwnCarrierBusy,
   } = props;
 
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [labelFormat, setLabelFormat] = useState<SellerLabelPrintFormat>(() => readStoredLabelPrintFormat());
+  const [ownCarrierOpen, setOwnCarrierOpen] = useState(false);
+  const [ownTracking, setOwnTracking] = useState("");
   const purchased = orderHasPurchasedLabel({ shippoTransactionId, labelUrl, fulfillmentStatus });
   const hasFile = orderHasLabelFile(labelUrl);
   const canRepair = purchased && !hasFile && Boolean(shippoTransactionId?.trim()) && onRepairLabel;
   const canRegenerate = purchased && !hasFile && onRegenerateLabel;
-  const busy = createLabelBusy || repairLabelBusy || regenerateLabelBusy || markShippedBusy;
+  const busy = createLabelBusy || repairLabelBusy || regenerateLabelBusy || markShippedBusy || shipOwnCarrierBusy;
   const labelFailed = fulfillmentStatus === "exception" && !hasFile;
   const readyToShip =
     hasFile && (fulfillmentStatus === "label_created" || fulfillmentStatus === "pending") && onMarkShipped;
+  const canShipOwnCarrier = !purchased && !shippingAddressIncomplete && Boolean(onShipOwnCarrier);
 
   const onCopy = async () => {
     if (!trackingNumber?.trim()) return;
@@ -290,6 +298,47 @@ export function SellerShippingLabelPanel(props: SellerShippingLabelPanelProps) {
           ) : null}
           {trackingUrl?.trim() ? <ActionBtn href={trackingUrl}>Track package</ActionBtn> : null}
         </div>
+
+        {canShipOwnCarrier ? (
+          <div className="border-t border-white/[0.06] pt-4">
+            {!ownCarrierOpen ? (
+              <button
+                type="button"
+                onClick={() => setOwnCarrierOpen(true)}
+                className="text-xs font-semibold text-zinc-400 underline decoration-dotted underline-offset-4 hover:text-zinc-200"
+              >
+                Shipping it yourself?
+              </button>
+            ) : (
+              <div className="space-y-2.5">
+                <p className="text-xs font-semibold text-zinc-300">Ship it yourself</p>
+                <p className="text-xs leading-relaxed text-zinc-500">
+                  Confirms you&apos;re shipping this order with your own carrier — no Get Vaulted label.
+                  Add your tracking number so the buyer can follow it.
+                </p>
+                <input
+                  value={ownTracking}
+                  onChange={(e) => setOwnTracking(e.target.value)}
+                  placeholder="Tracking number (optional)"
+                  disabled={busy}
+                  className="h-10 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 text-sm text-foreground outline-none focus:border-gold/40 focus:ring-2 focus:ring-gold/20"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <ActionBtn
+                    primary
+                    disabled={busy}
+                    onClick={() => void onShipOwnCarrier!(ownTracking.trim() || null)}
+                  >
+                    {shipOwnCarrierBusy ? "Saving…" : "Mark as shipped"}
+                  </ActionBtn>
+                  <ActionBtn disabled={busy} onClick={() => setOwnCarrierOpen(false)}>
+                    Cancel
+                  </ActionBtn>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
 
         {purchased ? (
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-white/[0.06] pt-4 text-sm">
