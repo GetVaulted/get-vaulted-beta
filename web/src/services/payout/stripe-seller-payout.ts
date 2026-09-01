@@ -131,7 +131,16 @@ export async function releaseSellerStripePayout(
   if (!orderLooksShippedForBankPayout(order) && !opts?.force) {
     return { ok: false, reason: "not_shipped" };
   }
-  if (!orderLabelClawbackSettledForBankPayout(order) && !opts?.force) {
+  // Deliberately NOT force-bypassable, unlike the ship check above. `opts.force` exists so an admin
+  // can confirm shipment happened through another channel and push a payout the "not_shipped" gate
+  // would otherwise block — that's a legitimate override. Whether the seller's label cost has
+  // actually been clawed back is not a workflow judgment call the same way; skipping it is exactly
+  // how a seller's Stripe Connect balance has gone negative (the admin manual "release payout"
+  // button always calls this with `force: true`, and previously that also bypassed this check —
+  // Get Vaulted then tried to hand out money for a label it hadn't yet recovered). Every caller —
+  // the automated cron, the admin panel, anything added later — gets this guarantee unconditionally
+  // now instead of depending on each call site remembering to re-check it separately.
+  if (!orderLabelClawbackSettledForBankPayout(order)) {
     await prisma.order.update({
       where: { id: orderId },
       data: {
