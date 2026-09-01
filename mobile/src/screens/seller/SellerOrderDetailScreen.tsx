@@ -25,6 +25,7 @@ import {
 } from '../../api/sellerSalesRepository';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { SellerCreateLabelSheet } from '../../components/seller/SellerCreateLabelSheet';
+import { SellerMarkShippedSheet } from '../../components/seller/SellerMarkShippedSheet';
 import { SellerOrderCompactTimeline } from '../../components/seller/SellerOrderCompactTimeline';
 import { OrderRefundRequestSection } from '../../components/orders/OrderRefundRequestSection';
 import { SellerShippingLabelPanel } from '../../components/seller/SellerShippingLabelPanel';
@@ -108,6 +109,7 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
     null,
   );
   const [showCreateLabel, setShowCreateLabel] = useState(false);
+  const [showShipOwnCarrier, setShowShipOwnCarrier] = useState(false);
 
   const loadOrder = useCallback(async (): Promise<OrderBundle | null> => {
     if (!session?.access_token) return null;
@@ -210,6 +212,22 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
         },
       ],
     );
+  };
+
+  const shipOwnCarrier = async (trackingNumber: string | null) => {
+    if (!session?.access_token || !detail) return;
+    setLabelActionBusy('ship');
+    try {
+      const result = await markSellerOrderShipped(session.access_token, detail.id, trackingNumber);
+      if (!result.ok) {
+        Alert.alert('Could not update', result.error);
+        return;
+      }
+      setShowShipOwnCarrier(false);
+      await reload();
+    } finally {
+      setLabelActionBusy(null);
+    }
   };
 
   const repairLabel = async () => {
@@ -361,17 +379,27 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
               <View style={styles.createCard}>
                 <Text style={styles.createTitle}>Ready to ship</Text>
                 <Text style={styles.createBody}>
-                  Purchase a shipping label here — same flow as Seller Studio on web.
+                  Purchase a shipping label here — same flow as Seller Studio on web. Shipping it
+                  yourself instead? Mark it shipped and add your own tracking number.
                 </Text>
-                <Pressable
-                  style={styles.createBtn}
-                  disabled={labelActionBusy !== null}
-                  onPress={() => setShowCreateLabel(true)}
-                >
-                  <Text style={styles.createBtnTxt}>
-                    {labelActionBusy === 'create' ? 'Creating…' : 'Create label'}
-                  </Text>
-                </Pressable>
+                <View style={styles.createActions}>
+                  <Pressable
+                    style={styles.createBtn}
+                    disabled={labelActionBusy !== null}
+                    onPress={() => setShowCreateLabel(true)}
+                  >
+                    <Text style={styles.createBtnTxt}>
+                      {labelActionBusy === 'create' ? 'Creating…' : 'Create label'}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.shipOwnBtn}
+                    disabled={labelActionBusy !== null}
+                    onPress={() => setShowShipOwnCarrier(true)}
+                  >
+                    <Text style={styles.shipOwnBtnTxt}>Ship it yourself</Text>
+                  </Pressable>
+                </View>
               </View>
             ) : null}
 
@@ -526,6 +554,15 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
               void createLabel(parcel, format);
             }}
           />
+
+          <SellerMarkShippedSheet
+            visible={showShipOwnCarrier}
+            subtitle="Confirms you're shipping this order yourself (no Get Vaulted label). Add your tracking number so the buyer can follow it."
+            initialTrackingNumber={detail?.trackingNumber}
+            confirmBusy={labelActionBusy === 'ship'}
+            onClose={() => setShowShipOwnCarrier(false)}
+            onConfirm={(trackingNumber) => void shipOwnCarrier(trackingNumber)}
+          />
         </>
       )}
     </View>
@@ -615,6 +652,17 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(56,189,248,0.45)',
   },
   createBtnTxt: { color: '#7DD3FC', fontSize: 13, fontWeight: '800' },
+  createActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  shipOwnBtn: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  shipOwnBtnTxt: { color: colors.textSecondary, fontSize: 13, fontWeight: '800' },
   droppedBtn: {
     alignItems: 'center',
     paddingVertical: 12,

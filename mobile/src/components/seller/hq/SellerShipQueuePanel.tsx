@@ -32,6 +32,7 @@ import { openSellerOrderDetail } from '../../../navigation/openSellerOrderDetail
 import type { RootStackParamList } from '../../../navigation/types';
 import { colors, radii, spacing } from '../../../theme';
 import { SellerCreateLabelSheet } from '../SellerCreateLabelSheet';
+import { SellerMarkShippedSheet } from '../SellerMarkShippedSheet';
 
 type LabelTarget =
   | { kind: 'order'; order: SellerSalesOrderRow }
@@ -78,6 +79,7 @@ function OrderCard({
   busy,
   onCreateLabel,
   onMarkShipped,
+  onShipOwnCarrier,
   onOpen,
 }: {
   order: SellerSalesOrderRow;
@@ -85,6 +87,7 @@ function OrderCard({
   busy: boolean;
   onCreateLabel: () => void;
   onMarkShipped: () => void;
+  onShipOwnCarrier?: () => void;
   onOpen: () => void;
 }) {
   const buyer = order.buyerUsername ? `@${order.buyerUsername}` : 'Buyer';
@@ -114,6 +117,11 @@ function OrderCard({
         {phase === 'needs_label' ? (
           <Pressable style={[styles.btn, styles.btnSky]} disabled={busy} onPress={onCreateLabel}>
             <Text style={styles.btnSkyTxt}>{busy ? 'Creating…' : 'Create label'}</Text>
+          </Pressable>
+        ) : null}
+        {phase === 'needs_label' && onShipOwnCarrier ? (
+          <Pressable style={[styles.btn, styles.btnMuted]} disabled={busy} onPress={onShipOwnCarrier}>
+            <Text style={styles.btnMutedTxt}>Ship it yourself</Text>
           </Pressable>
         ) : null}
         {(phase === 'print_and_ship' || phase === 'awaiting_carrier' || phase === 'in_transit') &&
@@ -201,6 +209,7 @@ export function SellerShipQueuePanel({
   const [labelTarget, setLabelTarget] = useState<LabelTarget | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [shipOwnTarget, setShipOwnTarget] = useState<SellerSalesOrderRow | null>(null);
 
   const awaitingBundleIds = useMemo(
     () => orderIdsAwaitingBundledLabel(liveShipping.sessions),
@@ -335,6 +344,22 @@ export function SellerShipQueuePanel({
     );
   };
 
+  const confirmShipOwnCarrier = async (trackingNumber: string | null) => {
+    if (!accessToken || !shipOwnTarget) return;
+    setBusyId(shipOwnTarget.id);
+    try {
+      const result = await markSellerOrderShipped(accessToken, shipOwnTarget.id, trackingNumber);
+      if (!result.ok) {
+        Alert.alert('Could not update', result.error);
+        return;
+      }
+      setShipOwnTarget(null);
+      await onReload();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   if (loading && !loadedOnce) {
     return <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.lg }} />;
   }
@@ -397,6 +422,7 @@ export function SellerShipQueuePanel({
           busy={busyId === order.id}
           onCreateLabel={() => setLabelTarget({ kind: 'order', order })}
           onMarkShipped={() => markShipped(order)}
+          onShipOwnCarrier={() => setShipOwnTarget(order)}
           onOpen={() => openSellerOrderDetail(navigation, order.id)}
         />
       ))}
@@ -490,6 +516,15 @@ export function SellerShipQueuePanel({
         onConfirm={(parcel, format, rateId) => {
           void confirmCreate(parcel, format, rateId);
         }}
+      />
+
+      <SellerMarkShippedSheet
+        visible={shipOwnTarget != null}
+        subtitle="Confirms you're shipping this order yourself (no Get Vaulted label). Add your tracking number so the buyer can follow it."
+        initialTrackingNumber={shipOwnTarget?.trackingNumber}
+        confirmBusy={shipOwnTarget != null && busyId === shipOwnTarget.id}
+        onClose={() => setShipOwnTarget(null)}
+        onConfirm={(trackingNumber) => void confirmShipOwnCarrier(trackingNumber)}
       />
     </View>
   );
