@@ -67,8 +67,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Load the persisted live-room presence identity before any screen (including a live
         // room) can mount, so viewer presence tracking never falls back to minting a fresh
         // random identity on cold start — see liveRoomPresenceKey.ts for why that mattered.
-        await warmPresenceSlot(initial?.user?.id ?? null);
-        if (cancelled) return;
+        // Fire-and-forget rather than awaited: this was blocking the entire app's first paint on
+        // an AsyncStorage round-trip, adding real, user-visible delay to every cold launch, for a
+        // guarantee it doesn't actually need to be in the critical path for. The buyer still has to
+        // navigate past this screen to a live room (seconds of real time) before
+        // `resolvePresenceSlotSync` could ever run — AsyncStorage typically resolves in well under
+        // that window, so the protection this exists for still holds in practice.
+        void warmPresenceSlot(initial?.user?.id ?? null);
 
         const { data: sub } = sb.auth.onAuthStateChange((event, next) => {
           setLastAuthEvent(event);

@@ -305,10 +305,18 @@ export function useMobileStageSubscribe(args: {
       });
 
       try {
-        await ensureStageSdkInitialized('subscribeOnly');
+        // Native SDK bootstrap (local, no network — a real one-time cost on the very first live
+        // room a session joins, effectively free on every one after via its own internal cache)
+        // and the viewer token fetch (a network round-trip) are independent of each other. They
+        // used to run one after another, meaning the very first show a buyer opened each app
+        // session paid both costs back-to-back. Running them together shaves off whichever one is
+        // faster instead of always paying the sum of both.
+        const [, token] = await Promise.all([
+          ensureStageSdkInitialized('subscribeOnly'),
+          resolveViewerStageToken(args.roomId, args.accessToken!),
+        ]);
         if (cancelled) return;
 
-        const token = await resolveViewerStageToken(args.roomId, args.accessToken!);
         if (!token) {
           fail('token_missing');
           return;
