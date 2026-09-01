@@ -43,6 +43,7 @@ import {
   shouldThrottleLiveDiscoveryFetch,
 } from '../lib/liveDiscoveryFetchPolicy';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { prefetchLiveStreamRooms } from '../lib/liveStreamPrefetchCache';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { useAuth } from '../auth/AuthContext';
 import { useLiveEventReminders } from '../hooks/useLiveEventReminders';
@@ -121,7 +122,7 @@ export function LiveDiscoveryScreen() {
     gap: gridGap,
   } = useMemo(() => computeLiveDiscoveryGrid(windowWidth), [windowWidth]);
   const navigation = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
-  const { guestExploreMode } = useAuth();
+  const { guestExploreMode, session } = useAuth();
   const { remind, isReminderSet } = useLiveEventReminders();
   const [chip, setChip] = useState<string>('All');
   const seed = initialDiscoveryState();
@@ -235,6 +236,11 @@ export function LiveDiscoveryScreen() {
       alertGuestLiveRestricted();
       return;
     }
+    // Kick off the same warm-up the pager uses for its neighbor pages, but for the room the buyer
+    // is about to land on directly from a cold tap (no pager, no neighbors already warmed) — the
+    // screen transition takes real time on its own, so this overlaps free background work with it
+    // instead of only starting the stream/token fetch once LiveRoomScreen has already mounted.
+    prefetchLiveStreamRooms([streamId], session?.access_token);
     navigation.navigate('LiveRoom', { streamId });
   };
 

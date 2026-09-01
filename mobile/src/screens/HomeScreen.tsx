@@ -71,6 +71,7 @@ import {
   saveHomeFeedCache,
 } from '../lib/homeFeedCache';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { prefetchLiveStreamRooms } from '../lib/liveStreamPrefetchCache';
 import { scheduledStreamReminderTarget } from '../lib/liveEventReminder';
 import type { MainTabParamList, RootStackParamList } from '../navigation/types';
 import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
@@ -360,6 +361,10 @@ export function HomeScreen() {
       alertGuestLiveRestricted();
       return;
     }
+    // Warm the stream/stage token cache the moment the tap happens, overlapping it with the
+    // screen transition instead of only starting it once LiveRoomScreen mounts — see the matching
+    // comment in LiveDiscoveryScreen's openShow.
+    prefetchLiveStreamRooms([streamId], session?.access_token);
     navigation.navigate('Live', {
       screen: 'LiveRoom',
       params: { streamId },
