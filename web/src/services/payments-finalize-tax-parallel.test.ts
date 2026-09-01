@@ -19,6 +19,10 @@ vi.mock("@/lib/stripe-checkout-breakdown", () => ({
   fetchCheckoutSessionChargeBreakdown,
 }));
 
+vi.mock("@/lib/live-buy-now-purchase", () => ({
+  resolveBuyerDefaultShippingForOrder: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock("@/lib/notifications", () => ({ createNotification: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/marketplace/ecosystem-sync", () => ({
   emitOrderLifecycleSync: vi.fn(),

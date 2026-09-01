@@ -62,6 +62,7 @@ import {
   TAX_PROVIDER_STRIPE,
 } from "@/lib/stripe-tax";
 import { persistOrderStripeChargeLedger } from "@/lib/stripe-charge-ledger";
+import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
 import { moneyFlowLog } from "@/lib/money-flow-log";
 import { sanitizeStripePaymentIntentId } from "@/lib/stripe-payment-intent-id";
 import {
@@ -1628,10 +1629,16 @@ export async function createBreakSpotCheckoutSession(args: {
     sellerId: spot.liveRoom.sellerId,
   });
 
-  const taxFields = await buildCheckoutTaxSessionFields({
-    buyerId: args.userId,
-    collectShippingAddress: true,
-  });
+  // Buyer must already have a saved shipping address to reach checkout (Vault Wallet gate),
+  // so use it directly for the nexus check instead of handing tax entirely to Stripe's
+  // automatic_tax — which only knows Stripe's own tax registrations, not our per-state
+  // TaxNexusState settings, and can misclassify buyers in states we haven't registered in.
+  const buyerShippingForTax = await resolveBuyerDefaultShippingForOrder(args.userId);
+  const taxFields = await buildCheckoutTaxSessionFields(
+    buyerShippingForTax
+      ? { buyerId: args.userId, shipTo: buyerShippingForTax }
+      : { buyerId: args.userId, collectShippingAddress: true },
+  );
 
   const sellerPayoutProcessor = resolveLiveSellerPayoutProcessor(seller);
   const destinationAccountId = resolveLiveSellerDestinationAccount(seller);

@@ -7,6 +7,9 @@ vi.mock("@/lib/stripe-tax", () => ({
   STRIPE_TAX_CODE_TANGIBLE: "tangible",
   stripeLineItemProductData: vi.fn(),
 }));
+vi.mock("@/lib/live-buy-now-purchase", () => ({
+  resolveBuyerDefaultShippingForOrder: vi.fn().mockResolvedValue(null),
+}));
 vi.mock("@/lib/seller-stripe-collect-ready", () => ({
   assertSellerStripeCollectReadyFromUser: vi.fn(),
   sellerStripeCollectSelect: {},
