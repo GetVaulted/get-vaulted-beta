@@ -16,7 +16,10 @@ import { orderStatusLabel, orderStatusTone } from "@/lib/order-status";
 import { sellerMayShowFulfillmentControls } from "@/lib/order-shipping-guards";
 import { type SellerLabelPrintFormat } from "@/lib/shippo-label-format";
 import { openLabelForPrint } from "@/lib/seller-shipping-label-state";
-import type { SellerLiveShippingDashboard } from "@/lib/seller-live-shipping-dashboard-types";
+import type {
+  SellerLiveShippingDashboard,
+  SellerLiveShippingSessionRow,
+} from "@/lib/seller-live-shipping-dashboard-types";
 
 type SaleRow = {
   id: string;
@@ -80,6 +83,108 @@ function formatDate(iso: string) {
   } catch {
     return "—";
   }
+}
+
+function BundleShipModal({
+  session,
+  onClose,
+  onDone,
+}: {
+  session: SellerLiveShippingSessionRow;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [tracking, setTracking] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+
+  const submit = async () => {
+    setError(null);
+    // Only orders actually eligible for fulfillment (paid, not already shipped) get marked —
+    // a bundle can include an order still waiting on payment.
+    const eligibleOrders = session.orders.filter(
+      (o) => o.paymentStatus === "paid" && (o.orderStatus === "pending" || o.orderStatus === "paid"),
+    );
+    if (eligibleOrders.length === 0) {
+      setError("No orders in this bundle are ready to be marked shipped.");
+      return;
+    }
+    setSending(true);
+    try {
+      const body = {
+        markShipped: true,
+        ...(tracking.trim() ? { trackingNumber: tracking.trim() } : {}),
+      };
+      const results = await Promise.all(
+        eligibleOrders.map((o) =>
+          fetch(`/api/orders/${encodeURIComponent(o.id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          }),
+        ),
+      );
+      const failed = results.find((r) => !r.ok);
+      if (failed) {
+        const data = (await failed.json().catch(() => ({}))) as { error?: string };
+        setError(data.error ?? "Could not update one or more orders in this bundle.");
+        return;
+      }
+      onDone();
+      onClose();
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 p-3 sm:items-center"
+      role="dialog"
+      aria-modal
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#111114] p-5 shadow-2xl">
+        <h2 className="font-display text-lg font-bold text-foreground">Ship it yourself</h2>
+        <p className="mt-1 text-xs text-zinc-500">
+          Confirms you&apos;re shipping this bundle ({session.orderCount} order
+          {session.orderCount === 1 ? "" : "s"} to {session.buyer.username ? `@${session.buyer.username}` : "the buyer"})
+          with your own carrier — no Get Vaulted label. Add your tracking number so the buyer can follow it.
+        </p>
+        <label className="mt-4 block">
+          <span className="mb-1 block text-xs font-medium text-zinc-400">Tracking (optional)</span>
+          <input
+            value={tracking}
+            onChange={(e) => setTracking(e.target.value)}
+            placeholder="e.g. 1Z999AA10123456784"
+            className="h-11 w-full rounded-xl border border-white/10 bg-[#0c0c10] px-3 text-sm text-foreground outline-none focus:border-gold/40 focus:ring-2 focus:ring-gold/20"
+          />
+        </label>
+        {error ? <p className="mt-2 text-xs font-medium text-rose-300">{error}</p> : null}
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-10 rounded-full border border-white/12 px-4 text-sm font-medium text-zinc-400 transition hover:bg-white/[0.04]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={sending}
+            onClick={() => void submit()}
+            className="h-10 rounded-full bg-gradient-to-r from-gold to-gold-bright px-5 text-sm font-bold text-zinc-950 transition hover:brightness-110 disabled:opacity-60"
+          >
+            {sending ? "Saving…" : "Mark shipped"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ShipModal({
@@ -214,6 +319,7 @@ export function AccountSalesPage() {
   const [liveShippingLoading, setLiveShippingLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [modal, setModal] = useState<{ order: SaleRow; mode: "markShipped" | "tracking" } | null>(null);
+  const [bundleModal, setBundleModal] = useState<SellerLiveShippingSessionRow | null>(null);
   const [labelBusyId, setLabelBusyId] = useState<string | null>(null);
   const [bundledBusySessionId, setBundledBusySessionId] = useState<string | null>(null);
   const [labelError, setLabelError] = useState<string | null>(null);
@@ -438,6 +544,13 @@ export function AccountSalesPage() {
           onDone={() => void load()}
         />
       ) : null}
+      {bundleModal ? (
+        <BundleShipModal
+          session={bundleModal}
+          onClose={() => setBundleModal(null)}
+          onDone={() => void load()}
+        />
+      ) : null}
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-[min(360px,50vh)] bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,rgba(201,162,39,0.06),transparent_55%)]"
         aria-hidden
@@ -492,6 +605,7 @@ export function AccountSalesPage() {
                   const row = rows.find((r) => r.id === order.id);
                   if (row) setModal({ order: row, mode: "markShipped" });
                 }}
+                onMarkBundleShipped={(session) => setBundleModal(session)}
               />
             )}
           </>

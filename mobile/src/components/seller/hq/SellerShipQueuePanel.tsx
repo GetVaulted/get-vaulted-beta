@@ -152,10 +152,12 @@ function BundleCard({
   session,
   busy,
   onCreateLabel,
+  onShipOwnCarrier,
 }: {
   session: SellerLiveShippingSessionRow;
   busy: boolean;
   onCreateLabel: () => void;
+  onShipOwnCarrier?: () => void;
 }) {
   const buyer = session.buyer.name?.trim()
     ? `${session.buyer.name} (@${session.buyer.username})`
@@ -177,6 +179,11 @@ function BundleCard({
         {session.canCreateBundledLabel ? (
           <Pressable style={[styles.btn, styles.btnSky]} disabled={busy} onPress={onCreateLabel}>
             <Text style={styles.btnSkyTxt}>{busy ? 'Creating…' : 'Create label'}</Text>
+          </Pressable>
+        ) : null}
+        {session.canCreateBundledLabel && onShipOwnCarrier ? (
+          <Pressable style={[styles.btn, styles.btnMuted]} disabled={busy} onPress={onShipOwnCarrier}>
+            <Text style={styles.btnMutedTxt}>Ship it yourself</Text>
           </Pressable>
         ) : null}
         {labelUrl ? (
@@ -210,6 +217,9 @@ export function SellerShipQueuePanel({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [shipOwnTarget, setShipOwnTarget] = useState<SellerSalesOrderRow | null>(null);
+  const [bundleShipOwnTarget, setBundleShipOwnTarget] = useState<SellerLiveShippingSessionRow | null>(
+    null,
+  );
 
   const awaitingBundleIds = useMemo(
     () => orderIdsAwaitingBundledLabel(liveShipping.sessions),
@@ -360,6 +370,32 @@ export function SellerShipQueuePanel({
     }
   };
 
+  const confirmBundleShipOwnCarrier = async (trackingNumber: string | null) => {
+    if (!accessToken || !bundleShipOwnTarget) return;
+    const eligibleOrderIds = bundleShipOwnTarget.orders
+      .filter((o) => o.paymentStatus === 'paid')
+      .map((o) => o.id);
+    if (eligibleOrderIds.length === 0) {
+      Alert.alert('Nothing to ship', 'No paid orders were found in this bundle.');
+      return;
+    }
+    setBusyId(bundleShipOwnTarget.sessionId);
+    try {
+      const results = await Promise.all(
+        eligibleOrderIds.map((id) => markSellerOrderShipped(accessToken, id, trackingNumber)),
+      );
+      const failed = results.find((r) => !r.ok);
+      if (failed && !failed.ok) {
+        Alert.alert('Could not update', failed.error);
+        return;
+      }
+      setBundleShipOwnTarget(null);
+      await onReload();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   if (loading && !loadedOnce) {
     return <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.lg }} />;
   }
@@ -412,6 +448,7 @@ export function SellerShipQueuePanel({
           session={session}
           busy={busyId === session.sessionId}
           onCreateLabel={() => setLabelTarget({ kind: 'bundle', session })}
+          onShipOwnCarrier={() => setBundleShipOwnTarget(session)}
         />
       ))}
       {buckets.needsLabel.map((order) => (
@@ -525,6 +562,15 @@ export function SellerShipQueuePanel({
         confirmBusy={shipOwnTarget != null && busyId === shipOwnTarget.id}
         onClose={() => setShipOwnTarget(null)}
         onConfirm={(trackingNumber) => void confirmShipOwnCarrier(trackingNumber)}
+      />
+
+      <SellerMarkShippedSheet
+        visible={bundleShipOwnTarget != null}
+        subtitle="Confirms you're shipping this bundle yourself (no Get Vaulted label). One tracking number is applied to every order in this package."
+        initialTrackingNumber={bundleShipOwnTarget?.bundledLabel?.trackingNumber}
+        confirmBusy={bundleShipOwnTarget != null && busyId === bundleShipOwnTarget.sessionId}
+        onClose={() => setBundleShipOwnTarget(null)}
+        onConfirm={(trackingNumber) => void confirmBundleShipOwnCarrier(trackingNumber)}
       />
     </View>
   );

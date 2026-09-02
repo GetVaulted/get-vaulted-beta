@@ -55,6 +55,7 @@ type Props = {
     selectedRateObjectId?: string,
   ) => void;
   onMarkShipped: (order: ShipWorkspaceOrder) => void;
+  onMarkBundleShipped: (session: SellerLiveShippingSessionRow) => void;
 };
 
 function formatDate(iso: string) {
@@ -375,6 +376,7 @@ function BundleShipCard({
   bundledBusySessionId,
   bundledSessionFeedback,
   onCreateBundledLabel,
+  onMarkBundleShipped,
 }: {
   session: SellerLiveShippingSessionRow;
   bundledBusySessionId: string | null;
@@ -385,6 +387,7 @@ function BundleShipCard({
     labelFormat?: "letter" | "thermal_4x6",
     selectedRateObjectId?: string,
   ) => void;
+  onMarkBundleShipped?: (session: SellerLiveShippingSessionRow) => void;
 }) {
   const [showParcelModal, setShowParcelModal] = useState(false);
   const [activePreset, setActivePreset] = useState("Card mailer");
@@ -501,6 +504,11 @@ function BundleShipCard({
           {session.canCreateBundledLabel ? (
             <PrimaryButton tone="sky" disabled={busy} onClick={() => setShowParcelModal(true)}>
               {busy ? "Creating…" : "Create label"}
+            </PrimaryButton>
+          ) : null}
+          {session.canCreateBundledLabel && onMarkBundleShipped ? (
+            <PrimaryButton tone="muted" disabled={busy} onClick={() => onMarkBundleShipped(session)}>
+              Ship it yourself
             </PrimaryButton>
           ) : null}
           {labelUrl ? (
@@ -739,6 +747,7 @@ export function AccountSellerShipWorkspace({
   onCreateLabel,
   onCreateBundledLabel,
   onMarkShipped,
+  onMarkBundleShipped,
 }: Props) {
   const [showComplete, setShowComplete] = useState(false);
   const [showWaitPayment, setShowWaitPayment] = useState(false);
@@ -855,6 +864,7 @@ export function AccountSellerShipWorkspace({
               bundledBusySessionId={bundledBusySessionId}
               bundledSessionFeedback={bundledSessionFeedback?.[session.sessionId]}
               onCreateBundledLabel={onCreateBundledLabel}
+              onMarkBundleShipped={onMarkBundleShipped}
             />
           ))}
           {buckets.needsLabel.map((order) => (
