@@ -271,18 +271,25 @@ export async function createBuyerVenmoSetupAuthorization(args: {
     });
   }
 
-  const authorizeUrl = approveHrefFromLinks(json.links) || venmoCheckoutUrlForOrder(orderId);
+  // PayPal's own `approve`/`payer-action` link is a bare hosted checkout page, not the
+  // JS-SDK-driven Venmo button — opening it directly (the old approach) never triggers the
+  // actual venmo:// app switch, it just drops the buyer on a generic PayPal web page. Per
+  // PayPal's own docs, the app switch only happens inside their JS SDK's Venmo button
+  // (https://developer.paypal.com/sdk/js/save-with-purchase/venmo), rendered in a real mobile
+  // browser tab. Send the buyer to our own page that renders that button against this same
+  // order id instead, and let PayPal's SDK do the actual app-switch.
+  const paypalApproveHref = approveHrefFromLinks(json.links);
+  const connectUrl = new URL(`${siteOrigin()}/venmo-connect`);
+  connectUrl.searchParams.set("uid", user.id);
+  connectUrl.searchParams.set("nonce", nonce);
+  connectUrl.searchParams.set("sig", sig);
+  if (args.mobileReturn) connectUrl.searchParams.set("mobile", "1");
+  const authorizeUrl = connectUrl.toString();
   console.info("[venmo-setup] order created", {
     orderId,
     status: json.status ?? null,
     linkRels: (json.links ?? []).map((l) => l.rel ?? ""),
-    authorizeHost: (() => {
-      try {
-        return new URL(authorizeUrl).host;
-      } catch {
-        return "invalid";
-      }
-    })(),
+    paypalApproveHrefPresent: Boolean(paypalApproveHref),
   });
 
   await prisma.user.update({

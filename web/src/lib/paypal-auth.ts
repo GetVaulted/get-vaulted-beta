@@ -72,3 +72,38 @@ export async function getPayPalAccessToken(): Promise<string> {
 export function clearPayPalAccessTokenCacheForTests(): void {
   cachedToken = null;
 }
+
+/**
+ * Mints a short-lived PayPal user id_token for the JS SDK's `data-user-id-token` script
+ * attribute — required to vault a payment method (Venmo/PayPal) to a specific consumer
+ * identity in-browser. This is what lets the SDK's Venmo button actually app-switch to the
+ * Venmo app instead of falling back to a bare web checkout page.
+ * Pass `targetCustomerId` (the PayPal-generated customer id) for a returning payer with an
+ * existing saved method; omit it for a first-time payer. Never cached — tied to one session.
+ */
+export async function getPayPalUserIdToken(targetCustomerId?: string | null): Promise<string> {
+  const clientId = process.env.PAYPAL_CLIENT_ID?.trim();
+  const clientSecret = process.env.PAYPAL_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) {
+    throw new Error("PAYPAL_NOT_CONFIGURED");
+  }
+  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  const body = new URLSearchParams({ grant_type: "client_credentials", response_type: "id_token" });
+  const trimmedTarget = targetCustomerId?.trim();
+  if (trimmedTarget) body.set("target_customer_id", trimmedTarget);
+  const res = await fetch(`${paypalApiBase()}/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => "");
+    throw new Error(`PAYPAL_ID_TOKEN_FAILED:${res.status}:${bodyText.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as { id_token?: string };
+  if (!json.id_token) throw new Error("PAYPAL_ID_TOKEN_FAILED:missing_token");
+  return json.id_token;
+}
