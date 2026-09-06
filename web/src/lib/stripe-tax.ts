@@ -775,6 +775,118 @@ export async function reverseStripeTaxTransaction(args: {
   }
 }
 
+/**
+ * Best-effort, monitoring-only Stripe Tax record for a state we're NOT currently enabled to
+ * collect in (see `TaxNexusState`). Runs the real Tax Calculation + records it as a transaction so
+ * the sale shows up in Stripe's own Tax > Locations / economic-nexus threshold monitoring —
+ * otherwise a state we've never enabled is completely invisible to Stripe (it only tracks revenue
+ * for states it's seen a Tax API transaction for), and Stripe's own per-state threshold tracking
+ * (with each state's real grace period) can never fire.
+ *
+ * Never charges the buyer anything extra: this runs strictly after the order is already paid, and
+ * Stripe itself returns $0 tax for a jurisdiction with no active registration (see
+ * https://docs.stripe.com/tax/standalone-tax-api), so the calculation is informational only. Per
+ * Stripe's pricing, calculations are only billed for jurisdictions where you have an active
+ * registration — an unregistered state like this is free to monitor.
+ *
+ * No-op (and never throws) when: Stripe isn't configured, the ship-to isn't a recognized US state,
+ * or a real calculation already exists for this order (an enabled/registered state already went
+ * through the normal collect-tax path and has its own recorded transaction — recording a second
+ * one here would double-count that sale in Stripe's monitoring).
+ */
+export async function recordTaxMonitoringOnlyTransaction(args: {
+  orderId: string;
+  itemPriceUsd: number;
+  shippingPriceUsd: number;
+  shipTo: ShipToAddress;
+  sellerShipFrom?: ShipFromAddress | null;
+  /** Skip when a real (collected) calculation already exists for this order. */
+  alreadyHasCalculation: boolean;
+}): Promise<void> {
+  if (args.alreadyHasCalculation) return;
+  if (!isStripeConfigured()) return;
+
+  const shipTo = normalizeShipToAddress(args.shipTo);
+  if (shipTo.shipCountry !== "US") return;
+  const stateCode = normalizeUsStateCode(shipTo.shipState);
+  if (!stateCode) return;
+
+  const itemCents = Math.round(Math.max(0, args.itemPriceUsd) * 100);
+  const shippingCents = Math.round(Math.max(0, args.shippingPriceUsd) * 100);
+  if (itemCents + shippingCents <= 0) return;
+
+  try {
+    const stripe = getStripe();
+    const sellerShipFrom = args.sellerShipFrom ? normalizeShipFromAddress(args.sellerShipFrom) : null;
+    const lineItems: Stripe.Tax.CalculationCreateParams.LineItem[] = [];
+    if (itemCents > 0) {
+      lineItems.push({
+        amount: itemCents,
+        reference: "item",
+        tax_code: STRIPE_TAX_CODE_TANGIBLE,
+        tax_behavior: "exclusive",
+      });
+    }
+
+    const calculation = await stripe.tax.calculations.create(
+      {
+        currency: "usd",
+        line_items: lineItems,
+        ...(shippingCents > 0
+          ? {
+              shipping_cost: {
+                amount: shippingCents,
+                tax_code: STRIPE_TAX_CODE_SHIPPING,
+                tax_behavior: "exclusive",
+              },
+            }
+          : {}),
+        customer_details: {
+          address: {
+            line1: shipTo.shipAddress.slice(0, 500),
+            city: shipTo.shipCity.slice(0, 120),
+            state: shipTo.shipState,
+            postal_code: shipTo.shipZip.slice(0, 32),
+            country: shipTo.shipCountry,
+          },
+          address_source: "shipping",
+        },
+        ...(sellerShipFrom
+          ? {
+              ship_from_details: {
+                address: {
+                  line1: sellerShipFrom.line1.slice(0, 500),
+                  city: sellerShipFrom.city.slice(0, 120),
+                  state: sellerShipFrom.state,
+                  postal_code: sellerShipFrom.postalCode.slice(0, 32),
+                  country: sellerShipFrom.country,
+                },
+              },
+            }
+          : {}),
+      },
+      { idempotencyKey: `taxcalc_monitor_${args.orderId}`.slice(0, 255) },
+    );
+
+    await stripe.tax.transactions.createFromCalculation(
+      { calculation: calculation.id, reference: `${args.orderId}_monitor` },
+      { idempotencyKey: `tax_txn_monitor_${args.orderId}`.slice(0, 255) },
+    );
+    moneyFlowLog("tax_monitoring_transaction_created", {
+      orderId: args.orderId,
+      stateCode,
+      taxCalculationId: calculation.id,
+    });
+  } catch (e) {
+    // Best-effort — a monitoring gap for one order is far cheaper than blocking/breaking checkout.
+    console.warn("[stripe-tax] recordTaxMonitoringOnlyTransaction failed (non-blocking)", {
+      orderId: args.orderId,
+      stateCode,
+      e,
+    });
+  }
+}
+
 export async function listTaxNexusStates() {
   return prisma.taxNexusState.findMany({ orderBy: { stateCode: "asc" } });
 }

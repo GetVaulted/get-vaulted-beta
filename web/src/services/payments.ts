@@ -55,6 +55,7 @@ import {
   fetchCheckoutSessionTax,
   fetchPaymentIntentTax,
   recordStripeTaxTransaction,
+  recordTaxMonitoringOnlyTransaction,
   reverseStripeTaxTransaction,
   STRIPE_TAX_CODE_SHIPPING,
   STRIPE_TAX_CODE_TANGIBLE,
@@ -1904,7 +1905,11 @@ export async function finalizeStripeMarketplaceOrderPaid(
       taxUsd: true,
       taxAmountCents: true,
       stripeTaxCalculationId: true,
+      shipRecipientName: true,
+      shipAddress: true,
+      shipCity: true,
       shipState: true,
+      shipZip: true,
       shipCountry: true,
       liveShippingSession: { select: { liveShowId: true } },
       listing: { select: { title: true, buyingFormat: true } },
@@ -2049,6 +2054,33 @@ export async function finalizeStripeMarketplaceOrderPaid(
     reference: orderId,
     persistToOrderId: orderId,
   });
+
+  // Monitoring-only: even when this ship-to state isn't enabled for collection, tell Stripe about
+  // the sale (at $0 tax, since we're not registered there) so it shows up in Stripe's own economic
+  // nexus threshold tracking instead of being invisible. No-ops for states already going through
+  // the real collect-tax path above (taxFields.stripeTaxCalculationId already set).
+  void (async () => {
+    try {
+      const sellerShipFrom = await loadSellerShipFromForTax(order.sellerId);
+      await recordTaxMonitoringOnlyTransaction({
+        orderId,
+        itemPriceUsd,
+        shippingPriceUsd,
+        shipTo: {
+          shipRecipientName: order.shipRecipientName,
+          shipAddress: order.shipAddress,
+          shipCity: order.shipCity,
+          shipState: order.shipState,
+          shipZip: order.shipZip,
+          shipCountry: order.shipCountry,
+        },
+        sellerShipFrom,
+        alreadyHasCalculation: Boolean(taxFields.stripeTaxCalculationId),
+      });
+    } catch (e) {
+      console.warn("[sales-tax] monitoring-only tax record failed", { orderId, error: e });
+    }
+  })();
 
   void persistOrderStripeChargeLedger({
     orderId,
