@@ -1,13 +1,13 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as Clipboard from 'expo-clipboard';
-import { useCallback, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useEffect, useState } from 'react';
+import { AppState, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View, type AppStateStatus } from 'react-native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../auth/AuthContext';
 import { WalletAddressSetupModal } from '../../components/wallet/WalletAddressSetupModal';
-import { WalletPaymentSetupModal } from '../../components/wallet/WalletPaymentSetupStep';
+import { WalletManagePaymentMethodsModal } from '../../components/wallet/WalletManagePaymentMethodsModal';
 import { vaultWalletTheme as t } from '../../components/wallet/vaultWalletTheme';
 import {
   formatAddressOneLine,
@@ -93,6 +93,19 @@ export function BuyerWalletScreen({ navigation }: Props) {
       void reloadDetails();
     }, [reloadDetails]),
   );
+
+  // `useFocusEffect` only refires on in-app navigation focus changes, not on backgrounding to
+  // Safari for Venmo/PayPal and returning — the screen was already focused before and after, so
+  // connecting a wallet method there never refreshed this list without fully leaving and
+  // re-entering the screen. Refetch on every foreground return while this screen is focused too.
+  const isFocused = useIsFocused();
+  useEffect(() => {
+    if (!isFocused) return;
+    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') void reloadDetails();
+    });
+    return () => sub.remove();
+  }, [isFocused, reloadDetails]);
 
   const defaultAddress = pickDefaultShippingAddress(addresses);
   const primaryPayment = pickPrimaryPaymentMethod(summary?.paymentMethods ?? []);
@@ -214,14 +227,11 @@ export function BuyerWalletScreen({ navigation }: Props) {
           void reloadDetails();
         }}
       />
-      <WalletPaymentSetupModal
+      <WalletManagePaymentMethodsModal
         visible={paymentModalOpen}
         accessToken={token}
         onClose={() => setPaymentModalOpen(false)}
-        onSaved={() => {
-          setPaymentModalOpen(false);
-          void reloadDetails();
-        }}
+        onChanged={() => void reloadDetails()}
       />
 
       <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={() => setSheetOpen(false)}>
