@@ -8,6 +8,7 @@ import {
 import { calculateLiveShippingCost } from "@/services/shipping/live-shipping-tier-estimate";
 import { computePoolTotalsFromGroups } from "@/services/shipping/live-shipping-pool";
 import type { PackageGroup } from "@/lib/unified-shipping-engine";
+import { standardLiveShowShippingCapIncrementCents } from "@/lib/live-show-shipping-terms";
 
 describe("live shipping math audit fixes", () => {
   describe("tier estimate uncapped", () => {
@@ -56,6 +57,7 @@ describe("live shipping math audit fixes", () => {
           ],
         },
       ];
+      const increment = standardLiveShowShippingCapIncrementCents(999);
       const totals = computePoolTotalsFromGroups(
         heavyGroups,
         {
@@ -68,8 +70,10 @@ describe("live shipping math audit fixes", () => {
         1800,
       );
       expect(totals.rawEstimateCents).toBe(1800);
-      expect(totals.buyerTotalCents).toBe(999);
-      expect(totals.sellerSubsidyCents).toBe(801);
+      // Real cost (1800) already meets the cap, so this first purchase gets the standard per-item
+      // split, not the whole cap — the seller subsidizes the rest, same as before but a bigger slice.
+      expect(totals.buyerTotalCents).toBe(increment);
+      expect(totals.sellerSubsidyCents).toBe(1800 - increment);
 
       const settleLike = computeBuyerLiveShippingTotals({
         shippingMode: "capped",
@@ -81,8 +85,8 @@ describe("live shipping math audit fixes", () => {
         }),
         shippingAlreadyChargedCents: 0,
       });
-      expect(settleLike.sellerShippingSubsidyCents).toBe(801);
-      expect(settleLike.shippingDueForThisPurchaseCents).toBe(999);
+      expect(settleLike.sellerShippingSubsidyCents).toBe(1800 - increment);
+      expect(settleLike.shippingDueForThisPurchaseCents).toBe(increment);
     });
 
     it("does not collapse subsidy when only shippingCostCents is present (legacy)", () => {
@@ -99,7 +103,11 @@ describe("live shipping math audit fixes", () => {
         estimatedEligibleBundleShippingCents: raw,
         shippingAlreadyChargedCents: 0,
       });
-      expect(totals.sellerShippingSubsidyCents).toBe(0);
+      // Raw (999) meets the cap exactly, so this purchase gets the standard per-item split rather
+      // than the full amount — the gap between what was charged and the fallback raw is now a real,
+      // non-zero subsidy (previously this degenerate case happened to collapse subsidy to 0).
+      const increment = standardLiveShowShippingCapIncrementCents(999);
+      expect(totals.sellerShippingSubsidyCents).toBe(999 - increment);
     });
   });
 

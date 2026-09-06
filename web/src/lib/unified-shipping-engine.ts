@@ -3,6 +3,7 @@
 import {
   DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS,
   PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS,
+  standardLiveShowShippingCapIncrementCents,
 } from "../../../shared/live-show-shipping-config";
 
 export type PlatformShippingProfileSeed = {
@@ -379,7 +380,22 @@ export type LiveShowShippingConfig = {
   bundleEligiblePurchases?: boolean;
 };
 
-/** Compute buyer total and incremental charge for a live show purchase. */
+/**
+ * Compute buyer total and incremental charge for a live show purchase.
+ *
+ * Capped mode always splits the cap into roughly 3 per-item charges (see
+ * standardLiveShowShippingCapIncrementCents) instead of charging the whole remaining cap on
+ * whichever single purchase first reaches it. This is standard behavior, not a seller-configurable
+ * option — without it, a single expensive-to-ship item (e.g. a helmet whose real cost alone meets
+ * the cap) would front-load the entire charge onto that one purchase even though later items in the
+ * same show are then free.
+ *
+ * The split only kicks in once a purchase's real cumulative cost would actually reach/exceed the cap
+ * (i.e. the moment the old code would have front-loaded everything). Purchases that are comfortably
+ * under the cap still just pay their real estimated cost — the split doesn't artificially shrink
+ * charges for shows that were never going to hit the cap in the first place. Never charges more than
+ * the real cumulative estimate or the cap itself.
+ */
 export function computeBuyerLiveShippingTotals(args: {
   shippingMode: "calculated" | "capped" | "free";
   shippingCapCents: number | null;
@@ -413,9 +429,22 @@ export function computeBuyerLiveShippingTotals(args: {
       : DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS;
   const cap = Math.min(configured, PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS);
 
-  const buyerTotalShippingCents = Math.min(cap, raw);
+  const increment = args.shippingMode === "capped" ? standardLiveShowShippingCapIncrementCents(cap) : null;
 
-  const shippingDueForThisPurchaseCents = Math.max(0, buyerTotalShippingCents - already);
+  const alreadyClamped = Math.min(already, cap);
+  const remainingToCap = Math.max(0, cap - alreadyClamped);
+  const remainingRaw = Math.max(0, raw - alreadyClamped);
+
+  // Only split once this purchase's real cost would actually meet/exceed what's left of the cap —
+  // otherwise just charge the real remaining cost (same as calculated mode below the cap).
+  const wouldReachCapThisPurchase = remainingRaw >= remainingToCap;
+
+  const shippingDueForThisPurchaseCents =
+    increment != null && wouldReachCapThisPurchase
+      ? Math.max(0, Math.min(increment, remainingToCap))
+      : Math.max(0, Math.min(remainingToCap, remainingRaw));
+
+  const buyerTotalShippingCents = alreadyClamped + shippingDueForThisPurchaseCents;
   const sellerShippingSubsidyCents =
     args.sellerPaysOverCap && raw > buyerTotalShippingCents ? raw - buyerTotalShippingCents : 0;
 

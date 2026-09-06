@@ -25,6 +25,20 @@ export function resolveLiveShowShippingCapCents(overrideCents?: number | null): 
   return Math.min(resolved, PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS);
 }
 
+/**
+ * Standard per-item shipping charge for capped live shows. This is NOT a seller setting — every
+ * capped show splits its cap into roughly 3 charges (scaled to whatever the cap is) instead of
+ * charging the whole remaining cap on whichever single purchase first reaches it. e.g. a $9.99 cap
+ * charges ~$3.33 per item; a $6.00 cap charges $2.00 per item. Buyers past the 3rd charged item (or
+ * whose real shipping cost is lower) pay less or nothing — see computeBuyerLiveShippingTotals.
+ */
+export const LIVE_SHOW_SHIPPING_CAP_SPLIT_COUNT = 3;
+
+export function standardLiveShowShippingCapIncrementCents(capCents: number): number {
+  const cap = Math.max(0, Math.floor(capCents));
+  return Math.max(1, Math.round(cap / LIVE_SHOW_SHIPPING_CAP_SPLIT_COUNT));
+}
+
 export function formatUsdFromCents(cents: number): string {
   return (cents / 100).toLocaleString("en-US", {
     style: "currency",
@@ -69,6 +83,7 @@ export function roomFlagsFromShippingMode(mode: LiveShowShippingMode): {
 export function liveShowShippingConfigFromTerms(terms: LiveShowShippingTerms): {
   shippingCapEnabled: boolean;
   shippingCapCents: number | null;
+  shippingCapIncrementCents: number | null;
   freeShippingEnabled: boolean;
   sellerPaysOverCap: boolean;
   shippingMode: LiveShowShippingMode;
@@ -77,13 +92,15 @@ export function liveShowShippingConfigFromTerms(terms: LiveShowShippingTerms): {
   shippingTermsVersion: number;
 } {
   const flags = roomFlagsFromShippingMode(terms.shippingMode);
+  // Calculated shows still honor the platform $9.99 buyer ceiling.
+  const capCents = terms.shippingMode === "free" ? null : resolveLiveShowShippingCapCents(terms.shippingCapCents);
   return {
     ...flags,
-    // Calculated shows still honor the platform $9.99 buyer ceiling.
-    shippingCapCents:
-      terms.shippingMode === "free"
-        ? null
-        : resolveLiveShowShippingCapCents(terms.shippingCapCents),
+    shippingCapCents: capCents,
+    shippingCapIncrementCents:
+      terms.shippingMode === "capped" && capCents != null
+        ? standardLiveShowShippingCapIncrementCents(capCents)
+        : null,
     sellerPaysOverCap: terms.sellerPaysOverCap,
     shippingMode: terms.shippingMode,
     carrierPreference: terms.carrierPreference,
@@ -155,6 +172,8 @@ export function buyerLiveShowShippingHudCopy(args: {
 
 /** Seller-friendly capped shipping summary. */
 export function sellerCappedShippingSummary(capCents?: number | null): string {
-  const cap = formatUsdFromCents(resolveLiveShowShippingCapCents(capCents));
-  return `Buyers pay a maximum of ${cap} shipping for this show. You cover any shipping above that amount.`;
+  const capResolved = resolveLiveShowShippingCapCents(capCents);
+  const cap = formatUsdFromCents(capResolved);
+  const increment = standardLiveShowShippingCapIncrementCents(capResolved);
+  return `Buyers pay a maximum of ${cap} shipping for this show, split into ${formatUsdFromCents(increment)} charges per item until that max is reached, then free. You cover any shipping above that amount.`;
 }

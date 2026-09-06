@@ -11,6 +11,7 @@ import {
   shipmentProfileEditLocked,
   suggestShippingProfileSlugForCategory,
 } from "@/lib/unified-shipping-engine";
+import { standardLiveShowShippingCapIncrementCents } from "@/lib/live-show-shipping-terms";
 
 const helmetProfile = {
   id: "p1",
@@ -88,7 +89,7 @@ describe("unified-shipping-engine", () => {
     expect(groups.every((g) => g.items.length === 1)).toBe(true);
   });
 
-  it("applies buyer shipping cap with seller subsidy (platform max $9.99)", () => {
+  it("applies buyer shipping cap with seller subsidy (platform max $9.99), split into standard per-item charges", () => {
     const result = computeLiveBuyerShippingCharge({
       rawShippoEstimateCents: 2500,
       show: {
@@ -98,10 +99,12 @@ describe("unified-shipping-engine", () => {
         sellerPaysOverCap: true,
       },
     });
-    // Host-requested 1500 is clamped to the $9.99 platform ceiling.
-    expect(result.buyerPaysCents).toBe(999);
-    expect(result.sellerSubsidyCents).toBe(1501);
-    expect(result.shippingCapApplied).toBe(true);
+    // Host-requested 1500 is clamped to the $9.99 platform ceiling. Since this purchase's real cost
+    // (2500) already meets that ceiling, it's charged the standard per-item split, not the whole cap.
+    const expectedIncrement = standardLiveShowShippingCapIncrementCents(999);
+    expect(result.buyerPaysCents).toBe(expectedIncrement);
+    expect(result.sellerSubsidyCents).toBe(2500 - expectedIncrement);
+    expect(result.shippingCapApplied).toBe(false);
   });
 
   it("calculated mode still never charges the buyer more than $9.99", () => {

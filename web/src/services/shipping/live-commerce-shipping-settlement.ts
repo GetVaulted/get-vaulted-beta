@@ -26,6 +26,7 @@ export type LiveOrderShippingTermsSnapshot = {
   buyerId: string;
   shippingMode: LiveShowShippingTerms["shippingMode"];
   shippingCapCents: number | null;
+  shippingCapIncrementCents?: number | null;
   carrierPreference: LiveShowShippingTerms["carrierPreference"];
   bundleEligiblePurchases: boolean;
   selectedShippingProfileId: string | null;
@@ -391,6 +392,7 @@ export async function settleLiveOrderShippingTx(
     buyerId: order.buyerId,
     shippingMode: showTerms.shippingMode,
     shippingCapCents: showTerms.shippingCapCents,
+    shippingCapIncrementCents: showConfig.shippingCapIncrementCents ?? null,
     carrierPreference: showTerms.carrierPreference,
     bundleEligiblePurchases: showTerms.bundleEligiblePurchases,
     selectedShippingProfileId: profileInfo.profileId,
