@@ -114,19 +114,79 @@ const LIVE_SHIPPING_RESERVATION_EXCLUDED_PAYMENT_STATUSES = [
 ] as const;
 
 /**
- * Sum shipping reserved on sibling orders in the same bundled session (pending, requires-action, or
- * paid). Orders whose payment failed/expired/was refunded/charged back never actually collected
- * shipping and are excluded — otherwise a declined payment permanently (and wrongly) eats into the
- * buyer's shipping cap for every later purchase in the same show, making them look free/discounted.
+ * Walks backward through `LiveRoom.continuationOfLiveRoomId` to find the chain of ended shows this
+ * live show is auto-linked to as a continuation (same seller, same room type, ended recently — see
+ * `findRecentEndedLiveRoomIdForContinuation`). Returns liveShowIds newest-first, always including
+ * the given id. Capped defensively against a data anomaly (self-reference/cycle).
+ */
+async function resolveLiveShowContinuationChainIds(
+  tx: TransactionClient,
+  liveShowId: string,
+): Promise<string[]> {
+  const chain: string[] = [liveShowId];
+  let cursor = liveShowId;
+  for (let i = 0; i < 25; i++) {
+    const room = await tx.liveRoom.findUnique({
+      where: { id: cursor },
+      select: { continuationOfLiveRoomId: true },
+    });
+    const prev = room?.continuationOfLiveRoomId ?? null;
+    if (!prev || chain.includes(prev)) break;
+    chain.push(prev);
+    cursor = prev;
+  }
+  return chain;
+}
+
+/**
+ * Resolves every `LiveShippingSession` id for this same buyer/seller/destination across the show's
+ * continuation chain (itself plus any recently-ended predecessor shows it was auto-linked to). A
+ * brand-new show has no predecessor and this just returns `[sessionId]` unchanged.
+ */
+async function resolveContinuationLinkedSessionIdsTx(
+  tx: TransactionClient,
+  sessionId: string,
+): Promise<string[]> {
+  const session = await tx.liveShippingSession.findUnique({
+    where: { id: sessionId },
+    select: { id: true, buyerId: true, sellerId: true, liveShowId: true, destinationAddressId: true },
+  });
+  if (!session) return [sessionId];
+
+  const chainLiveShowIds = await resolveLiveShowContinuationChainIds(tx, session.liveShowId);
+  if (chainLiveShowIds.length <= 1) return [sessionId];
+
+  const siblingSessions = await tx.liveShippingSession.findMany({
+    where: {
+      buyerId: session.buyerId,
+      sellerId: session.sellerId,
+      destinationAddressId: session.destinationAddressId,
+      liveShowId: { in: chainLiveShowIds },
+    },
+    select: { id: true },
+  });
+  const ids = siblingSessions.map((s) => s.id);
+  return ids.includes(sessionId) ? ids : [sessionId, ...ids];
+}
+
+/**
+ * Sum shipping reserved on sibling orders in the same bundled session — plus, when this show is a
+ * continuation of a recently-ended show (see `findRecentEndedLiveRoomIdForContinuation`), this same
+ * buyer's reserved shipping in that predecessor show's session too, so their cap carries forward
+ * instead of resetting to $0. Includes pending, requires-action, and paid orders. Orders whose
+ * payment failed/expired/was refunded/charged back never actually collected shipping and are
+ * excluded — otherwise a declined payment permanently (and wrongly) eats into the buyer's shipping
+ * cap for every later purchase in the same show, making them look free/discounted.
  */
 export async function sumSessionReservedShippingCentsTx(
   tx: TransactionClient,
   sessionId: string,
   excludeOrderId?: string | null,
 ): Promise<number> {
+  const sessionIds = await resolveContinuationLinkedSessionIdsTx(tx, sessionId);
   const orders = await tx.order.findMany({
     where: {
-      liveShippingSessionId: sessionId,
+      liveShippingSessionId: { in: sessionIds },
       paymentStatus: { notIn: [...LIVE_SHIPPING_RESERVATION_EXCLUDED_PAYMENT_STATUSES] },
       ...(excludeOrderId ? { id: { not: excludeOrderId } } : {}),
     },

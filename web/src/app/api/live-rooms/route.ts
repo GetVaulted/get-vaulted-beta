@@ -32,6 +32,7 @@ import { parseLiveTeaserFieldsFromBody } from "@/lib/live-room-teaser";
 import { listHiddenPeerIdsForViewer } from "@/lib/user-block";
 import { scheduleNotifyAdminsLiveShowCreated } from "@/lib/live-show-created-admin-notify";
 import { effectiveLiveRoomViewerCount } from "@/lib/live-room-viewer-count-freshness";
+import { findRecentEndedLiveRoomIdForContinuation } from "@/lib/live-room-continuation";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
 
@@ -633,6 +634,14 @@ export async function POST(req: Request) {
     );
   }
 
+  // Auto-link this show to a recently-ended one from the same seller/roomType so a returning
+  // buyer's live-show shipping cap carries forward instead of resetting to $0 — see
+  // `findRecentEndedLiveRoomIdForContinuation`. Only for a single "go live now" / one-off scheduled
+  // show, never for a batch of future recurring shows (those aren't "continuing" anything).
+  const continuationOfLiveRoomId = recurringEnabled
+    ? null
+    : await findRecentEndedLiveRoomIdForContinuation({ sellerId, roomType: rt }).catch(() => null);
+
   try {
     const createdIds: string[] = [];
     const seller = await prisma.user.findUnique({
@@ -641,7 +650,7 @@ export async function POST(req: Request) {
     });
 
     for (const slot of scheduleSlots) {
-      const slotRoomData = { ...roomData, scheduledStartAt: slot };
+      const slotRoomData = { ...roomData, scheduledStartAt: slot, continuationOfLiveRoomId };
 
       if (rt === "break") {
         const created = await prisma.$transaction(async (tx) => {

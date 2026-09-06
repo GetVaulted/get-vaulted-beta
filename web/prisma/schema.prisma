@@ -1313,9 +1313,18 @@ model LiveRoom {
   /// When true, seller absorbs shipping above buyer cap (default platform behavior).
   sellerPaysOverCap              Boolean                   @default(true)
 
+  /// Auto-detected at creation (same seller, same roomType, ended within the continuation window —
+  /// see `findRecentEndedLiveRoomIdForContinuation`): when a seller ends a stream mid-break and
+  /// starts a new one shortly after, the new show is linked to the old one so a returning buyer's
+  /// live-show shipping cap carries forward instead of resetting to $0. No seller action required.
+  continuationOfLiveRoomId String?
+  continuationOf           LiveRoom?  @relation("LiveRoomContinuation", fields: [continuationOfLiveRoomId], references: [id], onDelete: SetNull)
+  continuations            LiveRoom[] @relation("LiveRoomContinuation")
+
   @@index([sellerId, status])
   @@index([status, scheduledStartAt])
   @@index([tipModeratorId])
+  @@index([continuationOfLiveRoomId])
 }
 
 /// Viewer tip during a live show — tracked separately from item/break sales (no platform fee, no GMV tier impact).

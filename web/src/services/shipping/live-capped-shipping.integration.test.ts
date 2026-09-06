@@ -361,6 +361,135 @@ describe("live capped shipping settlement (integration)", () => {
     expect(session.shippingChargedCents).toBe(Math.round(settledNext.shippingPriceUsd * 100));
   });
 
+  it("10. buyer's shipping cap carries forward when a break continues in a new stream (same seller, recent)", async () => {
+    // Regression test: seller ends a stream mid-break and starts a new stream to keep selling the
+    // same break. Before this fix, the new stream got a brand-new LiveShippingSession scoped to its
+    // own liveShowId, so a returning buyer's shipping cap silently reset to $0 and they were charged
+    // shipping again for an item that, combined with what they already paid in the ended stream,
+    // would never have exceeded the show's advertised cap.
+    const seller = await seedSellerStripeReady(prisma, { email: "cap10_s@test.internal", username: "cap10seller" });
+    const buyer = await seedUser(prisma, { email: "cap10_b@test.internal", username: "cap10buyer" });
+
+    const showA = await seedCappedLiveRoom(seller.id);
+    const orderA = await seedAuctionWin({
+      sellerId: seller.id,
+      buyerId: buyer.id,
+      liveRoomId: showA.id,
+      baseWeight: 8,
+      incrementalWeight: 3,
+    });
+    await addOrderToLiveShippingSession(orderA.id, { liveShowId: showA.id });
+    const settledA = await prisma.order.findUniqueOrThrow({ where: { id: orderA.id } });
+    expect(settledA.shippingPriceUsd).toBeGreaterThan(0);
+
+    // Seller ends the stream, then starts a new one to continue the same break — auto-linked as a
+    // continuation (same seller, same roomType, ended moments ago). See
+    // `findRecentEndedLiveRoomIdForContinuation` for the real auto-detection; the link is set
+    // directly here since the API route's auto-detect isn't exercised by this settlement test.
+    await prisma.liveRoom.update({
+      where: { id: showA.id },
+      data: { status: "ended", endedAt: new Date() },
+    });
+    const showB = await prisma.liveRoom.create({
+      data: {
+        sellerId: seller.id,
+        title: "Capped show (continued)",
+        roomType: "auction",
+        status: "live",
+        shippingMode: "capped",
+        shippingCapEnabled: true,
+        shippingCapCents: DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS,
+        freeShippingEnabled: false,
+        sellerPaysOverCap: true,
+        carrierPreference: "best_rate",
+        bundleEligiblePurchases: true,
+        shippingTermsVersion: 1,
+        continuationOfLiveRoomId: showA.id,
+      },
+    });
+
+    // Same buyer purchases an identically-weighted item in the new stream.
+    const orderB = await seedAuctionWin({
+      sellerId: seller.id,
+      buyerId: buyer.id,
+      liveRoomId: showB.id,
+      baseWeight: 8,
+      incrementalWeight: 3,
+    });
+    await addOrderToLiveShippingSession(orderB.id, { liveShowId: showB.id });
+    const settledB = await prisma.order.findUniqueOrThrow({ where: { id: orderB.id } });
+
+    // The buyer already paid this item's real cost in the ended stream — the continued stream must
+    // not charge them shipping again for it.
+    expect(settledB.shippingPriceUsd).toBe(0);
+
+    // The new show's own session ledger reflects the true combined total (not just its own orders),
+    // so any further purchases in this show price correctly against the real remaining room under
+    // the cap.
+    const sessionB = await prisma.liveShippingSession.findFirstOrThrow({
+      where: { buyerId: buyer.id, liveShowId: showB.id },
+    });
+    expect(sessionB.shippingChargedCents).toBe(
+      Math.round(settledA.shippingPriceUsd * 100) + Math.round(settledB.shippingPriceUsd * 100),
+    );
+  });
+
+  it("11. a continuation link to an unrelated buyer's session never leaks their shipping charges", async () => {
+    // A different buyer purchasing in the continued show must be priced on their own ledger only —
+    // the continuation lookup is scoped to buyerId+sellerId+destinationAddressId, never just liveShowId.
+    const seller = await seedSellerStripeReady(prisma, { email: "cap11_s@test.internal", username: "cap11seller" });
+    const buyerA = await seedUser(prisma, { email: "cap11_ba@test.internal", username: "cap11buyera" });
+    const buyerC = await seedUser(prisma, { email: "cap11_bc@test.internal", username: "cap11buyerc" });
+
+    const showA = await seedCappedLiveRoom(seller.id);
+    const orderA = await seedAuctionWin({
+      sellerId: seller.id,
+      buyerId: buyerA.id,
+      liveRoomId: showA.id,
+      baseWeight: 8,
+      incrementalWeight: 3,
+    });
+    await addOrderToLiveShippingSession(orderA.id, { liveShowId: showA.id });
+    const settledA = await prisma.order.findUniqueOrThrow({ where: { id: orderA.id } });
+    expect(settledA.shippingPriceUsd).toBeGreaterThan(0);
+
+    await prisma.liveRoom.update({
+      where: { id: showA.id },
+      data: { status: "ended", endedAt: new Date() },
+    });
+    const showB = await prisma.liveRoom.create({
+      data: {
+        sellerId: seller.id,
+        title: "Capped show (continued)",
+        roomType: "auction",
+        status: "live",
+        shippingMode: "capped",
+        shippingCapEnabled: true,
+        shippingCapCents: DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS,
+        freeShippingEnabled: false,
+        sellerPaysOverCap: true,
+        carrierPreference: "best_rate",
+        bundleEligiblePurchases: true,
+        shippingTermsVersion: 1,
+        continuationOfLiveRoomId: showA.id,
+      },
+    });
+
+    // A brand-new buyer (never in showA) buys the identical item in showB.
+    const orderC = await seedAuctionWin({
+      sellerId: seller.id,
+      buyerId: buyerC.id,
+      liveRoomId: showB.id,
+      baseWeight: 8,
+      incrementalWeight: 3,
+    });
+    await addOrderToLiveShippingSession(orderC.id, { liveShowId: showB.id });
+    const settledC = await prisma.order.findUniqueOrThrow({ where: { id: orderC.id } });
+
+    // New buyer's first item in the show — priced the same as buyerA's real first-item cost, not $0.
+    expect(settledC.shippingPriceUsd).toBe(settledA.shippingPriceUsd);
+  });
+
   it("Shippo quote honors carrier preference and falls back when no eligible rates", async () => {
     shippoHoisted.createShipment.mockResolvedValue({ object_id: "ship_1" });
     shippoHoisted.listRates.mockResolvedValue({
