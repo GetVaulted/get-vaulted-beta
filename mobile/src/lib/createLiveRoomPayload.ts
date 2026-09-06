@@ -33,6 +33,12 @@ export type BuildCreateLiveRoomPayloadInput = {
   recurringEnabled?: boolean;
   /** `public` (default) lists on Live Shows; `private` is link-only. */
   discoveryVisibility?: 'public' | 'private';
+  /**
+   * Seller-confirmed via the "continue from a show you ended recently?" toggle. Always
+   * re-validated server-side (same seller/roomType, ended within 24h) — a stale/expired id is
+   * ignored. See `fetchLiveRoomContinuationCandidate` in `liveRoomsRepository.ts`.
+   */
+  continuationOfLiveRoomId?: string | null;
 };
 
 export function buildCreateLiveRoomPayload(
@@ -113,6 +119,10 @@ export function buildCreateLiveRoomPayload(
 
   if (input.discoveryVisibility === 'private') {
     body.discoveryVisibility = 'private';
+  }
+
+  if (input.continuationOfLiveRoomId?.trim()) {
+    body.continuationOfLiveRoomId = input.continuationOfLiveRoomId.trim();
   }
 
   return body;

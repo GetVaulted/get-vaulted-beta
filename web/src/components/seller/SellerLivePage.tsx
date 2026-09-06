@@ -161,6 +161,15 @@ function logCreateLiveRoom(label: string, data?: Record<string, unknown>) {
   console.info("[create-live-room]", label, data ?? {});
 }
 
+/** "ended 45 minutes ago" / "ended 3 hours ago" for the continuation-candidate toggle. */
+function formatEndedAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+}
+
 export function SellerLivePage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -180,6 +189,12 @@ export function SellerLivePage() {
   const [description, setDescription] = useState("");
   const [vaultCategory, setVaultCategory] = useState<"Cards" | "Helmets">("Cards");
   const [roomType, setRoomType] = useState<RoomTypeChoice>("break");
+  const [continuationCandidate, setContinuationCandidate] = useState<{
+    id: string;
+    title: string;
+    endedAt: string;
+  } | null>(null);
+  const [continueFromPreviousShow, setContinueFromPreviousShow] = useState(false);
   const [thumb, setThumb] = useState("");
   const [teaserUrl, setTeaserUrl] = useState("");
   const [teaserDurationMs, setTeaserDurationMs] = useState<number | null>(null);
@@ -487,6 +502,28 @@ export function SellerLivePage() {
     if (roomType === "break") setCheckFormat(true);
   }, [roomType]);
 
+  // Ask whether this new show continues one the seller ended recently (same roomType, within 24h)
+  // — if the seller confirms, the buyer's live-show shipping cap carries forward instead of
+  // resetting to $0. Never trust this client-side; the server re-validates before applying it.
+  useEffect(() => {
+    let cancelled = false;
+    setContinuationCandidate(null);
+    setContinueFromPreviousShow(false);
+    (async () => {
+      try {
+        const res = await fetch(`/api/live-rooms/continuation-candidate?roomType=${encodeURIComponent(roomType)}`);
+        if (!res.ok || cancelled) return;
+        const j = (await res.json()) as { candidate: { id: string; title: string; endedAt: string } | null };
+        if (!cancelled) setContinuationCandidate(j.candidate ?? null);
+      } catch {
+        /* best-effort — no continuation offered if the check fails */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [roomType]);
+
   const uploadLiveThumbnailFile = async (file: File) => {
     setCreateError(null);
     if (!THUMBNAIL_UPLOAD_ALLOWED.has(file.type)) {
@@ -637,6 +674,9 @@ export function SellerLivePage() {
       if (discoveryVisibility === "private") {
         body.discoveryVisibility = "private";
       }
+      if (continueFromPreviousShow && continuationCandidate) {
+        body.continuationOfLiveRoomId = continuationCandidate.id;
+      }
 
       logCreateLiveRoom("POST /api/live-rooms payload", { body });
 
@@ -726,6 +766,8 @@ export function SellerLivePage() {
       setCreateTipModeratorId(null);
       setCreateTipModeratorUsername("");
       setCreateTipsToModerator(false);
+      setContinueFromPreviousShow(false);
+      setContinuationCandidate(null);
       await loadRooms();
       router.refresh();
       notifyLiveDiscoveryChanged();
@@ -1194,6 +1236,26 @@ export function SellerLivePage() {
                   );
                 })}
               </div>
+              {continuationCandidate ? (
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/[0.08] bg-black/30 p-4">
+                  <input
+                    type="checkbox"
+                    checked={continueFromPreviousShow}
+                    onChange={(e) => setContinueFromPreviousShow(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/50 accent-[#facc15]"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-zinc-200">
+                      Continue from &ldquo;{continuationCandidate.title}&rdquo;?
+                    </span>
+                    <span className="mt-1 block text-xs leading-relaxed text-zinc-500">
+                      That show ended {formatEndedAgo(continuationCandidate.endedAt)}. If this is the same break/sale
+                      picking back up, buyers who already paid toward the shipping cap there won&apos;t be charged
+                      shipping again here. Shows past 24 hours can&apos;t be used.
+                    </span>
+                  </span>
+                </label>
+              ) : null}
             </section>
 
             {/* Step 2 */}

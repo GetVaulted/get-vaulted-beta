@@ -32,7 +32,7 @@ import { parseLiveTeaserFieldsFromBody } from "@/lib/live-room-teaser";
 import { listHiddenPeerIdsForViewer } from "@/lib/user-block";
 import { scheduleNotifyAdminsLiveShowCreated } from "@/lib/live-show-created-admin-notify";
 import { effectiveLiveRoomViewerCount } from "@/lib/live-room-viewer-count-freshness";
-import { findRecentEndedLiveRoomIdForContinuation } from "@/lib/live-room-continuation";
+import { isEligibleLiveRoomContinuationCandidate } from "@/lib/live-room-continuation";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
 
@@ -306,6 +306,12 @@ type PostBody = {
   discoveryVisibility?: string;
   visibility?: string;
   isPrivate?: boolean;
+  /**
+   * Seller-confirmed via the "continue from a show you ended recently?" toggle (see
+   * `GET /api/live-rooms/continuation-candidate`). Always re-validated server-side against the same
+   * seller/roomType/24h-window rules before it's used — a stale, expired, or spoofed id is ignored.
+   */
+  continuationOfLiveRoomId?: string | null;
 };
 
 function peekBearerJwtSub(req: Request): string | null {
@@ -634,13 +640,25 @@ export async function POST(req: Request) {
     );
   }
 
-  // Auto-link this show to a recently-ended one from the same seller/roomType so a returning
-  // buyer's live-show shipping cap carries forward instead of resetting to $0 — see
-  // `findRecentEndedLiveRoomIdForContinuation`. Only for a single "go live now" / one-off scheduled
-  // show, never for a batch of future recurring shows (those aren't "continuing" anything).
-  const continuationOfLiveRoomId = recurringEnabled
-    ? null
-    : await findRecentEndedLiveRoomIdForContinuation({ sellerId, roomType: rt }).catch(() => null);
+  // Link this show to a recently-ended one only if the seller explicitly confirmed it via the
+  // "continue from a show you ended recently?" toggle (see
+  // GET /api/live-rooms/continuation-candidate). The client's claimed id is never trusted at face
+  // value — re-validated here against the same seller/roomType/24h-window rules, so a stale,
+  // expired, or spoofed id is silently ignored rather than applied. This is what makes a returning
+  // buyer's live-show shipping cap carry forward instead of resetting to $0. Never applies to a
+  // batch of future recurring shows (those aren't "continuing" anything).
+  const requestedContinuationOfLiveRoomId =
+    typeof body.continuationOfLiveRoomId === "string" ? body.continuationOfLiveRoomId.trim() : "";
+  const continuationOfLiveRoomId =
+    !recurringEnabled && requestedContinuationOfLiveRoomId
+      ? await isEligibleLiveRoomContinuationCandidate({
+          sellerId,
+          roomType: rt,
+          candidateId: requestedContinuationOfLiveRoomId,
+        })
+          .then((eligible) => (eligible ? requestedContinuationOfLiveRoomId : null))
+          .catch(() => null)
+      : null;
 
   try {
     const createdIds: string[] = [];

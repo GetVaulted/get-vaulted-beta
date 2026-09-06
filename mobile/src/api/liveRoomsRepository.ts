@@ -152,7 +152,40 @@ export type CreateLiveRoomInput = {
   bundleEligiblePurchases?: boolean;
   recurringEnabled?: boolean;
   discoveryVisibility?: 'public' | 'private';
+  /** Seller-confirmed via the "continue from a show you ended recently?" toggle. */
+  continuationOfLiveRoomId?: string | null;
 };
+
+export type LiveRoomContinuationCandidate = {
+  id: string;
+  title: string;
+  endedAt: string;
+};
+
+/**
+ * Checks whether the seller has a recently-ended show (same roomType, ended within 24h) that this
+ * new show could continue — used to show a "continue from this show?" toggle before going live.
+ * Never links anything by itself; the seller must confirm, and the server re-validates at create
+ * time regardless of what this returns.
+ */
+export async function fetchLiveRoomContinuationCandidate(
+  accessToken: string,
+  roomType: LiveRoomApiRow['roomType'],
+): Promise<LiveRoomContinuationCandidate | null> {
+  try {
+    const token = await resolveSellerAccessToken(accessToken);
+    const res = await fetchWebApiMobileWithSellerAuth(
+      `/api/live-rooms/continuation-candidate?roomType=${encodeURIComponent(roomType)}`,
+      token,
+      { method: 'GET', headers: { Accept: 'application/json' } },
+    );
+    if (!res.ok) return null;
+    const j = (await res.json()) as { candidate: LiveRoomContinuationCandidate | null };
+    return j.candidate ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export async function createLiveRoom(
   accessToken: string,

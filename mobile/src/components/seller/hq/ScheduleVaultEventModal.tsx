@@ -21,7 +21,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchSellerShippingProfiles, type LiveHostShippingProfileOption } from '../../../api/liveHostShippingRepository';
 import { resolveSellerShippingProfileIdForCategory } from '../../../lib/liveShowCategoryShippingProfile';
-import { createLiveRoom, streamFormatToRoomType } from '../../../api/liveRoomsRepository';
+import {
+  createLiveRoom,
+  fetchLiveRoomContinuationCandidate,
+  streamFormatToRoomType,
+  type LiveRoomContinuationCandidate,
+} from '../../../api/liveRoomsRepository';
 import { fetchSellerLiveReadiness, type SellerLiveReadiness } from '../../../api/liveHostRepository';
 import { logVaultCommandCenter, supabaseJwtSub } from '../../../lib/logVaultCommandCenterFlow';
 import { resolveSellerAccessToken } from '../../../lib/resolveSellerAccessToken';
@@ -68,6 +73,15 @@ const BREAK_PRICING_MODES: { id: BreakPricingMode; label: string }[] = [
   { id: 'auction', label: 'Auction spots' },
   { id: 'hybrid', label: 'Hybrid' },
 ];
+
+/** "ended 45 minutes ago" / "ended 3 hours ago" for the continuation-candidate toggle. */
+function formatEndedAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.round(minutes / 60);
+  return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+}
 
 const FORMATS: { id: 'auction' | 'break' | 'hybrid'; label: string }[] = [
   { id: 'break', label: 'Break' },
@@ -143,6 +157,8 @@ export function ScheduleVaultEventModal({
   const [tipsToModerator, setTipsToModerator] = useState(false);
   const [recurringWeekly, setRecurringWeekly] = useState(false);
   const [discoveryVisibility, setDiscoveryVisibility] = useState<'public' | 'private'>('public');
+  const [continuationCandidate, setContinuationCandidate] = useState<LiveRoomContinuationCandidate | null>(null);
+  const [continueFromPreviousShow, setContinueFromPreviousShow] = useState(false);
   const [shippingProfiles, setShippingProfiles] = useState<LiveHostShippingProfileOption[]>([]);
   const [defaultSellerShippingProfileId, setDefaultSellerShippingProfileId] = useState('');
   const [profilesLoading, setProfilesLoading] = useState(false);
@@ -188,6 +204,28 @@ export function ScheduleVaultEventModal({
     void onRefreshReadinessRef.current?.();
     void loadShippingProfiles();
   }, [visible, loadShippingProfiles]);
+
+  // Ask whether this new show continues one the seller ended recently (same roomType, within 24h)
+  // — if confirmed, the buyer's live-show shipping cap carries forward instead of resetting to $0.
+  // Never trusted client-side; the server re-validates before applying it.
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    setContinuationCandidate(null);
+    setContinueFromPreviousShow(false);
+    (async () => {
+      try {
+        const token = await resolveSellerAccessToken(accessToken);
+        const candidate = await fetchLiveRoomContinuationCandidate(token, streamFormatToRoomType(streamFormat));
+        if (!cancelled) setContinuationCandidate(candidate);
+      } catch {
+        /* best-effort — no continuation offered if the check fails */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, streamFormat, accessToken]);
 
   useEffect(() => {
     if (!visible || shippingProfiles.length === 0) return;
@@ -314,6 +352,8 @@ export function ScheduleVaultEventModal({
     setDiscoveryVisibility('public');
     setStreamFormat('hybrid');
     setScheduleCategory('Cards');
+    setContinuationCandidate(null);
+    setContinueFromPreviousShow(false);
   }, [setScheduleCategory, setScheduleTitle, setStreamFormat]);
 
   const submit = useCallback(async () => {
@@ -421,6 +461,8 @@ export function ScheduleVaultEventModal({
           defaultShippingProfileId: defaultSellerShippingProfileId || undefined,
           recurringEnabled: scheduleMode === 'later' && recurringWeekly,
           discoveryVisibility,
+          continuationOfLiveRoomId:
+            continueFromPreviousShow && continuationCandidate ? continuationCandidate.id : undefined,
         },
         { sellerUserId: freshReadiness.sellerUserId ?? null },
       );
@@ -487,6 +529,8 @@ export function ScheduleVaultEventModal({
     breakPricingMode,
     breakSpotPrice,
     busy,
+    continuationCandidate,
+    continueFromPreviousShow,
     isBreak,
     liveGate.alertBody,
     liveGate.alertTitle,
@@ -670,6 +714,25 @@ export function ScheduleVaultEventModal({
               );
             })}
           </View>
+
+          {continuationCandidate ? (
+            <View style={styles.toggleRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.toggleTitle}>Continue from &ldquo;{continuationCandidate.title}&rdquo;?</Text>
+                <Text style={styles.helperTxt}>
+                  That show ended {formatEndedAgo(continuationCandidate.endedAt)}. If this is the same break/sale
+                  picking back up, buyers who already paid toward the shipping cap there won&apos;t be charged
+                  shipping again here. Shows past 24 hours can&apos;t be used.
+                </Text>
+              </View>
+              <Switch
+                value={continueFromPreviousShow}
+                onValueChange={setContinueFromPreviousShow}
+                trackColor={{ false: 'rgba(255,255,255,0.12)', true: 'rgba(212,175,55,0.45)' }}
+                thumbColor={continueFromPreviousShow ? colors.gold : '#f4f3f4'}
+              />
+            </View>
+          ) : null}
 
           {isBreak ? (
             <View style={styles.breakCard}>
