@@ -10,7 +10,7 @@ import { prisma } from "@/lib/prisma";
  * action required. See `sumSessionReservedShippingCentsTx` in `live-commerce-shipping-settlement.ts`
  * for where the carried-forward total is actually used.
  */
-export const LIVE_ROOM_CONTINUATION_WINDOW_MS = 6 * 60 * 60 * 1000; // 6 hours
+export const LIVE_ROOM_CONTINUATION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
  * Finds the most recently ended live room from the same seller (same room type) within the
