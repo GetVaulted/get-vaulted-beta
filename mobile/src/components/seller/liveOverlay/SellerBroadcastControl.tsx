@@ -125,13 +125,20 @@ export function SellerBroadcastControl({
           style={[
             styles.takeOver,
             { width: headerCompact ? undefined : btnSize + 36, height: btnSize, paddingHorizontal: headerCompact ? 8 : 10 },
-            (!cameraReady || busy) && styles.disabled,
+            busy && styles.disabled,
           ]}
           onPress={() => {
-            if (!cameraReady || busy) return;
+            if (busy) return;
+            // Don't hard-disable on !cameraReady — that made the button a silent no-op on a
+            // device that's never requested camera/mic access. Let the handler explain why and
+            // route to the permission prompt instead of tapping doing nothing visible.
+            if (!cameraReady) {
+              takeOver();
+              return;
+            }
             confirmStartLive(takeOver);
           }}
-          disabled={!cameraReady || busy}
+          disabled={busy}
           accessibilityLabel={SELLER_CONSOLE.companionTakeOverCamera}
         >
           <Ionicons name="videocam-outline" size={iconSize} color="#ecfdf5" />

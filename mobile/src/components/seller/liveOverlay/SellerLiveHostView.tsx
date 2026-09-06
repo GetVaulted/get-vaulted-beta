@@ -725,13 +725,45 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     host.onStartShow();
   };
 
+  // Take-over used to fail completely silently: the button was hard-disabled while camera
+  // permission wasn't granted (common on a second device that's never gone live before), and
+  // even once enabled, any start failure went nowhere — the "Could not start broadcast" banner
+  // is intentionally suppressed while the room is live (see shouldShowPreLiveRetryBanner) so a
+  // healthy show's transient reconnect blips don't flash yellow chrome. That's correct for
+  // auto-reconnect, but it meant an explicit, user-initiated take-over tap that failed looked
+  // identical to one that succeeded. Surface both cases directly instead of relying on that banner.
+  const takeOverAttemptRef = useRef(false);
   const onTakeOverCamera = () => {
     if (host.readinessBlocked?.length) {
       Alert.alert('Finish setup', host.readinessBlocked.join('\n'));
       return;
     }
+    if (host.cameraPermissionState !== 'granted') {
+      Alert.alert(
+        'Camera access needed',
+        'Get Vaulted needs camera and microphone access on this device before you can take over the broadcast. Grant access, then tap Use this camera again.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Grant access', onPress: () => host.onRetryCameraPermission() },
+        ],
+      );
+      return;
+    }
+    takeOverAttemptRef.current = true;
     host.onStartBroadcast();
   };
+
+  // Resolves the silent-failure half of the take-over bug above: if a take-over attempt was
+  // just made from this device and the broadcast phase falls back to idle with an error set,
+  // the start failed — tell the seller directly rather than leaving the UI looking unchanged.
+  useEffect(() => {
+    if (!takeOverAttemptRef.current) return;
+    if (host.broadcastPhase === 'starting') return;
+    takeOverAttemptRef.current = false;
+    if (host.broadcastPhase === 'idle' && host.broadcastError) {
+      Alert.alert('Could not start broadcast', host.broadcastError);
+    }
+  }, [host.broadcastPhase, host.broadcastError]);
 
   return (
     <SellerLiveGestureLayer
