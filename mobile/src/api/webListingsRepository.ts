@@ -89,6 +89,60 @@ export async function fetchPublishedListingsFromWeb(opts?: { force?: boolean }):
   }, opts);
 }
 
+export type WebPublishedListingsPage = {
+  listings: WebMarketplaceListing[];
+  hasMore: boolean;
+  page: number;
+  pageSize: number;
+  totalListingCount: number;
+};
+
+/**
+ * Paginated variant of `fetchPublishedListingsFromWeb` — hits the same `scope=published` endpoint
+ * the web marketplace's own "Load more" already uses, but actually sends `page`/`pageSize` so the
+ * server's real pagination (it returns `hasMore`/`totalListingCount`) is used instead of silently
+ * always getting page 1. Bypasses the single-snapshot cache above since that cache only ever holds
+ * one page's worth of rows — each page here is fetched fresh.
+ */
+export async function fetchPublishedListingsPageFromWeb(opts: {
+  page: number;
+  pageSize: number;
+  category?: string;
+}): Promise<WebPublishedListingsPage> {
+  let headers: HeadersInit | undefined;
+  try {
+    const token = await resolveSellerAccessToken();
+    if (token) headers = { Authorization: `Bearer ${token}` };
+  } catch {
+    // Guest browse — no block filter.
+  }
+  const params = new URLSearchParams({
+    scope: 'published',
+    page: String(Math.max(1, Math.trunc(opts.page))),
+    pageSize: String(Math.min(Math.max(1, Math.trunc(opts.pageSize)), 120)),
+  });
+  if (opts.category) params.set('category', opts.category);
+  const res = await fetchWebApi(`/api/listings?${params.toString()}`, { headers });
+  const body = (await res.json().catch(() => null)) as {
+    listings?: WebMarketplaceListing[];
+    hasMore?: boolean;
+    page?: number;
+    pageSize?: number;
+    totalListingCount?: number;
+  } | null;
+  if (!res.ok) {
+    console.warn('[fetchPublishedListingsPageFromWeb]', fetchApiErrorMessage(res, body));
+    return { listings: [], hasMore: false, page: opts.page, pageSize: opts.pageSize, totalListingCount: 0 };
+  }
+  return {
+    listings: Array.isArray(body?.listings) ? body!.listings! : [],
+    hasMore: Boolean(body?.hasMore),
+    page: body?.page ?? opts.page,
+    pageSize: body?.pageSize ?? opts.pageSize,
+    totalListingCount: body?.totalListingCount ?? 0,
+  };
+}
+
 export async function fetchListingsByIdsFromWeb(ids: string[]): Promise<WebMarketplaceListing[]> {
   const uniq = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
   if (!uniq.length) return [];

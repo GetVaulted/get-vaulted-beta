@@ -3,9 +3,9 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fetchMarketplaceListings } from '../api/listingsFeedRepository';
+import { fetchMarketplaceListingsPage } from '../api/listingsFeedRepository';
 import { touchAuctionPaymentExpiries } from '../api/touchAuctionPaymentExpiries';
 import { useAuth } from '../auth/AuthContext';
 import { PremiumEmptyPanel } from '../components/empty/PremiumEmptyPanel';
@@ -42,8 +42,16 @@ export function MarketplaceScreen() {
   const [lane, setLane] = useState<MarketplaceLaneId>('all');
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [catalog, setCatalog] = useState<Product[]>(() => getHomeFeedMemorySnapshot()?.listings ?? []);
   const loadedOnceRef = useRef(Boolean(getHomeFeedMemorySnapshot()?.listings.length));
+  // Server-side page cursor for the marketplace grid (`GET /api/listings?scope=published`).
+  // Previously this screen fetched a single hard-capped batch (≤48-60 items) with no way to ask
+  // for more — anything past that cutoff was permanently unreachable once the catalog grew past
+  // it. `pageRef`/`hasMoreRef` track pagination so scrolling can page through the full catalog,
+  // the same way the web marketplace's "Load more" already does against this same endpoint.
+  const pageRef = useRef(1);
+  const hasMoreRef = useRef(true);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!isSupabaseConfigured()) {
@@ -55,12 +63,33 @@ export function MarketplaceScreen() {
     const silent = opts?.silent ?? loadedOnceRef.current;
     if (!silent) setLoading(true);
     try {
-      setCatalog(await fetchMarketplaceListings({ limit: 48 }));
+      const result = await fetchMarketplaceListingsPage({ page: 1, pageSize: 60 });
+      setCatalog(result.products);
+      pageRef.current = 1;
+      hasMoreRef.current = result.hasMore;
     } finally {
       loadedOnceRef.current = true;
       setLoading(false);
     }
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMoreRef.current || !isSupabaseConfigured()) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = pageRef.current + 1;
+      const result = await fetchMarketplaceListingsPage({ page: nextPage, pageSize: 60 });
+      pageRef.current = result.page;
+      hasMoreRef.current = result.hasMore;
+      setCatalog((prev) => {
+        const seen = new Set(prev.map((p) => p.id));
+        const additions = result.products.filter((p) => !seen.has(p.id));
+        return additions.length ? [...prev, ...additions] : prev;
+      });
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore]);
 
   useEffect(() => {
     void load();
@@ -177,6 +206,13 @@ export function MarketplaceScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         ListHeaderComponent={listHeader}
+        ListFooterComponent={
+          loadingMore ? (
+            <ActivityIndicator color={colors.gold} style={styles.loadMoreSpinner} />
+          ) : null
+        }
+        onEndReached={() => void loadMore()}
+        onEndReachedThreshold={0.6}
         columnWrapperStyle={{ gap: grid.gap, marginBottom: grid.gap }}
         contentContainerStyle={[
           styles.body,
@@ -215,5 +251,8 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     letterSpacing: -0.3,
     marginTop: spacing.xs,
+  },
+  loadMoreSpinner: {
+    marginVertical: spacing.lg,
   },
 });
