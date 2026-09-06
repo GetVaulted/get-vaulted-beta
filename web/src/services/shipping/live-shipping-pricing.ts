@@ -369,7 +369,16 @@ export async function addOrderToLiveShippingSessionTx(
         ? showCap.shippingCapCents
         : listing.shippingPriceCapCents ?? null;
 
-    const itemCount = await tx.liveShippingSessionItem.count({ where: { sessionId: session.id } });
+    // Exclude siblings whose payment failed/expired/was refunded or charged back — they never
+    // actually shipped, so they must not count as "already have a bundled item" and shrink this
+    // item's weight down to the cheaper incremental tier. Otherwise a declined-then-retried (or a
+    // fresh) purchase right after a failed one gets under-weighted and under-charged.
+    const itemCount = await tx.liveShippingSessionItem.count({
+      where: {
+        sessionId: session.id,
+        order: { paymentStatus: { notIn: ["failed", "expired", "refunded", "chargeback"] } },
+      },
+    });
 
     // Break/PYT queue rows (liveRoomItem.listingId === null) are host board rows, not the item being
     // shipped. Their platform profile (e.g. "Full-Size Helmet") belongs to the queue row, not to the

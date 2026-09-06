@@ -97,7 +97,28 @@ export async function lockLiveShippingSessionForUpdateTx(
   await tx.$executeRaw`SELECT id FROM "LiveShippingSession" WHERE id = ${sessionId} FOR UPDATE`;
 }
 
-/** Sum shipping reserved on sibling orders in the same bundled session (pending or paid). */
+// Mirrors the string values of PAYMENT_FAILED / PAYMENT_EXPIRED / PAYMENT_REFUNDED /
+// PAYMENT_CHARGEBACK in `@/services/payments`. Duplicated as literals (not imported) because
+// payments.ts already imports from this file at runtime — importing back would create a cycle.
+// A sibling order in one of these states never actually collected its shipping charge (payment
+// failed/expired before it was captured, or the charge was later reversed), so it must not count
+// toward this buyer's shipping cap ledger. Leaving it in the sum is what caused a later purchase in
+// the same live show to come back as free/heavily-discounted shipping after an earlier payment was
+// declined and retried: the failed order's never-collected shipping was still being treated as
+// "already reserved."
+const LIVE_SHIPPING_RESERVATION_EXCLUDED_PAYMENT_STATUSES = [
+  "failed",
+  "expired",
+  "refunded",
+  "chargeback",
+] as const;
+
+/**
+ * Sum shipping reserved on sibling orders in the same bundled session (pending, requires-action, or
+ * paid). Orders whose payment failed/expired/was refunded/charged back never actually collected
+ * shipping and are excluded — otherwise a declined payment permanently (and wrongly) eats into the
+ * buyer's shipping cap for every later purchase in the same show, making them look free/discounted.
+ */
 export async function sumSessionReservedShippingCentsTx(
   tx: TransactionClient,
   sessionId: string,
@@ -106,6 +127,7 @@ export async function sumSessionReservedShippingCentsTx(
   const orders = await tx.order.findMany({
     where: {
       liveShippingSessionId: sessionId,
+      paymentStatus: { notIn: [...LIVE_SHIPPING_RESERVATION_EXCLUDED_PAYMENT_STATUSES] },
       ...(excludeOrderId ? { id: { not: excludeOrderId } } : {}),
     },
     select: { shippingPriceUsd: true, shippingChargedCents: true },

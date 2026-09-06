@@ -9,7 +9,7 @@ import { createLiveBuyNowOrder } from "@/lib/live-buy-now-purchase";
 import { addOrderToLiveShippingSession } from "@/services/shipping/live-shipping-pricing";
 import { ensureBreakSpotFulfillmentOrder } from "@/services/shipping/live-commerce-fulfillment-order";
 import { quoteShippoCentsForPackageGroups } from "@/services/shipping/live-shipping-quote";
-import { PAYMENT_PENDING } from "@/services/payments";
+import { PAYMENT_FAILED, PAYMENT_PENDING } from "@/services/payments";
 import { seedSellerShippingProfiles } from "@/services/shipping/seller-shipping-profiles";
 import {
   bootstrapIntegrationPrisma,
@@ -320,6 +320,45 @@ describe("live capped shipping settlement (integration)", () => {
     expect(secondSnap.shippingTermsVersion).toBe(2);
     expect(secondSnap.shippingCapCents).toBe(599);
     expect(first.shippingTermsSnapshotJson).toEqual(firstSnap);
+  });
+
+  it("9. a declined payment's shipping does not count against the buyer's cap on the next purchase", async () => {
+    // Regression test: a buyer's payment on their first item fails/is declined, then they buy a
+    // second item in the same show. The failed order's shipping was never actually collected, so it
+    // must not be treated as "already reserved" — the second (truly-first-successful) purchase
+    // should be priced exactly as if the failed order never happened, not discounted/free because the
+    // ledger thinks the cap is already partly (or fully) spent.
+    const seller = await seedSellerStripeReady(prisma, { email: "cap9_s@test.internal", username: "cap9seller" });
+    const buyer = await seedUser(prisma, { email: "cap9_b@test.internal", username: "cap9buyer" });
+    const live = await seedCappedLiveRoom(seller.id);
+
+    const failedOrder = await seedAuctionWin({ sellerId: seller.id, buyerId: buyer.id, liveRoomId: live.id });
+    await addOrderToLiveShippingSession(failedOrder.id, { liveShowId: live.id });
+    const settledFailed = await prisma.order.findUniqueOrThrow({ where: { id: failedOrder.id } });
+    expect(settledFailed.shippingPriceUsd).toBeGreaterThan(0);
+
+    // Payment gets declined — mirrors the real failure path (order stays, marked failed/cancelled).
+    await prisma.order.update({
+      where: { id: failedOrder.id },
+      data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
+    });
+
+    // Buyer purchases a second, identically-weighted item in the same show.
+    const nextOrder = await seedAuctionWin({ sellerId: seller.id, buyerId: buyer.id, liveRoomId: live.id });
+    await addOrderToLiveShippingSession(nextOrder.id, { liveShowId: live.id });
+    const settledNext = await prisma.order.findUniqueOrThrow({ where: { id: nextOrder.id } });
+
+    // The failed order's charge must not have been "spent" against the cap: this purchase should be
+    // priced identically to the failed one (both are, in effect, the buyer's first successful item),
+    // not $0/free.
+    expect(settledNext.shippingPriceUsd).toBeGreaterThan(0);
+    expect(settledNext.shippingPriceUsd).toBe(settledFailed.shippingPriceUsd);
+
+    // The session ledger should reflect only the successful order's charge — not both.
+    const session = await prisma.liveShippingSession.findFirstOrThrow({
+      where: { buyerId: buyer.id, liveShowId: live.id },
+    });
+    expect(session.shippingChargedCents).toBe(Math.round(settledNext.shippingPriceUsd * 100));
   });
 
   it("Shippo quote honors carrier preference and falls back when no eligible rates", async () => {

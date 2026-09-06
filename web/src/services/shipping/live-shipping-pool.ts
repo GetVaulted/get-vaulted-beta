@@ -218,6 +218,13 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
     select: {
       liveShowId: true,
       items: {
+        // A sibling order whose payment failed/expired/was refunded or charged back never actually
+        // collected shipping. Leaving its session item in the pool permanently inflates every later
+        // pool recompute for this buyer/show (weight, estimate, cap math) even though that shipping
+        // was never paid — this is what made a later purchase look free/discounted after an earlier
+        // payment was declined and retried. See sumSessionReservedShippingCentsTx for the analogous
+        // fix on the settlement/ledger side.
+        where: { order: { paymentStatus: { notIn: ["failed", "expired", "refunded", "chargeback"] } } },
         orderBy: { createdAt: "asc" },
         select: { orderId: true, listingId: true, appliedWeightOz: true },
       },
