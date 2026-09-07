@@ -85,7 +85,7 @@ import {
   resolveLiveRoomIdForOrder,
 } from "@/lib/live-show-gmv";
 import { syncStripeConnectUserRowsForAccountId } from "@/lib/sync-stripe-connect-user";
-import { emitLiveRoomMessagesRefetch, emitPurchaseCompleted } from "@/lib/realtime-emit-server";
+import { emitPurchaseCompleted } from "@/lib/realtime-emit-server";
 import { ensureLiveRoomPaymentFailureRecorded } from "@/lib/live-room-payment-failure";
 import { LIVE_BUY_NOW_PI_KIND, chargeMarketplaceBuyNowOrderWithSavedCard } from "@/lib/stripe-charge-order-saved-pm";
 import { finalizeLiveTipPaid, markLiveTipCheckoutFailed } from "@/services/live-tips";
@@ -1726,7 +1726,10 @@ async function markBuyNowLiveRoomItemSold(args: {
     data: { roomVersion: { increment: 1 } },
     select: { roomVersion: true },
   });
-  emitLiveRoomMessagesRefetch(item.liveRoomId);
+  // No chat message is created for a Buy Now sale — emitPurchaseCompleted already tells every
+  // viewer the item sold. This used to also call emitLiveRoomMessagesRefetch, which made every
+  // viewer in the room re-fetch the whole chat history for no new content; on a busy show that
+  // fan-out was a major contributor to Supabase connection-pool timeouts (Sentry GET-VAULTED-16).
   emitPurchaseCompleted(item.liveRoomId, itemNext.id, {
     roomVersion: roomNext.roomVersion,
     itemVersion: itemNext.itemVersion,
@@ -2188,7 +2191,8 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
           select: { liveRoomId: true, recipientId: true, amountUsd: true, sender: { select: { username: true } } },
         });
         if (tip) {
-          emitLiveRoomMessagesRefetch(tip.liveRoomId);
+          // finalizeLiveTipPaid already broadcasts the new tip chat message directly
+          // (emitLiveRoomMessageById) — no full-room refetch needed here.
           await createNotification(prisma, {
             userId: tip.recipientId,
             type: "live_tip_received",

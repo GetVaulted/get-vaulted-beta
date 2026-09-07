@@ -10,7 +10,7 @@ export const runtime = "nodejs";
  */
 export async function POST(req: Request) {
   const rawBody = await req.text();
-  if (!(await verifyPayPalWebhookSignature({ headers: req.headers, rawBody }))) {
+  if (!verifyPayPalWebhookSignature({ headers: req.headers, rawBody })) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
