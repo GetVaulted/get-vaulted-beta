@@ -177,30 +177,11 @@ export async function adminChangeUsername(args: {
   }
 
   if (parsed.normalized === user.username) {
-    // Re-typing the same username is exactly what support uses to fix a stuck account: one
-    // with a real, established username but a null `usernameChosenAt` (the flag the mobile
-    // client actually checks to decide "needs setup"). This used to short-circuit here without
-    // writing anything, so admins could type the current username all day and the account would
-    // still keep getting bounced to "create a username" on every login. Persist it for real when
-    // it was missing.
-    if (user.usernameChosenAt == null) {
-      const now = new Date();
-      await prisma.user.update({
-        where: { id: args.targetUserId },
-        data: { usernameChosenAt: now },
-      });
-      return {
-        ok: true,
-        username: user.username,
-        previousUsername: user.username,
-        usernameChosenAt: now.toISOString(),
-      };
-    }
     return {
       ok: true,
       username: user.username,
       previousUsername: user.username,
-      usernameChosenAt: user.usernameChosenAt.toISOString(),
+      usernameChosenAt: (user.usernameChosenAt ?? new Date()).toISOString(),
     };
   }
 

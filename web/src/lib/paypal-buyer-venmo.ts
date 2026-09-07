@@ -271,25 +271,18 @@ export async function createBuyerVenmoSetupAuthorization(args: {
     });
   }
 
-  // PayPal's own `approve`/`payer-action` link is a bare hosted checkout page, not the
-  // JS-SDK-driven Venmo button — opening it directly (the old approach) never triggers the
-  // actual venmo:// app switch, it just drops the buyer on a generic PayPal web page. Per
-  // PayPal's own docs, the app switch only happens inside their JS SDK's Venmo button
-  // (https://developer.paypal.com/sdk/js/save-with-purchase/venmo), rendered in a real mobile
-  // browser tab. Send the buyer to our own page that renders that button against this same
-  // order id instead, and let PayPal's SDK do the actual app-switch.
-  const paypalApproveHref = approveHrefFromLinks(json.links);
-  const connectUrl = new URL(`${siteOrigin()}/venmo-connect`);
-  connectUrl.searchParams.set("uid", user.id);
-  connectUrl.searchParams.set("nonce", nonce);
-  connectUrl.searchParams.set("sig", sig);
-  if (args.mobileReturn) connectUrl.searchParams.set("mobile", "1");
-  const authorizeUrl = connectUrl.toString();
+  const authorizeUrl = approveHrefFromLinks(json.links) || venmoCheckoutUrlForOrder(orderId);
   console.info("[venmo-setup] order created", {
     orderId,
     status: json.status ?? null,
     linkRels: (json.links ?? []).map((l) => l.rel ?? ""),
-    paypalApproveHrefPresent: Boolean(paypalApproveHref),
+    authorizeHost: (() => {
+      try {
+        return new URL(authorizeUrl).host;
+      } catch {
+        return "invalid";
+      }
+    })(),
   });
 
   await prisma.user.update({
@@ -449,25 +442,9 @@ export async function completeBuyerVenmoSetupFromToken(args: {
   }
 
   let { vaultId, customerId, username, captureId, authorizationId } = extractVenmoVault(json);
-
-  // Refund/void the $1 verification hold as soon as we know the capture/authorization id —
-  // NOT after polling for vaultId below. PayPal's vault write is documented as sometimes async
-  // (they recommend a webhook for the APPROVED-but-no-vault.id case), so that poll can legitimately
-  // take a while. If refund waited on it and the poll ran long enough to hit this route's request
-  // timeout, execution would be killed before the refund/void ever ran, leaving the buyer actually
-  // charged with no way to get their money back automatically. Refunding first means a slow or
-  // failed vault lookup below can never leave a stray, un-refunded verification charge.
-  if (captureId) {
-    await refundPayPalCapture(accessToken, captureId);
-  } else if (authorizationId) {
-    await voidPayPalAuthorization(accessToken, authorizationId);
-  }
-
   if (!vaultId) {
-    const retryDelaysMs = [700, 900, 1200, 1500, 1800];
-    for (const delay of retryDelaysMs) {
-      if (vaultId) break;
-      await new Promise((r) => setTimeout(r, delay));
+    for (let i = 0; i < 3 && !vaultId; i++) {
+      await new Promise((r) => setTimeout(r, 800));
       const getRes = await fetch(`${paypalApiBase()}/v2/checkout/orders/${encodeURIComponent(orderId)}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -477,15 +454,21 @@ export async function completeBuyerVenmoSetupFromToken(args: {
       } catch {
         continue;
       }
-      ({ vaultId, customerId, username } = extractVenmoVault(json));
+      ({ vaultId, customerId, username, captureId, authorizationId } = extractVenmoVault(json));
     }
+  }
+
+  if (captureId) {
+    await refundPayPalCapture(accessToken, captureId);
+  } else if (authorizationId) {
+    await voidPayPalAuthorization(accessToken, authorizationId);
   }
 
   if (!vaultId) {
     throw new VenmoSetupError({
       code: "VENMO_VAULT_FAILED",
       userMessage:
-        "Venmo approved the $1 verification (already refunded) but is still finishing saving your account. Wait a moment and tap Connect Venmo again — if it keeps happening, confirm Account Settings → Payment preferences → Save PayPal and Venmo is Success on paypal.com.",
+        "PayPal approved Venmo but did not return a saved vault id yet. Confirm Account Settings → Payment preferences → Save PayPal and Venmo is Success, then try again.",
     });
   }
 

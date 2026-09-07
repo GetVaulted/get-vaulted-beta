@@ -159,7 +159,6 @@ export function ScheduleVaultEventModal({
   const [discoveryVisibility, setDiscoveryVisibility] = useState<'public' | 'private'>('public');
   const [continuationCandidate, setContinuationCandidate] = useState<LiveRoomContinuationCandidate | null>(null);
   const [continueFromPreviousShow, setContinueFromPreviousShow] = useState(false);
-  const [freeShippingEnabled, setFreeShippingEnabled] = useState(false);
   const [shippingProfiles, setShippingProfiles] = useState<LiveHostShippingProfileOption[]>([]);
   const [defaultSellerShippingProfileId, setDefaultSellerShippingProfileId] = useState('');
   const [profilesLoading, setProfilesLoading] = useState(false);
@@ -355,7 +354,6 @@ export function ScheduleVaultEventModal({
     setScheduleCategory('Cards');
     setContinuationCandidate(null);
     setContinueFromPreviousShow(false);
-    setFreeShippingEnabled(false);
   }, [setScheduleCategory, setScheduleTitle, setStreamFormat]);
 
   const submit = useCallback(async () => {
@@ -455,10 +453,9 @@ export function ScheduleVaultEventModal({
           teamSelectionBoardEnabled: isBreak ? teamBoardEnabled : undefined,
           tipModeratorId,
           tipsToModerator,
-          shippingCapEnabled: !freeShippingEnabled,
-          shippingCapCents: freeShippingEnabled ? undefined : 999,
-          freeShippingEnabled,
-          shippingMode: freeShippingEnabled ? 'free' : 'capped',
+          shippingCapEnabled: true,
+          shippingCapCents: 999,
+          shippingMode: 'capped',
           carrierPreference: 'best_rate',
           bundleEligiblePurchases: true,
           defaultShippingProfileId: defaultSellerShippingProfileId || undefined,
@@ -534,7 +531,6 @@ export function ScheduleVaultEventModal({
     busy,
     continuationCandidate,
     continueFromPreviousShow,
-    freeShippingEnabled,
     isBreak,
     liveGate.alertBody,
     liveGate.alertTitle,
@@ -809,21 +805,6 @@ export function ScheduleVaultEventModal({
               </View>
             </View>
           ) : null}
-
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.toggleTitle}>Free shipping for this show</Text>
-              <Text style={styles.helperTxt}>
-                Buyers pay $0 shipping — you cover the actual label cost instead of a per-buyer cap.
-              </Text>
-            </View>
-            <Switch
-              value={freeShippingEnabled}
-              onValueChange={setFreeShippingEnabled}
-              trackColor={{ false: 'rgba(255,255,255,0.12)', true: 'rgba(212,175,55,0.45)' }}
-              thumbColor={freeShippingEnabled ? colors.gold : '#f4f3f4'}
-            />
-          </View>
 
           <Text style={styles.label}>Default shipping profile</Text>
           <View style={styles.profileWrap}>

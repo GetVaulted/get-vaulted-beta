@@ -43,16 +43,17 @@ export function ProfileSetupRoutingEffect() {
           routes: [{ name: 'CompleteProfileSetup' }],
         }),
       );
-    } catch (e) {
-      // Previously "failed closed" here — any error checking status (DB outage, a slow
-      // request, a network blip, an unrelated 500) got treated as "this account needs a
-      // username" and force-reset an ALREADY-SET-UP user to CompleteProfileSetup. That's how
-      // established sellers with years of history ended up stuck on "create a username" during
-      // a DB hiccup (and, per this report, from other transient failures too, not just outages).
-      // Only the server explicitly saying `needsSetup: true` should ever route someone there —
-      // an error checking just means try again later, not "assume the worst and lock them out."
-      console.warn('[profile-setup] status check failed — leaving current route, will retry', e);
-      cacheRef.current = null;
+    } catch {
+      // Fail closed: do not leave OAuth users on MainTabs with an unconfirmed username.
+      cacheRef.current = { userId: user.id, needsSetup: true };
+      if (!rootNavigationRef.isReady()) return;
+      if (rootNavigationRef.getCurrentRoute()?.name === 'CompleteProfileSetup') return;
+      rootNavigationRef.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'CompleteProfileSetup' }],
+        }),
+      );
     } finally {
       inFlightRef.current = false;
     }
