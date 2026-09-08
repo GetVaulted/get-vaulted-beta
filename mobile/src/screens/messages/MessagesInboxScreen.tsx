@@ -150,6 +150,7 @@ export function MessagesInboxScreen({ navigation }: Props) {
               </View>
             )
           }
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
           renderItem={({ item }) => (
             <MessageThreadCard
               thread={item}
@@ -216,6 +217,11 @@ const styles = StyleSheet.create({
   },
   reqBadgeTxt: { fontSize: 9, fontWeight: '900', color: '#fff' },
   list: { paddingTop: spacing.xs, paddingBottom: spacing.xxl },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginLeft: spacing.md + 46 + spacing.sm,
+  },
   emptyList: { flexGrow: 1, justifyContent: 'center' },
   empty: { alignItems: 'center', paddingHorizontal: spacing.xl, gap: spacing.sm },
   emptyTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary, textAlign: 'center' },
