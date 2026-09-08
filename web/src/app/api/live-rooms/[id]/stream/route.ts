@@ -54,10 +54,29 @@ async function maybeSyncChannelHlsHealth(row: Awaited<ReturnType<typeof getStrea
   }
 }
 
+/** True when getStreamRow's own hard deadline (see _shared.ts) fired rather than a real DB error. */
+function isStreamRowTimeout(e: unknown): boolean {
+  return e instanceof Error && e.message === "STREAM_ROW_TIMEOUT";
+}
+
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
-  let row = await getStreamRow(id);
+  let row;
+  try {
+    row = await getStreamRow(id);
+  } catch (e) {
+    if (isStreamRowTimeout(e)) {
+      // Fail fast instead of hanging — the client's own poll loop retries in a few seconds,
+      // which recovers far quicker than a request stuck behind DB contention ever would.
+      logIvsOpsServer("ivs_stream_row_timeout", { roomId: id, path: "buyer_initial" });
+      return NextResponse.json(
+        { error: "Stream status is temporarily unavailable. Retrying shortly." },
+        { status: 503, headers: { "Retry-After": "2" } },
+      );
+    }
+    throw e;
+  }
   if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
 
   const url = new URL(req.url);
@@ -93,7 +112,22 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       logIvsOpsServer("ivs_stream_sync_pull_error", { roomId: id });
     }
 
-    const refreshed = await getStreamRow(id);
+    let refreshed;
+    try {
+      refreshed = await getStreamRow(id);
+    } catch (e) {
+      if (isStreamRowTimeout(e)) {
+        // This is the host go-live / resume sync path — hanging here is exactly what strands a
+        // seller trying to get back live. Fail fast so the mobile client's reconnect loop
+        // (HOST_REJOIN_LOOP_DELAY_MS = 5s) retries instead of appearing to hang forever.
+        logIvsOpsServer("ivs_stream_row_timeout", { roomId: id, path: "host_sync" });
+        return NextResponse.json(
+          { error: "Stream status is temporarily unavailable. Retrying shortly." },
+          { status: 503, headers: { "Retry-After": "2" } },
+        );
+      }
+      throw e;
+    }
     if (!refreshed) return NextResponse.json({ error: "Room not found." }, { status: 404 });
 
     // Actual AWS channel latency (not just env config) — NORMAL ≈ 10–30s buyer delay.

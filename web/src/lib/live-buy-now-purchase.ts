@@ -21,7 +21,7 @@ import {
   PAYMENT_PAID,
   PAYMENT_PENDING,
 } from "@/services/payments";
-import { emitPurchaseCompleted } from "@/lib/realtime-emit-server";
+import { emitLiveRoomMessagesRefetch, emitPurchaseCompleted } from "@/lib/realtime-emit-server";
 import { resolveLiveBuyNowUnitSale } from "@/lib/live-room-item-quantity-display";
 import { ensureLiveBuyNowItemCheckoutListingTx } from "@/lib/live-buy-now-checkout-listing";
 import { createNotification } from "@/lib/notifications";
@@ -658,9 +658,7 @@ export async function finalizeLiveBuyNowPurchaseComplete(args: {
     roomVersion = room?.roomVersion ?? 0;
   }
 
-  // No chat message is created for a live Buy Now sale — emitPurchaseCompleted below already
-  // tells every viewer the item sold. See payments.ts for the original fix (this is the same
-  // bug in a sibling Buy Now path that was missed the first time).
+  emitLiveRoomMessagesRefetch(args.liveRoomId);
   emitPurchaseCompleted(args.liveRoomId, args.liveRoomItemId, {
     roomVersion,
     itemVersion,
@@ -773,10 +771,9 @@ export async function finalizeBreakSpotPaid(args: {
     });
   }
 
-  const { emitBreakSpotsChanged } = await import("@/lib/realtime-emit-server");
+  const { emitBreakSpotsChanged, emitLiveRoomMessagesRefetch } = await import("@/lib/realtime-emit-server");
   emitBreakSpotsChanged(spot.liveRoomId);
-  // No chat message is created here either — the buyer's payment-confirmed notification below
-  // is the only side effect. See note above on emitPurchaseCompleted.
+  emitLiveRoomMessagesRefetch(spot.liveRoomId);
 
   if (Number.isFinite(spot.priceUsd) && spot.priceUsd > 0) {
     const chargeTotalUsd = await resolveLivePurchaseNotificationChargeUsd({

@@ -3,7 +3,7 @@ import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { getLiveRoomHostAccess } from "@/lib/live-room-host-auth";
 import { prisma } from "@/lib/prisma";
 import { refreshLiveRoomItemSoldAfterBreakSpotChange } from "@/lib/live-room-break-quantity";
-import { emitBreakSpotsChanged, emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
+import { emitBreakSpotsChanged, emitLiveRoomMessagesRefetch } from "@/lib/realtime-emit-server";
 
 function formatMoney(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
@@ -77,9 +77,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const price = priceOverride ?? item.priceUsd ?? 0;
       const label = item.title.slice(0, 200);
 
-      let messageId: string;
       try {
-        messageId = await prisma.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx) => {
           const taken = await tx.breakSpot.count({ where: { liveRoomItemId: item.id } });
           if (taken >= qty) {
             throw Object.assign(new Error("ITEM_FULL"), { code: "ITEM_FULL" });
@@ -110,16 +109,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           }
 
           await refreshLiveRoomItemSoldAfterBreakSpotChange(tx, item.id);
-          const message = await tx.liveRoomMessage.create({
+          await tx.liveRoomMessage.create({
             data: {
               liveRoomId,
               senderId: room.sellerId,
               body: `Host assigned “${label}” to @${buyer.username} for ${formatMoney(price)} (manual claim).`,
               messageType: "system",
             },
-            select: { id: true },
           });
-          return message.id;
         });
       } catch (e) {
         if (typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "ITEM_FULL") {
@@ -129,7 +126,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       }
 
       emitBreakSpotsChanged(liveRoomId);
-      void emitLiveRoomMessageById(messageId);
+      emitLiveRoomMessagesRefetch(liveRoomId);
       return NextResponse.json({ ok: true });
     }
 
@@ -138,7 +135,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
     const priceUsd = priceOverride ?? 0;
 
-    const messageId = await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       await tx.breakSpot.create({
         data: {
           liveRoomId,
@@ -149,20 +146,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           claimStatus: "confirmed",
         },
       });
-      const message = await tx.liveRoomMessage.create({
+      await tx.liveRoomMessage.create({
         data: {
           liveRoomId,
           senderId: room.sellerId,
           body: `Host assigned “${spotLabelRaw}” to @${buyer.username} for ${formatMoney(priceUsd)} (manual claim).`,
           messageType: "system",
         },
-        select: { id: true },
       });
-      return message.id;
     });
 
     emitBreakSpotsChanged(liveRoomId);
-    void emitLiveRoomMessageById(messageId);
+    emitLiveRoomMessagesRefetch(liveRoomId);
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "P2002") {

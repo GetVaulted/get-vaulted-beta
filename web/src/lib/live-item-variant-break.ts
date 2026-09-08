@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import {
   emitLiveRoomMessageById,
+  emitLiveRoomMessagesRefetch,
   emitLiveRoomQueueItemsChanged,
   emitTeamBreakBegan,
   emitTeamBreakReady,
@@ -48,6 +49,7 @@ export async function maybeMarkVariantBreakReady(liveRoomItemId: string, liveRoo
 
   emitTeamBreakReady(liveRoomId, { itemId: liveRoomItemId, itemVersion });
   emitLiveRoomQueueItemsChanged(liveRoomId);
+  emitLiveRoomMessagesRefetch(liveRoomId);
   await emitLiveRoomMessageById(sellerMsg.id);
   await emitLiveRoomMessageById(buyerMsg.id);
   return true;
@@ -95,6 +97,7 @@ export async function beginVariantTeamBreak(liveRoomId: string, liveRoomItemId: 
 
   emitTeamBreakBegan(liveRoomId, { itemId: liveRoomItemId, itemVersion: next.itemVersion });
   emitLiveRoomQueueItemsChanged(liveRoomId);
+  emitLiveRoomMessagesRefetch(liveRoomId);
   await emitLiveRoomMessageById(msg.id);
 
   return { ok: true as const, itemVersion: next.itemVersion };

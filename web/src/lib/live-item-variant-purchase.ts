@@ -11,6 +11,7 @@ import { assertSellerStripeCollectReadyFromUser, sellerStripeCollectSelect } fro
 
 import {
   emitLiveRoomMessageById,
+  emitLiveRoomMessagesRefetch,
   emitLiveRoomQueueItemsChanged,
   emitVariantPurchased,
 } from "@/lib/realtime-emit-server";
@@ -283,11 +284,7 @@ export async function finalizeLiveItemVariantPurchasePaid(
     await emitLiveRoomMessageById(revealMsg.id);
   }
 
-  // No full-room chat refetch here: the purchase itself is already broadcast above via
-  // emitVariantPurchased, and any chat message (random-reveal only) is broadcast directly
-  // via emitLiveRoomMessageById just above. See payments.ts / live-tips.ts for why a blanket
-  // "everyone refetch the whole chat history" broadcast on every purchase caused Supabase
-  // connection-pool timeouts on busy shows.
+  emitLiveRoomMessagesRefetch(purchase.liveRoomId);
   void recordBuyerGiveawayPurchaseEntries(purchase.liveRoomId, purchase.buyerId, purchase.id).catch((e) => {
     console.error("[variant purchase] buyers giveaway entry", e);
   });

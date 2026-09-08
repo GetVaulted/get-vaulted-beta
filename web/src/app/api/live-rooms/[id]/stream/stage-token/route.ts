@@ -75,7 +75,16 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const auth = await resolveAccountUserId(req);
   if (auth instanceof NextResponse) return auth;
 
-  const row = await getStreamRow(id);
+  let row;
+  try {
+    row = await getStreamRow(id);
+  } catch (error) {
+    logIvsOpsServer("ivs_stage_token_viewer_failure", {
+      roomId: id,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+    return errorResponse(error);
+  }
   if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
   if (!row.ivsStageArn) {
     return NextResponse.json({ error: "This room is not streaming over WebRTC." }, { status: 409 });

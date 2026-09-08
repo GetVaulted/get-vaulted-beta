@@ -6,7 +6,7 @@ import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
 import { prisma } from "@/lib/prisma";
 import { isStripeConfigured } from "@/lib/stripe";
 import { refreshLiveRoomItemSoldAfterBreakSpotChange } from "@/lib/live-room-break-quantity";
-import { emitBreakSpotsChanged, emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
+import { emitBreakSpotsChanged, emitLiveRoomMessagesRefetch } from "@/lib/realtime-emit-server";
 
 function signInUrl(returnPath: string) {
   return `/signin?returnTo=${encodeURIComponent(returnPath)}`;
@@ -133,9 +133,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         return NextResponse.json({ error: "You already claimed this spot." }, { status: 409 });
       }
 
-      let messageId: string;
       try {
-        messageId = await prisma.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx) => {
           const taken = await tx.breakSpot.count({ where: { liveRoomItemId: item.id } });
           if (taken >= qty) {
             throw Object.assign(new Error("ITEM_FULL"), { code: "ITEM_FULL" });
@@ -168,16 +167,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           await refreshLiveRoomItemSoldAfterBreakSpotChange(tx, item.id);
           const u = await tx.user.findUnique({ where: { id: session.user.id }, select: { username: true } });
           const un = u?.username ?? "Buyer";
-          const message = await tx.liveRoomMessage.create({
+          await tx.liveRoomMessage.create({
             data: {
               liveRoomId,
               senderId: session.user.id,
               body: `${un} claimed “${label}” for ${formatMoney(price)}`,
               messageType: "purchase",
             },
-            select: { id: true },
           });
-          return message.id;
         });
       } catch (e) {
         if (typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "ITEM_FULL") {
@@ -187,9 +184,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       }
 
       emitBreakSpotsChanged(liveRoomId);
-      // Broadcast just the new chat message instead of telling every viewer to refetch the
-      // whole room's chat history — see payments.ts / live-tips.ts for the original fix.
-      void emitLiveRoomMessageById(messageId);
+      emitLiveRoomMessagesRefetch(liveRoomId);
       return NextResponse.json({ ok: true });
     }
 
@@ -197,7 +192,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       return NextResponse.json({ error: "spotLabel and priceUsd are required." }, { status: 400 });
     }
 
-    const messageId = await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       await tx.breakSpot.create({
         data: {
           liveRoomId,
@@ -210,20 +205,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       });
       const u = await tx.user.findUnique({ where: { id: session.user.id }, select: { username: true } });
       const un = u?.username ?? "Buyer";
-      const message = await tx.liveRoomMessage.create({
+      await tx.liveRoomMessage.create({
         data: {
           liveRoomId,
           senderId: session.user.id,
           body: `${un} claimed “${spotLabelRaw}” for ${formatMoney(priceUsd)}`,
           messageType: "purchase",
         },
-        select: { id: true },
       });
-      return message.id;
     });
 
     emitBreakSpotsChanged(liveRoomId);
-    void emitLiveRoomMessageById(messageId);
+    emitLiveRoomMessagesRefetch(liveRoomId);
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "P2002") {
