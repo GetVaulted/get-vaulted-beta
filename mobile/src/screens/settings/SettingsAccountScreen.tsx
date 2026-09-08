@@ -32,11 +32,6 @@ export function SettingsAccountScreen({ navigation }: Props) {
           onPress={() => navigation.navigate('ChangePassword')}
         />
         <SettingsRow
-          label="Two-factor authentication"
-          icon="shield-checkmark-outline"
-          onPress={() => navigation.navigate('TwoFactorAuth')}
-        />
-        <SettingsRow
           label="Sign out"
           icon="log-out-outline"
           destructive

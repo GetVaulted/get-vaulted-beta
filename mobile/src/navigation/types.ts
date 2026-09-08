@@ -76,7 +76,6 @@ export type RootStackParamList = {
   SettingsAccount: undefined;
   ChangeEmail: undefined;
   ChangePassword: undefined;
-  TwoFactorAuth: undefined;
   DeleteAccount: undefined;
   CommunityGuidelines: undefined;
   ReportingSafety: undefined;

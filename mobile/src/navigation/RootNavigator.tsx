@@ -16,7 +16,6 @@ import { QaEnvironmentDiagnosticsScreen } from '../screens/settings/QaEnvironmen
 import { SettingsAccountScreen } from '../screens/settings/SettingsAccountScreen';
 import { ChangeEmailScreen } from '../screens/settings/ChangeEmailScreen';
 import { ChangePasswordScreen } from '../screens/settings/ChangePasswordScreen';
-import { TwoFactorAuthScreen } from '../screens/settings/TwoFactorAuthScreen';
 import { DeleteAccountScreen } from '../screens/settings/DeleteAccountScreen';
 import { CommunityGuidelinesScreen } from '../screens/settings/CommunityGuidelinesScreen';
 import { ReportingSafetyScreen } from '../screens/settings/ReportingSafetyScreen';
@@ -34,9 +33,6 @@ import { MarketplaceReviewPromptEffect } from './MarketplaceReviewPromptEffect';
 import { PushRegistrationEffect } from './PushRegistrationEffect';
 import { MarketplaceCatalogSyncEffect } from './MarketplaceCatalogSyncEffect';
 import { NotificationDeepLinkEffect } from './NotificationDeepLinkEffect';
-import { ReviewPromptGate } from '../components/reviews/ReviewPromptGate';
-import { reviewPromptGateRef } from '../lib/reviewPromptGateRef';
-import { MfaChallengeGate } from '../components/security/MfaChallengeGate';
 import { lazyScreen } from './lazyScreen';
 import type { RootStackParamList } from './types';
 import { colors } from '../theme';
@@ -234,8 +230,6 @@ export function RootNavigator() {
         <PushRegistrationEffect />
         <MarketplaceCatalogSyncEffect />
         <NotificationDeepLinkEffect />
-        <ReviewPromptGate ref={reviewPromptGateRef} />
-        <MfaChallengeGate />
         <CreateListingDraftProvider>
           <Stack.Navigator initialRouteName="LaunchIntro" screenOptions={stackScreenOptions}>
           <Stack.Screen
@@ -332,7 +326,6 @@ export function RootNavigator() {
           <Stack.Screen name="SettingsAccount" component={SettingsAccountScreen} />
           <Stack.Screen name="ChangeEmail" component={ChangeEmailScreen} />
           <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
-          <Stack.Screen name="TwoFactorAuth" component={TwoFactorAuthScreen} />
           <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
           <Stack.Screen name="CommunityGuidelines" component={CommunityGuidelinesScreen} />
           <Stack.Screen name="ReportingSafety" component={ReportingSafetyScreen} />
