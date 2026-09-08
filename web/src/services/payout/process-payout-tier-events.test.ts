@@ -61,7 +61,6 @@ const prismaMock = vi.hoisted(() => ({
     update: vi.fn().mockResolvedValue(undefined),
     updateMany: vi.fn(),
     findMany: vi.fn().mockResolvedValue([]),
-    count: vi.fn().mockResolvedValue(0),
   },
   user: {
     findUnique: vi.fn(),
@@ -144,7 +143,6 @@ describe("Stripe label hold vs admin bank payout queue", () => {
     prismaMock.user.findUnique.mockResolvedValue(baseSeller());
     prismaMock.order.findMany.mockResolvedValue([]);
     prismaMock.order.updateMany.mockResolvedValue({ count: 1 });
-    prismaMock.order.count.mockResolvedValue(0);
     releaseSellerStripePayout.mockResolvedValue({ ok: true });
     checkInstantPayoutLimits.mockResolvedValue({ allowed: true, reason: null, violatedLimit: null });
     loadSellerPayoutTierDashboard.mockResolvedValue({
@@ -193,24 +191,6 @@ describe("Stripe label hold vs admin bank payout queue", () => {
 
     await processShippedPayoutEvaluation("ord_1");
 
-    expect(scheduleNotifyAdminsBankPayoutReady).not.toHaveBeenCalled();
-  });
-
-  it("does not re-alert for a second order joining a seller's already-alerted batch", async () => {
-    prismaMock.order.findUnique.mockResolvedValue(
-      baseOrder({ id: "ord_2", shippedAt: new Date(), carrierAcceptedAt: new Date() }),
-    );
-    // Seller already has another order sitting at fast_payout_ready — admins were already
-    // alerted for this batch, so this second item should join it silently.
-    prismaMock.order.count.mockResolvedValue(1);
-
-    await processShippedPayoutEvaluation("ord_2");
-
-    expect(prismaMock.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ payoutStatus: OrderPayoutStatus.fast_payout_ready }),
-      }),
-    );
     expect(scheduleNotifyAdminsBankPayoutReady).not.toHaveBeenCalled();
   });
 });

@@ -700,6 +700,7 @@ export function LiveVideoStagePlayback({
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "hidden") {
+        // Intentionally leave playback running in the background tab — no pause/detach here.
         if (backoffTimerRef.current != null) {
           window.clearTimeout(backoffTimerRef.current);
           backoffTimerRef.current = null;
@@ -707,25 +708,30 @@ export function LiveVideoStagePlayback({
         return;
       }
       if (document.visibilityState !== "visible") return;
-      lastAttachedKeyRef.current = "";
-      webrtcFailedRef.current = false;
-      webrtcFailoverCountRef.current = 0;
-      noVideoSinceRef.current = null;
-      setReconnecting(true);
-      if (transportRef.current === "webrtc") {
-        setWebrtcSubscribeEpoch((n) => n + 1);
-      } else {
-        transportRef.current = "none";
-        setTransport("none");
-      }
+      // Resume IN PLACE — do not clear lastAttachedKeyRef, reset the transport, or bump the
+      // WebRTC subscribe epoch. Doing any of those tears down and rebuilds the player, which is
+      // what caused the black-screen "restart" flash on every tab switch. The stream never
+      // stopped while hidden, so there's nothing to rebuild.
+      //
+      // We still do a background fetchStream() so the player picks up real state changes that
+      // may have happened while backgrounded (host ended the show, host paused, playback URL
+      // rotated) — but since attach tracking is untouched, it only re-attaches when something
+      // actually changed, not on every visibility flip. And the existing "no video for N
+      // seconds" health-check loops (below) already recover a genuinely dead stream, whether it
+      // died from backgrounding or any other cause — no separate visibility-triggered rebuild
+      // is needed for that.
       logLiveDebugEvent({ event: "playback_visibility_resume", roomId: liveRoomId, extra: {} });
-      void fetchStream().finally(() => {
-        window.setTimeout(() => setReconnecting(false), 600);
-      });
+      void fetchStream();
+      // Some browsers pause the <video> element itself while a tab is hidden for a long time —
+      // if that happened, just resume playback of the same element rather than rebuilding it.
+      const el = videoRef.current;
+      if (el && el.paused && !el.ended && videoHasData) {
+        tryPlay();
+      }
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [fetchStream, liveRoomId]);
+  }, [fetchStream, liveRoomId, videoHasData, tryPlay]);
 
   useEffect(() => {
     if (videoHasData || !isLiveStreamSignal(streamHealth) || !roomLifecycleLive) {
