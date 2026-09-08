@@ -55,15 +55,15 @@ import {
 import { formatListingRatePrice, listingRateLabel } from '../../createListing/shippoRates';
 import { openStripeCheckoutSession } from '../../lib/openStripeCheckoutSession';
 import { MARKETPLACE_TEXT_PROPS } from '../../lib/marketplaceUiScale';
-import { maybeShowReviewPrompt } from '../../lib/reviewPromptGateRef';
+import { maybeRequestStoreReview } from '../../lib/storeReview';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 
 function afterSuccessfulCheckout(navigateToOrders: () => void) {
   navigateToOrders();
-  // "Enjoying Get Vaulted?" gate — never blocks checkout, silently no-ops if not eligible.
+  // Native App Store / Play review sheet — OS may no-op; never blocks checkout.
   setTimeout(() => {
-    maybeShowReviewPrompt('marketplace_checkout_paid');
+    void maybeRequestStoreReview('marketplace_checkout_paid');
   }, 1200);
 }
 

@@ -50,8 +50,7 @@ export function storeListingUrl(): string {
   return Platform.OS === 'ios' ? IOS_APP_STORE_URL : ANDROID_PLAY_STORE_URL;
 }
 
-/** Opens the App Store / Play Store listing (for Settings “Rate Get Vaulted”, and the Android half
- * of the "Enjoying the app?" gate below — see confirmEnjoyingApp). */
+/** Opens the App Store / Play Store listing (for Settings “Rate Get Vaulted”). */
 export async function openStoreListingForReview(): Promise<void> {
   const url = (await StoreReview.storeUrl()) ?? storeListingUrl();
   const can = await Linking.canOpenURL(url);
@@ -59,49 +58,27 @@ export async function openStoreListingForReview(): Promise<void> {
 }
 
 /**
- * Throttle check for the "Enjoying Get Vaulted?" gate (see components/reviews/ReviewPromptGate) —
- * same cap Apple enforces itself on the native prompt (max 3/year), plus a minimum gap so we're
- * not re-asking every session. Call this before showing the gate; call `recordReviewPromptShown`
- * once it's actually shown (regardless of which button they tap) so the cap counts appearances of
- * *our* card, not just the native one.
+ * Ask Apple / Google to show the native in-app rating sheet.
+ * OS may silently no-op (already reviewed, quota, user disabled). Safe to call after a win moment.
  */
-export async function shouldShowReviewPrompt(): Promise<boolean> {
+export async function maybeRequestStoreReview(_reason: string): Promise<void> {
   try {
+    const available = await StoreReview.isAvailableAsync();
+    if (!available) return;
+
     const state = await readState();
-    if (state.promptCount >= MAX_PROMPTS) return false;
-    if (daysSince(state.lastPromptAt) < MIN_DAYS_BETWEEN_PROMPTS) return false;
-    return true;
+    if (state.promptCount >= MAX_PROMPTS) return;
+    if (daysSince(state.lastPromptAt) < MIN_DAYS_BETWEEN_PROMPTS) return;
+
+    const hasAction = await StoreReview.hasAction();
+    if (!hasAction) return;
+
+    await StoreReview.requestReview();
+    await writeState({
+      promptCount: state.promptCount + 1,
+      lastPromptAt: new Date().toISOString(),
+    });
   } catch {
-    return false;
+    /* never block the happy path on review failures */
   }
-}
-
-export async function recordReviewPromptShown(): Promise<void> {
-  const state = await readState();
-  await writeState({ promptCount: state.promptCount + 1, lastPromptAt: new Date().toISOString() });
-}
-
-/**
- * The "Yes!" action on the gate. Platforms diverge on purpose:
- *  - iOS: Apple's own guidance treats choosing *when* to call SKStoreReviewController (e.g. only
- *    after a user says they're enjoying the app) as acceptable — you're not bypassing their system,
- *    just timing it. So this calls the real native prompt.
- *  - Android: Google explicitly prohibits asking any opinion question ("Do you like the app?")
- *    immediately before or after their in-app review card — so this gate can never trigger it.
- *    Instead "Yes" opens the Play Store listing directly, same as the Settings "Rate us" link.
- */
-export async function confirmEnjoyingApp(): Promise<void> {
-  if (Platform.OS === 'ios') {
-    try {
-      const available = await StoreReview.isAvailableAsync();
-      const hasAction = available && (await StoreReview.hasAction());
-      if (hasAction) {
-        await StoreReview.requestReview();
-        return;
-      }
-    } catch {
-      /* fall through to the store listing link below */
-    }
-  }
-  await openStoreListingForReview();
 }
