@@ -6,7 +6,6 @@ import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/auth/AuthContext';
 import { PlatformFeeProvider } from './src/platform/PlatformFeeContext';
-import { AppUpdateGate } from './src/components/AppUpdateGate';
 import { prefetchStripePublishableKey } from './src/components/live/LiveStripeProvider';
 import { loadHomeFeedCache } from './src/lib/homeFeedCache';
 import { configureGlobalTextScaling } from './src/lib/appUiScale';
@@ -39,7 +38,6 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-        <AppUpdateGate />
         <AppLayoutProvider>
           <PlatformFeeProvider>
             <AuthProvider>

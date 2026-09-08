@@ -8,7 +8,7 @@ import { REVIEW_QUICK_TAGS } from '../../data/reviewQuickTags';
 import { addReview, hasReviewedReference } from '../../platform/platformStore';
 import { emitNotificationBadgeChanged } from '../../platform/notificationEvents';
 import { notifyReviewReceived } from '../../platform/notificationStore';
-import { maybeRequestStoreReview } from '../../lib/storeReview';
+import { maybeShowReviewPrompt } from '../../lib/reviewPromptGateRef';
 import type { ReviewType } from '../../platform/types';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
@@ -61,9 +61,9 @@ export function WriteReviewScreen({ navigation, route }: Props) {
           text: 'OK',
           onPress: () => {
             navigation.goBack();
-            // After a positive vault review — good moment for App Store / Play rating.
+            // After a positive vault review — good moment to ask "Enjoying Get Vaulted?"
             if (rating >= 4) {
-              void maybeRequestStoreReview('vault_review_submitted');
+              maybeShowReviewPrompt('vault_review_submitted');
             }
           },
         },

@@ -33,6 +33,8 @@ import { MarketplaceReviewPromptEffect } from './MarketplaceReviewPromptEffect';
 import { PushRegistrationEffect } from './PushRegistrationEffect';
 import { MarketplaceCatalogSyncEffect } from './MarketplaceCatalogSyncEffect';
 import { NotificationDeepLinkEffect } from './NotificationDeepLinkEffect';
+import { ReviewPromptGate } from '../components/reviews/ReviewPromptGate';
+import { reviewPromptGateRef } from '../lib/reviewPromptGateRef';
 import { lazyScreen } from './lazyScreen';
 import type { RootStackParamList } from './types';
 import { colors } from '../theme';
@@ -230,6 +232,7 @@ export function RootNavigator() {
         <PushRegistrationEffect />
         <MarketplaceCatalogSyncEffect />
         <NotificationDeepLinkEffect />
+        <ReviewPromptGate ref={reviewPromptGateRef} />
         <CreateListingDraftProvider>
           <Stack.Navigator initialRouteName="LaunchIntro" screenOptions={stackScreenOptions}>
           <Stack.Screen
