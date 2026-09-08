@@ -29,66 +29,28 @@ export type StreamRow = {
   lastIvsError: string | null;
 };
 
-/**
- * Real-world data (Netlify logs, Sep 2026): this exact `LiveRoom` SELECT was observed taking
- * 219,921ms (~3m40s) during a live show, immediately followed by a `stream_status` realtime
- * broadcast to that same room failing with "subscribe timeout" — i.e. both the poll-based and
- * push-based paths a buyer/host relies on to know the video is healthy went dark at once. This
- * is the DB connection-pool contention already identified for push notifications
- * (`web/src/lib/prisma-pg-factory.ts` — no queue-wait timeout on the pool), landing on the one
- * query every live viewer's player polls every ~2.5s. node-postgres has no built-in cap on how
- * long a caller waits for a pool connection to free up, so a burst of concurrent load can leave
- * this hanging far longer than any client-side reconnect timeout (12s) — the client gives up
- * and the video reads as a black screen / stuck "Reconnecting" with no way to recover until this
- * one request eventually finishes. Racing it against a hard deadline turns an unbounded hang
- * into a fast, clear failure the client's existing poll loop (STREAM_POLL_MS = 2500ms) already
- * knows how to retry from — this doesn't fix the underlying pool contention, but it stops one
- * stuck query from stranding video status for minutes.
- */
-const STREAM_ROW_QUERY_TIMEOUT_MS = 5_000;
-
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label}_TIMEOUT`)), ms);
-    promise.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(timer);
-        reject(e);
-      },
-    );
-  });
-}
-
 export async function getStreamRow(liveRoomId: string): Promise<StreamRow | null> {
-  return withTimeout(
-    prisma.liveRoom.findUnique({
-      where: { id: liveRoomId },
-      select: {
-        id: true,
-        streamProvider: true,
-        streamMode: true,
-        streamHealth: true,
-        streamPaused: true,
-        ivsPlaybackUrl: true,
-        ivsIngestEndpoint: true,
-        ivsChannelArn: true,
-        ivsChannelName: true,
-        ivsStreamKeyArn: true,
-        ivsStreamKeyCreatedAt: true,
-        ivsStageArn: true,
-        streamStartedAt: true,
-        streamEndedAt: true,
-        lastIvsStatusSyncAt: true,
-        lastIvsError: true,
-      },
-    }),
-    STREAM_ROW_QUERY_TIMEOUT_MS,
-    "STREAM_ROW",
-  );
+  return prisma.liveRoom.findUnique({
+    where: { id: liveRoomId },
+    select: {
+      id: true,
+      streamProvider: true,
+      streamMode: true,
+      streamHealth: true,
+      streamPaused: true,
+      ivsPlaybackUrl: true,
+      ivsIngestEndpoint: true,
+      ivsChannelArn: true,
+      ivsChannelName: true,
+      ivsStreamKeyArn: true,
+      ivsStreamKeyCreatedAt: true,
+      ivsStageArn: true,
+      streamStartedAt: true,
+      streamEndedAt: true,
+      lastIvsStatusSyncAt: true,
+      lastIvsError: true,
+    },
+  });
 }
 
 export function toIso(d: Date | null) {
@@ -141,16 +103,6 @@ export async function requireHostAccess(liveRoomId: string, request: Request) {
 
 export function errorResponse(error: unknown) {
   const message = error instanceof Error ? error.message : "Unable to process stream request.";
-  // A getStreamRow() deadline firing (see withTimeout above) is a fast, expected failure under DB
-  // contention, not a real error — surface it the same way as the route.ts GET handler does, so
-  // every caller of getStreamRow behaves consistently and the client's own retry loop kicks in
-  // quickly instead of treating this like an unexpected 500.
-  if (message.endsWith("_TIMEOUT")) {
-    return NextResponse.json(
-      { error: "Stream status is temporarily unavailable. Retrying shortly." },
-      { status: 503, headers: { "Retry-After": "2" } },
-    );
-  }
   const status = message.includes("not configured") ? 503 : 500;
   return NextResponse.json({ error: message }, { status });
 }
