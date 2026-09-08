@@ -9,23 +9,37 @@ import {
 } from "@/lib/message-threads";
 import { prisma } from "@/lib/prisma";
 
+/** Trashed threads are purged (and hard-deleted once every participant has done the same) after this many days. */
+const TRASH_RETENTION_DAYS = 14;
+
 export async function GET(req: Request) {
   const auth = await resolveAccountUserId(req);
   if (auth instanceof NextResponse) return auth;
   const uid = auth.userId;
 
   const url = new URL(req.url);
-  const inbox = url.searchParams.get("inbox") === "request" ? "request" : "primary";
+  const inboxParam = url.searchParams.get("inbox");
+  const view: "primary" | "request" | "trash" =
+    inboxParam === "request" ? "request" : inboxParam === "trash" ? "trash" : "primary";
 
   // Move answered request threads into Inbox before listing so the folder switch is visible
   // on refresh (not only after opening an individual chat).
   await healRequestThreadsAcceptedByReply(uid);
 
   const threads = await prisma.messageThread.findMany({
-    where: {
-      OR: [{ buyerId: uid }, { sellerId: uid }],
-      inbox,
-    },
+    where:
+      view === "trash"
+        ? {
+            OR: [{ buyerId: uid }, { sellerId: uid }],
+            participants: { some: { userId: uid, deletedAt: { not: null } } },
+          }
+        : {
+            OR: [{ buyerId: uid }, { sellerId: uid }],
+            inbox: view,
+            // Deleted-for-me threads stay in the DB (the other participant may still be using
+            // them) but disappear from this user's Inbox/Requests until restored or purged.
+            participants: { none: { userId: uid, deletedAt: { not: null } } },
+          },
     orderBy: [{ updatedAt: "desc" }],
     // Defensive cap — no pagination UI yet (see performance audit 2026-07).
     take: 300,
@@ -90,6 +104,10 @@ export async function GET(req: Request) {
       const ctx = await resolveThreadContext(t);
       const offer = t.offerId ? offerMap.get(t.offerId) ?? null : null;
       const order = t.orderId ? orderMap.get(t.orderId) ?? null : null;
+      const deletedAt = participant?.deletedAt ?? null;
+      const purgeAt = deletedAt
+        ? new Date(deletedAt.getTime() + TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+        : null;
 
       return {
         id: t.id,
@@ -118,19 +136,31 @@ export async function GET(req: Request) {
         offerStatus: offerStatusChip(offer),
         orderStatus: orderStatusChip(order),
         isSeller: t.sellerId === uid,
+        deletedAt: deletedAt ? deletedAt.toISOString() : null,
+        purgeAt: purgeAt ? purgeAt.toISOString() : null,
       };
     }),
   );
 
-  enriched.sort((a, b) => {
-    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-    return new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
-  });
+  // Trash sorts by most-recently-deleted first — recency of the delete action, not the
+  // underlying conversation activity, is what's relevant while browsing Trash.
+  if (view === "trash") {
+    enriched.sort((a, b) => new Date(b.deletedAt ?? 0).getTime() - new Date(a.deletedAt ?? 0).getTime());
+  } else {
+    enriched.sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
+    });
+  }
 
   const requestCount =
-    inbox === "primary"
+    view === "primary"
       ? await prisma.messageThread.count({
-          where: { OR: [{ buyerId: uid }, { sellerId: uid }], inbox: "request" },
+          where: {
+            OR: [{ buyerId: uid }, { sellerId: uid }],
+            inbox: "request",
+            participants: { none: { userId: uid, deletedAt: { not: null } } },
+          },
         })
       : 0;
 

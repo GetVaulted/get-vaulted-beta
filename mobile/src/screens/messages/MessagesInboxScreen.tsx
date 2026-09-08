@@ -12,12 +12,12 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fetchMessageThreads } from '../../api/messagesRepository';
+import { fetchMessageThreads, patchThreadAction } from '../../api/messagesRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { MessageThreadCard } from '../../components/messages/MessageThreadCard';
 import type { RootStackParamList } from '../../navigation/types';
 import { openMessageThread, openNewMessage } from '../../navigation/openMessages';
-import type { ThreadListItem } from '../../types/messages';
+import type { MessageThreadView, ThreadListItem } from '../../types/messages';
 import { colors, radii, spacing } from '../../theme';
 import { deriveMessagesInboxViewState, describeInboxLoadError } from './messagesInboxViewState';
 
@@ -28,7 +28,7 @@ export function MessagesInboxScreen({ navigation }: Props) {
   const { session } = useAuth();
   const token = session?.access_token;
 
-  const [inbox, setInbox] = useState<'primary' | 'request'>('primary');
+  const [inbox, setInbox] = useState<MessageThreadView>('primary');
   const [threads, setThreads] = useState<ThreadListItem[]>([]);
   const [requestCount, setRequestCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -63,6 +63,21 @@ export function MessagesInboxScreen({ navigation }: Props) {
   const onRefresh = () => {
     setRefreshing(true);
     void load();
+  };
+
+  // Optimistic: the row disappears from this list immediately on swipe, and the server call rides
+  // along in the background. On failure, reload so the list matches server state again rather than
+  // leaving a row missing that never actually got deleted/restored.
+  const onDeleteThread = (threadId: string) => {
+    setThreads((prev) => prev.filter((t) => t.id !== threadId));
+    if (!token) return;
+    void patchThreadAction(token, threadId, 'delete').catch(() => void load());
+  };
+
+  const onRestoreThread = (threadId: string) => {
+    setThreads((prev) => prev.filter((t) => t.id !== threadId));
+    if (!token) return;
+    void patchThreadAction(token, threadId, 'restore').catch(() => void load());
   };
 
   const viewState = deriveMessagesInboxViewState({ loading, hasError: !!loadError, threadCount: threads.length });
@@ -111,6 +126,12 @@ export function MessagesInboxScreen({ navigation }: Props) {
             </View>
           ) : null}
         </Pressable>
+        <Pressable
+          style={[styles.tab, inbox === 'trash' && styles.tabOn]}
+          onPress={() => setInbox('trash')}
+        >
+          <Text style={[styles.tabTxt, inbox === 'trash' && styles.tabTxtOn]}>Trash</Text>
+        </Pressable>
       </View>
 
       {viewState === 'loading' ? (
@@ -133,14 +154,24 @@ export function MessagesInboxScreen({ navigation }: Props) {
               </View>
             ) : (
               <View style={styles.empty}>
-                <Ionicons name="chatbubbles-outline" size={40} color={colors.textMuted} />
+                <Ionicons
+                  name={inbox === 'trash' ? 'trash-outline' : 'chatbubbles-outline'}
+                  size={40}
+                  color={colors.textMuted}
+                />
                 <Text style={styles.emptyTitle}>
-                  {inbox === 'request' ? 'No message requests' : 'No conversations yet'}
+                  {inbox === 'trash'
+                    ? 'Trash is empty'
+                    : inbox === 'request'
+                      ? 'No message requests'
+                      : 'No conversations yet'}
                 </Text>
                 <Text style={styles.emptySub}>
-                  {inbox === 'request'
-                    ? 'New collectors will appear here until you accept.'
-                    : 'Search for a collector, or message a seller from a listing or live show.'}
+                  {inbox === 'trash'
+                    ? 'Deleted conversations stay here for 14 days before they’re gone for good.'
+                    : inbox === 'request'
+                      ? 'New collectors will appear here until you accept.'
+                      : 'Search for a collector, or message a seller from a listing or live show.'}
                 </Text>
                 {inbox === 'primary' ? (
                   <Pressable style={styles.retryBtn} onPress={() => openNewMessage(navigation)}>
@@ -155,6 +186,8 @@ export function MessagesInboxScreen({ navigation }: Props) {
             <MessageThreadCard
               thread={item}
               onPress={() => openMessageThread(navigation, item.id)}
+              onDelete={inbox === 'trash' ? undefined : () => onDeleteThread(item.id)}
+              onRestore={inbox === 'trash' ? () => onRestoreThread(item.id) : undefined}
             />
           )}
         />

@@ -1,8 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
+import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { UserAvatar } from '../ui/UserAvatar';
 import type { MessageConversationKind, ThreadListItem } from '../../types/messages';
 import { colors, radii, spacing } from '../../theme';
+
+/** Days remaining before a trashed thread is purged for good — clamped so it never reads negative. */
+function daysUntil(iso: string | null): number {
+  if (!iso) return 0;
+  const ms = new Date(iso).getTime() - Date.now();
+  return Math.max(0, Math.ceil(ms / 86_400_000));
+}
 
 function formatTime(iso: string) {
   try {
@@ -42,48 +52,99 @@ function conversationTagStyle(kind: MessageConversationKind): { label: string; c
   }
 }
 
-export function MessageThreadCard({ thread, onPress }: { thread: ThreadListItem; onPress: () => void }) {
+type Props = {
+  thread: ThreadListItem;
+  onPress: () => void;
+  /** Swipe-left reveals a Delete action (Inbox/Requests rows). Omit in Trash. */
+  onDelete?: () => void;
+  /** Swipe-left reveals a Restore action instead of Delete (Trash rows). Omit outside Trash. */
+  onRestore?: () => void;
+};
+
+export function MessageThreadCard({ thread, onPress, onDelete, onRestore }: Props) {
   const unread = thread.unreadCount > 0;
   const tag = conversationTagStyle(thread.conversationKind);
   const statusText = thread.offerStatus || thread.orderStatus;
+  const swipeRef = useRef<SwipeableMethods>(null);
+  const inTrash = Boolean(onRestore);
+  const daysLeft = inTrash ? daysUntil(thread.purgeAt) : 0;
 
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
-      <View style={styles.avatarCol}>
-        <UserAvatar uri={thread.otherAvatarUrl} username={thread.otherUsername} size={46} />
-        {unread ? <View style={styles.unreadDot} /> : null}
-      </View>
-      <View style={styles.body}>
-        <View style={styles.top}>
-          <Text style={[styles.user, unread && styles.userUnread]} numberOfLines={1}>
-            @{thread.otherUsername}
-          </Text>
-          <View style={styles.topRight}>
-            {thread.pinned ? <Ionicons name="pin" size={11} color={colors.textMuted} /> : null}
-            {thread.starred ? <Ionicons name="star" size={11} color={colors.gold} /> : null}
-            <Text style={styles.time}>{formatTime(thread.lastAt)}</Text>
+    <ReanimatedSwipeable
+      ref={swipeRef}
+      friction={2}
+      rightThreshold={40}
+      overshootRight={false}
+      enabled={Boolean(onDelete || onRestore)}
+      renderRightActions={() =>
+        inTrash ? (
+          <Pressable
+            style={[styles.swipeAction, styles.swipeActionRestore]}
+            onPress={() => {
+              swipeRef.current?.close();
+              onRestore?.();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Restore conversation"
+          >
+            <Ionicons name="refresh" size={18} color="#0a0a0a" />
+            <Text style={styles.swipeActionTxt}>Restore</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            style={[styles.swipeAction, styles.swipeActionDelete]}
+            onPress={() => {
+              swipeRef.current?.close();
+              onDelete?.();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Delete conversation"
+          >
+            <Ionicons name="trash-outline" size={18} color="#fff" />
+            <Text style={[styles.swipeActionTxt, { color: '#fff' }]}>Delete</Text>
+          </Pressable>
+        )
+      }
+    >
+      <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
+        <View style={styles.avatarCol}>
+          <UserAvatar uri={thread.otherAvatarUrl} username={thread.otherUsername} size={46} />
+          {unread ? <View style={styles.unreadDot} /> : null}
+        </View>
+        <View style={styles.body}>
+          <View style={styles.top}>
+            <Text style={[styles.user, unread && styles.userUnread]} numberOfLines={1}>
+              @{thread.otherUsername}
+            </Text>
+            <View style={styles.topRight}>
+              {thread.pinned ? <Ionicons name="pin" size={11} color={colors.textMuted} /> : null}
+              {thread.starred ? <Ionicons name="star" size={11} color={colors.gold} /> : null}
+              <Text style={styles.time}>{formatTime(thread.lastAt)}</Text>
+            </View>
+          </View>
+          <View style={styles.previewRow}>
+            {tag ? (
+              <View style={[styles.tag, { backgroundColor: `${tag.color}1F`, borderColor: `${tag.color}55` }]}>
+                <Text style={[styles.tagTxt, { color: tag.color }]}>{statusText || tag.label}</Text>
+              </View>
+            ) : null}
+            <Text
+              style={[styles.preview, unread && styles.previewUnread]}
+              numberOfLines={tag ? 1 : 2}
+            >
+              {thread.lastPreview || '—'}
+            </Text>
           </View>
         </View>
-        <View style={styles.previewRow}>
-          {tag ? (
-            <View style={[styles.tag, { backgroundColor: `${tag.color}1F`, borderColor: `${tag.color}55` }]}>
-              <Text style={[styles.tagTxt, { color: tag.color }]}>{statusText || tag.label}</Text>
-            </View>
-          ) : null}
-          <Text
-            style={[styles.preview, unread && styles.previewUnread]}
-            numberOfLines={tag ? 1 : 2}
-          >
-            {thread.lastPreview || '—'}
-          </Text>
-        </View>
-      </View>
-      {unread ? (
-        <View style={styles.badge}>
-          <Text style={styles.badgeTxt}>{thread.unreadCount > 9 ? '9+' : thread.unreadCount}</Text>
-        </View>
-      ) : null}
-    </Pressable>
+        {inTrash ? (
+          <Text style={styles.purgeTxt}>{daysLeft <= 0 ? 'Today' : `${daysLeft}d`}</Text>
+        ) : unread ? (
+          <View style={styles.badge}>
+            <Text style={styles.badgeTxt}>{thread.unreadCount > 9 ? '9+' : thread.unreadCount}</Text>
+          </View>
+        ) : null}
+      </Pressable>
+    </ReanimatedSwipeable>
   );
 }
 
@@ -94,6 +155,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
+    backgroundColor: colors.background,
   },
   rowPressed: { backgroundColor: 'rgba(255,255,255,0.03)' },
   avatarCol: { position: 'relative' },
@@ -136,4 +198,20 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   badgeTxt: { fontSize: 10, fontWeight: '900', color: '#0a0a0a' },
+  purgeTxt: {
+    alignSelf: 'center',
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textMuted,
+    fontVariant: ['tabular-nums'],
+  },
+  swipeAction: {
+    width: 84,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+  },
+  swipeActionDelete: { backgroundColor: colors.live },
+  swipeActionRestore: { backgroundColor: colors.gold },
+  swipeActionTxt: { fontSize: 11, fontWeight: '800', color: '#0a0a0a' },
 });

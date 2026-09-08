@@ -10,6 +10,7 @@ import {
   resolveInboxForNewThread,
   resolveLiveNetworkingListingAnchor,
   resolveProfileMessagingListingAnchor,
+  restoreThreadForNewMessage,
 } from "@/lib/message-threads";
 import { isUserBlocked } from "@/lib/user-block";
 import type { MessageConversationKind } from "@/generated/prisma/client";
@@ -185,6 +186,7 @@ export async function POST(req: Request) {
         });
 
         await ensureThreadParticipants(tx, thread.id, buyerId, sellerId);
+        await restoreThreadForNewMessage(tx, thread.id, buyerId, sellerId);
 
         const created = await tx.message.create({
           data: {

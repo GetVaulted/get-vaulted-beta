@@ -174,6 +174,18 @@ export function MessageThreadScreen({ navigation, route }: Props) {
     });
   };
 
+  // Delete-for-me: moves the conversation into this user's Trash (14-day undo window via
+  // MessagesInboxScreen), with zero effect on the other participant's copy. Available to either
+  // side of the conversation, not just the seller.
+  const onDeleteThread = () => {
+    if (!token) return;
+    void patchThreadAction(token, threadId, 'delete')
+      .then(() => navigation.goBack())
+      .catch((e) => {
+        Alert.alert('Could not delete', e instanceof Error ? e.message : 'Try again.');
+      });
+  };
+
   const uid = user?.id ?? '';
   // The initiator of a request-folder thread can send exactly the first message; the server blocks
   // follow-ups (403) until the recipient accepts. Show a clear waiting state instead of an enabled
@@ -224,13 +236,19 @@ export function MessageThreadScreen({ navigation, route }: Props) {
         <Pressable
           hitSlop={12}
           onPress={() => {
-            if (!thread?.isSeller) return;
+            if (!thread) return;
+            const sellerOptions = thread.isSeller
+              ? [
+                  { text: 'Star buyer', onPress: () => onSellerAction('star') },
+                  { text: thread.pinned ? 'Unpin' : 'Pin', onPress: () => onSellerAction('pin') },
+                  { text: thread.muted ? 'Unmute' : 'Mute', onPress: () => onSellerAction('mute') },
+                  { text: 'Block', style: 'destructive' as const, onPress: () => onSellerAction('block') },
+                ]
+              : [];
             Alert.alert('Collector tools', undefined, [
-              { text: 'Star buyer', onPress: () => onSellerAction('star') },
-              { text: thread.pinned ? 'Unpin' : 'Pin', onPress: () => onSellerAction('pin') },
-              { text: thread.muted ? 'Unmute' : 'Mute', onPress: () => onSellerAction('mute') },
-              { text: 'Block', style: 'destructive', onPress: () => onSellerAction('block') },
-              { text: 'Cancel', style: 'cancel' },
+              ...sellerOptions,
+              { text: 'Delete conversation', style: 'destructive' as const, onPress: onDeleteThread },
+              { text: 'Cancel', style: 'cancel' as const },
             ]);
           }}
         >

@@ -16,21 +16,14 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MentionComposerInput } from '../../components/mentions/MentionComposerInput';
-import { sendThreadMessage, startConversation, uploadThreadImage } from '../../api/messagesRepository';
+import { startConversation, uploadThreadImage } from '../../api/messagesRepository';
 import { useAuth } from '../../auth/AuthContext';
-import {
-  pickPhotoFromCamera,
-  pickPhotosFromLibrary,
-  promptPhotoPickSource,
-} from '../../createListing/pickListingMedia';
+import { pickSingleImageFromLibrary } from '../../createListing/pickListingMedia';
 import { prepareMessageImageForUpload } from '../../lib/messageImagePrepare';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MessageCompose'>;
-
-/** Matches the common messaging-app ceiling (iMessage/WhatsApp) — generous without being unbounded. */
-const MAX_MESSAGE_IMAGES = 10;
 
 export function MessageComposeScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
@@ -38,7 +31,7 @@ export function MessageComposeScreen({ navigation, route }: Props) {
   const token = session?.access_token;
   const [draft, setDraft] = useState(route.params.initialDraft ?? '');
   const [busy, setBusy] = useState(false);
-  const [pendingImageUris, setPendingImageUris] = useState<string[]>([]);
+  const [pendingImageUri, setPendingImageUri] = useState<string | null>(null);
   const [pickingImage, setPickingImage] = useState(false);
 
   const sellerLabel = route.params.sellerUsername?.trim();
@@ -53,26 +46,11 @@ export function MessageComposeScreen({ navigation, route }: Props) {
 
   const onPickImage = async () => {
     if (pickingImage || busy) return;
-    const remaining = MAX_MESSAGE_IMAGES - pendingImageUris.length;
-    if (remaining <= 0) {
-      Alert.alert('Limit reached', `You can attach up to ${MAX_MESSAGE_IMAGES} photos to one message.`);
-      return;
-    }
-    const source = await promptPhotoPickSource('Add photo');
-    if (!source) return;
     setPickingImage(true);
     try {
-      if (source === 'camera') {
-        const result = await pickPhotoFromCamera();
-        const uri = result && !result.canceled ? result.assets[0]?.uri : null;
-        if (uri) setPendingImageUris((prev) => [...prev, uri].slice(0, MAX_MESSAGE_IMAGES));
-      } else {
-        const result = await pickPhotosFromLibrary(remaining);
-        const uris = result && !result.canceled ? result.assets.map((a) => a.uri).filter(Boolean) : [];
-        if (uris.length) {
-          setPendingImageUris((prev) => [...prev, ...uris].slice(0, MAX_MESSAGE_IMAGES));
-        }
-      }
+      const result = await pickSingleImageFromLibrary();
+      const uri = result && !result.canceled ? result.assets[0]?.uri : null;
+      if (uri) setPendingImageUri(uri);
     } catch (e) {
       Alert.alert('Could not open photos', e instanceof Error ? e.message : 'Try again.');
     } finally {
@@ -80,13 +58,9 @@ export function MessageComposeScreen({ navigation, route }: Props) {
     }
   };
 
-  const removePendingImage = (uri: string) => {
-    setPendingImageUris((prev) => prev.filter((u) => u !== uri));
-  };
-
   const onSend = async () => {
     const text = draft.trim();
-    if (!text && pendingImageUris.length === 0) {
+    if (!text && !pendingImageUri) {
       Alert.alert('Message', 'Write a note or attach a photo before sending.');
       return;
     }
@@ -96,30 +70,21 @@ export function MessageComposeScreen({ navigation, route }: Props) {
     }
     setBusy(true);
     try {
-      // Only one image can ride along with the thread-starting call — any additional images go
-      // out as follow-up messages once the thread exists. Caption text always lands on the very
-      // last image (or as the opening message body when there's no image at all).
-      const queued = [...pendingImageUris];
-      const firstUri = queued.shift();
-      let firstImageUrl: string | undefined;
-      if (firstUri) {
-        const preparedUri = await prepareMessageImageForUpload(firstUri);
-        firstImageUrl = await uploadThreadImage(token, preparedUri);
+      let imageUrl: string | undefined;
+      if (pendingImageUri) {
+        // Normalize to real JPEG bytes first — the server rejects a claimed image/jpeg upload
+        // whose bytes don't actually match (e.g. HEIC straight from the photo library).
+        const preparedUri = await prepareMessageImageForUpload(pendingImageUri);
+        imageUrl = await uploadThreadImage(token, preparedUri);
       }
       const { threadId, inbox } = await startConversation(token, {
         listingId: route.params.listingId,
         liveRoomId: route.params.liveRoomId,
         sellerUserId: profileTarget,
-        body: queued.length === 0 ? text : '',
-        imageUrl: firstImageUrl,
+        body: text,
+        imageUrl,
         conversationKind: fromLive ? 'live_networking' : 'buyer_seller',
       });
-      for (let i = 0; i < queued.length; i += 1) {
-        const isLast = i === queued.length - 1;
-        const preparedUri = await prepareMessageImageForUpload(queued[i]);
-        const imageUrl = await uploadThreadImage(token, preparedUri);
-        await sendThreadMessage(token, threadId, isLast ? text : '', imageUrl);
-      }
       Keyboard.dismiss();
       if (inbox === 'request') {
         Alert.alert(
@@ -178,34 +143,12 @@ export function MessageComposeScreen({ navigation, route }: Props) {
           maxLength={2000}
         />
 
-        {pendingImageUris.length > 0 ? (
-          <View style={styles.imagePreviewWrap}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.imagePreviewRow}>
-              {pendingImageUris.map((uri) => (
-                <View key={uri} style={styles.imagePreviewItem}>
-                  <Image source={{ uri }} style={styles.imagePreview} contentFit="cover" />
-                  <Pressable onPress={() => removePendingImage(uri)} hitSlop={10} style={styles.imagePreviewRemove}>
-                    <Ionicons name="close-circle" size={22} color={colors.textPrimary} />
-                  </Pressable>
-                </View>
-              ))}
-            </ScrollView>
-            {pendingImageUris.length < MAX_MESSAGE_IMAGES ? (
-              <Pressable
-                style={styles.attachRow}
-                onPress={() => void onPickImage()}
-                disabled={pickingImage || busy}
-                accessibilityRole="button"
-                accessibilityLabel="Attach another photo"
-              >
-                {pickingImage ? (
-                  <ActivityIndicator color={colors.textSecondary} size="small" />
-                ) : (
-                  <Ionicons name="add-circle-outline" size={18} color={colors.textSecondary} />
-                )}
-                <Text style={styles.attachTxt}>Add another photo</Text>
-              </Pressable>
-            ) : null}
+        {pendingImageUri ? (
+          <View style={styles.imagePreviewRow}>
+            <Image source={{ uri: pendingImageUri }} style={styles.imagePreview} contentFit="cover" />
+            <Pressable onPress={() => setPendingImageUri(null)} hitSlop={10} style={styles.imagePreviewRemove}>
+              <Ionicons name="close-circle" size={22} color={colors.textPrimary} />
+            </Pressable>
           </View>
         ) : (
           <Pressable
@@ -227,9 +170,9 @@ export function MessageComposeScreen({ navigation, route }: Props) {
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
         <Pressable
-          style={[styles.send, ((!draft.trim() && pendingImageUris.length === 0) || busy) && styles.sendDim]}
+          style={[styles.send, ((!draft.trim() && !pendingImageUri) || busy) && styles.sendDim]}
           onPress={() => void onSend()}
-          disabled={busy || (!draft.trim() && pendingImageUris.length === 0)}
+          disabled={busy || (!draft.trim() && !pendingImageUri)}
           accessibilityLabel="Send message"
         >
           {busy ? (
@@ -269,9 +212,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   attachTxt: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
-  imagePreviewWrap: { marginTop: spacing.md },
-  imagePreviewRow: { flexDirection: 'row', gap: spacing.sm },
-  imagePreviewItem: { position: 'relative' },
+  imagePreviewRow: { marginTop: spacing.md, alignSelf: 'flex-start' },
   imagePreview: { width: 84, height: 84, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.06)' },
   imagePreviewRemove: {
     position: 'absolute',

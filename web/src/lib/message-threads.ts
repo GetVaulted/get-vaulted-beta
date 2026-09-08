@@ -375,6 +375,25 @@ export async function ensureThreadParticipants(
   });
 }
 
+/**
+ * Clears `deletedAt` for both participants of a thread when a real message is sent into it. A
+ * thread either side trashed should resurface for them if the conversation becomes active again —
+ * but only on an actual new message, not just from viewing/linking the thread (e.g. opening trade
+ * terms), which is why this is separate from `ensureThreadParticipants` and only called from the
+ * genuine message-creation call sites.
+ */
+export async function restoreThreadForNewMessage(
+  tx: Prisma.TransactionClient,
+  threadId: string,
+  senderId: string,
+  recipientId: string,
+) {
+  await tx.messageThreadParticipant.updateMany({
+    where: { threadId, userId: { in: [senderId, recipientId] }, deletedAt: { not: null } },
+    data: { deletedAt: null },
+  });
+}
+
 export function systemMessageBody(event: string): string {
   switch (event) {
     case "offer_accepted":
