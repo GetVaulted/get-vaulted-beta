@@ -5,7 +5,7 @@ import { formatLiveTipChatMessage, liveTipApplicationFeeCents, resolveLiveTipRec
 import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
-import { emitLiveRoomMessageById, emitLiveRoomModerationChanged } from "@/lib/realtime-emit-server";
+import { emitLiveRoomModerationChanged } from "@/lib/realtime-emit-server";
 import Stripe from "stripe";
 
 const PAYMENT_PENDING = "pending_payment";
@@ -364,7 +364,7 @@ export async function finalizeLiveTipPaid(args: {
   });
   if (!tip || tip.status === "paid") return;
 
-  const tipMessageId = await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
     await tx.liveTip.update({
       where: { id: tip.id },
       data: {
@@ -381,31 +381,22 @@ export async function finalizeLiveTipPaid(args: {
       message: tip.message,
     });
 
-    const message = await tx.liveRoomMessage.create({
+    await tx.liveRoomMessage.create({
       data: {
         liveRoomId: tip.liveRoomId,
         senderId: tip.senderId,
         body: body.slice(0, 2000),
         messageType: "tip",
       },
-      select: { id: true },
     });
 
     await tx.liveRoom.update({
       where: { id: tip.liveRoomId },
       data: { roomVersion: { increment: 1 } },
     });
-
-    return message.id;
   });
 
   emitLiveRoomModerationChanged(tip.liveRoomId);
-  // Broadcast just the new tip message instead of telling every viewer in the room to
-  // refetch the whole chat history (see payments.ts — that used to be an
-  // emitLiveRoomMessagesRefetch call here, which fanned out to a full GET
-  // /api/live-rooms/[id]/messages per viewer on every tip and was a major contributor to
-  // Supabase connection-pool timeouts during busy shows).
-  void emitLiveRoomMessageById(tipMessageId);
 }
 
 export async function markLiveTipCheckoutFailed(liveTipId: string): Promise<void> {

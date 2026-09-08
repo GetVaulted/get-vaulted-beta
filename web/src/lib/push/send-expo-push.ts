@@ -10,6 +10,39 @@ function getExpoClient(): Expo | null {
   return expoClient;
 }
 
+function isTransientDbConnectionError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return (
+    msg.includes("timeout exceeded when trying to connect") ||
+    msg.includes("Timed out fetching a new connection") ||
+    msg.includes("Can't reach database server")
+  );
+}
+
+/**
+ * Retries a DB call a couple of times on a transient pool-exhaustion timeout before giving up.
+ * Real-world data (Sentry / Netlify logs, Sep 2026): `sendExpoPushForUser` was silently dropping
+ * pushes whenever the `PushDeviceToken` lookup lost the race for a pooled connection and threw
+ * "timeout exceeded when trying to connect" — no retry, no fallback, the notification just never
+ * went out. That is the leading cause behind reports of Android push "not working": the send was
+ * never attempted, not that Expo/Firebase rejected it. This does not fix the underlying pool
+ * contention (see the live-room broadcast fan-out fix for one source of that), but it stops one
+ * flaky connection checkout from silently eating a notification.
+ */
+async function withDbConnectionRetry<T>(fn: () => Promise<T>, retries = 2, baseDelayMs = 300): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastError = e;
+      if (!isTransientDbConnectionError(e) || attempt === retries) throw e;
+      await new Promise((resolve) => setTimeout(resolve, baseDelayMs * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
 export type ExpoPushPayload = {
   userId: string;
   title: string;
@@ -68,15 +101,17 @@ export async function sendExpoPushForUser(payload: ExpoPushPayload): Promise<voi
   if (!client) return;
 
   try {
-    const pushTokens = await loadExpoPushTokens(payload.userId);
+    const pushTokens = await withDbConnectionRetry(() => loadExpoPushTokens(payload.userId));
     if (pushTokens.length === 0) return;
 
     // iOS home-screen icon badge only updates from the APNs `badge` field (or an explicit
     // client setBadgeCountAsync). Without this, pushes alert but the red corner count never
     // appears while the app is backgrounded / killed.
-    const unreadCount = await prisma.notification.count({
-      where: { userId: payload.userId, readAt: null },
-    });
+    const unreadCount = await withDbConnectionRetry(() =>
+      prisma.notification.count({
+        where: { userId: payload.userId, readAt: null },
+      }),
+    );
 
     const messages: ExpoPushMessage[] = pushTokens.map((to) => ({
       to,
@@ -143,10 +178,12 @@ export async function sendExpoPushBroadcast(payload: ExpoPushBroadcastPayload): 
   try {
     const tokenSet = new Set<string>();
     for (const idBatch of chunkArray(payload.userIds, 1000)) {
-      const rows = await prisma.pushDeviceToken.findMany({
-        where: { userId: { in: idBatch } },
-        select: { expoPushToken: true },
-      });
+      const rows = await withDbConnectionRetry(() =>
+        prisma.pushDeviceToken.findMany({
+          where: { userId: { in: idBatch } },
+          select: { expoPushToken: true },
+        }),
+      );
       for (const row of rows) tokenSet.add(row.expoPushToken);
     }
     const tokens = [...tokenSet].filter((t) => Expo.isExpoPushToken(t));
