@@ -2531,20 +2531,11 @@ model MessageThreadParticipant {
   starred   Boolean       @default(false)
   muted     Boolean       @default(false)
   blocked   Boolean       @default(false)
-  /// "Delete conversation" is per-participant, not global — set only on the deleting user's own
-  /// row, so the thread simply disappears from their Inbox/Requests and appears in their Trash;
-  /// the other participant's copy (and their own row here) is completely untouched. A cron purges
-  /// rows past the 14-day trash window (see purge-deleted-message-threads) — once every
-  /// participant row for a thread is gone, the thread (and its messages) has no remaining viewer
-  /// and gets hard-deleted too. Cleared automatically when a new message lands in the thread (see
-  /// restoreThreadForNewMessage) so a thread you trashed resurfaces if it becomes active again.
-  deletedAt DateTime?
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
   @@unique([threadId, userId])
   @@index([userId])
-  @@index([userId, deletedAt])
 }
 
 /// Durable, cross-thread block between two users. Source of truth for whether a NEW thread

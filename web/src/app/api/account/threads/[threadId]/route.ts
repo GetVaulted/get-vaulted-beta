@@ -8,7 +8,6 @@ import {
   offerStatusChip,
   orderStatusChip,
   resolveThreadContext,
-  restoreThreadForNewMessage,
 } from "@/lib/message-threads";
 import { isUserBlocked } from "@/lib/user-block";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
@@ -276,7 +275,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
         ...(acceptOnSend ? { inbox: "primary" as const } : {}),
       },
     });
-    await restoreThreadForNewMessage(tx, thread.id, uid, recipientId);
 
     return m;
   });

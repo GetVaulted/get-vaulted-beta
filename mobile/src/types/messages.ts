@@ -8,9 +8,6 @@ export type MessageConversationKind =
 
 export type MessageThreadInbox = 'primary' | 'request';
 
-/** Client-side view selector — 'trash' isn't a real `inbox` column value, it's a query over deleted-for-me threads. */
-export type MessageThreadView = MessageThreadInbox | 'trash';
-
 export type MessageKind = 'user' | 'system';
 
 export type ThreadListItem = {
@@ -39,17 +36,12 @@ export type ThreadListItem = {
   offerStatus: string | null;
   orderStatus: string | null;
   isSeller: boolean;
-  /** Set once this conversation has been deleted (for this user only) and is sitting in Trash. */
-  deletedAt: string | null;
-  /** When the 14-day trash window expires and this thread is purged for good. */
-  purgeAt: string | null;
 };
 
 export type ThreadMessage = {
   id: string;
   senderId: string;
   body: string;
-  imageUrl?: string | null;
   kind: MessageKind;
   systemEvent: string | null;
   readAt: string | null;

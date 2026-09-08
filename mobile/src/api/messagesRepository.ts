@@ -1,12 +1,6 @@
 import { readAsStringAsync } from 'expo-file-system/legacy';
 import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
-import type {
-  MessageConversationKind,
-  MessageThreadView,
-  ThreadDetail,
-  ThreadListItem,
-  ThreadMessage,
-} from '../types/messages';
+import type { MessageConversationKind, ThreadDetail, ThreadListItem, ThreadMessage } from '../types/messages';
 
 function apiErrorMessage(res: Response, body: unknown): string {
   if (body && typeof body === 'object' && 'error' in body) {
@@ -35,7 +29,7 @@ async function msgFetch(path: string, accessToken: string, init?: RequestInit): 
 
 export async function fetchMessageThreads(
   accessToken: string,
-  inbox: MessageThreadView = 'primary',
+  inbox: 'primary' | 'request' = 'primary',
 ): Promise<{ threads: ThreadListItem[]; requestCount: number }> {
   const res = await msgFetch(`/api/account/threads?inbox=${inbox}`, accessToken);
   let j: { threads?: ThreadListItem[]; requestCount?: number; error?: string } = {};
@@ -141,7 +135,7 @@ export async function startConversation(
   return { threadId: j.threadId, inbox: j.inbox ?? 'primary' };
 }
 
-export type ThreadAction = 'accept_request' | 'pin' | 'star' | 'mute' | 'block' | 'delete' | 'restore';
+export type ThreadAction = 'accept_request' | 'pin' | 'star' | 'mute' | 'block';
 
 export async function patchThreadAction(
   accessToken: string,
