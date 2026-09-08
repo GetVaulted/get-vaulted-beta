@@ -95,6 +95,49 @@ async function pruneInvalidTokens(invalidTokens: string[]): Promise<void> {
   }
 }
 
+/**
+ * Follows up on "ok" tickets to see whether Expo/FCM/APNs actually delivered them.
+ *
+ * A ticket with status "ok" only means Expo's relay accepted the message — it does NOT mean
+ * the device received it. The real outcome lives in the receipt, which is only available a
+ * short while after the send. This codebase used to check nothing past the ticket, which is
+ * exactly how the Sep 2026 outage went undetected: every ticket came back "ok" while every
+ * receipt was silently failing with a Firebase IAM permission error
+ * (`cloudmessaging.messages.create` denied on the GCP project) — no push notification reached
+ * an Android device for an unknown period, and nothing logged it. This closes that gap.
+ */
+async function checkExpoPushReceipts(client: Expo, ticketIdToToken: Map<string, string>): Promise<void> {
+  const ids = [...ticketIdToToken.keys()];
+  if (ids.length === 0) return;
+  try {
+    const invalid: string[] = [];
+    const receiptChunks = client.chunkPushNotificationReceiptIds(ids);
+    for (const chunk of receiptChunks) {
+      const receipts = await client.getPushNotificationReceiptsAsync(chunk);
+      for (const [id, receipt] of Object.entries(receipts)) {
+        if (receipt.status === "error") {
+          const token = ticketIdToToken.get(id);
+          console.error("[push] receipt error", receipt.message, receipt.details, { token });
+          if (receipt.details?.error === "DeviceNotRegistered" && token) {
+            invalid.push(token);
+          }
+        }
+      }
+    }
+    await pruneInvalidTokens(invalid);
+  } catch (e) {
+    console.error("[push] receipt check failed", e);
+  }
+}
+
+/** Fire-and-forget receipt check, delayed so Expo has had time to actually attempt delivery. */
+function scheduleReceiptCheck(client: Expo, ticketIdToToken: Map<string, string>): void {
+  if (ticketIdToToken.size === 0) return;
+  setTimeout(() => {
+    void checkExpoPushReceipts(client, ticketIdToToken);
+  }, 20_000);
+}
+
 /** Send OS push to all registered devices for a Prisma user. Best-effort; never throws. */
 export async function sendExpoPushForUser(payload: ExpoPushPayload): Promise<void> {
   const client = getExpoClient();
@@ -130,21 +173,25 @@ export async function sendExpoPushForUser(payload: ExpoPushPayload): Promise<voi
 
     const chunks = client.chunkPushNotifications(messages);
     const invalid: string[] = [];
+    const ticketIdToToken = new Map<string, string>();
 
     for (const chunk of chunks) {
       const tickets = await client.sendPushNotificationsAsync(chunk);
       tickets.forEach((ticket, i) => {
+        const token = chunk[i]?.to;
         if (ticket.status === "error") {
-          const token = chunk[i]?.to;
           if (typeof token === "string" && ticket.details?.error === "DeviceNotRegistered") {
             invalid.push(token);
           }
           console.warn("[push] ticket error", ticket.message, ticket.details);
+        } else if (typeof token === "string") {
+          ticketIdToToken.set(ticket.id, token);
         }
       });
     }
 
     await pruneInvalidTokens(invalid);
+    scheduleReceiptCheck(client, ticketIdToToken);
   } catch (e) {
     console.error("[push] sendExpoPushForUser failed", e);
   }
@@ -200,24 +247,27 @@ export async function sendExpoPushBroadcast(payload: ExpoPushBroadcastPayload): 
 
     const chunks = client.chunkPushNotifications(messages);
     const invalid: string[] = [];
+    const ticketIdToToken = new Map<string, string>();
     let sent = 0;
 
     for (const chunk of chunks) {
       const tickets = await client.sendPushNotificationsAsync(chunk);
       tickets.forEach((ticket, i) => {
+        const token = chunk[i]?.to;
         if (ticket.status === "error") {
-          const token = chunk[i]?.to;
           if (typeof token === "string" && ticket.details?.error === "DeviceNotRegistered") {
             invalid.push(token);
           }
           console.warn("[push] broadcast ticket error", ticket.message, ticket.details);
         } else {
           sent += 1;
+          if (typeof token === "string") ticketIdToToken.set(ticket.id, token);
         }
       });
     }
 
     await pruneInvalidTokens(invalid);
+    scheduleReceiptCheck(client, ticketIdToToken);
     return sent;
   } catch (e) {
     console.error("[push] sendExpoPushBroadcast failed", e);
