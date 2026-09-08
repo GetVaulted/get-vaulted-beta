@@ -461,11 +461,7 @@ function LiveSlide({
     hostUsername: stream.host.handle.replace(/^@/, '') || stream.host.name,
     viewerDisplayName: myChatSender.username ?? null,
     includeStaffChat: modActor.canModerate,
-    // Deliberately no onModerationChanged wiring here: useLiveRoomModeration already subscribes
-    // to the same room channel's moderationChanged broadcast itself (see that hook) and calling
-    // moderation.reload() from both places double-fired GET /moderation on every single
-    // moderation event. useLiveRoomModeration's own subscription also isn't gated on
-    // screenFocused, so it's a strict superset of this callback's coverage.
+    onModerationChanged: () => void moderation.reload(),
     onChatBroadcast: (message) => {
       if (!message.id) {
         void liveChat.reload();
@@ -1259,7 +1255,6 @@ function LiveSlide({
                   refreshNonce={streamRefreshNonce + roomVisitNonce}
                   roomVisitNonce={roomVisitNonce}
                   realtimeStreamPaused={realtimeStreamPaused}
-                  realtimeConnected={liveSession.connectionState === 'connected'}
                   muted={isActive && screenFocused ? streamMuted : true}
                   onMutedChange={setStreamMuted}
                   onBroadcastGateChange={handleBroadcastGateChange}

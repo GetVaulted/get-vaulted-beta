@@ -16,7 +16,6 @@ import {
   PLAYBACK_RECONNECT_SLOW_MS,
   PLAYER_BACKOFF_BASE_MS,
   STREAM_POLL_MS,
-  STREAM_POLL_CONNECTED_MS,
   WEBRTC_UPGRADE_DWELL_MS,
   clearBuyerStageSubscribeTornDown,
   isBuyerStageWebrtcRejoinBlocked,
@@ -110,14 +109,6 @@ export function useLiveStagePlayback(args: {
   refreshNonce?: number;
   /** Bumps on each new focus visit — logged in the structured playback plan. */
   roomVisitNonce?: number;
-  /**
-   * True when the room's realtime channel is connected (see useLiveRoomRealtimeSession's
-   * connectionState). Realtime already drives an immediate refetch via refreshNonce on every
-   * real change, so while connected the active-surface poll backs off to STREAM_POLL_CONNECTED_MS
-   * as a reconciliation safety net; while disconnected it stays on the tight STREAM_POLL_MS
-   * cadence so playback state doesn't go stale for that viewer. Omit/false = always tight cadence.
-   */
-  realtimeConnected?: boolean;
 }) {
   const [loading, setLoading] = useState(true);
   const [fetchFailed, setFetchFailed] = useState(false);
@@ -729,19 +720,13 @@ export function useLiveStagePlayback(args: {
     }
 
     void fetchStream();
-    const pollMs =
-      args.playbackMode === 'prefetch'
-        ? PREFETCH_POLL_MS
-        : args.realtimeConnected
-          ? STREAM_POLL_CONNECTED_MS
-          : STREAM_POLL_MS;
+    const pollMs = args.playbackMode === 'prefetch' ? PREFETCH_POLL_MS : STREAM_POLL_MS;
     const id = setInterval(() => void fetchStream(), pollMs);
     return () => clearInterval(id);
   }, [
     applyTransport,
     args.accessToken,
     args.playbackMode,
-    args.realtimeConnected,
     args.roomId,
     beginPlaybackAttempt,
     fetchStream,

@@ -4,21 +4,10 @@ import {
   type LiveRoomModerationSnapshot,
   type LiveViewerRole,
 } from '../api/trustRepository';
-import { peekLiveRoomChannel, subscribeLiveRoomChannel } from '../lib/liveRoomSharedChannel';
+import { peekLiveRoomChannel } from '../lib/liveRoomSharedChannel';
 import { RT_EVENT } from '../lib/realtimeChannels';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { isPinnedMessageActive, msUntilPinnedMessageExpires } from '../lib/pinnedMessageExpiry';
-
-/** Fallback cadence while this room's realtime channel isn't confirmed SUBSCRIBED. */
-const MODERATION_POLL_MS = 12_000;
-/**
- * Reconciliation-only cadence once the shared room channel reports SUBSCRIBED — the
- * moderationChanged broadcast handler below already triggers an immediate `reload()` on every
- * real change, so this is a safety net for a missed broadcast, not the primary signal path.
- * Mirrors the same connected-vs-disconnected pattern used for stream-status and room-snapshot
- * polling (see scaling-plan-2026-09-08.md Phase 3).
- */
-const MODERATION_POLL_CONNECTED_MS = 30_000;
 
 const EMPTY: LiveRoomModerationSnapshot = {
   canModerate: false,
@@ -52,9 +41,6 @@ export function useLiveRoomModeration(args: {
 }) {
   const [state, setState] = useState<LiveRoomModerationSnapshot>(EMPTY);
   const [roomBlocked, setRoomBlocked] = useState(false);
-  /** True once this room's shared realtime channel confirms SUBSCRIBED (see the combined
-   * broadcast+status subscription effect below). Drives the poll-cadence backoff. */
-  const [realtimeConnected, setRealtimeConnected] = useState(false);
 
   const reload = useCallback(async () => {
     if (!args.roomId || args.enabled === false) return;
@@ -111,20 +97,15 @@ export function useLiveRoomModeration(args: {
   useEffect(() => {
     void reload();
     if (args.enabled === false) return undefined;
-    const pollMs = realtimeConnected ? MODERATION_POLL_CONNECTED_MS : MODERATION_POLL_MS;
-    const id = setInterval(() => void reload(), pollMs);
+    const id = setInterval(() => void reload(), 12_000);
     return () => clearInterval(id);
-  }, [args.enabled, reload, realtimeConnected]);
+  }, [args.enabled, reload]);
 
   useEffect(() => {
-    if (args.enabled === false || !args.roomId || !isSupabaseConfigured()) {
-      setRealtimeConnected(false);
-      return undefined;
-    }
+    if (args.enabled === false || !args.roomId || !isSupabaseConfigured()) return undefined;
 
     let cancelled = false;
     let detach: (() => void) | undefined;
-    let detachStatus: (() => void) | undefined;
 
     const attach = () => {
       if (cancelled || detach) return;
@@ -139,11 +120,6 @@ export function useLiveRoomModeration(args: {
       detach = () => {
         active = false;
       };
-      // Real subscription status (not just "channel object exists") — drives the poll backoff.
-      detachStatus = subscribeLiveRoomChannel(args.roomId, (status) => {
-        if (cancelled) return;
-        setRealtimeConnected(status === 'SUBSCRIBED');
-      });
     };
 
     attach();
@@ -153,8 +129,6 @@ export function useLiveRoomModeration(args: {
       cancelled = true;
       clearInterval(retry);
       detach?.();
-      detachStatus?.();
-      setRealtimeConnected(false);
     };
   }, [args.enabled, args.roomId, reload]);
 

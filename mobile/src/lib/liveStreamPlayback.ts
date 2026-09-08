@@ -349,16 +349,5 @@ export function resolveLivePlaybackSurfaceState(input: {
 }
 
 export const STREAM_POLL_MS = 2_500;
-/**
- * Poll cadence for the active playback surface while the room's realtime channel is connected.
- * Realtime `stream_status` broadcasts already drive an immediate `fetchStream()` + remount via
- * `refreshNonce` (see useLiveStagePlayback's refreshNonce effect) for every health/pause/mode
- * change, so this is a pure reconciliation safety net for missed broadcasts — not the primary
- * signal path. Mirrors the same connected-vs-disconnected pattern already used for the buyer
- * room-snapshot poll (`useLiveRoomRealtimeSession`'s FALLBACK_POLL_CONNECTED_MS). Falls back to
- * the tighter STREAM_POLL_MS cadence whenever realtime is down so playback state doesn't go stale
- * for a viewer whose socket dropped.
- */
-export const STREAM_POLL_CONNECTED_MS = 20_000;
 export const MAX_PLAYER_RETRIES = 5;
 export const PLAYER_BACKOFF_BASE_MS = 900;
