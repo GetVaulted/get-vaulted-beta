@@ -107,7 +107,7 @@ export async function POST(req: Request) {
         const status =
           supa.code === "ACCOUNT_EXISTS"
             ? 409
-            : supa.code === "WEAK_PASSWORD" || supa.code === "DISPOSABLE_EMAIL"
+            : supa.code === "WEAK_PASSWORD"
               ? 400
               : supa.code === "SIGNUP_RATE_LIMITED"
                 ? 429
