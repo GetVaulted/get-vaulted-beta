@@ -3,7 +3,7 @@ import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { getLiveRoomHostAccess } from "@/lib/live-room-host-auth";
 import { prisma } from "@/lib/prisma";
 import { refreshLiveRoomItemSoldAfterBreakSpotChange } from "@/lib/live-room-break-quantity";
-import { emitBreakSpotsChanged, emitLiveRoomMessagesRefetch } from "@/lib/realtime-emit-server";
+import { emitBreakSpotsChanged, emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
 
 type PatchBody = {
   action?: string;
@@ -42,7 +42,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; s
   if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   if (action === "release") {
-    await prisma.$transaction(async (tx) => {
+    const messageId = await prisma.$transaction(async (tx) => {
       const linkedItemId = spot.liveRoomItemId;
       await tx.breakSpot.delete({ where: { id: spot.id } });
       if (linkedItemId) {
@@ -55,17 +55,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; s
           });
         }
       }
-      await tx.liveRoomMessage.create({
+      const message = await tx.liveRoomMessage.create({
         data: {
           liveRoomId,
           senderId: room.sellerId,
           body: `Host released spot “${spot.spotLabel}” (@${spot.user.username}).`,
           messageType: "system",
         },
+        select: { id: true },
       });
+      return message.id;
     });
     emitBreakSpotsChanged(liveRoomId);
-    emitLiveRoomMessagesRefetch(liveRoomId);
+    void emitLiveRoomMessageById(messageId);
     return NextResponse.json({ ok: true });
   }
 
@@ -74,16 +76,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; s
       where: { id: spot.id },
       data: { claimStatus: "paid", paidAt: new Date() },
     });
-    await prisma.liveRoomMessage.create({
+    const message = await prisma.liveRoomMessage.create({
       data: {
         liveRoomId,
         senderId: room.sellerId,
         body: `Payment confirmed for “${spot.spotLabel}” (@${spot.user.username}).`,
         messageType: "system",
       },
+      select: { id: true },
     });
     emitBreakSpotsChanged(liveRoomId);
-    emitLiveRoomMessagesRefetch(liveRoomId);
+    void emitLiveRoomMessageById(message.id);
     return NextResponse.json({ ok: true });
   }
 
@@ -92,16 +95,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; s
       where: { id: spot.id },
       data: { claimStatus: "locked", lockedAt: new Date() },
     });
-    await prisma.liveRoomMessage.create({
+    const message = await prisma.liveRoomMessage.create({
       data: {
         liveRoomId,
         senderId: room.sellerId,
         body: `Spot locked: “${spot.spotLabel}” (@${spot.user.username}).`,
         messageType: "system",
       },
+      select: { id: true },
     });
     emitBreakSpotsChanged(liveRoomId);
-    emitLiveRoomMessagesRefetch(liveRoomId);
+    void emitLiveRoomMessageById(message.id);
     return NextResponse.json({ ok: true });
   }
 
@@ -124,16 +128,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; s
       console.error(e);
       return NextResponse.json({ error: "Could not reassign buyer." }, { status: 500 });
     }
-    await prisma.liveRoomMessage.create({
+    const message = await prisma.liveRoomMessage.create({
       data: {
         liveRoomId,
         senderId: room.sellerId,
         body: `Host reassigned “${spot.spotLabel}” to @${buyer.username}.`,
         messageType: "system",
       },
+      select: { id: true },
     });
     emitBreakSpotsChanged(liveRoomId);
-    emitLiveRoomMessagesRefetch(liveRoomId);
+    void emitLiveRoomMessageById(message.id);
     return NextResponse.json({ ok: true });
   }
 

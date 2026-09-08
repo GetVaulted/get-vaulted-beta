@@ -10,39 +10,6 @@ function getExpoClient(): Expo | null {
   return expoClient;
 }
 
-function isTransientDbConnectionError(e: unknown): boolean {
-  const msg = e instanceof Error ? e.message : String(e);
-  return (
-    msg.includes("timeout exceeded when trying to connect") ||
-    msg.includes("Timed out fetching a new connection") ||
-    msg.includes("Can't reach database server")
-  );
-}
-
-/**
- * Retries a DB call a couple of times on a transient pool-exhaustion timeout before giving up.
- * Real-world data (Sentry / Netlify logs, Sep 2026): `sendExpoPushForUser` was silently dropping
- * pushes whenever the `PushDeviceToken` lookup lost the race for a pooled connection and threw
- * "timeout exceeded when trying to connect" — no retry, no fallback, the notification just never
- * went out. That is the leading cause behind reports of Android push "not working": the send was
- * never attempted, not that Expo/Firebase rejected it. This does not fix the underlying pool
- * contention (see the live-room broadcast fan-out fix for one source of that), but it stops one
- * flaky connection checkout from silently eating a notification.
- */
-async function withDbConnectionRetry<T>(fn: () => Promise<T>, retries = 2, baseDelayMs = 300): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      return await fn();
-    } catch (e) {
-      lastError = e;
-      if (!isTransientDbConnectionError(e) || attempt === retries) throw e;
-      await new Promise((resolve) => setTimeout(resolve, baseDelayMs * (attempt + 1)));
-    }
-  }
-  throw lastError;
-}
-
 export type ExpoPushPayload = {
   userId: string;
   title: string;
@@ -95,66 +62,21 @@ async function pruneInvalidTokens(invalidTokens: string[]): Promise<void> {
   }
 }
 
-/**
- * Follows up on "ok" tickets to see whether Expo/FCM/APNs actually delivered them.
- *
- * A ticket with status "ok" only means Expo's relay accepted the message — it does NOT mean
- * the device received it. The real outcome lives in the receipt, which is only available a
- * short while after the send. This codebase used to check nothing past the ticket, which is
- * exactly how the Sep 2026 outage went undetected: every ticket came back "ok" while every
- * receipt was silently failing with a Firebase IAM permission error
- * (`cloudmessaging.messages.create` denied on the GCP project) — no push notification reached
- * an Android device for an unknown period, and nothing logged it. This closes that gap.
- */
-async function checkExpoPushReceipts(client: Expo, ticketIdToToken: Map<string, string>): Promise<void> {
-  const ids = [...ticketIdToToken.keys()];
-  if (ids.length === 0) return;
-  try {
-    const invalid: string[] = [];
-    const receiptChunks = client.chunkPushNotificationReceiptIds(ids);
-    for (const chunk of receiptChunks) {
-      const receipts = await client.getPushNotificationReceiptsAsync(chunk);
-      for (const [id, receipt] of Object.entries(receipts)) {
-        if (receipt.status === "error") {
-          const token = ticketIdToToken.get(id);
-          console.error("[push] receipt error", receipt.message, receipt.details, { token });
-          if (receipt.details?.error === "DeviceNotRegistered" && token) {
-            invalid.push(token);
-          }
-        }
-      }
-    }
-    await pruneInvalidTokens(invalid);
-  } catch (e) {
-    console.error("[push] receipt check failed", e);
-  }
-}
-
-/** Fire-and-forget receipt check, delayed so Expo has had time to actually attempt delivery. */
-function scheduleReceiptCheck(client: Expo, ticketIdToToken: Map<string, string>): void {
-  if (ticketIdToToken.size === 0) return;
-  setTimeout(() => {
-    void checkExpoPushReceipts(client, ticketIdToToken);
-  }, 20_000);
-}
-
 /** Send OS push to all registered devices for a Prisma user. Best-effort; never throws. */
 export async function sendExpoPushForUser(payload: ExpoPushPayload): Promise<void> {
   const client = getExpoClient();
   if (!client) return;
 
   try {
-    const pushTokens = await withDbConnectionRetry(() => loadExpoPushTokens(payload.userId));
+    const pushTokens = await loadExpoPushTokens(payload.userId);
     if (pushTokens.length === 0) return;
 
     // iOS home-screen icon badge only updates from the APNs `badge` field (or an explicit
     // client setBadgeCountAsync). Without this, pushes alert but the red corner count never
     // appears while the app is backgrounded / killed.
-    const unreadCount = await withDbConnectionRetry(() =>
-      prisma.notification.count({
-        where: { userId: payload.userId, readAt: null },
-      }),
-    );
+    const unreadCount = await prisma.notification.count({
+      where: { userId: payload.userId, readAt: null },
+    });
 
     const messages: ExpoPushMessage[] = pushTokens.map((to) => ({
       to,
@@ -173,25 +95,21 @@ export async function sendExpoPushForUser(payload: ExpoPushPayload): Promise<voi
 
     const chunks = client.chunkPushNotifications(messages);
     const invalid: string[] = [];
-    const ticketIdToToken = new Map<string, string>();
 
     for (const chunk of chunks) {
       const tickets = await client.sendPushNotificationsAsync(chunk);
       tickets.forEach((ticket, i) => {
-        const token = chunk[i]?.to;
         if (ticket.status === "error") {
+          const token = chunk[i]?.to;
           if (typeof token === "string" && ticket.details?.error === "DeviceNotRegistered") {
             invalid.push(token);
           }
           console.warn("[push] ticket error", ticket.message, ticket.details);
-        } else if (typeof token === "string") {
-          ticketIdToToken.set(ticket.id, token);
         }
       });
     }
 
     await pruneInvalidTokens(invalid);
-    scheduleReceiptCheck(client, ticketIdToToken);
   } catch (e) {
     console.error("[push] sendExpoPushForUser failed", e);
   }
@@ -225,12 +143,10 @@ export async function sendExpoPushBroadcast(payload: ExpoPushBroadcastPayload): 
   try {
     const tokenSet = new Set<string>();
     for (const idBatch of chunkArray(payload.userIds, 1000)) {
-      const rows = await withDbConnectionRetry(() =>
-        prisma.pushDeviceToken.findMany({
-          where: { userId: { in: idBatch } },
-          select: { expoPushToken: true },
-        }),
-      );
+      const rows = await prisma.pushDeviceToken.findMany({
+        where: { userId: { in: idBatch } },
+        select: { expoPushToken: true },
+      });
       for (const row of rows) tokenSet.add(row.expoPushToken);
     }
     const tokens = [...tokenSet].filter((t) => Expo.isExpoPushToken(t));
@@ -247,27 +163,24 @@ export async function sendExpoPushBroadcast(payload: ExpoPushBroadcastPayload): 
 
     const chunks = client.chunkPushNotifications(messages);
     const invalid: string[] = [];
-    const ticketIdToToken = new Map<string, string>();
     let sent = 0;
 
     for (const chunk of chunks) {
       const tickets = await client.sendPushNotificationsAsync(chunk);
       tickets.forEach((ticket, i) => {
-        const token = chunk[i]?.to;
         if (ticket.status === "error") {
+          const token = chunk[i]?.to;
           if (typeof token === "string" && ticket.details?.error === "DeviceNotRegistered") {
             invalid.push(token);
           }
           console.warn("[push] broadcast ticket error", ticket.message, ticket.details);
         } else {
           sent += 1;
-          if (typeof token === "string") ticketIdToToken.set(ticket.id, token);
         }
       });
     }
 
     await pruneInvalidTokens(invalid);
-    scheduleReceiptCheck(client, ticketIdToToken);
     return sent;
   } catch (e) {
     console.error("[push] sendExpoPushBroadcast failed", e);
