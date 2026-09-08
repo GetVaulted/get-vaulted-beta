@@ -2,7 +2,7 @@ import { getLiveRoomHostAccess } from "@/lib/live-room-host-auth";
 import { requireLiveRoomHostAccess } from "@/lib/resolve-live-host-access";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { getLiveRoomModeratorContext } from "@/lib/trust/live-room-moderation";
-import { checkRateLimit, clientIpKey } from "@/lib/request-rate-limit";
+import { checkRateLimit } from "@/lib/request-rate-limit";
 import { NextResponse } from "next/server";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
 import {
@@ -54,43 +54,10 @@ async function maybeSyncChannelHlsHealth(row: Awaited<ReturnType<typeof getStrea
   }
 }
 
-/** True when getStreamRow's own hard deadline (see _shared.ts) fired rather than a real DB error. */
-function isStreamRowTimeout(e: unknown): boolean {
-  return e instanceof Error && e.message === "STREAM_ROW_TIMEOUT";
-}
-
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
-
-  // The client's own poll cadence is 2.5s (STREAM_POLL_MS); this endpoint had no protection at
-  // all against raw request volume before this — a stuck/looping client, or the sheer number of
-  // concurrent viewers at scale, hit the DB with nothing standing in the way. Generous relative
-  // to the legitimate poll rate (allows well over 2x expected volume) so normal jitter, retries,
-  // and multiple viewers sharing one IP behind a NAT don't get falsely throttled.
-  const pollGate = checkRateLimit(`stream-status-poll:${clientIpKey(req)}:${id}`, { limit: 6, windowMs: 10_000 });
-  if (!pollGate.ok) {
-    return NextResponse.json(
-      { error: "Too many requests." },
-      { status: 429, headers: { "Retry-After": String(Math.ceil(pollGate.retryAfterMs / 1000)) } },
-    );
-  }
-
-  let row;
-  try {
-    row = await getStreamRow(id);
-  } catch (e) {
-    if (isStreamRowTimeout(e)) {
-      // Fail fast instead of hanging — the client's own poll loop retries in a few seconds,
-      // which recovers far quicker than a request stuck behind DB contention ever would.
-      logIvsOpsServer("ivs_stream_row_timeout", { roomId: id, path: "buyer_initial" });
-      return NextResponse.json(
-        { error: "Stream status is temporarily unavailable. Retrying shortly." },
-        { status: 503, headers: { "Retry-After": "2" } },
-      );
-    }
-    throw e;
-  }
+  let row = await getStreamRow(id);
   if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
 
   const url = new URL(req.url);
@@ -126,22 +93,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       logIvsOpsServer("ivs_stream_sync_pull_error", { roomId: id });
     }
 
-    let refreshed;
-    try {
-      refreshed = await getStreamRow(id);
-    } catch (e) {
-      if (isStreamRowTimeout(e)) {
-        // This is the host go-live / resume sync path — hanging here is exactly what strands a
-        // seller trying to get back live. Fail fast so the mobile client's reconnect loop
-        // (HOST_REJOIN_LOOP_DELAY_MS = 5s) retries instead of appearing to hang forever.
-        logIvsOpsServer("ivs_stream_row_timeout", { roomId: id, path: "host_sync" });
-        return NextResponse.json(
-          { error: "Stream status is temporarily unavailable. Retrying shortly." },
-          { status: 503, headers: { "Retry-After": "2" } },
-        );
-      }
-      throw e;
-    }
+    const refreshed = await getStreamRow(id);
     if (!refreshed) return NextResponse.json({ error: "Room not found." }, { status: 404 });
 
     // Actual AWS channel latency (not just env config) — NORMAL ≈ 10–30s buyer delay.

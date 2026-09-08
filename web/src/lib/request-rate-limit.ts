@@ -26,19 +26,3 @@ export function checkRateLimit(
 export function __resetRateLimitsForTests() {
   store.clear();
 }
-
-/**
- * Best-effort caller identity for rate-limiting traffic that may be anonymous (guest buyers on
- * live-room polling endpoints never authenticate). Not spoof-proof — a malicious client can
- * forge `x-forwarded-for` — but this only needs to be good enough to catch a runaway poll loop,
- * not to serve as an auth boundary. Multiple legitimate viewers behind the same NAT/proxy share
- * a key; the limits applied against this key are set generously for exactly that reason.
- */
-export function clientIpKey(req: Request): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    req.headers.get("x-real-ip")?.trim() ||
-    req.headers.get("x-nf-client-connection-ip")?.trim() ||
-    "unknown"
-  );
-}
