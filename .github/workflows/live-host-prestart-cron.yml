@@ -1,0 +1,48 @@
+name: Live host prestart cron
+
+# Calls POST /api/cron/live-host-prestart every 5 minutes — host T-30/T-5/go-live reminders, plus
+# the no-show auto-cancel for scheduled shows that never went live. Runs here (GitHub Actions)
+# instead of Netlify Scheduled Functions because that Netlify function
+# (netlify/functions/live-host-prestart-cron.ts) is deployed, on the correct Production branch,
+# with a valid CRON_SECRET, and can be invoked manually — but Netlify's own scheduler never fires
+# it automatically (a known, unresolved issue reported by other Netlify users; see
+# https://answers.netlify.com/t/scheduled-functions-silently-not-firing-automatically-manual-triggers-work/161958).
+# The Netlify function file is left in place as a documented, working fallback — this workflow is
+# what's actually relied on for the schedule.
+#
+# Requires a repo secret: CRON_SECRET (Settings -> Secrets and variables -> Actions), matching the
+# CRON_SECRET Netlify env var's Production value.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: live-host-prestart-cron
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    name: Trigger live-host-prestart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call cron endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is not set (Settings -> Secrets and variables -> Actions)."
+            exit 1
+          fi
+          http_status=$(curl -sS -o response.json -w "%{http_code}" -X POST \
+            "https://shopgetvaulted.com/api/cron/live-host-prestart" \
+            -H "Authorization: Bearer ${CRON_SECRET}")
+          echo "HTTP status: $http_status"
+          echo "Response body:"
+          cat response.json
+          echo ""
+          if [ "$http_status" -ne 200 ]; then
+            echo "::error::live-host-prestart returned HTTP $http_status"
+            exit 1
+          fi
