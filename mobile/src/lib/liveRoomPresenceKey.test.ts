@@ -73,7 +73,7 @@ describe('liveRoomPresenceKey', () => {
     await mod.warmPresenceSlot('user-4');
 
     const calls = (AsyncStorage.getItem as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([key]: [string]) => key === 'gv-presence:u:user-4',
+      (call) => call[0] === 'gv-presence:u:user-4',
     );
     expect(calls.length).toBe(1);
   });

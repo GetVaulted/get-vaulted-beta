@@ -38,8 +38,8 @@ describe("listing-photo-requirements", () => {
     expect(MARKETPLACE_MAX_PHOTOS).toBe(10);
   });
 
-  it("requires thumbnail on live room queue items", () => {
-    expect(validateLiveRoomItemThumbnail("").ok).toBe(false);
+  it("does not require a thumbnail on live room queue items (optional photo)", () => {
+    expect(validateLiveRoomItemThumbnail("").ok).toBe(true);
     expect(validateLiveRoomItemThumbnail("https://cdn.test/thumb.jpg").ok).toBe(true);
   });
 });

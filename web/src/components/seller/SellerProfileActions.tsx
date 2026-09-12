@@ -31,10 +31,11 @@ export function SellerProfileActions({
 
   const returnTo = pathname || `/seller/${encodeURIComponent(sellerUsername)}`;
 
-  const handleAskSubmit = async (text: string) => {
-    const payload = messageListing?.id
+  const handleAskSubmit = async (text: string, imageUrl?: string) => {
+    const base = messageListing?.id
       ? { listingId: messageListing.id, body: text }
       : { recipientUserId: sellerId, body: text };
+    const payload = imageUrl ? { ...base, imageUrl } : base;
     const res = await fetch("/api/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

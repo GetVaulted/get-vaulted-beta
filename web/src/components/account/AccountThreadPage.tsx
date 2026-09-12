@@ -21,10 +21,14 @@ type Msg = {
   id: string;
   senderId: string;
   body: string;
+  imageUrl?: string | null;
   readAt: string | null;
   createdAt: string;
   mentions?: MessageMentionDTO[];
 };
+
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function formatMsgTime(iso: string) {
   try {
@@ -44,6 +48,9 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+  const [pendingImagePreviewUrl, setPendingImagePreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -106,16 +113,55 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const clearPendingImage = useCallback(() => {
+    setPendingImagePreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setPendingImageFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, []);
+
+  const pickImage = (file: File | null) => {
+    setSendError(null);
+    if (!file) return;
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+      setSendError("Use JPG, PNG, or WebP.");
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setSendError("Photo must be 8MB or smaller.");
+      return;
+    }
+    setPendingImageFile(file);
+    setPendingImagePreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+  };
+
   const send = async () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    if ((!text && !pendingImageFile) || sending) return;
     setSending(true);
     setSendError(null);
     try {
+      let imageUrl: string | undefined;
+      if (pendingImageFile) {
+        const form = new FormData();
+        form.append("file", pendingImageFile);
+        const uploadRes = await fetch("/api/uploads/message-image", { method: "POST", body: form });
+        const uploadData = (await uploadRes.json().catch(() => ({}))) as { url?: string; error?: string };
+        if (!uploadRes.ok || !uploadData.url) {
+          setSendError(typeof uploadData.error === "string" ? uploadData.error : "Photo upload failed.");
+          return;
+        }
+        imageUrl = uploadData.url;
+      }
       const res = await fetch(`/api/account/threads/${encodeURIComponent(threadId)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: text }),
+        body: JSON.stringify({ body: text, ...(imageUrl ? { imageUrl } : {}) }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string; message?: Msg };
       if (!res.ok) {
@@ -126,6 +172,7 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
         scrollToBottomOnNextRenderRef.current = true;
         setMessages((m) => [...m, data.message as Msg]);
         setDraft("");
+        clearPendingImage();
       } else {
         await load();
       }
@@ -231,9 +278,22 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
                       : "border-white/[0.1] bg-white/[0.03] text-zinc-200"
                   }`}
                 >
-                  <p className="whitespace-pre-wrap break-words">
-                    <MentionText body={m.body} mentions={m.mentions} />
-                  </p>
+                  {m.imageUrl ? (
+                    <a href={m.imageUrl} target="_blank" rel="noreferrer" className="block">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- DM photos are user-uploaded, arbitrary Supabase URLs; next/image domain allowlist doesn't fit a per-message host. */}
+                      <img
+                        src={m.imageUrl}
+                        alt="Attached photo"
+                        className={`max-h-72 w-full max-w-[16rem] rounded-xl object-cover ${m.body ? "mb-2" : ""}`}
+                        loading="lazy"
+                      />
+                    </a>
+                  ) : null}
+                  {m.body ? (
+                    <p className="whitespace-pre-wrap break-words">
+                      <MentionText body={m.body} mentions={m.mentions} />
+                    </p>
+                  ) : null}
                   <p className={`mt-1.5 text-[10px] tabular-nums ${mine ? "text-zinc-500" : "text-zinc-600"}`}>
                     {formatMsgTime(m.createdAt)}
                   </p>
@@ -252,7 +312,50 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
           </p>
         ) : null}
         {sendError ? <p className="mb-2 text-xs font-medium text-rose-300">{sendError}</p> : null}
+        {pendingImagePreviewUrl ? (
+          <div className="mb-2 flex items-center gap-2">
+            {/* eslint-disable-next-line @next/next/no-img-element -- local blob: preview, not a remote asset. */}
+            <img
+              src={pendingImagePreviewUrl}
+              alt="Selected photo preview"
+              className="h-16 w-16 rounded-lg object-cover"
+            />
+            <button
+              type="button"
+              onClick={clearPendingImage}
+              className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-300"
+            >
+              Remove photo
+            </button>
+          </div>
+        ) : null}
         <div className="flex gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              pickImage(e.target.files?.[0] ?? null);
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sending || (meta.inbox === "request" && !meta.isSeller)}
+            aria-label="Attach photo"
+            className="flex h-11 w-11 shrink-0 items-center justify-center self-end rounded-xl border border-white/10 bg-white/[0.03] text-zinc-400 hover:text-zinc-200 disabled:opacity-50"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4 16.5V6.75A2.75 2.75 0 0 1 6.75 4h10.5A2.75 2.75 0 0 1 20 6.75v10.5A2.75 2.75 0 0 1 17.25 20H6.75A2.75 2.75 0 0 1 4 17.25Zm0 0-.94-.94a1.5 1.5 0 0 1 0-2.12l4.24-4.25a1.5 1.5 0 0 1 2.12 0L12 12.25l3.44-3.44a1.5 1.5 0 0 1 2.12 0L20 11.25"
+              />
+              <circle cx="8.25" cy="8.25" r="1.25" fill="currentColor" stroke="none" />
+            </svg>
+          </button>
           <MentionComposer
             value={draft}
             onChange={(v) => {
@@ -272,7 +375,11 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
           />
           <button
             type="button"
-            disabled={sending || !draft.trim() || (meta.inbox === "request" && !meta.isSeller)}
+            disabled={
+              sending ||
+              (!draft.trim() && !pendingImageFile) ||
+              (meta.inbox === "request" && !meta.isSeller)
+            }
             onClick={() => void send()}
             className="h-auto shrink-0 self-end rounded-xl bg-gradient-to-r from-gold to-gold-bright px-4 py-2 text-xs font-bold text-zinc-950 disabled:opacity-50"
           >

@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -22,11 +23,14 @@ import {
   uploadThreadImage,
 } from '../../api/messagesRepository';
 import { useAuth } from '../../auth/AuthContext';
-import { pickSingleImageFromLibrary } from '../../createListing/pickListingMedia';
+import {
+  pickPhotoFromCamera,
+  pickPhotosFromLibrary,
+  promptPhotoPickSource,
+} from '../../createListing/pickListingMedia';
 import { prepareMessageImageForUpload } from '../../lib/messageImagePrepare';
 import { MentionComposerInput } from '../../components/mentions/MentionComposerInput';
 import { MessageBubble } from '../../components/messages/MessageBubble';
-import { MessageContextBanner } from '../../components/messages/MessageContextBanner';
 import { PremiumEmptyPanel } from '../../components/empty/PremiumEmptyPanel';
 import type { RootStackParamList } from '../../navigation/types';
 import type { ThreadDetail, ThreadMessage } from '../../types/messages';
@@ -34,6 +38,9 @@ import { colors, radii, spacing } from '../../theme';
 import { deriveMessageThreadViewState, describeThreadLoadError } from './messageThreadViewState';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MessageThread'>;
+
+/** Matches the common messaging-app ceiling (iMessage/WhatsApp) — generous without being unbounded. */
+const MAX_MESSAGE_IMAGES = 10;
 
 export function MessageThreadScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
@@ -47,7 +54,7 @@ export function MessageThreadScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [pendingImageUri, setPendingImageUri] = useState<string | null>(null);
+  const [pendingImageUris, setPendingImageUris] = useState<string[]>([]);
   const [pickingImage, setPickingImage] = useState(false);
   const listRef = useRef<FlatList>(null);
 
@@ -80,11 +87,26 @@ export function MessageThreadScreen({ navigation, route }: Props) {
 
   const onPickImage = async () => {
     if (pickingImage || sending) return;
+    const remaining = MAX_MESSAGE_IMAGES - pendingImageUris.length;
+    if (remaining <= 0) {
+      Alert.alert('Limit reached', `You can attach up to ${MAX_MESSAGE_IMAGES} photos to one message.`);
+      return;
+    }
+    const source = await promptPhotoPickSource('Add photo');
+    if (!source) return;
     setPickingImage(true);
     try {
-      const result = await pickSingleImageFromLibrary();
-      const uri = result && !result.canceled ? result.assets[0]?.uri : null;
-      if (uri) setPendingImageUri(uri);
+      if (source === 'camera') {
+        const result = await pickPhotoFromCamera();
+        const uri = result && !result.canceled ? result.assets[0]?.uri : null;
+        if (uri) setPendingImageUris((prev) => [...prev, uri].slice(0, MAX_MESSAGE_IMAGES));
+      } else {
+        const result = await pickPhotosFromLibrary(remaining);
+        const uris = result && !result.canceled ? result.assets.map((a) => a.uri).filter(Boolean) : [];
+        if (uris.length) {
+          setPendingImageUris((prev) => [...prev, ...uris].slice(0, MAX_MESSAGE_IMAGES));
+        }
+      }
     } catch (e) {
       Alert.alert('Could not open photos', e instanceof Error ? e.message : 'Try again.');
     } finally {
@@ -92,24 +114,40 @@ export function MessageThreadScreen({ navigation, route }: Props) {
     }
   };
 
+  const removePendingImage = useCallback((uri: string) => {
+    setPendingImageUris((prev) => prev.filter((u) => u !== uri));
+  }, []);
+
   const onSend = async () => {
     const text = draft.trim();
-    if ((!text && !pendingImageUri) || !token || sending) return;
+    if ((!text && pendingImageUris.length === 0) || !token || sending) return;
     setSending(true);
     try {
-      let imageUrl: string | undefined;
-      if (pendingImageUri) {
+      const queued = [...pendingImageUris];
+      // Multiple photos become multiple messages (no multi-image message row in the schema today)
+      // — every image but the last is sent image-only, and the typed caption (if any) rides along
+      // with the last one instead of landing as a separate, disconnected text bubble.
+      for (let i = 0; i < queued.length; i += 1) {
+        const uri = queued[i];
+        const isLast = i === queued.length - 1;
         // Normalize to real JPEG bytes first — the server rejects a claimed image/jpeg upload
         // whose bytes don't actually match (e.g. HEIC straight from the photo library).
-        const preparedUri = await prepareMessageImageForUpload(pendingImageUri);
-        imageUrl = await uploadThreadImage(token, preparedUri);
+        const preparedUri = await prepareMessageImageForUpload(uri);
+        const imageUrl = await uploadThreadImage(token, preparedUri);
+        const msg = await sendThreadMessage(token, threadId, isLast ? text : '', imageUrl);
+        setMessages((prev) => [...prev, msg]);
+        removePendingImage(uri);
+        requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
       }
-      const msg = await sendThreadMessage(token, threadId, text, imageUrl);
+      if (queued.length === 0) {
+        const msg = await sendThreadMessage(token, threadId, text);
+        setMessages((prev) => [...prev, msg]);
+        requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+      }
       setDraft('');
-      setPendingImageUri(null);
-      setMessages((prev) => [...prev, msg]);
-      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
     } catch (e) {
+      // Anything already sent this call stays sent (and out of pendingImageUris via
+      // removePendingImage above) — only the images that didn't go out yet remain queued to retry.
       Alert.alert('Send failed', e instanceof Error ? e.message : 'Try again.');
     } finally {
       setSending(false);
@@ -133,6 +171,18 @@ export function MessageThreadScreen({ navigation, route }: Props) {
     void patchThreadAction(token, threadId, action, next).then(load).catch((e) => {
       Alert.alert('Action failed', e instanceof Error ? e.message : 'Try again.');
     });
+  };
+
+  // Delete-for-me: moves the conversation into this user's Trash (14-day undo window via
+  // MessagesInboxScreen), with zero effect on the other participant's copy. Available to either
+  // side of the conversation, not just the seller.
+  const onDeleteThread = () => {
+    if (!token) return;
+    void patchThreadAction(token, threadId, 'delete')
+      .then(() => navigation.goBack())
+      .catch((e) => {
+        Alert.alert('Could not delete', e instanceof Error ? e.message : 'Try again.');
+      });
   };
 
   const uid = user?.id ?? '';
@@ -185,13 +235,19 @@ export function MessageThreadScreen({ navigation, route }: Props) {
         <Pressable
           hitSlop={12}
           onPress={() => {
-            if (!thread?.isSeller) return;
+            if (!thread) return;
+            const sellerOptions = thread.isSeller
+              ? [
+                  { text: 'Star buyer', onPress: () => onSellerAction('star') },
+                  { text: thread.pinned ? 'Unpin' : 'Pin', onPress: () => onSellerAction('pin') },
+                  { text: thread.muted ? 'Unmute' : 'Mute', onPress: () => onSellerAction('mute') },
+                  { text: 'Block', style: 'destructive' as const, onPress: () => onSellerAction('block') },
+                ]
+              : [];
             Alert.alert('Collector tools', undefined, [
-              { text: 'Star buyer', onPress: () => onSellerAction('star') },
-              { text: thread.pinned ? 'Unpin' : 'Pin', onPress: () => onSellerAction('pin') },
-              { text: thread.muted ? 'Unmute' : 'Mute', onPress: () => onSellerAction('mute') },
-              { text: 'Block', style: 'destructive', onPress: () => onSellerAction('block') },
-              { text: 'Cancel', style: 'cancel' },
+              ...sellerOptions,
+              { text: 'Delete conversation', style: 'destructive' as const, onPress: onDeleteThread },
+              { text: 'Cancel', style: 'cancel' as const },
             ]);
           }}
         >
@@ -203,21 +259,6 @@ export function MessageThreadScreen({ navigation, route }: Props) {
         <Pressable style={styles.acceptBar} onPress={() => void onAcceptRequest()}>
           <Text style={styles.acceptTxt}>Accept request (or just reply)</Text>
         </Pressable>
-      ) : null}
-
-      {thread ? (
-        <MessageContextBanner
-          thread={thread}
-          onViewListing={() => navigation.navigate('ProductDetail', { productId: thread.listingId })}
-          onQuickAction={(a) => {
-            if (a === 'live' && thread.liveRoomId) {
-              navigation.navigate('MainTabs', {
-                screen: 'Live',
-                params: { screen: 'LiveRoom', params: { streamId: thread.liveRoomId } },
-              });
-            }
-          }}
-        />
       ) : null}
 
       <FlatList
@@ -247,19 +288,32 @@ export function MessageThreadScreen({ navigation, route }: Props) {
         </View>
       ) : (
         <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
-          {pendingImageUri ? (
-            <View style={styles.imagePreviewRow}>
-              <Image source={{ uri: pendingImageUri }} style={styles.imagePreview} contentFit="cover" />
-              <Pressable onPress={() => setPendingImageUri(null)} hitSlop={10} style={styles.imagePreviewRemove}>
-                <Ionicons name="close-circle" size={22} color={colors.textPrimary} />
-              </Pressable>
-            </View>
+          {pendingImageUris.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.imagePreviewRow}
+              contentContainerStyle={styles.imagePreviewRowContent}
+            >
+              {pendingImageUris.map((uri) => (
+                <View key={uri} style={styles.imagePreviewItem}>
+                  <Image source={{ uri }} style={styles.imagePreview} contentFit="cover" />
+                  <Pressable
+                    onPress={() => removePendingImage(uri)}
+                    hitSlop={10}
+                    style={styles.imagePreviewRemove}
+                  >
+                    <Ionicons name="close-circle" size={22} color={colors.textPrimary} />
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
           ) : null}
           <View style={styles.composer}>
             <Pressable
               style={styles.attach}
               onPress={() => void onPickImage()}
-              disabled={pickingImage || sending}
+              disabled={pickingImage || sending || pendingImageUris.length >= MAX_MESSAGE_IMAGES}
               accessibilityRole="button"
               accessibilityLabel="Attach photo"
             >
@@ -280,7 +334,7 @@ export function MessageThreadScreen({ navigation, route }: Props) {
               maxLength={2000}
             />
             <Pressable
-              style={[styles.send, !draft.trim() && !pendingImageUri && styles.sendDim]}
+              style={[styles.send, !draft.trim() && pendingImageUris.length === 0 && styles.sendDim]}
               onPress={() => void onSend()}
               disabled={sending}
             >
@@ -343,8 +397,15 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   imagePreviewRow: {
-    paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
+  },
+  imagePreviewRowContent: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  imagePreviewItem: {
+    position: 'relative',
   },
   imagePreview: {
     width: 72,
@@ -355,7 +416,7 @@ const styles = StyleSheet.create({
   imagePreviewRemove: {
     position: 'absolute',
     top: -6,
-    left: 64,
+    right: -6,
     backgroundColor: 'rgba(10,10,10,0.9)',
     borderRadius: 11,
   },

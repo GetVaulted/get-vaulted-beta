@@ -81,6 +81,12 @@ type Props = {
    * `null` = no hint; boolean overrides until the next stream fetch confirms.
    */
   realtimeStreamPaused?: boolean | null;
+  /**
+   * True when the room's realtime channel is connected. Passed straight through to
+   * useLiveStagePlayback to back off the active-surface poll cadence while realtime is doing the
+   * real work — see that hook's `realtimeConnected` doc comment.
+   */
+  realtimeConnected?: boolean;
   muted: boolean;
   onMutedChange: (muted: boolean) => void;
   /** Override auto fit (cover for phone Stage, contain for OBS/HLS). */
@@ -162,6 +168,7 @@ export function LiveStagePlayback({
   refreshNonce,
   roomVisitNonce = 0,
   realtimeStreamPaused = null,
+  realtimeConnected = false,
   muted,
   onMutedChange,
   contentFit: contentFitOverride,
@@ -229,7 +236,14 @@ export function LiveStagePlayback({
   // this effect paused it. This stays true for the rest of the background dwell instead.
   const [stageAudioDismissed, setStageAudioDismissed] = useState(false);
   const prevPipActiveRef = useRef(false);
-  const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce, roomVisitNonce });
+  const playback = useLiveStagePlayback({
+    roomId,
+    playbackMode: mode,
+    accessToken,
+    refreshNonce,
+    roomVisitNonce,
+    realtimeConnected,
+  });
   const stagePipReadyRef = useRef(false);
 
   // `setStageAudioOutputEnabled` is NOT a cheap flag flip: iOS deactivates/reactivates the whole

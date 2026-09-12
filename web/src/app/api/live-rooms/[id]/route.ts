@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { checkRateLimit, clientIpKey } from "@/lib/request-rate-limit";
 import { listViewerGiveawaysForRoom } from "@/lib/live-giveaway";
 import { getServerSessionSafe } from "@/lib/auth";
 import { resolveLiveRoomsUserId, resolveOptionalLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
@@ -67,6 +68,22 @@ const includeDetail = {
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
   const id = safeDecodeRouteSegment(raw ?? "");
+
+  // This endpoint's fastest legitimate poll tier is 5s (useLiveRoomRealtimeSession's
+  // disconnected-fallback rate); it also gets a separate 20s poll from the vertical feed's active
+  // card. No rate limit existed here at all before this — generous relative to both legitimate
+  // tiers so normal jitter/retries and viewers sharing a NAT don't get falsely throttled.
+  const pollGate = checkRateLimit(`live-room-snapshot-poll:${clientIpKey(req)}:${id}`, {
+    limit: 6,
+    windowMs: 10_000,
+  });
+  if (!pollGate.ok) {
+    return NextResponse.json(
+      { error: "Too many requests." },
+      { status: 429, headers: { "Retry-After": String(Math.ceil(pollGate.retryAfterMs / 1000)) } },
+    );
+  }
+
   const viewerId = await resolveOptionalLiveRoomsUserId(req);
 
   try {

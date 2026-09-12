@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { LiveRoomModerationActionType } from "@/generated/prisma/enums";
 import type { LiveRoomModeratorLevel } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
+import { checkRateLimit, clientIpKey } from "@/lib/request-rate-limit";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { requireAdmin } from "@/lib/require-admin";
 import {
@@ -22,6 +23,22 @@ import { listUnresolvedPaymentFailuresForRoom } from "@/lib/live-room-payment-fa
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
   const liveRoomId = decodeURIComponent(raw);
+
+  // Polled every 12s per viewer (useLiveRoomModeration); this is also the heaviest of the
+  // live-room GETs per request (room lookup, pinned message, moderator context, moderator
+  // roster, and — for staff — mod queue/history/viewers/tips/sales all run sequentially), so
+  // unbounded volume here costs more per request than the other polling endpoints. No rate limit
+  // existed here before this.
+  const pollGate = checkRateLimit(`live-room-moderation-poll:${clientIpKey(req)}:${liveRoomId}`, {
+    limit: 4,
+    windowMs: 10_000,
+  });
+  if (!pollGate.ok) {
+    return NextResponse.json(
+      { error: "Too many requests." },
+      { status: 429, headers: { "Retry-After": String(Math.ceil(pollGate.retryAfterMs / 1000)) } },
+    );
+  }
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: liveRoomId },

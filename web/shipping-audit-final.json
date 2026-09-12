@@ -1,0 +1,714 @@
+{
+  "mode": "FINAL_RECONCILIATION_READONLY",
+  "generatedAt": "2026-08-11T02:36:07.325Z",
+  "scopeNote": "Re-verified ALL distinct Shippo transactions (order-linked + session-linked orphans) with the corrected transaction-matching refund logic, not only the 35 estimated ones, per the note above.",
+  "reclassified35EstimatedTransactions": {
+    "total": 36,
+    "countsByClassification": {
+      "FAILED": 36
+    },
+    "confirmedRealPurchaseUsd": 0,
+    "confirmedNotChargedUsd": 354.99,
+    "stillUnknownUsd": 0,
+    "rows": [
+      {
+        "shippoTransactionId": "c73007b946c644e3ac328c01c4261e96",
+        "liveShippingSessionId": "cms6lwafr001r09l2gb8wkc95",
+        "dbRecordedLabelCostCents": 818,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "5bbd208cc697425db60e6edf03a27a02",
+        "liveShippingSessionId": "cms86q3qr001609kzw1vw1grg",
+        "dbRecordedLabelCostCents": 672,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "360e615843ce41d8980a64bc28546fd1",
+        "liveShippingSessionId": "cms86q3qr001609kzw1vw1grg",
+        "dbRecordedLabelCostCents": 672,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "cb8d2c0f1cf64788b6840b4ba91783fb",
+        "liveShippingSessionId": "cmsawppqe001r09ld22vjqjt2",
+        "dbRecordedLabelCostCents": 1751,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "2dedfe95ad2c4f5897b390a2fc96c5bb",
+        "liveShippingSessionId": "cmrzig8le000s09jztg3ok5io",
+        "dbRecordedLabelCostCents": 3291,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "f9d712e6734f4ec4bb61dda6e5263fb7",
+        "liveShippingSessionId": "cmrzig8le000s09jztg3ok5io",
+        "dbRecordedLabelCostCents": 3291,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "9e387744b8ad40dab4a755d020e184d4",
+        "liveShippingSessionId": "cmrzig8le000s09jztg3ok5io",
+        "dbRecordedLabelCostCents": 3291,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "5fb24c27abe54605bb0b9a4f81986199",
+        "liveShippingSessionId": "cmsb4hhew00bi09jyazio36uh",
+        "dbRecordedLabelCostCents": 583,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "1078d3da05f74d5fbfa6c4f1d1ea17d0",
+        "liveShippingSessionId": "cmsb5dag3002k09k2ocm1523f",
+        "dbRecordedLabelCostCents": 617,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "e51050d51e794f9cbce14666edb753ee",
+        "liveShippingSessionId": "cmsb8d55y006i09ldnpzbdb2v",
+        "dbRecordedLabelCostCents": 607,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "e7d71341fcc34a868dc3d001aba92a44",
+        "liveShippingSessionId": "cmsawppqe001r09ld22vjqjt2",
+        "dbRecordedLabelCostCents": 1751,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "95ab82193431415fbdd8870a3640cc20",
+        "liveShippingSessionId": "cmsb4hhew00bi09jyazio36uh",
+        "dbRecordedLabelCostCents": 583,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "eacd0765bf324ee5b2d071beeed83e59",
+        "liveShippingSessionId": "cmsb3yrym009709juod19jv6z",
+        "dbRecordedLabelCostCents": 583,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "f9bdf89aba724f09af98e6e151a4e21c",
+        "liveShippingSessionId": "cmsi4fanl003d09jx1eghhklz",
+        "dbRecordedLabelCostCents": 637,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "3f188cfd930b4a1d847c3bf079bb1f44",
+        "liveShippingSessionId": "cmsi4fanl003d09jx1eghhklz",
+        "dbRecordedLabelCostCents": 637,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "6f1d582cb6874ed69105e0285d307c1c",
+        "liveShippingSessionId": "cmsb5dag3002k09k2ocm1523f",
+        "dbRecordedLabelCostCents": 680,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "fbe948d28a6842c8b7e658e9465df76f",
+        "liveShippingSessionId": "cmsgv29nb003c09jl199oxu7f",
+        "dbRecordedLabelCostCents": 1145,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "9522eadeac5b4ae0ab4ce3f417f1df37",
+        "liveShippingSessionId": "cmsb4hhew00bi09jyazio36uh",
+        "dbRecordedLabelCostCents": 583,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "9ea53fc6b9d64c85861b3e48f2c6c68d",
+        "liveShippingSessionId": "cmsb4hhew00bi09jyazio36uh",
+        "dbRecordedLabelCostCents": 583,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "0739c6fd876449d58d87476da44ee102",
+        "liveShippingSessionId": "cmsgv29nb003c09jl199oxu7f",
+        "dbRecordedLabelCostCents": 1172,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "00eff5ff88ad4aec867715e5f6a7e34b",
+        "liveShippingSessionId": "cmsb3yrym009709juod19jv6z",
+        "dbRecordedLabelCostCents": 583,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "61b87bda6aed4eb19a517b6c63f6c8b8",
+        "liveShippingSessionId": "cmsb8d55y006i09ldnpzbdb2v",
+        "dbRecordedLabelCostCents": 607,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "8207fceb3c2a460bbb40d523da0dd88e",
+        "liveShippingSessionId": "cmsl7djcj001g09jpusxspj95",
+        "dbRecordedLabelCostCents": 597,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "65557a57e3794a05aa4f568b14ce6937",
+        "liveShippingSessionId": "cmsl7djcj001g09jpusxspj95",
+        "dbRecordedLabelCostCents": 597,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "ff99b99490c34c0e9d4f605b5f702b2e",
+        "liveShippingSessionId": "cmsl7c6yi001f09kwd3w82b31",
+        "dbRecordedLabelCostCents": 607,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "3d77f4612abe45ccb2a7b46518144124",
+        "liveShippingSessionId": "cmsl7djcj001g09jpusxspj95",
+        "dbRecordedLabelCostCents": 597,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "90a3ebfea793488e9c43cd37d59d6df9",
+        "liveShippingSessionId": "cmsm2c3jn001b09ib2p2namek",
+        "dbRecordedLabelCostCents": 1399,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "8ac18936879a4483ad36a9701b6470ce",
+        "liveShippingSessionId": "cmsl7djcj001g09jpusxspj95",
+        "dbRecordedLabelCostCents": 597,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "7b4fe1d15259413fa3867df58f2d8d8a",
+        "liveShippingSessionId": "cmsm36xbk009i09lcu06kbeb1",
+        "dbRecordedLabelCostCents": 597,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "67ce0d90813e42daa36db197783365e0",
+        "liveShippingSessionId": "cmsb5dag3002k09k2ocm1523f",
+        "dbRecordedLabelCostCents": 680,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "2d7cbf7d099743759c1490f6a6255a6b",
+        "liveShippingSessionId": "cmsb8d55y006i09ldnpzbdb2v",
+        "dbRecordedLabelCostCents": 607,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "fef7008c81b7452480abf50ea0859797",
+        "liveShippingSessionId": "cmsb5dag3002k09k2ocm1523f",
+        "dbRecordedLabelCostCents": 680,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "b7c601bcdd164e82952186a59ddaab06",
+        "liveShippingSessionId": "cmskz1qgj009609idie78z1ae",
+        "dbRecordedLabelCostCents": 851,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "7847ad9ff1c64705a6c304fd15c33740",
+        "liveShippingSessionId": "cmskz1qgj009609idie78z1ae",
+        "dbRecordedLabelCostCents": 851,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "b73214578fe74c2a931859710931f271",
+        "liveShippingSessionId": "cmskz1qgj009609idie78z1ae",
+        "dbRecordedLabelCostCents": 851,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      },
+      {
+        "shippoTransactionId": "25977b36089a4c348be6982fece386a5",
+        "liveShippingSessionId": "cmskz1qgj009609idie78z1ae",
+        "dbRecordedLabelCostCents": 851,
+        "classification": "FAILED",
+        "liveVerdict": "failed_purchase",
+        "liveTransactionStatus": "ERROR",
+        "liveAffirmativelyPurchased": false,
+        "liveConfirmedRefundCents": 0
+      }
+    ]
+  },
+  "final_1_totalSuccessfulShippoLabelPurchasesUsd": 1636.75,
+  "final_2_lessActualConfirmedShippoRefundsUsd": 0,
+  "final_3_netActualShippoSpendUsd": 1636.75,
+  "final_4_totalSellerClawbacksFromLedgerUsd": 1124.88,
+  "final_4b_legacyNoLedgerClawbacksUsd_additionalSource": 238.74,
+  "final_5_lessSellerCreditsUsd": 0,
+  "final_6_netSellerRecoveryUsd_ledgerPlusLegacy": 1363.62,
+  "final_6_note": "final_6/final_7 combine ledger clawbacks (final_4) + legacy no-ledger clawbacks (final_4b) so they stay consistent with final_1, which also includes legacy-order purchases. final_4 alone (ShipmentLabelFinance only, as literally requested) is 1124.88.",
+  "final_7_unrecoveredGvShippingCostUsd": 273.13,
+  "final_8_buyerShippingCollectedUsd_separate": 1608.93,
+  "final_9_payPalNetLegacyFieldOverstatementUsd_excludedFromRecovery": 52.37,
+  "final_9_detail": [
+    {
+      "orderId": "cmsjiij23001c09jrqho2taxu",
+      "legacyOrderFieldCents": 4162,
+      "realLedgerNetDeductionCents": 2081,
+      "overstatementCents": 2081
+    },
+    {
+      "orderId": "cmsjik35k000r09iepvqyrgwi",
+      "legacyOrderFieldCents": 1316,
+      "realLedgerNetDeductionCents": 658,
+      "overstatementCents": 658
+    },
+    {
+      "orderId": "cmsjillgt004t09jsmsha1p4y",
+      "legacyOrderFieldCents": 1274,
+      "realLedgerNetDeductionCents": 637,
+      "overstatementCents": 637
+    },
+    {
+      "orderId": "cmsjj68f1003o09l7jg8gewme",
+      "legacyOrderFieldCents": 1198,
+      "realLedgerNetDeductionCents": 599,
+      "overstatementCents": 599
+    },
+    {
+      "orderId": "cmsjjp7zo002t09ld9w45lb0z",
+      "legacyOrderFieldCents": 1250,
+      "realLedgerNetDeductionCents": 625,
+      "overstatementCents": 625
+    },
+    {
+      "orderId": "cmsjjrnw9006n09l71otbz9kx",
+      "legacyOrderFieldCents": 1274,
+      "realLedgerNetDeductionCents": 637,
+      "overstatementCents": 637
+    }
+  ],
+  "final_10_ordersAndSessionsContributingToUnrecoveredCost": {
+    "failedClawbackOrders": [
+      {
+        "orderId": "cmrsol3vy000h09l7rs2nomsb",
+        "sellerHandle": "dtdt",
+        "unrecoveredCents": 3534,
+        "reasons": [
+          "failed clawback: This transfer only has ($5.36) remaining to reverse. We cannot reverse ($5.89).",
+          "failed clawback: This transfer only has ($5.36) remaining to reverse. We cannot reverse ($5.89).",
+          "failed clawback: This transfer only has ($5.36) remaining to reverse. We cannot reverse ($5.89).",
+          "failed clawback: This transfer only has ($5.36) remaining to reverse. We cannot reverse ($5.89).",
+          "failed clawback: This transfer only has ($5.36) remaining to reverse. We cannot reverse ($5.89).",
+          "failed clawback: This transfer only has ($5.36) remaining to reverse. We cannot reverse ($5.89)."
+        ]
+      },
+      {
+        "orderId": "cms1yaygj002509jxf0yn1pxb",
+        "sellerHandle": "locdown",
+        "unrecoveredCents": 4162,
+        "reasons": [
+          "failed clawback: This transfer only has ($19.99) remaining to reverse. We cannot reverse ($20.81).",
+          "failed clawback: This transfer only has ($19.99) remaining to reverse. We cannot reverse ($20.81)."
+        ]
+      },
+      {
+        "orderId": "cmsb5d9hc002l09lbyhveu6os",
+        "sellerHandle": "rocketvv",
+        "unrecoveredCents": 583,
+        "reasons": [
+          "failed clawback: The recipient of this transfer does not have sufficient funds in their Stripe balance to reverse this amount."
+        ]
+      },
+      {
+        "orderId": "cmsb5dabl002j09k2l2bdxfk8",
+        "sellerHandle": "rocketvv",
+        "unrecoveredCents": 2040,
+        "reasons": [
+          "failed clawback: This transfer only has ($4.99) remaining to reverse. We cannot reverse ($6.80).",
+          "failed clawback: This transfer only has ($4.99) remaining to reverse. We cannot reverse ($6.80).",
+          "failed clawback: This transfer only has ($4.99) remaining to reverse. We cannot reverse ($6.80)."
+        ]
+      },
+      {
+        "orderId": "cmsb5xser007y0ajpvwnz4k8z",
+        "sellerHandle": "rocketvv",
+        "unrecoveredCents": 589,
+        "reasons": [
+          "failed clawback: The recipient of this transfer does not have sufficient funds in their Stripe balance to reverse this amount."
+        ]
+      },
+      {
+        "orderId": "cmsb8d512006h09ldgumg6x12",
+        "sellerHandle": "rocketvv",
+        "unrecoveredCents": 607,
+        "reasons": [
+          "failed clawback: The recipient of this transfer does not have sufficient funds in their Stripe balance to reverse this amount."
+        ]
+      },
+      {
+        "orderId": "cmsgvt6fa002i09kyjxhtbqdx",
+        "sellerHandle": "mwhelmets",
+        "unrecoveredCents": 589,
+        "reasons": [
+          "failed clawback: This transfer only has ($4.99) remaining to reverse. We cannot reverse ($5.89)."
+        ]
+      },
+      {
+        "orderId": "cmsgw8rog000k09kz5a49nx0y",
+        "sellerHandle": "mwhelmets",
+        "unrecoveredCents": 1166,
+        "reasons": [
+          "failed clawback: This transfer only has ($4.99) remaining to reverse. We cannot reverse ($5.83).",
+          "failed clawback: This transfer only has ($4.99) remaining to reverse. We cannot reverse ($5.83)."
+        ]
+      },
+      {
+        "orderId": "cmsh0lyz8000a09jzyh3lta6k",
+        "sellerHandle": "dbros_autographs",
+        "unrecoveredCents": 2081,
+        "reasons": [
+          "failed clawback: This transfer only has ($15.00) remaining to reverse. We cannot reverse ($20.81)."
+        ]
+      }
+    ],
+    "orphanedSessionCosts": [
+      {
+        "sessionId": "cmrfdo7vh000809l98lci4acd",
+        "txIds": [
+          "ef1e5d1b76624ecc861d9aaca0449279",
+          "319dab2966a24c2384beb0ccbf31730d",
+          "2694af816f1e45e09789372568dbf314"
+        ],
+        "totalCents": 4887
+      },
+      {
+        "sessionId": "cmrr427dz000a09kysskl8xeg",
+        "txIds": [
+          "edfcdb0bf1f14935b822c58599c46112",
+          "2fe5616d2e3748ef9569f193e432bf62"
+        ],
+        "totalCents": 3502
+      },
+      {
+        "sessionId": "cmrr6frxo000509jj0036ftue",
+        "txIds": [
+          "589d150fe6184a3e980097055ee10c03"
+        ],
+        "totalCents": 818
+      },
+      {
+        "sessionId": "cmrr3nah5000709jug270vw9t",
+        "txIds": [
+          "9835c575093c4c21811fd261d2ba82d2"
+        ],
+        "totalCents": 2328
+      },
+      {
+        "sessionId": "cmrr3p951000509jtnubobh4z",
+        "txIds": [
+          "b24fb907c30744e58fe83784abd92192"
+        ],
+        "totalCents": 583
+      }
+    ]
+  },
+  "categoryBreakdown_noDoubleCounting": {
+    "note": "order-linked (ledger) + legacy-no-ledger + session-linked-unattributed are mutually exclusive and sum to final_1. replacement-label-costs and failed-clawbacks are informational SUBSETS already included inside order-linked — do not add them on top of final_1/final_3.",
+    "orderLinkedLabelCostsUsd": 1278.39,
+    "legacyNoLedgerLabelCostsUsd": 237.18,
+    "sessionLinkedUnattributedLabelCostsUsd": 121.18,
+    "replacementLabelCosts_subsetOfOrderLinked_Usd": 146.68,
+    "failedClawbacks_subsetOfOrderLinked_Usd": 153.51,
+    "failedClawbackDetail": [
+      {
+        "orderId": "cmrsol3vy000h09l7rs2nomsb",
+        "shippoTransactionId": "03a7a94e85024e0496a709980e5e123a",
+        "labelCostCents": 589,
+        "status": "replaced",
+        "clawbackFailedAt": "2026-07-23T15:23:15.809Z",
+        "clawbackFailureDetail": "This transfer only has ($5.36) remaining to reverse. We cannot reverse ($5.89)."
+      },
+      {
+        "orderId": "cmrsol3vy000h09l7rs2nomsb",
+        "shippoTransactionId": "68dfbcdfda8a4d58aaddee57ee930acd",
+        "labelCostCents": 589,
+        "status": "replaced",
+        "clawbackFailedAt": "2026-07-23T15:26:55.447Z",
+        "clawbackFailureDetail": "This transfer only has ($5.36) remaining to reverse. We cannot reverse ($5.89)."
+      },
+      {
+        "orderId": "cmrsol3vy000h09l7rs2nomsb",
+        "shippoTransactionId": "27d4953dfb2f4746ba09b2505c041eb5",
+        "labelCostCents": 589,
+        "status": "replaced",
+        "clawbackFailedAt": "2026-07-23T15:31:52.645Z",
+        "clawbackFailureDetail": "This transfer only has ($5.36) remaining to reverse. We cannot reverse ($5.89)."
+      },
+      {
+        "orderId": "cmrsol3vy000h09l7rs2nomsb",
+        "shippoTransactionId": "239d89eb1fa8431ea45144d1933c86c3",
+        "labelCostCents": 589,
+        "status": "replaced",
+        "clawbackFailedAt": "2026-07-23T15:32:48.706Z",
+        "clawbackFailureDetail": "This transfer only has ($5.36) remaining to reverse. We cannot reverse ($5.89)."
+      },
+      {
+        "orderId": "cmrsol3vy000h09l7rs2nomsb",
+        "shippoTransactionId": "8abdb1f2ea2c4c449b1c85a15348f84f",
+        "labelCostCents": 589,
+        "status": "replaced",
+        "clawbackFailedAt": "2026-08-06T14:02:42.647Z",
+        "clawbackFailureDetail": "This transfer only has ($5.36) remaining to reverse. We cannot reverse ($5.89)."
+      },
+      {
+        "orderId": "cmrsol3vy000h09l7rs2nomsb",
+        "shippoTransactionId": "daf0d68e09ed42ce99a8e0929eab8f6f",
+        "labelCostCents": 589,
+        "status": "active",
+        "clawbackFailedAt": "2026-08-06T14:06:57.702Z",
+        "clawbackFailureDetail": "This transfer only has ($5.36) remaining to reverse. We cannot reverse ($5.89)."
+      },
+      {
+        "orderId": "cms1yaygj002509jxf0yn1pxb",
+        "shippoTransactionId": "c78b1e998147486e9419f38667da589b",
+        "labelCostCents": 2081,
+        "status": "replaced",
+        "clawbackFailedAt": "2026-07-27T03:25:44.636Z",
+        "clawbackFailureDetail": "This transfer only has ($19.99) remaining to reverse. We cannot reverse ($20.81)."
+      },
+      {
+        "orderId": "cms1yaygj002509jxf0yn1pxb",
+        "shippoTransactionId": "0badc147f8af4609a432e8498f006188",
+        "labelCostCents": 2081,
+        "status": "replaced",
+        "clawbackFailedAt": "2026-07-27T03:27:57.530Z",
+        "clawbackFailureDetail": "This transfer only has ($19.99) remaining to reverse. We cannot reverse ($20.81)."
+      },
+      {
+        "orderId": "cmsb5d9hc002l09lbyhveu6os",
+        "shippoTransactionId": "2db14859d47c4c86938643f2c560707b",
+        "labelCostCents": 583,
+        "status": "active",
+        "clawbackFailedAt": "2026-08-09T04:15:08.394Z",
+        "clawbackFailureDetail": "The recipient of this transfer does not have sufficient funds in their Stripe balance to reverse this amount."
+      },
+      {
+        "orderId": "cmsb5dabl002j09k2l2bdxfk8",
+        "shippoTransactionId": "daa01060dd9d4ca981296d1f28cf8b9d",
+        "labelCostCents": 680,
+        "status": "replaced",
+        "clawbackFailedAt": "2026-08-09T04:05:46.304Z",
+        "clawbackFailureDetail": "This transfer only has ($4.99) remaining to reverse. We cannot reverse ($6.80)."
+      },
+      {
+        "orderId": "cmsb5dabl002j09k2l2bdxfk8",
+        "shippoTransactionId": "a1bfc68d38dd4810a40397a53da77a2d",
+        "labelCostCents": 680,
+        "status": "replaced",
+        "clawbackFailedAt": "2026-08-09T04:06:56.469Z",
+        "clawbackFailureDetail": "This transfer only has ($4.99) remaining to reverse. We cannot reverse ($6.80)."
+      },
+      {
+        "orderId": "cmsb5dabl002j09k2l2bdxfk8",
+        "shippoTransactionId": "ac677b859f9d46a1b264bcafc67dade9",
+        "labelCostCents": 680,
+        "status": "active",
+        "clawbackFailedAt": "2026-08-09T04:08:22.516Z",
+        "clawbackFailureDetail": "This transfer only has ($4.99) remaining to reverse. We cannot reverse ($6.80)."
+      },
+      {
+        "orderId": "cmsb5xser007y0ajpvwnz4k8z",
+        "shippoTransactionId": "c6cb939455d947f38247a6f616fc39dd",
+        "labelCostCents": 589,
+        "status": "active",
+        "clawbackFailedAt": "2026-08-09T04:14:44.618Z",
+        "clawbackFailureDetail": "The recipient of this transfer does not have sufficient funds in their Stripe balance to reverse this amount."
+      },
+      {
+        "orderId": "cmsb8d512006h09ldgumg6x12",
+        "shippoTransactionId": "14a3943f77874557862c8b9efb75a27d",
+        "labelCostCents": 607,
+        "status": "active",
+        "clawbackFailedAt": "2026-08-09T04:14:39.603Z",
+        "clawbackFailureDetail": "The recipient of this transfer does not have sufficient funds in their Stripe balance to reverse this amount."
+      },
+      {
+        "orderId": "cmsgvt6fa002i09kyjxhtbqdx",
+        "shippoTransactionId": "cef3421d7a8f44aa9f637bfe807773db",
+        "labelCostCents": 589,
+        "status": "active",
+        "clawbackFailedAt": "2026-08-08T14:05:21.678Z",
+        "clawbackFailureDetail": "This transfer only has ($4.99) remaining to reverse. We cannot reverse ($5.89)."
+      },
+      {
+        "orderId": "cmsgw8rog000k09kz5a49nx0y",
+        "shippoTransactionId": "3ea04ce1da894641a8d8c67b2e16461a",
+        "labelCostCents": 583,
+        "status": "replaced",
+        "clawbackFailedAt": "2026-08-08T14:04:31.062Z",
+        "clawbackFailureDetail": "This transfer only has ($4.99) remaining to reverse. We cannot reverse ($5.83)."
+      },
+      {
+        "orderId": "cmsgw8rog000k09kz5a49nx0y",
+        "shippoTransactionId": "41e65a67ade743c4a3ac81c9aea285ba",
+        "labelCostCents": 583,
+        "status": "active",
+        "clawbackFailedAt": "2026-08-08T14:04:53.077Z",
+        "clawbackFailureDetail": "This transfer only has ($4.99) remaining to reverse. We cannot reverse ($5.83)."
+      },
+      {
+        "orderId": "cmsh0lyz8000a09jzyh3lta6k",
+        "shippoTransactionId": "c558f46b9abf4093b1b047387de4d76a",
+        "labelCostCents": 2081,
+        "status": "active",
+        "clawbackFailedAt": "2026-08-06T22:11:42.834Z",
+        "clawbackFailureDetail": "This transfer only has ($15.00) remaining to reverse. We cannot reverse ($20.81)."
+      }
+    ],
+    "legacyNoLedgerDetail": [
+      {
+        "orderId": "cmrfdo7r0000709l9ldc71jfc",
+        "shippoTransactionId": "1d02816aac954fbfab3758b6953409a1",
+        "note": "Order.shippingLabelCostCents is positive but live Shippo does not confirm an affirmative purchase — excluded from successful-purchase total.",
+        "labelCostCents": 156,
+        "liveVerdict": "refund_pending"
+      }
+    ]
+  },
+  "newlyDiscoveredGenuineRefundsRequiringManualReview": []
+}

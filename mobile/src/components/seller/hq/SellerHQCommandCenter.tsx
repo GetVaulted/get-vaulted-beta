@@ -13,8 +13,11 @@ import { setPendingVaultEventSchedule } from '../../../navigation/openSellerHQ';
 import type { MainTabParamList } from '../../../navigation/types';
 import { colors, spacing } from '../../../theme';
 import { SellerHQCommandHeader } from './SellerHQCommandHeader';
+import { SellerHQPerformanceKpiRow } from './SellerHQPerformanceKpiRow';
 import { SellerHQPremiumBanner } from './SellerHQPremiumBanner';
+import { SellerHQRevenuePaceCard } from './SellerHQRevenuePaceCard';
 import { SellerHQSetupEssentials } from './SellerHQSetupEssentials';
+import { SellerHQSpotlightCard } from './SellerHQSpotlightCard';
 import { SellerHQStudioActions } from './SellerHQStudioActions';
 import { SellerHQTodayInVault } from './SellerHQTodayInVault';
 import { SellerHQVaultEventsStrip } from './SellerHQVaultEventsStrip';
@@ -114,18 +117,27 @@ export function SellerHQCommandCenter({
         />
       ) : null}
 
-      <SellerHQCommandHeader
-        displayName={displayName}
-        handle={handle}
-        avatarUrl={avatarUrl}
-        rankLabel={rankLabel}
-        revenueSnapshot={data.metrics.revenueToday}
-        activeCollectors={data.metrics.activeCollectors}
-        pendingOrders={data.metrics.pendingOrders}
-        performanceInsight={data.metrics.performanceInsight}
-      />
+      <SellerHQCommandHeader displayName={displayName} handle={handle} avatarUrl={avatarUrl} rankLabel={rankLabel} />
+
+      <SellerHQRevenuePaceCard analytics={data.analytics} />
+
+      <SellerHQPerformanceKpiRow analytics={data.analytics} />
+
+      <SellerHQSpotlightCard analytics={data.analytics} />
+
+      {data.todayItems.length > 0 ? (
+        <SellerHQTodayInVault items={data.todayItems} onPressItem={onTodayItem} />
+      ) : null}
 
       <SellerHQStudioActions onAction={onStudioAction} />
+
+      {data.liveCount > 0 || data.upcomingCount > 0 ? (
+        <SellerHQVaultEventsStrip
+          liveCount={data.liveCount}
+          upcomingCount={data.upcomingCount}
+          onOpenVaultEvents={() => onOpenTab('live')}
+        />
+      ) : null}
 
       <View onLayout={(e) => onSetupSectionLayout?.(e.nativeEvent.layout.y)}>
         <SellerHQSetupEssentials
@@ -139,18 +151,6 @@ export function SellerHQCommandCenter({
           forceShipFromEditKey={shipFromEditKey}
         />
       </View>
-
-      {data.liveCount > 0 || data.upcomingCount > 0 ? (
-        <SellerHQVaultEventsStrip
-          liveCount={data.liveCount}
-          upcomingCount={data.upcomingCount}
-          onOpenVaultEvents={() => onOpenTab('live')}
-        />
-      ) : null}
-
-      {data.todayItems.length > 0 ? (
-        <SellerHQTodayInVault items={data.todayItems} onPressItem={onTodayItem} />
-      ) : null}
     </View>
   );
 }

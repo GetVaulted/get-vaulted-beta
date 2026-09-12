@@ -58,6 +58,7 @@ export type AddQueueItemAuctionPayload = {
 
 import type { LiveGiveawayKind } from "@/lib/seller-queue-tabs";
 import type { SellerQueueAddModalMode } from "@/lib/seller-queue-tabs";
+import { GIVVY_DEFAULT_BUYERS_RULES_TEXT } from "@/lib/givvy-ui";
 
 export type AddQueueItemGiveawayPayload = {
   kind: LiveGiveawayKind;
@@ -207,7 +208,9 @@ export function AddQueueItemModal({
       setQueueDraftMisc(false);
       setQueueDraftNcaa(false);
       setPlayerListText("");
-      setRulesText("");
+      // Buyers giveaways require 80+ characters of official rules before they can be created —
+      // prefill boilerplate so the host edits/confirms it instead of starting from a blank box.
+      setRulesText(mode === "buyers_giveaway" ? GIVVY_DEFAULT_BUYERS_RULES_TEXT : "");
       setPrizeDescription("");
       setOpenEntriesOnCreate(true);
       setFormError(null);

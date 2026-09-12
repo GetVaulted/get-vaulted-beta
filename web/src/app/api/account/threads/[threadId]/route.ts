@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createNotification } from "@/lib/notifications";
-import { REPLY_MESSAGE_NOTIFICATION } from "@/lib/message-notification";
+import { replyMessageNotification } from "@/lib/message-notification";
 import { loadMentionsForSources } from "@/lib/mentions/load-message-mentions";
 import { processMessageMentions } from "@/lib/mentions/process-message-mentions";
 import {
@@ -8,6 +8,7 @@ import {
   offerStatusChip,
   orderStatusChip,
   resolveThreadContext,
+  restoreThreadForNewMessage,
 } from "@/lib/message-threads";
 import { isUserBlocked } from "@/lib/user-block";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
@@ -66,6 +67,18 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
 
   await prisma.message.updateMany({
     where: { threadId, recipientId: uid, readAt: null },
+    data: { readAt: new Date() },
+  });
+
+  // The bell/notification-inbox badge is a separate table from messages (no thread foreign key
+  // on Notification), so opening a thread must also clear any notification that points at it —
+  // otherwise the "1 unread" badge never goes away even after the message itself is read.
+  await prisma.notification.updateMany({
+    where: {
+      userId: uid,
+      readAt: null,
+      href: `/account/messages/${encodeURIComponent(threadId)}`,
+    },
     data: { readAt: new Date() },
   });
 
@@ -275,6 +288,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
         ...(acceptOnSend ? { inbox: "primary" as const } : {}),
       },
     });
+    await restoreThreadForNewMessage(tx, thread.id, uid, recipientId);
 
     return m;
   });
@@ -298,11 +312,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
         ? `${text.slice(0, 117)}…`
         : text
       : "📷 Sent a photo";
+    const notify = replyMessageNotification(sender?.username ?? null);
     await createNotification(prisma, {
       userId: recipientId,
-      type: REPLY_MESSAGE_NOTIFICATION.type,
-      title: REPLY_MESSAGE_NOTIFICATION.title,
-      body: preview,
+      type: notify.type,
+      title: notify.title,
+      body: `${notify.bodyPrefix}${preview}`,
       href: `/account/messages/${encodeURIComponent(thread.id)}`,
     });
   }

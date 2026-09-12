@@ -10,6 +10,7 @@ import {
   resolveInboxForNewThread,
   resolveLiveNetworkingListingAnchor,
   resolveProfileMessagingListingAnchor,
+  restoreThreadForNewMessage,
 } from "@/lib/message-threads";
 import { isUserBlocked } from "@/lib/user-block";
 import type { MessageConversationKind } from "@/generated/prisma/client";
@@ -185,6 +186,7 @@ export async function POST(req: Request) {
         });
 
         await ensureThreadParticipants(tx, thread.id, buyerId, sellerId);
+        await restoreThreadForNewMessage(tx, thread.id, buyerId, sellerId);
 
         const created = await tx.message.create({
           data: {
@@ -209,10 +211,13 @@ export async function POST(req: Request) {
       { timeout: 15_000 },
     );
 
-    const recipientParticipant = await prisma.messageThreadParticipant.findUnique({
-      where: { threadId_userId: { threadId: result.threadId, userId: sellerId } },
-      select: { muted: true },
-    });
+    const [recipientParticipant, buyer] = await Promise.all([
+      prisma.messageThreadParticipant.findUnique({
+        where: { threadId_userId: { threadId: result.threadId, userId: sellerId } },
+        select: { muted: true },
+      }),
+      prisma.user.findUnique({ where: { id: buyerId }, select: { username: true } }),
+    ]);
 
     if (!recipientParticipant?.muted) {
       const preview = text
@@ -221,7 +226,7 @@ export async function POST(req: Request) {
           : text
         : "📷 Sent a photo";
       const lt = listingTitle.length > 60 ? `${listingTitle.slice(0, 57)}…` : listingTitle;
-      const notify = firstMessageNotification(result.inbox);
+      const notify = firstMessageNotification(result.inbox, buyer?.username ?? null);
       const notifyBody =
         anchorKey.startsWith("profile:") || lt === "Direct message"
           ? preview
@@ -230,12 +235,11 @@ export async function POST(req: Request) {
         userId: sellerId,
         type: notify.type,
         title: notify.title,
-        body: notifyBody,
+        body: `${notify.bodyPrefix}${notifyBody}`,
         href: `/account/messages/${encodeURIComponent(result.threadId)}`,
       });
     }
 
-    const buyer = await prisma.user.findUnique({ where: { id: buyerId }, select: { username: true } });
     await processMessageMentions({
       db: prisma,
       sourceType: "thread_message",

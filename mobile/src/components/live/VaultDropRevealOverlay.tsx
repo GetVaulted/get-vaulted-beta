@@ -37,6 +37,7 @@ import {
 import { colors, radii, spacing } from '../../theme';
 import { LIVE_CLAIM_CTA_GRADIENT } from './liveClaimCtaStyle';
 import { LiveRoomText } from './LiveRoomText';
+import { SplitFlapBoard } from './SplitFlapBoard';
 
 type Phase = 'idle' | 'pool' | 'reveal';
 
@@ -119,6 +120,9 @@ export function VaultDropRevealOverlay({
   const [poolPhaseCopy, setPoolPhaseCopy] = useState('Rolling the pool');
   const [reelMeasuredWidth, setReelMeasuredWidth] = useState(0);
   const [reelSpan, setReelSpan] = useState(REEL_PILL_SPAN);
+  // Which label index the split-flap board (Givvy Draw only) is currently showing — updated
+  // on the exact same per-pill cadence as the old reel's haptic ticks, below.
+  const [flapIndex, setFlapIndex] = useState(0);
 
   const cardScale = useRef(new Animated.Value(0.82)).current;
   const headlineScale = useRef(new Animated.Value(1)).current;
@@ -170,6 +174,7 @@ export function VaultDropRevealOverlay({
     winnerScrollIndexRef.current = winnerScrollIndex;
     setPhase('pool');
     setCenterScrollIndex(laneStartScroll);
+    setFlapIndex(labelCount > 0 ? ((laneStartScroll % labelCount) + labelCount) % labelCount : 0);
     setPoolProgress(0);
     setPoolPhaseCopy(vaultDropPoolPhaseCopyForSpin(spin, 0));
     cardScale.setValue(0.82);
@@ -222,6 +227,9 @@ export function VaultDropRevealOverlay({
       const currentIndex = laneStartScroll + Math.round((spinStartX - value) / span);
       if (progress > 0.08 && currentIndex !== lastHapticIndex) {
         lastHapticIndex = currentIndex;
+        if (labelCount > 0) {
+          setFlapIndex(((currentIndex % labelCount) + labelCount) % labelCount);
+        }
         void Haptics.selectionAsync().catch(() => {});
       }
     });
@@ -391,82 +399,85 @@ export function VaultDropRevealOverlay({
                   </View>
                 ) : null}
 
-                <View style={styles.reelFrame}>
-                  <View style={styles.reelWindow} onLayout={onReelLayout} pointerEvents="none">
-                    <LinearGradient
-                      colors={['#0a0a0c', 'rgba(10,10,12,0)', 'rgba(10,10,12,0)', '#0a0a0c']}
-                      locations={[0, 0.14, 0.86, 1]}
-                      start={{ x: 0, y: 0.5 }}
-                      end={{ x: 1, y: 0.5 }}
-                      style={styles.reelEdgeFadeBack}
-                      pointerEvents="none"
-                    />
-                    <Animated.View style={[styles.reelTrack, { transform: [{ translateX: reelX }] }]}>
-                      {reelLaneLabels.map((label, index) => {
-                        const sourceIndex = labelCount > 0 ? index % labelCount : 0;
-                        const chipAccent = labelAccentColor(spin, sourceIndex);
-                        const lightChip = isLightSpotAccent(chipAccent);
-                        const isWinnerSlot = showWinner && index === centerScrollIndex;
-                        const pillLabel = vaultDropReelPillLabel(spin, sourceIndex);
-                        return (
-                          <View
-                            key={`${label}-${index}`}
-                            style={styles.reelSlot}
-                            onLayout={index === 0 ? onReelSlotLayout : undefined}
-                          >
-                            <Animated.View
-                              style={isWinnerSlot ? { transform: [{ scale: reelBump }] } : undefined}
+                {isGivvyDraw ? (
+                  <SplitFlapBoard spin={spin} showWinner={showWinner} flapIndex={flapIndex} bump={reelBump} glow={reelGlow} />
+                ) : (
+                  <View style={styles.reelFrame}>
+                    <View style={styles.reelWindow} onLayout={onReelLayout} pointerEvents="none">
+                      <LinearGradient
+                        colors={['#0a0a0c', 'rgba(10,10,12,0)', 'rgba(10,10,12,0)', '#0a0a0c']}
+                        locations={[0, 0.14, 0.86, 1]}
+                        start={{ x: 0, y: 0.5 }}
+                        end={{ x: 1, y: 0.5 }}
+                        style={styles.reelEdgeFadeBack}
+                        pointerEvents="none"
+                      />
+                      <Animated.View style={[styles.reelTrack, { transform: [{ translateX: reelX }] }]}>
+                        {reelLaneLabels.map((label, index) => {
+                          const sourceIndex = labelCount > 0 ? index % labelCount : 0;
+                          const chipAccent = labelAccentColor(spin, sourceIndex);
+                          const lightChip = isLightSpotAccent(chipAccent);
+                          const isWinnerSlot = showWinner && index === centerScrollIndex;
+                          const pillLabel = vaultDropReelPillLabel(spin, sourceIndex);
+                          return (
+                            <View
+                              key={`${label}-${index}`}
+                              style={styles.reelSlot}
+                              onLayout={index === 0 ? onReelSlotLayout : undefined}
                             >
-                              <View
-                                style={[
-                                  styles.reelPill,
-                                  {
-                                    backgroundColor: reelPillBackground(spin, chipAccent, lightChip),
-                                    borderColor: chipAccent,
-                                  },
-                                  isWinnerSlot && styles.reelPillWinner,
-                                ]}
+                              <Animated.View
+                                style={isWinnerSlot ? { transform: [{ scale: reelBump }] } : undefined}
                               >
-                                <LiveRoomText
+                                <View
                                   style={[
-                                    styles.reelPillTxt,
-                                    { color: lightChip ? '#111' : '#fff' },
-                                    isWinnerSlot && styles.reelPillTxtWinner,
+                                    styles.reelPill,
+                                    {
+                                      backgroundColor: reelPillBackground(spin, chipAccent, lightChip),
+                                      borderColor: chipAccent,
+                                    },
+                                    isWinnerSlot && styles.reelPillWinner,
                                   ]}
-                                  numberOfLines={1}
                                 >
-                                  {pillLabel}
-                                </LiveRoomText>
-                              </View>
-                            </Animated.View>
-                          </View>
-                        );
-                      })}
-                    </Animated.View>
-                    <View
-                      style={[
-                        styles.reelFocusRing,
-                        isGivvyDraw && styles.givvyFocusRing,
-                        {
-                          left: focusRing.left,
-                          top: focusRing.top,
-                          width: focusRing.width,
-                          height: focusRing.height,
-                        },
-                      ]}
-                      pointerEvents="none"
-                    />
+                                  <LiveRoomText
+                                    style={[
+                                      styles.reelPillTxt,
+                                      { color: lightChip ? '#111' : '#fff' },
+                                      isWinnerSlot && styles.reelPillTxtWinner,
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    {pillLabel}
+                                  </LiveRoomText>
+                                </View>
+                              </Animated.View>
+                            </View>
+                          );
+                        })}
+                      </Animated.View>
+                      <View
+                        style={[
+                          styles.reelFocusRing,
+                          {
+                            left: focusRing.left,
+                            top: focusRing.top,
+                            width: focusRing.width,
+                            height: focusRing.height,
+                          },
+                        ]}
+                        pointerEvents="none"
+                      />
+                    </View>
+                    {showWinner ? (
+                      <Animated.View
+                        pointerEvents="none"
+                        style={[
+                          styles.reelWinnerGlow,
+                          { backgroundColor: `${accent}55`, opacity: reelGlowOpacity },
+                        ]}
+                      />
+                    ) : null}
                   </View>
-                  {showWinner ? (
-                    <Animated.View
-                      pointerEvents="none"
-                      style={[
-                        styles.reelWinnerGlow,
-                        { backgroundColor: `${accent}55`, opacity: reelGlowOpacity },
-                      ]}
-                    />
-                  ) : null}
-                </View>
+                )}
 
                 {showWinner ? (
                   <Animated.View style={{ transform: [{ scale: headlineScale }], width: '100%' }}>

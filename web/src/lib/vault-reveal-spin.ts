@@ -128,8 +128,8 @@ export function vaultDropPoolPhaseCopyForSpin(
 export function vaultDropRevealPoolHint(spin: VaultRevealSpinPayload): string {
   if (spin.kind === "giveaway") {
     return spin.giveawayKind === "buyers"
-      ? "Buyer entry reel slows down and locks on the winner"
-      : "Entry reel slows down and locks on the winner";
+      ? "Buyer board slows down and locks on the winner"
+      : "Board slows down and locks on the winner";
   }
   if (spin.kind === "random_reveal") {
     return isDivisionRevealSpin(spin)

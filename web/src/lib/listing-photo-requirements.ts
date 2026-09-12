@@ -38,9 +38,14 @@ export function validateListingImageCount(args: {
   return { ok: true };
 }
 
-export function validateLiveRoomItemThumbnail(imageUrl: string): { ok: true } | { ok: false; error: string } {
-  if (!imageUrl.trim()) {
-    return { ok: false, error: "Upload 1 thumbnail image." };
-  }
+/**
+ * Live-room queue item thumbnail: optional. Hosts frequently add spot/break/auction lots on the
+ * fly mid-show, and a hard photo requirement blocked that — unlike marketplace listings (see
+ * `validateListingImageCount` above), a live queue item has no photo minimum. Kept as a function
+ * (rather than removing the call site) so a future requirement is a one-line change.
+ */
+export function validateLiveRoomItemThumbnail(
+  _imageUrl: string,
+): { ok: true } | { ok: false; error: string } {
   return { ok: true };
 }

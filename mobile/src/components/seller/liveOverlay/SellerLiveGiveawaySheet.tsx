@@ -27,6 +27,7 @@ import {
 import type { HostGiveawayAction } from '../../../hooks/useHostGiveawayActions';
 import { openPromoEntry } from '../../../navigation/openPromoEntry';
 import { useGiveawayCountdown } from '../../../hooks/useGiveawayCountdown';
+import { GIVVY_DEFAULT_BUYERS_RULES_TEXT } from '../../../lib/givvyUi';
 import { colors, radii, spacing } from '../../../theme';
 import { SellerGiveawayEntrantList } from './SellerGiveawayEntrantList';
 
@@ -168,17 +169,22 @@ export function SellerLiveGiveawaySheet({
     });
   }, []);
 
-  const resetForm = useCallback(() => {
-    setTitle('');
-    setPrizeDescription('');
-    setRulesText('');
-    setOpenOnCreate(true);
-    setFormError(null);
-    setCreating(false);
-    setImageUri(null);
-    setImageUrl(null);
-    setImageError(null);
-  }, []);
+  const resetForm = useCallback(
+    (forLane: Lane = lane) => {
+      setTitle('');
+      setPrizeDescription('');
+      // Buyers giveaways require 80+ characters of official rules before they can be created —
+      // prefill boilerplate so the host edits/confirms it instead of starting from a blank box.
+      setRulesText(forLane === 'buyers' ? GIVVY_DEFAULT_BUYERS_RULES_TEXT : '');
+      setOpenOnCreate(true);
+      setFormError(null);
+      setCreating(false);
+      setImageUri(null);
+      setImageUrl(null);
+      setImageError(null);
+    },
+    [lane],
+  );
 
   const pickPhoto = useCallback(async () => {
     setImageError(null);
@@ -320,7 +326,7 @@ export function SellerLiveGiveawaySheet({
                   key={t}
                   onPress={() => {
                     setLane(t);
-                    resetForm();
+                    resetForm(t);
                   }}
                   style={[styles.tab, active && styles.tabActive]}
                 >
@@ -403,7 +409,7 @@ export function SellerLiveGiveawaySheet({
                 </View>
                 {formError ? <Text style={styles.error}>{formError}</Text> : null}
                 <View style={styles.formActions}>
-                  <Pressable style={styles.secondaryBtn} onPress={resetForm}>
+                  <Pressable style={styles.secondaryBtn} onPress={() => resetForm()}>
                     <Text style={styles.secondaryBtnTxt}>Cancel</Text>
                   </Pressable>
                   <Pressable style={styles.primaryBtn} disabled={busy || createBusy} onPress={() => void handleCreate()}>

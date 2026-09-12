@@ -9,7 +9,8 @@ export type SupabaseRegisterFailureCode =
   | "SUPABASE_SIGNUP_FAILED"
   | "WEAK_PASSWORD"
   | "SIGNUP_RATE_LIMITED"
-  | "SIGNUP_DISABLED";
+  | "SIGNUP_DISABLED"
+  | "DISPOSABLE_EMAIL";
 
 export type SupabaseRegisterResult =
   | {
@@ -112,6 +113,13 @@ export async function registerAccountViaSupabaseAuth(params: {
         code: "SIGNUP_DISABLED",
         message: "Sign-ups are temporarily closed. Please try again later.",
       };
+    }
+    // Rejected by the "Before User Created" Auth Hook (see
+    // src/app/api/auth-hooks/before-user-created/route.ts) — Supabase relays the hook's own
+    // error message back through signUp()'s AuthApiError, so pass it straight through rather
+    // than falling into the generic SUPABASE_SIGNUP_FAILED bucket below.
+    if (/email provider isn.?t supported/i.test(raw)) {
+      return { ok: false, code: "DISPOSABLE_EMAIL", message: raw };
     }
     console.error("[registerAccountViaSupabaseAuth]", { status: errStatus, code: errCode, message: raw });
     return {

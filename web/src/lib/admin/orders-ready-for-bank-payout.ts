@@ -1,6 +1,8 @@
 import type { Prisma } from "@/generated/prisma/client";
+import type { OrderRefundRequestStatus } from "@/generated/prisma/enums";
 import { OrderPayoutStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
+import { ACTIVE_REFUND_REQUEST_STATUSES } from "@/lib/order-refund-eligibility";
 import {
   estimateSellerOrderPayoutUsd,
   resolvePlatformFeePercentForSellerOrder,
@@ -50,6 +52,13 @@ const readyBaseWhere: Prisma.OrderWhereInput = {
     { fulfillmentStatus: { in: ["shipped", "in_transit", "out_for_delivery", "delivered"] } },
     { status: { in: ["shipped", "delivered"] } },
   ],
+  // Mirrors the single-order admin release gate (admin/orders/[id]/payout) — without this, the
+  // bulk per-seller release path (and the automatic bank-payout cron built on top of it) would
+  // push real money to a seller for an order the buyer is actively disputing or requesting a
+  // refund/return on.
+  refundRequests: {
+    none: { status: { in: [...ACTIVE_REFUND_REQUEST_STATUSES] as OrderRefundRequestStatus[] } },
+  },
 };
 
 export async function countOrdersReadyForAdminBankPayout(): Promise<number> {

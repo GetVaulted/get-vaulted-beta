@@ -82,6 +82,26 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ threadId: str
     return NextResponse.json({ ok: true, muted });
   }
 
+  if (action === "delete") {
+    // Delete-for-me: only this participant's row is touched, so the other side's copy of the
+    // conversation is completely unaffected. Moves the thread into this user's Trash; a cron
+    // purges it (and hard-deletes the thread once every participant has done the same) after the
+    // 14-day window. Restored automatically if a new message lands in the thread.
+    await prisma.messageThreadParticipant.update({
+      where: { id: participant.id },
+      data: { deletedAt: new Date() },
+    });
+    return NextResponse.json({ ok: true, deleted: true });
+  }
+
+  if (action === "restore") {
+    await prisma.messageThreadParticipant.update({
+      where: { id: participant.id },
+      data: { deletedAt: null },
+    });
+    return NextResponse.json({ ok: true, deleted: false });
+  }
+
   if (action === "block") {
     const blocked = body.value !== false;
     const otherUserId = thread.buyerId === uid ? thread.sellerId : thread.buyerId;

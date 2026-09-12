@@ -354,10 +354,7 @@ export function AddInventoryModal({
   };
 
   const saveToShow = (addAnother: boolean) => {
-    if (!imageUrl?.trim()) {
-      Alert.alert('Photo required', 'Add one product photo before saving to the show.');
-      return;
-    }
+    // Photo is optional for live queue items — hosts often add lots on the fly mid-show.
     const validated = validateQuickLiveLot({
       ...draft,
       spotDrafts,
@@ -376,7 +373,7 @@ export function AddInventoryModal({
     const profilePayload = profileOptionsAreSeller
       ? { sellerShippingProfileId: selectedProfileId }
       : { shippingProfileId: selectedProfileId };
-    onSubmit({ ...validated.values, imageUrl: imageUrl.trim(), ...profilePayload }, { addAnother });
+    onSubmit({ ...validated.values, imageUrl: imageUrl?.trim() ?? '', ...profilePayload }, { addAnother });
     if (addAnother) resetDraft();
   };
 
@@ -591,7 +588,7 @@ export function AddInventoryModal({
               editable={!busy}
             />
 
-            <Text style={styles.fieldLbl}>Photo</Text>
+            <Text style={styles.fieldLbl}>Photo (optional)</Text>
             <Pressable
               style={[styles.photoBox, imageUri && styles.photoBoxFilled]}
               onPress={() => void pickPhoto()}

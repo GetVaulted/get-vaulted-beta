@@ -461,7 +461,11 @@ function LiveSlide({
     hostUsername: stream.host.handle.replace(/^@/, '') || stream.host.name,
     viewerDisplayName: myChatSender.username ?? null,
     includeStaffChat: modActor.canModerate,
-    onModerationChanged: () => void moderation.reload(),
+    // Deliberately no onModerationChanged wiring here: useLiveRoomModeration already subscribes
+    // to the same room channel's moderationChanged broadcast itself (see that hook) and calling
+    // moderation.reload() from both places double-fired GET /moderation on every single
+    // moderation event. useLiveRoomModeration's own subscription also isn't gated on
+    // screenFocused, so it's a strict superset of this callback's coverage.
     onChatBroadcast: (message) => {
       if (!message.id) {
         void liveChat.reload();
@@ -1255,6 +1259,7 @@ function LiveSlide({
                   refreshNonce={streamRefreshNonce + roomVisitNonce}
                   roomVisitNonce={roomVisitNonce}
                   realtimeStreamPaused={realtimeStreamPaused}
+                  realtimeConnected={liveSession.connectionState === 'connected'}
                   muted={isActive && screenFocused ? streamMuted : true}
                   onMutedChange={setStreamMuted}
                   onBroadcastGateChange={handleBroadcastGateChange}
@@ -2024,6 +2029,38 @@ function LiveSlide({
   );
 }
 
+/**
+ * Rendered instead of `LiveSlide` for every pager page outside the warm radius (see
+ * `warmPageIndices` below). `LiveSlide` mounts a full show — video player(s), chat, moderation,
+ * realtime session, wallet gating, gesture handlers — and the pager previously mounted one for
+ * *every* item in the discovery list (up to 120) the instant the feed rendered, regardless of how
+ * far off-screen it was. Network polling for those off-screen slides was already gated off
+ * (`enabled`/`playbackMode` checks throughout), but the component trees themselves stayed fully
+ * mounted in memory for the entire session — real, avoidable memory/CPU cost that scales with how
+ * many shows are running at once, compounding the more successful the platform's concurrent-show
+ * goal is. This placeholder keeps the pager's page count/swipe behavior intact (PagerView needs a
+ * child per page) while paying none of that cost: just a static thumbnail, no hooks beyond style.
+ */
+function LiveSlidePlaceholder({ stream }: { stream: LiveStream }) {
+  return (
+    <View style={styles.placeholderRoot}>
+      <Image
+        source={{ uri: stream.previewImageUrl }}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+      />
+      <LinearGradient
+        colors={stream.thumbnailGradient}
+        start={{ x: 0.1, y: 0 }}
+        end={{ x: 0.9, y: 1 }}
+        style={[StyleSheet.absoluteFill, { opacity: 0.08 }]}
+        pointerEvents="none"
+      />
+    </View>
+  );
+}
+
 export function VerticalLiveFeed({
   streams,
   initialStreamId,
@@ -2327,25 +2364,29 @@ export function VerticalLiveFeed({
         >
           {streams.map((stream, index) => (
             <View key={stream.id} style={styles.page} collapsable={false}>
-              <LiveSlide
-                stream={stream}
-                isActive={index === page}
-                playbackMode={resolvePlaybackMode(index)}
-                screenFocused={screenFocused}
-                stageContainer={stageContainer}
-                screenHeight={viewportHeight}
-                onBack={onBack}
-                signedIn={signedIn}
-                onRequireAuth={onRequireAuth}
-                accessToken={accessToken}
-                userId={userId}
-                onWalletOverlayChange={setWalletOverlayActive}
-                onPaymentBlockerChange={setPaymentBlockerActive}
-                onWalletGateHostChange={handleWalletGateHostChange}
-                onInspectZoomChange={setInspectZoomActive}
-                roomVisitNonce={roomVisitNonce}
-                onSpotCelebrationHostChange={handleSpotCelebrationHostChange}
-              />
+              {warmPageIndices.has(index) ? (
+                <LiveSlide
+                  stream={stream}
+                  isActive={index === page}
+                  playbackMode={resolvePlaybackMode(index)}
+                  screenFocused={screenFocused}
+                  stageContainer={stageContainer}
+                  screenHeight={viewportHeight}
+                  onBack={onBack}
+                  signedIn={signedIn}
+                  onRequireAuth={onRequireAuth}
+                  accessToken={accessToken}
+                  userId={userId}
+                  onWalletOverlayChange={setWalletOverlayActive}
+                  onPaymentBlockerChange={setPaymentBlockerActive}
+                  onWalletGateHostChange={handleWalletGateHostChange}
+                  onInspectZoomChange={setInspectZoomActive}
+                  roomVisitNonce={roomVisitNonce}
+                  onSpotCelebrationHostChange={handleSpotCelebrationHostChange}
+                />
+              ) : (
+                <LiveSlidePlaceholder stream={stream} />
+              )}
             </View>
           ))}
         </PagerView>
@@ -2393,6 +2434,10 @@ const styles = StyleSheet.create({
   },
   page: {
     flex: 1,
+  },
+  placeholderRoot: {
+    flex: 1,
+    backgroundColor: '#050505',
   },
   immersiveBack: {
     position: 'absolute',

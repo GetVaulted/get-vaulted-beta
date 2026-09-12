@@ -44,11 +44,11 @@ export function MarketplaceItemSellerSection({ listing, extras, embedded = false
     setAskOpen(true);
   };
 
-  const handleAskSubmit = async (text: string) => {
+  const handleAskSubmit = async (text: string, imageUrl?: string) => {
     const res = await fetch("/api/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ listingId: listing.id, body: text }),
+      body: JSON.stringify({ listingId: listing.id, body: text, ...(imageUrl ? { imageUrl } : {}) }),
     });
     const data = (await res.json().catch(() => ({}))) as { error?: string; threadId?: string };
     if (!res.ok) {

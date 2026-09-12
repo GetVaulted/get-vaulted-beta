@@ -22,6 +22,7 @@ export function SellerShipFromSetupCard({
   embedded = false,
   forceEditKey = 0,
   onSaved,
+  onCompletionChange,
 }: {
   accessToken?: string;
   /** Renders inside Seller essentials panel without outer card chrome. */
@@ -29,6 +30,8 @@ export function SellerShipFromSetupCard({
   /** Increment to open the editor (e.g. from Vault Events readiness). */
   forceEditKey?: number;
   onSaved?: () => void;
+  /** Fires whenever the saved-address-complete state changes (for collapsing a parent summary). */
+  onCompletionChange?: (complete: boolean) => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -105,6 +108,20 @@ export function SellerShipFromSetupCard({
     }
   };
 
+  // Computed before the accessToken early return so this stays a valid, consistently-ordered hook.
+  const addressComplete = hasCompleteSellerShipFrom({
+    shipFromStreet: street,
+    shipFromCity: city,
+    shipFromState: state,
+    shipFromZip: zip,
+    shipFromCountry: country,
+    shipFromPhone: phone,
+  });
+
+  useEffect(() => {
+    if (!loading) onCompletionChange?.(addressComplete);
+  }, [loading, addressComplete, onCompletionChange]);
+
   if (!accessToken) return null;
 
   const savedSummary = formatSellerShipFromSummary({
@@ -113,14 +130,6 @@ export function SellerShipFromSetupCard({
     shipFromState: state,
     shipFromZip: zip,
     shipFromCountry: country,
-  });
-  const addressComplete = hasCompleteSellerShipFrom({
-    shipFromStreet: street,
-    shipFromCity: city,
-    shipFromState: state,
-    shipFromZip: zip,
-    shipFromCountry: country,
-    shipFromPhone: phone,
   });
   const showSaved = !editing && addressComplete;
 

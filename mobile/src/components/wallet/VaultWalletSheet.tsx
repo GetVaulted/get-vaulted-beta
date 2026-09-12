@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -14,6 +15,7 @@ import {
   TextInput,
   useWindowDimensions,
   View,
+  type AppStateStatus,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -318,6 +320,20 @@ export function VaultWalletSheet({
     }
     void loadRef.current();
   }, [visible, recoveryMode, initialStep, openPaymentSetupOnMount, initialReadiness, recoverySetupStartWith]);
+
+  // Connecting Venmo/PayPal backgrounds the app into Safari, then returns via a deep link —
+  // that's a foreground transition, not a fresh mount, so the `justOpened` refetch above never
+  // fires and the sheet kept showing whatever payment methods it had before the buyer left. The
+  // buyer had to fully close and reopen the wallet to see the method they just connected. Refetch
+  // on every foreground return while the sheet is visible instead — covers Venmo, PayPal, and any
+  // other external approval flow without needing to know which one just finished.
+  useEffect(() => {
+    if (!visible) return;
+    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') void loadRef.current();
+    });
+    return () => sub.remove();
+  }, [visible]);
 
   useEffect(() => {
     if (!visible || !openAddressFormOnMount || addressFormSeedAppliedRef.current || loading) return;

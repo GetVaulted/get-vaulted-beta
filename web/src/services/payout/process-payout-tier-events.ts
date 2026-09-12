@@ -503,16 +503,31 @@ export async function processShippedPayoutEvaluation(orderId: string): Promise<v
   });
 
   if (prev !== OrderPayoutStatus.fast_payout_ready) {
-    const { scheduleNotifyAdminsBankPayoutReady, loadSellerHandleForPayoutAlert } = await import(
-      "@/lib/admin/notify-admins-bank-payout-ready"
-    );
-    const handle = await loadSellerHandleForPayoutAlert(order.sellerId);
-    scheduleNotifyAdminsBankPayoutReady({
-      orderId,
-      sellerId: order.sellerId,
-      sellerUsername: handle,
-      estimatedNetUsd: sellerNetUsd,
+    // Notify admins once per seller's ready *batch*, not once per order/item. A seller can rack
+    // up many orders reaching fast_payout_ready in the same window (e.g. shipping a whole live
+    // show's worth of items) — if any OTHER order for this seller is already sitting at
+    // fast_payout_ready, admins were already alerted for that active batch, so this order just
+    // joins it silently. Once admins push the payout (order moves to paid_out), the seller's
+    // ready count drops back to zero and the next order to ship starts a fresh batch + alert.
+    const otherReadyCount = await prisma.order.count({
+      where: {
+        sellerId: order.sellerId,
+        payoutStatus: OrderPayoutStatus.fast_payout_ready,
+        id: { not: orderId },
+      },
     });
+    if (otherReadyCount === 0) {
+      const { scheduleNotifyAdminsBankPayoutReady, loadSellerHandleForPayoutAlert } = await import(
+        "@/lib/admin/notify-admins-bank-payout-ready"
+      );
+      const handle = await loadSellerHandleForPayoutAlert(order.sellerId);
+      scheduleNotifyAdminsBankPayoutReady({
+        orderId,
+        sellerId: order.sellerId,
+        sellerUsername: handle,
+        estimatedNetUsd: sellerNetUsd,
+      });
+    }
   }
 }
 

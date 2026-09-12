@@ -1,3 +1,12 @@
 {
-  "expo": {}
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "6119563c-2c33-4ada-b3f4-8c42b8e2be7c"
+      }
+    },
+    "android": {
+      "package": "com.getvaulted.getvaulted"
+    }
+  }
 }

@@ -11,7 +11,6 @@ import { releaseStoreCreditAndRestoreOrder } from "@/lib/store-credit-release";
 import { prisma } from "@/lib/prisma";
 import { isLiveRoomOpenForSpotPurchase } from "@/lib/live-room-commerce-guards";
 import {
-  emitLiveRoomMessagesRefetch,
   emitLiveRoomQueueItemsChanged,
   emitVariantPurchased,
 } from "@/lib/realtime-emit-server";
@@ -133,7 +132,9 @@ export async function finalizeLiveItemVariantPurchaseBatchPaid(
     batchId,
   });
 
-  emitLiveRoomMessagesRefetch(primary.liveRoomId);
+  // No chat message is created for a batch purchase — the purchase itself is already
+  // broadcast above via emitVariantPurchased. See variant-purchase.ts / payments.ts for why a
+  // blanket full-chat-refetch broadcast here would be wasted DB load on busy shows.
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: primary.liveRoomId },

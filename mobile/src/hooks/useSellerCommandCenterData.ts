@@ -23,6 +23,14 @@ const EMPTY_ANALYTICS: SellerAnalyticsSnapshot = {
   averageRating: 0,
   reviewCount: 0,
   revenueAvailable: null,
+  revenueByDay: [],
+  revenueThisWeekCents: 0,
+  revenuePrevWeekCents: 0,
+  avgSaleCents: null,
+  avgSaleWeeklyTrend: [],
+  sellThroughPercent: null,
+  topSaleThisWeek: null,
+  oldestAwaitingShipHours: null,
 };
 
 export function useSellerCommandCenterData(

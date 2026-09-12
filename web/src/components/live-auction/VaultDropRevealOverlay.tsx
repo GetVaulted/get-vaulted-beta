@@ -23,6 +23,7 @@ import {
   vaultSealWinnerCopy,
   type VaultRevealSpinPayload,
 } from "@/lib/vault-reveal-spin";
+import { SplitFlapBoard } from "./SplitFlapBoard";
 
 type Phase = "idle" | "pool" | "reveal";
 
@@ -152,6 +153,9 @@ export function VaultDropRevealOverlay({
   const [reelX, setReelX] = useState(0);
   const [reelTransition, setReelTransition] = useState("0ms linear");
   const [reelBump, setReelBump] = useState(false);
+  // Which label index the split-flap board (Givvy Draw only) is currently showing —
+  // updated on the same spin-progress cadence that already drives the old reel's position.
+  const [flapIndex, setFlapIndex] = useState(0);
 
   const accent = useMemo(() => (spin ? revealAccentColor(spin) : "#D4AF37"), [spin]);
   const scrollPlan = useMemo(
@@ -193,6 +197,7 @@ export function VaultDropRevealOverlay({
     winnerScrollIndexRef.current = winnerScrollIndex;
     setPhase("pool");
     setCenterScrollIndex(laneStartScroll);
+    setFlapIndex(labelCount > 0 ? ((laneStartScroll % labelCount) + labelCount) % labelCount : 0);
     setPoolProgress(0);
     setPoolPhaseCopy(vaultDropPoolPhaseCopyForSpin(spin, 0));
     setEntered(false);
@@ -213,12 +218,23 @@ export function VaultDropRevealOverlay({
       if (runTokenRef.current !== runToken) return;
 
       const spinStartMs = performance.now();
+      let lastFlapIndex = laneStartScroll;
       const stopProgress = runSpinProgress(
         spinStartMs,
         spinDurationMs,
         (progress) => {
           setPoolProgress(progress);
           setPoolPhaseCopy(vaultDropPoolPhaseCopyForSpin(spin, progress));
+          if (labelCount > 0) {
+            // Ease the linear time-progress into the same deceleration feel as the CSS
+            // transition on the reel itself, so flap flips slow down toward the lock too.
+            const eased = 1 - Math.pow(1 - progress, 3);
+            const idx = Math.round(laneStartScroll + (spinEndScroll - laneStartScroll) * eased);
+            if (idx !== lastFlapIndex) {
+              lastFlapIndex = idx;
+              setFlapIndex(((idx % labelCount) + labelCount) % labelCount);
+            }
+          }
         },
         runToken,
         runTokenRef,
@@ -367,71 +383,73 @@ export function VaultDropRevealOverlay({
                 </div>
               ) : null}
 
-              <div className="relative w-full">
-                <div
-                  ref={reelViewportRef}
-                  className="relative h-[52px] overflow-hidden rounded-full border border-white/10 bg-black/35"
-                >
+              {isGivvyDraw ? (
+                <SplitFlapBoard spin={spin} showWinner={showWinner} flapIndex={flapIndex} bump={reelBump} />
+              ) : (
+                <div className="relative w-full">
                   <div
-                    className="relative z-[1] flex h-full items-center will-change-transform"
-                    style={{
-                      transform: `translateX(${reelX}px)`,
-                      transition: reelTransition,
-                    }}
+                    ref={reelViewportRef}
+                    className="relative h-[52px] overflow-hidden rounded-full border border-white/10 bg-black/35"
                   >
-                    {reelLaneLabels.map((label, index) => {
-                      const sourceIndex = labelCount > 0 ? index % labelCount : 0;
-                      const chipAccent = labelAccentColor(spin, sourceIndex);
-                      const lightChip = isLightSpotAccent(chipAccent);
-                      const isWinnerSlot = showWinner && index === centerScrollIndex;
-                      const pillLabel = vaultDropReelPillLabel(spin, sourceIndex);
-                      return (
-                        <div
-                          key={`${label}-${index}`}
-                          className="flex shrink-0 items-center justify-center"
-                          style={{ width: REEL_PILL_SPAN }}
-                        >
-                          <div
-                            className={`box-border flex h-10 w-[84px] items-center justify-center rounded-full border-2 px-2 text-center text-[11px] font-extrabold leading-none ${
-                              lightChip ? "text-zinc-950" : "text-white"
-                            } ${
-                              isWinnerSlot && reelBump ? "scale-105" : "scale-100"
-                            } ${isWinnerSlot ? "shadow-[0_8px_20px_rgba(0,0,0,0.35)]" : ""} transition-transform duration-200`}
-                            style={{
-                              borderColor: chipAccent,
-                              backgroundColor: reelPillBackground(spin, chipAccent, lightChip),
-                            }}
-                          >
-                            {pillLabel}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-r from-[#0a0a0c] via-transparent via-70% to-[#0a0a0c]" />
-                  <div
-                    className={`pointer-events-none absolute rounded-full border-2 ${
-                      isGivvyDraw ? "border-emerald-200/85" : "border-amber-200/85"
-                    }`}
-                    style={{
-                      left: focusRing.left,
-                      top: focusRing.top,
-                      width: focusRing.width,
-                      height: focusRing.height,
-                    }}
-                  />
-                  {showWinner ? (
                     <div
-                      className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-70 blur-md"
+                      className="relative z-[1] flex h-full items-center will-change-transform"
                       style={{
-                        width: REEL_PILL_WIDTH + 20,
-                        height: REEL_PILL_HEIGHT + 20,
-                        backgroundColor: `${accent}66`,
+                        transform: `translateX(${reelX}px)`,
+                        transition: reelTransition,
+                      }}
+                    >
+                      {reelLaneLabels.map((label, index) => {
+                        const sourceIndex = labelCount > 0 ? index % labelCount : 0;
+                        const chipAccent = labelAccentColor(spin, sourceIndex);
+                        const lightChip = isLightSpotAccent(chipAccent);
+                        const isWinnerSlot = showWinner && index === centerScrollIndex;
+                        const pillLabel = vaultDropReelPillLabel(spin, sourceIndex);
+                        return (
+                          <div
+                            key={`${label}-${index}`}
+                            className="flex shrink-0 items-center justify-center"
+                            style={{ width: REEL_PILL_SPAN }}
+                          >
+                            <div
+                              className={`box-border flex h-10 w-[84px] items-center justify-center rounded-full border-2 px-2 text-center text-[11px] font-extrabold leading-none ${
+                                lightChip ? "text-zinc-950" : "text-white"
+                              } ${
+                                isWinnerSlot && reelBump ? "scale-105" : "scale-100"
+                              } ${isWinnerSlot ? "shadow-[0_8px_20px_rgba(0,0,0,0.35)]" : ""} transition-transform duration-200`}
+                              style={{
+                                borderColor: chipAccent,
+                                backgroundColor: reelPillBackground(spin, chipAccent, lightChip),
+                              }}
+                            >
+                              {pillLabel}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-r from-[#0a0a0c] via-transparent via-70% to-[#0a0a0c]" />
+                    <div
+                      className="pointer-events-none absolute rounded-full border-2 border-amber-200/85"
+                      style={{
+                        left: focusRing.left,
+                        top: focusRing.top,
+                        width: focusRing.width,
+                        height: focusRing.height,
                       }}
                     />
-                  ) : null}
+                    {showWinner ? (
+                      <div
+                        className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-70 blur-md"
+                        style={{
+                          width: REEL_PILL_WIDTH + 20,
+                          height: REEL_PILL_HEIGHT + 20,
+                          backgroundColor: `${accent}66`,
+                        }}
+                      />
+                    ) : null}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {showWinner ? (
                 <>

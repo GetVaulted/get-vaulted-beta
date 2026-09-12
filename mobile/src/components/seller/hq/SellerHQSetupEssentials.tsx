@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   isSellerPayoutSetupComplete,
@@ -35,62 +36,104 @@ export function SellerHQSetupEssentials({
   const payoutDoneForUi = payoutComplete || payoutSubmitted;
   const badge = sellerConnectBadge(connectStatus, { fetchError: connectError });
 
+  const [shipFromComplete, setShipFromComplete] = useState(false);
+  const [forceExpanded, setForceExpanded] = useState(false);
+  const allComplete = payoutDoneForUi && shipFromComplete;
+  const showCollapsed = allComplete && !forceExpanded;
+
+  useEffect(() => {
+    if (forceShipFromEditKey && forceShipFromEditKey > 0) setForceExpanded(true);
+  }, [forceShipFromEditKey]);
+
   return (
     <View style={styles.wrap}>
       <Text style={hq.sectionEyebrow}>Seller essentials</Text>
       <Text style={styles.sectionTitle}>Payouts & ship-from</Text>
 
-      <View style={[styles.panel, hq.goldCard]}>
-        <View style={styles.row}>
-          <View style={styles.rowIcon}>
-            <Ionicons name="wallet-outline" size={20} color={colors.gold} />
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.rowTitle}>Payout account</Text>
-            {connectLoading && !connectStatus ? (
-              <ActivityIndicator color={colors.gold} style={{ alignSelf: 'flex-start', marginTop: 6 }} />
-            ) : (
-              <>
-                <Text style={styles.rowValue}>{badge}</Text>
-                {payoutComplete ? (
-                  <Text style={styles.rowSub}>Stripe Connect is ready for marketplace and live sales.</Text>
-                ) : payoutSubmitted ? (
-                  <Text style={styles.rowSub}>
-                    Stripe received your details. Publishing and live unlock when verification finishes.
-                  </Text>
+      <View style={[styles.panel, hq.goldCard, showCollapsed && styles.panelCollapsed]}>
+        {showCollapsed ? (
+          <Pressable
+            style={({ pressed }) => [styles.collapseRow, pressed && styles.pressed]}
+            onPress={() => setForceExpanded(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Payouts and shipping — both set up. Tap to review."
+          >
+            <View style={styles.collapseIcon}>
+              <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.collapseTitle}>Payouts & shipping</Text>
+              <Text style={styles.collapseSub}>Stripe connected · ship-from saved</Text>
+            </View>
+            <Ionicons name="chevron-down-outline" size={16} color={colors.textMuted} />
+          </Pressable>
+        ) : (
+          <>
+            {allComplete ? (
+              <Pressable
+                style={({ pressed }) => [styles.collapseRow, styles.collapseRowExpanded, pressed && styles.pressed]}
+                onPress={() => setForceExpanded(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Collapse payouts and shipping"
+              >
+                <Text style={styles.collapseSub}>Tap to collapse</Text>
+                <Ionicons name="chevron-up-outline" size={16} color={colors.textMuted} />
+              </Pressable>
+            ) : null}
+
+            <View style={styles.row}>
+              <View style={styles.rowIcon}>
+                <Ionicons name="wallet-outline" size={20} color={colors.gold} />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.rowTitle}>Payout account</Text>
+                {connectLoading && !connectStatus ? (
+                  <ActivityIndicator color={colors.gold} style={{ alignSelf: 'flex-start', marginTop: 6 }} />
                 ) : (
-                  <Text style={styles.rowSub} numberOfLines={2}>
-                    {sellerConnectDetailMessage(connectStatus, { fetchError: connectError })}
-                  </Text>
+                  <>
+                    <Text style={styles.rowValue}>{badge}</Text>
+                    {payoutComplete ? (
+                      <Text style={styles.rowSub}>Stripe Connect is ready for marketplace and live sales.</Text>
+                    ) : payoutSubmitted ? (
+                      <Text style={styles.rowSub}>
+                        Stripe received your details. Publishing and live unlock when verification finishes.
+                      </Text>
+                    ) : (
+                      <Text style={styles.rowSub} numberOfLines={2}>
+                        {sellerConnectDetailMessage(connectStatus, { fetchError: connectError })}
+                      </Text>
+                    )}
+                  </>
                 )}
-              </>
-            )}
-          </View>
-          {!payoutDoneForUi ? (
-            <Pressable
-              style={[styles.rowBtn, stripeSetupBusy && styles.rowBtnOff]}
-              onPress={onStripeSetup}
-              disabled={stripeSetupBusy}
-            >
-              {stripeSetupBusy ? (
-                <ActivityIndicator color="#0a0a0a" size="small" />
+              </View>
+              {!payoutDoneForUi ? (
+                <Pressable
+                  style={[styles.rowBtn, stripeSetupBusy && styles.rowBtnOff]}
+                  onPress={onStripeSetup}
+                  disabled={stripeSetupBusy}
+                >
+                  {stripeSetupBusy ? (
+                    <ActivityIndicator color="#0a0a0a" size="small" />
+                  ) : (
+                    <Text style={styles.rowBtnTxt}>Connect</Text>
+                  )}
+                </Pressable>
               ) : (
-                <Text style={styles.rowBtnTxt}>Connect</Text>
+                <Ionicons name="checkmark-circle" size={22} color={colors.success} />
               )}
-            </Pressable>
-          ) : (
-            <Ionicons name="checkmark-circle" size={22} color={colors.success} />
-          )}
-        </View>
+            </View>
 
-        <View style={styles.divider} />
+            <View style={styles.divider} />
 
-        <SellerShipFromSetupCard
-          accessToken={accessToken}
-          embedded
-          forceEditKey={forceShipFromEditKey}
-          onSaved={onShipFromSaved}
-        />
+            <SellerShipFromSetupCard
+              accessToken={accessToken}
+              embedded
+              forceEditKey={forceShipFromEditKey}
+              onSaved={onShipFromSaved}
+              onCompletionChange={setShipFromComplete}
+            />
+          </>
+        )}
       </View>
     </View>
   );
@@ -105,6 +148,30 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   panel: { padding: spacing.md, gap: spacing.md },
+  panelCollapsed: { padding: 0 },
+  collapseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  collapseRowExpanded: {
+    justifyContent: 'flex-end',
+    paddingTop: 0,
+    paddingBottom: 0,
+    marginBottom: -spacing.xs,
+  },
+  pressed: { opacity: 0.88 },
+  collapseIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(52,199,89,0.14)',
+  },
+  collapseTitle: { fontSize: 13, fontWeight: '700', color: colors.textPrimary },
+  collapseSub: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
   row: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
   rowIcon: {
     width: 40,

@@ -1,0 +1,3326 @@
+﻿{
+  "mode": "FOLLOWUP_AUDIT_READONLY",
+  "generatedAt": "2026-08-11T01:46:48.851Z",
+  "part1_refundFilterProbe": {
+    "note": "If `filterAppearsIgnored` is true, or any result's `transactionFieldMatchesQueried` is false, the code in shippo-label-refund-status.ts is treating unrelated account-wide refunds as if they belonged to the queried transaction ΓÇö that is almost certainly why every transaction is being classified refund_pending.",
+    "sampleTransactionIdsProbed": [
+      "ae1ac3ecb8f943e0a2a0521c29defda9",
+      "971e2692c14b4c0bad10b6734bc5c70d",
+      "aece3cd1080946a5bc601723f182395f",
+      "7e8364c6ecde4ac099fd0ca4c312294e",
+      "d26ad71eacd44a3bbf9823b1e04b2dcc"
+    ],
+    "filteredResults": [
+      {
+        "queriedTransactionId": "ae1ac3ecb8f943e0a2a0521c29defda9",
+        "resultCount": 1,
+        "totalCount": null,
+        "results": [
+          {
+            "object_id": "52ab2249ee844803a87f552eb529f076",
+            "status": "PENDING",
+            "transaction": "1d02816aac954fbfab3758b6953409a1",
+            "transactionFieldMatchesQueried": false,
+            "amount": null,
+            "object_created": "2026-08-09T23:09:57.929Z"
+          }
+        ]
+      },
+      {
+        "queriedTransactionId": "971e2692c14b4c0bad10b6734bc5c70d",
+        "resultCount": 1,
+        "totalCount": null,
+        "results": [
+          {
+            "object_id": "52ab2249ee844803a87f552eb529f076",
+            "status": "PENDING",
+            "transaction": "1d02816aac954fbfab3758b6953409a1",
+            "transactionFieldMatchesQueried": false,
+            "amount": null,
+            "object_created": "2026-08-09T23:09:57.929Z"
+          }
+        ]
+      },
+      {
+        "queriedTransactionId": "aece3cd1080946a5bc601723f182395f",
+        "resultCount": 1,
+        "totalCount": null,
+        "results": [
+          {
+            "object_id": "52ab2249ee844803a87f552eb529f076",
+            "status": "PENDING",
+            "transaction": "1d02816aac954fbfab3758b6953409a1",
+            "transactionFieldMatchesQueried": false,
+            "amount": null,
+            "object_created": "2026-08-09T23:09:57.929Z"
+          }
+        ]
+      },
+      {
+        "queriedTransactionId": "7e8364c6ecde4ac099fd0ca4c312294e",
+        "resultCount": 1,
+        "totalCount": null,
+        "results": [
+          {
+            "object_id": "52ab2249ee844803a87f552eb529f076",
+            "status": "PENDING",
+            "transaction": "1d02816aac954fbfab3758b6953409a1",
+            "transactionFieldMatchesQueried": false,
+            "amount": null,
+            "object_created": "2026-08-09T23:09:57.929Z"
+          }
+        ]
+      },
+      {
+        "queriedTransactionId": "d26ad71eacd44a3bbf9823b1e04b2dcc",
+        "resultCount": 1,
+        "totalCount": null,
+        "results": [
+          {
+            "object_id": "52ab2249ee844803a87f552eb529f076",
+            "status": "PENDING",
+            "transaction": "1d02816aac954fbfab3758b6953409a1",
+            "transactionFieldMatchesQueried": false,
+            "amount": null,
+            "object_created": "2026-08-09T23:09:57.929Z"
+          }
+        ]
+      }
+    ],
+    "unfilteredAccountWideRefunds": {
+      "totalCount": null,
+      "resultCount": 1,
+      "results": [
+        {
+          "object_id": "52ab2249ee844803a87f552eb529f076",
+          "status": "PENDING",
+          "transaction": "1d02816aac954fbfab3758b6953409a1",
+          "object_created": "2026-08-09T23:09:57.929Z"
+        }
+      ]
+    },
+    "filterAppearsIgnored": true
+  },
+  "part2_rawTransactionShape": {
+    "note": "Look at `rateFieldTypeofValue` ΓÇö if it's 'string', the transaction's `rate` field is just the rate object_id, not an expanded object with `.amount`, and the audit script's shippoRateAmountCents=0 bug is exactly that: reading `.amount` off a string. Look at `hasBillingKey` ΓÇö if false for successful transactions, `billing` is only ever present on error/failed transactions in this Shippo account tier, not a universal field.",
+    "rows": [
+      {
+        "shippoTransactionId": "ae1ac3ecb8f943e0a2a0521c29defda9",
+        "gvRecordedLabelCostCents": null,
+        "topLevelKeys": [
+          "billing",
+          "commercial_invoice_url",
+          "created_by",
+          "eta",
+          "label_url",
+          "messages",
+          "metadata",
+          "object_created",
+          "object_id",
+          "object_owner",
+          "object_state",
+          "object_updated",
+          "order",
+          "parcel",
+          "rate",
+          "status",
+          "test",
+          "tracking_number",
+          "tracking_status",
+          "tracking_url_provider"
+        ],
+        "status": "SUCCESS",
+        "object_state": "VALID",
+        "rateFieldTypeofValue": "string",
+        "rateFieldRaw": "7074bb0a514744efb99a067b3fc60cae",
+        "hasBillingKey": true,
+        "billingFieldRaw": {
+          "payments": []
+        },
+        "hasMetadataKey": true,
+        "metadataFieldRaw": ""
+      },
+      {
+        "shippoTransactionId": "971e2692c14b4c0bad10b6734bc5c70d",
+        "gvRecordedLabelCostCents": null,
+        "topLevelKeys": [
+          "billing",
+          "commercial_invoice_url",
+          "created_by",
+          "eta",
+          "label_url",
+          "messages",
+          "metadata",
+          "object_created",
+          "object_id",
+          "object_owner",
+          "object_state",
+          "object_updated",
+          "order",
+          "parcel",
+          "rate",
+          "status",
+          "test",
+          "tracking_number",
+          "tracking_status",
+          "tracking_url_provider"
+        ],
+        "status": "SUCCESS",
+        "object_state": "VALID",
+        "rateFieldTypeofValue": "string",
+        "rateFieldRaw": "ef52b1c086424b6f908c94e41b68554c",
+        "hasBillingKey": true,
+        "billingFieldRaw": {
+          "payments": []
+        },
+        "hasMetadataKey": true,
+        "metadataFieldRaw": ""
+      },
+      {
+        "shippoTransactionId": "aece3cd1080946a5bc601723f182395f",
+        "gvRecordedLabelCostCents": null,
+        "topLevelKeys": [
+          "billing",
+          "commercial_invoice_url",
+          "created_by",
+          "eta",
+          "label_url",
+          "messages",
+          "metadata",
+          "object_created",
+          "object_id",
+          "object_owner",
+          "object_state",
+          "object_updated",
+          "order",
+          "parcel",
+          "rate",
+          "status",
+          "test",
+          "tracking_number",
+          "tracking_status",
+          "tracking_url_provider"
+        ],
+        "status": "SUCCESS",
+        "object_state": "VALID",
+        "rateFieldTypeofValue": "string",
+        "rateFieldRaw": "f7fda1d352604e3e919c012ce1ae6dc5",
+        "hasBillingKey": true,
+        "billingFieldRaw": {
+          "payments": []
+        },
+        "hasMetadataKey": true,
+        "metadataFieldRaw": ""
+      },
+      {
+        "shippoTransactionId": "7e8364c6ecde4ac099fd0ca4c312294e",
+        "gvRecordedLabelCostCents": null,
+        "topLevelKeys": [
+          "billing",
+          "commercial_invoice_url",
+          "created_by",
+          "eta",
+          "label_url",
+          "messages",
+          "metadata",
+          "object_created",
+          "object_id",
+          "object_owner",
+          "object_state",
+          "object_updated",
+          "order",
+          "parcel",
+          "rate",
+          "status",
+          "test",
+          "tracking_number",
+          "tracking_status",
+          "tracking_url_provider"
+        ],
+        "status": "SUCCESS",
+        "object_state": "VALID",
+        "rateFieldTypeofValue": "string",
+        "rateFieldRaw": "fca4b9efecf74834ae4f3aea4221a4fe",
+        "hasBillingKey": true,
+        "billingFieldRaw": {
+          "payments": []
+        },
+        "hasMetadataKey": true,
+        "metadataFieldRaw": ""
+      },
+      {
+        "shippoTransactionId": "d26ad71eacd44a3bbf9823b1e04b2dcc",
+        "gvRecordedLabelCostCents": null,
+        "topLevelKeys": [
+          "billing",
+          "commercial_invoice_url",
+          "created_by",
+          "eta",
+          "label_url",
+          "messages",
+          "metadata",
+          "object_created",
+          "object_id",
+          "object_owner",
+          "object_state",
+          "object_updated",
+          "order",
+          "parcel",
+          "rate",
+          "status",
+          "test",
+          "tracking_number",
+          "tracking_status",
+          "tracking_url_provider"
+        ],
+        "status": "SUCCESS",
+        "object_state": "VALID",
+        "rateFieldTypeofValue": "string",
+        "rateFieldRaw": "086db76c0c28471a9f10928651266ef0",
+        "hasBillingKey": true,
+        "billingFieldRaw": {
+          "payments": []
+        },
+        "hasMetadataKey": true,
+        "metadataFieldRaw": ""
+      },
+      {
+        "shippoTransactionId": "f97ba8399cd144528929b233c941be1c",
+        "gvRecordedLabelCostCents": 2081,
+        "topLevelKeys": [
+          "billing",
+          "commercial_invoice_url",
+          "created_by",
+          "eta",
+          "label_url",
+          "messages",
+          "metadata",
+          "object_created",
+          "object_id",
+          "object_owner",
+          "object_state",
+          "object_updated",
+          "order",
+          "parcel",
+          "rate",
+          "status",
+          "test",
+          "tracking_number",
+          "tracking_status",
+          "tracking_url_provider"
+        ],
+        "status": "SUCCESS",
+        "object_state": "VALID",
+        "rateFieldTypeofValue": "string",
+        "rateFieldRaw": "60bc7bbc6c6445d383b724e36a89132b",
+        "hasBillingKey": true,
+        "billingFieldRaw": {
+          "payments": []
+        },
+        "hasMetadataKey": true,
+        "metadataFieldRaw": ""
+      },
+      {
+        "shippoTransactionId": "5c778e57ae20474ea7d701186772f27d",
+        "gvRecordedLabelCostCents": 658,
+        "topLevelKeys": [
+          "billing",
+          "commercial_invoice_url",
+          "created_by",
+          "eta",
+          "label_url",
+          "messages",
+          "metadata",
+          "object_created",
+          "object_id",
+          "object_owner",
+          "object_state",
+          "object_updated",
+          "order",
+          "parcel",
+          "rate",
+          "status",
+          "test",
+          "tracking_number",
+          "tracking_status",
+          "tracking_url_provider"
+        ],
+        "status": "SUCCESS",
+        "object_state": "VALID",
+        "rateFieldTypeofValue": "string",
+        "rateFieldRaw": "c2fa21ba53904b77a7cc8594a41a2ba1",
+        "hasBillingKey": true,
+        "billingFieldRaw": {
+          "payments": []
+        },
+        "hasMetadataKey": true,
+        "metadataFieldRaw": ""
+      },
+      {
+        "shippoTransactionId": "f1ea5535aea3454c8f476ae121e615c9",
+        "gvRecordedLabelCostCents": 637,
+        "topLevelKeys": [
+          "billing",
+          "commercial_invoice_url",
+          "created_by",
+          "eta",
+          "label_url",
+          "messages",
+          "metadata",
+          "object_created",
+          "object_id",
+          "object_owner",
+          "object_state",
+          "object_updated",
+          "order",
+          "parcel",
+          "rate",
+          "status",
+          "test",
+          "tracking_number",
+          "tracking_status",
+          "tracking_url_provider"
+        ],
+        "status": "SUCCESS",
+        "object_state": "VALID",
+        "rateFieldTypeofValue": "string",
+        "rateFieldRaw": "8afea0535f9d44c5afb2d9622399a1c3",
+        "hasBillingKey": true,
+        "billingFieldRaw": {
+          "payments": []
+        },
+        "hasMetadataKey": true,
+        "metadataFieldRaw": ""
+      }
+    ]
+  },
+  "part3_doubleChargeStripeGroundTruth": {
+    "note": "Ground truth per order comes from stripeReversalCount / stripeReversals, not from Order.shippingLabelCostReversedCents.",
+    "orders": [
+      {
+        "orderId": "cmsjiij23001c09jrqho2taxu",
+        "liveShippingSessionId": "cmsjiij7g001d09jrhvsye1p0",
+        "order_shippingLabelCostCents": 2081,
+        "order_shippingLabelCostReversedCents": 4162,
+        "order_shippingLabelCostReversalId": "paypal-net:f97ba8399cd144528929b233c941be1c",
+        "order_shippingLabelCostChargedShippoTransactionId": "f97ba8399cd144528929b233c941be1c",
+        "order_shippingStatus": "TRANSIT",
+        "shipmentLabelFinanceRows": [
+          {
+            "id": "cmsjl9lu8003z09juom754owj",
+            "shippoTransactionId": "f97ba8399cd144528929b233c941be1c",
+            "shippoShipmentId": "6b47e36f05a74a3d88c9d6eb8f97fa9a",
+            "labelCostCents": 2081,
+            "purpose": "initial",
+            "replacesShippoTransactionId": null,
+            "status": "active",
+            "sellerClawbackCents": 2081,
+            "sellerClawbackReversalId": "paypal-net:f97ba8399cd144528929b233c941be1c",
+            "sellerCreditCents": 0,
+            "sellerCreditTransferId": null,
+            "clawbackFailedAt": null,
+            "clawbackFailureDetail": null,
+            "createdAt": "2026-08-07T23:41:33.008Z",
+            "updatedAt": "2026-08-07T23:41:33.243Z"
+          }
+        ],
+        "shipmentLabelFinanceRowCount": 1,
+        "sumOfFinanceRowClawbackCents": 2081,
+        "stripeConfigured": true,
+        "stripeTransferId": null,
+        "stripeTransfer": null,
+        "stripeReversalCount": 0,
+        "stripeReversalTotalCents": 0,
+        "stripeReversals": [],
+        "dbClawbackReversalIds": [
+          "paypal-net:f97ba8399cd144528929b233c941be1c"
+        ],
+        "dbReversalIdsConfirmedInStripe": [],
+        "stripeReversalIdsNotRecordedInOurDb": [],
+        "conclusion": "Stripe shows ZERO reversals on this transfer (or transfer/Stripe unavailable) ΓÇö cannot confirm any real seller deduction from Stripe directly; rely on DB fields with caution.",
+        "stripeError": null
+      },
+      {
+        "orderId": "cmsjik35k000r09iepvqyrgwi",
+        "liveShippingSessionId": "cmsjik3ap000s09iep0o0e2vt",
+        "order_shippingLabelCostCents": 658,
+        "order_shippingLabelCostReversedCents": 1316,
+        "order_shippingLabelCostReversalId": "paypal-net:5c778e57ae20474ea7d701186772f27d",
+        "order_shippingLabelCostChargedShippoTransactionId": "5c778e57ae20474ea7d701186772f27d",
+        "order_shippingStatus": "TRANSIT",
+        "shipmentLabelFinanceRows": [
+          {
+            "id": "cmsjlacui000109l5pb6blbdg",
+            "shippoTransactionId": "5c778e57ae20474ea7d701186772f27d",
+            "shippoShipmentId": "fd5c5b75256346478113065bd233a29a",
+            "labelCostCents": 658,
+            "purpose": "initial",
+            "replacesShippoTransactionId": null,
+            "status": "active",
+            "sellerClawbackCents": 658,
+            "sellerClawbackReversalId": "paypal-net:5c778e57ae20474ea7d701186772f27d",
+            "sellerCreditCents": 0,
+            "sellerCreditTransferId": null,
+            "clawbackFailedAt": null,
+            "clawbackFailureDetail": null,
+            "createdAt": "2026-08-07T23:42:08.010Z",
+            "updatedAt": "2026-08-07T23:42:08.266Z"
+          }
+        ],
+        "shipmentLabelFinanceRowCount": 1,
+        "sumOfFinanceRowClawbackCents": 658,
+        "stripeConfigured": true,
+        "stripeTransferId": null,
+        "stripeTransfer": null,
+        "stripeReversalCount": 0,
+        "stripeReversalTotalCents": 0,
+        "stripeReversals": [],
+        "dbClawbackReversalIds": [
+          "paypal-net:5c778e57ae20474ea7d701186772f27d"
+        ],
+        "dbReversalIdsConfirmedInStripe": [],
+        "stripeReversalIdsNotRecordedInOurDb": [],
+        "conclusion": "Stripe shows ZERO reversals on this transfer (or transfer/Stripe unavailable) ΓÇö cannot confirm any real seller deduction from Stripe directly; rely on DB fields with caution.",
+        "stripeError": null
+      },
+      {
+        "orderId": "cmsjillgt004t09jsmsha1p4y",
+        "liveShippingSessionId": "cmsjillm0004u09jszlpmtjqo",
+        "order_shippingLabelCostCents": 637,
+        "order_shippingLabelCostReversedCents": 1274,
+        "order_shippingLabelCostReversalId": "paypal-net:f1ea5535aea3454c8f476ae121e615c9",
+        "order_shippingLabelCostChargedShippoTransactionId": "f1ea5535aea3454c8f476ae121e615c9",
+        "order_shippingStatus": "TRANSIT",
+        "shipmentLabelFinanceRows": [
+          {
+            "id": "cmsjl6ihn007v09jt67zkkjkm",
+            "shippoTransactionId": "f1ea5535aea3454c8f476ae121e615c9",
+            "shippoShipmentId": "32f682dd5bc843358b96de1853284d70",
+            "labelCostCents": 637,
+            "purpose": "initial",
+            "replacesShippoTransactionId": null,
+            "status": "active",
+            "sellerClawbackCents": 637,
+            "sellerClawbackReversalId": "paypal-net:f1ea5535aea3454c8f476ae121e615c9",
+            "sellerCreditCents": 0,
+            "sellerCreditTransferId": null,
+            "clawbackFailedAt": null,
+            "clawbackFailureDetail": null,
+            "createdAt": "2026-08-07T23:39:08.699Z",
+            "updatedAt": "2026-08-07T23:39:09.012Z"
+          }
+        ],
+        "shipmentLabelFinanceRowCount": 1,
+        "sumOfFinanceRowClawbackCents": 637,
+        "stripeConfigured": true,
+        "stripeTransferId": null,
+        "stripeTransfer": null,
+        "stripeReversalCount": 0,
+        "stripeReversalTotalCents": 0,
+        "stripeReversals": [],
+        "dbClawbackReversalIds": [
+          "paypal-net:f1ea5535aea3454c8f476ae121e615c9"
+        ],
+        "dbReversalIdsConfirmedInStripe": [],
+        "stripeReversalIdsNotRecordedInOurDb": [],
+        "conclusion": "Stripe shows ZERO reversals on this transfer (or transfer/Stripe unavailable) ΓÇö cannot confirm any real seller deduction from Stripe directly; rely on DB fields with caution.",
+        "stripeError": null
+      },
+      {
+        "orderId": "cmsjj68f1003o09l7jg8gewme",
+        "liveShippingSessionId": "cmsjj68jw003p09l7ym6xcwwk",
+        "order_shippingLabelCostCents": 599,
+        "order_shippingLabelCostReversedCents": 1198,
+        "order_shippingLabelCostReversalId": "paypal-net:0e540d284e0948ffbd8afb02b25638fd",
+        "order_shippingLabelCostChargedShippoTransactionId": "0e540d284e0948ffbd8afb02b25638fd",
+        "order_shippingStatus": "TRANSIT",
+        "shipmentLabelFinanceRows": [
+          {
+            "id": "cmsjl86zd001s09jseddz2vol",
+            "shippoTransactionId": "0e540d284e0948ffbd8afb02b25638fd",
+            "shippoShipmentId": "668286ef0b91496ba4987d0a229366fc",
+            "labelCostCents": 599,
+            "purpose": "initial",
+            "replacesShippoTransactionId": null,
+            "status": "active",
+            "sellerClawbackCents": 599,
+            "sellerClawbackReversalId": "paypal-net:0e540d284e0948ffbd8afb02b25638fd",
+            "sellerCreditCents": 0,
+            "sellerCreditTransferId": null,
+            "clawbackFailedAt": null,
+            "clawbackFailureDetail": null,
+            "createdAt": "2026-08-07T23:40:27.097Z",
+            "updatedAt": "2026-08-07T23:40:27.369Z"
+          }
+        ],
+        "shipmentLabelFinanceRowCount": 1,
+        "sumOfFinanceRowClawbackCents": 599,
+        "stripeConfigured": true,
+        "stripeTransferId": null,
+        "stripeTransfer": null,
+        "stripeReversalCount": 0,
+        "stripeReversalTotalCents": 0,
+        "stripeReversals": [],
+        "dbClawbackReversalIds": [
+          "paypal-net:0e540d284e0948ffbd8afb02b25638fd"
+        ],
+        "dbReversalIdsConfirmedInStripe": [],
+        "stripeReversalIdsNotRecordedInOurDb": [],
+        "conclusion": "Stripe shows ZERO reversals on this transfer (or transfer/Stripe unavailable) ΓÇö cannot confirm any real seller deduction from Stripe directly; rely on DB fields with caution.",
+        "stripeError": null
+      },
+      {
+        "orderId": "cmsjjp7zo002t09ld9w45lb0z",
+        "liveShippingSessionId": "cmsjjp850002u09ldtk4xoigz",
+        "order_shippingLabelCostCents": 625,
+        "order_shippingLabelCostReversedCents": 1250,
+        "order_shippingLabelCostReversalId": "paypal-net:0d3b6023cea94826bca58c7c55d7508e",
+        "order_shippingLabelCostChargedShippoTransactionId": "0d3b6023cea94826bca58c7c55d7508e",
+        "order_shippingStatus": "TRANSIT",
+        "shipmentLabelFinanceRows": [
+          {
+            "id": "cmsjl8g7h003r09icrezovht2",
+            "shippoTransactionId": "0d3b6023cea94826bca58c7c55d7508e",
+            "shippoShipmentId": "eff0a547efba483e9e6487e75dbc7d12",
+            "labelCostCents": 625,
+            "purpose": "initial",
+            "replacesShippoTransactionId": null,
+            "status": "active",
+            "sellerClawbackCents": 625,
+            "sellerClawbackReversalId": "paypal-net:0d3b6023cea94826bca58c7c55d7508e",
+            "sellerCreditCents": 0,
+            "sellerCreditTransferId": null,
+            "clawbackFailedAt": null,
+            "clawbackFailureDetail": null,
+            "createdAt": "2026-08-07T23:40:39.053Z",
+            "updatedAt": "2026-08-07T23:40:39.312Z"
+          }
+        ],
+        "shipmentLabelFinanceRowCount": 1,
+        "sumOfFinanceRowClawbackCents": 625,
+        "stripeConfigured": true,
+        "stripeTransferId": null,
+        "stripeTransfer": null,
+        "stripeReversalCount": 0,
+        "stripeReversalTotalCents": 0,
+        "stripeReversals": [],
+        "dbClawbackReversalIds": [
+          "paypal-net:0d3b6023cea94826bca58c7c55d7508e"
+        ],
+        "dbReversalIdsConfirmedInStripe": [],
+        "stripeReversalIdsNotRecordedInOurDb": [],
+        "conclusion": "Stripe shows ZERO reversals on this transfer (or transfer/Stripe unavailable) ΓÇö cannot confirm any real seller deduction from Stripe directly; rely on DB fields with caution.",
+        "stripeError": null
+      },
+      {
+        "orderId": "cmsjjrnw9006n09l71otbz9kx",
+        "liveShippingSessionId": "cmsjjro1b006o09l75j6x3b7h",
+        "order_shippingLabelCostCents": 637,
+        "order_shippingLabelCostReversedCents": 1274,
+        "order_shippingLabelCostReversalId": "paypal-net:39653bc89a5d482ea2a0163e61d40ab5",
+        "order_shippingLabelCostChargedShippoTransactionId": "39653bc89a5d482ea2a0163e61d40ab5",
+        "order_shippingStatus": "TRANSIT",
+        "shipmentLabelFinanceRows": [
+          {
+            "id": "cmsjl64z9004u09laoi9v5zgh",
+            "shippoTransactionId": "39653bc89a5d482ea2a0163e61d40ab5",
+            "shippoShipmentId": "d070f6432a324e9f8ced239948a77230",
+            "labelCostCents": 637,
+            "purpose": "initial",
+            "replacesShippoTransactionId": null,
+            "status": "active",
+            "sellerClawbackCents": 637,
+            "sellerClawbackReversalId": "paypal-net:39653bc89a5d482ea2a0163e61d40ab5",
+            "sellerCreditCents": 0,
+            "sellerCreditTransferId": null,
+            "clawbackFailedAt": null,
+            "clawbackFailureDetail": null,
+            "createdAt": "2026-08-07T23:38:51.189Z",
+            "updatedAt": "2026-08-07T23:38:51.440Z"
+          }
+        ],
+        "shipmentLabelFinanceRowCount": 1,
+        "sumOfFinanceRowClawbackCents": 637,
+        "stripeConfigured": true,
+        "stripeTransferId": null,
+        "stripeTransfer": null,
+        "stripeReversalCount": 0,
+        "stripeReversalTotalCents": 0,
+        "stripeReversals": [],
+        "dbClawbackReversalIds": [
+          "paypal-net:39653bc89a5d482ea2a0163e61d40ab5"
+        ],
+        "dbReversalIdsConfirmedInStripe": [],
+        "stripeReversalIdsNotRecordedInOurDb": [],
+        "conclusion": "Stripe shows ZERO reversals on this transfer (or transfer/Stripe unavailable) ΓÇö cannot confirm any real seller deduction from Stripe directly; rely on DB fields with caution.",
+        "stripeError": null
+      }
+    ]
+  },
+  "part5_noOrderTransactionClassification": {
+    "note": "orphaned_no_order_no_session = a real Shippo purchase attempt (ShipmentPackage row with a tx id) that never got attributed to ANY order or live session ΓÇö this is the strongest candidate for a genuinely unrecovered GV cost with zero seller clawback ever attempted. direct_order_link_but_order_missing_or_excluded = the package points at an orderId that either doesn't exist or fell outside our Order query filters. session_exists_but_no_sibling_order_has_this_tx = a live-session bundle where the purchased package's tx id was never stamped onto any of that session's orders (a bundling attribution bug, or the session's orders legitimately show 0 by design and the tx sits only on the sibling debit order not captured here).",
+    "totalNoOrderTxIds": 43,
+    "classificationCounts": {
+      "session_exists_but_no_sibling_order_has_this_tx": 43
+    },
+    "rows": [
+      {
+        "shippoTransactionId": "ef1e5d1b76624ecc861d9aaca0449279",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmrfdo7vh000809l98lci4acd",
+            "packageIndex": 0,
+            "labelCostCents": 1629,
+            "status": "label_created",
+            "createdAt": "2026-07-10T23:32:37.607Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmrfdo7vh000809l98lci4acd"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmrfdo7vh000809l98lci4acd",
+            "orders": [
+              {
+                "id": "cmrfdo7r0000709l9ldc71jfc",
+                "shippoTransactionId": "1d02816aac954fbfab3758b6953409a1",
+                "shippingLabelCostCents": 156,
+                "fulfillmentStatus": "shipped",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrfdr72j000a09l4hr1sc2ik",
+                "shippoTransactionId": "1d02816aac954fbfab3758b6953409a1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "shipped",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrfo8j4o000409l7s1h0tcq4",
+                "shippoTransactionId": null,
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "pending",
+                "paymentStatus": "pending_payment"
+              },
+              {
+                "id": "cmrfo7m32000a09jxnn8hvxlm",
+                "shippoTransactionId": "1d02816aac954fbfab3758b6953409a1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "shipped",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrfdqcbd000309jz5kf2kdlc",
+                "shippoTransactionId": "1d02816aac954fbfab3758b6953409a1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "shipped",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "319dab2966a24c2384beb0ccbf31730d",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmrfdo7vh000809l98lci4acd",
+            "packageIndex": 1,
+            "labelCostCents": 1629,
+            "status": "label_created",
+            "createdAt": "2026-07-10T23:32:42.388Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmrfdo7vh000809l98lci4acd"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmrfdo7vh000809l98lci4acd",
+            "orders": [
+              {
+                "id": "cmrfdo7r0000709l9ldc71jfc",
+                "shippoTransactionId": "1d02816aac954fbfab3758b6953409a1",
+                "shippingLabelCostCents": 156,
+                "fulfillmentStatus": "shipped",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrfdr72j000a09l4hr1sc2ik",
+                "shippoTransactionId": "1d02816aac954fbfab3758b6953409a1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "shipped",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrfo8j4o000409l7s1h0tcq4",
+                "shippoTransactionId": null,
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "pending",
+                "paymentStatus": "pending_payment"
+              },
+              {
+                "id": "cmrfo7m32000a09jxnn8hvxlm",
+                "shippoTransactionId": "1d02816aac954fbfab3758b6953409a1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "shipped",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrfdqcbd000309jz5kf2kdlc",
+                "shippoTransactionId": "1d02816aac954fbfab3758b6953409a1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "shipped",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "2694af816f1e45e09789372568dbf314",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmrfdo7vh000809l98lci4acd",
+            "packageIndex": 2,
+            "labelCostCents": 1629,
+            "status": "label_created",
+            "createdAt": "2026-07-10T23:32:46.775Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmrfdo7vh000809l98lci4acd"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmrfdo7vh000809l98lci4acd",
+            "orders": [
+              {
+                "id": "cmrfdo7r0000709l9ldc71jfc",
+                "shippoTransactionId": "1d02816aac954fbfab3758b6953409a1",
+                "shippingLabelCostCents": 156,
+                "fulfillmentStatus": "shipped",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrfdr72j000a09l4hr1sc2ik",
+                "shippoTransactionId": "1d02816aac954fbfab3758b6953409a1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "shipped",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrfo8j4o000409l7s1h0tcq4",
+                "shippoTransactionId": null,
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "pending",
+                "paymentStatus": "pending_payment"
+              },
+              {
+                "id": "cmrfo7m32000a09jxnn8hvxlm",
+                "shippoTransactionId": "1d02816aac954fbfab3758b6953409a1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "shipped",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrfdqcbd000309jz5kf2kdlc",
+                "shippoTransactionId": "1d02816aac954fbfab3758b6953409a1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "shipped",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "c73007b946c644e3ac328c01c4261e96",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cms6lwafr001r09l2gb8wkc95",
+            "packageIndex": 0,
+            "labelCostCents": 818,
+            "status": "estimated",
+            "createdAt": "2026-08-03T17:31:13.384Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cms6lwafr001r09l2gb8wkc95"
+        ],
+        "sessionContext": [
+          {
+            "id": "cms6lwafr001r09l2gb8wkc95",
+            "orders": [
+              {
+                "id": "cms6lwa97001q09l2v7bvn9sa",
+                "shippoTransactionId": "79962fb51efe434e9d92242cb64d27b7",
+                "shippingLabelCostCents": 589,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsaye9o4001909jzqf2mirem",
+                "shippoTransactionId": "79962fb51efe434e9d92242cb64d27b7",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsaw75ak000b09ldob6stfyt",
+                "shippoTransactionId": "79962fb51efe434e9d92242cb64d27b7",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsawscu6000t09l8xz4u6z5l",
+                "shippoTransactionId": "79962fb51efe434e9d92242cb64d27b7",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsaw6j4k000c09iciywdfj6r",
+                "shippoTransactionId": "79962fb51efe434e9d92242cb64d27b7",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "5bbd208cc697425db60e6edf03a27a02",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cms86q3qr001609kzw1vw1grg",
+            "packageIndex": 0,
+            "labelCostCents": 672,
+            "status": "estimated",
+            "createdAt": "2026-08-03T17:31:46.887Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cms86q3qr001609kzw1vw1grg"
+        ],
+        "sessionContext": [
+          {
+            "id": "cms86q3qr001609kzw1vw1grg",
+            "orders": [
+              {
+                "id": "cms89n2v8002w09la56biw5ja",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cms88nrxw001609laihuvg5q0",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cms871i96000v09l45qyic7ep",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cms86qtj1002t09l4wuo5keho",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cms89lo35000q09l8owggso1i",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cms86q3lk001509kzs6frj5fr",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 607,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cms89nmhi001x09jr8tvy9skm",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cms89k921002709las1i3lnhw",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "edfcdb0bf1f14935b822c58599c46112",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmrr427dz000a09kysskl8xeg",
+            "packageIndex": 0,
+            "labelCostCents": 1751,
+            "status": "label_created",
+            "createdAt": "2026-07-20T14:14:22.342Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmrr427dz000a09kysskl8xeg"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmrr427dz000a09kysskl8xeg",
+            "orders": [
+              {
+                "id": "cmrr4soab000e09kzma7h82kk",
+                "shippoTransactionId": "9e756437ea0d47f2a10b524d030416a6",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr598fe000309lf75mtdotm",
+                "shippoTransactionId": "9e756437ea0d47f2a10b524d030416a6",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr427ae000909kyjrurbm1r",
+                "shippoTransactionId": "9e756437ea0d47f2a10b524d030416a6",
+                "shippingLabelCostCents": 589,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr5zbpe000509jtsm8ke54q",
+                "shippoTransactionId": "9e756437ea0d47f2a10b524d030416a6",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr57ips000409iay5inuf0x",
+                "shippoTransactionId": "9e756437ea0d47f2a10b524d030416a6",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr5hdm7000809laxpqjsesx",
+                "shippoTransactionId": "9e756437ea0d47f2a10b524d030416a6",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "589d150fe6184a3e980097055ee10c03",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmrr6frxo000509jj0036ftue",
+            "packageIndex": 0,
+            "labelCostCents": 818,
+            "status": "label_created",
+            "createdAt": "2026-07-20T14:14:46.520Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmrr6frxo000509jj0036ftue"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmrr6frxo000509jj0036ftue",
+            "orders": [
+              {
+                "id": "cmrr6frtb000409jjrlv000ks",
+                "shippoTransactionId": "8e8753a3741843d7a802c36667fe4bcc",
+                "shippingLabelCostCents": 818,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "9835c575093c4c21811fd261d2ba82d2",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmrr3nah5000709jug270vw9t",
+            "packageIndex": 0,
+            "labelCostCents": 2328,
+            "status": "label_created",
+            "createdAt": "2026-07-20T14:15:33.589Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmrr3nah5000709jug270vw9t"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmrr3nah5000709jug270vw9t",
+            "orders": [
+              {
+                "id": "cmrr8m66i000809jr0yymmfmg",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr3nado000609juo4x9sec5",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 607,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr4vrqu000409jwna7zskc8",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr8dwu8000309l18z4zjeyb",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr6l7yc000409laucdd0lgy",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr8bvdq000309i0lr0qnwym",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr5vf50000509jx26bo02a4",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr3ylnt000409jwnmya82z7",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr4ho5u001l09ihlhmxxwdh",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr79y9d000f09lapdg3m0et",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr5d6x5000a09l68mguq0c5",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr4u4ve000309le5bprtqo8",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr8q4f5000c09l8foyq1u2u",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr8jv6p000m09l4hsnm4kax",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr7pw7q000c0ajuci4l1hh5",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr6e2ay000i09jpn9eb5xim",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr55e74000k09jw334h07fa",
+                "shippoTransactionId": "2a60408af65c4314a7e8adc1f89898e1",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "b24fb907c30744e58fe83784abd92192",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmrr3p951000509jtnubobh4z",
+            "packageIndex": 0,
+            "labelCostCents": 583,
+            "status": "label_created",
+            "createdAt": "2026-07-20T14:16:02.188Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmrr3p951000509jtnubobh4z"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmrr3p951000509jtnubobh4z",
+            "orders": [
+              {
+                "id": "cmrr6790t00040ajsheqhtxrx",
+                "shippoTransactionId": "ff9710cbb96c4c8ab47ec2882ab10123",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr3tdmy001509ih5xpv2nfu",
+                "shippoTransactionId": "ff9710cbb96c4c8ab47ec2882ab10123",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr3p8zl000409jto3lgkse4",
+                "shippoTransactionId": "ff9710cbb96c4c8ab47ec2882ab10123",
+                "shippingLabelCostCents": 583,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr81ly9000b09jmi3jlks6y",
+                "shippoTransactionId": "ff9710cbb96c4c8ab47ec2882ab10123",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "2fe5616d2e3748ef9569f193e432bf62",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmrr427dz000a09kysskl8xeg",
+            "packageIndex": 0,
+            "labelCostCents": 1751,
+            "status": "label_created",
+            "createdAt": "2026-07-20T14:13:59.866Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmrr427dz000a09kysskl8xeg"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmrr427dz000a09kysskl8xeg",
+            "orders": [
+              {
+                "id": "cmrr4soab000e09kzma7h82kk",
+                "shippoTransactionId": "9e756437ea0d47f2a10b524d030416a6",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr598fe000309lf75mtdotm",
+                "shippoTransactionId": "9e756437ea0d47f2a10b524d030416a6",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr427ae000909kyjrurbm1r",
+                "shippoTransactionId": "9e756437ea0d47f2a10b524d030416a6",
+                "shippingLabelCostCents": 589,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr5zbpe000509jtsm8ke54q",
+                "shippoTransactionId": "9e756437ea0d47f2a10b524d030416a6",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr57ips000409iay5inuf0x",
+                "shippoTransactionId": "9e756437ea0d47f2a10b524d030416a6",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrr5hdm7000809laxpqjsesx",
+                "shippoTransactionId": "9e756437ea0d47f2a10b524d030416a6",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "360e615843ce41d8980a64bc28546fd1",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cms86q3qr001609kzw1vw1grg",
+            "packageIndex": 0,
+            "labelCostCents": 672,
+            "status": "estimated",
+            "createdAt": "2026-08-03T17:34:39.506Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cms86q3qr001609kzw1vw1grg"
+        ],
+        "sessionContext": [
+          {
+            "id": "cms86q3qr001609kzw1vw1grg",
+            "orders": [
+              {
+                "id": "cms89n2v8002w09la56biw5ja",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cms88nrxw001609laihuvg5q0",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cms871i96000v09l45qyic7ep",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cms86qtj1002t09l4wuo5keho",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cms89lo35000q09l8owggso1i",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cms86q3lk001509kzs6frj5fr",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 607,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cms89nmhi001x09jr8tvy9skm",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cms89k921002709las1i3lnhw",
+                "shippoTransactionId": "2014f5b1c8ff4d0780924a5f65554325",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "label_created",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "cb8d2c0f1cf64788b6840b4ba91783fb",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsawppqe001r09ld22vjqjt2",
+            "packageIndex": 0,
+            "labelCostCents": 1751,
+            "status": "estimated",
+            "createdAt": "2026-08-03T17:37:03.529Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsawppqe001r09ld22vjqjt2"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsawppqe001r09ld22vjqjt2",
+            "orders": [
+              {
+                "id": "cmsb06j4c000509l2cj51pc13",
+                "shippoTransactionId": "ca1ddd61e6b44f32a39f602641d4d52e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb0ea46000z0ajlji6l1q8e",
+                "shippoTransactionId": "ca1ddd61e6b44f32a39f602641d4d52e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsawppl5001q09ldoewm0kz2",
+                "shippoTransactionId": "ca1ddd61e6b44f32a39f602641d4d52e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "2dedfe95ad2c4f5897b390a2fc96c5bb",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmrzig8le000s09jztg3ok5io",
+            "packageIndex": 0,
+            "labelCostCents": 3291,
+            "status": "estimated",
+            "createdAt": "2026-07-26T03:43:23.332Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmrzig8le000s09jztg3ok5io"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmrzig8le000s09jztg3ok5io",
+            "orders": [
+              {
+                "id": "cmrzik495003209l51emv57wo",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrziui4r002409jyziql2ans",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzj16is001h09iegh4ovpov",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrziyg93001m09jo76f4riss",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzj03cg006a09jrmy977uh4",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzjqv7d009d09l79509dkhh",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 840,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzikpmg001a09jswcb3l5cq",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzig8eu000r09jzrb085pj0",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "f9d712e6734f4ec4bb61dda6e5263fb7",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmrzig8le000s09jztg3ok5io",
+            "packageIndex": 0,
+            "labelCostCents": 3291,
+            "status": "estimated",
+            "createdAt": "2026-07-26T03:44:42.547Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmrzig8le000s09jztg3ok5io"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmrzig8le000s09jztg3ok5io",
+            "orders": [
+              {
+                "id": "cmrzik495003209l51emv57wo",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrziui4r002409jyziql2ans",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzj16is001h09iegh4ovpov",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrziyg93001m09jo76f4riss",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzj03cg006a09jrmy977uh4",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzjqv7d009d09l79509dkhh",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 840,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzikpmg001a09jswcb3l5cq",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzig8eu000r09jzrb085pj0",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "9e387744b8ad40dab4a755d020e184d4",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmrzig8le000s09jztg3ok5io",
+            "packageIndex": 0,
+            "labelCostCents": 3291,
+            "status": "estimated",
+            "createdAt": "2026-07-26T03:45:26.433Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmrzig8le000s09jztg3ok5io"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmrzig8le000s09jztg3ok5io",
+            "orders": [
+              {
+                "id": "cmrzik495003209l51emv57wo",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrziui4r002409jyziql2ans",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzj16is001h09iegh4ovpov",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrziyg93001m09jo76f4riss",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzj03cg006a09jrmy977uh4",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzjqv7d009d09l79509dkhh",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 840,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzikpmg001a09jswcb3l5cq",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmrzig8eu000r09jzrb085pj0",
+                "shippoTransactionId": "c56881212ea845459b1a89704bfb94a3",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "delivered",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "5fb24c27abe54605bb0b9a4f81986199",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsb4hhew00bi09jyazio36uh",
+            "packageIndex": 0,
+            "labelCostCents": 583,
+            "status": "estimated",
+            "createdAt": "2026-08-04T02:16:43.644Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsb4hhew00bi09jyazio36uh"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsb4hhew00bi09jyazio36uh",
+            "orders": [
+              {
+                "id": "cmsb5bvr2000a09ieolbb1p5t",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb6v1be000a09l5mp2ivu0c",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb83f01000a09ib8jy7cpo1",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4pi20002o09l9cthabjsh",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4x03c001d09l64g221si7",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb8is5s000q09l4lr0ya9u8",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb6afao006b09l56ld0xxv1",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb6zvjc003y09l4szvwdgw6",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb7p48x000s09l59vy3c1pm",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb8267l00av09l7gd2crwe5",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb7j86w007f09k0mr3bt4qi",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4i8t3006m09jrjgbd3tj3",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4hha700bh09jyhhilrjfv",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 583,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "1078d3da05f74d5fbfa6c4f1d1ea17d0",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsb5dag3002k09k2ocm1523f",
+            "packageIndex": 0,
+            "labelCostCents": 617,
+            "status": "estimated",
+            "createdAt": "2026-08-04T02:17:44.001Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsb5dag3002k09k2ocm1523f"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsb5dag3002k09k2ocm1523f",
+            "orders": [
+              {
+                "id": "cmsb5dxd6001609l7tv8kykkf",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb5fpe9001r09jipgiqbxer",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb8fgzt000a09lbh2aacw97",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb5excn002m09l9a6hb31ew",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb5dabl002j09k2l2bdxfk8",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "e51050d51e794f9cbce14666edb753ee",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsb8d55y006i09ldnpzbdb2v",
+            "packageIndex": 0,
+            "labelCostCents": 607,
+            "status": "estimated",
+            "createdAt": "2026-08-04T02:17:53.501Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsb8d55y006i09ldnpzbdb2v"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsb8d55y006i09ldnpzbdb2v",
+            "orders": [
+              {
+                "id": "cmsb8d512006h09ldgumg6x12",
+                "shippoTransactionId": "9308f892678a435a9791dbf9535b22bd",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "e7d71341fcc34a868dc3d001aba92a44",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsawppqe001r09ld22vjqjt2",
+            "packageIndex": 0,
+            "labelCostCents": 1751,
+            "status": "estimated",
+            "createdAt": "2026-08-03T17:30:49.007Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsawppqe001r09ld22vjqjt2"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsawppqe001r09ld22vjqjt2",
+            "orders": [
+              {
+                "id": "cmsb06j4c000509l2cj51pc13",
+                "shippoTransactionId": "ca1ddd61e6b44f32a39f602641d4d52e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb0ea46000z0ajlji6l1q8e",
+                "shippoTransactionId": "ca1ddd61e6b44f32a39f602641d4d52e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsawppl5001q09ldoewm0kz2",
+                "shippoTransactionId": "ca1ddd61e6b44f32a39f602641d4d52e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "95ab82193431415fbdd8870a3640cc20",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsb4hhew00bi09jyazio36uh",
+            "packageIndex": 0,
+            "labelCostCents": 583,
+            "status": "estimated",
+            "createdAt": "2026-08-04T02:18:40.202Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsb4hhew00bi09jyazio36uh"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsb4hhew00bi09jyazio36uh",
+            "orders": [
+              {
+                "id": "cmsb5bvr2000a09ieolbb1p5t",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb6v1be000a09l5mp2ivu0c",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb83f01000a09ib8jy7cpo1",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4pi20002o09l9cthabjsh",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4x03c001d09l64g221si7",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb8is5s000q09l4lr0ya9u8",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb6afao006b09l56ld0xxv1",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb6zvjc003y09l4szvwdgw6",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb7p48x000s09l59vy3c1pm",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb8267l00av09l7gd2crwe5",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb7j86w007f09k0mr3bt4qi",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4i8t3006m09jrjgbd3tj3",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4hha700bh09jyhhilrjfv",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 583,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "eacd0765bf324ee5b2d071beeed83e59",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsb3yrym009709juod19jv6z",
+            "packageIndex": 0,
+            "labelCostCents": 583,
+            "status": "estimated",
+            "createdAt": "2026-08-04T02:19:19.241Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsb3yrym009709juod19jv6z"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsb3yrym009709juod19jv6z",
+            "orders": [
+              {
+                "id": "cmsb3yru3009609jumvdmvhlc",
+                "shippoTransactionId": "55d10875aa734d808be37cdc0cafc95e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb7lx7g001609jr3ebio08e",
+                "shippoTransactionId": "55d10875aa734d808be37cdc0cafc95e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb6vx5u001809l7lgnupkhw",
+                "shippoTransactionId": "55d10875aa734d808be37cdc0cafc95e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb47qpo00bq09kzdibiirhe",
+                "shippoTransactionId": "55d10875aa734d808be37cdc0cafc95e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "f9bdf89aba724f09af98e6e151a4e21c",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsi4fanl003d09jx1eghhklz",
+            "packageIndex": 0,
+            "labelCostCents": 637,
+            "status": "estimated",
+            "createdAt": "2026-08-07T23:42:17.252Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsi4fanl003d09jx1eghhklz"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsi4fanl003d09jx1eghhklz",
+            "orders": [
+              {
+                "id": "cmsi4ib3l000a09l7bn6x0pt6",
+                "shippoTransactionId": "c7b97758c36b46519a6f74c6935fb3dc",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsi4fajg003c09jxi279bqo2",
+                "shippoTransactionId": "c7b97758c36b46519a6f74c6935fb3dc",
+                "shippingLabelCostCents": 637,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsi4slxu000a09kyney8ze0s",
+                "shippoTransactionId": "c7b97758c36b46519a6f74c6935fb3dc",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsi4g84b004409jxsbhaanaq",
+                "shippoTransactionId": "c7b97758c36b46519a6f74c6935fb3dc",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "3f188cfd930b4a1d847c3bf079bb1f44",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsi4fanl003d09jx1eghhklz",
+            "packageIndex": 0,
+            "labelCostCents": 637,
+            "status": "estimated",
+            "createdAt": "2026-08-07T23:43:36.464Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsi4fanl003d09jx1eghhklz"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsi4fanl003d09jx1eghhklz",
+            "orders": [
+              {
+                "id": "cmsi4ib3l000a09l7bn6x0pt6",
+                "shippoTransactionId": "c7b97758c36b46519a6f74c6935fb3dc",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsi4fajg003c09jxi279bqo2",
+                "shippoTransactionId": "c7b97758c36b46519a6f74c6935fb3dc",
+                "shippingLabelCostCents": 637,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsi4slxu000a09kyney8ze0s",
+                "shippoTransactionId": "c7b97758c36b46519a6f74c6935fb3dc",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsi4g84b004409jxsbhaanaq",
+                "shippoTransactionId": "c7b97758c36b46519a6f74c6935fb3dc",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "6f1d582cb6874ed69105e0285d307c1c",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsb5dag3002k09k2ocm1523f",
+            "packageIndex": 0,
+            "labelCostCents": 680,
+            "status": "estimated",
+            "createdAt": "2026-08-09T04:38:17.915Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsb5dag3002k09k2ocm1523f"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsb5dag3002k09k2ocm1523f",
+            "orders": [
+              {
+                "id": "cmsb5dxd6001609l7tv8kykkf",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb5fpe9001r09jipgiqbxer",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb8fgzt000a09lbh2aacw97",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb5excn002m09l9a6hb31ew",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb5dabl002j09k2l2bdxfk8",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "fbe948d28a6842c8b7e658e9465df76f",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsgv29nb003c09jl199oxu7f",
+            "packageIndex": 0,
+            "labelCostCents": 1145,
+            "status": "estimated",
+            "createdAt": "2026-08-09T06:14:55.028Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsgv29nb003c09jl199oxu7f"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsgv29nb003c09jl199oxu7f",
+            "orders": [
+              {
+                "id": "cmsh01u7j005o09jsaxhpjefo",
+                "shippoTransactionId": "9f8282f1873546139558ee966ba8561e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsgxb910000b09k317duz1c9",
+                "shippoTransactionId": "9f8282f1873546139558ee966ba8561e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsgv4bnk00c309joj4djfmg2",
+                "shippoTransactionId": "9f8282f1873546139558ee966ba8561e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsgv29ig003b09jloo7ceenk",
+                "shippoTransactionId": null,
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsh064qr00d909l7lp0vsh8r",
+                "shippoTransactionId": "9f8282f1873546139558ee966ba8561e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "9522eadeac5b4ae0ab4ce3f417f1df37",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsb4hhew00bi09jyazio36uh",
+            "packageIndex": 0,
+            "labelCostCents": 583,
+            "status": "estimated",
+            "createdAt": "2026-08-08T03:34:30.882Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsb4hhew00bi09jyazio36uh"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsb4hhew00bi09jyazio36uh",
+            "orders": [
+              {
+                "id": "cmsb5bvr2000a09ieolbb1p5t",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb6v1be000a09l5mp2ivu0c",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb83f01000a09ib8jy7cpo1",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4pi20002o09l9cthabjsh",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4x03c001d09l64g221si7",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb8is5s000q09l4lr0ya9u8",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb6afao006b09l56ld0xxv1",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb6zvjc003y09l4szvwdgw6",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb7p48x000s09l59vy3c1pm",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb8267l00av09l7gd2crwe5",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb7j86w007f09k0mr3bt4qi",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4i8t3006m09jrjgbd3tj3",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4hha700bh09jyhhilrjfv",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 583,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "9ea53fc6b9d64c85861b3e48f2c6c68d",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsb4hhew00bi09jyazio36uh",
+            "packageIndex": 0,
+            "labelCostCents": 583,
+            "status": "estimated",
+            "createdAt": "2026-08-08T03:37:37.993Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsb4hhew00bi09jyazio36uh"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsb4hhew00bi09jyazio36uh",
+            "orders": [
+              {
+                "id": "cmsb5bvr2000a09ieolbb1p5t",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb6v1be000a09l5mp2ivu0c",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb83f01000a09ib8jy7cpo1",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4pi20002o09l9cthabjsh",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4x03c001d09l64g221si7",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb8is5s000q09l4lr0ya9u8",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb6afao006b09l56ld0xxv1",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb6zvjc003y09l4szvwdgw6",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb7p48x000s09l59vy3c1pm",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb8267l00av09l7gd2crwe5",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb7j86w007f09k0mr3bt4qi",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4i8t3006m09jrjgbd3tj3",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb4hha700bh09jyhhilrjfv",
+                "shippoTransactionId": "9e84f34efaa34a01a1b611cef9920ab5",
+                "shippingLabelCostCents": 583,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "0739c6fd876449d58d87476da44ee102",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsgv29nb003c09jl199oxu7f",
+            "packageIndex": 0,
+            "labelCostCents": 1172,
+            "status": "estimated",
+            "createdAt": "2026-08-09T06:14:03.431Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsgv29nb003c09jl199oxu7f"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsgv29nb003c09jl199oxu7f",
+            "orders": [
+              {
+                "id": "cmsh01u7j005o09jsaxhpjefo",
+                "shippoTransactionId": "9f8282f1873546139558ee966ba8561e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsgxb910000b09k317duz1c9",
+                "shippoTransactionId": "9f8282f1873546139558ee966ba8561e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsgv4bnk00c309joj4djfmg2",
+                "shippoTransactionId": "9f8282f1873546139558ee966ba8561e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsgv29ig003b09jloo7ceenk",
+                "shippoTransactionId": null,
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsh064qr00d909l7lp0vsh8r",
+                "shippoTransactionId": "9f8282f1873546139558ee966ba8561e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "00eff5ff88ad4aec867715e5f6a7e34b",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsb3yrym009709juod19jv6z",
+            "packageIndex": 0,
+            "labelCostCents": 583,
+            "status": "estimated",
+            "createdAt": "2026-08-09T04:15:26.199Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsb3yrym009709juod19jv6z"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsb3yrym009709juod19jv6z",
+            "orders": [
+              {
+                "id": "cmsb3yru3009609jumvdmvhlc",
+                "shippoTransactionId": "55d10875aa734d808be37cdc0cafc95e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb7lx7g001609jr3ebio08e",
+                "shippoTransactionId": "55d10875aa734d808be37cdc0cafc95e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb6vx5u001809l7lgnupkhw",
+                "shippoTransactionId": "55d10875aa734d808be37cdc0cafc95e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb47qpo00bq09kzdibiirhe",
+                "shippoTransactionId": "55d10875aa734d808be37cdc0cafc95e",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "61b87bda6aed4eb19a517b6c63f6c8b8",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsb8d55y006i09ldnpzbdb2v",
+            "packageIndex": 0,
+            "labelCostCents": 607,
+            "status": "estimated",
+            "createdAt": "2026-08-09T04:20:08.627Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsb8d55y006i09ldnpzbdb2v"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsb8d55y006i09ldnpzbdb2v",
+            "orders": [
+              {
+                "id": "cmsb8d512006h09ldgumg6x12",
+                "shippoTransactionId": "9308f892678a435a9791dbf9535b22bd",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "8207fceb3c2a460bbb40d523da0dd88e",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsl7djcj001g09jpusxspj95",
+            "packageIndex": 0,
+            "labelCostCents": 597,
+            "status": "estimated",
+            "createdAt": "2026-08-09T20:01:02.689Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsl7djcj001g09jpusxspj95"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsl7djcj001g09jpusxspj95",
+            "orders": [
+              {
+                "id": "cmsl7dj7q001f09jpcy9l3ja0",
+                "shippoTransactionId": "047e74352fdb419eb2cf838b89f2c2a1",
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsl8846o001t09jp0x79dyhq",
+                "shippoTransactionId": null,
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "pending",
+                "paymentStatus": "pending_payment"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "65557a57e3794a05aa4f568b14ce6937",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsl7djcj001g09jpusxspj95",
+            "packageIndex": 0,
+            "labelCostCents": 597,
+            "status": "estimated",
+            "createdAt": "2026-08-09T20:02:50.845Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsl7djcj001g09jpusxspj95"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsl7djcj001g09jpusxspj95",
+            "orders": [
+              {
+                "id": "cmsl7dj7q001f09jpcy9l3ja0",
+                "shippoTransactionId": "047e74352fdb419eb2cf838b89f2c2a1",
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsl8846o001t09jp0x79dyhq",
+                "shippoTransactionId": null,
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "pending",
+                "paymentStatus": "pending_payment"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "ff99b99490c34c0e9d4f605b5f702b2e",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsl7c6yi001f09kwd3w82b31",
+            "packageIndex": 0,
+            "labelCostCents": 607,
+            "status": "estimated",
+            "createdAt": "2026-08-09T20:03:12.056Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsl7c6yi001f09kwd3w82b31"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsl7c6yi001f09kwd3w82b31",
+            "orders": [
+              {
+                "id": "cmsl81tzk000b09jp7cad48t9",
+                "shippoTransactionId": "7444e3fba8be44228ca38c1ff3f78180",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsl8ijgw008209ky2hf08024",
+                "shippoTransactionId": null,
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "pending",
+                "paymentStatus": "pending_payment"
+              },
+              {
+                "id": "cmsl9f2tg002i09lcsvvt80zr",
+                "shippoTransactionId": null,
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "pending",
+                "paymentStatus": "pending_payment"
+              },
+              {
+                "id": "cmsl7c6o2001e09kw3x4c4wsi",
+                "shippoTransactionId": "7444e3fba8be44228ca38c1ff3f78180",
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsl9irdk002809kz5719r8vk",
+                "shippoTransactionId": "7444e3fba8be44228ca38c1ff3f78180",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "3d77f4612abe45ccb2a7b46518144124",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsl7djcj001g09jpusxspj95",
+            "packageIndex": 0,
+            "labelCostCents": 597,
+            "status": "estimated",
+            "createdAt": "2026-08-09T20:03:45.076Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsl7djcj001g09jpusxspj95"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsl7djcj001g09jpusxspj95",
+            "orders": [
+              {
+                "id": "cmsl7dj7q001f09jpcy9l3ja0",
+                "shippoTransactionId": "047e74352fdb419eb2cf838b89f2c2a1",
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsl8846o001t09jp0x79dyhq",
+                "shippoTransactionId": null,
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "pending",
+                "paymentStatus": "pending_payment"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "90a3ebfea793488e9c43cd37d59d6df9",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsm2c3jn001b09ib2p2namek",
+            "packageIndex": 0,
+            "labelCostCents": 1399,
+            "status": "estimated",
+            "createdAt": "2026-08-09T20:04:32.660Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsm2c3jn001b09ib2p2namek"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsm2c3jn001b09ib2p2namek",
+            "orders": [
+              {
+                "id": "cmsm2c3ev001a09ib3tutp1d4",
+                "shippoTransactionId": null,
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "pending",
+                "paymentStatus": "pending_payment"
+              },
+              {
+                "id": "cmsm2r5ua000f09k0a0s53lmc",
+                "shippoTransactionId": "e7ac2af528ac45be97f83cb3ab2e5dd2",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsm2fs0k000a09l4v6cl27vs",
+                "shippoTransactionId": "e7ac2af528ac45be97f83cb3ab2e5dd2",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsm2tvic000u09jscoql5l99",
+                "shippoTransactionId": "e7ac2af528ac45be97f83cb3ab2e5dd2",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsm2ej2q002x09lbk8hchad2",
+                "shippoTransactionId": "e7ac2af528ac45be97f83cb3ab2e5dd2",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsm2dqgs001d09k00jydf7pv",
+                "shippoTransactionId": "e7ac2af528ac45be97f83cb3ab2e5dd2",
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "8ac18936879a4483ad36a9701b6470ce",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsl7djcj001g09jpusxspj95",
+            "packageIndex": 0,
+            "labelCostCents": 597,
+            "status": "estimated",
+            "createdAt": "2026-08-09T20:05:59.404Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsl7djcj001g09jpusxspj95"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsl7djcj001g09jpusxspj95",
+            "orders": [
+              {
+                "id": "cmsl7dj7q001f09jpcy9l3ja0",
+                "shippoTransactionId": "047e74352fdb419eb2cf838b89f2c2a1",
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsl8846o001t09jp0x79dyhq",
+                "shippoTransactionId": null,
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "pending",
+                "paymentStatus": "pending_payment"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "7b4fe1d15259413fa3867df58f2d8d8a",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsm36xbk009i09lcu06kbeb1",
+            "packageIndex": 0,
+            "labelCostCents": 597,
+            "status": "estimated",
+            "createdAt": "2026-08-09T20:07:51.110Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsm36xbk009i09lcu06kbeb1"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsm36xbk009i09lcu06kbeb1",
+            "orders": [
+              {
+                "id": "cmsm6uxmv000r09l34q911tab",
+                "shippoTransactionId": "70471c5c11d94518be2ce1de3d7e29aa",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsm36x6c009h09lcae5q0pbg",
+                "shippoTransactionId": "70471c5c11d94518be2ce1de3d7e29aa",
+                "shippingLabelCostCents": null,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsm6vgxk001109kynw1zt7rs",
+                "shippoTransactionId": "70471c5c11d94518be2ce1de3d7e29aa",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "in_transit",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "67ce0d90813e42daa36db197783365e0",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsb5dag3002k09k2ocm1523f",
+            "packageIndex": 0,
+            "labelCostCents": 680,
+            "status": "estimated",
+            "createdAt": "2026-08-10T03:14:13.627Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsb5dag3002k09k2ocm1523f"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsb5dag3002k09k2ocm1523f",
+            "orders": [
+              {
+                "id": "cmsb5dxd6001609l7tv8kykkf",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb5fpe9001r09jipgiqbxer",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb8fgzt000a09lbh2aacw97",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb5excn002m09l9a6hb31ew",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb5dabl002j09k2l2bdxfk8",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "2d7cbf7d099743759c1490f6a6255a6b",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsb8d55y006i09ldnpzbdb2v",
+            "packageIndex": 0,
+            "labelCostCents": 607,
+            "status": "estimated",
+            "createdAt": "2026-08-10T03:14:30.802Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsb8d55y006i09ldnpzbdb2v"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsb8d55y006i09ldnpzbdb2v",
+            "orders": [
+              {
+                "id": "cmsb8d512006h09ldgumg6x12",
+                "shippoTransactionId": "9308f892678a435a9791dbf9535b22bd",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "fef7008c81b7452480abf50ea0859797",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmsb5dag3002k09k2ocm1523f",
+            "packageIndex": 0,
+            "labelCostCents": 680,
+            "status": "estimated",
+            "createdAt": "2026-08-10T04:00:36.501Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmsb5dag3002k09k2ocm1523f"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmsb5dag3002k09k2ocm1523f",
+            "orders": [
+              {
+                "id": "cmsb5dxd6001609l7tv8kykkf",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb5fpe9001r09jipgiqbxer",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb8fgzt000a09lbh2aacw97",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb5excn002m09l9a6hb31ew",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              },
+              {
+                "id": "cmsb5dabl002j09k2l2bdxfk8",
+                "shippoTransactionId": "eec8b25f2c9645a39b14d43aa36d20eb",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "b7c601bcdd164e82952186a59ddaab06",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmskz1qgj009609idie78z1ae",
+            "packageIndex": 0,
+            "labelCostCents": 851,
+            "status": "estimated",
+            "createdAt": "2026-08-10T15:06:31.400Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmskz1qgj009609idie78z1ae"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmskz1qgj009609idie78z1ae",
+            "orders": [
+              {
+                "id": "cmskz1qbi009509ido4clbkrx",
+                "shippoTransactionId": "7847ad9ff1c64705a6c304fd15c33740",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "b73214578fe74c2a931859710931f271",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmskz1qgj009609idie78z1ae",
+            "packageIndex": 0,
+            "labelCostCents": 851,
+            "status": "estimated",
+            "createdAt": "2026-08-10T14:21:47.707Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmskz1qgj009609idie78z1ae"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmskz1qgj009609idie78z1ae",
+            "orders": [
+              {
+                "id": "cmskz1qbi009509ido4clbkrx",
+                "shippoTransactionId": "7847ad9ff1c64705a6c304fd15c33740",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      },
+      {
+        "shippoTransactionId": "25977b36089a4c348be6982fece386a5",
+        "packages": [
+          {
+            "orderId": null,
+            "liveShippingSessionId": "cmskz1qgj009609idie78z1ae",
+            "packageIndex": 0,
+            "labelCostCents": 851,
+            "status": "estimated",
+            "createdAt": "2026-08-10T14:34:19.527Z"
+          }
+        ],
+        "directOrderIds": [],
+        "sessionIds": [
+          "cmskz1qgj009609idie78z1ae"
+        ],
+        "sessionContext": [
+          {
+            "id": "cmskz1qgj009609idie78z1ae",
+            "orders": [
+              {
+                "id": "cmskz1qbi009509ido4clbkrx",
+                "shippoTransactionId": "7847ad9ff1c64705a6c304fd15c33740",
+                "shippingLabelCostCents": 0,
+                "fulfillmentStatus": "exception",
+                "paymentStatus": "paid"
+              }
+            ]
+          }
+        ],
+        "classification": "session_exists_but_no_sibling_order_has_this_tx"
+      }
+    ]
+  }
+}
