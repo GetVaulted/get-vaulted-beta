@@ -8,7 +8,7 @@ export const LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR =
   "The host stream is offline. Purchases and bids are paused until they reconnect.";
 
 export const LIVE_STREAM_PAUSED_COMMERCE_ERROR =
-  "The host paused the stream. Purchases and bids are paused.";
+  "The host paused the stream. Bidding is paused — Buy Now and shop are still available.";
 
 export type LiveBuyerCommerceBlockCode =
   | "ROOM_NOT_FOUND"

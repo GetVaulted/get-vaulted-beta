@@ -16,6 +16,16 @@ export type SellerAccountPayload = {
   shipFromPhone: string | null;
 };
 
+export type SellerHomeStats = {
+  activeListingsCount?: number;
+  draftListingsCount?: number;
+  openOrdersCount?: number;
+  /** Paid orders still pending/processing fulfillment — matches web Seller Hub. */
+  awaitingShipmentCount?: number;
+  recentSalesCount?: number;
+  unreadBuyerMessagesCount?: number;
+};
+
 export type SellerAccountResponse = {
   setupWizardComplete?: boolean;
   sellerSetupWizardCompletedAt?: string | null;
@@ -23,6 +33,7 @@ export type SellerAccountResponse = {
   seller: SellerAccountPayload;
   stripePlatformConfigured?: boolean;
   readiness?: SellerLiveReadiness;
+  sellerHomeStats?: SellerHomeStats;
 };
 
 async function accountFetch(path: string, accessToken: string, init?: RequestInit): Promise<Response> {

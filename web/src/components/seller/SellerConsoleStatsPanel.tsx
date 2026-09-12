@@ -1,11 +1,11 @@
 "use client";
 
-import { HostRecentSalesTile } from "@/components/break-host/HostRecentSalesTile";
 import { LiveShowFeeTierTile } from "@/components/break-host/LiveShowFeeTierTile";
 import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter";
 import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
 import type { HostRecentSaleRowDTO } from "@/lib/live-room-recent-sales";
 import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
+import type { LiveShowSellerSummaryDTO } from "@/lib/live-show-seller-summary-shared";
 import type { LiveRoomEnergyLevel } from "@/lib/live-room-energy";
 
 type SellerConsoleStatsPanelProps = {
@@ -15,8 +15,12 @@ type SellerConsoleStatsPanelProps = {
   connectionOk: boolean;
   roomEnergyScore: number;
   roomEnergyLevel: LiveRoomEnergyLevel;
-  recentSales: HostRecentSaleRowDTO[];
+  /** Kept for call-site compatibility; sales list lives under the stage on desktop. */
+  recentSales?: HostRecentSaleRowDTO[];
   feeTier?: LiveShowFeeTierSnapshot | null;
+  sellerSummary?: LiveShowSellerSummaryDTO | null;
+  sellerSummaryLoading?: boolean;
+  sellerSummaryRefreshError?: boolean;
 };
 
 export function SellerConsoleStatsPanel({
@@ -26,8 +30,8 @@ export function SellerConsoleStatsPanel({
   connectionOk,
   roomEnergyScore,
   roomEnergyLevel,
-  recentSales,
   feeTier,
+  sellerSummary,
 }: SellerConsoleStatsPanelProps) {
   return (
     <div className="shrink-0 space-y-3 border-b border-white/[0.08] p-3">
@@ -47,8 +51,7 @@ export function SellerConsoleStatsPanel({
         <span className={`text-xs font-bold ${connectionOk ? "text-emerald-300" : "text-amber-200"}`}>{connectionLabel}</span>
       </div>
       <LiveRoomEnergyMeter score={roomEnergyScore} level={roomEnergyLevel} />
-      <HostRecentSalesTile rows={recentSales} />
-      {feeTier ? <LiveShowFeeTierTile tier={feeTier} /> : null}
+      {feeTier || sellerSummary ? <LiveShowFeeTierTile tier={feeTier} summary={sellerSummary} /> : null}
     </div>
   );
 }

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Get Vaulted",
     "slug": "get-vaulted",
-    "version": "1.0.0",
+    "version": "1.0.12",
     "scheme": "getvaulted",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -17,7 +17,14 @@
       "supportsTablet": true,
       "usesAppleSignIn": true,
       "bundleIdentifier": "com.getvaulted.app",
-      "buildNumber": "86",
+      "version": "1.0.12",
+      "buildNumber": "236",
+      "appStoreUrl": "https://apps.apple.com/app/id6780714456",
+      "associatedDomains": [
+        "applinks:shopgetvaulted.com",
+        "applinks:www.shopgetvaulted.com",
+        "applinks:beta.shopgetvaulted.com"
+      ],
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Get Vaulted uses your photo library for profile photos and listing images.",
         "NSCameraUsageDescription": "Get Vaulted uses the camera for live broadcasts, profile photos, and listing images.",
@@ -30,7 +37,10 @@
     },
     "android": {
       "package": "com.getvaulted.app",
-      "versionCode": 86,
+      "version": "1.0.12",
+      "versionCode": 236,
+      "googleServicesFile": "./google-services.json",
+      "playStoreUrl": "https://play.google.com/store/apps/details?id=com.getvaulted.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#050505"
@@ -39,6 +49,58 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.RECORD_AUDIO"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "https",
+              "host": "shopgetvaulted.com",
+              "pathPrefix": "/live"
+            },
+            {
+              "scheme": "https",
+              "host": "www.shopgetvaulted.com",
+              "pathPrefix": "/live"
+            },
+            {
+              "scheme": "https",
+              "host": "shopgetvaulted.com",
+              "pathPrefix": "/listing"
+            },
+            {
+              "scheme": "https",
+              "host": "www.shopgetvaulted.com",
+              "pathPrefix": "/listing"
+            },
+            {
+              "scheme": "https",
+              "host": "shopgetvaulted.com",
+              "pathPrefix": "/marketplace"
+            },
+            {
+              "scheme": "https",
+              "host": "www.shopgetvaulted.com",
+              "pathPrefix": "/marketplace"
+            },
+            {
+              "scheme": "https",
+              "host": "shopgetvaulted.com",
+              "pathPrefix": "/join"
+            },
+            {
+              "scheme": "https",
+              "host": "www.shopgetvaulted.com",
+              "pathPrefix": "/join"
+            }
+          ]
+        }
       ]
     },
     "web": {
@@ -50,6 +112,14 @@
         {
           "photosPermission": "Get Vaulted uses your photos for profile and listing uploads.",
           "cameraPermission": "Get Vaulted uses your camera to take listing and profile photos."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Get Vaulted saves Hit Clips to your camera roll so you can post them to TikTok.",
+          "savePhotosPermission": "Get Vaulted saves Hit Clips to your camera roll so you can post them to TikTok.",
+          "isAccessMediaLocationEnabled": false
         }
       ],
       "@react-native-community/datetimepicker",

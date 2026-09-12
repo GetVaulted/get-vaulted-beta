@@ -1,13 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useStripe } from '@stripe/stripe-react-native';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLiveConfirmPayment } from './LiveStripeProvider';
 import {
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
+  TextInput,
   View,
   Alert,
 } from 'react-native';
@@ -20,11 +21,18 @@ import {
 } from '../../api/liveVariantCheckoutPreviewRepository';
 import {
   purchaseLiveItemVariant,
+  purchaseLiveItemVariantBatch,
   syncLiveItemVariantPurchase,
+  syncLiveItemVariantPurchaseBatch,
 } from '../../api/liveVariantPurchaseRepository';
 import { isWalletIncompleteError } from '../../lib/buyerWalletErrors';
 import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
-import { formatSoldSpotBuyerLabel } from '../../lib/liveVariantSpotBoard';
+import { withLivePlaybackCommerceHold } from '../../lib/livePlaybackCommerceHold';
+import { formatSoldSpotBuyerLabel, formatUnavailableSpotLabel } from '../../lib/liveVariantSpotBoard';
+import {
+  isLightSpotAccent,
+  spotAccentColor,
+} from '../../lib/liveBreakPresets';
 import {
   sortVariantsForBuyerDisplay,
   summarizeVariantSpots,
@@ -32,17 +40,23 @@ import {
   variantSelectSpotLabel,
   isRandomVariantAssignment,
   evaluateFreshVariantsForCheckout,
+  evaluateFreshVariantsForBatchCheckout,
   type LiveItemSalesFormat,
   type RefreshVariantsResult,
 } from '../../lib/liveItemVariant';
 import { colors, radii, spacing } from '../../theme';
-import { buildLocalVariantPurchaseCelebration, type LiveSpotTakenCelebration } from '../../lib/liveSpotCelebration';
+import {
+  buildLocalVariantPurchaseCelebration,
+  formatBatchSpotCelebrationLabel,
+  type LiveSpotTakenCelebration,
+} from '../../lib/liveSpotCelebration';
 import { HoldToBidButton } from './HoldToBidButton';
 import { LiveRoomText } from './LiveRoomText';
 
 /**
  * Buyer checkout bottom sheet for PYT (variant_selection) and PYD (team_break).
- * This is the only buyer-facing spot picker — do not add a center team board for buyers.
+ * Open spots use this sheet for purchase. Once the break fills, buyers open the same
+ * host team roster (`SellerBreakSpotBoardSheet`) via Team roster / Teams — not this sheet.
  */
 type Props = {
   visible: boolean;
@@ -106,13 +120,17 @@ export function LiveBreakSpotGridSheet({
   seedCheckoutPreview = null,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { confirmPayment } = useStripe();
+  const confirmPayment = useLiveConfirmPayment();
   const isDivisionBreak = salesFormat === 'team_break';
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const isPlayerBreak = salesFormat === 'player_selection';
+  const spotNoun = isDivisionBreak ? 'divisions' : isPlayerBreak ? 'players' : 'teams';
+  const spotNounSingular = isDivisionBreak ? 'division' : isPlayerBreak ? 'player' : 'team';
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkoutPreview, setCheckoutPreview] = useState<LiveVariantCheckoutPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [spotSearch, setSpotSearch] = useState('');
   // FIX 3: synchronous in-flight guard — a React state update (`busy`) is not immediate, so a
   // second hold-to-commit within the same render cycle could otherwise start a second checkout.
   const checkoutInFlightRef = useRef(false);
@@ -123,17 +141,27 @@ export function LiveBreakSpotGridSheet({
     return variants.filter((v) => !exclude.has(v.id));
   }, [excludeVariantIds, variants]);
   const sortedVariants = useMemo(() => sortVariantsForBuyerDisplay(pickerVariants), [pickerVariants]);
+  const showSpotSearch = !isRandom && isPlayerBreak && sortedVariants.length > 12;
+  const filteredVariants = useMemo(() => {
+    const q = spotSearch.trim().toLowerCase();
+    if (!q) return sortedVariants;
+    return sortedVariants.filter((v) => v.label.toLowerCase().includes(q));
+  }, [spotSearch, sortedVariants]);
   const spotSummary = useMemo(() => summarizeVariantSpots(pickerVariants), [pickerVariants]);
-  const selected = sortedVariants.find((v) => v.id === selectedId) ?? null;
+  const selectedVariants = useMemo(
+    () => sortedVariants.filter((v) => selectedIds.includes(v.id)),
+    [selectedIds, sortedVariants],
+  );
+  const selected = selectedVariants[0] ?? null;
+  const selectionCount = selectedVariants.length;
   const pickerBaseLabel = variantSelectSpotLabel(salesFormat, isRandom);
 
   const unitPrice = selected?.priceUsd ?? spotSummary.fromPriceUsd ?? 0;
-  const quantity = 1;
 
   const spotPrice = useMemo(() => {
-    if (!selected) return 0;
-    return Math.round(selected.priceUsd * quantity * 100) / 100;
-  }, [quantity, selected]);
+    if (selectedVariants.length === 0) return 0;
+    return Math.round(selectedVariants.reduce((sum, v) => sum + v.priceUsd, 0) * 100) / 100;
+  }, [selectedVariants]);
 
   // FIX 4: a seed is only trustworthy when it was computed for THIS item — matching price alone
   // isn't enough (two different items can coincidentally share a spot price). A seed missing an
@@ -169,30 +197,42 @@ export function LiveBreakSpotGridSheet({
 
   useEffect(() => {
     if (!visible) {
-      setSelectedId(null);
+      setSelectedIds([]);
       setError(null);
       setBusy(false);
       checkoutInFlightRef.current = false;
       setCheckoutPreview(null);
       setPreviewLoading(false);
+      setSpotSearch('');
       return;
     }
     if (isRandom) {
       const available = sortedVariants.find((v) => variantIsAvailable(v));
-      if (available) setSelectedId(available.id);
+      if (available) setSelectedIds([available.id]);
       return;
     }
     if (
       initialVariantId &&
+      selectedIds.length === 0 &&
       sortedVariants.some((v) => v.id === initialVariantId && variantIsAvailable(v))
     ) {
-      setSelectedId(initialVariantId);
+      setSelectedIds([initialVariantId]);
       return;
     }
-    if (selectedId && !sortedVariants.some((v) => v.id === selectedId && variantIsAvailable(v))) {
-      setSelectedId(null);
-    }
-  }, [initialVariantId, isRandom, selectedId, sortedVariants, visible]);
+    setSelectedIds((prev) => {
+      const next = prev.filter((id) => sortedVariants.some((v) => v.id === id && variantIsAvailable(v)));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [initialVariantId, isRandom, sortedVariants, visible]);
+
+  const toggleSpot = (variantId: string) => {
+    if (isRandom) return;
+    setSelectedIds((prev) => {
+      if (prev.includes(variantId)) return prev.filter((id) => id !== variantId);
+      return [...prev, variantId];
+    });
+    setError(null);
+  };
 
   useEffect(() => {
     if (!visible || !walletReady || !accessToken?.trim() || spotPrice <= 0) {
@@ -252,9 +292,12 @@ export function LiveBreakSpotGridSheet({
     };
   }, [accessToken, itemId, roomId, seedCheckoutPreview, seedMatchesActiveItem, spotPrice, visible, walletReady]);
 
-  const pickerTitle = selected
-    ? `${pickerBaseLabel}: ${selected.label}`
-    : pickerBaseLabel;
+  const pickerTitle =
+    selectionCount === 0
+      ? pickerBaseLabel
+      : selectionCount === 1
+        ? `${pickerBaseLabel}: ${selectedVariants[0]!.label}`
+        : `${pickerBaseLabel}: ${selectionCount} selected`;
 
   const allSold = spotSummary.available <= 0 && pickerVariants.length > 0;
 
@@ -262,7 +305,7 @@ export function LiveBreakSpotGridSheet({
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setBusy(false);
     setError(null);
-    setSelectedId(null);
+    setSelectedIds([]);
     onClose();
     onPurchased();
     if (isRandom || !onSpotCelebration) return;
@@ -280,12 +323,12 @@ export function LiveBreakSpotGridSheet({
     // FIX 3: synchronous guard checked before any async work — `busy` is a React state update
     // and is not guaranteed to have re-rendered yet when a second hold-to-commit fires.
     if (checkoutInFlightRef.current) return;
-    if (!selected) {
+    if (selectedVariants.length === 0) {
       setError(`Select ${isDivisionBreak ? 'a division' : 'a team'} first.`);
       return;
     }
-    if (!variantIsAvailable(selected)) {
-      setError('That spot was just taken. Pick another.');
+    if (selectedVariants.some((v) => !variantIsAvailable(v))) {
+      setError('One or more spots were just taken. Update your selection.');
       return;
     }
     if (!accessToken?.trim()) {
@@ -299,13 +342,12 @@ export function LiveBreakSpotGridSheet({
     checkoutInFlightRef.current = true;
     setBusy(true);
     setError(null);
+    const useBatch = !isRandom && selectedVariants.length >= 2;
+    const celebrationLabel = useBatch
+      ? formatBatchSpotCelebrationLabel(selectedVariants.map((v) => v.label))
+      : selectedVariants[0]!.label;
+    const chargeFallback = spotPrice;
     try {
-      // FIX 2 (re-validate before charging) + FIX (2026-07 gap): every path through this block
-      // when `onRefreshVariants` is provided must either confirm fresh availability or reject the
-      // purchase attempt — never silently trust the (possibly stale) local `variants` prop, both
-      // when the active lot changed underneath the buyer and when the refresh request itself
-      // failed. Pick mode only — random-pool assignment doesn't pre-select a specific spot, so
-      // there's nothing to re-validate here; Vault Reveal assigns from whatever remains.
       if (!isRandom && onRefreshVariants) {
         let result: RefreshVariantsResult;
         try {
@@ -313,10 +355,19 @@ export function LiveBreakSpotGridSheet({
         } catch {
           result = { status: 'fetch_failed' };
         }
-        const decision = evaluateFreshVariantsForCheckout(result, selected.id);
+        const decision = useBatch
+          ? evaluateFreshVariantsForBatchCheckout(
+              result,
+              selectedVariants.map((v) => v.id),
+            )
+          : evaluateFreshVariantsForCheckout(result, selectedVariants[0]!.id);
         if (!decision.proceed) {
           setError(decision.message);
-          setSelectedId(null);
+          if (useBatch) {
+            /* keep selection so buyer can deselect sold spots */
+          } else {
+            setSelectedIds([]);
+          }
           if (decision.closeSheet) onClose();
           return;
         }
@@ -324,14 +375,47 @@ export function LiveBreakSpotGridSheet({
       const paymentSession = accessToken?.trim()
         ? await fetchLiveBuyerPaymentSession(accessToken, roomId)
         : null;
-      const res = await purchaseLiveItemVariant({
-        accessToken,
-        liveRoomId: roomId,
-        itemId,
-        variantId: selected.id,
-        quantity,
-        paymentMethodId: paymentSession?.activePaymentMethodId ?? undefined,
-      });
+      const paymentMethodId = paymentSession?.activePaymentMethodId ?? undefined;
+
+      const res = useBatch
+        ? await purchaseLiveItemVariantBatch({
+            accessToken,
+            liveRoomId: roomId,
+            itemId,
+            variantIds: selectedVariants.map((v) => v.id),
+            paymentMethodId,
+          })
+        : await purchaseLiveItemVariant({
+            accessToken,
+            liveRoomId: roomId,
+            itemId,
+            variantId: selectedVariants[0]!.id,
+            quantity: 1,
+            paymentMethodId,
+          });
+
+      const syncPurchase = async (purchaseRes: typeof res) => {
+        if (!('purchaseId' in purchaseRes) && !('batchId' in purchaseRes)) return purchaseRes;
+        if (useBatch && purchaseRes.ok && 'batchId' in purchaseRes && purchaseRes.batchId) {
+          return syncLiveItemVariantPurchaseBatch({
+            accessToken,
+            liveRoomId: roomId,
+            itemId,
+            batchId: purchaseRes.batchId,
+          });
+        }
+        if (purchaseRes.ok && 'purchaseId' in purchaseRes && purchaseRes.purchaseId) {
+          return syncLiveItemVariantPurchase({
+            accessToken,
+            liveRoomId: roomId,
+            itemId,
+            variantId: selectedVariants[0]!.id,
+            purchaseId: purchaseRes.purchaseId,
+          });
+        }
+        return purchaseRes;
+      };
+
       if (!res.ok) {
         const msg =
           mapLivePaymentFailureMessage(res.error, res.code) + (res.paymentFailed ? ' Spot was not sold.' : '');
@@ -356,40 +440,34 @@ export function LiveBreakSpotGridSheet({
       }
       if ('paid' in res) {
         finishSuccessfulPurchase(
-          selected.label,
-          checkoutPreview?.chargeNowUsd ?? selected.priceUsd * quantity,
+          res.labels?.length ? formatBatchSpotCelebrationLabel(res.labels) : celebrationLabel,
+          checkoutPreview?.chargeNowUsd ?? chargeFallback,
         );
         return;
       }
       if ('requiresAction' in res) {
-        const conf = await confirmPayment(res.clientSecret, { paymentMethodType: 'Card' });
+        if (!confirmPayment) {
+          const msg = 'Payments are still starting up — try again in a moment.';
+          setError(msg);
+          onClose();
+          Alert.alert('Payment loading', msg);
+          return;
+        }
+        const conf = await withLivePlaybackCommerceHold(() =>
+          confirmPayment(res.clientSecret, { paymentMethodType: 'Card' }),
+        );
         if (conf.error) {
           const msg = mapLivePaymentFailureMessage(conf.error.message, conf.error.code);
           setError(msg);
           onClose();
           Alert.alert('Payment failed', msg);
-          const synced = await syncLiveItemVariantPurchase({
-            accessToken,
-            liveRoomId: roomId,
-            itemId,
-            variantId: selected.id,
-            purchaseId: res.purchaseId,
-          });
+          const synced = await syncPurchase(res);
           if (!synced.ok && synced.paymentFailed) await onRoomRefresh?.();
           return;
         }
-        const synced = await syncLiveItemVariantPurchase({
-          accessToken,
-          liveRoomId: roomId,
-          itemId,
-          variantId: selected.id,
-          purchaseId: res.purchaseId,
-        });
+        const synced = await syncPurchase(res);
         if (synced.ok && 'paid' in synced) {
-          finishSuccessfulPurchase(
-            selected.label,
-            checkoutPreview?.chargeNowUsd ?? selected.priceUsd * quantity,
-          );
+          finishSuccessfulPurchase(celebrationLabel, checkoutPreview?.chargeNowUsd ?? chargeFallback);
           return;
         }
         setError(
@@ -409,7 +487,27 @@ export function LiveBreakSpotGridSheet({
         return;
       }
       if ('processing' in res) {
-        setError('Payment processing — pull to refresh the room.');
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          await new Promise((r) => setTimeout(r, 800 + attempt * 400));
+          const synced = await syncPurchase(res);
+          if (synced.ok && 'paid' in synced) {
+            finishSuccessfulPurchase(celebrationLabel, checkoutPreview?.chargeNowUsd ?? chargeFallback);
+            return;
+          }
+          if (!synced.ok && synced.paymentFailed) {
+            setError(
+              mapLivePaymentFailureMessage(synced.error, synced.code) + ' Spot was not sold.',
+            );
+            onClose();
+            Alert.alert(
+              'Payment failed',
+              mapLivePaymentFailureMessage(synced.error, synced.code) + ' Spot was not sold.',
+            );
+            await onRoomRefresh?.();
+            return;
+          }
+        }
+        setError('Payment processing — pull to refresh the room, or check My orders → Live shows.');
         return;
       }
       setError('Purchase could not complete.');
@@ -419,7 +517,10 @@ export function LiveBreakSpotGridSheet({
         onWalletRequired();
         return;
       }
-      setError(e instanceof Error ? e.message : 'Checkout failed.');
+      setError(
+        mapLivePaymentFailureMessage(e instanceof Error ? e.message : null) ||
+          (e instanceof Error ? e.message : 'Checkout failed.'),
+      );
     } finally {
       checkoutInFlightRef.current = false;
       setBusy(false);
@@ -430,6 +531,8 @@ export function LiveBreakSpotGridSheet({
     void checkout();
   };
 
+  const rosterMode = allSold;
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -437,11 +540,19 @@ export function LiveBreakSpotGridSheet({
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
           <View style={styles.headerRow}>
             <View style={styles.headerCopy}>
-              <LiveRoomText style={styles.checkoutHeading}>Checkout</LiveRoomText>
-              <View style={styles.securityRow}>
-                <Ionicons name="lock-closed" size={10} color="rgba(255,255,255,0.42)" />
-                <LiveRoomText style={styles.securityLine}>Secure checkout · encrypted by Stripe</LiveRoomText>
-              </View>
+              <LiveRoomText style={styles.checkoutHeading}>
+                {rosterMode ? (isDivisionBreak ? 'Division roster' : 'Team roster') : 'Checkout'}
+              </LiveRoomText>
+              {rosterMode ? (
+                <LiveRoomText style={styles.securityLine}>
+                  All spots sold · see who got each {isDivisionBreak ? 'division' : 'team'}
+                </LiveRoomText>
+              ) : (
+                <View style={styles.securityRow}>
+                  <Ionicons name="lock-closed" size={10} color="rgba(255,255,255,0.42)" />
+                  <LiveRoomText style={styles.securityLine}>Secure checkout · encrypted by Stripe</LiveRoomText>
+                </View>
+              )}
             </View>
             <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={10} accessibilityLabel="Close">
               <Ionicons name="close" size={20} color="rgba(255,255,255,0.78)" />
@@ -468,93 +579,133 @@ export function LiveBreakSpotGridSheet({
                 <LiveRoomText style={styles.productTitle} numberOfLines={2}>
                   {title}
                 </LiveRoomText>
-                <LiveRoomText style={styles.productPrice}>{fmtMoney(unitPrice)}</LiveRoomText>
+                {!rosterMode ? (
+                  <LiveRoomText style={styles.productPrice}>{fmtMoney(unitPrice)}</LiveRoomText>
+                ) : null}
                 <LiveRoomText style={styles.remainingMeta}>
-                  {allSold
-                    ? 'All spots sold'
+                  {rosterMode
+                    ? `Break in progress · ${pickerVariants.length} ${isDivisionBreak ? 'divisions' : 'teams'}`
                     : `${spotSummary.available} spot${spotSummary.available === 1 ? '' : 's'} remaining`}
                 </LiveRoomText>
               </View>
             </View>
 
             <View style={styles.pickerSection}>
-              <LiveRoomText style={styles.pickerTitle}>{pickerTitle}</LiveRoomText>
-              <LiveRoomText style={styles.pickerHint}>
-                {isRandom
-                  ? 'Hold to buy — Vault Reveal assigns your team from what’s left'
-                  : selected
-                    ? walletReady
-                      ? `Hold to buy to pay ${fmtMoney(chargeNow)} now — spot, shipping, and tax below`
-                      : `Confirm ${isDivisionBreak ? 'division' : 'team'}, then hold to buy to checkout`
-                    : `Tap ${isDivisionBreak ? 'a division' : 'a team'} to checkout`}
+              <LiveRoomText style={styles.pickerTitle}>
+                {rosterMode
+                  ? isDivisionBreak
+                    ? 'Who got each division'
+                    : isPlayerBreak
+                      ? 'Who got each player'
+                      : 'Who got each team'
+                  : pickerTitle}
               </LiveRoomText>
-              {isRandom ? (
+              <LiveRoomText style={styles.pickerHint}>
+                {rosterMode
+                  ? `Sold roster — stays available while the host runs the break`
+                  : isRandom
+                    ? 'Hold to buy — Vault Reveal assigns your spot from what’s left'
+                    : selectionCount > 0
+                      ? walletReady
+                        ? selectionCount > 1
+                          ? `Hold to buy to pay ${fmtMoney(chargeNow)} for ${selectionCount} spots — shipping and tax below`
+                          : `Hold to buy to pay ${fmtMoney(chargeNow)} now — spot, shipping, and tax below`
+                        : `Confirm ${spotNounSingular}, then hold to buy to checkout`
+                      : `Tap ${spotNoun} to multi-select, then checkout`}
+              </LiveRoomText>
+              {isRandom && !rosterMode ? (
                 <View style={styles.randomRevealCard}>
                   <LiveRoomText style={styles.randomRevealKicker}>Vault Reveal</LiveRoomText>
                   <LiveRoomText style={styles.randomRevealBody}>
-                    {spotSummary.available} {isDivisionBreak ? 'divisions' : 'teams'} left in the pool
+                    {spotSummary.available} {spotNoun} left in the pool
                   </LiveRoomText>
                 </View>
               ) : (
-                <View style={styles.pillWrap}>
-                  {sortedVariants.map((variant) => (
-                    <TeamPill
-                      key={variant.id}
-                      variant={variant}
-                      selected={selectedId === variant.id}
-                      onSelect={() => {
-                        if (!variantIsAvailable(variant)) return;
-                        void Haptics.selectionAsync().catch(() => {});
-                        setSelectedId(variant.id);
-                        setError(null);
-                      }}
+                <>
+                  {showSpotSearch && !rosterMode ? (
+                    <TextInput
+                      value={spotSearch}
+                      onChangeText={setSpotSearch}
+                      placeholder="Search players…"
+                      placeholderTextColor="rgba(255,255,255,0.35)"
+                      style={styles.spotSearch}
+                      autoCorrect={false}
+                      autoCapitalize="none"
+                      clearButtonMode="while-editing"
                     />
-                  ))}
-                </View>
+                  ) : null}
+                  <View style={styles.pillWrap}>
+                    {filteredVariants.map((variant) => (
+                      <TeamPill
+                        key={variant.id}
+                        variant={variant}
+                        selected={!rosterMode && selectedIds.includes(variant.id)}
+                        wide={isDivisionBreak || isPlayerBreak}
+                        onSelect={() => {
+                          if (rosterMode || !variantIsAvailable(variant)) return;
+                          void Haptics.selectionAsync().catch(() => {});
+                          toggleSpot(variant.id);
+                        }}
+                      />
+                    ))}
+                  </View>
+                  {showSpotSearch && !rosterMode && filteredVariants.length === 0 ? (
+                    <LiveRoomText style={styles.pickerHint}>No players match that search.</LiveRoomText>
+                  ) : null}
+                </>
               )}
             </View>
 
-            <View style={styles.summaryCard}>
-              <SummaryRow
-                icon="pricetag-outline"
-                label="Spot price"
-                value={selected ? fmtMoney(spotPrice) : '—'}
-              />
-              <SummaryRow
-                icon="cube-outline"
-                label="Shipping"
-                value={shippingSummaryValue}
-              />
-              <SummaryRow
-                icon="receipt-outline"
-                label="Taxes"
-                value={taxSummaryValue}
-              />
-            </View>
-            {effectivePreview?.taxNote ? (
-              <LiveRoomText style={styles.previewNote}>{effectivePreview.taxNote}</LiveRoomText>
+            {!rosterMode ? (
+              <>
+                <View style={styles.summaryCard}>
+                  <SummaryRow
+                    icon="pricetag-outline"
+                    label={selectionCount > 1 ? `Spot prices (${selectionCount})` : 'Spot price'}
+                    value={selectionCount > 0 ? fmtMoney(spotPrice) : '—'}
+                  />
+                  <SummaryRow
+                    icon="cube-outline"
+                    label="Shipping"
+                    value={shippingSummaryValue}
+                  />
+                  <SummaryRow
+                    icon="receipt-outline"
+                    label="Taxes"
+                    value={taxSummaryValue}
+                  />
+                </View>
+                {effectivePreview?.taxNote ? (
+                  <LiveRoomText style={styles.previewNote}>{effectivePreview.taxNote}</LiveRoomText>
+                ) : null}
+              </>
             ) : null}
 
             {error ? <LiveRoomText style={styles.error}>{error}</LiveRoomText> : null}
           </ScrollView>
 
+          {!rosterMode ? (
           <View style={styles.stickyBar}>
             <View style={styles.totalCol}>
               <LiveRoomText style={styles.totalLabel}>Total due</LiveRoomText>
-              <LiveRoomText style={styles.totalValue}>{selected ? fmtMoney(totalDue) : '—'}</LiveRoomText>
+              <LiveRoomText style={styles.totalValue}>
+                {selectionCount > 0 ? fmtMoney(totalDue) : '—'}
+              </LiveRoomText>
             </View>
             <View style={styles.payCol}>
               <HoldToBidButton
                 label={
-                  selected
+                  selectionCount > 0
                     ? isRandom
                       ? `Hold to buy · vault reveal · ${fmtMoney(chargeNow)}`
-                      : `Hold to buy · ${fmtMoney(chargeNow)}`
+                      : selectionCount > 1
+                        ? `Hold to buy · ${selectionCount} spots · ${fmtMoney(chargeNow)}`
+                        : `Hold to buy · ${fmtMoney(chargeNow)}`
                     : isRandom
                       ? 'Hold to buy'
-                      : 'Select a spot'
+                      : 'Select spots'
                 }
-                disabled={!selected || allSold}
+                disabled={selectionCount === 0 || allSold}
                 busy={busy}
                 onHoldStart={() => {
                   if (!accessToken?.trim()) {
@@ -572,6 +723,13 @@ export function LiveBreakSpotGridSheet({
               />
             </View>
           </View>
+          ) : (
+            <View style={styles.stickyBar}>
+              <Pressable style={styles.rosterDoneBtn} onPress={onClose} accessibilityRole="button">
+                <LiveRoomText style={styles.rosterDoneTxt}>Done</LiveRoomText>
+              </Pressable>
+            </View>
+          )}
         </View>
       </View>
     </Modal>
@@ -601,17 +759,37 @@ function SummaryRow({
 function TeamPill({
   variant,
   selected,
+  wide = false,
   onSelect,
 }: {
   variant: LiveItemVariantSnapshot;
   selected: boolean;
+  /** Divisions use 2 columns; teams use 4. */
+  wide?: boolean;
   onSelect: () => void;
 }) {
   const soldOut = !variantIsAvailable(variant);
+  // Same accent pattern as host `SellerBreakSpotBoardSheet` / setup grid — team board colors must match.
+  const accent = spotAccentColor(variant.label ?? '', variant.color, wide);
+  const lightAccent = isLightSpotAccent(accent);
+  const textPrimary = soldOut ? 'rgba(255,255,255,0.42)' : lightAccent ? '#111' : '#fff';
+  const textSecondary = soldOut
+    ? 'rgba(255,255,255,0.28)'
+    : lightAccent
+      ? 'rgba(0,0,0,0.62)'
+      : 'rgba(255,255,255,0.72)';
+
   return (
     <Pressable
       style={[
         styles.pill,
+        wide ? styles.pillWide : styles.pillTeam,
+        !soldOut && {
+          backgroundColor: lightAccent ? `${accent}ee` : `${accent}33`,
+          borderLeftWidth: 3,
+          borderLeftColor: accent,
+          borderColor: selected ? 'rgba(255,215,80,0.55)' : 'rgba(255,255,255,0.16)',
+        },
         soldOut && styles.pillSold,
         selected && !soldOut && styles.pillSelected,
       ]}
@@ -628,6 +806,7 @@ function TeamPill({
       <LiveRoomText
         style={[
           styles.pillLabel,
+          { color: textPrimary },
           soldOut && styles.pillLabelSold,
           selected && !soldOut && styles.pillLabelSelected,
         ]}
@@ -636,12 +815,14 @@ function TeamPill({
         {variant.label}
       </LiveRoomText>
       {!soldOut ? (
-        <LiveRoomText style={[styles.pillPrice, selected && styles.pillPriceSelected]}>
+        <LiveRoomText style={[styles.pillPrice, { color: textSecondary }, selected && styles.pillPriceSelected]}>
           {fmtMoney(variant.priceUsd)}
         </LiveRoomText>
       ) : (
         <LiveRoomText style={styles.pillSoldMeta} numberOfLines={1}>
-          {formatSoldSpotBuyerLabel(variant.buyerUsername)}
+          {variant.status === 'removed'
+            ? formatUnavailableSpotLabel()
+            : formatSoldSpotBuyerLabel(variant.buyerUsername)}
         </LiveRoomText>
       )}
     </Pressable>
@@ -817,6 +998,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: 'rgba(255,255,255,0.42)',
   },
+  spotSearch: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: radii.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#fff',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    fontSize: 14,
+  },
   randomRevealCard: {
     marginTop: 4,
     borderRadius: radii.md,
@@ -848,45 +1040,54 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   pill: {
-    minWidth: 88,
-    maxWidth: '48%',
-    flexGrow: 1,
-    borderRadius: 999,
+    borderRadius: radii.md,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.16)',
     backgroundColor: 'rgba(255,255,255,0.03)',
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 8,
     position: 'relative',
   },
+  /** 4 columns — matches pinned team board / host Teams sheet. */
+  pillTeam: {
+    minWidth: 72,
+    maxWidth: '23.5%',
+    flexGrow: 1,
+    flexBasis: '22%',
+  },
+  /** 2 columns for longer division names. */
+  pillWide: {
+    minWidth: 88,
+    maxWidth: '48%',
+    flexGrow: 1,
+    flexBasis: '46%',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+  },
   pillSelected: {
     borderColor: 'rgba(255,215,80,0.55)',
-    backgroundColor: 'rgba(255,190,40,0.1)',
   },
   pillSold: {
     borderStyle: 'dashed',
     borderColor: 'rgba(255,255,255,0.12)',
+    borderLeftColor: 'rgba(255,255,255,0.12)',
     backgroundColor: 'rgba(255,255,255,0.015)',
     opacity: 0.72,
   },
   pillLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: 'rgba(255,255,255,0.88)',
   },
   pillLabelSelected: {
     fontWeight: '900',
-    color: '#fff',
   },
   pillLabelSold: {
     textDecorationLine: 'line-through',
-    color: 'rgba(255,255,255,0.38)',
   },
   pillPrice: {
     marginTop: 2,
     fontSize: 10,
     fontWeight: '700',
-    color: 'rgba(255,255,255,0.5)',
     fontVariant: ['tabular-nums'],
   },
   pillPriceSelected: {
@@ -968,6 +1169,23 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,255,255,0.08)',
     backgroundColor: '#0b0b10',
+  },
+  rosterDoneBtn: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(212,175,55,0.14)',
+  },
+  rosterDoneTxt: {
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: '#f5e6a8',
   },
   totalCol: {
     minWidth: 88,

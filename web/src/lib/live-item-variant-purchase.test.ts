@@ -7,6 +7,9 @@ vi.mock("@/lib/stripe-tax", () => ({
   STRIPE_TAX_CODE_TANGIBLE: "tangible",
   stripeLineItemProductData: vi.fn(),
 }));
+vi.mock("@/lib/live-buy-now-purchase", () => ({
+  resolveBuyerDefaultShippingForOrder: vi.fn().mockResolvedValue(null),
+}));
 vi.mock("@/lib/seller-stripe-collect-ready", () => ({
   assertSellerStripeCollectReadyFromUser: vi.fn(),
   sellerStripeCollectSelect: {},
@@ -192,6 +195,59 @@ describe("finalizeLiveItemVariantPurchasePaid — FIX 4 atomic idempotent finali
     ]);
 
     expect(recordLiveShowCompletedSaleTx).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("finalizeLiveItemVariantPurchasePaid — bug #18: never mislabel a PayPal id as Stripe", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.liveItemVariantPurchase.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it("Stripe live variant purchase: a real PaymentIntent id is forwarded and persisted as-is", async () => {
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(
+      basePurchase({ fulfillmentOrderId: "ord_stripe" }),
+    );
+
+    await finalizeLiveItemVariantPurchasePaid("vp_1", "pi_3U2kAVRpBjIH1YA105xDPdno");
+
+    expect(finalizeStripeMarketplaceOrderPaid).toHaveBeenCalledWith(
+      "ord_stripe",
+      "pi_3U2kAVRpBjIH1YA105xDPdno",
+      null,
+    );
+    expect(prismaMock.liveItemVariantPurchase.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ stripePaymentIntentId: "pi_3U2kAVRpBjIH1YA105xDPdno" }),
+      }),
+    );
+  });
+
+  it("PayPal/Venmo live variant purchase: a PayPal capture id is never forwarded as a Stripe PaymentIntent id", async () => {
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(
+      basePurchase({ fulfillmentOrderId: "ord_paypal" }),
+    );
+
+    // The PayPal buyer rail returns its capture id through this same slot (see
+    // chargeLiveItemVariantPurchaseWithSavedCard) — it must never reach stripePaymentIntentId.
+    await finalizeLiveItemVariantPurchasePaid("vp_1", "21V88625P2888003D");
+
+    expect(finalizeStripeMarketplaceOrderPaid).toHaveBeenCalledWith("ord_paypal", null, null);
+    expect(prismaMock.liveItemVariantPurchase.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ stripePaymentIntentId: undefined }),
+      }),
+    );
+  });
+
+  it("falls back to a real Stripe id already on the purchase row, never a stale PayPal one", async () => {
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(
+      basePurchase({ fulfillmentOrderId: "ord_fallback", stripePaymentIntentId: "21V88625P2888003D" }),
+    );
+
+    await finalizeLiveItemVariantPurchasePaid("vp_1");
+
+    expect(finalizeStripeMarketplaceOrderPaid).toHaveBeenCalledWith("ord_fallback", null, null);
   });
 });
 

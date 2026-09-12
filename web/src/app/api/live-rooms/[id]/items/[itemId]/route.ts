@@ -19,7 +19,6 @@ import {
 import { parseLiveItemSalesFormat } from "@/lib/live-item-variant-serialize";
 import { settleAndChargeLiveAuctionLot, resetLiveAuctionLotAfterNoBids } from "@/lib/live-auction-finalize";
 import { liveRoomHostCommerceBlockResponse } from "@/lib/live-room-payment-failure";
-import { isMultiQuantityLiveAuctionItem } from "@/lib/live-auction-host-start";
 import { resolveUnpinnedActiveItemStatus } from "@/lib/resolve-unpinned-active-item-status";
 import { applyHighestPreBidToLiveItem } from "@/lib/live-auction-pre-bid";
 import {
@@ -121,6 +120,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     where: { id: itemId, liveRoomId },
     select: {
       id: true,
+      listingId: true,
       status: true,
       itemVersion: true,
       biddingOpen: true,
@@ -129,6 +129,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       salesFormat: true,
       quantity: true,
       quantityInitial: true,
+      priceUsd: true,
+      startingBidUsd: true,
       variantSpotCommerceDefault: true,
       activeSpotCommerceMode: true,
       auctionVariantId: true,
@@ -182,16 +184,42 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     if (nextFormat !== "buy_now" && nextFormat !== "auction") {
       return NextResponse.json({ error: "salesFormat must be buy_now or auction." }, { status: 400 });
     }
+
+    // Security fix: When switching from buy_now to auction, automatically set startingBidUsd 
+    // based on previous priceUsd to prevent purchase gap. This is atomic with the format change.
+    const prevFormat = item.salesFormat;
+    const updateData: {
+      salesFormat: string;
+      biddingOpen: boolean;
+      auctionEndsAt: Date | null;
+      currentBidUsd: number | null;
+      lastHighBidderId: string | null;
+      itemVersion: { increment: number };
+      startingBidUsd?: number;
+    } = {
+      salesFormat: nextFormat,
+      biddingOpen: false,
+      auctionEndsAt: null,
+      currentBidUsd: null,
+      lastHighBidderId: null,
+      itemVersion: { increment: 1 },
+    };
+
+    // When switching to auction, use the previous buy-it-now price as the starting bid
+    // to prevent a gap where users could buy for $1 (DEFAULT_STARTING_BID_USD)
+    if (prevFormat === "buy_now" && nextFormat === "auction") {
+      // If client explicitly sent startingBidUsd in this request, use it
+      // Otherwise, fall back to the previous priceUsd, then to 1
+      if (typeof body.startingBidUsd === "number" && Number.isFinite(body.startingBidUsd) && body.startingBidUsd > 0) {
+        updateData.startingBidUsd = body.startingBidUsd;
+      } else {
+        updateData.startingBidUsd = item.priceUsd ?? 1;
+      }
+    }
+
     await prisma.liveRoomItem.update({
       where: { id: itemId },
-      data: {
-        salesFormat: nextFormat,
-        biddingOpen: false,
-        auctionEndsAt: null,
-        currentBidUsd: null,
-        lastHighBidderId: null,
-        itemVersion: { increment: 1 },
-      },
+      data: updateData,
     });
     emitLiveRoomQueueItemsChanged(liveRoomId);
     const itemDto = await getLiveRoomItemSnapshotDto(itemId);
@@ -325,6 +353,68 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     }
     const ends = new Date(now.getTime() + n * 1000);
     try {
+      /**
+       * Auction/sale multi-unit lots used to clear `lastHighBidderId` and reopen without settling.
+       * That left proxy maxes from the prior unit, so the previous winner could be charged again
+       * at the prior hammer (or show as still leading). Break rooms already finalized first —
+       * auction/sale must do the same.
+       */
+      const priorRoundEnded =
+        (item.biddingOpen === true && item.auctionEndsAt != null && item.auctionEndsAt <= now) ||
+        (item.biddingOpen === false && Boolean(item.lastHighBidderId?.trim()) && item.auctionEndsAt != null);
+      if (
+        priorRoundEnded &&
+        (room.roomType === "auction" || room.roomType === "sale") &&
+        !isVariantSalesFormat(item.salesFormat)
+      ) {
+        const hasWinner = Boolean(item.lastHighBidderId?.trim());
+        try {
+          if (hasWinner) {
+            await settleAndChargeLiveAuctionLot({
+              liveRoomId,
+              itemId,
+              room: {
+                sellerId: room.sellerId,
+                roomType: room.roomType,
+                roomVersion: room.roomVersion,
+              },
+              trigger: "manual",
+            });
+          } else {
+            await resetLiveAuctionLotAfterNoBids({ liveRoomId, itemId, trigger: "manual" });
+          }
+        } catch (settleErr) {
+          const settleMsg = settleErr instanceof Error ? settleErr.message : "";
+          if (
+            settleMsg !== "ITEM_ALREADY_SOLD" &&
+            settleMsg !== "ITEM_NOT_ACTIVE" &&
+            settleMsg !== "LIVE_AUCTION_NO_WINNER" &&
+            settleMsg !== "ITEM_NOT_FOUND"
+          ) {
+            throw settleErr;
+          }
+          if (settleMsg === "LIVE_AUCTION_NO_WINNER") {
+            await resetLiveAuctionLotAfterNoBids({ liveRoomId, itemId, trigger: "manual" });
+          }
+        }
+        const afterSettle = await prisma.liveRoomItem.findFirst({
+          where: { id: itemId, liveRoomId },
+          select: { status: true, quantity: true },
+        });
+        if (!afterSettle || afterSettle.status === "sold" || afterSettle.quantity < 1) {
+          const itemDto = await getLiveRoomItemSnapshotDto(itemId);
+          return NextResponse.json({
+            ok: true,
+            breakRoundClosed: true,
+            serverNowMs: Date.now(),
+            biddingOpen: false,
+            auctionEndsAt: null,
+            clutchTimeEnabled: false,
+            item: itemDto,
+          });
+        }
+      }
+
       const needsBreakPriorFinalize =
         room.roomType === "break" &&
         item.biddingOpen === true &&
@@ -332,6 +422,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
         item.auctionEndsAt <= now;
 
       let fin: BreakRoundFinalizeResult = { finalized: false, skipStartAuction: false };
+      let breakChargePaymentStatus: string | undefined;
       if (needsBreakPriorFinalize) {
         const tBreak0 = Date.now();
         fin = await prisma.$transaction(
@@ -348,9 +439,33 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
           skipStartAuction: fin.skipStartAuction,
         });
         if (fin.pendingWinNotifications) {
-          void sendBreakAuctionWinNotificationsDeferred(fin.pendingWinNotifications).catch((err) =>
-            console.error("[live-room item PATCH startAuction] deferred win notifications", err),
-          );
+          try {
+            const charge = await sendBreakAuctionWinNotificationsDeferred(fin.pendingWinNotifications);
+            breakChargePaymentStatus =
+              charge.outcome === "paid"
+                ? "paid"
+                : charge.outcome === "requires_action" || charge.outcome === "processing"
+                  ? "requires_action"
+                  : charge.outcome === "error"
+                    ? "payment_failed"
+                    : "pending";
+          } catch (err) {
+            console.error("[live-room item PATCH startAuction] win charge/notify", err);
+            breakChargePaymentStatus = "payment_failed";
+          }
+        }
+        if (fin.finalized && fin.orderId && breakChargePaymentStatus && !fin.skipStartAuction) {
+          const [roomRow, itemRow] = await Promise.all([
+            prisma.liveRoom.findUnique({ where: { id: liveRoomId }, select: { roomVersion: true } }),
+            prisma.liveRoomItem.findUnique({ where: { id: itemId }, select: { itemVersion: true } }),
+          ]);
+          emitPurchaseCompleted(liveRoomId, itemId, {
+            roomVersion: roomRow?.roomVersion ?? room.roomVersion,
+            itemVersion: itemRow?.itemVersion ?? item.itemVersion,
+            orderId: fin.orderId,
+            paymentStatus: breakChargePaymentStatus,
+            itemSoldOut: false,
+          });
         }
       }
 
@@ -381,6 +496,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
           emitPurchaseCompleted(liveRoomId, itemId, {
             roomVersion: next.roomVersion,
             itemVersion: next.itemVersion,
+            orderId: fin.orderId ?? null,
+            ...(breakChargePaymentStatus ? { paymentStatus: breakChargePaymentStatus } : {}),
           });
         } catch (emitErr) {
           console.error("[live-room item PATCH startAuction] realtime emit failed (non-fatal)", emitErr);
@@ -403,12 +520,26 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       const tOpen0 = Date.now();
       const next = await prisma.$transaction(
         async (tx) => {
+          // Clear any prior-round high before applying pre-bids for this open (matches variant path).
+          await tx.liveRoomItem.updateMany({
+            where: { id: itemId, liveRoomId, status: "active" },
+            data: { currentBidUsd: null, lastHighBidderId: null },
+          });
           await applyHighestPreBidToLiveItem(tx, { liveRoomId, itemId });
           const u = await tx.liveRoomItem.updateMany({
             where: { id: itemId, liveRoomId, status: "active" },
             data: { biddingOpen: true, auctionEndsAt: ends, clutchTimeEnabled, itemVersion: { increment: 1 } },
           });
           if (u.count === 0) throw new Error("START_AUCTION_CONFLICT");
+          // Keep marketplace listing clock in sync with the live lot — otherwise
+          // placeLiveListingBid / closeAuctionIfDue can treat a stale listing.auctionEndsAt
+          // as ended while Hold-to-Bid is still open on the show.
+          if (item.listingId?.trim()) {
+            await tx.listing.update({
+              where: { id: item.listingId.trim() },
+              data: { status: "auction_live", auctionEndsAt: ends },
+            });
+          }
           const roomNext = await tx.liveRoom.update({
             where: { id: liveRoomId },
             data: { roomVersion: { increment: 1 } },
@@ -467,18 +598,97 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
 
   if (status === "active") {
     try {
-      const currentActive = await prisma.liveRoomItem.findFirst({
-        where: { liveRoomId, status: "active", id: { not: itemId } },
-        select: { id: true, salesFormat: true, biddingOpen: true },
+      const roomForFinalize = await prisma.liveRoom.findUnique({
+        where: { id: liveRoomId },
+        select: { sellerId: true, roomType: true, roomVersion: true },
       });
       if (
-        currentActive?.biddingOpen === true &&
-        !isVariantSalesFormat(currentActive.salesFormat)
+        roomForFinalize &&
+        (roomForFinalize.roomType === "auction" ||
+          roomForFinalize.roomType === "break" ||
+          roomForFinalize.roomType === "sale")
       ) {
-        return NextResponse.json(
-          { error: "End the live auction before pinning another lot." },
-          { status: 409 },
-        );
+        const {
+          closeLiveAuctionLotNoWinner,
+          finalizeOverdueLiveAuctionLotsForRoom,
+          settleAndChargeLiveAuctionLot,
+        } = await import("@/lib/live-auction-finalize");
+        await finalizeOverdueLiveAuctionLotsForRoom({
+          liveRoomId,
+          room: roomForFinalize,
+          trigger: "host_pin_lot",
+        });
+
+        const currentActive = await prisma.liveRoomItem.findFirst({
+          where: { liveRoomId, status: "active", id: { not: itemId } },
+          select: {
+            id: true,
+            salesFormat: true,
+            biddingOpen: true,
+            auctionEndsAt: true,
+            lastHighBidderId: true,
+          },
+        });
+        const isTimedAuction =
+          currentActive != null && !isVariantSalesFormat(currentActive.salesFormat);
+        const timerStillRunning =
+          isTimedAuction &&
+          currentActive.biddingOpen === true &&
+          (currentActive.auctionEndsAt == null || currentActive.auctionEndsAt.getTime() > Date.now());
+        if (timerStillRunning) {
+          return NextResponse.json(
+            { error: "End the live auction before pinning another lot." },
+            { status: 409 },
+          );
+        }
+
+        // Never demote a prior lot with a winner (or a just-ended timer) without settling.
+        // Pinning in the auto-close grace used to clear auctionEndsAt and leave lastHighBidderId,
+        // so buyers got charged for lot A while already watching/bidding lot B.
+        if (isTimedAuction && currentActive) {
+          const hasWinner = Boolean(currentActive.lastHighBidderId?.trim());
+          const needsClose =
+            hasWinner ||
+            currentActive.biddingOpen === true ||
+            currentActive.auctionEndsAt != null;
+          if (needsClose) {
+            try {
+              if (hasWinner) {
+                await settleAndChargeLiveAuctionLot({
+                  liveRoomId,
+                  itemId: currentActive.id,
+                  room: roomForFinalize,
+                  trigger: "host_pin_lot",
+                });
+              } else {
+                await closeLiveAuctionLotNoWinner({
+                  liveRoomId,
+                  itemId: currentActive.id,
+                  room: roomForFinalize,
+                  trigger: "host_pin_lot",
+                });
+              }
+            } catch (settleErr) {
+              const settleMsg = settleErr instanceof Error ? settleErr.message : "";
+              if (
+                settleMsg !== "ITEM_ALREADY_SOLD" &&
+                settleMsg !== "ITEM_NOT_ACTIVE" &&
+                settleMsg !== "LIVE_AUCTION_NO_WINNER" &&
+                settleMsg !== "ITEM_NOT_FOUND"
+              ) {
+                throw settleErr;
+              }
+              if (settleMsg === "LIVE_AUCTION_NO_WINNER") {
+                await closeLiveAuctionLotNoWinner({
+                  liveRoomId,
+                  itemId: currentActive.id,
+                  room: roomForFinalize,
+                  trigger: "host_pin_lot",
+                });
+              }
+            }
+          }
+        }
       }
 
       const switched = await prisma.$transaction(async (tx) => {
@@ -491,10 +701,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
             quantity: true,
             quantityInitial: true,
             status: true,
+            lastHighBidderId: true,
+            biddingOpen: true,
             variants: { select: { quantityRemaining: true, status: true } },
           },
         });
         for (const prior of priorActiveRows) {
+          // Refuse to silently demote a timed auction that still has a winner — settle must win.
+          if (
+            !isVariantSalesFormat(prior.salesFormat) &&
+            (prior.biddingOpen || Boolean(prior.lastHighBidderId?.trim()))
+          ) {
+            throw new Error("PRIOR_AUCTION_UNSETTLED");
+          }
           const nextStatus = resolveUnpinnedActiveItemStatus(prior);
           await tx.liveRoomItem.updateMany({
             where: { id: prior.id, liveRoomId, status: "active" },
@@ -542,6 +761,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       const msg = e instanceof Error ? e.message : "";
       if (msg === "ACTIVE_SWITCH_CONFLICT") {
         return NextResponse.json({ error: "Could not activate item due to concurrent updates. Refresh and retry." }, { status: 409 });
+      }
+      if (msg === "PRIOR_AUCTION_UNSETTLED") {
+        return NextResponse.json(
+          { error: "Finish settling the current auction before pinning another lot." },
+          { status: 409 },
+        );
       }
       console.error("[live-room item PATCH active]", e);
       return NextResponse.json({ error: "Could not switch active item." }, { status: 500 });
@@ -611,11 +836,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     return NextResponse.json({ error: "No updates." }, { status: 400 });
   }
 
+  // Host "skip" on an unsold active lot = reset the round. Never retire inventory on no sale.
   if (
     data.status === "skipped" &&
     item.status === "active" &&
     !item.lastHighBidderId?.trim() &&
-    isMultiQuantityLiveAuctionItem(item) &&
     (item.biddingOpen || item.auctionEndsAt != null)
   ) {
     const reset = await resetLiveAuctionLotAfterNoBids({

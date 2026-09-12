@@ -37,6 +37,8 @@ export async function endLiveRoomsForSuspendedSeller(
       data: {
         status: "ended",
         endedAt: new Date(),
+        viewerCount: 0,
+        viewerCountUpdatedAt: new Date(),
         // Mirrors the existing manual admin "end"/"cancel" actions exactly (`live-shows/[id]/actions`).
         ...liveShowEndGmvFields(room.completedSalesGmvUsd),
         roomVersion: { increment: 1 },

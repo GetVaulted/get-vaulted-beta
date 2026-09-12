@@ -1,17 +1,15 @@
-import { fetchWebApiMobile } from './fetchWebApiMobile';
+import { fetchWebApiMobileWithSellerAuth } from './resolveSellerAccessToken';
 
-/** Authenticated mobile → Next.js API (same transport as live-readiness / live-rooms). */
+/**
+ * Authenticated mobile → Next.js API.
+ * Refreshes the Supabase session (and retries once on 401) so long-lived live
+ * screens do not fail with "Invalid session" when the React accessToken prop is stale.
+ */
 export async function fetchWebApiAuthed(
   path: string,
   accessToken: string,
   init?: RequestInit,
+  options?: { timeoutMs?: number },
 ): Promise<Response> {
-  return fetchWebApiMobile(path, {
-    ...init,
-    headers: {
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      Authorization: `Bearer ${accessToken}`,
-      ...init?.headers,
-    },
-  });
+  return fetchWebApiMobileWithSellerAuth(path, accessToken, init, options);
 }

@@ -45,15 +45,24 @@ function friendlyMediaError(err: unknown): string {
 
 /** Max automatic publish rejoin attempts before surfacing an error to the host. */
 const HOST_MAX_REJOIN_ATTEMPTS = 5;
-/** Proactive host token refresh before the 60-minute TTL expires. */
-const HOST_TOKEN_REFRESH_MS = 50 * 60 * 1000;
+/** Proactive host token refresh before the 12-hour server TTL expires. */
+const HOST_TOKEN_REFRESH_MS = 11 * 60 * 60 * 1000;
 
 function mediaConstraints(videoDeviceId?: string, audioDeviceId?: string): MediaStreamConstraints {
+  const audio: MediaTrackConstraints = {
+    // Keep host mic levels consistent for viewers (bare `audio: true` often captures quietly).
+    autoGainControl: true,
+    echoCancellation: true,
+    noiseSuppression: true,
+  };
+  if (audioDeviceId) {
+    audio.deviceId = { exact: audioDeviceId };
+  }
   return {
     video: videoDeviceId
       ? { deviceId: { exact: videoDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
       : { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-    audio: audioDeviceId ? { deviceId: { exact: audioDeviceId } } : true,
+    audio,
   };
 }
 
@@ -88,7 +97,9 @@ export function useHostStagePublish({
   const ivsModuleRef = useRef<Awaited<typeof import("amazon-ivs-web-broadcast")> | null>(null);
   const reconnectPublishRef = useRef<(trigger: string) => void>(() => {});
   const [phase, setPhase] = useState<HostBroadcastPhase>("idle");
+  /** Publish / reconnect failures only — never set by preview so companion consoles stay clean. */
   const [error, setError] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [devices, setDevices] = useState<HostMediaDevices>({ video: [], audio: [] });
   const [selectedVideoDeviceId, setSelectedVideoDeviceId] = useState("");
@@ -164,13 +175,13 @@ export function useHostStagePublish({
 
   const startPreview = useCallback(async () => {
     if (stageRef.current) return;
-    setError(null);
+    setPreviewError(null);
     try {
       await acquireMedia({ previewOnly: true });
       setPhase("preview");
     } catch (err) {
       setPhase("idle");
-      setError(friendlyMediaError(err));
+      setPreviewError(friendlyMediaError(err));
     }
   }, [acquireMedia]);
 
@@ -179,16 +190,23 @@ export function useHostStagePublish({
       if (stageRef.current) return;
       setSelectedVideoDeviceId(videoDeviceId);
       setSelectedAudioDeviceId(audioDeviceId);
-      setError(null);
+      setPreviewError(null);
       try {
         await acquireMedia({ videoDeviceId, audioDeviceId, previewOnly: true });
         setPhase("preview");
       } catch (err) {
-        setError(friendlyMediaError(err));
+        setPreviewError(friendlyMediaError(err));
       }
     },
     [acquireMedia],
   );
+
+  const releasePreview = useCallback(() => {
+    if (stageRef.current || wentLiveRef.current) return;
+    stopMediaTracks();
+    setPreviewError(null);
+    setPhase("idle");
+  }, [stopMediaTracks]);
 
   useEffect(() => {
     if (!autoPreview) return;
@@ -300,7 +318,13 @@ export function useHostStagePublish({
           message: err instanceof Error ? err.message : "rejoin_failed",
         });
         if (reconnectAttemptsRef.current >= HOST_MAX_REJOIN_ATTEMPTS) {
-          setError("Live connection lost. End the show and go live again, or refresh the page.");
+          setError("Reconnecting to live…");
+          setTimeout(() => {
+            if (!intentionalStopRef.current && wentLiveRef.current) {
+              reconnectAttemptsRef.current = 0;
+              reconnectPublishRef.current("rejoin_loop");
+            }
+          }, 5_000);
         }
       } finally {
         reconnectInFlightRef.current = false;
@@ -418,6 +442,7 @@ export function useHostStagePublish({
   return {
     phase,
     error,
+    previewError,
     previewStream,
     devices,
     selectedVideoDeviceId,
@@ -427,6 +452,7 @@ export function useHostStagePublish({
     refreshDevices,
     startPreview,
     restartPreviewWithDevices,
+    releasePreview,
     start,
     stop,
     pause,

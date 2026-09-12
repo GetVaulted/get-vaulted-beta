@@ -5,17 +5,59 @@ import { getLiveRoomModeratorContext } from "@/lib/trust/live-room-moderation";
 import { checkRateLimit } from "@/lib/request-rate-limit";
 import { NextResponse } from "next/server";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
-import { reconcileStaleLiveStreamWithRoomStatus, syncLiveRoomStreamFromIvs } from "@/services/ivs";
+import {
+  ensureStageHlsCompositionActive,
+  reconcileStagePublisherHealth,
+  reconcileStaleLiveStreamWithRoomStatus,
+  syncLiveRoomStreamFromIvs,
+} from "@/services/ivs";
 import { getStreamRow, toBuyerSafeStreamPayload, toHostStreamPayload } from "./_shared";
 
-function clientKey(req: Request): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip")?.trim() || "unknown";
+/**
+ * Guests can never use WebRTC (see `viewerAuthenticated` gating on the client), so they depend
+ * entirely on the Stage→Channel HLS mirror. If it never started (or died), self-heal it here —
+ * rate-limited per room so many concurrent buyer polls only trigger one retry per window.
+ */
+function maybeHealStageComposition(roomId: string): void {
+  const rl = checkRateLimit(`stage-composition-heal:${roomId}`, { limit: 1, windowMs: 30_000 });
+  if (!rl.ok) return;
+  void ensureStageHlsCompositionActive(roomId).catch(() => {});
+}
+
+/** Keep streamHealth honest from Stage publishers (not the lagging HLS channel). */
+function maybeReconcileStagePublisherHealth(roomId: string): void {
+  const rl = checkRateLimit(`stage-publisher-health:${roomId}`, { limit: 1, windowMs: 15_000 });
+  if (!rl.ok) return;
+  void reconcileStagePublisherHealth(roomId).catch(() => {});
+}
+
+/** Keep channel_hls `streamHealth` honest from IVS GetStream (OBS path has no Stage publisher). */
+async function maybeSyncChannelHlsHealth(row: Awaited<ReturnType<typeof getStreamRow>>): Promise<
+  NonNullable<Awaited<ReturnType<typeof getStreamRow>>> | null
+> {
+  if (!row) return null;
+  if (row.streamMode !== "channel_hls" || !row.ivsChannelArn) return row;
+  if (row.streamHealth === "ended" || row.streamHealth === "not_provisioned") return row;
+  // Already live and recently synced — skip AWS call.
+  const syncedAt = row.lastIvsStatusSyncAt?.getTime() ?? 0;
+  const staleMs = Date.now() - syncedAt;
+  if (row.streamHealth === "live" && staleMs < 20_000) return row;
+  const rl = checkRateLimit(`channel-hls-health:${row.id}`, { limit: 1, windowMs: 12_000 });
+  if (!rl.ok) return row;
+  try {
+    await syncLiveRoomStreamFromIvs(row.id);
+    logIvsOpsServer("ivs_channel_hls_buyer_sync", { roomId: row.id, previousHealth: row.streamHealth });
+    return (await getStreamRow(row.id)) ?? row;
+  } catch {
+    logIvsOpsServer("ivs_channel_hls_buyer_sync_error", { roomId: row.id });
+    return row;
+  }
 }
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
-  const row = await getStreamRow(id);
+  let row = await getStreamRow(id);
   if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
 
   const url = new URL(req.url);
@@ -36,6 +78,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     try {
       const syncResult = await syncLiveRoomStreamFromIvs(id);
       const reconcileResult = await reconcileStaleLiveStreamWithRoomStatus(id);
+      await ensureStageHlsCompositionActive(id);
+      // Force past go-live grace: host reopen after kill must not see sticky `live` with 0 pubs.
+      await reconcileStagePublisherHealth(id, { force: true });
+      // OBS WHIP (or legacy RTMPS): Start Streaming auto-starts a scheduled show.
+      const { maybeAutoStartObsRoomOnIngestSignal } = await import("@/lib/live-obs-auto-start");
+      await maybeAutoStartObsRoomOnIngestSignal(id).catch(() => {});
       logIvsOpsServer("ivs_stream_sync_pull", {
         roomId: id,
         syncUpdated: syncResult?.kind === "updated",
@@ -48,8 +96,44 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const refreshed = await getStreamRow(id);
     if (!refreshed) return NextResponse.json({ error: "Room not found." }, { status: 404 });
 
-    return NextResponse.json({ stream: toHostStreamPayload(refreshed), viewerRole: "host" });
+    // Actual AWS channel latency (not just env config) — NORMAL ≈ 10–30s buyer delay.
+    let actualLatencyMode: string | null = null;
+    if (refreshed.ivsChannelArn) {
+      try {
+        const { getIvsChannelLatencyMode } = await import("@/services/ivs");
+        actualLatencyMode = await getIvsChannelLatencyMode(refreshed.ivsChannelArn);
+      } catch {
+        actualLatencyMode = null;
+      }
+    }
+
+    return NextResponse.json({
+      stream: {
+        ...toHostStreamPayload(refreshed),
+        actualLatencyMode,
+      },
+      viewerRole: "host",
+    });
   }
+
+  // OBS / channel_hls: buyers previously only saw DB health. Without host ?sync=1 or the IVS
+  // webhook, streamHealth stayed offline while OBS was already encoding. Throttled GetStream
+  // keeps playbackUrl + health honest for the HLS path.
+  row = (await maybeSyncChannelHlsHealth(row)) ?? row;
+
+  // Guests / in-app mini depend on Stage→Channel HLS. Prefer an explicit heal request
+  // (mini player recovery) over the soft poll throttle so Back→float can restart a dead mirror.
+  const wantsHeal =
+    url.searchParams.get("heal") === "1" || url.searchParams.get("heal") === "true";
+  if (wantsHeal) {
+    const rl = checkRateLimit(`stage-composition-heal-force:${id}`, { limit: 4, windowMs: 60_000 });
+    if (rl.ok) {
+      void ensureStageHlsCompositionActive(id).catch(() => {});
+    }
+  } else {
+    maybeHealStageComposition(id);
+  }
+  maybeReconcileStagePublisherHealth(id);
 
   const auth = await resolveLiveRoomsUserId(req);
   const userId = auth instanceof Response ? null : auth.userId;

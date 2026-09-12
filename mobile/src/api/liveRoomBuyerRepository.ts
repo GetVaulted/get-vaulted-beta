@@ -12,7 +12,12 @@ import { projectBuyerQueueLineup, type LiveRoomLineupItemSnapshot } from '../lib
 
 export type { LiveRoomLineupItemSnapshot };
 
-export type LiveItemSalesFormat = 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
+export type LiveItemSalesFormat =
+  | 'auction'
+  | 'buy_now'
+  | 'variant_selection'
+  | 'team_break'
+  | 'player_selection';
 
 export type LiveItemVariantSnapshot = {
   id: string;
@@ -59,6 +64,8 @@ export type LiveRoomBuyerSnapshot = {
   biddingOpen: boolean;
   currentBidUsd: number | null;
   minNextBidUsd: number | null;
+  /** Active lot row version — used to ignore stale bid ACKs from a prior unit. */
+  itemVersion?: number | null;
   auctionEndsAt: string | null;
   lotBidPhase: LiveAuctionLotBidPhase;
   /** Client wall time when this snapshot was fetched (for stale-sync UX). */
@@ -88,6 +95,20 @@ export type LiveRoomBuyerSnapshot = {
   lineupItems?: LiveRoomLineupItemSnapshot[];
   /** Checkout totals for active PYT/PYD item (from room GET when wallet ready). */
   variantCheckoutPreview?: LiveVariantCheckoutPreview | null;
+  /** Shipping + tax for the active auction / buy-now pinned lot (pinned-box line). */
+  activeItemShippingTax?: LivePinnedShippingTax | null;
+};
+
+/** Shipping + tax for the active auction / buy-now pinned lot (not PYT/PYD spots). */
+export type LivePinnedShippingTax = {
+  liveRoomItemId: string;
+  /** Auction lot (final price unknown) → show "+ Tax" instead of a computed amount. */
+  isAuction: boolean;
+  shippingUsd: number;
+  shippingDisplay: string;
+  taxApplies: boolean;
+  taxUsd: number;
+  taxDisplay: string;
 };
 
 import { LiveBidError } from '../lib/liveBidUserErrors';
@@ -110,6 +131,21 @@ function parseVariantCheckoutPreview(raw: unknown): LiveVariantCheckoutPreview |
   };
 }
 
+function parsePinnedShippingTax(raw: unknown): LivePinnedShippingTax | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.liveRoomItemId !== 'string') return null;
+  return {
+    liveRoomItemId: o.liveRoomItemId,
+    isAuction: o.isAuction === true,
+    shippingUsd: typeof o.shippingUsd === 'number' ? o.shippingUsd : 0,
+    shippingDisplay: typeof o.shippingDisplay === 'string' ? o.shippingDisplay : '',
+    taxApplies: o.taxApplies === true,
+    taxUsd: typeof o.taxUsd === 'number' ? o.taxUsd : 0,
+    taxDisplay: typeof o.taxDisplay === 'string' ? o.taxDisplay : '',
+  };
+}
+
 function apiErrorMessage(res: Response, body: unknown): string {
   if (body && typeof body === 'object') {
     const o = body as { error?: string; signInUrl?: string };
@@ -119,7 +155,13 @@ function apiErrorMessage(res: Response, body: unknown): string {
 }
 
 function parseSalesFormat(raw: unknown): LiveItemSalesFormat | null {
-  if (raw === 'auction' || raw === 'buy_now' || raw === 'variant_selection' || raw === 'team_break') {
+  if (
+    raw === 'auction' ||
+    raw === 'buy_now' ||
+    raw === 'variant_selection' ||
+    raw === 'team_break' ||
+    raw === 'player_selection'
+  ) {
     return raw;
   }
   return null;
@@ -252,6 +294,7 @@ export async function fetchLiveRoomBuyerSnapshot(
       buyerLiveShippingReady?: boolean;
       buyerUnresolvedPaymentFailure?: unknown;
       variantCheckoutPreview?: unknown;
+      activeItemShippingTax?: unknown;
       activeItem?: {
         id?: string;
         title?: string;
@@ -266,6 +309,7 @@ export async function fetchLiveRoomBuyerSnapshot(
         priceUsd?: number | null;
         lastHighBidderId?: string | null;
         lastHighBidderUsername?: string | null;
+        itemVersion?: number;
         auctionEndsAt?: string | null;
         variantAssignmentMode?: 'pick' | 'random';
         variants?: unknown;
@@ -367,6 +411,10 @@ export async function fetchLiveRoomBuyerSnapshot(
     biddingOpen: lotBidPhase === 'bidding_open',
     currentBidUsd: typeof current === 'number' ? current : null,
     minNextBidUsd: minNext,
+    itemVersion:
+      typeof active?.itemVersion === 'number' && Number.isFinite(active.itemVersion)
+        ? Math.max(0, Math.floor(active.itemVersion))
+        : null,
     auctionEndsAt: active?.auctionEndsAt ?? null,
     lotBidPhase,
     fetchedAtMs,
@@ -391,6 +439,10 @@ export async function fetchLiveRoomBuyerSnapshot(
     variantCheckoutPreview:
       detail?.variantCheckoutPreview != null
         ? parseVariantCheckoutPreview(detail.variantCheckoutPreview)
+        : undefined,
+    activeItemShippingTax:
+      detail?.activeItemShippingTax != null
+        ? parsePinnedShippingTax(detail.activeItemShippingTax)
         : undefined,
   };
   logBuyerRoomStateSnapshot('fetch', snapshot);

@@ -1,5 +1,8 @@
 import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 
+/** Same budget as variant spot checkout — Stripe + fulfillment work often exceeds 15s on Android. */
+const BUY_NOW_TIMEOUT_MS = 45_000;
+
 export type LiveBuyNowPurchaseResult =
   | { ok: true; paid: true; orderId?: string }
   | {
@@ -107,6 +110,7 @@ export async function purchaseLiveBuyNow(args: {
       },
       body: JSON.stringify({ paymentMethodId: args.paymentMethodId }),
     },
+    { timeoutMs: BUY_NOW_TIMEOUT_MS },
   );
 
   let payload: BuyPayload = {};
@@ -135,6 +139,7 @@ export async function syncLiveBuyNowPurchase(args: {
       },
       body: JSON.stringify({ action: 'sync', orderId: args.orderId }),
     },
+    { timeoutMs: BUY_NOW_TIMEOUT_MS },
   );
 
   let payload: BuyPayload = {};

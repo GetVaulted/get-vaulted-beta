@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
+import { moneyFlowLog } from "@/lib/money-flow-log";
 import {
   isMarketplaceSaleTaxEligible,
   resolveTaxCollectionForDestination,
@@ -10,6 +11,45 @@ import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { normalizeUsStateCode } from "@/lib/us-state-code";
 
 export { normalizeUsStateCode } from "@/lib/us-state-code";
+
+const TAX_CALC_CACHE_TTL_MS = 10 * 60 * 1000;
+type TaxCalcCacheEntry = {
+  expiresAt: number;
+  result: { taxAmountCents: number; taxCalculationId: string | null; collectTax: boolean };
+};
+const taxCalcCache = new Map<string, TaxCalcCacheEntry>();
+const taxCalcInflight = new Map<
+  string,
+  Promise<{ taxAmountCents: number; taxCalculationId: string | null; collectTax: boolean }>
+>();
+
+/** Test-only: clear tax calculation fingerprint cache. */
+export function resetTaxCalculationCacheForTests(): void {
+  taxCalcCache.clear();
+  taxCalcInflight.clear();
+}
+
+export function taxCalculationFingerprint(args: {
+  itemCents: number;
+  shippingCents: number;
+  shipTo: ShipToAddress;
+  sellerShipFrom?: ShipFromAddress | null;
+}): string {
+  const to = normalizeShipToAddress(args.shipTo);
+  const from = args.sellerShipFrom ? normalizeShipFromAddress(args.sellerShipFrom) : null;
+  return [
+    args.itemCents,
+    args.shippingCents,
+    to.shipCountry,
+    to.shipState,
+    to.shipZip,
+    to.shipCity.toLowerCase(),
+    to.shipAddress.toLowerCase().slice(0, 80),
+    from?.country ?? "",
+    from?.state ?? "",
+    from?.postalCode ?? "",
+  ].join("|");
+}
 
 /** Tangible personal property (general merchandise). */
 export const STRIPE_TAX_CODE_TANGIBLE = "txcd_99999999";
@@ -185,24 +225,68 @@ export function connectCheckoutPaymentIntentData(args: {
   applicationFeeCents: number;
   sellerTransferCents: number | null;
   metadata: Record<string, string>;
+  /**
+   * Stripe processing fee (cents) passed through to the seller so the platform nets its full
+   * application fee. Added to `application_fee_amount` (untaxed) or subtracted from the explicit
+   * seller transfer (taxed). Defaults to 0 (platform absorbs).
+   */
+  processingFeeCents?: number;
+  /** Platform-funded referral credit (cents). Untaxed: reduces application fee. */
+  referralCreditAppliedCents?: number;
+  /** Max transfer ex-tax (buyer item + shipping). Caps transfer when credit exceeds fee + processing. */
+  maxSellerTransferCents?: number;
 }): Pick<
   Stripe.Checkout.SessionCreateParams.PaymentIntentData,
   "application_fee_amount" | "transfer_data" | "metadata"
 > {
+  const processing = Math.max(0, Math.round(args.processingFeeCents ?? 0));
+  const credit = Math.max(0, Math.round(args.referralCreditAppliedCents ?? 0));
   if (args.sellerTransferCents != null) {
+    let amount = Math.max(0, args.sellerTransferCents - processing);
+    if (args.maxSellerTransferCents != null) {
+      amount = Math.min(amount, Math.max(0, Math.round(args.maxSellerTransferCents)));
+    }
     return {
       transfer_data: {
         destination: args.destinationAccountId,
-        amount: args.sellerTransferCents,
+        amount,
       },
       metadata: args.metadata,
     };
   }
   return {
-    application_fee_amount: args.applicationFeeCents,
+    application_fee_amount: Math.max(0, args.applicationFeeCents + processing - credit),
     transfer_data: { destination: args.destinationAccountId },
     metadata: args.metadata,
   };
+}
+
+/** Omit Connect transfer when seller payout rail is PayPal (platform-held charge). */
+export function connectOrPlatformHeldCheckoutPaymentIntentData(args: {
+  sellerPayoutProcessor: "STRIPE" | "PAYPAL";
+  destinationAccountId: string | null;
+  applicationFeeCents: number;
+  sellerTransferCents: number | null;
+  metadata: Record<string, string>;
+  processingFeeCents?: number;
+  referralCreditAppliedCents?: number;
+  maxSellerTransferCents?: number;
+}): Pick<
+  Stripe.Checkout.SessionCreateParams.PaymentIntentData,
+  "application_fee_amount" | "transfer_data" | "metadata"
+> {
+  if (args.sellerPayoutProcessor === "PAYPAL" || !args.destinationAccountId?.trim()) {
+    return { metadata: args.metadata };
+  }
+  return connectCheckoutPaymentIntentData({
+    destinationAccountId: args.destinationAccountId.trim(),
+    applicationFeeCents: args.applicationFeeCents,
+    sellerTransferCents: args.sellerTransferCents,
+    metadata: args.metadata,
+    processingFeeCents: args.processingFeeCents,
+    referralCreditAppliedCents: args.referralCreditAppliedCents,
+    maxSellerTransferCents: args.maxSellerTransferCents,
+  });
 }
 
 function checkoutAutomaticTaxFields(): CheckoutTaxSessionFields["automatic_tax"] {
@@ -252,14 +336,25 @@ export async function buildCheckoutTaxSessionFields(args: {
 export async function buildMarketplaceCheckoutTaxBundle(args: {
   buyerId: string;
   shipTo: ShipToAddress;
+  /** Buyer-paid item (after optional referral discount). Tax is based on this amount. */
   itemPriceUsd: number;
   shippingPriceUsd: number;
   applicationFeeCents: number;
+  /**
+   * Platform-funded store credit already subtracted from `itemPriceUsd`. Seller transfer uses
+   * the full item so the seller is not cut.
+   */
+  referralCreditAppliedUsd?: number | null;
+  platformCreditAppliedUsd?: number | null;
   sellerShipFrom?: ShipFromAddress | null;
 }): Promise<MarketplaceCheckoutTaxBundle> {
   const shipTo = normalizeShipToAddress(args.shipTo);
   const sellerShipFrom = args.sellerShipFrom ? normalizeShipFromAddress(args.sellerShipFrom) : null;
   const itemCents = Math.round(Math.max(0, args.itemPriceUsd) * 100);
+  const creditCents =
+    Math.round(Math.max(0, args.referralCreditAppliedUsd ?? 0) * 100) +
+    Math.round(Math.max(0, args.platformCreditAppliedUsd ?? 0) * 100);
+  const fullItemCents = itemCents + creditCents;
   const shippingCents = Math.round(Math.max(0, args.shippingPriceUsd) * 100);
   const feeCents = Math.max(0, Math.round(args.applicationFeeCents));
 
@@ -285,7 +380,7 @@ export async function buildMarketplaceCheckoutTaxBundle(args: {
     });
 
     if (est.taxAmountCents > 0) {
-      const sellerTransferCents = Math.max(0, itemCents + shippingCents - feeCents);
+      const sellerTransferCents = Math.max(0, fullItemCents + shippingCents - feeCents);
       return {
         // Explicit tax line item — no automatic_tax or customer on Connect destination checkout.
         sessionFields: {},
@@ -396,7 +491,7 @@ export async function fetchPaymentIntentTax(paymentIntentId: string): Promise<Ex
   }
 }
 
-/** Estimate sales tax via Stripe Tax Calculation API (no hardcoded rates). */
+/** Estimate sales tax via Stripe Tax Calculation API (no hardcoded rates). Fingerprint-cached. */
 export async function estimateSalesTaxCents(args: {
   itemPriceUsd: number;
   shippingPriceUsd: number;
@@ -416,78 +511,123 @@ export async function estimateSalesTaxCents(args: {
     return { taxAmountCents: 0, taxCalculationId: null, collectTax: true };
   }
 
-  const stripe = getStripe();
-  const lineItems: Stripe.Tax.CalculationCreateParams.LineItem[] = [];
-  if (itemCents > 0) {
-    lineItems.push({
-      amount: itemCents,
-      reference: "item",
-      tax_code: STRIPE_TAX_CODE_TANGIBLE,
-      tax_behavior: "exclusive",
+  const fingerprint = taxCalculationFingerprint({
+    itemCents,
+    shippingCents,
+    shipTo,
+    sellerShipFrom,
+  });
+  const cached = taxCalcCache.get(fingerprint);
+  if (cached && cached.expiresAt > Date.now()) {
+    moneyFlowLog("tax_calculation_reused", {
+      fingerprint,
+      taxCalculationId: cached.result.taxCalculationId,
+      taxAmountCents: cached.result.taxAmountCents,
     });
+    return cached.result;
   }
 
-  let calculation: Stripe.Tax.Calculation;
-  try {
-    calculation = await stripe.tax.calculations.create({
-      currency: "usd",
-      line_items: lineItems,
-      ...(shippingCents > 0
-        ? {
-            shipping_cost: {
-              amount: shippingCents,
-              tax_code: STRIPE_TAX_CODE_SHIPPING,
-              tax_behavior: "exclusive",
-            },
-          }
-        : {}),
-      customer_details: {
-        address: {
-          line1: shipTo.shipAddress.slice(0, 500),
-          city: shipTo.shipCity.slice(0, 120),
-          state: shipTo.shipState,
-          postal_code: shipTo.shipZip.slice(0, 32),
-          country: shipTo.shipCountry,
-        },
-        address_source: "shipping",
-      },
-      ...(sellerShipFrom
-        ? {
-            ship_from_details: {
-              address: {
-                line1: sellerShipFrom.line1.slice(0, 500),
-                city: sellerShipFrom.city.slice(0, 120),
-                state: sellerShipFrom.state,
-                postal_code: sellerShipFrom.postalCode.slice(0, 32),
-                country: sellerShipFrom.country,
-              },
-            },
-          }
-        : {}),
-    });
-  } catch (e) {
-    console.error("[stripe-tax] estimateSalesTaxCents", e);
-    const buyerState = normalizeUsStateCode(shipTo.shipState);
-    if (buyerState === "TX") {
-      return {
-        taxAmountCents: texasFallbackTaxCents(itemCents, shippingCents),
-        taxCalculationId: null,
-        collectTax: true,
-      };
+  const inflight = taxCalcInflight.get(fingerprint);
+  if (inflight) return inflight;
+
+  const run = (async () => {
+    const stripe = getStripe();
+    const lineItems: Stripe.Tax.CalculationCreateParams.LineItem[] = [];
+    if (itemCents > 0) {
+      lineItems.push({
+        amount: itemCents,
+        reference: "item",
+        tax_code: STRIPE_TAX_CODE_TANGIBLE,
+        tax_behavior: "exclusive",
+      });
     }
-    throw e;
-  }
 
-  let taxAmountCents = sumTaxBreakdownCents(calculation);
-  if (taxAmountCents <= 0 && normalizeUsStateCode(shipTo.shipState) === "TX") {
-    taxAmountCents = texasFallbackTaxCents(itemCents, shippingCents);
-  }
+    let calculation: Stripe.Tax.Calculation;
+    try {
+      calculation = await stripe.tax.calculations.create(
+        {
+          currency: "usd",
+          line_items: lineItems,
+          ...(shippingCents > 0
+            ? {
+                shipping_cost: {
+                  amount: shippingCents,
+                  tax_code: STRIPE_TAX_CODE_SHIPPING,
+                  tax_behavior: "exclusive",
+                },
+              }
+            : {}),
+          customer_details: {
+            address: {
+              line1: shipTo.shipAddress.slice(0, 500),
+              city: shipTo.shipCity.slice(0, 120),
+              state: shipTo.shipState,
+              postal_code: shipTo.shipZip.slice(0, 32),
+              country: shipTo.shipCountry,
+            },
+            address_source: "shipping",
+          },
+          ...(sellerShipFrom
+            ? {
+                ship_from_details: {
+                  address: {
+                    line1: sellerShipFrom.line1.slice(0, 500),
+                    city: sellerShipFrom.city.slice(0, 120),
+                    state: sellerShipFrom.state,
+                    postal_code: sellerShipFrom.postalCode.slice(0, 32),
+                    country: sellerShipFrom.country,
+                  },
+                },
+              }
+            : {}),
+        },
+        { idempotencyKey: `taxcalc_${fingerprint}`.slice(0, 255) },
+      );
+    } catch (e) {
+      console.error("[stripe-tax] estimateSalesTaxCents", e);
+      const buyerState = normalizeUsStateCode(shipTo.shipState);
+      if (buyerState === "TX") {
+        return {
+          taxAmountCents: texasFallbackTaxCents(itemCents, shippingCents),
+          taxCalculationId: null,
+          collectTax: true,
+        };
+      }
+      // Never block live / marketplace checkout on Stripe Tax outages or address edge cases.
+      // Layaway already soft-fails the same way; throwing here aborted PYD/spot charges with an
+      // opaque "Could not complete purchase" for non-TX buyers while TX buyers still succeeded.
+      console.warn("[stripe-tax] estimateSalesTaxCents soft-fail; proceeding without tax", {
+        buyerState,
+        fingerprint,
+      });
+      return { taxAmountCents: 0, taxCalculationId: null, collectTax: false };
+    }
 
-  return {
-    taxAmountCents,
-    taxCalculationId: calculation.id ?? null,
-    collectTax: true,
-  };
+    let taxAmountCents = sumTaxBreakdownCents(calculation);
+    if (taxAmountCents <= 0 && normalizeUsStateCode(shipTo.shipState) === "TX") {
+      taxAmountCents = texasFallbackTaxCents(itemCents, shippingCents);
+    }
+
+    const result = {
+      taxAmountCents,
+      taxCalculationId: calculation.id ?? null,
+      collectTax: true as const,
+    };
+    taxCalcCache.set(fingerprint, { expiresAt: Date.now() + TAX_CALC_CACHE_TTL_MS, result });
+    moneyFlowLog("tax_calculation_created", {
+      fingerprint,
+      taxCalculationId: result.taxCalculationId,
+      taxAmountCents: result.taxAmountCents,
+    });
+    return result;
+  })();
+
+  taxCalcInflight.set(fingerprint, run);
+  try {
+    return await run;
+  } finally {
+    taxCalcInflight.delete(fingerprint);
+  }
 }
 
 export async function fetchCheckoutSessionTax(checkoutSessionId: string): Promise<ExtractedCheckoutTax | null> {
@@ -504,32 +644,246 @@ export async function fetchCheckoutSessionTax(checkoutSessionId: string): Promis
 
 /**
  * Record a completed sale against Stripe Tax so it appears in Stripe's own tax reporting/filing
- * dashboard and counts toward economic-nexus threshold monitoring. `estimateSalesTaxCents` only
- * creates a *Calculation* (a quote) — it does not, by itself, tell Stripe Tax that the sale
- * actually happened. Without this call, tax is still correctly charged to the buyer (via the
- * explicit line item) and correctly recorded in this app's own ledger, but Stripe's Tax dashboard
- * (and any automated filing built on top of it) will never see the transaction, which is a real
- * compliance/reporting gap for a business relying on Stripe Tax for return-ready reports.
- *
- * Idempotent by design: Stripe treats repeat calls against the *same calculation* as a no-op
- * (returns the existing transaction), so this is safe to call from webhook handlers that may be
- * redelivered. Must never throw into a payment-finalization path — a failure here means Stripe's
- * own reporting is incomplete for this sale, not that money moved incorrectly, so callers should
- * invoke this fire-and-forget after the order is otherwise fully finalized.
+ * dashboard. Idempotent: same calculation / `tax_txn_${orderId}` key returns the existing txn.
+ * Persists `Order.stripeTaxTransactionId` when `persistToOrderId` is set. Never throws.
  */
 export async function recordStripeTaxTransaction(args: {
   taxCalculationId: string | null;
   reference: string;
-}): Promise<void> {
-  if (!args.taxCalculationId || !isStripeConfigured()) return;
+  /** When set, skip Stripe if the order already has a tax transaction id. */
+  persistToOrderId?: string | null;
+}): Promise<string | null> {
+  if (!args.taxCalculationId || !isStripeConfigured()) return null;
+
+  const orderId = args.persistToOrderId?.trim() || null;
+  if (orderId) {
+    const existing = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: { stripeTaxTransactionId: true },
+    });
+    if (existing?.stripeTaxTransactionId) {
+      moneyFlowLog("tax_transaction_skipped_duplicate", {
+        orderId,
+        stripeTaxTransactionId: existing.stripeTaxTransactionId,
+      });
+      return existing.stripeTaxTransactionId;
+    }
+  }
+
   try {
     const stripe = getStripe();
-    await stripe.tax.transactions.createFromCalculation({
-      calculation: args.taxCalculationId,
+    const txn = await stripe.tax.transactions.createFromCalculation(
+      {
+        calculation: args.taxCalculationId,
+        reference: args.reference,
+      },
+      { idempotencyKey: `tax_txn_${args.reference}`.slice(0, 255) },
+    );
+    const txnId = typeof txn.id === "string" ? txn.id : null;
+    moneyFlowLog("tax_transaction_created", {
       reference: args.reference,
+      taxCalculationId: args.taxCalculationId,
+      stripeTaxTransactionId: txnId,
     });
+    if (orderId && txnId) {
+      await prisma.order.updateMany({
+        where: { id: orderId, stripeTaxTransactionId: null },
+        data: { stripeTaxTransactionId: txnId },
+      });
+    }
+    return txnId;
   } catch (e) {
     console.error("[stripe-tax] recordStripeTaxTransaction failed", args.reference, args.taxCalculationId, e);
+    return null;
+  }
+}
+
+/**
+ * Reverse a Stripe Tax transaction after a refund that returns sales tax to the buyer.
+ * Idempotent via order column + Stripe idempotency key. Never throws.
+ */
+export async function reverseStripeTaxTransaction(args: {
+  orderId: string;
+  /** Portion of original tax being refunded (cents). Full remaining tax when omitted. */
+  reverseAmountCents?: number | null;
+  reason?: string;
+}): Promise<string | null> {
+  if (!isStripeConfigured()) return null;
+  const order = await prisma.order.findUnique({
+    where: { id: args.orderId },
+    select: {
+      stripeTaxTransactionId: true,
+      stripeTaxTransactionReversalId: true,
+      taxAmountCents: true,
+      taxRefundedCents: true,
+    },
+  });
+  if (!order?.stripeTaxTransactionId) return null;
+  if (order.stripeTaxTransactionReversalId) {
+    moneyFlowLog("tax_transaction_skipped_duplicate", {
+      orderId: args.orderId,
+      stripeTaxTransactionReversalId: order.stripeTaxTransactionReversalId,
+      kind: "reversal",
+    });
+    return order.stripeTaxTransactionReversalId;
+  }
+
+  const originalTax = Math.max(0, order.taxAmountCents ?? 0);
+  const alreadyRefunded = Math.max(0, order.taxRefundedCents ?? 0);
+  const reverseCents =
+    args.reverseAmountCents != null
+      ? Math.max(0, Math.round(args.reverseAmountCents))
+      : Math.max(0, originalTax - alreadyRefunded);
+  if (reverseCents <= 0 || originalTax <= 0) return null;
+
+  try {
+    const stripe = getStripe();
+    const reversal = await stripe.tax.transactions.createReversal(
+      {
+        original_transaction: order.stripeTaxTransactionId,
+        reference: `${args.orderId}_tax_rev`,
+        mode: reverseCents >= originalTax ? "full" : "partial",
+        ...(reverseCents < originalTax
+          ? {
+              flat_amount: -reverseCents,
+            }
+          : {}),
+        metadata: {
+          orderId: args.orderId,
+          reason: (args.reason ?? "refund").slice(0, 500),
+        },
+      },
+      { idempotencyKey: `tax_rev_${args.orderId}_${reverseCents}`.slice(0, 255) },
+    );
+    const reversalId = typeof reversal.id === "string" ? reversal.id : null;
+    moneyFlowLog("tax_transaction_reversed", {
+      orderId: args.orderId,
+      stripeTaxTransactionId: order.stripeTaxTransactionId,
+      stripeTaxTransactionReversalId: reversalId,
+      reverseCents,
+    });
+    if (reversalId) {
+      await prisma.order.updateMany({
+        where: { id: args.orderId, stripeTaxTransactionReversalId: null },
+        data: { stripeTaxTransactionReversalId: reversalId },
+      });
+    }
+    return reversalId;
+  } catch (e) {
+    console.error("[stripe-tax] reverseStripeTaxTransaction failed", args.orderId, e);
+    return null;
+  }
+}
+
+/**
+ * Best-effort, monitoring-only Stripe Tax record for a state we're NOT currently enabled to
+ * collect in (see `TaxNexusState`). Runs the real Tax Calculation + records it as a transaction so
+ * the sale shows up in Stripe's own Tax > Locations / economic-nexus threshold monitoring —
+ * otherwise a state we've never enabled is completely invisible to Stripe (it only tracks revenue
+ * for states it's seen a Tax API transaction for), and Stripe's own per-state threshold tracking
+ * (with each state's real grace period) can never fire.
+ *
+ * Never charges the buyer anything extra: this runs strictly after the order is already paid, and
+ * Stripe itself returns $0 tax for a jurisdiction with no active registration (see
+ * https://docs.stripe.com/tax/standalone-tax-api), so the calculation is informational only. Per
+ * Stripe's pricing, calculations are only billed for jurisdictions where you have an active
+ * registration — an unregistered state like this is free to monitor.
+ *
+ * No-op (and never throws) when: Stripe isn't configured, the ship-to isn't a recognized US state,
+ * or a real calculation already exists for this order (an enabled/registered state already went
+ * through the normal collect-tax path and has its own recorded transaction — recording a second
+ * one here would double-count that sale in Stripe's monitoring).
+ */
+export async function recordTaxMonitoringOnlyTransaction(args: {
+  orderId: string;
+  itemPriceUsd: number;
+  shippingPriceUsd: number;
+  shipTo: ShipToAddress;
+  sellerShipFrom?: ShipFromAddress | null;
+  /** Skip when a real (collected) calculation already exists for this order. */
+  alreadyHasCalculation: boolean;
+}): Promise<void> {
+  if (args.alreadyHasCalculation) return;
+  if (!isStripeConfigured()) return;
+
+  const shipTo = normalizeShipToAddress(args.shipTo);
+  if (shipTo.shipCountry !== "US") return;
+  const stateCode = normalizeUsStateCode(shipTo.shipState);
+  if (!stateCode) return;
+
+  const itemCents = Math.round(Math.max(0, args.itemPriceUsd) * 100);
+  const shippingCents = Math.round(Math.max(0, args.shippingPriceUsd) * 100);
+  if (itemCents + shippingCents <= 0) return;
+
+  try {
+    const stripe = getStripe();
+    const sellerShipFrom = args.sellerShipFrom ? normalizeShipFromAddress(args.sellerShipFrom) : null;
+    const lineItems: Stripe.Tax.CalculationCreateParams.LineItem[] = [];
+    if (itemCents > 0) {
+      lineItems.push({
+        amount: itemCents,
+        reference: "item",
+        tax_code: STRIPE_TAX_CODE_TANGIBLE,
+        tax_behavior: "exclusive",
+      });
+    }
+
+    const calculation = await stripe.tax.calculations.create(
+      {
+        currency: "usd",
+        line_items: lineItems,
+        ...(shippingCents > 0
+          ? {
+              shipping_cost: {
+                amount: shippingCents,
+                tax_code: STRIPE_TAX_CODE_SHIPPING,
+                tax_behavior: "exclusive",
+              },
+            }
+          : {}),
+        customer_details: {
+          address: {
+            line1: shipTo.shipAddress.slice(0, 500),
+            city: shipTo.shipCity.slice(0, 120),
+            state: shipTo.shipState,
+            postal_code: shipTo.shipZip.slice(0, 32),
+            country: shipTo.shipCountry,
+          },
+          address_source: "shipping",
+        },
+        ...(sellerShipFrom
+          ? {
+              ship_from_details: {
+                address: {
+                  line1: sellerShipFrom.line1.slice(0, 500),
+                  city: sellerShipFrom.city.slice(0, 120),
+                  state: sellerShipFrom.state,
+                  postal_code: sellerShipFrom.postalCode.slice(0, 32),
+                  country: sellerShipFrom.country,
+                },
+              },
+            }
+          : {}),
+      },
+      { idempotencyKey: `taxcalc_monitor_${args.orderId}`.slice(0, 255) },
+    );
+
+    await stripe.tax.transactions.createFromCalculation(
+      { calculation: calculation.id, reference: `${args.orderId}_monitor` },
+      { idempotencyKey: `tax_txn_monitor_${args.orderId}`.slice(0, 255) },
+    );
+    moneyFlowLog("tax_monitoring_transaction_created", {
+      orderId: args.orderId,
+      stateCode,
+      taxCalculationId: calculation.id,
+    });
+  } catch (e) {
+    // Best-effort — a monitoring gap for one order is far cheaper than blocking/breaking checkout.
+    console.warn("[stripe-tax] recordTaxMonitoringOnlyTransaction failed (non-blocking)", {
+      orderId: args.orderId,
+      stateCode,
+      e,
+    });
   }
 }
 

@@ -8,15 +8,18 @@ import { SettingsSectionHeader } from '../../components/settings/SettingsSection
 import { SettingsRow } from '../../components/platform/SettingsRow';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { useBuyerWalletReadiness } from '../../hooks/useBuyerWalletReadiness';
+import { useIsPlatformAdmin } from '../../hooks/useIsPlatformAdmin';
 import { useNotificationBadge } from '../../hooks/useNotificationBadge';
 import { useSellerSetupState } from '../../hooks/useSellerSetupState';
 import { buyerWalletStatusLabel } from '../../lib/buyerWalletReadinessDisplay';
 import { areDevToolsEnabled } from '../../lib/devTools';
 import { openLegalUrl } from '../../lib/openLegalUrl';
+import { openStoreListingForReview } from '../../lib/storeReview';
 import { LegalFooterLinks } from '../../components/legal/LegalFooterLinks';
 import { performSignOut, signOutSessionOptions } from '../../lib/signOutSession';
 import { sellerSetupMenuLabel } from '../../lib/seller-setup-state';
 import {
+  openAdminOps,
   openContactSupport,
   openHelpCenter,
   openMyOrders,
@@ -39,12 +42,13 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Settings'>;
 export function SettingsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { signOut, user, session } = useAuth();
-  const { count: notificationCount } = useNotificationBadge(user?.id);
+  const { count: notificationCount } = useNotificationBadge(user?.id, session?.access_token);
   const setup = useSellerSetupState(session?.access_token, user?.id, Boolean(user?.id));
   const activated = setup.activated;
   const setupPhase = setup.phase === 'loading' ? 'not_started' : setup.phase;
   const setupLabel = sellerSetupMenuLabel(setupPhase);
   const wallet = useBuyerWalletReadiness(session?.access_token, Boolean(session?.access_token));
+  const { isAdmin } = useIsPlatformAdmin(session?.access_token);
   const signOutOpts = signOutSessionOptions(user, session);
   const [pushBusy, setPushBusy] = useState(false);
 
@@ -174,6 +178,14 @@ export function SettingsScreen({ navigation }: Props) {
 
         <SettingsSectionHeader title="Legal & trust" />
         <SettingsRow
+          label="Rate Get Vaulted"
+          sub="Leave a review on the App Store or Google Play"
+          icon="star-outline"
+          onPress={() => {
+            void openStoreListingForReview();
+          }}
+        />
+        <SettingsRow
           label="Terms of Service"
           icon="document-text-outline"
           onPress={() => openLegalUrl('terms')}
@@ -193,6 +205,24 @@ export function SettingsScreen({ navigation }: Props) {
           icon="flag-outline"
           onPress={() => navigation.navigate('ReportingSafety')}
         />
+        <SettingsRow
+          label="Blocked users"
+          sub="People you blocked can’t find or see you"
+          icon="hand-left-outline"
+          onPress={() => navigation.navigate('BlockedUsers')}
+        />
+
+        {isAdmin ? (
+          <>
+            <SettingsSectionHeader title="Platform" />
+            <SettingsRow
+              label="Ops Command Center"
+              sub="Live shows, tickets, trust, orders, moderation"
+              icon="construct-outline"
+              onPress={() => openAdminOps(navigation)}
+            />
+          </>
+        ) : null}
 
         <SettingsSectionHeader title="Settings" />
         <SettingsRow

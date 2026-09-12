@@ -6,9 +6,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const findMany = vi.fn().mockResolvedValue([]);
 const createMany = vi.fn().mockResolvedValue({ count: 0 });
+const findUnique = vi.fn().mockResolvedValue({ discoveryVisibility: "public" });
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
+    liveRoom: { findUnique: (...a: unknown[]) => findUnique(...a) },
     sellerFollow: { findMany: (...a: unknown[]) => findMany(...a) },
     notification: { createMany: (...a: unknown[]) => createMany(...a) },
   },
@@ -19,6 +21,7 @@ import { notifyFollowersSellerWentLive } from "./seller-follow-notify";
 describe("notifyFollowersSellerWentLive", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    findUnique.mockResolvedValue({ discoveryVisibility: "public" });
   });
 
   it("caps the follower lookup", async () => {
@@ -43,5 +46,13 @@ describe("notifyFollowersSellerWentLive", () => {
         expect.objectContaining({ userId: "f2", type: "seller_live" }),
       ],
     });
+  });
+
+  it("never blasts followers for private (unlisted) shows", async () => {
+    findUnique.mockResolvedValue({ discoveryVisibility: "private" });
+    findMany.mockResolvedValue([{ followerId: "f1" }]);
+    await notifyFollowersSellerWentLive("seller_1", "sellerhandle", "room_private");
+    expect(findMany).not.toHaveBeenCalled();
+    expect(createMany).not.toHaveBeenCalled();
   });
 });

@@ -18,6 +18,23 @@ function nav(navigation?: NavigationProp<ParamListBase>): RootNav | null {
   return null;
 }
 
+/**
+ * True while the seller is on the live-hosting screen (broadcasting or running their queue).
+ * `item_sold` fires on every single sale during a live show, so a seller who taps that push
+ * banner mid-show — easy to do by reflex, or by an accidental swipe — used to get yanked straight
+ * out of their broadcast into Command Center (`MainTabs` -> `HQ`) with no way back except
+ * re-opening the room. They already see sales land in real time in the Sales sheet, so routing
+ * these routine sale-activity taps away from the live screen is never useful and only disruptive.
+ */
+function isCurrentlyHostingLive(): boolean {
+  if (!rootNavigationRef.isReady()) return false;
+  try {
+    return rootNavigationRef.getCurrentRoute()?.name === 'SellerHostRoom';
+  } catch {
+    return false;
+  }
+}
+
 /** Navigate from a server notification href (push tap or inbox). */
 export function openNotificationHref(
   navigation: NavigationProp<ParamListBase> | undefined,
@@ -50,10 +67,12 @@ export function openNotificationHref(
 
   const sellerOrderMatch = path.match(/\/account\/sales\/([^/]+)/);
   if (sellerOrderMatch?.[1] && sellerOrderMatch[1] !== 'layaways') {
+    if (isCurrentlyHostingLive()) return true;
     openSellerOrderDetail(n, decodeURIComponent(sellerOrderMatch[1]));
     return true;
   }
   if (path.startsWith('/account/sales')) {
+    if (isCurrentlyHostingLive()) return true;
     n.navigate('MainTabs', { screen: 'HQ' });
     return true;
   }
@@ -70,6 +89,7 @@ export function openNotificationHref(
       'auction_pending_payment',
     ]);
     if (ctx?.type && sellerTypes.has(ctx.type)) {
+      if (isCurrentlyHostingLive()) return true;
       openSellerOrderDetail(n, orderId);
       return true;
     }
@@ -93,8 +113,23 @@ export function openNotificationHref(
     return true;
   }
 
-  if (path.startsWith('/account/offers') || (ctx?.type?.includes('offer') && !ctx?.type?.startsWith('trade_'))) {
-    n.navigate('MainTabs', { screen: 'Marketplace' });
+  // Referral credits live in Vault Wallet on mobile (Account → Vault Wallet → Referral Credit).
+  if (
+    path.startsWith('/account/referrals') ||
+    path.startsWith('/account/wallet') ||
+    path.startsWith('/account/vault-wallet')
+  ) {
+    n.navigate('BuyerWallet');
+    return true;
+  }
+
+  // Seller Vault Studio for one listing (e.g. "new offer" push: `/seller/listings/{id}?offerId=...`).
+  // Must run before any type-based "offer" fallback — production always sends type `offer_received`.
+  const sellerListingMatch = path.match(/^\/seller\/listings\/([^/]+)/);
+  if (sellerListingMatch?.[1]) {
+    const listingId = decodeURIComponent(sellerListingMatch[1]);
+    const offerId = new URLSearchParams(href.split('?')[1] ?? '').get('offerId')?.trim();
+    n.navigate('SellerListingManagement', offerId ? { listingId, offerId } : { listingId });
     return true;
   }
 
@@ -112,6 +147,14 @@ export function openNotificationHref(
     return true;
   }
 
+  // Buyer "your offers" web path — mobile has no dedicated screen yet.
+  // Do NOT match on type alone: that used to send seller `offer_received` to Marketplace
+  // and skip `/seller/listings/...` above.
+  if (path.startsWith('/account/offers')) {
+    n.navigate('MainTabs', { screen: 'Marketplace' });
+    return true;
+  }
+
   const liveMatch = path.match(/^\/live\/([^/]+)/);
   if (liveMatch?.[1]) {
     n.navigate('MainTabs', {
@@ -121,17 +164,22 @@ export function openNotificationHref(
     return true;
   }
 
-  if (path.startsWith('/account/listings') || ctx?.type === 'item_sold' || ctx?.type === 'seller_ready_to_ship') {
+  // Host console deep link (T−15 “get ready” push).
+  const hostConsoleMatch = path.match(/^\/seller\/live\/([^/]+)\/console/);
+  if (hostConsoleMatch?.[1]) {
+    n.navigate('SellerHostRoom', { roomId: decodeURIComponent(hostConsoleMatch[1]) });
+    return true;
+  }
+
+  if (path.startsWith('/account/seller') || ctx?.type === 'stripe_connect_action_required') {
+    if (isCurrentlyHostingLive()) return true;
     n.navigate('MainTabs', { screen: 'HQ' });
     return true;
   }
 
-  // Seller Vault Studio for one listing (e.g. "new offer" push: `/seller/listings/{id}?offerId=...`).
-  const sellerListingMatch = path.match(/^\/seller\/listings\/([^/]+)/);
-  if (sellerListingMatch?.[1]) {
-    const listingId = decodeURIComponent(sellerListingMatch[1]);
-    const offerId = new URLSearchParams(href.split('?')[1] ?? '').get('offerId')?.trim();
-    n.navigate('SellerListingManagement', offerId ? { listingId, offerId } : { listingId });
+  if (path.startsWith('/account/listings') || ctx?.type === 'item_sold' || ctx?.type === 'seller_ready_to_ship') {
+    if (isCurrentlyHostingLive()) return true;
+    n.navigate('MainTabs', { screen: 'HQ' });
     return true;
   }
 
@@ -149,7 +197,7 @@ export function openNotificationHref(
     return true;
   }
 
-  if (ctx?.type === 'message_received') {
+  if (ctx?.type === 'message_received' || ctx?.type === 'message_requested') {
     n.navigate('MessagesInbox');
     return true;
   }

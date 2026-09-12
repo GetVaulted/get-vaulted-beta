@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { compressImageFileToBlob } from "@/lib/listing-image-compress";
 import { uploadListingImageBlob } from "@/lib/upload-listing-image-client";
+import { uploadLiveTeaserFile } from "@/lib/upload-live-teaser-client";
 import { logLiveDebugEvent } from "@/lib/live-debug";
 import { notifyLiveDiscoveryChanged } from "@/lib/notify-live-discovery-changed";
 import type { LiveRoomListApiRow } from "@/lib/live-room-directory-mapper";
@@ -160,6 +161,15 @@ function logCreateLiveRoom(label: string, data?: Record<string, unknown>) {
   console.info("[create-live-room]", label, data ?? {});
 }
 
+/** "ended 45 minutes ago" / "ended 3 hours ago" for the continuation-candidate toggle. */
+function formatEndedAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+}
+
 export function SellerLivePage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -179,7 +189,18 @@ export function SellerLivePage() {
   const [description, setDescription] = useState("");
   const [vaultCategory, setVaultCategory] = useState<"Cards" | "Helmets">("Cards");
   const [roomType, setRoomType] = useState<RoomTypeChoice>("break");
+  const [continuationCandidate, setContinuationCandidate] = useState<{
+    id: string;
+    title: string;
+    endedAt: string;
+  } | null>(null);
+  const [continueFromPreviousShow, setContinueFromPreviousShow] = useState(false);
   const [thumb, setThumb] = useState("");
+  const [teaserUrl, setTeaserUrl] = useState("");
+  const [teaserDurationMs, setTeaserDurationMs] = useState<number | null>(null);
+  const [teaserUploading, setTeaserUploading] = useState(false);
+  const [teaserFileName, setTeaserFileName] = useState("");
+  const teaserFileRef = useRef<HTMLInputElement>(null);
   const [breakPricingMode, setBreakPricingMode] = useState<BreakPricingMode>("auction");
   const [breakSpotPrice, setBreakSpotPrice] = useState("");
   const [teamBoardEnabled, setTeamBoardEnabled] = useState(true);
@@ -481,6 +502,28 @@ export function SellerLivePage() {
     if (roomType === "break") setCheckFormat(true);
   }, [roomType]);
 
+  // Ask whether this new show continues one the seller ended recently (same roomType, within 24h)
+  // — if the seller confirms, the buyer's live-show shipping cap carries forward instead of
+  // resetting to $0. Never trust this client-side; the server re-validates before applying it.
+  useEffect(() => {
+    let cancelled = false;
+    setContinuationCandidate(null);
+    setContinueFromPreviousShow(false);
+    (async () => {
+      try {
+        const res = await fetch(`/api/live-rooms/continuation-candidate?roomType=${encodeURIComponent(roomType)}`);
+        if (!res.ok || cancelled) return;
+        const j = (await res.json()) as { candidate: { id: string; title: string; endedAt: string } | null };
+        if (!cancelled) setContinuationCandidate(j.candidate ?? null);
+      } catch {
+        /* best-effort — no continuation offered if the check fails */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [roomType]);
+
   const uploadLiveThumbnailFile = async (file: File) => {
     setCreateError(null);
     if (!THUMBNAIL_UPLOAD_ALLOWED.has(file.type)) {
@@ -538,6 +581,22 @@ export function SellerLivePage() {
     void uploadLiveThumbnailFile(f);
   };
 
+  const uploadLiveTeaserVideoFile = async (file: File) => {
+    setCreateError(null);
+    setTeaserUploading(true);
+    try {
+      const uploaded = await uploadLiveTeaserFile(file);
+      setTeaserUrl(uploaded.url);
+      setTeaserDurationMs(uploaded.durationMs);
+      setTeaserFileName(file.name);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      setCreateError(msg || "Could not upload teaser video.");
+    } finally {
+      setTeaserUploading(false);
+    }
+  };
+
   const createRoom = async () => {
     logCreateLiveRoom("submit clicked", { scheduleMode, roomType, titleLen: title.trim().length });
     if (createSubmittingRef.current || busy) return;
@@ -576,6 +635,9 @@ export function SellerLivePage() {
         description: description.trim(),
         roomType,
         thumbnailUrl: thumb.trim() || undefined,
+        ...(teaserUrl.trim() && teaserDurationMs != null
+          ? { teaserVideoUrl: teaserUrl.trim(), teaserVideoDurationMs: teaserDurationMs }
+          : {}),
         ...(scheduledStartAtIso ? { scheduledStartAt: scheduledStartAtIso } : {}),
       };
       if (roomType === "break") {
@@ -611,6 +673,9 @@ export function SellerLivePage() {
       }
       if (discoveryVisibility === "private") {
         body.discoveryVisibility = "private";
+      }
+      if (continueFromPreviousShow && continuationCandidate) {
+        body.continuationOfLiveRoomId = continuationCandidate.id;
       }
 
       logCreateLiveRoom("POST /api/live-rooms payload", { body });
@@ -674,11 +739,8 @@ export function SellerLivePage() {
       }
 
       const goLater = Boolean(scheduledStartAtIso);
-      // Break rooms stream from the host console; auction/sale rooms are hosted directly from the room page.
-      const sellerConsolePath =
-        roomType === "break"
-          ? `/seller/live/${encodeURIComponent(j.id)}/console`
-          : `/live/${encodeURIComponent(j.id)}`;
+      // Every room type hosts from the seller console (camera stream, queue, auctions, go-live).
+      const sellerConsolePath = `/seller/live/${encodeURIComponent(j.id)}/console`;
       logCreateLiveRoom("created", {
         id: j.id,
         goLater,
@@ -704,6 +766,8 @@ export function SellerLivePage() {
       setCreateTipModeratorId(null);
       setCreateTipModeratorUsername("");
       setCreateTipsToModerator(false);
+      setContinueFromPreviousShow(false);
+      setContinuationCandidate(null);
       await loadRooms();
       router.refresh();
       notifyLiveDiscoveryChanged();
@@ -928,6 +992,15 @@ export function SellerLivePage() {
     },
   });
 
+  // Must stay above loading early-returns (Rules of Hooks).
+  const featuredRooms = useMemo(() => {
+    // Always surface live + scheduled first so Console is reachable before go-live.
+    // Then a few recent ended shows — don't let 30+ ended rooms hide the active ones.
+    const active = rooms.filter((r) => r.status === "live" || r.status === "scheduled");
+    const ended = rooms.filter((r) => r.status !== "live" && r.status !== "scheduled");
+    return [...active, ...ended.slice(0, Math.max(0, 8 - active.length))];
+  }, [rooms]);
+
   if (status === "loading" || status === "unauthenticated" || sellerGateLoading) {
     return (
       <main className="relative flex min-h-screen w-full flex-1 flex-col bg-zinc-950">
@@ -1025,49 +1098,55 @@ export function SellerLivePage() {
                   No shows yet. Create one below and it will appear here for quick access and management.
                 </p>
               ) : (
-                <ul className="space-y-2">
-                  {rooms.slice(0, 6).map((r) => (
-                    <li
-                      key={`top-${r.id}`}
-                      className={`rounded-xl border px-3 py-2.5 transition ${
-                        selectedId === r.id
-                          ? "border-gold/40 bg-gold/[0.08]"
-                          : "border-white/[0.08] bg-zinc-950/50 hover:border-white/20"
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedId(r.id)}
-                          className="min-w-0 text-left"
-                        >
-                          <p className="truncate text-sm font-semibold text-zinc-100">{r.title}</p>
-                          <p className="mt-0.5 text-[10px] uppercase tracking-wide text-zinc-500">
-                            {r.roomType} · {r.status}
-                            {r.discoveryVisibility === "private" ? " · private" : ""}
-                            {r.scheduledStartAt ? ` · ${formatScheduledStartFromIso(r.scheduledStartAt)}` : ""}
-                          </p>
-                        </button>
-                        <div className="flex items-center gap-2">
-                          <Link
-                            href={`/live/${encodeURIComponent(r.id)}`}
-                            className="rounded-lg border border-white/12 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-zinc-200 hover:bg-white/[0.06]"
+                <>
+                  <ul className="space-y-2">
+                    {featuredRooms.map((r) => (
+                      <li
+                        key={`top-${r.id}`}
+                        className={`rounded-xl border px-3 py-2.5 transition ${
+                          selectedId === r.id
+                            ? "border-gold/40 bg-gold/[0.08]"
+                            : "border-white/[0.08] bg-zinc-950/50 hover:border-white/20"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedId(r.id)}
+                            className="min-w-0 text-left"
                           >
-                            Open
-                          </Link>
-                          {r.roomType === "break" ? (
+                            <p className="truncate text-sm font-semibold text-zinc-100">{r.title}</p>
+                            <p className="mt-0.5 text-[10px] uppercase tracking-wide text-zinc-500">
+                              {r.roomType} · {r.status}
+                              {r.discoveryVisibility === "private" ? " · private" : ""}
+                              {r.scheduledStartAt ? ` · ${formatScheduledStartFromIso(r.scheduledStartAt)}` : ""}
+                            </p>
+                          </button>
+                          <div className="flex items-center gap-2">
+                            <Link
+                              href={`/live/${encodeURIComponent(r.id)}`}
+                              className="rounded-lg border border-white/12 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-zinc-200 hover:bg-white/[0.06]"
+                            >
+                              Open
+                            </Link>
                             <Link
                               href={`/seller/live/${encodeURIComponent(r.id)}/console`}
                               className="rounded-lg border border-violet-500/35 bg-violet-950/25 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-violet-200 hover:bg-violet-950/40"
                             >
                               Console
                             </Link>
-                          ) : null}
+                          </div>
                         </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                      </li>
+                    ))}
+                  </ul>
+                  {rooms.length > featuredRooms.length ? (
+                    <p className="mt-2 text-[10px] text-zinc-600">
+                      Showing live &amp; upcoming first · {rooms.length - featuredRooms.length} older ended show
+                      {rooms.length - featuredRooms.length === 1 ? "" : "s"} in Manage below
+                    </p>
+                  ) : null}
+                </>
               )}
             </section>
 
@@ -1157,6 +1236,26 @@ export function SellerLivePage() {
                   );
                 })}
               </div>
+              {continuationCandidate ? (
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/[0.08] bg-black/30 p-4">
+                  <input
+                    type="checkbox"
+                    checked={continueFromPreviousShow}
+                    onChange={(e) => setContinueFromPreviousShow(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/50 accent-[#facc15]"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-zinc-200">
+                      Continue from &ldquo;{continuationCandidate.title}&rdquo;?
+                    </span>
+                    <span className="mt-1 block text-xs leading-relaxed text-zinc-500">
+                      That show ended {formatEndedAgo(continuationCandidate.endedAt)}. If this is the same break/sale
+                      picking back up, buyers who already paid toward the shipping cap there won&apos;t be charged
+                      shipping again here. Shows past 24 hours can&apos;t be used.
+                    </span>
+                  </span>
+                </label>
+              ) : null}
             </section>
 
             {/* Step 2 */}
@@ -1181,9 +1280,12 @@ export function SellerLivePage() {
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     rows={4}
-                    placeholder="What are you breaking? Any rules or shoutouts?"
+                    placeholder="Public blurb for the live directory and schedule (not in-room show notes)."
                     className="mt-2 w-full resize-y rounded-xl border border-white/[0.1] bg-black/50 px-4 py-3 text-sm leading-relaxed text-zinc-100 shadow-inner shadow-black/40 outline-none transition placeholder:text-zinc-600 focus:border-gold/40 focus:ring-2 focus:ring-gold/20"
                   />
+                  <p className="mt-1.5 text-[11px] text-zinc-600">
+                    In-room show notes for buyers are edited from the host console during the show.
+                  </p>
                 </label>
                 <div>
                   <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">Thumbnail</span>
@@ -1270,6 +1372,65 @@ export function SellerLivePage() {
                 </div>
 
                 <div className="rounded-2xl border border-white/[0.08] bg-black/30 p-5">
+                  <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">Preview video (optional)</span>
+                  <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+                    Short clip with sound (max 15 seconds). Plays on loop when buyers open your scheduled room before you
+                    go live. Browse tiles still use your thumbnail image.
+                  </p>
+                  <input
+                    ref={teaserFileRef}
+                    type="file"
+                    accept="video/mp4,video/quicktime,.mp4,.mov"
+                    className="sr-only"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (f) void uploadLiveTeaserVideoFile(f);
+                    }}
+                  />
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={teaserUploading}
+                      onClick={() => teaserFileRef.current?.click()}
+                      className="inline-flex min-h-9 items-center rounded-full border border-gold/35 bg-gold/10 px-4 py-2 text-xs font-bold text-gold-bright transition hover:border-gold/55 disabled:opacity-50"
+                    >
+                      {teaserUploading ? "Uploading…" : teaserUrl.trim() ? "Replace video" : "Upload video"}
+                    </button>
+                    {teaserUrl.trim() ? (
+                      <button
+                        type="button"
+                        disabled={teaserUploading}
+                        onClick={() => {
+                          setTeaserUrl("");
+                          setTeaserDurationMs(null);
+                          setTeaserFileName("");
+                        }}
+                        className="inline-flex min-h-9 items-center rounded-full border border-white/12 px-4 py-2 text-xs font-semibold text-zinc-300 transition hover:border-white/25 disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                  {teaserUrl.trim() ? (
+                    <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-black">
+                      <video
+                        src={teaserUrl}
+                        className="mx-auto max-h-48 w-full object-contain"
+                        controls
+                        playsInline
+                        muted
+                        loop
+                      />
+                      <p className="px-3 py-2 text-[11px] text-zinc-500">
+                        {teaserFileName ? `${teaserFileName} · ` : ""}
+                        {teaserDurationMs != null ? `${(teaserDurationMs / 1000).toFixed(1)}s` : ""}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="rounded-2xl border border-white/[0.08] bg-black/30 p-5">
                   <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">Show visibility</span>
                   <div className="mt-3 flex flex-wrap gap-2 rounded-xl border border-white/10 bg-zinc-950/60 p-1">
                     <button
@@ -1294,7 +1455,7 @@ export function SellerLivePage() {
                   <p className="mt-3 text-sm leading-relaxed text-zinc-500">
                     {discoveryVisibility === "public"
                       ? "Public shows appear on the Live Shows tab for all buyers."
-                      : "Private shows are hidden from Live Shows. Share your link so invited viewers can join."}
+                      : "Private shows are hidden from Live Shows and do not notify your followers when you go live. Share your link to invite viewers."}
                   </p>
                 </div>
 
@@ -1605,7 +1766,7 @@ export function SellerLivePage() {
 
             <button
               type="button"
-              disabled={busy || thumbUploading || !title.trim()}
+              disabled={busy || thumbUploading || teaserUploading || !title.trim()}
               title={!title.trim() ? "Enter a show title to enable this button" : undefined}
               onClick={() => void createRoom()}
               className="w-full rounded-2xl bg-gradient-to-r from-gold/90 via-amber-300 to-gold/85 py-4 text-center font-display text-base font-black uppercase tracking-wide text-zinc-950 shadow-[0_12px_40px_-12px_rgba(250,204,21,0.55)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1775,14 +1936,12 @@ export function SellerLivePage() {
                 >
                   Open room
                 </Link>
-                {selected.roomType === "break" ? (
-                  <Link
-                    href={`/seller/live/${encodeURIComponent(selected.id)}/console`}
-                    className="inline-flex min-h-11 w-full items-center justify-center rounded-[var(--live-radius-chrome)] border border-violet-500/35 bg-violet-950/25 px-4 py-2.5 text-xs font-bold text-violet-200 transition-[transform,background-color,opacity] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] hover:bg-violet-950/40 active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40 sm:w-auto sm:min-h-10 sm:py-2"
-                  >
-                    Host console
-                  </Link>
-                ) : null}
+                <Link
+                  href={`/seller/live/${encodeURIComponent(selected.id)}/console`}
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-[var(--live-radius-chrome)] border border-violet-500/35 bg-violet-950/25 px-4 py-2.5 text-xs font-bold text-violet-200 transition-[transform,background-color,opacity] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] hover:bg-violet-950/40 active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40 sm:w-auto sm:min-h-10 sm:py-2"
+                >
+                  Host console
+                </Link>
               </div>
             </div>
 
@@ -1792,28 +1951,19 @@ export function SellerLivePage() {
               </p>
             ) : null}
 
-            {selected.roomType === "break" ? (
-              <div className="rounded-xl border border-violet-500/20 bg-violet-950/15 p-4">
-                <p className="text-sm leading-relaxed text-zinc-300">
-                  Camera and OBS streaming live in the{" "}
-                  <span className="font-semibold text-violet-200">Host console</span> — open it when you are ready to go
-                  live, then use <span className="font-semibold text-gold-bright">Start Stream</span>.
-                </p>
-                <Link
-                  href={`/seller/live/${encodeURIComponent(selected.id)}/console`}
-                  className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl border border-violet-500/35 bg-violet-950/30 px-4 text-xs font-bold text-violet-100 hover:bg-violet-950/45"
-                >
-                  Open host console
-                </Link>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-white/[0.06] bg-zinc-950/40 p-4">
-                <p className="text-sm leading-relaxed text-zinc-400">
-                  Use <span className="font-semibold text-zinc-200">Start live show</span> above when you are ready for
-                  buyers. Break shows use the host console for webcam and OBS streaming.
-                </p>
-              </div>
-            )}
+            <div className="rounded-xl border border-violet-500/20 bg-violet-950/15 p-4">
+              <p className="text-sm leading-relaxed text-zinc-300">
+                Camera and OBS streaming live in the{" "}
+                <span className="font-semibold text-violet-200">Host console</span> — open it when you are ready to go
+                live, then use <span className="font-semibold text-gold-bright">Start Stream</span>.
+              </p>
+              <Link
+                href={`/seller/live/${encodeURIComponent(selected.id)}/console`}
+                className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl border border-violet-500/35 bg-violet-950/30 px-4 text-xs font-bold text-violet-100 hover:bg-violet-950/45"
+              >
+                Open host console
+              </Link>
+            </div>
 
             {selected.status !== "ended" ? (
               <section className="space-y-4 rounded-xl border border-white/[0.06] p-4">

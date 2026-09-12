@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import {
   availableVariantCount,
+  evaluateFreshVariantsForBatchCheckout,
   evaluateFreshVariantsForCheckout,
   isActiveVariantBuyerItem,
   isVariantSalesFormat,
@@ -15,6 +16,7 @@ describe('isVariantSalesFormat', () => {
   it('matches team break formats', () => {
     expect(isVariantSalesFormat('team_break')).toBe(true);
     expect(isVariantSalesFormat('variant_selection')).toBe(true);
+    expect(isVariantSalesFormat('player_selection')).toBe(true);
     expect(isVariantSalesFormat('auction')).toBe(false);
   });
 });
@@ -26,6 +28,15 @@ describe('isActiveVariantBuyerItem', () => {
       activeItemId: 'item-1',
       activeItemSalesFormat: 'team_break',
       activeItemVariants: [{ id: 'v1', label: 'AFC East', priceUsd: 35, quantityRemaining: 1, soldCount: 0, isHot: false, sortOrder: 0, status: 'available', buyerUsername: null }],
+    } as LiveRoomBuyerSnapshot;
+    expect(isActiveVariantBuyerItem(snap)).toBe(true);
+  });
+
+  it('true for team_break even before variants hydrate', () => {
+    const snap = {
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemSalesFormat: 'team_break',
     } as LiveRoomBuyerSnapshot;
     expect(isActiveVariantBuyerItem(snap)).toBe(true);
   });
@@ -67,6 +78,8 @@ describe('variantSelectSpotLabel', () => {
   it('uses team label for team_break', () => {
     expect(variantSelectSpotLabel('team_break')).toBe('Pick Your Division');
     expect(variantSelectSpotLabel('variant_selection')).toBe('Pick Your Team');
+    expect(variantSelectSpotLabel('player_selection')).toBe('Pick Your Player');
+    expect(variantSelectSpotLabel('player_selection', true)).toBe('Random Player');
   });
 });
 
@@ -136,6 +149,31 @@ describe('evaluateFreshVariantsForCheckout', () => {
   it('proceeds on a local-trust basis when the item was never tracked as the active lot (pre-live shop flow)', () => {
     const decision = evaluateFreshVariantsForCheckout({ status: 'not_tracked' }, 'v1');
     expect(decision).toEqual({ proceed: true });
+  });
+
+  it('batch checkout requires every selected id to still be open', () => {
+    const availableVariant = {
+      id: 'v1',
+      label: 'Bengals',
+      priceUsd: 10,
+      quantityRemaining: 1,
+      soldCount: 0,
+      isHot: false,
+      sortOrder: 0,
+      status: 'available',
+      buyerUsername: null,
+    };
+    const ok = evaluateFreshVariantsForBatchCheckout(
+      { status: 'fresh', variants: [availableVariant, { ...availableVariant, id: 'v2', label: 'Chiefs' }] },
+      ['v1', 'v2'],
+    );
+    expect(ok).toEqual({ proceed: true });
+
+    const missing = evaluateFreshVariantsForBatchCheckout(
+      { status: 'fresh', variants: [availableVariant] },
+      ['v1', 'v2'],
+    );
+    expect(missing.proceed).toBe(false);
   });
 });
 

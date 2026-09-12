@@ -9,11 +9,28 @@ import {
 } from './liveRoomSharedChannel';
 import { roomChannel } from './realtimeChannels';
 
+function mockChannel(name: string, opts: unknown, subscribeImpl?: (cb: (status: string) => void) => unknown) {
+  const channel: {
+    name: string;
+    opts: unknown;
+    on: (..._args: unknown[]) => typeof channel;
+    subscribe: (cb: (status: string) => void) => unknown;
+    presenceState: () => Record<string, never>;
+  } = {
+    name,
+    opts,
+    on: (..._args: unknown[]) => channel,
+    subscribe: subscribeImpl ?? (() => ({})),
+    presenceState: () => ({}),
+  };
+  return channel;
+}
+
 describe('liveRoomSharedChannel', () => {
   it('shares one channel per room and ref-counts retain/release', () => {
     resetLiveRoomSharedChannelsForTests();
     const supabase = {
-      channel: (name: string, opts: unknown) => ({ name, opts, subscribe: () => {}, presenceState: () => ({}) }),
+      channel: (name: string, opts: unknown) => mockChannel(name, opts),
       removeChannel: () => {},
     } as never;
 
@@ -29,17 +46,15 @@ describe('liveRoomSharedChannel', () => {
     expect(peekLiveRoomChannel('room-1')).toBeNull();
   });
 
-  it('subscribes once and replays last status to late listeners', () => {
+  it('subscribes once and replays last status to late listeners', async () => {
     resetLiveRoomSharedChannelsForTests();
     const statuses: string[] = [];
     const supabase = {
-      channel: (_name: string, _opts: unknown) => ({
-        subscribe: (cb: (status: string) => void) => {
+      channel: (_name: string, _opts: unknown) =>
+        mockChannel(_name, _opts, (cb) => {
           cb('SUBSCRIBED');
           return {};
-        },
-        presenceState: () => ({}),
-      }),
+        }),
       removeChannel: () => {},
     } as never;
 
@@ -47,6 +62,8 @@ describe('liveRoomSharedChannel', () => {
     subscribeLiveRoomChannel('room-2', (status) => {
       statuses.push(`first:${status}`);
     });
+    // Subscribe is deferred so presence handlers can attach first.
+    await Promise.resolve();
     subscribeLiveRoomChannel('room-2', (status) => {
       statuses.push(`second:${status}`);
     });

@@ -3,7 +3,7 @@ import { BlurView } from 'expo-blur';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { MobileHostBroadcastPhase } from '../../../hooks/useMobileStagePublish';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
-import { confirmStartLive } from '../../../lib/sellerBroadcastConfirm';
+import { confirmStartLive, confirmStartObsShow } from '../../../lib/sellerBroadcastConfirm';
 import { GIVVY_UI } from '../../../lib/givvyUi';
 import { sellerConsoleToolbarScale } from '../../../lib/liveRoomUiScale';
 import { colors, radii, spacing } from '../../../theme';
@@ -40,14 +40,22 @@ type Props = {
   broadcastPhase: MobileHostBroadcastPhase;
   roomStatus: 'scheduled' | 'live' | 'ended';
   streamOnAir?: boolean;
+  /** Room already broadcasting from another device — don't fight for the camera. */
+  companionMode?: boolean;
+  /** OBS / RTMP (`channel_hls`) — Start show without phone camera. */
+  obsMode?: boolean;
   canStartRoom: boolean;
   stageEnabled: boolean;
   cameraReady: boolean;
   broadcastBusy: boolean;
   onGoLive: () => void;
+  /** Phone camera take-over when OBS/companion owns the feed. */
+  onTakeOverCamera?: () => void;
   onStopStream: () => void;
   onPauseStream?: () => void;
   onResumeStream?: () => void;
+  /** Server streamPaused — keeps Play visible while Host paused. */
+  streamPaused?: boolean;
   viewerCount?: number;
   showCameraFlip?: boolean;
   cameraFlipDisabled?: boolean;
@@ -70,13 +78,17 @@ export function SellerConsoleActionBar({
   broadcastPhase,
   roomStatus,
   canStartRoom,
+  companionMode = false,
+  obsMode = false,
   stageEnabled,
   cameraReady,
   broadcastBusy,
   onGoLive,
+  onTakeOverCamera,
   onStopStream,
   onPauseStream,
   onResumeStream,
+  streamPaused = false,
   showCameraFlip,
   cameraFlipDisabled,
   onFlipCamera,
@@ -86,6 +98,14 @@ export function SellerConsoleActionBar({
   onToggleMicMute,
 }: Props) {
   const { width: windowWidth } = useWindowDimensions();
+  // On-air = broadcasting (or mid-stop). Also keep controls while the room is live but Stage
+  // remounted idle — otherwise private/live hosts lose Play when cameraReady flickers false.
+  const broadcastOnAir =
+    companionMode ||
+    broadcastPhase === 'live' ||
+    broadcastPhase === 'paused' ||
+    broadcastPhase === 'stopping' ||
+    (roomStatus === 'live' && (broadcastPhase === 'idle' || broadcastPhase === 'starting'));
   const scale = sellerConsoleToolbarScale(windowWidth);
   const pillIcon = Math.round(PILL_ICON * scale);
   const pillLabelSize = PILL_LABEL * scale;
@@ -226,14 +246,18 @@ export function SellerConsoleActionBar({
               onPress={onFlipCamera}
             />
           ) : null}
-          {stageEnabled ? (
+          {stageEnabled && (cameraReady || broadcastOnAir || roomStatus === 'live') ? (
             <SellerBroadcastControl
               phase={broadcastPhase}
               roomStatus={roomStatus}
+              streamPaused={streamPaused}
+              companionMode={companionMode}
+              obsMode={obsMode}
               stageEnabled={stageEnabled}
               cameraReady={cameraReady}
               busy={broadcastBusy}
               onStart={onGoLive}
+              onTakeOverCamera={onTakeOverCamera}
               onStop={onStopStream}
               onPause={onPauseStream}
               onResume={onResumeStream}
@@ -247,7 +271,7 @@ export function SellerConsoleActionBar({
                 { width: trailingBtn, height: trailingBtn },
                 broadcastBusy && styles.disabled,
               ]}
-              onPress={() => confirmStartLive(onGoLive)}
+              onPress={() => (obsMode ? confirmStartObsShow(onGoLive) : confirmStartLive(onGoLive))}
               disabled={broadcastBusy}
               accessibilityLabel={SELLER_CONSOLE.startStream}
               hitSlop={Math.round(4 * scale)}

@@ -7,10 +7,16 @@ import {
   emitLiveRoomQueueItemsChanged,
   emitVariantPurchased,
 } from "@/lib/realtime-emit-server";
-import { idleVariantSpotCommerceReset } from "@/lib/live-variant-spot-commerce";
+import {
+  endVariantSpotAuctionNoBidsReset,
+  idleVariantSpotCommerceReset,
+} from "@/lib/live-variant-spot-commerce";
+import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
 import type { FinalizeTrigger } from "@/lib/live-auction-finalize";
+import { resolveSoldUnitDisplayTitle } from "@/lib/live-room-item-quantity-display";
+import { summarizeVariantSpots } from "@/lib/live-item-variant-presets";
 
-/** Close a PYT/PYD spot auction with no bids — keep pin, return to fixed checkout. */
+/** Close a PYT/PYD spot auction with no bids — keep pin armed (not buy-now). */
 export async function resetVariantSpotAuctionNoBids(args: {
   liveRoomId: string;
   itemId: string;
@@ -20,7 +26,7 @@ export async function resetVariantSpotAuctionNoBids(args: {
     const updated = await tx.liveRoomItem.updateMany({
       where: { id: args.itemId, liveRoomId: args.liveRoomId, status: "active", biddingOpen: true },
       data: {
-        ...idleVariantSpotCommerceReset(),
+        ...endVariantSpotAuctionNoBidsReset(),
         itemVersion: { increment: 1 },
       },
     });
@@ -44,7 +50,7 @@ export async function resetVariantSpotAuctionNoBids(args: {
     auctionEndsAt: null,
   });
   emitLiveRoomQueueItemsChanged(args.liveRoomId);
-  console.info("[variant spot auction] no bids, reset to fixed", {
+  console.info("[variant spot auction] no bids, keep pin armed", {
     trigger: args.trigger,
     liveRoomId: args.liveRoomId,
     itemId: args.itemId,
@@ -104,6 +110,10 @@ export async function settleVariantSpotAuctionWinner(args: {
       where: { id: args.itemId },
       data: { ...idleVariantSpotCommerceReset(), itemVersion: { increment: 1 } },
     });
+    // Drop standing/proxy bids now that this spot is sold — otherwise the next spot pinned on
+    // this same lot inherits them (proxy bids are keyed by liveRoomItemId, not by variant) and
+    // an uninvolved bidder from this round gets auto-applied as the leader on the next spot.
+    await clearLiveAuctionProxyBidsForItem(tx, { liveRoomId: args.liveRoomId, itemId: args.itemId });
 
     variantId = row.auctionVariantId;
     buyerId = row.lastHighBidderId.trim();
@@ -193,13 +203,41 @@ export async function settleVariantSpotAuctionWinner(args: {
       variant: { select: { label: true } },
     },
   });
+  const lotRow = await prisma.liveRoomItem.findUnique({
+    where: { id: args.itemId },
+    select: {
+      title: true,
+      quantity: true,
+      quantityInitial: true,
+      variants: { select: { soldCount: true, quantityRemaining: true, status: true, priceUsd: true } },
+    },
+  });
+  const unitsSoldAfter = lotRow?.variants?.length
+    ? summarizeVariantSpots(
+        lotRow.variants.map((v) => ({
+          soldCount: v.soldCount,
+          quantityRemaining: v.quantityRemaining,
+          status: v.status,
+          priceUsd: v.priceUsd,
+        })),
+      ).sold
+    : 1;
+  // Match on-screen lot description at hammer ("PYT Break 1 #3"), not only the team pin label.
+  const celebrationLabel = lotRow
+    ? resolveSoldUnitDisplayTitle({
+        title: lotRow.title,
+        quantity: lotRow.quantity,
+        quantityInitial: lotRow.quantityInitial,
+        unitsSoldAfter,
+      })
+    : (purchaseRow?.variant.label ?? "Spot");
 
   emitVariantPurchased(args.liveRoomId, {
     itemId: args.itemId,
     variantId,
     itemVersion: itemNext?.itemVersion ?? 0,
     purchaseId,
-    label: purchaseRow?.variant.label ?? "Spot",
+    label: celebrationLabel,
     buyerUsername: purchaseRow?.buyer.username?.trim() ?? "buyer",
     amountUsd: purchaseRow?.totalUsd,
   });

@@ -85,4 +85,15 @@ describe('enrichListing', () => {
     );
     expect(vm.content.description).toBe('Factory sealed.\nIncludes COA.');
   });
+
+  it('does not treat $0 listing shipping as a paid flat rate', () => {
+    const vm = enrichListing(baseProduct({ shippingPriceUsd: 0, handlingTimeLabel: '1–2 days' }));
+    expect(vm.content.shippingProtection?.toLowerCase()).toContain('calculated at checkout');
+    expect(vm.content.shippingProtection).not.toMatch(/\$0/);
+  });
+
+  it('uses trade-specific shipping copy for trade-only listings', () => {
+    const vm = enrichListing(baseProduct({ tradeOnly: true, shippingPriceUsd: 0 }));
+    expect(vm.content.shippingProtection?.toLowerCase()).toContain('each party buys their own');
+  });
 });

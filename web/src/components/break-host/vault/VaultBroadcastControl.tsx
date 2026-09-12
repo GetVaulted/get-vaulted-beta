@@ -8,6 +8,7 @@ import type { HostBroadcastPhase } from "@/hooks/useHostStagePublish";
 export function VaultBroadcastControl({
   phase,
   roomLive = false,
+  companionMode = false,
   onStart,
   onStop,
   onPause,
@@ -16,6 +17,11 @@ export function VaultBroadcastControl({
   phase: HostBroadcastPhase;
   /** Whether the room is already live (controls the idle label: "Go Live" vs "Start Stream"). */
   roomLive?: boolean;
+  /**
+   * Room is already broadcasting from another device (e.g. phone). This PC is command-center only
+   * until the seller explicitly switches the camera here.
+   */
+  companionMode?: boolean;
   onStart: () => void;
   onStop: () => void;
   onPause?: () => void;
@@ -26,6 +32,36 @@ export function VaultBroadcastControl({
 
   const pauseClass = `${baseClass} border-amber-400/40 bg-amber-950/55 text-amber-50 hover:bg-amber-900/55`;
   const stopClass = `${baseClass} border-rose-400/45 bg-rose-950/55 text-rose-50 shadow-[0_0_22px_-10px_rgba(244,63,94,0.6)] hover:bg-rose-900/65`;
+
+  if (companionMode && phase !== "live" && phase !== "paused" && phase !== "starting" && phase !== "stopping") {
+    return (
+      <div className="flex items-center gap-1">
+        <span
+          className={`${baseClass} max-w-[11rem] border-emerald-400/40 bg-emerald-950/55 text-emerald-50`}
+          title="Camera is publishing from another device"
+        >
+          <span
+            className="inline-flex size-1.5 shrink-0 rounded-full bg-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.9)] motion-safe:animate-pulse"
+            aria-hidden
+          />
+          <span className="truncate">Live on phone</span>
+        </span>
+        <button
+          type="button"
+          onClick={onStart}
+          aria-label="Switch camera to this PC"
+          className={`${baseClass} max-w-[10rem] border-white/20 bg-white/[0.06] text-zinc-100 hover:bg-white/[0.1]`}
+        >
+          <span className="truncate">Use PC camera</span>
+        </button>
+        {roomLive ? (
+          <button type="button" onClick={onStop} aria-label="Stop stream" className={stopClass}>
+            <span className="truncate">Stop</span>
+          </button>
+        ) : null}
+      </div>
+    );
+  }
 
   if (phase === "paused") {
     return (

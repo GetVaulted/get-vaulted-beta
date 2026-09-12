@@ -2,10 +2,11 @@ import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/auth/AuthContext';
 import { PlatformFeeProvider } from './src/platform/PlatformFeeContext';
+import { prefetchStripePublishableKey } from './src/components/live/LiveStripeProvider';
 import { loadHomeFeedCache } from './src/lib/homeFeedCache';
 import { configureGlobalTextScaling } from './src/lib/appUiScale';
 import {
@@ -21,6 +22,7 @@ configureGlobalTextScaling();
 export default function App() {
   useEffect(() => {
     void loadHomeFeedCache();
+    prefetchStripePublishableKey();
   }, []);
 
   useEffect(() => {
@@ -39,7 +41,9 @@ export default function App() {
         <AppLayoutProvider>
           <PlatformFeeProvider>
             <AuthProvider>
-              <RootNavigator />
+              <View style={styles.root}>
+                <RootNavigator />
+              </View>
             </AuthProvider>
           </PlatformFeeProvider>
         </AppLayoutProvider>

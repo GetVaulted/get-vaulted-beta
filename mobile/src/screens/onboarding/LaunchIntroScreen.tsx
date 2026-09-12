@@ -47,6 +47,7 @@ import {
 } from '../../lib/rememberMeCredentials';
 import { getKeepMeLoggedInPreference } from '../../lib/authSessionStorage';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
+import { navigateAfterSignIn } from '../../navigation/navigateAfterSignIn';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
 import { shouldAutoAdvanceAfterAuthRecovery } from './launchIntroAuthRecovery';
@@ -510,7 +511,9 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
 
   const finishIntroRouting = useCallback(() => {
     if (userRef.current) {
-      navigation.replace('MainTabs', { screen: 'Home' });
+      // Must run the same setup gate as Apple/Google sign-in — do not jump to MainTabs
+      // with an auto-allocated username (usernameChosenAt still null).
+      void navigateAfterSignIn(navigation);
     } else {
       beginAuthContinuity();
     }
@@ -531,7 +534,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
       })
     ) {
       autoAdvancedAfterRecoveryRef.current = true;
-      navigation.replace('MainTabs', { screen: 'Home' });
+      void navigateAfterSignIn(navigation);
     }
   }, [user, navigation]);
 
@@ -623,7 +626,29 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
       };
     }
 
-    const start = async () => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next === 'background' || next === 'inactive') wentToBackground.current = true;
+      if (next === 'active' && wentToBackground.current) {
+        wentToBackground.current = false;
+        skipToEnd();
+      }
+    });
+
+    const run = async () => {
+      await waitForAuth();
+      if (cancelled) return;
+
+      // Returning signed-in users: skip the ~5s montage and route immediately.
+      if (userRef.current) {
+        skipped.current = true;
+        logoHapticFired.current = true;
+        helmetFlashHapticFired.current = true;
+        progress.value = 1;
+        introEndAt.current = Date.now();
+        finishIntroRouting();
+        return;
+      }
+
       await prefetchIntroMontageAssets(650);
       if (cancelled) return;
       fireIntroLift();
@@ -635,27 +660,14 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
           if (finished) runOnJS(onTimelineFinished)();
         },
       );
-    };
 
-    void start();
-
-    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (next === 'background' || next === 'inactive') wentToBackground.current = true;
-      if (next === 'active' && wentToBackground.current) {
-        wentToBackground.current = false;
-        skipToEnd();
-      }
-    });
-
-    const runNav = async () => {
-      await waitForAuth();
       while (Date.now() < introEndAt.current) {
         await new Promise((r) => setTimeout(r, 16));
       }
       if (cancelled) return;
       finishIntroRouting();
     };
-    void runNav();
+    void run();
 
     return () => {
       cancelled = true;
@@ -734,7 +746,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
     try {
       await signInWithPassword(email, password, { persistSession: rememberMe });
       await persistRememberMeCredentials(rememberMe, email);
-      navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+      await navigateAfterSignIn(navigation);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Sign-in failed');
     } finally {
@@ -752,7 +764,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
           ? await signInWithGoogle({ persistSession: rememberMe })
           : await signInWithApple({ persistSession: rememberMe });
       if (result === 'success') {
-        navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+        await navigateAfterSignIn(navigation);
       } else if (result === 'error') {
         setErr(AUTH_USER_MESSAGES.socialSignInFailed);
       }
@@ -873,6 +885,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
                 placeholder="Email"
                 placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
+                autoCorrect={false}
                 keyboardType="email-address"
                 autoComplete="email"
                 value={email}
@@ -975,6 +988,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
               placeholder="Your account email"
               placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
+              autoCorrect={false}
               keyboardType="email-address"
               value={forgotEmail}
               onChangeText={setForgotEmail}

@@ -17,7 +17,7 @@ export type BuyerQueueLineupRow = {
   isPinned: boolean;
   isLiveBidding: boolean;
   listingId: string | null;
-  queueAction: "pre_bid" | "buy_now" | "none";
+  queueAction: "pre_bid" | "buy_now" | "variant_shop" | "none";
 };
 
 /** Same inventory the host sees across auction + buy-now lanes (excludes sold/skipped). */
@@ -106,7 +106,7 @@ export function buildBuyerQueueLineupRow(
       spotStats.available > 0
         ? `${spotStats.available} spot${spotStats.available === 1 ? "" : "s"} open`
         : "Sold out";
-    const statusCopy = isPinned ? "On screen" : "Up next";
+    const statusCopy = isPinned ? "On screen" : "Open now";
     return {
       id: item.id,
       displayTitle: title,
@@ -118,7 +118,8 @@ export function buildBuyerQueueLineupRow(
       isPinned,
       isLiveBidding: false,
       listingId,
-      queueAction: "none",
+      // PYT/PYD spots are shoppable from any lineup position (parity with mobile).
+      queueAction: spotStats.available > 0 ? "variant_shop" : "none",
     };
   }
 
@@ -164,7 +165,7 @@ export function projectBuyerQueueLineup(
   return sorted.map((item) => buildBuyerQueueLineupRow(item, args));
 }
 
-/** Auction lots can be selected for pre-bid; buy-now rows open checkout when pinned. */
+/** Auction lots can be selected for pre-bid; buy-now / PYT rows open shop actions. */
 export function buyerQueueRowSelectable(row: BuyerQueueLineupRow): boolean {
-  return row.queueAction === "pre_bid" || row.queueAction === "buy_now";
+  return row.queueAction === "pre_bid" || row.queueAction === "buy_now" || row.queueAction === "variant_shop";
 }

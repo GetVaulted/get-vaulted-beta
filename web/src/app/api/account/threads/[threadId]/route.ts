@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createNotification } from "@/lib/notifications";
+import { REPLY_MESSAGE_NOTIFICATION } from "@/lib/message-notification";
 import { loadMentionsForSources } from "@/lib/mentions/load-message-mentions";
 import { processMessageMentions } from "@/lib/mentions/process-message-mentions";
 import {
@@ -46,6 +47,23 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
     return NextResponse.json({ error: "Conversation unavailable." }, { status: 403 });
   }
 
+  // Heal stuck request threads: recipient replied without tapping Accept → promote to primary
+  // so the initiator's composer unlocks on open (not only on their next send attempt).
+  let inbox = thread.inbox;
+  if (inbox === "request") {
+    const recipientReplied = await prisma.message.findFirst({
+      where: { threadId, senderId: thread.sellerId, kind: "user" },
+      select: { id: true },
+    });
+    if (recipientReplied) {
+      await prisma.messageThread.update({
+        where: { id: threadId },
+        data: { inbox: "primary" },
+      });
+      inbox = "primary";
+    }
+  }
+
   await prisma.message.updateMany({
     where: { threadId, recipientId: uid, readAt: null },
     data: { readAt: new Date() },
@@ -63,6 +81,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
     id: true,
     senderId: true,
     body: true,
+    imageUrl: true,
     kind: true,
     systemEvent: true,
     readAt: true,
@@ -112,7 +131,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
   return NextResponse.json({
     thread: {
       id: thread.id,
-      inbox: thread.inbox,
+      inbox,
       conversationKind: thread.conversationKind,
       conversationLabel: conversationKindLabel(thread.conversationKind),
       listingId: thread.listingId,
@@ -123,6 +142,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
       offerId: thread.offerId,
       orderId: thread.orderId,
       liveRoomId: thread.liveRoomId,
+      tradeOfferId: ctxLabel.tradeOfferId ?? null,
       otherUserId: other.id,
       otherUsername: other.username,
       otherAvatarUrl: other.image,
@@ -137,23 +157,32 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
       id: m.id,
       senderId: m.senderId,
       body: m.body,
+      imageUrl: m.imageUrl,
       kind: m.kind,
       systemEvent: m.systemEvent,
       readAt: m.readAt?.toISOString() ?? null,
       createdAt: m.createdAt.toISOString(),
-      mentions: mentionMap.get(m.id) ?? [],
+      mentions: (mentionMap.get(m.id) ?? []).filter((mention) => mention.userId !== m.senderId),
     })),
     hasMore,
     nextCursor,
   });
 }
 
-type PostBody = { body?: unknown };
+type PostBody = { body?: unknown; imageUrl?: unknown };
 
 function trimBody(s: unknown, max = 8000): string | null {
   if (typeof s !== "string") return null;
   const t = s.trim().slice(0, max);
   return t.length ? t : null;
+}
+
+/** Photo attachment must be an https URL from our own upload endpoint's response. */
+function trimImageUrl(s: unknown, max = 2000): string | null {
+  if (typeof s !== "string") return null;
+  const t = s.trim().slice(0, max);
+  if (!t || !/^https:\/\//i.test(t)) return null;
+  return t;
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
@@ -171,8 +200,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const text = trimBody(body.body, 8000);
-  if (!text) return NextResponse.json({ error: "Enter a message." }, { status: 400 });
+  const text = trimBody(body.body, 8000) ?? "";
+  const imageUrl = trimImageUrl(body.imageUrl);
+  if (!text && !imageUrl) {
+    return NextResponse.json({ error: "Enter a message or attach a photo." }, { status: 400 });
+  }
 
   const thread = await prisma.messageThread.findFirst({
     where: {
@@ -186,11 +218,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  // Request-folder threads: only the recipient (`sellerId`) may speak until accepted.
+  // If they already replied earlier without tapping Accept, treat that as acceptance and heal.
   if (thread.inbox === "request" && thread.sellerId !== uid) {
-    return NextResponse.json(
-      { error: "Waiting for the seller to accept your message request." },
-      { status: 403 },
-    );
+    const recipientAlreadyReplied = await prisma.message.findFirst({
+      where: { threadId, senderId: thread.sellerId, kind: "user" },
+      select: { id: true },
+    });
+    if (recipientAlreadyReplied) {
+      await prisma.messageThread.update({
+        where: { id: threadId },
+        data: { inbox: "primary" },
+      });
+      thread.inbox = "primary";
+    } else {
+      return NextResponse.json(
+        { error: "Waiting for them to accept your message request." },
+        { status: 403 },
+      );
+    }
   }
 
   const recipientId = thread.buyerId === uid ? thread.sellerId : thread.buyerId;
@@ -206,6 +252,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     select: { muted: true },
   });
 
+  // Replying as the request recipient implicitly accepts the request (no separate Accept tap).
+  const acceptOnSend = thread.inbox === "request" && thread.sellerId === uid;
+
   const msg = await prisma.$transaction(async (tx) => {
     const m = await tx.message.create({
       data: {
@@ -214,13 +263,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
         recipientId,
         listingId: thread.listingId,
         body: text,
+        imageUrl,
         kind: "user",
       },
       select: { id: true, createdAt: true },
     });
     await tx.messageThread.update({
       where: { id: thread.id },
-      data: { updatedAt: new Date() },
+      data: {
+        updatedAt: new Date(),
+        ...(acceptOnSend ? { inbox: "primary" as const } : {}),
+      },
     });
 
     return m;
@@ -240,11 +293,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
   });
 
   if (!recipientParticipant?.muted) {
-    const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
+    const preview = text
+      ? text.length > 120
+        ? `${text.slice(0, 117)}…`
+        : text
+      : "📷 Sent a photo";
     await createNotification(prisma, {
       userId: recipientId,
-      type: "message_received",
-      title: "New message",
+      type: REPLY_MESSAGE_NOTIFICATION.type,
+      title: REPLY_MESSAGE_NOTIFICATION.title,
       body: preview,
       href: `/account/messages/${encodeURIComponent(thread.id)}`,
     });
@@ -255,6 +312,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       id: msg.id,
       senderId: uid,
       body: text,
+      imageUrl,
       kind: "user" as const,
       systemEvent: null,
       readAt: null as string | null,

@@ -1,11 +1,13 @@
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { StyleSheet, View } from 'react-native';
 import { CreateListingDraftProvider } from '../createListing/CreateListingDraftContext';
 import { MainTabNavigator } from './MainTabNavigator';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { AuthLoginScreen } from '../screens/auth/AuthLoginScreen';
 import { AuthSignUpScreen } from '../screens/auth/AuthSignUpScreen';
 import { CompleteProfileSetupScreen } from '../screens/auth/CompleteProfileSetupScreen';
+import { NotificationPermissionScreen } from '../screens/auth/NotificationPermissionScreen';
 import { ProfileEditScreen } from '../screens/auth/ProfileEditScreen';
 import { LaunchIntroScreen } from '../screens/onboarding/LaunchIntroScreen';
 import { AuthWelcomeScreen } from '../screens/onboarding/AuthWelcomeScreen';
@@ -17,6 +19,7 @@ import { ChangePasswordScreen } from '../screens/settings/ChangePasswordScreen';
 import { DeleteAccountScreen } from '../screens/settings/DeleteAccountScreen';
 import { CommunityGuidelinesScreen } from '../screens/settings/CommunityGuidelinesScreen';
 import { ReportingSafetyScreen } from '../screens/settings/ReportingSafetyScreen';
+import { BlockedUsersScreen } from '../screens/settings/BlockedUsersScreen';
 import { HelpCenterScreen } from '../screens/help/HelpCenterScreen';
 import { VaultSearchScreen } from '../screens/VaultSearchScreen';
 import { HelpArticleScreen } from '../screens/help/HelpArticleScreen';
@@ -36,6 +39,7 @@ import { colors } from '../theme';
 import { rootNavigationRef } from './rootNavigationRef';
 import { AuthSessionRoutingEffect } from './AuthSessionRoutingEffect';
 import { ProfileSetupRoutingEffect } from './ProfileSetupRoutingEffect';
+import { AppPresenceHeartbeatEffect } from './AppPresenceHeartbeatEffect';
 import { AccountSwitchEffect } from './AccountSwitchEffect';
 import { navigationLinking } from './linkingConfig';
 
@@ -60,6 +64,10 @@ const MessageThreadScreen = lazyScreen(
 const MessageComposeScreen = lazyScreen(
   () => import('../screens/messages/MessageComposeScreen'),
   (m) => m.MessageComposeScreen,
+);
+const MessageNewScreen = lazyScreen(
+  () => import('../screens/messages/MessageNewScreen'),
+  (m) => m.MessageNewScreen,
 );
 const UserProfileScreen = lazyScreen(
   () => import('../screens/profile/UserProfileScreen'),
@@ -137,6 +145,58 @@ const PromoEntryScreen = lazyScreen(
   () => import('../screens/promo/PromoEntryScreen'),
   (m) => m.PromoEntryScreen,
 );
+const AdminOpsHomeScreen = lazyScreen(
+  () => import('../screens/admin/AdminOpsHomeScreen'),
+  (m) => m.AdminOpsHomeScreen,
+);
+const AdminLiveShowsScreen = lazyScreen(
+  () => import('../screens/admin/AdminLiveShowsScreen'),
+  (m) => m.AdminLiveShowsScreen,
+);
+const AdminSupportTicketsScreen = lazyScreen(
+  () => import('../screens/admin/AdminSupportTicketsScreen'),
+  (m) => m.AdminSupportTicketsScreen,
+);
+const AdminSupportTicketDetailScreen = lazyScreen(
+  () => import('../screens/admin/AdminSupportTicketDetailScreen'),
+  (m) => m.AdminSupportTicketDetailScreen,
+);
+const AdminTrustScreen = lazyScreen(
+  () => import('../screens/admin/AdminTrustScreen'),
+  (m) => m.AdminTrustScreen,
+);
+const AdminReportDetailScreen = lazyScreen(
+  () => import('../screens/admin/AdminReportDetailScreen'),
+  (m) => m.AdminReportDetailScreen,
+);
+const AdminFulfillmentScreen = lazyScreen(
+  () => import('../screens/admin/AdminFulfillmentScreen'),
+  (m) => m.AdminFulfillmentScreen,
+);
+const AdminOrderDetailScreen = lazyScreen(
+  () => import('../screens/admin/AdminOrderDetailScreen'),
+  (m) => m.AdminOrderDetailScreen,
+);
+const AdminModerationScreen = lazyScreen(
+  () => import('../screens/admin/AdminModerationScreen'),
+  (m) => m.AdminModerationScreen,
+);
+const AdminUsersScreen = lazyScreen(
+  () => import('../screens/admin/AdminUsersScreen'),
+  (m) => m.AdminUsersScreen,
+);
+const AdminNotificationsScreen = lazyScreen(
+  () => import('../screens/admin/AdminNotificationsScreen'),
+  (m) => m.AdminNotificationsScreen,
+);
+const AdminSellerRiskScreen = lazyScreen(
+  () => import('../screens/admin/AdminSellerRiskScreen'),
+  (m) => m.AdminSellerRiskScreen,
+);
+const AdminHealthScreen = lazyScreen(
+  () => import('../screens/admin/AdminHealthScreen'),
+  (m) => m.AdminHealthScreen,
+);
 
 const theme = {
   ...DarkTheme,
@@ -161,15 +221,17 @@ const stackScreenOptions = {
 export function RootNavigator() {
   return (
     <NavigationContainer ref={rootNavigationRef} theme={theme} linking={navigationLinking}>
-      <AuthSessionRoutingEffect />
-      <ProfileSetupRoutingEffect />
-      <AccountSwitchEffect />
-      <MarketplaceReviewPromptEffect />
-      <PushRegistrationEffect />
-      <MarketplaceCatalogSyncEffect />
-      <NotificationDeepLinkEffect />
-      <CreateListingDraftProvider>
-        <Stack.Navigator initialRouteName="LaunchIntro" screenOptions={stackScreenOptions}>
+      <View style={rootStyles.root}>
+        <AuthSessionRoutingEffect />
+        <ProfileSetupRoutingEffect />
+        <AppPresenceHeartbeatEffect />
+        <AccountSwitchEffect />
+        <MarketplaceReviewPromptEffect />
+        <PushRegistrationEffect />
+        <MarketplaceCatalogSyncEffect />
+        <NotificationDeepLinkEffect />
+        <CreateListingDraftProvider>
+          <Stack.Navigator initialRouteName="LaunchIntro" screenOptions={stackScreenOptions}>
           <Stack.Screen
             name="LaunchIntro"
             component={LaunchIntroScreen}
@@ -190,6 +252,11 @@ export function RootNavigator() {
           <Stack.Screen
             name="CompleteProfileSetup"
             component={CompleteProfileSetupScreen}
+            options={{ animation: 'fade', gestureEnabled: false }}
+          />
+          <Stack.Screen
+            name="NotificationPermission"
+            component={NotificationPermissionScreen}
             options={{ animation: 'fade', gestureEnabled: false }}
           />
           <Stack.Screen name="ProfileEdit" component={ProfileEditScreen} />
@@ -221,6 +288,14 @@ export function RootNavigator() {
           />
           <Stack.Screen name="MessagesInbox" component={MessagesInboxScreen} />
           <Stack.Screen name="MessageThread" component={MessageThreadScreen} />
+          <Stack.Screen
+            name="MessageNew"
+            component={MessageNewScreen}
+            options={{
+              presentation: 'modal',
+              animation: 'slide_from_bottom',
+            }}
+          />
           <Stack.Screen
             name="MessageCompose"
             component={MessageComposeScreen}
@@ -254,6 +329,7 @@ export function RootNavigator() {
           <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
           <Stack.Screen name="CommunityGuidelines" component={CommunityGuidelinesScreen} />
           <Stack.Screen name="ReportingSafety" component={ReportingSafetyScreen} />
+          <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
           <Stack.Screen name="HelpCenter" component={HelpCenterScreen} />
           <Stack.Screen
             name="VaultSearch"
@@ -289,8 +365,26 @@ export function RootNavigator() {
             component={PromoEntryScreen}
             options={{ animation: 'slide_from_right', presentation: 'card' }}
           />
+          <Stack.Screen name="AdminOpsHome" component={AdminOpsHomeScreen} />
+          <Stack.Screen name="AdminLiveShows" component={AdminLiveShowsScreen} />
+          <Stack.Screen name="AdminSupportTickets" component={AdminSupportTicketsScreen} />
+          <Stack.Screen name="AdminSupportTicketDetail" component={AdminSupportTicketDetailScreen} />
+          <Stack.Screen name="AdminTrust" component={AdminTrustScreen} />
+          <Stack.Screen name="AdminReportDetail" component={AdminReportDetailScreen} />
+          <Stack.Screen name="AdminFulfillment" component={AdminFulfillmentScreen} />
+          <Stack.Screen name="AdminOrderDetail" component={AdminOrderDetailScreen} />
+          <Stack.Screen name="AdminModeration" component={AdminModerationScreen} />
+          <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
+          <Stack.Screen name="AdminNotifications" component={AdminNotificationsScreen} />
+          <Stack.Screen name="AdminSellerRisk" component={AdminSellerRiskScreen} />
+          <Stack.Screen name="AdminHealth" component={AdminHealthScreen} />
         </Stack.Navigator>
-      </CreateListingDraftProvider>
+        </CreateListingDraftProvider>
+      </View>
     </NavigationContainer>
   );
 }
+
+const rootStyles = StyleSheet.create({
+  root: { flex: 1 },
+});

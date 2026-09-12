@@ -2,14 +2,26 @@ import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import type { LiveGiveawayRow } from '../api/liveGiveawayRepository';
-import { fetchHostConsole, type HostConsolePayload, type HostPaymentFailureRow, type HostRecentSaleRow } from '../api/liveHostRepository';
+import {
+  fetchHostConsole,
+  type HostConsolePayload,
+  type HostPaymentFailureRow,
+  type HostRecentSaleRow,
+  type HostSellerShowSummary,
+} from '../api/liveHostRepository';
 import {
   createLiveRoomQueueItem,
+  createOffPlatformPlatformFeeCheckout,
   deleteLiveRoomQueueItem,
+  importLiveRoomItemsFromRoom,
+  manualAssignLiveItemVariant,
+  restoreLiveItemVariant,
+  retireLiveItemVariant,
   patchLiveItemVariants,
   patchLiveRoomItem,
   type LiveRoomItemRow,
 } from '../api/liveRoomControlRepository';
+import { openStripeCheckoutSession } from '../lib/openStripeCheckoutSession';
 import type { QuickLiveLotSubmitPayload, QuickLiveLotSubmitOptions } from '../components/seller/liveConsole/AddInventoryModal';
 import type { QuickLiveLotValues } from '../lib/liveAuctionPricing';
 import type { LiveBreakVariantDraft } from '../lib/liveBreakPresets';
@@ -22,7 +34,8 @@ import { buildExclusiveHostPinUpdates } from '../lib/liveItemVariant';
 import { mergeLiveRoomItemsById, reconcileHostActiveItem } from '../lib/mergeLiveRoomItems';
 import { mergeRandomSpotClaimIntoItem, type RandomSpotClaim } from '../lib/liveVariantSpotBoard';
 import { useRealtimeRoomPresence } from './useRealtimeRoomPresence';
-import { DEFAULT_AUCTION_SEC } from '../components/seller/liveConsole/VaultPinnedLotCard';
+import { buildHostStartAuctionPatch, DEFAULT_AUCTION_SEC } from '../lib/liveAuctionStartPayload';
+import { syncLiveRoomViewerCount } from '../lib/syncLiveRoomViewerCount';
 import type { ChatMessage } from '../types';
 
 export function useSellerLiveConsole({
@@ -53,22 +66,33 @@ export function useSellerLiveConsole({
   const [items, setItems] = useState<LiveRoomItemRow[]>([]);
   const [giveaways, setGiveaways] = useState<LiveGiveawayRow[]>([]);
   const [recentSales, setRecentSales] = useState<HostRecentSaleRow[]>([]);
+  const [sellerSummary, setSellerSummary] = useState<HostSellerShowSummary | null>(null);
   const [paymentFailures, setPaymentFailures] = useState<HostPaymentFailureRow[]>([]);
   const [activeItem, setActiveItem] = useState<LiveRoomItemRow | null>(null);
+  // Presence is for live viewer counts only — saved/scheduled shows must not open a presence session.
   const liveViewerCount = useRealtimeRoomPresence({
     liveRoomId: roomId,
-    enabled: roomStatus !== 'ended',
+    enabled: roomStatus === 'live',
     trackSelf: false,
   });
-  const viewerCount = liveViewerCount ?? 0;
+  // Sticky last known count — avoid flashing 0 while presence/broadcast reconnects.
+  const stickyViewerCountRef = useRef<number | null>(null);
+  if (liveViewerCount != null) stickyViewerCountRef.current = liveViewerCount;
+  const viewerCount = liveViewerCount ?? stickyViewerCountRef.current ?? 0;
+  useEffect(() => {
+    if (liveViewerCount == null || roomStatus !== 'live') return;
+    void syncLiveRoomViewerCount({ liveRoomId: roomId, viewerCount: liveViewerCount, accessToken });
+  }, [accessToken, liveViewerCount, roomId, roomStatus]);
   const [serverNowMs, setServerNowMs] = useState(Date.now());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [startingAuction, setStartingAuction] = useState(false);
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
+  const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(DEFAULT_AUCTION_SEC);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [pricingEditItem, setPricingEditItem] = useState<LiveRoomItemRow | null>(null);
   const [pinningVariantId, setPinningVariantId] = useState<string | null>(null);
+  const [markSoldBusy, setMarkSoldBusy] = useState(false);
   const [consoleError, setConsoleError] = useState<SanitizedLiveError | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const hydratedRef = useRef(false);
@@ -83,6 +107,7 @@ export function useSellerLiveConsole({
         setRecentSales(data.recentSales);
         setPaymentFailures(data.paymentFailures);
       }
+      if (data.sellerSummary) setSellerSummary(data.sellerSummary);
       setActiveItem((prev) => reconcileHostActiveItem(prev, data.activeItem ?? null));
       logSellerQueue('queue_length', {
         total: data.items.length,
@@ -170,13 +195,51 @@ export function useSellerLiveConsole({
     void loadOnce();
   }, [applyConsolePayload, initialConsole, loadOnce, roomId]);
 
+  const biddingUrgent = useMemo(() => {
+    if (!activeItem?.biddingOpen || !activeItem.auctionEndsAt) return false;
+    const end = Date.parse(activeItem.auctionEndsAt);
+    return Number.isFinite(end) && end - serverNowMs < 8000;
+  }, [activeItem, serverNowMs]);
+
   useEffect(() => {
-    if (roomStatus !== 'live') return;
+    onBiddingUrgentChange?.(biddingUrgent);
+  }, [biddingUrgent, onBiddingUrgentChange]);
+
+  useEffect(() => {
+    // Poll while scheduled too — pre-sales can change spot inventory before go-live.
+    if (roomStatus !== 'live' && roomStatus !== 'scheduled') return;
+    // Poll faster while an auction is about to end so host-console read_sweep can settle promptly.
+    const ms = roomStatus === 'live' && biddingUrgent ? 3_000 : 25_000;
     const id = setInterval(() => {
       void reload({ soft: true });
-    }, 25_000);
+    }, ms);
     return () => clearInterval(id);
-  }, [reload, roomStatus]);
+  }, [reload, roomStatus, biddingUrgent]);
+
+  const autoCloseNudgedItemRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (roomStatus !== 'live' || !activeItem?.id || !activeItem.biddingOpen || !activeItem.auctionEndsAt) {
+      return;
+    }
+    const endsMs = Date.parse(activeItem.auctionEndsAt);
+    if (!Number.isFinite(endsMs) || serverNowMs < endsMs + 1200) return;
+    if (autoCloseNudgedItemRef.current === activeItem.id) return;
+    autoCloseNudgedItemRef.current = activeItem.id;
+    void import('../api/liveRoomBuyerRepository').then(({ finalizeOverdueLiveRoomAuctions }) =>
+      finalizeOverdueLiveRoomAuctions(roomId, accessToken).finally(() => {
+        void reload({ soft: true });
+      }),
+    );
+  }, [
+    accessToken,
+    activeItem?.auctionEndsAt,
+    activeItem?.biddingOpen,
+    activeItem?.id,
+    reload,
+    roomId,
+    roomStatus,
+    serverNowMs,
+  ]);
 
   const refreshConsole = useCallback(async () => {
     try {
@@ -195,18 +258,34 @@ export function useSellerLiveConsole({
     setActiveItem((prev) => apply(prev));
   }, []);
 
-  const biddingUrgent = useMemo(() => {
-    if (!activeItem?.biddingOpen || !activeItem.auctionEndsAt) return false;
-    const end = Date.parse(activeItem.auctionEndsAt);
-    return Number.isFinite(end) && end - serverNowMs < 8000;
-  }, [activeItem, serverNowMs]);
-
-  useEffect(() => {
-    onBiddingUrgentChange?.(biddingUrgent);
-  }, [biddingUrgent, onBiddingUrgentChange]);
-
   const run = async (fn: () => Promise<void>) => {
-    if (busy || roomStatus === 'ended') return;
+    if (busy) return;
+    // The server blocks every queue mutation (delete/pin/reorder/pricing/etc.) once the room has
+    // ended — see the live-room item DELETE/PATCH routes' "This room has ended" 409. This used to
+    // silently no-op here too (same early return as the `busy` guard above), so a seller tapping
+    // Remove on an ended show's queue saw the confirm dialog, tapped Remove, and then... nothing.
+    // No error, no toast — looked exactly like a broken delete button. Tell them why instead.
+    if (roomStatus === 'ended') {
+      Alert.alert('Show has ended', 'This room has ended, so its queue can no longer be changed.');
+      return;
+    }
+    setBusy(true);
+    setConsoleError(null);
+    try {
+      await fn();
+      await reload({ force: true });
+    } catch (e) {
+      const sanitized = sanitizeLiveError(e, 'console');
+      setConsoleError(sanitized);
+      Alert.alert('Live room', sanitized.userMessage);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Mark sold / retire / restore — allowed after the show ends for next-day settlement. */
+  const runSettlement = async (fn: () => Promise<void>) => {
+    if (busy) return;
     setBusy(true);
     setConsoleError(null);
     try {
@@ -246,6 +325,8 @@ export function useSellerLiveConsole({
           variantAssignmentMode: payload.variantAssignmentMode,
           sellerShippingProfileId: payload.sellerShippingProfileId ?? null,
           shippingProfileId: payload.shippingProfileId ?? null,
+          teamBoardNcaa: payload.teamBoardNcaa === true,
+          customRandomPoolLabels: payload.customRandomPoolLabels ?? null,
         });
         setItems((prev) => {
           const sortOrder = prev.reduce((max, item) => Math.max(max, item.sortOrder ?? 0), -1) + 1;
@@ -267,6 +348,7 @@ export function useSellerLiveConsole({
             sortOrder,
             salesFormat: payload.salesFormat,
             variantAssignmentMode: payload.variantAssignmentMode,
+            teamBoardNcaa: payload.teamBoardNcaa === true,
             variants: payload.variants?.map((variant, index) => ({
               id: `pending-${newItemId}-${index}`,
               label: variant.label,
@@ -305,6 +387,88 @@ export function useSellerLiveConsole({
     })();
   };
 
+  const onSubmitFromShop = (listingIds: string[]) => {
+    if (busy) {
+      Alert.alert('Add to show', 'Still saving the previous change. Try again in a moment.');
+      return;
+    }
+    if (roomStatus === 'ended') {
+      Alert.alert('Add to show', 'This show has ended. You cannot add queue items.');
+      return;
+    }
+    setBusy(true);
+    setConsoleError(null);
+    void (async () => {
+      try {
+        let added = 0;
+        const errors: string[] = [];
+        for (const listingId of listingIds) {
+          try {
+            await createLiveRoomQueueItem(accessToken, roomId, {
+              title: '',
+              listingId,
+            });
+            added += 1;
+          } catch (e) {
+            errors.push(e instanceof Error ? e.message : 'Could not add item.');
+          }
+        }
+        invalidateHostConsoleCache(roomId);
+        await reload({ force: true });
+        if (added === 0) {
+          Alert.alert('From my shop', errors[0] ?? 'Could not add shop items.');
+          return;
+        }
+        setInventoryOpen(false);
+        onAfterAddLot?.();
+        if (errors.length) {
+          Alert.alert('From my shop', `Added ${added}. ${errors.length} skipped.`);
+        }
+      } catch (e) {
+        const sanitized = sanitizeLiveError(e, 'console');
+        setConsoleError(sanitized);
+        Alert.alert('From my shop', sanitized.userMessage);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
+
+  const onImportFromPriorRoom = (sourceRoomId: string) => {
+    if (busy) {
+      Alert.alert('Copy last show', 'Still saving the previous change. Try again in a moment.');
+      return;
+    }
+    if (roomStatus === 'ended') {
+      Alert.alert('Copy last show', 'This show has ended. You cannot add queue items.');
+      return;
+    }
+    setBusy(true);
+    setConsoleError(null);
+    void (async () => {
+      try {
+        const result = await importLiveRoomItemsFromRoom(accessToken, roomId, sourceRoomId);
+        invalidateHostConsoleCache(roomId);
+        await reload({ force: true });
+        setInventoryOpen(false);
+        onAfterAddLot?.();
+        const label = result.sourceTitle?.trim() || 'prior show';
+        Alert.alert(
+          'Copy last show',
+          result.skipped > 0
+            ? `Copied ${result.imported} from ${label} (${result.skipped} already in lineup).`
+            : `Copied ${result.imported} from ${label}.`,
+        );
+      } catch (e) {
+        const sanitized = sanitizeLiveError(e, 'console');
+        setConsoleError(sanitized);
+        Alert.alert('Copy last show', sanitized.userMessage);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  };
+
   const onSaveQueuePricing = (itemId: string, values: QuickLiveLotValues) => {
     void run(async () => {
       const existing =
@@ -313,6 +477,21 @@ export function useSellerLiveConsole({
           : items.find((row) => row.id === itemId) ?? null;
       const prevFormat = existing?.salesFormat ?? 'auction';
       const nextFormat = values.salesFormat;
+
+      // When switching from buy_now to auction, use the previous buy-it-now price as the starting bid
+      // to prevent a gap where users could buy for $1 (DEFAULT_STARTING_BID_USD)
+      let startingBidUsd = values.saleType === 'auction' ? values.startingBidUsd : null;
+      if (prevFormat === 'buy_now' && nextFormat === 'auction' && startingBidUsd == null) {
+        startingBidUsd = existing?.priceUsd ?? null;
+      }
+
+      // Update pricing FIRST, then change format to prevent purchase gap
+      await patchLiveRoomItem(accessToken, roomId, itemId, {
+        quantity: values.quantity,
+        startingBidUsd,
+        reservePriceUsd: values.saleType === 'auction' ? values.reservePriceUsd : null,
+        priceUsd: values.priceUsd,
+      });
 
       if (
         prevFormat !== nextFormat &&
@@ -325,12 +504,6 @@ export function useSellerLiveConsole({
         });
       }
 
-      await patchLiveRoomItem(accessToken, roomId, itemId, {
-        quantity: values.quantity,
-        startingBidUsd: values.saleType === 'auction' ? values.startingBidUsd : null,
-        reservePriceUsd: values.saleType === 'auction' ? values.reservePriceUsd : null,
-        priceUsd: values.priceUsd,
-      });
       setPricingEditItem(null);
     });
   };
@@ -338,14 +511,14 @@ export function useSellerLiveConsole({
   const onSaveBreakSpots = (itemId: string, spots: LiveBreakVariantDraft[]) => {
     void run(async () => {
       const updates = spots
-        .filter((s): s is LiveBreakVariantDraft & { id: string } => Boolean(s.id))
+        .filter((s): s is LiveBreakVariantDraft & { id: string } => Boolean(s.id) && !s.soldOut)
         .map((s) => ({
           id: s.id,
           priceUsd: s.priceUsd,
           isHot: s.isHot === true,
         }));
       if (updates.length === 0) {
-        Alert.alert('Edit break', 'No spots to update.');
+        Alert.alert('Edit break', 'No open spots to update.');
         return;
       }
       await patchLiveItemVariants(accessToken, roomId, itemId, updates);
@@ -367,8 +540,204 @@ export function useSellerLiveConsole({
     });
   };
 
+  const onMarkSoldLiveTeam = (args: {
+    itemId: string;
+    variantId: string;
+    username: string;
+    label: string;
+    priceUsd: number;
+    settlementMethod: string;
+    zeroReason?: string;
+    note?: string;
+    restoreIfUnavailable?: boolean;
+  }) => {
+    void runSettlement(async () => {
+      setMarkSoldBusy(true);
+      try {
+        if (args.restoreIfUnavailable) {
+          await restoreLiveItemVariant({
+            accessToken,
+            roomId,
+            itemId: args.itemId,
+            variantId: args.variantId,
+          });
+        }
+        const result = await manualAssignLiveItemVariant({
+          accessToken,
+          roomId,
+          itemId: args.itemId,
+          variantId: args.variantId,
+          username: args.username,
+          priceUsd: args.priceUsd,
+          settlementMethod: args.settlementMethod,
+          zeroReason: args.zeroReason,
+          note: args.note,
+        });
+        const buyerUsername = result.buyerUsername.replace(/^@+/, '');
+        const markVariantSold = (item: LiveRoomItemRow): LiveRoomItemRow => {
+          if (item.id !== args.itemId || !item.variants?.length) return item;
+          return {
+            ...item,
+            itemVersion: (item.itemVersion ?? 0) + 1,
+            variants: item.variants.map((v) =>
+              v.id === args.variantId
+                ? {
+                    ...v,
+                    quantityRemaining: 0,
+                    status: 'sold_out',
+                    isHot: false,
+                    buyerUsername,
+                    soldCount: (v.soldCount ?? 0) + 1,
+                  }
+                : v,
+            ),
+          };
+        };
+        setItems((prev) => prev.map(markVariantSold));
+        setActiveItem((prev) => (prev ? markVariantSold(prev) : prev));
+        invalidateHostConsoleCache(roomId);
+        await reload({ force: true });
+
+        const soldTitle = args.restoreIfUnavailable ? 'Supp sold' : 'Marked sold';
+        if (result.platformFeeDue && result.purchaseId) {
+          const feeUsd = (result.platformFeeCents / 100).toFixed(2);
+          Alert.alert(
+            soldTitle,
+            `${result.label} → @${result.buyerUsername} · $${result.totalUsd.toFixed(2)}\n\nPlatform fee due: $${feeUsd}`,
+            [
+              { text: 'Pay later', style: 'cancel' },
+              {
+                text: 'Pay fee now',
+                onPress: () => {
+                  void (async () => {
+                    try {
+                      const checkout = await createOffPlatformPlatformFeeCheckout({
+                        accessToken,
+                        roomId,
+                        purchaseId: result.purchaseId,
+                      });
+                      if (checkout.alreadyPaid) {
+                        Alert.alert('Fee already paid', `$${checkout.feeUsd.toFixed(2)} platform fee is settled.`);
+                        return;
+                      }
+                      if (!checkout.url) throw new Error('Could not start fee checkout.');
+                      await openStripeCheckoutSession(checkout.url);
+                    } catch (e) {
+                      Alert.alert(
+                        'Fee checkout',
+                        e instanceof Error ? e.message : 'Could not open fee payment.',
+                      );
+                    }
+                  })();
+                },
+              },
+            ],
+          );
+        } else {
+          Alert.alert(
+            soldTitle,
+            `${result.label} → @${result.buyerUsername}${
+              result.totalUsd < 0.01 ? ' · $0 (no platform fee)' : ` · $${result.totalUsd.toFixed(2)}`
+            }`,
+          );
+        }
+      } finally {
+        setMarkSoldBusy(false);
+      }
+    });
+  };
+
+  const onRetireLiveTeam = (args: { itemId: string; variantId: string; label: string }) => {
+    void runSettlement(async () => {
+      setMarkSoldBusy(true);
+      try {
+        const result = await retireLiveItemVariant({
+          accessToken,
+          roomId,
+          itemId: args.itemId,
+          variantId: args.variantId,
+        });
+        const markVariantRemoved = (item: LiveRoomItemRow): LiveRoomItemRow => {
+          if (item.id !== args.itemId || !item.variants?.length) return item;
+          return {
+            ...item,
+            itemVersion: (item.itemVersion ?? 0) + 1,
+            variants: item.variants.map((v) =>
+              v.id === args.variantId
+                ? {
+                    ...v,
+                    quantityRemaining: 0,
+                    status: 'removed',
+                    isHot: false,
+                    buyerUsername: null,
+                  }
+                : v,
+            ),
+          };
+        };
+        setItems((prev) => prev.map(markVariantRemoved));
+        setActiveItem((prev) => (prev ? markVariantRemoved(prev) : prev));
+        invalidateHostConsoleCache(roomId);
+        setMarkSoldBusy(false);
+        await reload({ force: true });
+        Alert.alert('Marked unavailable', `${result.label} stays on the board as unavailable — not counted as a sale.`);
+      } catch (e) {
+        setMarkSoldBusy(false);
+        throw e;
+      }
+    });
+  };
+
+  const onRestoreLiveTeam = (args: { itemId: string; variantId: string; label: string }) => {
+    void runSettlement(async () => {
+      setMarkSoldBusy(true);
+      try {
+        const result = await restoreLiveItemVariant({
+          accessToken,
+          roomId,
+          itemId: args.itemId,
+          variantId: args.variantId,
+        });
+        const markVariantRestored = (item: LiveRoomItemRow): LiveRoomItemRow => {
+          if (item.id !== args.itemId || !item.variants?.length) return item;
+          return {
+            ...item,
+            itemVersion: (item.itemVersion ?? 0) + 1,
+            variants: item.variants.map((v) =>
+              v.id === args.variantId
+                ? {
+                    ...v,
+                    quantityRemaining: result.quantityRemaining,
+                    status: 'available',
+                    isHot: false,
+                    buyerUsername: null,
+                  }
+                : v,
+            ),
+          };
+        };
+        setItems((prev) => prev.map(markVariantRestored));
+        setActiveItem((prev) => (prev ? markVariantRestored(prev) : prev));
+        invalidateHostConsoleCache(roomId);
+        setMarkSoldBusy(false);
+        await reload({ force: true });
+        Alert.alert(
+          'Brought back',
+          `${result.label} is open again — record a supp sold with the buyer’s username, or let them buy in-app.`,
+        );
+      } catch (e) {
+        setMarkSoldBusy(false);
+        throw e;
+      }
+    });
+  };
+
   const openPricingEditor = (item: LiveRoomItemRow) => {
-    setPricingEditItem(item);
+    const fresh =
+      (activeItem?.id === item.id ? activeItem : null) ??
+      items.find((row) => row.id === item.id) ??
+      item;
+    setPricingEditItem(fresh);
   };
 
   const pricingEditIsBreak = pricingEditItem != null && isVariantSalesFormat(pricingEditItem.salesFormat);
@@ -393,11 +762,15 @@ export function useSellerLiveConsole({
     void run(async () => {
       setStartingAuction(true);
       try {
-        await patchLiveRoomItem(accessToken, roomId, activeItem.id, {
-          action: 'startAuction',
-          auctionDurationSec: DEFAULT_AUCTION_SEC,
-          clutchTimeEnabled: hostClutchTimeEnabled,
-        });
+        await patchLiveRoomItem(
+          accessToken,
+          roomId,
+          activeItem.id,
+          buildHostStartAuctionPatch({
+            auctionDurationSec: hostAuctionDurationSec,
+            clutchTimeEnabled: hostClutchTimeEnabled,
+          }),
+        );
       } finally {
         setStartingAuction(false);
       }
@@ -440,11 +813,15 @@ export function useSellerLiveConsole({
       await patchLiveRoomItem(accessToken, roomId, item.id, { status: 'active' });
       setStartingAuction(true);
       try {
-        await patchLiveRoomItem(accessToken, roomId, item.id, {
-          action: 'startAuction',
-          auctionDurationSec: DEFAULT_AUCTION_SEC,
-          clutchTimeEnabled: hostClutchTimeEnabled,
-        });
+        await patchLiveRoomItem(
+          accessToken,
+          roomId,
+          item.id,
+          buildHostStartAuctionPatch({
+            auctionDurationSec: hostAuctionDurationSec,
+            clutchTimeEnabled: hostClutchTimeEnabled,
+          }),
+        );
       } finally {
         setStartingAuction(false);
       }
@@ -483,6 +860,8 @@ export function useSellerLiveConsole({
     startingAuction,
     hostClutchTimeEnabled,
     toggleHostClutchTime: () => setHostClutchTimeEnabled((v) => !v),
+    hostAuctionDurationSec,
+    setHostAuctionDurationSec,
     inventoryOpen,
     setInventoryOpen,
     pricingEditItem,
@@ -493,7 +872,13 @@ export function useSellerLiveConsole({
     onSaveBreakSpots,
     onPinLiveTeam,
     pinningVariantId,
+    onMarkSoldLiveTeam,
+    onRetireLiveTeam,
+    onRestoreLiveTeam,
+    markSoldBusy,
     onQuickAddLot,
+    onSubmitFromShop,
+    onImportFromPriorRoom,
     consoleError,
     chatMessages,
     loadOnce,
@@ -506,6 +891,7 @@ export function useSellerLiveConsole({
     },
     syncSales: () => reload({ soft: true, force: true }),
     recentSales,
+    sellerSummary,
     paymentFailures,
     recordRandomSpotClaim,
     onReorder,

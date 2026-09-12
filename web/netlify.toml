@@ -9,3 +9,11 @@
   publish = "web/.next"
   # Must run migrations before next build (marketplace shipping columns on Listing, etc.).
   command = "npm run netlify:build"
+
+[build.environment]
+  # mobile/google-services.json (Firebase Android config, added for push notifications) lives in
+  # this repo checkout but has nothing to do with the web build. Its "current_key" field is a
+  # Google API key format string, which trips Netlify's secret scanner and fails every deploy even
+  # though the web site never reads this file. It's a client-side Android config key restricted by
+  # package name + SHA fingerprint in Firebase, not a server secret, so it's safe to exclude here.
+  SECRETS_SCAN_OMIT_PATHS = "mobile/**"

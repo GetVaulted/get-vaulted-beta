@@ -48,6 +48,8 @@ function defaultWeightsForCategory(category: ShippingCategory): { base: number; 
 
 import { settleLiveOrderShippingTx } from "@/services/shipping/live-commerce-shipping-settlement";
 import { resolveLiveShowShippingCapCents } from "@/lib/live-show-shipping-terms";
+import { calculateLiveShippingCost as tierEstimateCents } from "@/services/shipping/live-shipping-tier-estimate";
+import { computeBuyerLiveShippingTotals } from "@/lib/unified-shipping-engine";
 
 function parseTiersFromEnv(): LiveShippingTier[] | null {
   const raw = process.env.LIVE_SHIPPING_TIERS_JSON?.trim();
@@ -76,13 +78,12 @@ export function calculateLivePricingWeight(items: Array<{ appliedWeightOz: numbe
   return items.reduce((sum, item) => sum + (Number.isFinite(item.appliedWeightOz) ? item.appliedWeightOz : 0), 0);
 }
 
-export function calculateLiveShippingCost(weightOz: number, capCents?: number | null): number {
-  if (!Number.isFinite(weightOz) || weightOz <= 0) return 0;
-  const tiers = effectiveTiers();
-  const row = tiers.find((tier) => weightOz <= tier.maxWeightOz) ?? tiers[tiers.length - 1];
-  const computed = row?.costCents ?? 0;
-  const cap = resolveLiveShowShippingCapCents(capCents ?? null);
-  return Math.min(computed, cap);
+/**
+ * Weight-tier estimate in cents (uncapped). Caps/subsidy are applied by buyer charge helpers.
+ * `@param _capCents` retained for call-site compatibility; ignored.
+ */
+export function calculateLiveShippingCost(weightOz: number, _capCents?: number | null): number {
+  return tierEstimateCents(weightOz);
 }
 
 /** Buyer-facing label for the tier band that contains `pricingWeightOz` (e.g. `"5–8 oz tier"`). */
@@ -114,8 +115,15 @@ export function computeBundledNextItemShippingDeltaCents(args: {
   if (args.capReached) return 0;
   if (!Number.isFinite(args.incrementalWeightOz) || args.incrementalWeightOz <= 0) return null;
   const newWeight = args.currentPricingWeightOz + args.incrementalWeightOz;
-  const newCost = calculateLiveShippingCost(newWeight, args.listingCapCents ?? null);
-  return Math.max(0, newCost - args.currentShippingCostCents);
+  const rawNewCost = calculateLiveShippingCost(newWeight);
+  const buyerNewTotal = computeBuyerLiveShippingTotals({
+    shippingMode: "capped",
+    shippingCapCents: args.listingCapCents ?? null,
+    sellerPaysOverCap: true,
+    estimatedEligibleBundleShippingCents: rawNewCost,
+    shippingAlreadyChargedCents: 0,
+  }).buyerTotalShippingCents;
+  return Math.max(0, buyerNewTotal - args.currentShippingCostCents);
 }
 
 export async function findOrCreateLiveShippingSessionTx(
@@ -175,7 +183,8 @@ export async function estimateFirstItemLiveShippingCentsForListingTx(
     Number.isFinite(listing.shippingBaseWeightOz) && listing.shippingBaseWeightOz > 0
       ? listing.shippingBaseWeightOz
       : defaults.base;
-  return calculateLiveShippingCost(baseWeightOz, listing.shippingPriceCapCents ?? null);
+  const rawCents = calculateLiveShippingCost(baseWeightOz);
+  return Math.min(rawCents, resolveLiveShowShippingCapCents(listing.shippingPriceCapCents ?? null));
 }
 
 export async function addOrderToLiveShippingSessionTx(
@@ -236,6 +245,7 @@ export async function addOrderToLiveShippingSessionTx(
               liveRoom: { sellerId: order.sellerId, roomType: { in: ["auction", "break", "sale"] } },
             },
             select: {
+              listingId: true,
               liveRoomId: true,
               shippingProfileId: true,
               customWeightOz: true,
@@ -255,6 +265,7 @@ export async function addOrderToLiveShippingSessionTx(
                 liveRoom: { sellerId: order.sellerId, roomType: { in: ["auction", "break", "sale"] } },
               },
               select: {
+                listingId: true,
                 liveRoomId: true,
                 shippingProfileId: true,
                 customWeightOz: true,
@@ -272,6 +283,7 @@ export async function addOrderToLiveShippingSessionTx(
                 liveRoom: { sellerId: order.sellerId, roomType: { in: ["auction", "break", "sale"] } },
               },
               select: {
+                listingId: true,
                 liveRoomId: true,
                 shippingProfileId: true,
                 customWeightOz: true,
@@ -357,13 +369,32 @@ export async function addOrderToLiveShippingSessionTx(
         ? showCap.shippingCapCents
         : listing.shippingPriceCapCents ?? null;
 
-    const itemCount = await tx.liveShippingSessionItem.count({ where: { sessionId: session.id } });
+    // Exclude siblings whose payment failed/expired/was refunded or charged back — they never
+    // actually shipped, so they must not count as "already have a bundled item" and shrink this
+    // item's weight down to the cheaper incremental tier. Otherwise a declined-then-retried (or a
+    // fresh) purchase right after a failed one gets under-weighted and under-charged.
+    const itemCount = await tx.liveShippingSessionItem.count({
+      where: {
+        sessionId: session.id,
+        order: { paymentStatus: { notIn: ["failed", "expired", "refunded", "chargeback"] } },
+      },
+    });
+
+    // Break/PYT queue rows (liveRoomItem.listingId === null) are host board rows, not the item being
+    // shipped. Their platform profile (e.g. "Full-Size Helmet") belongs to the queue row, not to the
+    // ephemeral "Live spot: X" listing the buyer actually receives. Use the listing-derived weight
+    // (baseWeightOz / incrementalWeightOz) for those to avoid charging card buyers helmet rates.
+    const isBreakSpotQueueRow = liveItem != null && liveRoomItemId != null && liveItem.listingId == null;
 
     let appliedWeightOz = itemCount === 0 ? baseWeightOz : incrementalWeightOz;
-    if (liveItem?.shippingProfile) {
+    if (liveItem?.shippingProfile && !isBreakSpotQueueRow) {
       const resolved = resolveShippingProfileDimensions(liveItem.shippingProfile, liveItem);
-      appliedWeightOz = itemCount === 0 ? resolved.weightOz : Math.max(1, resolved.weightOz * 0.25);
-    } else {
+      // Separate-package profiles (helmets, etc.) always contribute full package weight.
+      appliedWeightOz =
+        itemCount === 0 || resolved.requiresSeparatePackage
+          ? resolved.weightOz
+          : Math.max(1, resolved.weightOz * 0.25);
+    } else if (!isBreakSpotQueueRow) {
       const fallbackProfile = await resolveDefaultProfileForLiveShow({
         showDefaultProfileId: liveItem?.liveRoom.defaultShippingProfileId ?? showOnly?.defaultShippingProfileId ?? null,
         category: liveItem?.liveRoom.category ?? showOnly?.category ?? null,
@@ -371,7 +402,10 @@ export async function addOrderToLiveShippingSessionTx(
       });
       if (fallbackProfile) {
         const resolved = resolveShippingProfileDimensions(fallbackProfile, liveItem ?? undefined);
-        appliedWeightOz = itemCount === 0 ? resolved.weightOz : Math.max(1, resolved.weightOz * 0.25);
+        appliedWeightOz =
+          itemCount === 0 || resolved.requiresSeparatePackage
+            ? resolved.weightOz
+            : Math.max(1, resolved.weightOz * 0.25);
       }
     }
 

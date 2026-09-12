@@ -14,6 +14,23 @@ function trim(s: unknown, max: number): string {
   return s.trim().slice(0, max);
 }
 
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const gate = await requireAdmin();
+  if (!gate.ok) return gate.response;
+
+  const { id: raw } = await ctx.params;
+  const id = decodeURIComponent(raw);
+  const row = await prisma.supportTicket.findUnique({
+    where: { id },
+    include: {
+      user: { select: { username: true } },
+      assignedAdmin: { select: { username: true } },
+    },
+  });
+  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json({ ticket: serializeSupportTicket(row) });
+}
+
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;

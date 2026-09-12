@@ -42,7 +42,7 @@ function token(): string {
   return t;
 }
 
-async function shippoFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function shippoFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const timeoutMs = shippoTimeoutMs();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -84,6 +84,7 @@ async function shippoFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export type ShippoAddress = {
   name: string;
+  company?: string;
   street1: string;
   street2?: string;
   city: string;

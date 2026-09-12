@@ -2,11 +2,13 @@ import { sellerNextActionForOrder } from "@/lib/seller-fulfillment-next-action";
 import { resolveOrderCommerceSnapshot } from "@/lib/marketplace/commerce-state";
 import {
   estimateSellerOrderPayoutUsd,
-  estimatePlatformFeeUsd,
   estimateStripeProcessingFeeUsd,
-  resolvePlatformFeePercentForSellerOrder,
+  resolveSellerAbsorbedProcessingFeeUsd,
 } from "@/lib/seller-payout-estimate";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import { resolveSellerPlatformFeeDisplay } from "@/lib/seller-platform-fee-display";
+import { resolveSellerShippingBreakdown, type SellerShippingBreakdown } from "@/lib/seller-shipping-breakdown";
+import type { LabelFinanceRow } from "@/services/shipping/label-finance";
 
 export type SellerSalesOrderUser = {
   stripeAccountId: string | null;
@@ -55,6 +57,16 @@ export type SellerSalesOrderRowInput = {
   payoutReserveAmountCents: number;
   deliveryConfirmedAt: Date | null;
   payoutMethod: string;
+  shippingChargedCents?: number | null;
+  shippingLabelCostCents?: number | null;
+  shippingLabelCostReversedCents?: number | null;
+  platformFeeCents?: number | null;
+  platformFeePercentApplied?: number | null;
+  platformFeeBasisCents?: number | null;
+  platformFeePriorShowGmvUsd?: number | null;
+  platformFeeSellerOverrideApplied?: boolean | null;
+  stripeProcessingFeeCents?: number | null;
+  labelFinances?: LabelFinanceRow[] | null;
   liveShippingSession: {
     liveShowId: string | null;
     liveShow: { completedSalesGmvUsd: number; finalSalesGmvUsd: number | null; status: string; title?: string } | null;
@@ -73,13 +85,29 @@ export type SellerSalesOrderRowInput = {
 export function mapSellerSalesOrderForApi(user: SellerSalesOrderUser, o: SellerSalesOrderRowInput) {
   const liveShowId = o.liveShippingSession?.liveShowId ?? null;
   const liveShow = o.liveShippingSession?.liveShow;
-  const platformFeePercent = resolvePlatformFeePercentForSellerOrder({
+  const fee = resolveSellerPlatformFeeDisplay({
+    itemPriceUsd: o.itemPriceUsd,
     isCompanyListing: Boolean(o.listing.isCompanyListing),
+    platformFeeCents: o.platformFeeCents,
+    platformFeePercentApplied: o.platformFeePercentApplied,
+    platformFeeBasisCents: o.platformFeeBasisCents,
     liveShowId,
     liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
-    orderItemPriceUsd: o.itemPriceUsd,
     orderPaymentStatus: o.paymentStatus,
     sellerPlatformFeePercentOverride: user.sellerPlatformFeePercentOverride,
+  });
+  const shipping: SellerShippingBreakdown = resolveSellerShippingBreakdown({
+    shippingChargedCents: o.shippingChargedCents,
+    shippingPriceUsd: o.shippingPriceUsd,
+    shippingLabelCostCents: o.shippingLabelCostCents,
+    shippingLabelCostReversedCents: o.shippingLabelCostReversedCents,
+    carrier: o.carrier,
+    service: o.service,
+    trackingNumber: o.trackingNumber,
+    labelCreatedAt: o.labelCreatedAt,
+    labelUrl: o.labelUrl,
+    shippoTransactionId: o.shippoTransactionId,
+    labelFinances: o.labelFinances,
   });
   const commerce = resolveOrderCommerceSnapshot({
     id: o.id,
@@ -97,6 +125,11 @@ export function mapSellerSalesOrderForApi(user: SellerSalesOrderUser, o: SellerS
 
   const taxAmountCents = Math.max(0, o.taxAmountCents ?? 0);
   const taxUsd = Math.max(o.taxUsd ?? 0, taxAmountCents / 100);
+  const processingFeeUsd = resolveSellerAbsorbedProcessingFeeUsd({
+    isCompanyListing: Boolean(o.listing.isCompanyListing),
+    stripeProcessingFeeCents: o.stripeProcessingFeeCents,
+    buyerChargeTotalUsd: o.totalUsd,
+  });
 
   return {
     id: o.id,
@@ -139,17 +172,36 @@ export function mapSellerSalesOrderForApi(user: SellerSalesOrderUser, o: SellerS
     payoutReserveAmountCents: o.payoutReserveAmountCents,
     deliveryConfirmedAt: o.deliveryConfirmedAt?.toISOString() ?? null,
     payoutMethod: o.payoutMethod,
-    platformFeePercent,
-    platformFeeEstimateUsd: estimatePlatformFeeUsd({
-      itemPriceUsd: o.itemPriceUsd,
-      platformFeePercent,
-    }),
+    platformFeePercent: fee.platformFeePercent,
+    platformFeeEstimateUsd: fee.platformFeeUsd,
+    platformFeeCents: fee.platformFeeCents,
+    platformFeeBasisCents: fee.platformFeeBasisCents,
+    platformFeeEffectivePercent: fee.effectivePercent,
+    platformFeeSource: fee.source,
     stripeProcessingFeeEstimateUsd: estimateStripeProcessingFeeUsd(o.totalUsd),
+    shippingLabelCostCents: o.shippingLabelCostCents ?? null,
+    shippingLabelCostReversedCents: o.shippingLabelCostReversedCents ?? null,
+    shippingBreakdown: {
+      buyerShippingCollectedCents: shipping.buyerShippingCollectedCents,
+      actualLabelCostCents: shipping.actualLabelCostCents,
+      labelRefundOrCreditCents: shipping.labelRefundOrCreditCents,
+      netShippingImpactCents: shipping.netShippingImpactCents,
+      labelStatus: shipping.labelStatus,
+      carrier: shipping.carrier,
+      service: shipping.service,
+      trackingNumber: shipping.trackingNumber,
+      purchasedAt: shipping.purchasedAt,
+      labelCostSource: shipping.labelCostSource,
+    },
     payoutEstimateUsd: estimateSellerOrderPayoutUsd({
       itemPriceUsd: o.itemPriceUsd,
       shippingPriceUsd: o.shippingPriceUsd,
       payoutReserveAmountCents: o.payoutReserveAmountCents,
-      platformFeePercent,
+      platformFeePercent: fee.platformFeePercent,
+      shippingLabelCostCents: o.shippingLabelCostCents,
+      shippingLabelCostReversedCents: o.shippingLabelCostReversedCents,
+      // Match Connect transfer: company = $0 processing pass-through; marketplace = actual/estimate.
+      stripeProcessingFeeUsd: processingFeeUsd,
     }),
     listing: o.listing,
     buyer: o.buyer,

@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useState } from "react";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
+import { AccountSalesViewTabs } from "@/components/account/AccountSalesViewTabs";
 import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 
 type LayawayRow = {
@@ -78,13 +78,18 @@ export function AccountSalesLayawaysPage() {
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
       <div className="relative mx-auto w-full max-w-[1920px] px-3 pb-20 pt-6 sm:px-4 lg:px-10">
-        <AccountOrdersNav active="sales" />
-        <header className="mt-6 border-b border-white/[0.07] pb-6">
-          <Link href="/account/sales" className="text-[11px] font-semibold uppercase tracking-wider text-gold-bright/90 hover:text-gold-bright">
-            ← Sales
-          </Link>
-          <h1 className="font-display mt-3 text-2xl font-black tracking-tight text-foreground sm:text-3xl">Layaways</h1>
-          <p className="mt-1.5 text-sm text-zinc-500">Items reserved on layaway. Shipping unlocks when paid in full.</p>
+        <header className="border-b border-white/[0.07] pb-5">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Account</p>
+          <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">
+            Seller layaways
+          </h1>
+          <p className="mt-1.5 text-sm text-zinc-500">
+            Items reserved on layaway. Shipping unlocks when paid in full.
+          </p>
+          <AccountSalesViewTabs active="layaways" />
+          <div className="mt-4">
+            <AccountOrdersNav active="sales" mode="seller" />
+          </div>
         </header>
 
         <div className="mt-6 flex flex-wrap gap-2">

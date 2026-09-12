@@ -1,4 +1,4 @@
-import { isPayoutSetupComplete, type SellerReadinessChecks } from "@/lib/seller-setup-state";
+import { isPayoutSetupSubmitted, type SellerReadinessChecks } from "@/lib/seller-setup-state";
 
 export const SELLER_WIZARD_TOTAL_STEPS = 5;
 export const SELLER_WIZARD_COMPLETE_KEY = "gv_seller_wizard_complete";
@@ -11,9 +11,14 @@ export function resolveSellerWizardStep(input: {
   wizardComplete: boolean;
 }): SellerWizardStep {
   const checks = input.checks;
-  const payoutsDone = isPayoutSetupComplete(checks);
+  const payoutsDone = isPayoutSetupSubmitted(checks);
   const shippingDone = Boolean(checks?.hasShipFromAddress);
-  const started = Boolean(checks?.hasStripeAccount || checks?.hasShipFromAddress);
+  const started = Boolean(
+    checks?.hasStripeAccount ||
+      checks?.hasShipFromAddress ||
+      checks?.paypalPayoutReady ||
+      checks?.preferredSellerPayoutProcessor === "PAYPAL",
+  );
 
   if (!started && !payoutsDone) return 1;
   if (!payoutsDone) return 2;
@@ -24,11 +29,15 @@ export function resolveSellerWizardStep(input: {
 
 export function readSellerWizardComplete(): boolean {
   if (typeof window === "undefined") return false;
-  return window.sessionStorage.getItem(SELLER_WIZARD_COMPLETE_KEY) === "1";
+  return (
+    window.localStorage.getItem(SELLER_WIZARD_COMPLETE_KEY) === "1" ||
+    window.sessionStorage.getItem(SELLER_WIZARD_COMPLETE_KEY) === "1"
+  );
 }
 
 export function markSellerWizardComplete(): void {
   if (typeof window === "undefined") return;
+  window.localStorage.setItem(SELLER_WIZARD_COMPLETE_KEY, "1");
   window.sessionStorage.setItem(SELLER_WIZARD_COMPLETE_KEY, "1");
   window.dispatchEvent(new Event(SELLER_WIZARD_COMPLETE_EVENT));
 }
@@ -59,6 +68,7 @@ export async function persistSellerWizardComplete(
 
 export function clearSellerWizardComplete(): void {
   if (typeof window === "undefined") return;
+  window.localStorage.removeItem(SELLER_WIZARD_COMPLETE_KEY);
   window.sessionStorage.removeItem(SELLER_WIZARD_COMPLETE_KEY);
   window.dispatchEvent(new Event(SELLER_WIZARD_COMPLETE_EVENT));
 }

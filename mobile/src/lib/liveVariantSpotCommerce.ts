@@ -16,6 +16,16 @@ export function isVariantSpotAuctionLive(
   return Boolean(snap.activeSpotCommerceMode === 'auction' && snap.auctionVariantId?.trim());
 }
 
+/** Host pinned a team for auction but has not opened bidding yet. */
+export function isVariantSpotAuctionArmed(
+  snap: LiveRoomBuyerSnapshot | null | undefined,
+): boolean {
+  if (!snap?.activeItemId || snap.biddingOpen) return false;
+  if (!isActiveVariantBuyerItem(snap)) return false;
+  if (snap.activeSpotCommerceMode !== 'auction') return false;
+  return Boolean(hostPinnedBuyerVariant(snap.activeItemVariants, snap.activeItemVariantAssignmentMode));
+}
+
 /** Variants buyers can claim via shop while a spot auction may be live on another team. */
 export function shopAvailableVariants(
   snap: LiveRoomBuyerSnapshot | null | undefined,
@@ -25,6 +35,12 @@ export function shopAvailableVariants(
   if (isVariantSpotAuctionLive(snap) && snap!.auctionVariantId?.trim()) {
     const auctionId = snap!.auctionVariantId.trim();
     return variants.filter((v) => v.id !== auctionId && variantIsAvailable(v));
+  }
+  if (isVariantSpotAuctionArmed(snap)) {
+    const pinned = hostPinnedBuyerVariant(snap!.activeItemVariants, snap!.activeItemVariantAssignmentMode);
+    if (pinned) {
+      return variants.filter((v) => v.id !== pinned.id && variantIsAvailable(v));
+    }
   }
   return variants.filter(variantIsAvailable);
 }

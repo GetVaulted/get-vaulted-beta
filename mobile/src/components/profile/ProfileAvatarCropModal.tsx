@@ -3,6 +3,8 @@ import { Image } from 'expo-image';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Image as RNImage,
   Modal,
   PanResponder,
   Platform,
@@ -22,6 +24,26 @@ import { colors, radii, spacing } from '../../theme';
 const CROP_SIZE = 280;
 const MIN_SCALE = 1;
 const MAX_SCALE = 3;
+const NUDGE_PX = 18;
+
+function clampPanOffset(args: {
+  x: number;
+  y: number;
+  imageWidth: number;
+  imageHeight: number;
+  baseScale: number;
+  userScale: number;
+}): { x: number; y: number } {
+  const totalScale = args.baseScale * args.userScale;
+  const width = args.imageWidth * totalScale;
+  const height = args.imageHeight * totalScale;
+  const maxX = Math.max(0, (width - CROP_SIZE) / 2);
+  const maxY = Math.max(0, (height - CROP_SIZE) / 2);
+  return {
+    x: Math.min(maxX, Math.max(-maxX, args.x)),
+    y: Math.min(maxY, Math.max(-maxY, args.y)),
+  };
+}
 
 export function ProfileAvatarCropModal({
   visible,
@@ -44,6 +66,24 @@ export function ProfileAvatarCropModal({
   const offsetRef = useRef(offset);
   offsetRef.current = offset;
   const panStartRef = useRef({ x: 0, y: 0 });
+  const layoutRef = useRef({
+    imageWidth: 0,
+    imageHeight: 0,
+    baseScale: 1,
+    userScale: 1,
+  });
+
+  const baseScale = useMemo(() => {
+    if (!imageSize) return 1;
+    return Math.max(CROP_SIZE / imageSize.width, CROP_SIZE / imageSize.height);
+  }, [imageSize]);
+
+  layoutRef.current = {
+    imageWidth: imageSize?.width ?? 0,
+    imageHeight: imageSize?.height ?? 0,
+    baseScale,
+    userScale,
+  };
 
   useEffect(() => {
     if (!visible) {
@@ -51,28 +91,81 @@ export function ProfileAvatarCropModal({
       setUserScale(1);
       setOffset({ x: 0, y: 0 });
       setProcessing(false);
+      return;
     }
+    if (!imageUri) return;
+
+    let cancelled = false;
+    RNImage.getSize(
+      imageUri,
+      (width, height) => {
+        if (!cancelled && width > 0 && height > 0) {
+          setImageSize({ width, height });
+        }
+      },
+      () => {
+        /* onLoad below is the fallback */
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [visible, imageUri]);
 
-  const baseScale = useMemo(() => {
-    if (!imageSize) return 1;
-    return Math.max(CROP_SIZE / imageSize.width, CROP_SIZE / imageSize.height);
-  }, [imageSize]);
+  useEffect(() => {
+    if (!imageSize) return;
+    setOffset((prev) =>
+      clampPanOffset({
+        x: prev.x,
+        y: prev.y,
+        imageWidth: imageSize.width,
+        imageHeight: imageSize.height,
+        baseScale,
+        userScale,
+      }),
+    );
+  }, [userScale, imageSize, baseScale]);
 
   const panResponder = useRef(
     PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
       onMoveShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
+      onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => {
         panStartRef.current = offsetRef.current;
       },
       onPanResponderMove: (_, gesture) => {
-        setOffset({
-          x: panStartRef.current.x + gesture.dx,
-          y: panStartRef.current.y + gesture.dy,
-        });
+        const layout = layoutRef.current;
+        if (!layout.imageWidth || !layout.imageHeight) return;
+        setOffset(
+          clampPanOffset({
+            x: panStartRef.current.x + gesture.dx,
+            y: panStartRef.current.y + gesture.dy,
+            imageWidth: layout.imageWidth,
+            imageHeight: layout.imageHeight,
+            baseScale: layout.baseScale,
+            userScale: layout.userScale,
+          }),
+        );
       },
     }),
   ).current;
+
+  const nudge = (dx: number, dy: number) => {
+    if (!imageSize) return;
+    setOffset((prev) =>
+      clampPanOffset({
+        x: prev.x + dx,
+        y: prev.y + dy,
+        imageWidth: imageSize.width,
+        imageHeight: imageSize.height,
+        baseScale,
+        userScale,
+      }),
+    );
+  };
 
   const displayed = useMemo(() => {
     if (!imageSize) return null;
@@ -96,40 +189,59 @@ export function ProfileAvatarCropModal({
         offsetX: offset.x,
         offsetY: offset.y,
       });
-      const cropped = await cropAvatarImage(imageUri, crop);
-      const prepared = await prepareProfileAvatarForUpload(cropped);
+      const cropped = await Promise.race([
+        cropAvatarImage(imageUri, crop),
+        new Promise<string>((_, reject) => {
+          setTimeout(() => reject(new Error('Crop timed out. Try another photo.')), 12_000);
+        }),
+      ]);
+      const prepared = await Promise.race([
+        prepareProfileAvatarForUpload(cropped),
+        new Promise<string>((_, reject) => {
+          setTimeout(() => reject(new Error('Photo prepare timed out. Try another photo.')), 12_000);
+        }),
+      ]);
       onConfirm(prepared);
+    } catch (e) {
+      Alert.alert('Could not crop photo', e instanceof Error ? e.message : 'Try another photo.');
     } finally {
       setProcessing(false);
     }
   };
 
+  const controlsDisabled = busy || processing || !imageSize;
+
   return (
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
       <View style={[styles.root, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.md }]}>
         <View style={styles.header}>
-          <Pressable onPress={onClose} hitSlop={12} disabled={busy || processing}>
+          <Pressable onPress={onClose} hitSlop={12}>
             <Text style={styles.cancelTxt}>Cancel</Text>
           </Pressable>
           <Text style={styles.title}>Crop profile photo</Text>
           <View style={{ width: 56 }} />
         </View>
 
-        <Text style={styles.sub}>Drag to reposition · pinch zoom with buttons</Text>
+        <Text style={styles.sub}>Drag inside the circle to reposition · use arrows if needed</Text>
 
         <View style={styles.cropHost}>
-          <View style={styles.cropCircle} {...panResponder.panHandlers}>
-            {imageUri && displayed ? (
+          <View style={styles.cropCircle}>
+            {imageUri ? (
               <Image
+                pointerEvents="none"
                 source={{ uri: imageUri }}
-                style={{
-                  position: 'absolute',
-                  width: displayed.width,
-                  height: displayed.height,
-                  left: displayed.left,
-                  top: displayed.top,
-                }}
-                contentFit="fill"
+                style={
+                  displayed
+                    ? {
+                        position: 'absolute',
+                        width: displayed.width,
+                        height: displayed.height,
+                        left: displayed.left,
+                        top: displayed.top,
+                      }
+                    : styles.imageProbe
+                }
+                contentFit={displayed ? 'fill' : 'contain'}
                 onLoad={(e) => {
                   const src = e.source;
                   if (src.width > 0 && src.height > 0) {
@@ -137,18 +249,60 @@ export function ProfileAvatarCropModal({
                   }
                 }}
               />
-            ) : (
-              <ActivityIndicator color={colors.gold} />
-            )}
+            ) : null}
+            {!displayed ? (
+              <View pointerEvents="none" style={styles.loadingOverlay}>
+                <ActivityIndicator color={colors.gold} />
+              </View>
+            ) : null}
+            {/* Transparent capture layer above the image so drag always works. */}
+            <View style={styles.gestureLayer} {...panResponder.panHandlers} />
           </View>
           <View pointerEvents="none" style={styles.ring} />
+        </View>
+
+        <View style={styles.nudgeRow}>
+          <Pressable
+            style={styles.nudgeBtn}
+            disabled={controlsDisabled}
+            onPress={() => nudge(-NUDGE_PX, 0)}
+            accessibilityLabel="Move photo left"
+          >
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+          </Pressable>
+          <View style={styles.nudgeCol}>
+            <Pressable
+              style={styles.nudgeBtn}
+              disabled={controlsDisabled}
+              onPress={() => nudge(0, -NUDGE_PX)}
+              accessibilityLabel="Move photo up"
+            >
+              <Ionicons name="arrow-up" size={20} color={colors.textPrimary} />
+            </Pressable>
+            <Pressable
+              style={styles.nudgeBtn}
+              disabled={controlsDisabled}
+              onPress={() => nudge(0, NUDGE_PX)}
+              accessibilityLabel="Move photo down"
+            >
+              <Ionicons name="arrow-down" size={20} color={colors.textPrimary} />
+            </Pressable>
+          </View>
+          <Pressable
+            style={styles.nudgeBtn}
+            disabled={controlsDisabled}
+            onPress={() => nudge(NUDGE_PX, 0)}
+            accessibilityLabel="Move photo right"
+          >
+            <Ionicons name="arrow-forward" size={20} color={colors.textPrimary} />
+          </Pressable>
         </View>
 
         <View style={styles.zoomRow}>
           <Pressable
             style={styles.zoomBtn}
             onPress={() => setUserScale((s) => Math.max(MIN_SCALE, Number((s - 0.15).toFixed(2))))}
-            disabled={busy || processing}
+            disabled={controlsDisabled}
           >
             <Ionicons name="remove" size={22} color={colors.textPrimary} />
           </Pressable>
@@ -156,14 +310,14 @@ export function ProfileAvatarCropModal({
           <Pressable
             style={styles.zoomBtn}
             onPress={() => setUserScale((s) => Math.min(MAX_SCALE, Number((s + 0.15).toFixed(2))))}
-            disabled={busy || processing}
+            disabled={controlsDisabled}
           >
             <Ionicons name="add" size={22} color={colors.textPrimary} />
           </Pressable>
         </View>
 
         <Pressable
-          style={[styles.primary, (busy || processing) && styles.primaryOff]}
+          style={[styles.primary, controlsDisabled && styles.primaryOff]}
           onPress={() => void save()}
           disabled={!imageUri || !imageSize || busy || processing}
         >
@@ -175,9 +329,9 @@ export function ProfileAvatarCropModal({
         </Pressable>
 
         {Platform.OS === 'android' ? (
-          <Text style={styles.hint}>Circle crop · saved as a round profile photo</Text>
+          <Text style={styles.hint}>Circle crop · drag or use arrows to frame your photo</Text>
         ) : (
-          <Text style={styles.hint}>Circle crop · drag and zoom to frame your photo</Text>
+          <Text style={styles.hint}>Circle crop · drag or use arrows to frame your photo</Text>
         )}
       </View>
     </Modal>
@@ -208,7 +362,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: CROP_SIZE,
     height: CROP_SIZE,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   cropCircle: {
     width: CROP_SIZE,
@@ -219,11 +373,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  gestureLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+  },
+  imageProbe: {
+    width: CROP_SIZE,
+    height: CROP_SIZE,
+    opacity: 0.01,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
   ring: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: CROP_SIZE / 2,
     borderWidth: 3,
     borderColor: 'rgba(212,175,55,0.75)',
+  },
+  nudgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  nudgeCol: { gap: spacing.sm },
+  nudgeBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
   },
   zoomRow: {
     flexDirection: 'row',

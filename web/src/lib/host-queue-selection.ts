@@ -38,12 +38,23 @@ export function hostQueueSwitchPinState(args: {
   };
 }
 
-/** Timed auction with bidding open — host must end/close before pinning another lot. */
-export function hostPinLotBlocked(activeRow: QueueRowLite | null | undefined): boolean {
+/**
+ * Timed auction / pending settle — host must not pin another lot until this one is
+ * sold or closed. Allowing pin after the timer hits zero (but before settle) used to
+ * demote the prior winner without charging, then settle/charge that lot while buyers
+ * were already looking at the next auction.
+ */
+export function hostPinLotBlocked(
+  activeRow: QueueRowLite | null | undefined,
+  _nowMs: number = Date.now(),
+): boolean {
   const active = activeRow?.item;
   if (!active) return false;
-  return !isVariantSalesFormat(active.salesFormat) && active.biddingOpen === true;
+  if (isVariantSalesFormat(active.salesFormat)) return false;
+  if (active.biddingOpen === true) return true;
+  if (Boolean(active.lastHighBidderId?.trim())) return true;
+  return false;
 }
 
 export const HOST_PIN_BLOCKED_AUCTION_LIVE_MSG =
-  "End the live auction before pinning another lot.";
+  "Finish settling the current auction before pinning another lot.";

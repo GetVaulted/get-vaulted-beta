@@ -1,19 +1,16 @@
 "use client";
 
-import Link from "next/link";
-
 export type BuyerLiveLineupRow = {
   id: string;
   displayTitle: string;
   metaLine: string;
-  /** When false, row is display-only (PYT/PYD/buy-now). Auction lots allow pre-bid selection. */
+  /** When false, row is display-only. Shopable lots (buy-now / PYT / pre-bid) are selectable. */
   selectable?: boolean;
 };
 
 export type BuyerLiveLineupPanelProps = {
   items: BuyerLiveLineupRow[];
   selectedId: string;
-  shopHref?: string | null;
   onSelect: (id: string) => void;
   hideHeader?: boolean;
 };
@@ -22,7 +19,6 @@ export type BuyerLiveLineupPanelProps = {
 export function BuyerLiveLineupPanel({
   items,
   selectedId,
-  shopHref,
   onSelect,
   hideHeader = false,
 }: BuyerLiveLineupPanelProps) {
@@ -32,14 +28,9 @@ export function BuyerLiveLineupPanel({
       {!hideHeader ? (
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-800/80 px-3 py-2">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Lineup</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Shop</p>
             <p className="text-[11px] font-semibold text-zinc-300">{items.length} items</p>
           </div>
-          {shopHref ? (
-            <Link href={shopHref} className="text-[10px] font-semibold text-gold-bright hover:underline">
-              Shop →
-            </Link>
-          ) : null}
         </div>
       ) : null}
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-2">

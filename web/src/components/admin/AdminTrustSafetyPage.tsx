@@ -75,10 +75,11 @@ export function AdminTrustSafetyPage() {
               { label: "Open reports", value: openTotal, tone: "warn", href: "/admin/reports?status=open" },
               ...cards.map((c) => ({ label: c.label, value: c.value, href: c.href })),
               {
-                label: "Fraud / risk alerts",
+                label: "Linked accounts",
                 value: null,
-                hint: "TODO: Wire SellerPayoutMetrics fraudStatus + automated risk signals feed",
+                hint: "Review multi-account signal clusters",
                 tone: "warn" as const,
+                href: "/admin/trust/linked-accounts",
               },
             ]}
           />
@@ -91,11 +92,17 @@ export function AdminTrustSafetyPage() {
                 <p className="mt-1 text-xs text-zinc-500">Open reports in queue</p>
               </Link>
             ))}
-            <div className={`${adminPanelClassName} border-dashed p-4`}>
-              <p className="text-sm font-bold text-zinc-200">Fraud / risk alerts</p>
+            <div className={`${adminPanelClassName} p-4`}>
+              <p className="text-sm font-bold text-zinc-200">Possible linked accounts</p>
               <p className="mt-2 text-xs text-zinc-500">
-                TODO: Dedicated `/api/admin/trust/risk-alerts` aggregating payout fraud flags, velocity spikes, and payment failures.
+                Review-only clusters sharing Stripe IDs, payment methods, push tokens, or email aliases.
               </p>
+              <Link
+                href="/admin/trust/linked-accounts"
+                className="mt-3 inline-block text-xs font-semibold text-gold-bright hover:underline"
+              >
+                Open linked-account scan →
+              </Link>
             </div>
           </div>
         </>

@@ -5,15 +5,14 @@ import {
   type BuyerWalletPaymentMethodDTO,
   type BuyerWalletSummaryDTO,
 } from "@/lib/payment-processor";
+import { getAvailablePlatformCreditUsd } from "@/lib/giveaway/platform-credit";
 import { getUserReferralSummary } from "@/lib/referral-credit";
-import {
-  getBuyerDefaultCardPaymentMethodId,
-  listBuyerWalletPaymentMethods,
-} from "@/lib/stripe-customer";
+import { listBuyerWalletPaymentMethods } from "@/lib/stripe-customer";
 import { isStripeConfigured, getStripePublishableKey } from "@/lib/stripe";
 
 export async function buildBuyerWalletSummary(userId: string): Promise<BuyerWalletSummaryDTO> {
-  const [{ paymentReady, shippingReady }, paymentMethods, defaultAddress, referral] = await Promise.all([
+  const [{ paymentReady, shippingReady }, paymentMethods, defaultAddress, referral, vaultCreditsUsd] =
+    await Promise.all([
     getBuyerLiveWalletReadiness(userId),
     listBuyerWalletPaymentMethods(userId),
     prisma.address.findFirst({
@@ -22,11 +21,14 @@ export async function buildBuyerWalletSummary(userId: string): Promise<BuyerWall
       orderBy: { createdAt: "asc" },
     }),
     getUserReferralSummary(userId),
+    getAvailablePlatformCreditUsd(userId),
   ]);
 
-  const defaultPmId = await getBuyerDefaultCardPaymentMethodId(userId);
-  const defaultPaymentMethod =
-    paymentMethods.find((pm) => pm.id === defaultPmId) ?? paymentMethods.find((pm) => pm.isDefault) ?? paymentMethods[0] ?? null;
+  // `listBuyerWalletPaymentMethods` already resolves the correct default (Stripe card/wallet,
+  // vaulted Venmo, or vaulted PayPal) and marks it on each row — re-deriving it here via a
+  // second `getBuyerDefaultCardPaymentMethodId` call duplicated a whole extra round of Stripe
+  // API calls on every wallet load (part of the fix for GET-VAULTED-H's Stripe rate-limit errors).
+  const defaultPaymentMethod = paymentMethods.find((pm) => pm.isDefault) ?? paymentMethods[0] ?? null;
 
   const stripeConfigured = isStripeConfigured();
   const publishableKey = stripeConfigured ? getStripePublishableKey().trim() : "";
@@ -35,7 +37,7 @@ export async function buildBuyerWalletSummary(userId: string): Promise<BuyerWall
     paymentReady,
     shippingReady,
     walletReady: paymentReady && shippingReady,
-    vaultCreditsUsd: 0,
+    vaultCreditsUsd,
     referralCreditUsd: referral.availableUsd,
     referralCreditPendingUsd: referral.pendingUsd,
     referralCode: referral.referralCode,

@@ -4,6 +4,7 @@ import { constructStripeWebhookEvent } from "@/lib/stripe";
 import {
   createWebhookLogEntry,
   markWebhookLogFailure,
+  markWebhookLogRejected,
   markWebhookLogSkippedDuplicate,
   markWebhookLogSuccess,
   updateWebhookLogEntry,
@@ -37,7 +38,8 @@ export async function POST(req: Request) {
     event = constructStripeWebhookEvent(raw, req.headers.get("stripe-signature"));
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    await markWebhookLogFailure(logId, `verify: ${msg}`);
+    // Signature failures are final (browser probes / bad clients) — not Stripe retries.
+    await markWebhookLogRejected(logId, `verify: ${msg}`);
     return NextResponse.json({ error: "Invalid webhook" }, { status: 400 });
   }
 

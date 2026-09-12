@@ -11,7 +11,14 @@ import { colors, radii, spacing, typography } from '../../theme';
 import { useAuth } from '../../auth/AuthContext';
 import { useTradeOffer } from '../../hooks/useTradeOffer';
 import { postTradeFeeCheckout, getNetlifyFunctionsBase } from '../../lib/netlifyFunctions';
+import {
+  createTradePlatformFeeCheckoutViaWeb,
+  isWebTradeApiConfigured,
+} from '../../api/tradeOffersWebApi';
 import { TradeStatusBadge } from '../../components/trade/TradeStatusBadge';
+import { TradeCashPayButton } from '../../components/trade/TradeCashPayButton';
+import { tradeFeeCentsForTier } from '../../lib/tradeFeeAmounts';
+import { isTradeCashCheckoutStatus, resolveMobileTradeCashParties } from '../../lib/tradeCashParties';
 
 type Props = NativeStackScreenProps<TradeCenterStackParamList, 'TradeCheckout'>;
 
@@ -48,23 +55,49 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
     );
   }
 
-  const amountCents = Math.max(100, Math.round(Number(offer.trade_fee) * 100));
+  const amountCents = tradeFeeCentsForTier(offer.shipping_weight_tier);
+  const webOk = isWebTradeApiConfigured();
   const netlifyOk = Boolean(getNetlifyFunctionsBase());
+  const cashSides = resolveMobileTradeCashParties(offer);
+  const viewerIsCashPayer = Boolean(user?.id && cashSides && cashSides.payerUserId === user.id);
+  const cashPayee =
+    cashSides?.payeeUserId === offer.sender_id
+      ? offer.sender
+      : cashSides?.payeeUserId === offer.recipient_id
+        ? offer.recipient
+        : null;
+  const cashPayeeHandle = cashPayee?.username
+    ? `@${cashPayee.username}`
+    : cashPayee?.display_name ?? null;
+  const showCashPay =
+    viewerIsCashPayer && cashSides && isTradeCashCheckoutStatus(offer.status);
 
   const pay = async () => {
     if (!user) {
       Alert.alert('Sign in required', 'Use the Trade Center home screen to authenticate.');
       return;
     }
-    if (!netlifyOk) {
-      Alert.alert(
-        'Netlify URL missing',
-        'Set EXPO_PUBLIC_NETLIFY_FUNCTIONS_BASE to your site base including /.netlify/functions',
-      );
-      return;
-    }
     setPaying(true);
     try {
+      if (webOk) {
+        const result = await createTradePlatformFeeCheckoutViaWeb(offer.id);
+        if (result.alreadyPaid) {
+          Alert.alert('Already paid', 'Your Get Vaulted platform fee is already recorded.');
+          await reload();
+          return;
+        }
+        if (!result.url) throw new Error('Checkout URL missing.');
+        await WebBrowser.openBrowserAsync(result.url);
+        await reload();
+        return;
+      }
+      if (!netlifyOk) {
+        Alert.alert(
+          'Checkout unavailable',
+          'Set EXPO_PUBLIC_WEB_API_BASE (or Netlify functions base) so trade fee checkout can open.',
+        );
+        return;
+      }
       const { url } = await postTradeFeeCheckout({
         tradeOfferId: offer.id,
         userId: user.id,
@@ -84,7 +117,7 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
-      <TradeFlowHeader navigation={navigation} title="Get Vaulted Trade Fee" subtitle="Bundled · includes shipping" />
+      <TradeFlowHeader navigation={navigation} title="Trade checkout" subtitle="Fee + shipping · one charge" />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <Text style={styles.pipeTitle}>Offer status</Text>
@@ -92,8 +125,8 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
         </View>
 
         <Text style={styles.intro}>
-          One flat trade fee unlocks your outbound label, tracking, and trade protection. After Stripe confirms payment,
-          the server moves this trade through labels automatically.
+          One Stripe payment covers your $2.99 Get Vaulted fee and your outbound shipping label. Rates are quoted live
+          when you tap Pay.
         </Text>
 
         <View style={styles.pipeline}>
@@ -112,19 +145,19 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
         <View style={styles.card}>
           <View style={styles.line}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.lineLbl}>Get Vaulted Trade Fee</Text>
-              <Text style={styles.hint}>Charged once per trade acceptance (your outbound).</Text>
+              <Text style={styles.lineLbl}>Platform fee (reference)</Text>
+              <Text style={styles.hint}>$2.99 + live Shippo label rate — charged together at Stripe.</Text>
             </View>
-            <Text style={styles.lineAmt}>${(amountCents / 100).toFixed(2)}</Text>
+            <Text style={styles.lineAmt}>${(amountCents / 100).toFixed(2)}+</Text>
           </View>
           <View style={styles.totalRule} />
           <View style={styles.line}>
-            <Text style={styles.totalLbl}>Total due</Text>
-            <Text style={styles.totalAmt}>${(amountCents / 100).toFixed(2)}</Text>
+            <Text style={styles.totalLbl}>Checkout total</Text>
+            <Text style={styles.totalAmt}>Quoted in Stripe</Text>
           </View>
         </View>
 
-        <Text style={styles.feeTitle}>What the Get Vaulted Trade Fee includes</Text>
+        <Text style={styles.feeTitle}>How trade costs work</Text>
         {TRADE_FEE_INCLUDES_BULLETS.map((t) => (
           <View key={t} style={styles.bullet}>
             <Ionicons name="ellipse" size={6} color={colors.goldMuted} />
@@ -141,20 +174,31 @@ export function TradeCheckoutScreen({ navigation, route }: Props) {
           </Pressable>
         ) : (
           <Pressable
-            style={[styles.primary, (paying || !netlifyOk) && { opacity: 0.65 }]}
-            disabled={paying || !netlifyOk}
+            style={[styles.primary, (paying || (!webOk && !netlifyOk)) && { opacity: 0.65 }]}
+            disabled={paying || (!webOk && !netlifyOk)}
             onPress={() => void pay()}
           >
             {paying ? (
               <ActivityIndicator color={colors.background} />
             ) : (
-              <Text style={styles.primaryTxt}>Pay ${(amountCents / 100).toFixed(2)} with Stripe</Text>
+              <Text style={styles.primaryTxt}>Pay fee + shipping with Stripe</Text>
             )}
           </Pressable>
         )}
 
+        {showCashPay && cashSides ? (
+          <TradeCashPayButton
+            offerId={offer.id}
+            amountUsd={cashSides.amountUsd}
+            payeeHandle={cashPayeeHandle}
+            alreadyPaid={Boolean(offer.cash_paid_at)}
+            onPaid={() => void reload()}
+          />
+        ) : null}
+
         <Text style={styles.hintFoot}>
-          After returning from Stripe, keep this screen open — status refreshes every few seconds while labels generate.
+          Stripe will show $2.99 plus your outbound label rate as one payment. Your label is purchased automatically
+          after payment. Optional trade cash is a separate checkout if you are the party adding cash.
         </Text>
 
         <View style={{ height: spacing.xxxl }} />

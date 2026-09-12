@@ -45,6 +45,10 @@ export function openMessageUser(
   });
 }
 
+export function openNewMessage(navigation: NavigationProp<ParamListBase>) {
+  (navigation as RootNav).navigate('MessageNew');
+}
+
 export function openMessageSellerFromLive(params: {
   liveRoomId: string;
   listingId?: string;

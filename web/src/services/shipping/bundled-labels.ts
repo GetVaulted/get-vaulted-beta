@@ -30,13 +30,22 @@ import {
   shippoLabelFileTypeForPrintFormat,
   type SellerLabelPrintFormat,
 } from "@/lib/shippo-label-format";
+import {
+  normalizeUsernameForShippoLabel,
+  shippoLabelTrackingExtra,
+  withShippoParcelLabelTracking,
+} from "@/lib/shippo-label-references";
 import { PAYMENT_PAID } from "@/services/payments";
 import { LIVE_BUNDLED_SHIPPING_DESTINATION_KEY } from "@/services/shipping/live-shipping-pricing";
 import { buildSessionPackageGroups } from "@/services/shipping/live-shipping-quote";
 import {
   filterShippoRatesUspsUps,
+  selectShippoRatesForSellerQuote,
   type PackageGroup,
 } from "@/lib/unified-shipping-engine";
+import { isShippoLabelPurchaseSuccessful } from "@/services/shipping/shippo-label-refund-status";
+import { orderHasUsableShippingLabel } from "@/lib/seller-shipping-label-state";
+import { ensureShipmentLabelFinanceRecord } from "@/services/shipping/label-finance";
 
 export type GenerateBundledShippoLabelResult = {
   alreadyExisted: boolean;
@@ -81,8 +90,12 @@ export function isCombinedLiveBundleSession(destinationAddressId: string | null)
   return !destinationAddressId.startsWith("ship-alone:");
 }
 
-function orderHasLabel(o: { shippoTransactionId: string | null; labelUrl: string | null }): boolean {
-  return Boolean(o.shippoTransactionId?.trim() || o.labelUrl?.trim());
+function orderHasLabel(o: {
+  shippoTransactionId: string | null;
+  labelUrl: string | null;
+  fulfillmentStatus?: string | null;
+}): boolean {
+  return orderHasUsableShippingLabel(o);
 }
 
 type ListingShipProfile = {
@@ -147,6 +160,7 @@ type SessionOrder = {
   buyerId: string;
   sellerId: string;
   paymentStatus: string;
+  fulfillmentStatus: string;
   shippoTransactionId: string | null;
   labelUrl: string | null;
   shipRecipientName: string;
@@ -155,6 +169,10 @@ type SessionOrder = {
   shipState: string;
   shipZip: string;
   shipCountry: string;
+  stripePaymentIntentId?: string | null;
+  shippingChargedCents?: number | null;
+  shippingPriceUsd?: number;
+  itemPriceUsd?: number;
   listing: ListingShipProfile;
 };
 
@@ -165,6 +183,27 @@ function filterEligibleBundledOrders(orders: SessionOrder[]): SessionOrder[] {
       !orderHasLabel(o) &&
       !o.listing.shipAlone,
   );
+}
+
+/** Prefer the order with a Stripe payment and the largest shipping charge to claw back the full label cost. */
+export function pickBundledLabelDebitOrder<
+  T extends {
+    id: string;
+    stripePaymentIntentId?: string | null;
+    shippingChargedCents?: number | null;
+    shippingPriceUsd?: number;
+  },
+>(orders: T[]): T | null {
+  if (orders.length === 0) return null;
+  const shipCents = (o: T) => {
+    if (o.shippingChargedCents != null && Number.isFinite(o.shippingChargedCents)) {
+      return Math.max(0, Math.floor(o.shippingChargedCents));
+    }
+    return Math.max(0, Math.round(Math.max(0, o.shippingPriceUsd ?? 0) * 100));
+  };
+  const withStripe = orders.filter((o) => Boolean(o.stripePaymentIntentId?.trim()));
+  const pool = withStripe.length > 0 ? withStripe : orders;
+  return [...pool].sort((a, b) => shipCents(b) - shipCents(a))[0] ?? null;
 }
 
 function addressesMatch(a: SessionOrder, b: SessionOrder): boolean {
@@ -180,11 +219,20 @@ function addressesMatch(a: SessionOrder, b: SessionOrder): boolean {
 /**
  * Purchase one Shippo label for all eligible paid, non-ship-alone orders in a combined live session.
  * If any order in the session already has a label, returns that label metadata without calling Shippo again.
+ *
+ * `manualParcel` bypasses the calculated package-group dimensions and uses the seller-supplied values
+ * directly. Useful when the system estimate (e.g. from a mis-configured shipping profile) does not match
+ * the actual box the seller is packing — the seller confirms real weight + dims in the UI before creating.
  */
 export async function generateBundledShippoLabelForSession(
   sessionId: string,
   sellerId: string,
-  options?: { labelFormat?: SellerLabelPrintFormat },
+  options?: {
+    labelFormat?: SellerLabelPrintFormat;
+    manualParcel?: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
+    /** Shippo rate object_id from preview — only applied for single-parcel (manual) purchases. */
+    selectedRateObjectId?: string;
+  },
 ): Promise<GenerateBundledShippoLabelResult> {
   if (!isShippoConfigured()) {
     throw new Error("SHIPPO_NOT_CONFIGURED");
@@ -211,7 +259,7 @@ export async function generateBundledShippoLabelForSession(
         orderBy: { createdAt: "asc" },
         include: {
           buyer: {
-            select: { email: true },
+            select: { email: true, username: true },
           },
           buyerAddress: {
             select: { email: true, phone: true },
@@ -243,6 +291,33 @@ export async function generateBundledShippoLabelForSession(
 
   const labeled = session.orders.find((o) => orderHasLabel(o));
   if (labeled) {
+    // Paid non-ship-alone siblings that missed the stamp (e.g. paid after first label) share the same package label.
+    const orphans = filterEligibleBundledOrders(session.orders as SessionOrder[]);
+    if (orphans.length > 0) {
+      await prisma.$transaction(
+        orphans.map((o) =>
+          prisma.order.update({
+            where: { id: o.id },
+            data: {
+              shippoShipmentId: labeled.shippoShipmentId ?? null,
+              shippoTransactionId: labeled.shippoTransactionId ?? null,
+              carrier: labeled.carrier ?? null,
+              service: labeled.service ?? null,
+              trackingNumber: labeled.trackingNumber ?? null,
+              trackingUrl: labeled.trackingUrl ?? null,
+              labelUrl: labeled.labelUrl ?? null,
+              shippingStatus: labeled.shippingStatus ?? (labeled.labelUrl ? "SUCCESS" : "label_pending"),
+              fulfillmentStatus: labeled.labelUrl ? "label_created" : labeled.fulfillmentStatus,
+              shippingLabelCostCents: 0,
+            },
+          }),
+        ),
+      );
+    }
+    const labeledIds = new Set([
+      ...session.orders.filter((o) => orderHasLabel(o)).map((o) => o.id),
+      ...orphans.map((o) => o.id),
+    ]);
     return {
       alreadyExisted: true,
       shippoShipmentId: labeled.shippoShipmentId ?? null,
@@ -256,13 +331,36 @@ export async function generateBundledShippoLabelForSession(
         const c = o.shippingLabelCostCents;
         return s + (c != null && Number.isFinite(c) ? Math.max(0, Math.floor(c)) : 0);
       }, 0),
-      orderIds: session.orders.filter((o) => orderHasLabel(o)).map((o) => o.id),
+      orderIds: [...labeledIds],
     };
   }
 
   const eligible = filterEligibleBundledOrders(session.orders as SessionOrder[]);
   if (eligible.length === 0) {
     throw new Error("NO_ELIGIBLE_ORDERS");
+  }
+
+  // Failed/exception attempts still leave shippo ids behind — clear them so a fresh bundle can purchase.
+  const exceptionIds = eligible
+    .filter((o) => o.fulfillmentStatus === "exception" || o.shippoTransactionId || o.labelUrl)
+    .map((o) => o.id);
+  if (exceptionIds.length > 0) {
+    await prisma.order.updateMany({
+      where: { id: { in: exceptionIds }, fulfillmentStatus: "exception" },
+      data: {
+        shippoTransactionId: null,
+        shippoShipmentId: null,
+        carrier: null,
+        service: null,
+        trackingNumber: null,
+        trackingUrl: null,
+        labelUrl: null,
+        shippingStatus: null,
+        fulfillmentStatus: "pending",
+        labelCreatedAt: null,
+        shippingLabelCostCents: null,
+      },
+    });
   }
 
   const first = eligible[0]!;
@@ -299,6 +397,11 @@ export async function generateBundledShippoLabelForSession(
     throw new Error(BUYER_SHIPPO_CONTACT_MISSING);
   }
 
+  const buyerUsernameRef = normalizeUsernameForShippoLabel(firstOrder.buyer.username);
+  const labelTracking = shippoLabelTrackingExtra({
+    username: firstOrder.buyer.username,
+    secondary: eligible.length > 1 ? `Live · ${eligible.length} items` : "Live show",
+  });
   const addressFrom: ShippoAddress = withShippoContact(
     {
       name: from.shipFromName || "Seller",
@@ -313,6 +416,7 @@ export async function generateBundledShippoLabelForSession(
   const addressTo: ShippoAddress = withShippoContact(
     {
       name: first.shipRecipientName,
+      ...(buyerUsernameRef ? { company: buyerUsernameRef } : {}),
       street1: first.shipAddress,
       city: first.shipCity,
       state: first.shipState,
@@ -323,35 +427,69 @@ export async function generateBundledShippoLabelForSession(
   );
 
   const listings = eligible.map((o) => o.listing);
-  const built = await buildSessionPackageGroups(sessionId);
-  const packageGroups =
-    built && built.groups.length > 0
-      ? built.groups
-      : [
-          {
-            packageIndex: 0,
-            items: eligible.map((o) => ({
-              itemId: o.id,
-              profile: {
-                id: "legacy",
-                slug: "legacy",
-                name: "Legacy",
-                weightOz: physicalListingWeightOz(o.listing),
-                lengthIn: 10,
-                widthIn: 8,
-                heightIn: 4,
-                bundleAllowed: true,
-                requiresSeparatePackage: false,
-                bundleGroup: "legacy",
-                maxUnitsPerParcel: null,
-              },
-            })),
-            weightOz: listings.reduce((sum, li) => sum + physicalListingWeightOz(li), 0) + bundleWeightBufferOz(),
-            lengthIn: maxBundleDimensionsInches(listings).length,
-            widthIn: maxBundleDimensionsInches(listings).width,
-            heightIn: maxBundleDimensionsInches(listings).height,
+
+  // If the seller confirmed actual weight + dims in the UI, use a single manual package instead of
+  // the calculated package groups (which can be wrong if the show's shipping profile is misconfigured).
+  let packageGroups: PackageGroup[];
+  if (options?.manualParcel) {
+    const mp = options.manualParcel;
+    packageGroups = [
+      {
+        packageIndex: 0,
+        items: eligible.map((o) => ({
+          itemId: o.id,
+          profile: {
+            id: "manual",
+            slug: "manual",
+            name: "Seller override",
+            weightOz: mp.weightOz,
+            lengthIn: mp.lengthIn,
+            widthIn: mp.widthIn,
+            heightIn: mp.heightIn,
+            bundleAllowed: true,
+            requiresSeparatePackage: false,
+            bundleGroup: "manual",
+            maxUnitsPerParcel: null,
           },
-        ];
+        })),
+        weightOz: mp.weightOz,
+        lengthIn: mp.lengthIn,
+        widthIn: mp.widthIn,
+        heightIn: mp.heightIn,
+      },
+    ];
+  } else {
+    const built = await buildSessionPackageGroups(sessionId);
+    packageGroups =
+      built && built.groups.length > 0
+        ? built.groups
+        : [
+            {
+              packageIndex: 0,
+              items: eligible.map((o) => ({
+                itemId: o.id,
+                profile: {
+                  id: "legacy",
+                  slug: "legacy",
+                  name: "Legacy",
+                  weightOz: physicalListingWeightOz(o.listing),
+                  lengthIn: 10,
+                  widthIn: 8,
+                  heightIn: 4,
+                  bundleAllowed: true,
+                  requiresSeparatePackage: false,
+                  bundleGroup: "legacy",
+                  maxUnitsPerParcel: null,
+                },
+              })),
+              weightOz:
+                listings.reduce((sum, li) => sum + physicalListingWeightOz(li), 0) + bundleWeightBufferOz(),
+              lengthIn: maxBundleDimensionsInches(listings).length,
+              widthIn: maxBundleDimensionsInches(listings).width,
+              heightIn: maxBundleDimensionsInches(listings).height,
+            },
+          ];
+  }
 
   let shippingLabelCostCentsTotal = 0;
   const primaryTxIds: string[] = [];
@@ -361,6 +499,40 @@ export async function generateBundledShippoLabelForSession(
   let primaryCarrier: string | null = null;
   let primaryService: string | null = null;
   let primaryShipmentId: string | null = null;
+  const purchasedPackages: Array<{
+    packageId: string;
+    packageIndex: number;
+    shippoTransactionId: string | null;
+    shippoShipmentId: string;
+    labelCostCents: number;
+    replacesShippoTransactionId: string | null;
+    purpose: "initial" | "replacement" | "additional_package";
+  }> = [];
+
+  // Prior purchased packages for this session (same packageIndex → replacement, not additional).
+  const priorPackages = await prisma.shipmentPackage.findMany({
+    where: {
+      liveShippingSessionId: sessionId,
+      shippoTransactionId: { not: null },
+      labelCostCents: { gt: 0 },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { packageIndex: true, shippoTransactionId: true },
+  });
+  const priorTxByPackageIndex = new Map<number, string>();
+  for (const prior of priorPackages) {
+    const tx = prior.shippoTransactionId?.trim();
+    if (tx && !priorTxByPackageIndex.has(prior.packageIndex)) {
+      priorTxByPackageIndex.set(prior.packageIndex, tx);
+    }
+  }
+
+  // Computed up-front (depends only on already-loaded order fields, not purchase outcomes) so the
+  // per-package purchase loop below can durably ledger each successful Shippo purchase against its
+  // eventual debit order immediately — never deferred to a later loop that might not run to
+  // completion. See ensureShipmentLabelFinanceRecord call below.
+  const debitOrder = pickBundledLabelDebitOrder(eligible);
+  const debitOrderId = debitOrder?.id ?? eligible[0]?.id ?? null;
 
   try {
     for (const group of packageGroups) {
@@ -368,7 +540,8 @@ export async function generateBundledShippoLabelForSession(
       const shipment = (await shippoCreateShipment({
         address_from: addressFrom,
         address_to: addressTo,
-        parcels: [parcel],
+        parcels: [withShippoParcelLabelTracking(parcel, labelTracking)],
+        extra: labelTracking,
         async: false,
       })) as { object_id?: string };
 
@@ -379,29 +552,44 @@ export async function generateBundledShippoLabelForSession(
         results?: { object_id?: string; amount?: string; provider?: string; servicelevel?: { name?: string } }[];
       };
       const rates = filterShippoRatesUspsUps(ratesRes.results ?? []);
-      const cheapest = rates[0];
-      if (!cheapest?.object_id) throw new Error("No Shippo rates");
+      const preferredId =
+        packageGroups.length === 1 && options?.selectedRateObjectId?.trim()
+          ? options.selectedRateObjectId.trim()
+          : null;
+      const picked =
+        (preferredId ? rates.find((r) => r.object_id === preferredId) : undefined) ?? rates[0];
+      if (!picked?.object_id) throw new Error("No Shippo rates");
 
-      const packageCostCents = Math.round(Number(cheapest.amount ?? 0) * 100);
-      shippingLabelCostCentsTotal += packageCostCents;
+      const rateCostCents = Math.round(Number(picked.amount ?? 0) * 100);
 
       const tx = (await shippoPurchaseRate(
-        cheapest.object_id,
-        shippoLabelFileTypeForPrintFormat(options?.labelFormat ?? "letter"),
+        picked.object_id,
+        shippoLabelFileTypeForPrintFormat(options?.labelFormat ?? "thermal_4x6"),
       )) as {
         object_id?: string;
         tracking_number?: string;
         tracking_url_provider?: string;
         label_url?: string;
         status?: string;
+        messages?: { text?: string }[];
       };
 
-      const transactionId = tx.object_id ?? cheapest.object_id;
+      const transactionId = tx.object_id?.trim() || null;
       let labelUrlForPackage = tx.label_url?.trim() || null;
-      if (!labelUrlForPackage && transactionId) {
+      let txStatus = (tx.status ?? "").toUpperCase();
+      let objectState: string | null =
+        typeof (tx as { object_state?: unknown }).object_state === "string"
+          ? String((tx as { object_state?: string }).object_state)
+          : null;
+      // Refresh when not yet SUCCESS, missing label URL, or object_state unknown (INVALID must block clawback).
+      if (transactionId && (txStatus !== "SUCCESS" || !labelUrlForPackage || !objectState)) {
         try {
           const fetched = await shippoGetTransaction(transactionId);
-          labelUrlForPackage = fetched.label_url?.trim() || null;
+          labelUrlForPackage = fetched.label_url?.trim() || labelUrlForPackage;
+          if (typeof fetched.status === "string") txStatus = fetched.status.toUpperCase();
+          if (typeof (fetched as { object_state?: unknown }).object_state === "string") {
+            objectState = String((fetched as { object_state?: string }).object_state);
+          }
         } catch (fetchErr) {
           console.warn("[shippo] bundled post-purchase label fetch failed", {
             sessionId,
@@ -411,17 +599,38 @@ export async function generateBundledShippoLabelForSession(
         }
       }
 
+      // Clawback only after affirmative SUCCESS (not INVALID). Rate quote is not proof Shippo billed.
+      const purchaseSucceeded = isShippoLabelPurchaseSuccessful({
+        status: txStatus,
+        transactionId,
+        objectState,
+        labelUrl: labelUrlForPackage,
+      });
+      const packageCostCents = purchaseSucceeded ? rateCostCents : 0;
+      if (purchaseSucceeded) {
+        shippingLabelCostCentsTotal += packageCostCents;
+      } else {
+        console.error("[shippo] bundled label purchase not SUCCESS — skipping seller clawback for package", {
+          sessionId,
+          packageIndex: group.packageIndex,
+          transactionId,
+          status: txStatus || null,
+          messages: (tx.messages ?? []).map((m) => m.text).filter(Boolean),
+          rateCostCents,
+        });
+      }
+
       if (group.packageIndex === 0) {
         primaryShipmentId = sid;
         primaryTxIds.push(transactionId ?? "");
         primaryLabelUrls.push(labelUrlForPackage ?? "");
-        primaryTracking = tx.tracking_number ?? null;
-        primaryTrackingUrl = tx.tracking_url_provider ?? null;
-        primaryCarrier = cheapest.provider ?? null;
-        primaryService = cheapest.servicelevel?.name ?? null;
+        primaryTracking = purchaseSucceeded ? (tx.tracking_number ?? null) : null;
+        primaryTrackingUrl = purchaseSucceeded ? (tx.tracking_url_provider ?? null) : null;
+        primaryCarrier = picked.provider ?? null;
+        primaryService = picked.servicelevel?.name ?? null;
       }
 
-      await prisma.shipmentPackage.create({
+      const createdPackage = await prisma.shipmentPackage.create({
         data: {
           liveShippingSessionId: sessionId,
           packageIndex: group.packageIndex,
@@ -430,21 +639,68 @@ export async function generateBundledShippoLabelForSession(
           widthIn: group.widthIn,
           heightIn: group.heightIn,
           shippoShipmentId: sid,
-          shippoRateId: cheapest.object_id,
-          shippoTransactionId: transactionId ?? null,
-          carrier: cheapest.provider ?? null,
-          serviceLevel: cheapest.servicelevel?.name ?? null,
-          trackingNumber: tx.tracking_number ?? null,
-          labelUrl: labelUrlForPackage,
-          labelCostCents: packageCostCents,
-          status: "label_created",
+          shippoRateId: picked.object_id,
+          shippoTransactionId: transactionId,
+          carrier: picked.provider ?? null,
+          serviceLevel: picked.servicelevel?.name ?? null,
+          trackingNumber: purchaseSucceeded ? (tx.tracking_number ?? null) : null,
+          labelUrl: purchaseSucceeded ? labelUrlForPackage : null,
+          // Persist rate quote for audit; clawback path only uses purchasedPackages with SUCCESS.
+          labelCostCents: rateCostCents,
+          status: purchaseSucceeded ? "label_created" : "estimated",
         },
       });
-    }
+      const replacesShippoTransactionId = priorTxByPackageIndex.get(group.packageIndex) ?? null;
+      const purpose: "initial" | "replacement" | "additional_package" = replacesShippoTransactionId
+        ? "replacement"
+        : group.packageIndex > 0
+          ? "additional_package"
+          : "initial";
+      if (purchaseSucceeded && transactionId && packageCostCents > 0) {
+        purchasedPackages.push({
+          packageId: createdPackage.id,
+          packageIndex: group.packageIndex,
+          shippoTransactionId: transactionId,
+          shippoShipmentId: sid,
+          labelCostCents: packageCostCents,
+          replacesShippoTransactionId,
+          purpose,
+        });
 
-    const n = eligible.length;
-    const baseEach = Math.floor(shippingLabelCostCentsTotal / n);
-    const remainder = shippingLabelCostCentsTotal - baseEach * n;
+        // Fix (2026-08-10): establish the durable ledger row THE MOMENT Shippo confirms purchase,
+        // not deferred to the debit loop further below. Previously, if the process crashed or threw
+        // between here and that later loop (e.g. mid-bundle on package 2 of 3), packages already
+        // purchased from Shippo — real GV spend — had a ShipmentPackage row but NO
+        // ShipmentLabelFinance row at all: an orphaned transaction with zero ledger trace. Every
+        // successful Shippo purchase now always gets exactly one durable ShipmentLabelFinance
+        // record before moving on, regardless of whether the clawback attempt below ever runs.
+        if (debitOrderId) {
+          try {
+            await ensureShipmentLabelFinanceRecord({
+              orderId: debitOrderId,
+              shippoTransactionId: transactionId,
+              shippoShipmentId: sid,
+              shipmentPackageId: createdPackage.id,
+              liveShippingSessionId: sessionId,
+              labelCostCents: packageCostCents,
+              purpose,
+              replacesShippoTransactionId,
+            });
+          } catch (ledgerErr) {
+            // Never let a ledger-row hiccup abort a purchase loop that already spent real money —
+            // log loudly; the debit loop / admin retry route below can still recover via the
+            // existingForPackage matching in chargeSellerForLabelCost.
+            console.error("[shippo] ensureShipmentLabelFinanceRecord failed for purchased package", {
+              sessionId,
+              debitOrderId,
+              packageId: createdPackage.id,
+              shippoTransactionId: transactionId,
+              error: ledgerErr instanceof Error ? ledgerErr.message : String(ledgerErr),
+            });
+          }
+        }
+      }
+    }
 
     const transactionId = primaryTxIds[0] ?? null;
     const labelUrl = primaryLabelUrls[0]?.trim() || null;
@@ -454,8 +710,9 @@ export async function generateBundledShippoLabelForSession(
     const service = primaryService;
     const shippingStatus = labelUrl ? "SUCCESS" : "label_pending";
 
+    // Attribute label metadata to session orders; per-package clawbacks land on the debit order.
     await prisma.$transaction(
-      eligible.map((o, idx) =>
+      eligible.map((o) =>
         prisma.order.update({
           where: { id: o.id },
           data: {
@@ -468,11 +725,96 @@ export async function generateBundledShippoLabelForSession(
             labelUrl,
             shippingStatus,
             fulfillmentStatus: labelUrl ? "label_created" : "exception",
-            shippingLabelCostCents: baseEach + (idx === 0 ? remainder : 0),
+            shippingLabelCostCents: o.id === debitOrderId ? shippingLabelCostCentsTotal : 0,
+            ...(o.id === debitOrderId && labelUrl ? { labelCreatedAt: new Date() } : {}),
           },
         }),
       ),
     );
+
+    const { chargeSellerForLabelCost, markOrderLabelCostReversalFailed } = await import(
+      "@/services/shipping/charge-seller-label-cost"
+    );
+
+    if (shippingLabelCostCentsTotal > 0 && debitOrderId) {
+      const debitCandidates = [
+        debitOrderId,
+        ...eligible.map((o) => o.id).filter((id) => id !== debitOrderId),
+      ];
+      let recovered = false;
+      let lastFailOrderId = debitOrderId;
+
+      for (const orderId of debitCandidates) {
+        // Do not move mid-flight charges across orders — only failover when nothing was clawed yet.
+        if (orderId !== debitOrderId) {
+          const alreadyCharged = await prisma.shipmentLabelFinance.count({
+            where: {
+              orderId: debitOrderId,
+              sellerClawbackReversalId: { not: null },
+            },
+          });
+          if (alreadyCharged > 0) break;
+        }
+
+        let allOk = true;
+        for (const pkg of purchasedPackages) {
+          if (!pkg.shippoTransactionId || pkg.labelCostCents <= 0) continue;
+          const debit = await chargeSellerForLabelCost({
+            orderId,
+            labelCostCents: pkg.labelCostCents,
+            shippoTransactionId: pkg.shippoTransactionId,
+            shippoShipmentId: pkg.shippoShipmentId,
+            shipmentPackageId: pkg.packageId,
+            liveShippingSessionId: sessionId,
+            purpose: pkg.purpose,
+            replacesShippoTransactionId: pkg.replacesShippoTransactionId,
+            packageIndex: pkg.packageIndex,
+          });
+          if (!debit.ok) {
+            allOk = false;
+            lastFailOrderId = orderId;
+            console.error("[shippo] bundled label cost debit failed", {
+              orderId,
+              sessionId,
+              packageId: pkg.packageId,
+              shippoTransactionId: pkg.shippoTransactionId,
+              code: debit.code,
+              error: debit.error,
+            });
+            break;
+          }
+        }
+        if (allOk) {
+          if (orderId !== debitOrderId) {
+            await prisma.order.update({
+              where: { id: debitOrderId },
+              data: {
+                shippingLabelCostCents: 0,
+                shippingLabelCostReversedCents: 0,
+                shippingLabelCostReversalId: null,
+                shippingLabelCostChargedShippoTransactionId: null,
+              },
+            });
+          }
+          recovered = true;
+          break;
+        }
+      }
+      if (!recovered) {
+        await markOrderLabelCostReversalFailed(lastFailOrderId);
+      }
+    }
+
+    try {
+      const { processLabelCreatedPayoutEvaluation } = await import(
+        "@/services/payout/process-payout-tier-events"
+      );
+      for (const o of eligible) {
+        void processLabelCreatedPayoutEvaluation(o.id);
+      }
+    } catch (payoutErr) {
+      console.warn("[shippo] bundled label payout evaluation failed", payoutErr);
+    }
 
     const tn = trackingNumber ? ` Tracking: ${trackingNumber}.` : "";
     for (const o of eligible) {
@@ -540,4 +882,174 @@ export async function generateBundledShippoLabelForSession(
     }
     throw e;
   }
+}
+
+export type BundledRatePreview = {
+  objectId: string;
+  amountCents: number;
+  amount: string;
+  currency: string;
+  carrier: string;
+  service: string;
+  estimatedDays: number | null;
+};
+
+/**
+ * Quote Shippo rates for a session parcel without purchasing a label.
+ * Used by the confirm-package modal so sellers see cost before Create label.
+ */
+export async function previewBundledShippoRatesForSession(
+  sessionId: string,
+  sellerId: string,
+  parcel: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number },
+): Promise<{
+  rates: BundledRatePreview[];
+  cheapestCents: number | null;
+  shippingChargedCents: number;
+  orderCount: number;
+}> {
+  if (!isShippoConfigured()) throw new Error("SHIPPO_NOT_CONFIGURED");
+
+  const session = await prisma.liveShippingSession.findFirst({
+    where: { id: sessionId, sellerId },
+    include: {
+      seller: {
+        select: {
+          email: true,
+          shipFromStreet: true,
+          shipFromCity: true,
+          shipFromState: true,
+          shipFromZip: true,
+          shipFromCountry: true,
+          shipFromName: true,
+          defaultShipFromAddress: { select: { email: true, phone: true } },
+        },
+      },
+      orders: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          buyer: { select: { email: true } },
+          buyerAddress: { select: { email: true, phone: true } },
+          listing: { select: { shipAlone: true, title: true, id: true, parcelWeightOz: true, shippingBaseWeightOz: true, parcelLengthIn: true, parcelWidthIn: true, parcelHeightIn: true } },
+        },
+      },
+    },
+  });
+
+  if (!session) throw new Error("SESSION_NOT_FOUND");
+  if (!isCombinedLiveBundleSession(session.destinationAddressId)) {
+    throw new Error("NOT_A_COMBINED_BUNDLE_SESSION");
+  }
+
+  const eligible = filterEligibleBundledOrders(session.orders as SessionOrder[]);
+  if (eligible.length === 0) throw new Error("NO_ELIGIBLE_ORDERS");
+
+  const first = eligible[0]!;
+  const firstOrder = session.orders.find((o) => o.id === first.id);
+  if (!firstOrder) throw new Error("NO_ELIGIBLE_ORDERS");
+  for (const o of eligible.slice(1)) {
+    if (!addressesMatch(first, o)) throw new Error("MISMATCHED_SHIP_TO_ADDRESSES");
+  }
+
+  const from = session.seller;
+  if (!from.shipFromStreet || !from.shipFromCity || !from.shipFromState || !from.shipFromZip || !from.shipFromCountry) {
+    throw new Error("SELLER_SHIP_FROM_INCOMPLETE");
+  }
+
+  const sellerContact = resolveSellerShippoContact({
+    userEmail: from.email,
+    addressEmail: from.defaultShipFromAddress?.email,
+    addressPhone: from.defaultShipFromAddress?.phone,
+  });
+  if (!sellerContact) throw new Error(SELLER_SHIPPO_CONTACT_MISSING);
+
+  const buyerContact = resolveBuyerShippoContact({
+    userEmail: firstOrder.buyer.email,
+    addressEmail: firstOrder.buyerAddress?.email,
+    addressPhone: firstOrder.buyerAddress?.phone,
+  });
+  if (!buyerContact) throw new Error(BUYER_SHIPPO_CONTACT_MISSING);
+
+  const addressFrom: ShippoAddress = withShippoContact(
+    {
+      name: from.shipFromName || "Seller",
+      street1: from.shipFromStreet,
+      city: from.shipFromCity,
+      state: from.shipFromState,
+      zip: from.shipFromZip,
+      country: from.shipFromCountry,
+    },
+    sellerContact,
+  );
+  const addressTo: ShippoAddress = withShippoContact(
+    {
+      name: first.shipRecipientName,
+      street1: first.shipAddress,
+      city: first.shipCity,
+      state: first.shipState,
+      zip: first.shipZip,
+      country: first.shipCountry,
+    },
+    buyerContact,
+  );
+
+  const shippoParcel: ShippoParcel = {
+    length: String(parcel.lengthIn),
+    width: String(parcel.widthIn),
+    height: String(parcel.heightIn),
+    distance_unit: "in",
+    weight: String(Math.max(0.1, parcel.weightOz)),
+    mass_unit: "oz",
+  };
+
+  const shipment = (await shippoCreateShipment({
+    address_from: addressFrom,
+    address_to: addressTo,
+    parcels: [shippoParcel],
+    async: false,
+  })) as { object_id?: string };
+
+  const sid = shipment.object_id;
+  if (!sid) throw new Error("Shippo shipment missing object_id");
+
+  const ratesRes = (await shippoListRates(sid)) as {
+    results?: {
+      object_id?: string;
+      amount?: string;
+      currency?: string;
+      provider?: string;
+      servicelevel?: { name?: string };
+      estimated_days?: number;
+    }[];
+  };
+  const filtered = selectShippoRatesForSellerQuote(ratesRes.results ?? [], 8);
+  const rates: BundledRatePreview[] = filtered
+    .filter((r) => Boolean(r.object_id))
+    .map((r) => ({
+      objectId: r.object_id!,
+      amountCents: Math.round(Number(r.amount ?? 0) * 100),
+      amount: String(r.amount ?? "0"),
+      currency: (r.currency ?? "USD").toUpperCase(),
+      carrier: r.provider ?? "Carrier",
+      service: r.servicelevel?.name ?? "Service",
+      estimatedDays: typeof r.estimated_days === "number" ? r.estimated_days : null,
+    }));
+
+  const shippingChargedCents = session.orders.reduce((sum, o) => {
+    if (o.paymentStatus !== PAYMENT_PAID) return sum;
+    if (o.shippingChargedCents != null && Number.isFinite(o.shippingChargedCents)) {
+      return sum + Math.max(0, Math.floor(o.shippingChargedCents));
+    }
+    return sum;
+  }, 0);
+
+  const cheapestCents =
+    rates.length > 0 ? Math.min(...rates.map((r) => r.amountCents)) : null;
+
+  return {
+    rates,
+    cheapestCents,
+    shippingChargedCents,
+    orderCount: eligible.length,
+  };
 }

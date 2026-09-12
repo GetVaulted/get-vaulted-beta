@@ -12,7 +12,11 @@ function normalizePresenceUsername(username: unknown, userId: string | null): st
   return 'Guest';
 }
 
-/** Parse Supabase Realtime presence state into deduped viewer rows. */
+/**
+ * Parse Supabase Realtime presence into one row PER PERSON (deduped by account) for roster / moderator
+ * displays. This is intentionally different from the live viewer *count*, which is per-connection —
+ * see `countRoomPresenceViewers`. A roster wants each human once; the counter wants raw headcount.
+ */
 export function parseRoomPresenceUsers(state: Record<string, unknown> | null | undefined): RoomPresenceUser[] {
   if (!state || typeof state !== 'object') return [];
 

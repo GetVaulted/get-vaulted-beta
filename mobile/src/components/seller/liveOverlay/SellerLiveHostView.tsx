@@ -14,6 +14,7 @@ import { openUserProfile } from '../../../navigation/openPlatform';
 import {
   computeChatStackMaxHeight,
   computeLiveRoomBottomStack,
+  scaledStaffChatToggleHeight,
   scaledComposerBarHeight,
 } from '../../../lib/liveRoomBottomLayout';
 import { sellerConsoleToolbarScale, liveRoomOverlayScale } from '../../../lib/liveRoomUiScale';
@@ -28,7 +29,9 @@ import { SellerLiveStreamBackdrop } from './SellerLiveStreamBackdrop';
 import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from '../../../hooks/useMobileStagePublish';
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import { liveRoomChatOpen } from '../../../lib/liveRoomChatPolicy';
-import { isLiveRoomBroadcastOnAir } from '../../../lib/liveRoomBroadcastOnAir';
+import { isLiveRoomBroadcastOnAir, isLiveRoomRemotePublisherActive } from '../../../lib/liveRoomBroadcastOnAir';
+import { isObsDesktopBroadcastMode } from '../../../lib/liveObsChannelMode';
+import { resolveHostVideoFeedStatus } from '../../../lib/hostVideoFeedStatus';
 import { useLiveRoomChat } from '../../../hooks/useLiveRoomChat';
 import { resolvePinnedModeratorUsername } from '../../../lib/resolvePinnedModeratorUsername';
 import { useLiveRoomModeration } from '../../../hooks/useLiveRoomModeration';
@@ -48,6 +51,9 @@ import { parseVariantPurchasedRandomClaim } from '../../../lib/liveVariantSpotBo
 import { useSellerLiveConsole } from '../../../hooks/useSellerLiveConsole';
 import { useHostGiveawayActions, pickHostStageGiveaway } from '../../../hooks/useHostGiveawayActions';
 import { LiveRoomShareSheet } from '../../live/LiveRoomShareSheet';
+import {
+  shouldShowPreLiveRetryBanner,
+} from '../../../lib/livePlaybackAppState';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { SellerLiveBroadcastSheet } from './SellerLiveBroadcastSheet';
 import { SellerLiveOverlayHeader } from './SellerLiveOverlayHeader';
@@ -55,6 +61,7 @@ import {
   SellerLivePinnedOverlay,
   SELLER_PINNED_EMPTY_HEIGHT,
   SELLER_PINNED_OVERLAY_HEIGHT,
+  SELLER_PINNED_RUNNING_HEIGHT,
 } from './SellerLivePinnedOverlay';
 import { SellerLiveQueueSheet } from './SellerLiveQueueSheet';
 import { SellerNextUpRail, SELLER_NEXT_UP_RAIL_HEIGHT } from './SellerNextUpRail';
@@ -63,6 +70,8 @@ import { SellerConsoleActionBar, sellerHeaderBlockHeight, SELLER_HEADER_TOOLBAR_
 import { SellerHostSideRail } from './SellerHostSideRail';
 import { SellerHostGiveawayRail } from './SellerHostGiveawayRail';
 import { SellerLiveSalesSheet } from './SellerLiveSalesSheet';
+import { LiveShowNotesSheet } from '../../live/LiveShowNotesSheet';
+import { hasLiveShowNotes, normalizeLiveShowNotes } from '../../../lib/liveShowNotes';
 import { SellerBreakSpotBoardSheet } from './SellerBreakSpotBoardSheet';
 import { HostModeratorAssignSheet } from '../../moderator/HostModeratorAssignSheet';
 import {
@@ -101,6 +110,9 @@ type HostActions = {
   stageWebrtcEnabled: boolean;
   showCameraPreview: boolean;
   cameraFacing: SellerCameraFacing;
+  cameraZoom: number;
+  zoomStops: number[];
+  onSetCameraZoom: (factor: number) => void;
   cameraPermissionState: SellerCameraPermissionState;
   cameraPermissionError: string | null;
   cameraPermissionRetrying: boolean;
@@ -109,6 +121,8 @@ type HostActions = {
   microphoneMuted: boolean;
   onToggleMicMute: () => void;
   onStartBroadcast: () => void;
+  /** Force teardown + start again (banner Retry). */
+  onRetryBroadcast: () => void;
   onStopBroadcast: () => void;
   onPauseBroadcast: () => void;
   onResumeBroadcast: () => void;
@@ -152,7 +166,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const [salesOpen, setSalesOpen] = useState(false);
   const [shareToast, setShareToast] = useState<string | null>(null);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
+  const [showNotesOpen, setShowNotesOpen] = useState(false);
+  const [showNotes, setShowNotes] = useState(() => normalizeLiveShowNotes(host.room?.showNotes));
   const [chatDraft, setChatDraft] = useState('');
+  const [staffChatOnly, setStaffChatOnly] = useState(false);
   const chatComposerRef = useRef<MentionComposerInputHandle>(null);
   const [modDrawerOpen, setModDrawerOpen] = useState(false);
   const [modAssignOpen, setModAssignOpen] = useState(false);
@@ -161,20 +178,67 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [chatExpanded, setChatExpanded] = useState(false);
 
+  useEffect(() => {
+    setShowNotes(normalizeLiveShowNotes(host.room?.showNotes));
+  }, [host.room?.showNotes, roomId]);
+
   const roomLive = host.room?.status === 'live';
-  const streamOnAir =
+  const localPublishing =
     host.broadcastPhase === 'live' ||
     host.broadcastPhase === 'paused' ||
-    host.broadcastPhase === 'starting';
-  const broadcastOnAir = useMemo(() => {
+    host.broadcastPhase === 'starting' ||
+    host.broadcastPhase === 'stopping';
+  const roomBroadcastOnAir = useMemo(() => {
     if (!roomLive) return false;
-    if (host.stageWebrtcEnabled) return streamOnAir;
     return isLiveRoomBroadcastOnAir({
       status: 'live',
       streamHealth: host.stream?.streamHealth ?? 'offline',
       streamPaused: host.stream?.streamPaused,
+      streamMode: host.stream?.streamMode,
+      streamStartedAt: host.stream?.streamStartedAt,
+      streamEndedAt: host.stream?.streamEndedAt,
     });
-  }, [host.stageWebrtcEnabled, host.stream, roomLive, streamOnAir]);
+  }, [host.stream, roomLive]);
+  /** Commerce gate: this device publishing OR another device already on air (companion). */
+  const broadcastOnAir = roomLive && (localPublishing || roomBroadcastOnAir);
+  /** Another device is actually publishing (streamHealth=live) — not connecting/waiting. */
+  const remotePublisherActive = useMemo(() => {
+    if (!roomLive) return false;
+    return isLiveRoomRemotePublisherActive({
+      status: 'live',
+      streamHealth: host.stream?.streamHealth ?? 'offline',
+      streamPaused: host.stream?.streamPaused,
+      streamMode: host.stream?.streamMode,
+      streamStartedAt: host.stream?.streamStartedAt,
+      streamEndedAt: host.stream?.streamEndedAt,
+    });
+  }, [host.stream, roomLive]);
+  const obsMode = isObsDesktopBroadcastMode({
+    streamMode: host.stream?.streamMode,
+    ingestEndpoint: host.stream?.ingestEndpoint,
+  });
+  /** Room is live from another device / OBS; this phone is queue / start-auction only. */
+  const hostCompanionMode = (remotePublisherActive || (obsMode && roomLive)) && !localPublishing;
+  /** Header pill — buyer-facing video, not just room status. */
+  const videoFeed = useMemo(
+    () =>
+      resolveHostVideoFeedStatus({
+        roomStatus: host.room?.status ?? 'scheduled',
+        broadcastPhase: host.broadcastPhase,
+        streamPaused: host.stream?.streamPaused,
+        companionMode: hostCompanionMode,
+        roomBroadcastOnAir,
+        streamHealth: host.stream?.streamHealth,
+      }),
+    [
+      host.broadcastPhase,
+      host.room?.status,
+      host.stream?.streamHealth,
+      host.stream?.streamPaused,
+      hostCompanionMode,
+      roomBroadcastOnAir,
+    ],
+  );
 
   const console = useSellerLiveConsole({
     accessToken,
@@ -220,9 +284,12 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     if (!user?.id) return;
     void fetchProfileById(user.id).then((p) => {
       if (!p) return;
-      if (p.username?.trim()) setSellerUsername(p.username.trim());
-      if (p.display_name?.trim()) setHostName(p.display_name.trim());
-      else if (p.username?.trim()) setHostName(p.username.trim());
+      if (p.username?.trim()) {
+        setSellerUsername(p.username.trim());
+        setHostName(p.username.trim());
+      } else if (p.display_name?.trim()) {
+        setHostName(p.display_name.trim());
+      }
       if (p.avatar_url?.trim()) setHostAvatarUrl(p.avatar_url.trim());
       else setHostAvatarUrl(null);
     });
@@ -244,31 +311,22 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const commerceBottom = Math.max(insets.bottom, spacing.xs);
   const displayItem = console.activeItem;
   const showTeamsBoard = Boolean(displayItem && isVariantSalesFormat(displayItem.salesFormat) && (displayItem.variants?.length ?? 0) > 0);
-  const prevActiveVariantItemRef = useRef<string | null>(null);
-  useEffect(() => {
-    const item = console.activeItem;
-    if (
-      item?.id &&
-      item.id !== prevActiveVariantItemRef.current &&
-      isVariantSalesFormat(item.salesFormat) &&
-      (item.variants?.length ?? 0) > 0 &&
-      item.variantAssignmentMode !== 'random'
-    ) {
-      setTeamsBoardOpen(true);
-    }
-    prevActiveVariantItemRef.current = item?.id ?? null;
-  }, [console.activeItem]);
   const salesAttentionCount = useMemo(() => {
     const failedSales = console.recentSales.filter((r) => r.paymentTone === 'retry').length;
     return console.paymentFailures.length + failedSales;
   }, [console.paymentFailures.length, console.recentSales]);
-  const pinnedOverlayEstimate =
-    displayItem ? SELLER_PINNED_OVERLAY_HEIGHT : SELLER_PINNED_EMPTY_HEIGHT;
+  const pinnedOverlayEstimate = !displayItem
+    ? SELLER_PINNED_EMPTY_HEIGHT
+    : displayItem.biddingOpen
+      ? SELLER_PINNED_RUNNING_HEIGHT
+      : SELLER_PINNED_OVERLAY_HEIGHT;
   const [commerceHeight, setCommerceHeight] = useState(pinnedOverlayEstimate);
 
   useEffect(() => {
+    // Seed from estimate when lot / phase changes; onLayout then measures exact height.
+    // Never shrink below the estimate on this tick — that was stacking composer over On Screen.
     setCommerceHeight(pinnedOverlayEstimate);
-  }, [pinnedOverlayEstimate]);
+  }, [displayItem?.id, displayItem?.biddingOpen, pinnedOverlayEstimate]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -402,6 +460,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   useRealtimeRoomSubscription({
     liveRoomId: roomId,
     enabled: true,
+    includeStaffChat: true,
     onLiveRoomMessage: (message) => {
       liveChat.appendBroadcast(message);
     },
@@ -497,11 +556,14 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     user?.id,
   ]);
 
-  const sellerPinnedBarBottom = sellerComposerBottom + composerBarHeight + Math.round(6 * overlayScale);
+  const staffToggleHeight = scaledStaffChatToggleHeight(overlayScale, modActor.canModerate);
+  const sellerComposerBlockHeight = composerBarHeight + staffToggleHeight;
+  const sellerPinnedBarBottom = sellerComposerBottom + sellerComposerBlockHeight + Math.round(6 * overlayScale);
   const sellerPinnedReserve = pinnedModerator
     ? Math.round(62 * overlayScale) + Math.round(6 * overlayScale)
     : 0;
-  const sellerChatBottom = sellerComposerBottom + composerBarHeight + Math.round(12 * overlayScale) + sellerPinnedReserve;
+  const sellerChatBottom =
+    sellerComposerBottom + sellerComposerBlockHeight + Math.round(12 * overlayScale) + sellerPinnedReserve;
   const chatMaxHeight = computeChatStackMaxHeight({
     slideHeight: windowHeight,
     topReserve: headerPaddingTop + sellerHeaderBlockHeight(windowWidth) + 8,
@@ -620,23 +682,40 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       return;
     }
     chatComposerRef.current?.dismissSuggestions();
-    setChatDraft('');
     try {
-      const ok = await liveChat.send(text);
+      const ok = await liveChat.send(text, { staffOnly: staffChatOnly });
       if (ok) {
+        setChatDraft('');
         chatComposerRef.current?.blur();
         Keyboard.dismiss();
       }
     } catch (e) {
-      setChatDraft(text);
       const msg = e instanceof Error ? e.message : String(e);
       Alert.alert('Chat', msg);
     }
-  }, [chatDraft, liveChat, canHostChat]);
+  }, [chatDraft, liveChat, canHostChat, staffChatOnly]);
 
   const onGoLive = () => {
     if (host.readinessBlocked?.length) {
       Alert.alert('Finish setup', host.readinessBlocked.join('\n'));
+      return;
+    }
+    // OBS (WHIP WebRTC or legacy RTMPS): open the room only — never auto-publish the phone camera.
+    if (
+      isObsDesktopBroadcastMode({
+        streamMode: host.stream?.streamMode,
+        ingestEndpoint: host.stream?.ingestEndpoint,
+      })
+    ) {
+      if (host.room?.status === 'scheduled') {
+        host.onStartShow();
+        return;
+      }
+      Alert.alert(
+        'OBS is the camera',
+        SELLER_CONSOLE.obsWaitingSignal,
+        [{ text: 'OK', style: 'cancel' }],
+      );
       return;
     }
     if (host.stageWebrtcEnabled) {
@@ -645,6 +724,46 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     }
     host.onStartShow();
   };
+
+  // Take-over used to fail completely silently: the button was hard-disabled while camera
+  // permission wasn't granted (common on a second device that's never gone live before), and
+  // even once enabled, any start failure went nowhere — the "Could not start broadcast" banner
+  // is intentionally suppressed while the room is live (see shouldShowPreLiveRetryBanner) so a
+  // healthy show's transient reconnect blips don't flash yellow chrome. That's correct for
+  // auto-reconnect, but it meant an explicit, user-initiated take-over tap that failed looked
+  // identical to one that succeeded. Surface both cases directly instead of relying on that banner.
+  const takeOverAttemptRef = useRef(false);
+  const onTakeOverCamera = () => {
+    if (host.readinessBlocked?.length) {
+      Alert.alert('Finish setup', host.readinessBlocked.join('\n'));
+      return;
+    }
+    if (host.cameraPermissionState !== 'granted') {
+      Alert.alert(
+        'Camera access needed',
+        'Get Vaulted needs camera and microphone access on this device before you can take over the broadcast. Grant access, then tap Use this camera again.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Grant access', onPress: () => host.onRetryCameraPermission() },
+        ],
+      );
+      return;
+    }
+    takeOverAttemptRef.current = true;
+    host.onStartBroadcast();
+  };
+
+  // Resolves the silent-failure half of the take-over bug above: if a take-over attempt was
+  // just made from this device and the broadcast phase falls back to idle with an error set,
+  // the start failed — tell the seller directly rather than leaving the UI looking unchanged.
+  useEffect(() => {
+    if (!takeOverAttemptRef.current) return;
+    if (host.broadcastPhase === 'starting') return;
+    takeOverAttemptRef.current = false;
+    if (host.broadcastPhase === 'idle' && host.broadcastError) {
+      Alert.alert('Could not start broadcast', host.broadcastError);
+    }
+  }, [host.broadcastPhase, host.broadcastError]);
 
   return (
     <SellerLiveGestureLayer
@@ -670,12 +789,34 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         permissionRetrying={host.cameraPermissionRetrying}
       />
 
-      {host.roomError ? (
+      {host.roomError && !(roomLive && host.stageWebrtcEnabled) ? (
         <View style={[styles.banner, { top: insets.top + 4 }]}>
           <LiveConsoleWarningBanner
             error={host.roomError}
-            onRetry={() => host.onReload()}
+            onRetry={() => {
+              if (roomLive) {
+                void host.onResumeBroadcast();
+                return;
+              }
+              host.onReload();
+            }}
+            actionLabel={roomLive ? SELLER_CONSOLE.resumeStream : 'Retry'}
+            retrying={host.busy === 'refresh' || host.broadcastPhase === 'starting'}
           />
+        </View>
+      ) : null}
+
+      {hostCompanionMode && !host.roomError ? (
+        <View
+          style={[styles.companionBanner, { top: headerPaddingTop + sellerHeaderBlockHeight(windowWidth) + 8 }]}
+          pointerEvents="box-none"
+        >
+          <Text style={styles.companionTitle}>
+            {obsMode ? SELLER_CONSOLE.obsLiveBadge : SELLER_CONSOLE.companionBannerTitle}
+          </Text>
+          <Text style={styles.companionBody}>
+            {obsMode ? SELLER_CONSOLE.obsBroadcastHint : SELLER_CONSOLE.companionBannerBody}
+          </Text>
         </View>
       ) : null}
 
@@ -685,12 +826,19 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         hostAvatarUrl={hostAvatarUrl}
         streamTitle={streamTitle}
         viewerCount={console.viewerCount}
-        streamOnAir={broadcastOnAir}
+        streamOnAir={videoFeed.videoOnAir}
+        videoFeed={videoFeed}
         liveStartedAt={roomLive ? host.room?.startedAt ?? null : null}
-        onBack={() => navigation.goBack()}
+        onBack={() => {
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+            return;
+          }
+          navigation.navigate('MainTabs', { screen: 'Live', params: { screen: 'LiveDiscovery' } });
+        }}
         onBroadcastSettings={() => setBroadcastOpen(true)}
-        onEndShow={host.stageWebrtcEnabled ? undefined : () => host.onEndShow()}
-        canEnd={canEnd && !host.stageWebrtcEnabled}
+        onEndShow={!host.stageWebrtcEnabled || obsMode ? () => host.onEndShow() : undefined}
+        canEnd={canEnd && (!host.stageWebrtcEnabled || obsMode)}
         endBusy={host.busy === 'end'}
         toolbarMinHeight={sellerToolbarHeight}
         toolbar={
@@ -708,22 +856,27 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
             broadcastPhase={host.broadcastPhase}
             roomStatus={roomStatus}
             streamOnAir={broadcastOnAir}
+            companionMode={hostCompanionMode}
+            obsMode={obsMode}
             canStartRoom={canStart}
             stageEnabled={host.stageWebrtcEnabled}
             cameraReady={host.cameraPermissionState === 'granted'}
             broadcastBusy={
               host.busy === 'start' ||
               host.busy === 'end' ||
+              host.busy === 'refresh' ||
               host.cameraPermissionState === 'requesting'
             }
             onGoLive={onGoLive}
+            onTakeOverCamera={onTakeOverCamera}
             onStopStream={host.onStopBroadcast}
             onPauseStream={host.onPauseBroadcast}
             onResumeStream={host.onResumeBroadcast}
-            showCameraFlip={host.stageWebrtcEnabled && host.showCameraPreview}
+            streamPaused={host.stream?.streamPaused === true}
+            showCameraFlip={host.stageWebrtcEnabled && host.showCameraPreview && !hostCompanionMode}
             cameraFlipDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
             onFlipCamera={host.onFlipCamera}
-            showMicMute={host.stageWebrtcEnabled && host.showCameraPreview}
+            showMicMute={host.stageWebrtcEnabled && host.showCameraPreview && !hostCompanionMode}
             micMuted={host.microphoneMuted}
             micMuteDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
             onToggleMicMute={host.onToggleMicMute}
@@ -745,8 +898,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       ) : null}
 
       <SellerHostSideRail
-        bottom={sellerComposerBottom + composerBarHeight + spacing.sm}
+        bottom={sellerComposerBottom + sellerComposerBlockHeight + spacing.sm}
         onShare={() => void handleShare()}
+        onNotes={() => setShowNotesOpen(true)}
+        hasNotes={hasLiveShowNotes(showNotes)}
       />
 
       <FloatingLiveChat
@@ -818,9 +973,12 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         }
         clutchTimeEnabled={console.hostClutchTimeEnabled}
         onToggleClutchTime={console.toggleHostClutchTime}
+        auctionDurationSec={console.hostAuctionDurationSec}
+        onAuctionDurationChange={console.setHostAuctionDurationSec}
         hostOverlayMinimal
         onLayoutHeight={(h) => {
-          if (h > 0 && Math.abs(h - commerceHeight) > 2) setCommerceHeight(h);
+          if (h <= 0) return;
+          setCommerceHeight((prev) => (Math.abs(h - prev) > 2 ? h : prev));
         }}
       />
 
@@ -846,11 +1004,16 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         onSend={sendHostChat}
         sendDisabled={liveChat.sending || !canHostChat}
         inputDisabled={host.room?.status === 'ended'}
-        placeholder={canHostChat ? 'Say something' : 'Chat unavailable'}
+        placeholder={
+          staffChatOnly ? 'Staff only…' : canHostChat ? 'Say something' : 'Chat unavailable'
+        }
         accessToken={accessToken}
         liveRoomId={roomId}
         inputRef={chatComposerRef}
         overlayScale={overlayScale}
+        canUseStaffChat={modActor.canModerate}
+        staffOnly={staffChatOnly}
+        onStaffOnlyChange={setStaffChatOnly}
         leadingAccessory={
           <>
             {showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) ? (
@@ -933,15 +1096,21 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         />
       ) : null}
 
-      {host.broadcastError && host.broadcastPhase === 'idle' ? (
+      {/* Pre-live only: idle Retry. While room is live, never show yellow recovery chrome. */}
+      {shouldShowPreLiveRetryBanner({
+        roomStatus: host.room?.status ?? 'scheduled',
+        broadcastPhase: host.broadcastPhase,
+        hasBroadcastError: Boolean(host.broadcastError),
+      }) ? (
         <View style={[styles.banner, { top: insets.top + 48 }]}>
           <LiveConsoleWarningBanner
             error={{
-              userMessage: host.broadcastError,
+              userMessage: host.broadcastError || 'Could not start broadcast.',
               devDetail: null,
               isNetwork: false,
             }}
-            onRetry={host.onStartBroadcast}
+            onRetry={host.onRetryBroadcast}
+            retrying={host.busy === 'start' || host.broadcastPhase === 'starting'}
           />
         </View>
       ) : null}
@@ -967,8 +1136,22 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         hostAvatarUrl={hostAvatarUrl}
         isLive={roomLive}
         accessToken={accessToken}
-        canNotifyFollowers
+        canNotifyFollowers={host.room?.discoveryVisibility !== 'private'}
         onToast={(msg) => showGiveawayToast(msg)}
+      />
+
+      <LiveShowNotesSheet
+        visible={showNotesOpen}
+        onClose={() => setShowNotesOpen(false)}
+        roomId={roomId}
+        mode="edit"
+        accessToken={accessToken}
+        initialNotes={showNotes}
+        onSaved={(next) => setShowNotes(next)}
+        onToast={(msg) => {
+          setShareToast(msg);
+          setTimeout(() => setShareToast(null), 2200);
+        }}
       />
 
       <SellerLiveQueueSheet
@@ -1018,6 +1201,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         accessToken={accessToken}
         roomId={roomId}
         recentSales={console.recentSales}
+        sellerSummary={console.sellerSummary}
         paymentFailures={console.paymentFailures}
         onRefresh={async () => {
           await console.syncSales();
@@ -1043,6 +1227,9 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
           host.busy === 'provision' || host.busy === 'rotate' || host.busy === 'refresh' ? host.busy : null
         }
         hasIngest={Boolean(host.serverUrl)}
+        zoomStops={host.zoomStops}
+        cameraZoom={host.cameraZoom}
+        onSetZoom={host.onSetCameraZoom}
       />
 
       <AddInventoryModal
@@ -1051,6 +1238,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         roomId={roomId}
         onClose={() => console.setInventoryOpen(false)}
         onSubmit={console.onQuickAddLot}
+        onSubmitFromShop={console.onSubmitFromShop}
+        onImportFromPriorRoom={console.onImportFromPriorRoom}
         busy={console.busy}
       />
       <EditQueueItemPricingModal
@@ -1075,6 +1264,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         visible={teamsBoardOpen}
         onClose={() => setTeamsBoardOpen(false)}
         item={displayItem}
+        accessToken={accessToken}
         canPinTeams={Boolean(
           displayItem?.status === 'active' &&
             displayItem.variantAssignmentMode !== 'random' &&
@@ -1089,6 +1279,49 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
                   variantId,
                   displayItem.variants!.map((v) => ({ id: v.id })),
                 )
+            : undefined
+        }
+        canMarkSold={Boolean(
+          displayItem &&
+            displayItem.variantAssignmentMode !== 'random' &&
+            isVariantSalesFormat(displayItem.salesFormat) &&
+            (displayItem.status === 'active' || displayItem.status === 'queued'),
+        )}
+        markSoldBusy={console.markSoldBusy || console.busy}
+        onMarkSold={
+          displayItem
+            ? ({ variantId, username, priceUsd, settlementMethod, zeroReason, note, label, restoreIfUnavailable }) =>
+                console.onMarkSoldLiveTeam({
+                  itemId: displayItem.id,
+                  variantId,
+                  username,
+                  label,
+                  priceUsd,
+                  settlementMethod,
+                  zeroReason,
+                  note,
+                  restoreIfUnavailable,
+                })
+            : undefined
+        }
+        onRetireTeam={
+          displayItem
+            ? ({ variantId, label }) =>
+                console.onRetireLiveTeam({
+                  itemId: displayItem.id,
+                  variantId,
+                  label,
+                })
+            : undefined
+        }
+        onRestoreTeam={
+          displayItem
+            ? ({ variantId, label }) =>
+                console.onRestoreLiveTeam({
+                  itemId: displayItem.id,
+                  variantId,
+                  label,
+                })
             : undefined
         }
       />
@@ -1109,6 +1342,32 @@ const styles = StyleSheet.create({
     left: spacing.sm,
     right: spacing.sm,
     zIndex: 20,
+  },
+  companionBanner: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    zIndex: 18,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(52,211,153,0.35)',
+    backgroundColor: 'rgba(6,46,36,0.88)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  companionTitle: {
+    color: '#6ee7b7',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  companionBody: {
+    marginTop: 4,
+    color: 'rgba(236,253,245,0.92)',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
   },
   previewHint: {
     position: 'absolute',

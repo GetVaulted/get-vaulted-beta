@@ -1,0 +1,857 @@
+diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
+index 7f05628..5075a08 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
++++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
+@@ -73,6 +73,10 @@ class ExpoRealtimeIvsBroadcastModule : Module(), IVSStageManagerDelegate, Pictur
+             IVSStageManager.instance?.initializeStage(audioConfig = null, videoConfig = null)
+         }
+ 
++        AsyncFunction("setStageAudioPreset") { preset: String ->
++            IVSStageManager.instance?.setAudioPreset(preset)
++        }
++
+         AsyncFunction("initializeLocalStreams") { audioConfig: Map<String, Any>?, videoConfig: Map<String, Any>? ->
+             // TODO: Add audioConfig and videoConfig
+             IVSStageManager.instance?.initializeLocalStreams()
+@@ -91,6 +95,10 @@ class ExpoRealtimeIvsBroadcastModule : Module(), IVSStageManagerDelegate, Pictur
+             IVSStageManager.instance?.leaveStage()
+         }
+ 
++        AsyncFunction("setStageAudioOutputEnabled") { enabled: Boolean ->
++            IVSStageManager.instance?.setStageAudioOutputEnabled(enabled)
++        }
++
+         AsyncFunction("setStreamsPublished") { published: Boolean ->
+             IVSStageManager.instance?.setStreamsPublished(published)
+         }
+@@ -99,6 +107,14 @@ class ExpoRealtimeIvsBroadcastModule : Module(), IVSStageManagerDelegate, Pictur
+             IVSStageManager.instance?.swapCamera()
+         }
+ 
++        AsyncFunction("setCameraZoom") { factor: Double ->
++            return@AsyncFunction IVSStageManager.instance?.setCameraZoom(factor) ?: false
++        }
++
++        AsyncFunction("getSupportedCameraZoomStops") {
++            return@AsyncFunction IVSStageManager.instance?.getSupportedCameraZoomStops() ?: listOf(1.0)
++        }
++
+         AsyncFunction("setMicrophoneMuted") { muted: Boolean ->
+             IVSStageManager.instance?.setMicrophoneMuted(muted)
+         }
+@@ -219,4 +235,13 @@ class ExpoRealtimeIvsBroadcastModule : Module(), IVSStageManagerDelegate, Pictur
+     override fun onPiPError(error: String) {
+         sendEvent("onPiPError", mapOf("error" to error))
+     }
++
++    override fun onPiPActivityDestroyedWhileActive() {
++        // Last-chance synchronous cleanup — see the doc comment on the interface method. The JS
++        // bridge cannot be relied on here: this single-Activity app is closing, so there is no
++        // guarantee a "stopped" event reaches JS in time (or at all) for it to call
++        // setStageAudioOutputEnabled(false) itself. Call straight into the native stage manager.
++        Log.w("ExpoRealtimeIvsBroadcast", "PiP Activity destroyed while active — muting Stage audio synchronously")
++        IVSStageManager.instance?.setStageAudioOutputEnabled(false)
++    }
+ }
+diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
+index b1047d4..fb89e4e 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
++++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
+@@ -1,6 +1,7 @@
+ package expo.modules.realtimeivsbroadcast
+ 
+ import android.content.Context
++import android.media.AudioManager
+ import android.os.Build
+ import android.os.Handler
+ import android.os.Looper
+@@ -94,7 +95,28 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+         Log.i("ExpoIVSStageManager", "✅ IVSStageManager: Local streams initialized.")
+     }
+ 
++    /**
++     * Must be called before creating a Stage or DeviceDiscovery.
++     * Live shopping uses media volume (studio / subscribeOnly), not call volume (videoChat).
++     */
++    fun setAudioPreset(presetName: String) {
++        val preset = when (presetName) {
++            "subscribeOnly" -> StageAudioManager.UseCasePreset.SUBSCRIBE_ONLY
++            "videoChat" -> StageAudioManager.UseCasePreset.VIDEO_CHAT
++            else -> StageAudioManager.UseCasePreset.STUDIO
++        }
++        try {
++            StageAudioManager.getInstance(context).setPreset(preset)
++            Log.i("ExpoIVSStageManager", "StageAudioManager preset set to ")
++        } catch (e: IllegalStateException) {
++            Log.w("ExpoIVSStageManager", "Could not set audio preset (Stage/DeviceDiscovery already started): ")
++        }
++    }
++
+     fun initializeStage(audioConfig: StageAudioConfiguration? = null, videoConfig: StageVideoConfiguration? = null) {
++        // Default to studio (media volume) before any DeviceDiscovery/Stage creation.
++        setAudioPreset("studio")
++
+         // Setup audio configuration
+         val audioConfiguration = StageAudioConfiguration()
+         val finalAudioConfig = audioConfig ?: audioConfiguration
+@@ -103,9 +125,11 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+         // Setup video configuration
+         val videoConfiguration = StageVideoConfiguration()
+         val finalVideoConfig = videoConfig ?: videoConfiguration
+-        finalVideoConfig.targetFramerate?.let { (it as? Number)?.toInt()?.let { fr -> finalVideoConfig.targetFramerate = fr } }
+-        finalVideoConfig.maxBitrate?.let { (it as? Number)?.toInt()?.let { br -> finalVideoConfig.maxBitrate = br } }
+-        finalVideoConfig.minBitrate?.let { (it as? Number)?.toInt()?.let { br -> finalVideoConfig.minBitrate = br } }
++        // High-quality real-time publish: raise the ceiling above the IVS SDK default so the feed
++        // is sharp and smooth on strong networks. WebRTC still adapts down on weak uplinks to keep
++        // latency sub-second. Real-time is billed per participant-minute, so higher bitrate is free.
++        finalVideoConfig.targetFramerate = 30
++        finalVideoConfig.maxBitrate = 2_500_000
+         finalVideoConfig.setSize(
+             BroadcastConfiguration.Vec2(
+                 720F, 1280F
+@@ -139,6 +163,41 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+         setStreamsPublished(false)
+         stage?.leave()
+         stage = null
++
++        // Clear stale participant + stream state on leave. The Stage SDK is a process-wide
++        // singleton and `leave()` only fires DISCONNECTED (which clears `participants`)
++        // asynchronously — if ever — after we've already nulled the stage. Without this, when a
++        // buyer backs out of a show and re-enters, the previous session's dead video stream is
++        // still first in `participants`, so `assignStreamsToAvailableViews()` binds the fresh
++        // remote view to it: audio returns but video stays black until the app is killed.
++        //
++        // Clear `participants` (plain data) synchronously; run the view teardown on the main
++        // thread since `clearStream()` touches the Android view hierarchy.
++        participants.clear()
++        val viewsToClear = remoteViews.mapNotNull { it.get() }
++        mainHandler.post { viewsToClear.forEach { it.clearStream() } }
++    }
++
++    /** Mute/unmute Stage media output without leaving (buyer park across screen blur). */
++    fun setStageAudioOutputEnabled(enabled: Boolean) {
++        mainHandler.post {
++            try {
++                val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
++                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
++                    am.adjustStreamVolume(
++                        AudioManager.STREAM_MUSIC,
++                        if (enabled) AudioManager.ADJUST_UNMUTE else AudioManager.ADJUST_MUTE,
++                        0,
++                    )
++                } else {
++                    @Suppress("DEPRECATION")
++                    am.setStreamMute(AudioManager.STREAM_MUSIC, !enabled)
++                }
++                Log.i("ExpoIVSStageManager", "Stage audio output enabled=$enabled")
++            } catch (e: Exception) {
++                Log.w("ExpoIVSStageManager", "setStageAudioOutputEnabled($enabled) failed", e)
++            }
++        }
+     }
+ 
+     /// Fully releases camera and microphone hardware resources.
+@@ -176,6 +235,15 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+         Log.i("ExpoIVSStageManager", "✅ Microphone muted: $muted")
+     }
+ 
++    // Camera zoom is not exposed by the IVS broadcast SDK on Android. Report a single 1.0 stop so
++    // the host zoom control hides itself; a future CameraX-based custom image source can add it.
++    fun getSupportedCameraZoomStops(): List<Double> = listOf(1.0)
++
++    fun setCameraZoom(factor: Double): Boolean {
++        Log.i("ExpoIVSStageManager", "setCameraZoom($factor) ignored — zoom unsupported on Android")
++        return false
++    }
++
+     fun swapCamera() {
+         if (cameraStream == null) {
+             Log.e("ExpoIVSStageManager", "❌ Cannot swap camera, stream not initialized.")
+diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/PictureInPictureManager.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/PictureInPictureManager.kt
+index 422d078..7fd653c
+--- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/PictureInPictureManager.kt
++++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/PictureInPictureManager.kt
+@@ -35,6 +35,16 @@ data class PiPOptions(
+ interface PictureInPictureDelegate {
+     fun onPiPStateChanged(state: String)
+     fun onPiPError(error: String)
++    /**
++     * Fired synchronously from Activity.onDestroy() when the Activity is torn down while still in
++     * PiP mode — e.g. the user tapped the system PiP window's own Close (X) button. Unlike a normal
++     * PiP exit (onPictureInPictureModeChanged -> "stopped"), Android does not route this through the
++     * regular JS event bridge in time: this app has a single Activity, so destroying it ends the
++     * whole session, and any teardown that only runs in response to a JS-side "stopped"/"dismissed"
++     * event can lose the race entirely. Implementers must do any audio/session cleanup here
++     * synchronously and on the main thread — this is the last reliable chance to run it.
++     */
++    fun onPiPActivityDestroyedWhileActive() {}
+ }
+ 
+ /**
+@@ -414,6 +424,16 @@ class PictureInPictureManager private constructor() : Application.ActivityLifecy
+     
+     override fun onActivityDestroyed(activity: Activity) {
+         if (activity == currentActivity) {
++            // The system PiP window's own Close (X) button finishes this Activity directly rather
++            // than going through onPictureInPictureModeChanged("stopped") first. This app has a
++            // single Activity, so this destroy IS the app closing — there is no later point where a
++            // JS-driven "stopped"/"dismissed" event can still reliably run cleanup. Fire the
++            // synchronous native callback now, while isActive still reflects PiP being live, so the
++            // delegate gets one last chance to mute/release audio before the process goes away.
++            if (isActive) {
++                Log.i(TAG, "Activity destroyed while still in PiP — firing synchronous cleanup")
++                delegate?.onPiPActivityDestroyedWhileActive()
++            }
+             currentActivity = null
+         }
+     }
+diff --git a/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts b/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts
+index 7173e36..9da7603 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts
++++ b/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts
+@@ -5,6 +5,7 @@ export { ExpoIVSStagePreviewView } from './ExpoIVSStagePreviewView';
+ export { ExpoIVSRemoteStreamView } from './ExpoIVSRemoteStreamView';
+ export { useStageParticipants } from './useStageParticipants';
+ export declare function initializeStage(audioConfig?: LocalAudioConfig, videoConfig?: LocalVideoConfig): Promise<void>;
++export declare function setStageAudioPreset(preset: 'studio' | 'subscribeOnly' | 'videoChat'): Promise<void>;
+ export declare function initializeLocalStreams(audioConfig?: LocalAudioConfig, videoConfig?: LocalVideoConfig): Promise<void>;
+ /**
+  * Destroy local camera and microphone streams, fully releasing hardware resources.
+@@ -25,8 +26,18 @@ export declare function joinStage(token: string, options?: {
+     targetParticipantId?: string;
+ }): Promise<void>;
+ export declare function leaveStage(): Promise<void>;
++export declare function setStageAudioOutputEnabled(enabled: boolean): Promise<void>;
+ export declare function setStreamsPublished(published: boolean): Promise<void>;
+ export declare function swapCamera(): Promise<void>;
++/**
++ * Set the host live-feed camera zoom. Values < 1 use the ultra-wide (0.5x) lens where available;
++ * values >= 1 apply digital zoom-in like the iPhone camera. Resolves true when applied.
++ */
++export declare function setCameraZoom(factor: number): Promise<boolean>;
++/**
++ * Zoom stops the current camera hardware supports, e.g. [0.5, 1, 2, 3].
++ */
++export declare function getSupportedCameraZoomStops(): Promise<number[]>;
+ export declare function setMicrophoneMuted(muted: boolean): Promise<void>;
+ /**
+  * Mute or unmute the camera.
+diff --git a/node_modules/expo-realtime-ivs-broadcast/build/index.js b/node_modules/expo-realtime-ivs-broadcast/build/index.js
+index eda6386..8b60883 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/build/index.js
++++ b/node_modules/expo-realtime-ivs-broadcast/build/index.js
+@@ -10,6 +10,9 @@ export { useStageParticipants } from './useStageParticipants';
+ export async function initializeStage(audioConfig, videoConfig) {
+     return await ExpoRealtimeIvsBroadcastModule.initializeStage(audioConfig, videoConfig);
+ }
++export async function setStageAudioPreset(preset) {
++    return await ExpoRealtimeIvsBroadcastModule.setStageAudioPreset(preset);
++}
+ export async function initializeLocalStreams(audioConfig, videoConfig) {
+     return await ExpoRealtimeIvsBroadcastModule.initializeLocalStreams(audioConfig, videoConfig);
+ }
+@@ -36,12 +39,29 @@ export async function joinStage(token, options) {
+ export async function leaveStage() {
+     return await ExpoRealtimeIvsBroadcastModule.leaveStage();
+ }
++export async function setStageAudioOutputEnabled(enabled) {
++    return await ExpoRealtimeIvsBroadcastModule.setStageAudioOutputEnabled(enabled);
++}
+ export async function setStreamsPublished(published) {
+     return await ExpoRealtimeIvsBroadcastModule.setStreamsPublished(published);
+ }
+ export async function swapCamera() {
+     return await ExpoRealtimeIvsBroadcastModule.swapCamera();
+ }
++/**
++ * Set the host live-feed camera zoom. Values < 1 use the ultra-wide (0.5x) lens where available;
++ * values >= 1 apply digital zoom-in like the iPhone camera. Resolves true when applied.
++ */
++export async function setCameraZoom(factor) {
++    return await ExpoRealtimeIvsBroadcastModule.setCameraZoom(factor);
++}
++/**
++ * Zoom stops the current camera hardware supports, e.g. [0.5, 1, 2, 3]. Use this to render only the
++ * options the device actually has (ultra-wide appears only on phones/lenses that support it).
++ */
++export async function getSupportedCameraZoomStops() {
++    return await ExpoRealtimeIvsBroadcastModule.getSupportedCameraZoomStops();
++}
+ export async function setMicrophoneMuted(muted) {
+     return await ExpoRealtimeIvsBroadcastModule.setMicrophoneMuted(muted);
+ }
+diff --git a/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift b/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift
+index 8aafd8a..78dd9a2 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift
++++ b/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift
+@@ -32,6 +32,10 @@ public class ExpoRealtimeIvsBroadcastModule: Module, IVSStageManagerDelegate {
+       self.ivsStageManager?.initializeStage(audioConfig: nil, videoConfig: nil)
+     }
+ 
++    AsyncFunction("setStageAudioPreset") { (preset: String) -> Void in
++      self.ivsStageManager?.setAudioPreset(preset)
++    }
++
+     AsyncFunction("initializeLocalStreams") { (audioConfigMap: [String: Any]?, videoConfigMap: [String: Any]?) -> Void in
+         // For now, using nil, which will use default configurations in IVSStageManager
+         self.ivsStageManager?.initializeLocalStreams(audioConfig: nil, videoConfig: nil)
+@@ -50,6 +54,11 @@ public class ExpoRealtimeIvsBroadcastModule: Module, IVSStageManagerDelegate {
+       self.ivsStageManager?.leaveStage()
+     }
+ 
++    // Buyer park: mute/unmute Stage audio output without leaveStage (rejoin poisons video).
++    AsyncFunction("setStageAudioOutputEnabled") { (enabled: Bool) in
++      self.ivsStageManager?.setStageAudioOutputEnabled(enabled)
++    }
++
+     AsyncFunction("setStreamsPublished") { (published: Bool) in
+       self.ivsStageManager?.setStreamsPublished(published: published)
+     }
+@@ -58,6 +67,18 @@ public class ExpoRealtimeIvsBroadcastModule: Module, IVSStageManagerDelegate {
+       self.ivsStageManager?.swapCamera()
+     }
+ 
++    // Host camera zoom: sets the live-feed zoom (ultra-wide 0.5x lens where available, plus digital
++    // zoom-in like the iPhone camera). Returns true when applied.
++    AsyncFunction("setCameraZoom") { (factor: Double) -> Bool in
++      return self.ivsStageManager?.setCameraZoom(factor) ?? false
++    }
++
++    // Reports the zoom stops the CURRENT camera supports, e.g. [0.5, 1, 2, 3]. Drives the UI so
++    // only real hardware options show (ultra-wide only appears on phones/lenses that have it).
++    AsyncFunction("getSupportedCameraZoomStops") { () -> [Double] in
++      return self.ivsStageManager?.supportedCameraZoomStops() ?? [1.0]
++    }
++
+     AsyncFunction("setMicrophoneMuted") { (muted: Bool) in
+       self.ivsStageManager?.setMicrophoneMuted(muted: muted)
+     }
+diff --git a/node_modules/expo-realtime-ivs-broadcast/ios/IVSPictureInPictureController.swift b/node_modules/expo-realtime-ivs-broadcast/ios/IVSPictureInPictureController.swift
+index 71d368a..933987a 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/ios/IVSPictureInPictureController.swift
++++ b/node_modules/expo-realtime-ivs-broadcast/ios/IVSPictureInPictureController.swift
+@@ -445,6 +445,14 @@ public class IVSPictureInPictureController: NSObject {
+             }
+             return
+         }
++
++        // Amazon IVS remote Stage PiP: must use AVPictureInPictureController(ivsImagePreviewView:).
++        // The generic Video-Call / sample-buffer path keeps audio but paints black video in background.
++        if options.sourceView == .remote,
++           let ivsPreview = resolveIVSImagePreviewView(from: sourceView) {
++            setupWithOfficialIVSRemotePreview(ivsPreview)
++            return
++        }
+         
+         guard let pipVideoCallVC = pipVideoCallViewController else {
+             print("🖼️ [PiP] Error: Must call enable() before setupWithSourceView()")
+@@ -474,6 +482,68 @@ public class IVSPictureInPictureController: NSObject {
+         
+         completeSetupWithSourceView(sourceView, pipVideoCallVC: pipVideoCallVC)
+     }
++
++    /// Pull the real IVSImagePreviewView out of an Expo wrapper or direct reference.
++    private func resolveIVSImagePreviewView(from view: UIView) -> IVSImagePreviewView? {
++        if let preview = view as? IVSImagePreviewView {
++            return preview
++        }
++        if let remote = view as? ExpoIVSRemoteStreamView {
++            return remote.previewViewForPiP as? IVSImagePreviewView
++        }
++        for subview in view.subviews {
++            if let preview = subview as? IVSImagePreviewView {
++                return preview
++            }
++        }
++        return nil
++    }
++
++    /// Official Amazon IVS remote-participant PiP (keeps video alive after home swipe).
++    private func setupWithOfficialIVSRemotePreview(_ preview: IVSImagePreviewView) {
++        if preview.window == nil {
++            print("🖼️ [PiP] IVSImagePreviewView not in window yet — deferring official remote PiP setup")
++            self.pendingSourceView = preview
++            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak preview] in
++                guard let self = self, let preview = preview else { return }
++                if preview.window != nil {
++                    self.pendingSourceView = nil
++                    self.setupWithOfficialIVSRemotePreview(preview)
++                } else {
++                    // Retry a few times; still try once so auto-PiP can attach.
++                    self.pendingSourceView = nil
++                    self.finishOfficialIVSRemotePreviewSetup(preview)
++                }
++            }
++            return
++        }
++        finishOfficialIVSRemotePreviewSetup(preview)
++    }
++
++    private func finishOfficialIVSRemotePreviewSetup(_ preview: IVSImagePreviewView) {
++        stopViewCapture()
++        pipController?.stopPictureInPicture()
++
++        guard let controller = AVPictureInPictureController(ivsImagePreviewView: preview) else {
++            print("🖼️ [PiP] AVPictureInPictureController(ivsImagePreviewView:) returned nil — falling back")
++            if let pipVideoCallVC = pipVideoCallViewController {
++                completeSetupWithSourceView(preview, pipVideoCallVC: pipVideoCallVC)
++            } else {
++                delegate?.pictureInPictureDidFail(with: "Official IVS remote PiP init failed")
++            }
++            return
++        }
++
++        controller.delegate = self
++        controller.canStartPictureInPictureAutomaticallyFromInline = options.autoEnterOnBackground
++        self.pipController = controller
++        self.activeSourceView = preview
++        self.pipContainerView = preview
++        self.isEnabled = true
++        print("🖼️ [PiP] Official IVS remote PiP ready (IVSImagePreviewView)")
++        print("🖼️ [PiP] isPictureInPicturePossible: \(controller.isPictureInPicturePossible)")
++        print("🖼️ [PiP] autoEnterOnBackground: \(options.autoEnterOnBackground)")
++    }
+     
+     /// Retry setup with exponential backoff
+     private func retrySetupWithSourceView(_ sourceView: UIView, pipVideoCallVC: AVPictureInPictureVideoCallViewController, attempt: Int) {
+diff --git a/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift b/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
+index f92f823..5cc4208 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
++++ b/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
+@@ -32,6 +32,12 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
+     
+     // Available cameras discovered via AVFoundation
+     private(set) var availableCameras: [AVCaptureDevice] = []
++
++    // Ultra-wide (0.5x) cameras, tracked separately so the front/back swap logic keeps using the
++    // standard wide lens while zoom-out can opt into the ultra-wide lens.
++    private var ultraWideCameras: [AVCaptureDevice] = []
++    private(set) var currentZoomFactor: Double = 1.0
++    private var usingUltraWide: Bool = false
+     
+     // Camera mute state (sends placeholder frames when muted)
+     private(set) var isCameraMuted: Bool = false
+@@ -44,6 +50,17 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
+     override init() {
+         super.init()
+         discoverCameras()
++        discoverUltraWideCameras()
++    }
++
++    private func discoverUltraWideCameras() {
++        let session = AVCaptureDevice.DiscoverySession(
++            deviceTypes: [.builtInUltraWideCamera],
++            mediaType: .video,
++            position: .unspecified
++        )
++        ultraWideCameras = session.devices
++        print("📸 [CustomCameraCapture] Discovered \(ultraWideCameras.count) ultra-wide cameras")
+     }
+     
+     private func discoverCameras() {
+@@ -139,6 +156,8 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
+                 session.addInput(input)
+                 currentInput = input
+                 currentPosition = position
++                usingUltraWide = false
++                currentZoomFactor = 1.0
+                 print("📸 [CustomCameraCapture] ✅ Added camera input: \(camera.localizedName)")
+             } else {
+                 print("📸 [CustomCameraCapture] ❌ Cannot add camera input")
+@@ -229,6 +248,85 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
+         
+         return success
+     }
++
++    // MARK: - Zoom / lens control
++
++    /// Zoom stops the current position supports, e.g. [0.5, 1, 2, 3]. 0.5 is offered only when an
++    /// ultra-wide lens exists for the active position; higher stops are gated by the wide lens max.
++    func supportedZoomStops() -> [Double] {
++        var stops: [Double] = []
++        if ultraWideCameras.contains(where: { $0.position == currentPosition }) {
++            stops.append(0.5)
++        }
++        stops.append(1.0)
++        let wideDevice = availableCameras.first(where: { $0.position == currentPosition })
++        let maxZoom = Double(wideDevice?.maxAvailableVideoZoomFactor ?? 1.0)
++        for stop in [2.0, 3.0] where maxZoom >= stop {
++            stops.append(stop)
++        }
++        return stops
++    }
++
++    /// Applies a zoom factor. < 1.0 switches to the ultra-wide lens (0.5x); >= 1.0 uses the wide
++    /// lens with digital zoom. Returns true when applied.
++    func setZoom(_ factor: Double) -> Bool {
++        guard let session = captureSession else { return false }
++        let wantUltraWide = factor < 1.0
++        let targetDevice: AVCaptureDevice? = wantUltraWide
++            ? ultraWideCameras.first(where: { $0.position == currentPosition })
++            : availableCameras.first(where: { $0.position == currentPosition })
++        guard let device = targetDevice else {
++            print("📸 [CustomCameraCapture] ❌ No device for zoom factor \(factor)")
++            return false
++        }
++
++        // Swap the input only when the target lens differs from the active one.
++        if currentInput?.device.uniqueID != device.uniqueID {
++            session.beginConfiguration()
++            if let existing = currentInput {
++                session.removeInput(existing)
++            }
++            do {
++                let input = try AVCaptureDeviceInput(device: device)
++                guard session.canAddInput(input) else {
++                    session.commitConfiguration()
++                    return false
++                }
++                session.addInput(input)
++                currentInput = input
++            } catch {
++                print("📸 [CustomCameraCapture] ❌ Error swapping lens: \(error)")
++                session.commitConfiguration()
++                return false
++            }
++            if let connection = videoOutput?.connection(with: .video) {
++                if connection.isVideoOrientationSupported {
++                    connection.videoOrientation = .portrait
++                }
++                if connection.isVideoMirroringSupported {
++                    connection.isVideoMirrored = (currentPosition == .front)
++                }
++            }
++            session.commitConfiguration()
++        }
++        usingUltraWide = wantUltraWide
++
++        do {
++            try device.lockForConfiguration()
++            let minZ = device.minAvailableVideoZoomFactor
++            let maxZ = device.maxAvailableVideoZoomFactor
++            // Ultra-wide lens already provides the 0.5x field of view at native zoom 1.0.
++            let desired: CGFloat = wantUltraWide ? 1.0 : CGFloat(max(1.0, factor))
++            device.videoZoomFactor = min(max(desired, minZ), maxZ)
++            device.unlockForConfiguration()
++        } catch {
++            print("📸 [CustomCameraCapture] ❌ Error setting zoom: \(error)")
++            return false
++        }
++        currentZoomFactor = factor
++        print("📸 [CustomCameraCapture] ✅ Zoom set to \(factor) (ultraWide=\(wantUltraWide))")
++        return true
++    }
+     
+     // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
+     
+@@ -624,13 +722,23 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+     }
+ 
+     private func setupAudioSession() {
+-        // It's crucial to prepare the audio session *before* joining a stage.
+-        // The IVSStageAudioManager handles this.
+-        // We will set a preset suitable for video conferencing.
+-        stageAudioManager.setPreset(.videoChat)
+-        print("IVSStageAudioManager preset to .videoChat")
+-        // Note: Error handling for setPreset is not explicitly shown in the IVS SDK docs,
+-        // but you might want to wrap in do-catch if issues arise, though it's a void func.
++        // Live shopping needs media volume (not call volume). .videoChat routes through
++        // call volume and sounds quiet when users raise the side volume rocker.
++        // See: https://docs.aws.amazon.com/ivs/latest/RealTimeUserGuide/broadcast-mobile-audio-modes.html
++        setAudioPreset("studio")
++    }
++
++    /// Must be called before creating a Stage or DeviceDiscovery. Safe to call again after leave.
++    func setAudioPreset(_ presetName: String) {
++        switch presetName {
++        case "subscribeOnly":
++            stageAudioManager.setPreset(.subscribeOnly)
++        case "videoChat":
++            stageAudioManager.setPreset(.videoChat)
++        default:
++            stageAudioManager.setPreset(.studio)
++        }
++        print("IVSStageAudioManager preset to \(presetName)")
+     }
+ 
+     // MARK: - Public API (to be called from ExpoRealtimeIvsBroadcastModule)
+@@ -686,8 +794,14 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+                 let config = IVSLocalStageStreamVideoConfiguration()
+                 do {
+                     try config.setSize(CGSize(width: 720, height: 1280)) // 720p Portrait
++                    // High-quality real-time publish: raise the ceiling well above the IVS SDK
++                    // default (~600 kbps / 15 fps) so the feed is sharp and smooth on strong
++                    // networks. WebRTC still adapts down automatically on weak uplinks to hold
++                    // sub-second latency. Real-time bill is per participant-minute, so this is free.
++                    try config.setMaxBitrate(2_500_000)
++                    try config.setTargetFramerate(30)
+                 } catch {
+-                    print("Error setting default video configuration size: \(error). Using IVS defaults for size.")
++                    print("Error setting default video configuration: \(error). Using IVS defaults.")
+                 }
+                 return config
+             }()
+@@ -739,6 +853,9 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+                 let config = IVSLocalStageStreamVideoConfiguration()
+                 do {
+                     try config.setSize(CGSize(width: 720, height: 1280))
++                    // Match the native-camera path: high bitrate + 30 fps for a crystal-clear feed.
++                    try config.setMaxBitrate(2_500_000)
++                    try config.setTargetFramerate(30)
+                 } catch {
+                     print("Error setting video config: \(error)")
+                 }
+@@ -808,6 +925,44 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+         } else {
+             print("IVSStageManager: Attempted to leave stage, but stage is already nil.")
+         }
++
++        // Clear stale participant + stream state on leave. The Stage SDK is a process-wide
++        // singleton and `leave()` only fires `.disconnected` (which clears `participants`)
++        // asynchronously — if ever — after we've already nil'd the stage. Without this, when a
++        // buyer backs out of a show and re-enters, the previous session's dead video stream is
++        // still first in `participants`, so `assignStreamsToAvailableViews()` binds the fresh
++        // remote view to it: audio returns but video stays black until the app is killed.
++        //
++        // `participants` is plain data — clear it synchronously so the next join sees an empty
++        // list. `clearStream()` touches UIKit (removeFromSuperview); `leaveStage()` runs off the
++        // main thread (Expo AsyncFunction queue), so hop to the main thread for the view teardown
++        // to avoid a UIKit-off-main crash.
++        self.participants.removeAll()
++        let viewsToClear = self.remoteViews
++        DispatchQueue.main.async {
++            for viewWrapper in viewsToClear {
++                viewWrapper.value?.clearStream()
++            }
++        }
++    }
++
++    /// Mute/unmute Stage audio output without leaving. Used when parking a buyer subscribe across
++    /// screen blur so we never rejoin (rejoin leaves video permanently black).
++    func setStageAudioOutputEnabled(_ enabled: Bool) {
++        DispatchQueue.main.async {
++            let session = AVAudioSession.sharedInstance()
++            do {
++                if enabled {
++                    try session.setActive(true)
++                    print("IVSStageManager: Stage audio output enabled")
++                } else {
++                    try session.setActive(false, options: .notifyOthersOnDeactivation)
++                    print("IVSStageManager: Stage audio output muted (session deactivated)")
++                }
++            } catch {
++                print("IVSStageManager: setStageAudioOutputEnabled(\(enabled)) failed: \(error)")
++            }
++        }
+     }
+ 
+     // MARK: - Teardown Local Streams
+@@ -972,6 +1127,61 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+         delegate?.stageManagerDidEmitEvent(eventName: "onCameraSwapped", body: ["newCameraURN": newCamera.descriptor().urn, "newCameraName": newCamera.descriptor().friendlyName])
+     }
+ 
++    // MARK: - Camera Zoom
++
++    /// Resolve the wide AVCaptureDevice for the currently active native IVS camera position.
++    /// `videoZoomFactor` is a hardware property of the shared AVCaptureDevice, so setting it here
++    /// also affects the frames IVS captures on the native path.
++    private func nativeWideDevice() -> AVCaptureDevice? {
++        var position: AVCaptureDevice.Position = .front
++        if let cam = currentCameraDevice as? IVSCamera {
++            position = cam.descriptor().position == .back ? .back : .front
++        }
++        let session = AVCaptureDevice.DiscoverySession(
++            deviceTypes: [.builtInWideAngleCamera],
++            mediaType: .video,
++            position: position
++        )
++        return session.devices.first
++            ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
++    }
++
++    /// Zoom stops the current camera supports. Custom capture supports the ultra-wide 0.5x lens;
++    /// the native IVS path supports digital zoom-in only.
++    func supportedCameraZoomStops() -> [Double] {
++        if self.useCustomCameraCapture {
++            return customCameraCapture?.supportedZoomStops() ?? [1.0]
++        }
++        guard let device = nativeWideDevice() else { return [1.0] }
++        var stops: [Double] = [1.0]
++        let maxZoom = Double(device.maxAvailableVideoZoomFactor)
++        for stop in [2.0, 3.0] where maxZoom >= stop {
++            stops.append(stop)
++        }
++        return stops
++    }
++
++    /// Apply a zoom factor to the live feed. Returns true when applied.
++    func setCameraZoom(_ factor: Double) -> Bool {
++        if self.useCustomCameraCapture {
++            return customCameraCapture?.setZoom(factor) ?? false
++        }
++        // Native path: only digital zoom-in (>= 1.0) is supported (no ultra-wide lens switch).
++        guard factor >= 1.0, let device = nativeWideDevice() else { return false }
++        do {
++            try device.lockForConfiguration()
++            let minZ = device.minAvailableVideoZoomFactor
++            let maxZ = device.maxAvailableVideoZoomFactor
++            device.videoZoomFactor = min(max(CGFloat(factor), minZ), maxZ)
++            device.unlockForConfiguration()
++            print("📸 [IVSStageManager] ✅ Native zoom set to \(factor)")
++            return true
++        } catch {
++            print("📸 [IVSStageManager] ❌ Native zoom failed: \(error)")
++            return false
++        }
++    }
++
+      // --- NEW VIEW MANAGEMENT API ---
+     func registerRemoteView(_ view: ExpoIVSRemoteStreamView) {
+         // Add a weak reference to the view to avoid memory leaks.
+@@ -1427,28 +1637,33 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+         // IMPORTANT: Set up the Video Call API source view
+         // This is required for the PiP window to appear correctly
+         if let view = sourceView {
+-            pipController.setupWithSourceView(view)
+-            pipTargetView = view
++            // Prefer the inner IVSImagePreviewView — required for official remote PiP video.
++            let pipSource = (view as? ExpoIVSRemoteStreamView)?.previewViewForPiP ?? view
++            pipController.setupWithSourceView(pipSource)
++            pipTargetView = pipSource
+             pipHasValidSourceView = true
+-            print("🖼️ [PiP] Set up with provided source view (VALID)")
++            print("🖼️ [PiP] Set up with provided source view (VALID, ivsPreview=\(pipSource is IVSImagePreviewView))")
+         } else {
+             // For remote streams, device.previewView() returns an internal view that's not visible
+             // We should prefer finding a registered remote view first
+             if let remoteView = remoteViews.compactMap({ $0.value }).first(where: { $0.currentRenderedDeviceUrn == device.descriptor().urn }) {
+-                pipController.setupWithSourceView(remoteView as UIView)
+-                pipTargetView = remoteView.previewViewForPiP ?? remoteView
++                let pipSource = remoteView.previewViewForPiP ?? (remoteView as UIView)
++                pipController.setupWithSourceView(pipSource)
++                pipTargetView = pipSource
+                 pipHasValidSourceView = true
+-                print("🖼️ [PiP] Set up with matching remote view container (VALID)")
++                print("🖼️ [PiP] Set up with matching remote IVSImagePreviewView (VALID)")
+             } else if let anyRenderingView = remoteViews.compactMap({ $0.value }).first(where: { $0.isRenderingVideo }) {
+-                pipController.setupWithSourceView(anyRenderingView as UIView)
+-                pipTargetView = anyRenderingView.previewViewForPiP ?? anyRenderingView
++                let pipSource = anyRenderingView.previewViewForPiP ?? (anyRenderingView as UIView)
++                pipController.setupWithSourceView(pipSource)
++                pipTargetView = pipSource
+                 pipHasValidSourceView = true
+-                print("🖼️ [PiP] Set up with fallback rendering view (VALID)")
++                print("🖼️ [PiP] Set up with fallback remote IVSImagePreviewView (VALID)")
+             } else if let anyView = remoteViews.compactMap({ $0.value }).first {
+-                pipController.setupWithSourceView(anyView as UIView)
+-                pipTargetView = anyView
++                let pipSource = anyView.previewViewForPiP ?? (anyView as UIView)
++                pipController.setupWithSourceView(pipSource)
++                pipTargetView = pipSource
+                 pipHasValidSourceView = true
+-                print("🖼️ [PiP] Set up with any available view (VALID)")
++                print("🖼️ [PiP] Set up with any available remote view (VALID)")
+             } else {
+                 // Last resort: try device.previewView() - but mark as NOT valid for remote streams
+                 // This allows frame capture to start, but we'll re-setup when a remote view becomes available
+@@ -1537,18 +1752,18 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
+                     }
+                 }
+                 
+-                // Try to find the remote view that's rendering this stream
++                // Prefer IVSImagePreviewView (official remote PiP), not the Expo wrapper.
+                 if let remoteView = remoteViews.compactMap({ $0.value }).first(where: { $0.currentRenderedDeviceUrn == imageDevice.descriptor().urn }) {
+-                    candidateSourceView = remoteView as UIView
+-                    print("🖼️ [PiP] Found matching remote view for source")
++                    candidateSourceView = remoteView.previewViewForPiP ?? (remoteView as UIView)
++                    print("🖼️ [PiP] Found matching remote IVSImagePreviewView for source")
+                 } else {
+                     // Fallback: Use ANY remote view that's rendering video
+                     if let anyRenderingView = remoteViews.compactMap({ $0.value }).first(where: { $0.isRenderingVideo }) {
+-                        candidateSourceView = anyRenderingView as UIView
+-                        print("🖼️ [PiP] Using fallback remote view (URN didn't match but view is rendering)")
++                        candidateSourceView = anyRenderingView.previewViewForPiP ?? (anyRenderingView as UIView)
++                        print("🖼️ [PiP] Using fallback remote IVSImagePreviewView (URN didn't match but view is rendering)")
+                     } else if let anyView = remoteViews.compactMap({ $0.value }).first {
+                         // Last resort: use any registered view
+-                        candidateSourceView = anyView as UIView
++                        candidateSourceView = anyView.previewViewForPiP ?? (anyView as UIView)
+                         print("🖼️ [PiP] Using any available remote view as last resort")
+                     } else {
+                         print("🖼️ [PiP] No remote views available yet - will retry when view registers")
+diff --git a/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts b/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
+index b5f4c71..69dca24 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
++++ b/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
+@@ -6,12 +6,16 @@ import { LocalAudioConfig, LocalVideoConfig, PermissionStatusMap, ExpoRealtimeIv
+ // for our event names and payloads, resolving the 'never' type error.
+ export type ExpoRealtimeIvsBroadcastModuleType = {
+   initializeStage(audioConfig?: LocalAudioConfig, videoConfig?: LocalVideoConfig): Promise<void>;
++  setStageAudioPreset(preset: 'studio' | 'subscribeOnly' | 'videoChat'): Promise<void>;
+   initializeLocalStreams(audioConfig?: LocalAudioConfig, videoConfig?: LocalVideoConfig): Promise<void>;
+   destroyLocalStreams(): Promise<void>;
+   joinStage(token: string, options?: { targetParticipantId?: string }): Promise<void>;
+   leaveStage(): Promise<void>;
++  setStageAudioOutputEnabled(enabled: boolean): Promise<void>;
+   setStreamsPublished(published: boolean): Promise<void>;
+   swapCamera(): Promise<void>;
++  setCameraZoom(factor: number): Promise<boolean>;
++  getSupportedCameraZoomStops(): Promise<number[]>;
+   setMicrophoneMuted(muted: boolean): Promise<void>;
+   setCameraMuted(muted: boolean, placeholderText?: string | null): Promise<void>;
+   isCameraMuted(): Promise<boolean>;
+diff --git a/node_modules/expo-realtime-ivs-broadcast/src/index.ts b/node_modules/expo-realtime-ivs-broadcast/src/index.ts
+index a6c36ed..ff9f729 100644
+--- a/node_modules/expo-realtime-ivs-broadcast/src/index.ts
++++ b/node_modules/expo-realtime-ivs-broadcast/src/index.ts
+@@ -32,6 +32,15 @@ export async function initializeStage(audioConfig?: LocalAudioConfig, videoConfi
+   return await ExpoRealtimeIvsBroadcastModule.initializeStage(audioConfig, videoConfig);
+ }
+ 
++/**
++ * Configure IVS StageAudioManager before join/DeviceDiscovery.
++ * Use `studio` for hosts and `subscribeOnly` for viewers (media volume).
++ * Avoid `videoChat` � it uses call volume and sounds quiet with the media volume rocker.
++ */
++export async function setStageAudioPreset(preset: 'studio' | 'subscribeOnly' | 'videoChat'): Promise<void> {
++  return await ExpoRealtimeIvsBroadcastModule.setStageAudioPreset(preset);
++}
++
+ export async function initializeLocalStreams(audioConfig?: LocalAudioConfig, videoConfig?: LocalVideoConfig): Promise<void> {
+   return await ExpoRealtimeIvsBroadcastModule.initializeLocalStreams(audioConfig, videoConfig);
+ }
+@@ -62,6 +71,11 @@ export async function leaveStage(): Promise<void> {
+   return await ExpoRealtimeIvsBroadcastModule.leaveStage();
+ }
+ 
++/** Mute/unmute Stage audio without leaveStage — used to park a buyer subscribe across back-out. */
++export async function setStageAudioOutputEnabled(enabled: boolean): Promise<void> {
++  return await ExpoRealtimeIvsBroadcastModule.setStageAudioOutputEnabled(enabled);
++}
++
+ export async function setStreamsPublished(published: boolean): Promise<void> {
+   return await ExpoRealtimeIvsBroadcastModule.setStreamsPublished(published);
+ }
+@@ -70,6 +84,22 @@ export async function swapCamera(): Promise<void> {
+   return await ExpoRealtimeIvsBroadcastModule.swapCamera();
+ }
+ 
++/**
++ * Set the host live-feed camera zoom. Values < 1 use the ultra-wide (0.5x) lens where available;
++ * values >= 1 apply digital zoom-in like the iPhone camera. Resolves true when applied.
++ */
++export async function setCameraZoom(factor: number): Promise<boolean> {
++  return await ExpoRealtimeIvsBroadcastModule.setCameraZoom(factor);
++}
++
++/**
++ * Zoom stops the current camera hardware supports, e.g. [0.5, 1, 2, 3]. Use this to render only the
++ * options the device actually has (ultra-wide appears only on phones/lenses that support it).
++ */
++export async function getSupportedCameraZoomStops(): Promise<number[]> {
++  return await ExpoRealtimeIvsBroadcastModule.getSupportedCameraZoomStops();
++}
++
+ export async function setMicrophoneMuted(muted: boolean): Promise<void> {
+   return await ExpoRealtimeIvsBroadcastModule.setMicrophoneMuted(muted);
+ }

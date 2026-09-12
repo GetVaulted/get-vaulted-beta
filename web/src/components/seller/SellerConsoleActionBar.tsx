@@ -13,6 +13,8 @@ type SellerConsoleActionBarProps = {
   onObs: () => void;
   broadcastPhase: HostBroadcastPhase;
   roomLive: boolean;
+  /** Camera already publishing from phone / another device — PC is command center only. */
+  companionMode?: boolean;
   onGoLive: () => void;
   onStopStream: () => void;
   onPauseStream?: () => void;
@@ -30,6 +32,7 @@ export function SellerConsoleActionBar({
   onObs,
   broadcastPhase,
   roomLive,
+  companionMode = false,
   onGoLive,
   onStopStream,
   onPauseStream,
@@ -93,6 +96,7 @@ export function SellerConsoleActionBar({
         <VaultBroadcastControl
           phase={phaseForControl as "idle" | "starting" | "live" | "paused" | "stopping"}
           roomLive={roomLive}
+          companionMode={companionMode}
           onStart={onGoLive}
           onStop={onStopStream}
           onPause={onPauseStream}

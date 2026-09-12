@@ -1,21 +1,17 @@
-# Trade-Linked Messaging Notes (Future Scope)
+# Trade-Linked Messaging
 
-These notes define the intended direction for trade-linked messaging after Trade MVP.
+Trade chat is participant-scoped and supplemental to Trade Center offer terms.
 
-## Scope guardrails
+## Rules
 
-- Messaging is not part of Trade MVP and no trade chat UI is shipped in v1.
 - Structured trade terms, statuses, and `TradeOfferEvent` timeline remain authoritative.
-- Chat is supplemental only and must never overwrite or replace offer terms.
+- Chat must never overwrite or replace offer items/cash/status.
+- Only offer participants can open the thread (admins cannot open for others via this endpoint).
+- Entry points: trade detail (`/trade/[id]`) and mobile Trade Detail / Review Offer — not a global random DM.
 
-## Participant and entry constraints
+## Implementation
 
-- Messaging must be limited to active participants of the trade offer (plus admin moderation tools as needed).
-- Entry to messaging should come from the trade detail page (`/trade/[id]`), not from a global random DM entry point.
-- Trade-linked messages should remain tied to a specific trade offer context.
-
-## Conversation linkage
-
-- `TradeOffer.conversationId` is a nullable future hook.
-- It should remain safely unused in MVP behavior until participant-scoped messaging is intentionally implemented.
-- Any future linkage should preserve existing authorization boundaries used by trade detail APIs.
+- `TradeOffer.conversationId` links to `MessageThread.id`.
+- Anchor key: `trade:{offerId}` with `conversationKind = trade`, `inbox = primary`.
+- Ensure API: `POST /api/trade/offers/[id]/conversation` → `{ threadId, href }`.
+- Helper: `ensureTradeOfferThread` in `web/src/lib/message-threads.ts`.

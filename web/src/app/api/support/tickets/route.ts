@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import type { SupportTicketCategory } from "@/generated/prisma/enums";
+import { scheduleNotifyAdmins } from "@/lib/admin/notify-admins";
 import { prisma } from "@/lib/prisma";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
-import { SUPPORT_TICKET_CATEGORIES, serializeSupportTicket } from "@/lib/support-tickets";
+import {
+  SUPPORT_TICKET_CATEGORIES,
+  serializeSupportTicket,
+  supportTicketCategoryLabel,
+} from "@/lib/support-tickets";
 
 type Body = {
   category?: string;
@@ -69,7 +74,7 @@ export async function POST(req: Request) {
 
   const user = await prisma.user.findUnique({
     where: { id: auth.userId },
-    select: { email: true },
+    select: { email: true, username: true },
   });
 
   const row = await prisma.supportTicket.create({
@@ -86,6 +91,15 @@ export async function POST(req: Request) {
       user: { select: { username: true } },
       assignedAdmin: { select: { username: true } },
     },
+  });
+
+  const handle = row.user.username?.trim() || user?.username?.trim() || "user";
+  scheduleNotifyAdmins({
+    type: "admin_support_ticket",
+    title: "New support ticket",
+    body: `@${handle} · ${supportTicketCategoryLabel(row.category)}: ${row.subject}`,
+    href: "/admin/support-tickets?status=submitted",
+    dedupeKey: `support-ticket:${row.id}`,
   });
 
   return NextResponse.json({ ticket: serializeSupportTicket(row) }, { status: 201 });

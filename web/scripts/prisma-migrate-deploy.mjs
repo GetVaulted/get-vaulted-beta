@@ -44,6 +44,15 @@ function isAuthFailure(combined) {
   return /P1000/i.test(combined) || /Authentication failed/i.test(combined);
 }
 
+/** Netlify often cannot reach Supabase direct `db.*.supabase.co` (IPv6). Fall back to pooler. */
+function isUnreachable(combined) {
+  return (
+    /P1001/i.test(combined) ||
+    /Can't reach database server/i.test(combined) ||
+    /cannot connect/i.test(combined)
+  );
+}
+
 function migrateDeploy(env, capture) {
   const opts = {
     env,
@@ -117,12 +126,14 @@ for (let i = 0; i < candidates.length; i++) {
   }
 
   const hasFallback = i < candidates.length - 1;
-  if (outcome.authFailed && hasFallback) {
+  if ((outcome.authFailed || isUnreachable(outcome.combined ?? "")) && hasFallback) {
     console.warn(
-      `[prisma-migrate-deploy] ${label} authentication failed (P1000). Falling back to next connection string.`,
+      outcome.authFailed
+        ? `[prisma-migrate-deploy] ${label} authentication failed (P1000). Falling back to next connection string.`
+        : `[prisma-migrate-deploy] ${label} unreachable (P1001). Falling back to next connection string.`,
     );
     console.warn(
-      "[prisma-migrate-deploy] Update DIRECT_URL in Netlify to Supabase Session mode URI (port 5432) with the current database password.",
+      "[prisma-migrate-deploy] On Netlify, set DIRECT_URL to Supabase Session pooler URI (IPv4, port 5432), not db.*.supabase.co.",
     );
     continue;
   }

@@ -200,10 +200,14 @@ export async function createLiveCommerceFulfillmentOrderTx(
   });
   if (!show) throw new Error("LIVE_ROOM_NOT_FOUND");
 
+  // Spot wins inherit the show's shipping profile by category:
+  // Cards / card breaks → card mailer (small tiered charges under the $9.99 cap).
+  // Helmets → full-size helmet rates (typically the full $9.99 cap).
   const breakProfile = await resolveBreakSpotSellerProfile({
     sellerId: args.sellerId,
     showDefaultSellerProfileId: show.defaultSellerShippingProfileId,
     itemSellerProfileId: liveItem?.sellerShippingProfileId ?? null,
+    category: show.category,
     db: tx,
   });
 
@@ -360,6 +364,95 @@ export async function ensureVariantPurchaseFulfillmentOrder(
       data: { fulfillmentOrderId: created.orderId },
     });
     return { orderId: created.orderId, chargeTotalUsd: created.totalUsd };
+  }, LIVE_COMMERCE_FULFILLMENT_TX_OPTS);
+}
+
+/**
+ * One fulfillment Order for a multi-spot checkout batch (summed item prices, shared shipping).
+ */
+export async function ensureVariantPurchaseBatchFulfillmentOrder(
+  batchId: string,
+): Promise<{ orderId: string; chargeTotalUsd: number; itemPriceUsd: number }> {
+  const head = await prisma.liveItemVariantPurchase.findFirst({
+    where: { batchId },
+    select: { buyerId: true },
+  });
+  if (!head) throw new Error("PURCHASE_NOT_FOUND");
+
+  const shipping = await resolveBuyerDefaultShippingForOrder(head.buyerId);
+  if (!shipping) throw new Error("NO_SHIPPING_ADDRESS");
+
+  const { formatVariantBatchOrderTitle } = await import("@/lib/live-item-variant-batch-purchase");
+
+  return prisma.$transaction(async (tx) => {
+    const purchases = await tx.liveItemVariantPurchase.findMany({
+      where: { batchId },
+      select: {
+        id: true,
+        liveRoomId: true,
+        liveRoomItemId: true,
+        buyerId: true,
+        totalUsd: true,
+        fulfillmentOrderId: true,
+        variant: { select: { label: true } },
+        liveRoom: { select: { sellerId: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    if (purchases.length === 0) throw new Error("PURCHASE_NOT_FOUND");
+
+    const itemPriceUsd = Math.round(purchases.reduce((s, p) => s + p.totalUsd, 0) * 100) / 100;
+    const existingOrderId = purchases.find((p) => p.fulfillmentOrderId)?.fulfillmentOrderId ?? null;
+    if (existingOrderId) {
+      const order = await tx.order.findUnique({
+        where: { id: existingOrderId },
+        select: {
+          id: true,
+          totalUsd: true,
+          shippingPriceUsd: true,
+          liveShippingSessionId: true,
+          shippingTermsSnapshotJson: true,
+        },
+      });
+      if (order) {
+        const sessionOpts = liveCommerceSessionOpts({
+          liveShowId: purchases[0]!.liveRoomId,
+          liveRoomItemId: purchases[0]!.liveRoomItemId,
+        });
+        const shippingReady =
+          order.liveShippingSessionId != null &&
+          order.shippingTermsSnapshotJson != null &&
+          typeof order.shippingTermsSnapshotJson === "object";
+        if (!shippingReady) {
+          const totals = await completeLiveCommerceFulfillmentShippingTx(
+            tx,
+            order.id,
+            itemPriceUsd,
+            sessionOpts,
+          );
+          return { orderId: order.id, chargeTotalUsd: totals.totalUsd, itemPriceUsd };
+        }
+        return { orderId: existingOrderId, chargeTotalUsd: order.totalUsd, itemPriceUsd };
+      }
+    }
+
+    const title = formatVariantBatchOrderTitle(purchases.map((p) => p.variant.label));
+    const created = await createLiveCommerceFulfillmentOrderTx(tx, {
+      kind: "variant_purchase",
+      buyerId: purchases[0]!.buyerId,
+      sellerId: purchases[0]!.liveRoom.sellerId,
+      liveShowId: purchases[0]!.liveRoomId,
+      liveRoomItemId: purchases[0]!.liveRoomItemId,
+      title,
+      itemPriceUsd,
+      idempotencyKey: `live_variant_batch:${batchId}`,
+      prefetchedShipping: shipping,
+    });
+    await tx.liveItemVariantPurchase.updateMany({
+      where: { batchId },
+      data: { fulfillmentOrderId: created.orderId },
+    });
+    return { orderId: created.orderId, chargeTotalUsd: created.totalUsd, itemPriceUsd };
   }, LIVE_COMMERCE_FULFILLMENT_TX_OPTS);
 }
 

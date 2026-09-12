@@ -1,5 +1,5 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -20,7 +20,11 @@ import { SellerLiveHostView } from '../components/seller/liveOverlay/SellerLiveH
 import { LiveConsoleWarningBanner } from '../components/seller/liveConsole/LiveConsoleWarningBanner';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
 import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
-import { useMobileStagePublish } from '../hooks/useMobileStagePublish';
+import { useMobileStagePublish, type MobileHostBroadcastPhase } from '../hooks/useMobileStagePublish';
+import { shouldClearStreamPausedAfterHostResume } from '../lib/livePlaybackAppState';
+import { isLiveRoomRemotePublisherActive } from '../lib/liveRoomBroadcastOnAir';
+import { isObsDesktopBroadcastMode } from '../lib/liveObsChannelMode';
+import { formatIvsObsIngestUrl } from '../lib/ivsObsIngestUrl';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { notifyLiveDiscoveryChanged } from '../lib/notifyLiveDiscoveryChanged';
@@ -109,22 +113,99 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     }
   }, [reloadRoom, reloadStream, token]);
 
+  const markRoomLiveOnServer = useCallback(async () => {
+    if (!token) return;
+    const current = room ?? (await reloadRoom());
+    if (current?.status !== 'scheduled') return;
+    await patchLiveRoomAction(token, roomId, 'start');
+  }, [room, roomId, token, reloadRoom]);
+
+  // `isLiveRoomRemotePublisherActive` only reads room/stream-level health — it has no idea which
+  // device produced that health, because the server doesn't distinguish "me" from "some other
+  // device" at that level. It was written for BUYER-side gating, where that distinction genuinely
+  // doesn't matter. Reusing it here for the HOST's own companion-mode detection was the bug: once
+  // this exact device's own publish goes live, the room naturally reports streamHealth: 'live' —
+  // this function then reads that as "a remote publisher is active" about the device that IS the
+  // publisher, forcing a real solo host into companion mode (hiding their own camera controls /
+  // showing "Live on another device") on nothing more than a re-render, a brief background dip
+  // (e.g. opening the share sheet), or any other refresh of room/stream state while genuinely live.
+  // Sellers had to abandon and restart shows over this.
+  //
+  // `localPublishPhase` mirrors this device's OWN `stagePublish.phase` (see the effect below) and
+  // is the one signal that actually answers "am I the publisher." Whenever it's anything other
+  // than 'idle' — starting, live, paused, or stopping — this device unambiguously owns the
+  // broadcast, so remote-publisher / companion detection must be forced off regardless of what the
+  // room-level signal says. Only while this device has never (yet) started publishing (still
+  // 'idle') does the room-level heuristic apply, to correctly detect a genuine second device.
+  const [localPublishPhase, setLocalPublishPhase] = useState<MobileHostBroadcastPhase>('idle');
+  const remotePublisherActive = useMemo(() => {
+    if (localPublishPhase !== 'idle') return false;
+    if (!room || room.status !== 'live' || !stream) return false;
+    return isLiveRoomRemotePublisherActive({
+      status: 'live',
+      streamHealth: stream.streamHealth ?? 'offline',
+      streamPaused: stream.streamPaused,
+      streamMode: stream.streamMode,
+      streamStartedAt: stream.streamStartedAt,
+      streamEndedAt: stream.streamEndedAt,
+    });
+  }, [room, stream, localPublishPhase]);
+  const obsLiveElsewhere =
+    room?.status === 'live' &&
+    isObsDesktopBroadcastMode({
+      streamMode: stream?.streamMode,
+      ingestEndpoint: stream?.ingestEndpoint ?? ingestEndpoint,
+    });
+
+  // `onResumeBroadcast` is defined further down (it calls `stagePublish.resumeShow()`, so it
+  // can't be referenced directly in this same `useMobileStagePublish` call — circular). Routed
+  // through a ref, refreshed every render below, so `onBackgroundAutoResume` always calls the
+  // latest closure.
+  const onResumeBroadcastRef = useRef<() => Promise<void>>(async () => {});
+
   const stagePublish = useMobileStagePublish({
     roomId,
     accessToken: token ?? '',
-    previewEnabled: stageWebrtcEnabled && Boolean(token) && !loading && Boolean(room),
+    previewEnabled:
+      stageWebrtcEnabled &&
+      Boolean(token) &&
+      !loading &&
+      Boolean(room) &&
+      !remotePublisherActive &&
+      !obsLiveElsewhere,
     onBroadcastStarted: async () => {
       try {
+        // Only runs after publish is confirmed — never mark the room live on a half-open Stage join.
         const current = room ?? (await reloadRoom());
         if (current?.status !== 'scheduled') return;
         await markRoomLiveOnServer();
         await notifyLiveDiscoveryChanged();
+        await reloadRoom();
       } catch {
         /* onStartBroadcast surfaces errors to the host UI */
       }
     },
     onStreamRefresh: () => void reloadStream(true),
+    onBackgroundAutoPause: async () => {
+      // Same signal as the Pause button so buyers see "Host paused" immediately.
+      // Do not await reloadStream here — iOS suspends the app before that round-trip finishes.
+      // Foreground re-fire awaits this PATCH so DB matches before the host taps Play.
+      setStream((prev) => (prev ? { ...prev, streamPaused: true } : prev));
+      if (!token) return;
+      await patchLiveRoomStreamPaused(token, roomId, true);
+    },
+    // Host asked: closing out (home swipe, a call, a text notification — anything that
+    // backgrounds the app) and coming back should just go straight back to live. Same recovery
+    // path as tapping Resume, including the streamPaused=false PATCH so buyers come back too.
+    onBackgroundAutoResume: () => onResumeBroadcastRef.current(),
   });
+
+  // Mirrors this device's own publish phase into state so `remotePublisherActive` above can react
+  // to it without a circular dependency (that computation feeds `stagePublish`'s own
+  // `previewEnabled` input, so it can't read `stagePublish.phase` directly on the same render).
+  useEffect(() => {
+    setLocalPublishPhase(stagePublish.phase);
+  }, [stagePublish.phase]);
 
   useEffect(() => {
     if (!token) {
@@ -138,26 +219,27 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       setRoomError(null);
       try {
         logVaultCommandCenter('room_fetch_start', { roomId, endpoint: 'GET /api/live-rooms/:id/host-console' });
-        const [consoleData, streamPack] = await Promise.all([
-          fetchHostConsole(token, roomId),
-          fetchHostStream(token, roomId, { sync: false }).catch((e) => {
-            if (!cancelled) {
-              setStream(null);
-              setStreamWarning(sanitizeLiveError(e, 'stream'));
-            }
-            return null;
-          }),
-        ]);
+        // Sync IVS first for OBS rooms so ingest auto-start can flip scheduled → live before
+        // the host console paints (items/auctions need room status live, not just OBS streaming).
+        const streamPack = await fetchHostStream(token, roomId, { sync: true }).catch((e) => {
+          if (!cancelled) {
+            setStream(null);
+            setStreamWarning(sanitizeLiveError(e, 'stream'));
+          }
+          return null;
+        });
         if (cancelled) return;
-        const detail = hostConsoleRoomToDetail(consoleData.room);
-        setRoom(detail);
-        setInitialConsole(consoleData);
-        setThumbnailUrl(consoleData.room.thumbnailUrl ?? null);
         if (streamPack) {
           setStream(streamPack.stream);
           if (streamPack.stream.ingestEndpoint) setIngestEndpoint(streamPack.stream.ingestEndpoint);
           setStreamWarning(null);
         }
+        const consoleData = await fetchHostConsole(token, roomId);
+        if (cancelled) return;
+        const detail = hostConsoleRoomToDetail(consoleData.room);
+        setRoom(detail);
+        setInitialConsole(consoleData);
+        setThumbnailUrl(consoleData.room.thumbnailUrl ?? null);
         setLoading(false);
         logVaultCommandCenter('room_fetch_ok', { roomId: detail.id, status: detail.status, roomType: detail.roomType });
 
@@ -180,6 +262,39 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       cancelled = true;
     };
   }, [roomId, token]);
+
+  // While waiting for OBS: poll sync so Start Streaming auto-starts the room without Play.
+  useEffect(() => {
+    if (!token || !room || loading) return;
+    if (room.status !== 'scheduled') return;
+    if (
+      !isObsDesktopBroadcastMode({
+        streamMode: stream?.streamMode,
+        ingestEndpoint: stream?.ingestEndpoint ?? ingestEndpoint,
+      })
+    )
+      return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const s = await fetchHostStream(token, roomId, { sync: true });
+        if (cancelled) return;
+        setStream(s.stream);
+        if (s.stream.ingestEndpoint) setIngestEndpoint(s.stream.ingestEndpoint);
+        const health = (s.stream.streamHealth ?? '').toLowerCase();
+        if (health === 'live' || health === 'connecting') {
+          await reloadRoom();
+        }
+      } catch {
+        /* next tick */
+      }
+    };
+    const id = setInterval(() => void tick(), 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [token, room, roomId, loading, stream?.streamMode, reloadRoom]);
 
   const onProvision = async () => {
     if (!token) return;
@@ -214,13 +329,6 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     }
   };
 
-  const markRoomLiveOnServer = useCallback(async () => {
-    if (!token) return;
-    const current = room ?? (await reloadRoom());
-    if (current?.status !== 'scheduled') return;
-    await patchLiveRoomAction(token, roomId, 'start');
-  }, [room, roomId, token, reloadRoom]);
-
   const endShow = useCallback(async () => {
     if (!token) return;
     setBusy('end');
@@ -240,14 +348,26 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     }
   }, [room, roomId, reload, stagePublish, token, reloadRoom]);
 
-  const onStartBroadcast = async () => {
+  const onStartBroadcast = async (opts?: { force?: boolean }) => {
     if (!token) return;
     setBusy('start');
     setRoomError(null);
+    setStreamWarning(null);
     try {
+      // Clear any leftover Host paused from a prior minimize before buyers join this Go Live.
+      setStream((prev) => (prev ? { ...prev, streamPaused: false } : prev));
+      void patchLiveRoomStreamPaused(token, roomId, false).catch(() => undefined);
+
       if (stageWebrtcEnabled) {
-        await stagePublish.start();
+        const published = await stagePublish.start(opts?.force ? { force: true } : undefined);
+        if (!published) {
+          // Keep room scheduled / do not announce live when the camera never went on air.
+          return;
+        }
       }
+      // Confirm unpaused after publish so realtime buyers leave Host paused.
+      await patchLiveRoomStreamPaused(token, roomId, false);
+      setStream((prev) => (prev ? { ...prev, streamPaused: false } : prev));
       const current = room ?? (await reloadRoom());
       if (current?.status === 'scheduled') {
         await markRoomLiveOnServer();
@@ -264,16 +384,14 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     }
   };
 
-  const onStopBroadcast = async () => {
-    await endShow();
-  };
-
   const onPauseBroadcast = async () => {
     if (!token) return;
     setBusy('refresh');
     try {
+      // minimizeShow signals buyers + unpublishes (Whatnot Minimize).
+      await stagePublish.minimizeShow();
       await patchLiveRoomStreamPaused(token, roomId, true);
-      await stagePublish.pause();
+      setStream((prev) => (prev ? { ...prev, streamPaused: true } : prev));
       await reloadStream(false);
     } catch (e) {
       setStreamWarning(sanitizeLiveError(e, 'stream'));
@@ -284,26 +402,110 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
 
   const onResumeBroadcast = async () => {
     if (!token) return;
+    if (busy === 'refresh' || busy === 'start') return;
     setBusy('refresh');
+    setStreamWarning(null);
     try {
+      // Full Stage rejoin first — clearing streamPaused before publish leaves buyers with no video.
+      const published = await stagePublish.resumeShow();
+      if (!shouldClearStreamPausedAfterHostResume(published)) {
+        setStream((prev) => (prev ? { ...prev, streamPaused: true } : prev));
+        // No yellow banner — toolbar Play is the recovery control.
+        return;
+      }
       await patchLiveRoomStreamPaused(token, roomId, false);
-      await stagePublish.resume();
+      setStream((prev) => (prev ? { ...prev, streamPaused: false } : prev));
+      setStreamWarning(null);
       await reloadStream(false);
     } catch (e) {
+      setStream((prev) => (prev ? { ...prev, streamPaused: true } : prev));
       setStreamWarning(sanitizeLiveError(e, 'stream'));
     } finally {
       setBusy(null);
     }
   };
+  onResumeBroadcastRef.current = onResumeBroadcast;
+
+  // Force-quit / cold reopen: room still live but Stage remounted idle → one resumeShow.
+  // Do NOT auto-run when phase is paused (host tapped Pause / leave-app — they tap Resume).
+  // Do NOT auto-run when another device already owns a healthy on-air stream (companion mode).
+  const autoResumeRef = useRef(false);
+  useEffect(() => {
+    if (loading || !token || !room || !stageWebrtcEnabled) return;
+    if (room.status !== 'live') return;
+    if (stagePublish.phase !== 'idle') return;
+    if (!stagePublish.localPreviewReady) return;
+    if (busy === 'start' || busy === 'end' || busy === 'refresh') return;
+    if (autoResumeRef.current) return;
+    // Wait for stream status so we can tell companion (already on-air) from crash recovery (offline).
+    if (!stream) return;
+
+    // OBS / desktop ingest must never auto-open the phone camera on host room open.
+    if (obsLiveElsewhere) {
+      autoResumeRef.current = true;
+      return;
+    }
+
+    // Strong publisher signal only — `connecting` is “waiting on host”, not companion.
+    if (remotePublisherActive) {
+      // Companion: keep this device as command center; don't fight the publishing device for Stage.
+      autoResumeRef.current = true;
+      return;
+    }
+
+    autoResumeRef.current = true;
+    void onResumeBroadcast();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once per live room open
+  }, [
+    loading,
+    token,
+    room?.status,
+    room?.id,
+    stageWebrtcEnabled,
+    stagePublish.phase,
+    stagePublish.localPreviewReady,
+    busy,
+    stream,
+    remotePublisherActive,
+    obsLiveElsewhere,
+  ]);
+
+  // Heal stuck streamPaused only when the host is actually on-air (publishing), not merely phase=live.
+  useEffect(() => {
+    if (!token || stagePublish.phase !== 'live') return;
+    if (streamWarning) setStreamWarning(null);
+    if (stream?.streamPaused !== true) return;
+    // phase can say live while Pause recovery is mid-flight — wait for real publish.
+    if (!stagePublish.isPublishing) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await patchLiveRoomStreamPaused(token, roomId, false);
+        if (!cancelled) {
+          setStream((prev) => (prev ? { ...prev, streamPaused: false } : prev));
+        }
+      } catch {
+        /* next live tick / Play can retry */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, roomId, stagePublish.phase, stagePublish.isPublishing, stream?.streamPaused, streamWarning]);
+
+  const onStopBroadcast = async () => {
+    await endShow();
+  };
 
   const onStartShow = async () => {
-    if (!token || stageWebrtcEnabled) return;
+    if (!token) return;
     setBusy('start');
     setRoomError(null);
     try {
       await markRoomLiveOnServer();
       await notifyLiveDiscoveryChanged();
       await reload();
+      await reloadStream(false);
     } catch (e) {
       setRoomError(sanitizeLiveError(e, 'room'));
     } finally {
@@ -332,7 +534,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     void stagePublish.toggleMicrophoneMute();
   };
 
-  const serverUrl = ingestEndpoint ?? stream?.ingestEndpoint ?? null;
+  const serverUrl = formatIvsObsIngestUrl(ingestEndpoint ?? stream?.ingestEndpoint ?? null);
   const streamKey = oneTimeKey;
 
   const streamConnected = useMemo(() => {
@@ -380,15 +582,6 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      {streamWarning ? (
-        <View style={[styles.streamBanner, { top: insets.top + 52 }]}>
-          <LiveConsoleWarningBanner
-            error={streamWarning}
-            onRetry={() => void reloadStream(true)}
-            retrying={streamChecking}
-          />
-        </View>
-      ) : null}
       <SellerLiveHostView
         navigation={navigation}
         roomId={roomId}
@@ -418,6 +611,9 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
           stageWebrtcEnabled,
           showCameraPreview,
           cameraFacing: stagePublish.cameraFacing,
+          cameraZoom: stagePublish.cameraZoom,
+          zoomStops: stagePublish.zoomStops,
+          onSetCameraZoom: (factor: number) => void stagePublish.setCameraZoom(factor),
           cameraPermissionState: stagePublish.permissionState,
           cameraPermissionError: stagePublish.permissionError,
           cameraPermissionRetrying,
@@ -426,6 +622,9 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
           microphoneMuted: stagePublish.microphoneMuted,
           onToggleMicMute,
           onStartBroadcast: () => void onStartBroadcast(),
+          // While live, Retry must recover like Whatnot Resume (not a cold Go Live that leaves streamPaused).
+          onRetryBroadcast: () =>
+            void (room.status === 'live' ? onResumeBroadcast() : onStartBroadcast({ force: true })),
           onStopBroadcast: () => void onStopBroadcast(),
           onPauseBroadcast: () => void onPauseBroadcast(),
           onResumeBroadcast: () => void onResumeBroadcast(),
@@ -439,10 +638,4 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
   centered: { alignItems: 'center', justifyContent: 'center', gap: spacing.md },
   loadingLbl: { color: colors.textMuted, fontSize: 14 },
-  streamBanner: {
-    position: 'absolute',
-    left: spacing.sm,
-    right: spacing.sm,
-    zIndex: 18,
-  },
 });

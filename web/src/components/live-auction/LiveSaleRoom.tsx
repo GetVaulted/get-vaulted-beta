@@ -61,13 +61,20 @@ import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { LiveRoomShareSheet } from "@/components/live-auction/LiveRoomShareSheet";
 import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 import type { VariantPurchasedMergePayload } from "@/lib/live-room-variant-merge";
-import { isVariantSalesFormat, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
+import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
 import {
+  isVariantSpotAuctionArmed,
   isVariantSpotAuctionLive,
   pinnedVariantAuctionPrimaryLabel,
   shopAvailableSpotCount,
   shopAvailableVariants,
 } from "@/lib/live-variant-spot-commerce";
+import {
+  LIVE_CUSTOM_BID_DEFAULT_MODE,
+  LIVE_CUSTOM_BID_MODE_COPY,
+  resolveLiveCustomBidPayload,
+  type LiveCustomBidMode,
+} from "@/lib/live-custom-bid";
 import { purchaseLiveBuyNowWithSca } from "@/lib/live-buy-now-client";
 
 type SaleItem = {
@@ -168,8 +175,7 @@ function parseAuctionHttpAckPayload(raw: unknown): {
   const item =
     itemCandidate &&
     typeof itemCandidate === "object" &&
-    typeof (itemCandidate as LiveRoomItemDTO).id === "string" &&
-    typeof (itemCandidate as LiveRoomItemDTO).itemVersion === "number"
+    typeof (itemCandidate as { id?: unknown }).id === "string"
       ? (itemCandidate as LiveRoomItemDTO)
       : undefined;
   return { serverNowMs, roomVersion, auctionSeq, item };
@@ -186,6 +192,8 @@ export type LiveSaleRoomProps = {
   roomId: string;
   roomTitle?: string;
   roomCategory?: string;
+  /** Unlisted private shows cannot blast followers from the share sheet. */
+  discoveryVisibility?: "public" | "private";
   sellerShopUsername?: string;
   sellerId: string;
   hostDisplayName: string;
@@ -210,6 +218,8 @@ export type LiveSaleRoomProps = {
   scheduledStartAt?: string | null;
   /** Host-uploaded room thumbnail; rendered as the video stage placeholder until the stream is live. */
   thumbnailUrl?: string | null;
+  /** Short looping promo for scheduled rooms. */
+  teaserVideoUrl?: string | null;
   clockSkewMs?: number;
   buyerLiveBidPaymentReady?: boolean;
   buyerLiveShippingReady?: boolean;
@@ -218,6 +228,8 @@ export type LiveSaleRoomProps = {
   onApplyVariantPurchase?: (payload: VariantPurchasedMergePayload & { label?: string; amountUsd?: number }) => void;
   buyerPaymentRecoveryPending?: boolean;
   broadcastCommerceBlocked?: boolean;
+  /** Offline-only — host pause does not block Buy Now / spots / shop. */
+  broadcastPurchaseBlocked?: boolean;
   broadcastCommerceHint?: string | null;
 };
 
@@ -225,6 +237,7 @@ export function LiveSaleRoom({
   roomId: _roomId,
   roomTitle,
   roomCategory,
+  discoveryVisibility = "public",
   sellerShopUsername,
   sellerId,
   hostDisplayName,
@@ -241,6 +254,7 @@ export function LiveSaleRoom({
   streamPlaybackRefreshNonce,
   scheduledStartAt = null,
   thumbnailUrl = null,
+  teaserVideoUrl = null,
   clockSkewMs: clockSkewProp = 0,
   buyerLiveBidPaymentReady,
   buyerLiveShippingReady,
@@ -249,10 +263,11 @@ export function LiveSaleRoom({
   onApplyVariantPurchase,
   buyerPaymentRecoveryPending = false,
   broadcastCommerceBlocked = false,
+  broadcastPurchaseBlocked = false,
   broadcastCommerceHint = null,
 }: LiveSaleRoomProps) {
   const { data: session, status } = useSession();
-  const shopHref =
+  const sellerStoreHref =
     sellerShopUsername && sellerShopUsername.trim().length > 0 ? sellerProfilePath(sellerShopUsername.trim()) : null;
   const router = useRouter();
 
@@ -290,9 +305,14 @@ export function LiveSaleRoom({
   const [busy, setBusy] = useState(false);
   const [pinVariantBusy, setPinVariantBusy] = useState(false);
   const [variantSheetOpen, setVariantSheetOpen] = useState(false);
+  const [variantSheetItemId, setVariantSheetItemId] = useState<string | null>(null);
   const [variantSheetInitialVariantId, setVariantSheetInitialVariantId] = useState<string | null>(null);
+  const [spotBoardMinimized, setSpotBoardMinimized] = useState(false);
   /** Auction bid POST in flight — disables button. */
   const [bidFlight, setBidFlight] = useState(false);
+  const [customBidOpen, setCustomBidOpen] = useState(false);
+  const [customBidDraft, setCustomBidDraft] = useState("");
+  const [customBidMode, setCustomBidMode] = useState<LiveCustomBidMode>(LIVE_CUSTOM_BID_DEFAULT_MODE);
   const [bidMeta, setBidMeta] = useState<ListingBidMeta | null>(null);
   const [shipUxNonce, setShipUxNonce] = useState(0);
   /** Last successful bid amount from this client — drives winning / outbid UX (auction rooms). */
@@ -306,6 +326,7 @@ export function LiveSaleRoom({
 
   const [buyerWideRail, setBuyerWideRail] = useState(false);
   const [buyerLineupOpen, setBuyerLineupOpen] = useState(false);
+  const openBuyerShop = useCallback(() => setBuyerLineupOpen(true), []);
   const isBuyerDesktop = useBuyerLiveDesktop();
   const [tipOpen, setTipOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -329,7 +350,21 @@ export function LiveSaleRoom({
   }, [dbItems, mapped]);
 
   const selected = useMemo(() => items.find((i) => i.id === selectedId) ?? items[0], [items, selectedId]);
-  const activeDb = useMemo(() => dbItems.find((i) => i.status === "active") ?? null, [dbItems]);
+  const activeDb = useMemo(() => {
+    const pinned = dbItems.find((i) => i.status === "active") ?? null;
+    if (pinned) return pinned;
+    if (roomStatus === "scheduled") {
+      return (
+        dbItems.find(
+          (x) =>
+            x.status === "queued" &&
+            isVariantSalesFormat(x.salesFormat) &&
+            (x.variants?.length ?? 0) > 0,
+        ) ?? null
+      );
+    }
+    return null;
+  }, [dbItems, roomStatus]);
   const actionUi = useMemo(() => {
     if (activeDb) return mapDbItem(activeDb, isLive, clockSkewMs, roomType);
     return selected;
@@ -339,6 +374,7 @@ export function LiveSaleRoom({
 
   useEffect(() => {
     setUserHighBidUsd(null);
+    setSpotBoardMinimized(false);
   }, [activeDb?.id]);
 
   const buyerCurrentHighUsd = useMemo(() => {
@@ -423,6 +459,11 @@ export function LiveSaleRoom({
     if (minNextFromLiveItem != null) return minNextFromLiveItem.toFixed(2);
     return "0.00";
   }, [roomType, actionUi, activeListingId, bidMeta, minNextFromLiveItem]);
+
+  useEffect(() => {
+    if (!customBidOpen) return;
+    setCustomBidDraft(nextBidAmount);
+  }, [customBidOpen, nextBidAmount, activeDb?.id]);
   const currentTopBid = actionUi?.topBid ?? 0;
   const liveTitle = actionUi ? actionUi.displayTitle : (roomTitle ?? "Vaulted Live");
 
@@ -494,6 +535,25 @@ export function LiveSaleRoom({
       }),
     [dbItems, isLive, clockSkewMs, liveAuctionResolutionTick, clockTick],
   );
+  const handleBuyerShopSelect = useCallback(
+    (id: string) => {
+      setSelectedId(id);
+      setBuyerLineupOpen(false);
+      const row = buyerQueueRows.find((r) => r.id === id);
+      if (row?.queueAction === "variant_shop") {
+        setVariantSheetItemId(id);
+        setVariantSheetInitialVariantId(null);
+        setVariantSheetOpen(true);
+      }
+    },
+    [buyerQueueRows],
+  );
+  const variantSheetItem = useMemo(() => {
+    if (variantSheetItemId) {
+      return dbItems.find((i) => i.id === variantSheetItemId) ?? null;
+    }
+    return activeDb;
+  }, [variantSheetItemId, dbItems, activeDb]);
   const buyerNextUpItem = useMemo(() => {
     const active = queue.find((i) => i.status === "live" || i.id === selectedId);
     return queue.find((i) => i.id !== active?.id) ?? queue[0] ?? null;
@@ -553,7 +613,11 @@ export function LiveSaleRoom({
   const activeHasVariants = Boolean(
     activeDb && isVariantSalesFormat(activeDb.salesFormat) && (activeDb.variants?.length ?? 0) > 0,
   );
-  const pytCommerceLive = Boolean(activeHasVariants && isLive && activeDb?.status === "active");
+  const pytCommerceLive = Boolean(
+    activeHasVariants &&
+      (isLive || roomStatus === "scheduled") &&
+      (activeDb?.status === "active" || activeDb?.status === "queued"),
+  );
   const activeVariantSpots = activeHasVariants ? summarizeVariantSpots(activeDb?.variants) : null;
   const buyerPinnedVariant = useMemo(() => {
     if (!activeDb?.variants?.length) return null;
@@ -561,6 +625,7 @@ export function LiveSaleRoom({
     return hostPinnedBuyerVariant(activeDb.variants, activeDb.variantAssignmentMode);
   }, [activeDb]);
   const spotAuctionLive = Boolean(activeDb && isVariantSpotAuctionLive(activeDb));
+  const spotAuctionArmed = Boolean(activeDb && isVariantSpotAuctionArmed(activeDb));
   const shopVariantSpots = activeHasVariants && activeDb
     ? summarizeVariantSpots(shopAvailableVariants(activeDb))
     : null;
@@ -571,14 +636,17 @@ export function LiveSaleRoom({
           activeDb.salesFormat,
           liveAuctionMinBidUsd(activeDb) ?? activeDb.currentBidUsd ?? activeDb.startingBidUsd ?? buyerPinnedVariant?.priceUsd ?? 1,
         )
-      : isRandomVariantAssignment(activeDb.variantAssignmentMode)
-        ? variantBuyerSelectLabel(activeDb.salesFormat, true)
-        : shoppableSpotCount > 0
-          ? variantClaimPrimaryLabel(activeDb.salesFormat)
-          : "Sold out"
+      : spotAuctionArmed
+        ? "Waiting for host"
+        : isRandomVariantAssignment(activeDb.variantAssignmentMode)
+          ? variantBuyerSelectLabel(activeDb.salesFormat, true)
+          : shoppableSpotCount > 0
+            ? variantClaimPrimaryLabel(activeDb.salesFormat)
+            : "Sold out"
     : "Select spot";
   const hybridSpotCommerce =
     spotAuctionLive && (shopVariantSpots?.available ?? 0) > 0 && activeLotBidPhase === "bidding_open";
+  const purchaseBlocked = broadcastPurchaseBlocked;
   const variantShopLabel = activeDb ? variantClaimPrimaryLabel(activeDb.salesFormat) : "Claim spot";
   const actionsDisabled =
     !isLive ||
@@ -600,7 +668,7 @@ export function LiveSaleRoom({
     : null;
   const variantShopDisabled =
     !isLive ||
-    broadcastCommerceBlocked ||
+    purchaseBlocked ||
     staffCommerceBlocked ||
     busy ||
     sessionBlocksBuyer ||
@@ -644,7 +712,18 @@ export function LiveSaleRoom({
   const buyerAuctionBidBlocked =
     roomType === "auction" && !isHost && isLive && activeLotBidPhase !== "bidding_open";
   const activeSaleMissingListing =
-    roomType === "sale" && activeDb?.status === "active" && !activeDb.listingId;
+    roomType === "sale" &&
+    activeDb?.status === "active" &&
+    !(typeof activeDb.priceUsd === "number" && Number.isFinite(activeDb.priceUsd) && activeDb.priceUsd > 0);
+  const buyNowDisabled =
+    !isLive ||
+    purchaseBlocked ||
+    staffCommerceBlocked ||
+    busy ||
+    sessionPending ||
+    sessionBlocksBuyer ||
+    !(typeof activeDb?.priceUsd === "number" && Number.isFinite(activeDb.priceUsd) && activeDb.priceUsd > 0) ||
+    (!isHost && isLive && !buyerLiveWalletReady);
 
   const redirectSignIn = (returnPath: string) => {
     router.push(`/signin?returnTo=${encodeURIComponent(returnPath)}`);
@@ -661,8 +740,23 @@ export function LiveSaleRoom({
       redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
       return;
     }
-    if (!activeDb.listingId) {
+    if (!activeDb.listingId && !(typeof activeDb.priceUsd === "number" && activeDb.priceUsd > 0)) {
       setActionError("Checkout is not available for this slot.");
+      return;
+    }
+    // Buy Now was one-tap instant purchase: clicking charged the saved card immediately with no
+    // confirmation. Mirrors the mobile app's confirm-purchase fix (Alert.alert in
+    // LivePinnedActionBar.tsx / VerticalLiveFeed.tsx) — this web room never had it, so a slipped
+    // click here charged a real card with no way to back out.
+    const priceLabel =
+      typeof activeDb.priceUsd === "number" && activeDb.priceUsd > 0
+        ? ` for $${activeDb.priceUsd.toFixed(2)}`
+        : "";
+    if (
+      !window.confirm(
+        `Buy "${activeDb.title}"${priceLabel}? Your saved card will be charged right away.`,
+      )
+    ) {
       return;
     }
     setBusy(true);
@@ -691,7 +785,7 @@ export function LiveSaleRoom({
     }
   };
 
-  const handlePlaceBid = async () => {
+  const handlePlaceBid = async (opts?: { amountUsd?: number; maxProxyUsd?: number }) => {
     setActionError(null);
     if (!activeDb) {
       setActionError("Nothing is live to bid on yet.");
@@ -713,9 +807,30 @@ export function LiveSaleRoom({
       setActionError("This auction has ended.");
       return;
     }
-    const amount = Number(nextBidAmount);
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const buyerNext = Number(nextBidAmount);
+    let amountUsd: number;
+    let maxProxyUsd: number | undefined = opts?.maxProxyUsd;
+    if (opts?.amountUsd != null) {
+      amountUsd = opts.amountUsd;
+      // Custom: Exact omits maxProxy; Max sends maxProxy > amount.
+    } else {
+      amountUsd = buyerNext;
+      // Primary bid: Hold-pattern proxy cap on host-only lots.
+      if (maxProxyUsd == null && !activeDb.listingId) {
+        maxProxyUsd = amountUsd;
+      }
+    }
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
       setActionError("Invalid bid amount.");
+      return;
+    }
+    if (amountUsd + 0.001 < buyerNext) {
+      setActionError(`Minimum bid is $${buyerNext.toFixed(2)}.`);
+      return;
+    }
+    const customBidReserveSupported = !activeDb.listingId;
+    if (maxProxyUsd != null && !customBidReserveSupported) {
+      setActionError("Max proxy bids are not supported for marketplace listing lots in this release.");
       return;
     }
     setBidFlight(true);
@@ -727,7 +842,10 @@ export function LiveSaleRoom({
           method: "POST",
           headers: liveBidRequestHeaders(idempotencyKey),
           credentials: "include",
-          body: JSON.stringify({ amountUsd: amount }),
+          body: JSON.stringify({
+            amountUsd,
+            ...(maxProxyUsd != null ? { maxProxyUsd } : {}),
+          }),
         },
       );
       const data = (await res.json().catch(() => ({}))) as {
@@ -745,9 +863,6 @@ export function LiveSaleRoom({
         const msg = toUserFacingErrorMessage(data.error, "We couldn't place that bid. Try again in a moment.");
         setActionError(msg);
         toast(msg);
-        // A rejected bid (outbid, min-bid moved, lot state changed) leaves local bid state
-        // stale until the next realtime event or poll — resync now so the next attempt uses
-        // current numbers instead of retrying against outdated state.
         void onRefetch?.();
         return;
       }
@@ -757,29 +872,46 @@ export function LiveSaleRoom({
       }
       onAuctionHttpAck?.(ack);
       toast("Bid placed.");
+      setCustomBidOpen(false);
       const uid = session?.user?.id;
       if (uid && ack.item?.lastHighBidderId === uid) {
-        setUserHighBidUsd(ack.item.currentBidUsd ?? amount);
+        setUserHighBidUsd(ack.item.currentBidUsd ?? amountUsd);
       } else {
         setUserHighBidUsd(null);
       }
       setShipUxNonce((n) => n + 1);
-      window.setTimeout(() => {
-        void onRefetch?.();
-        router.refresh();
-      }, 750);
     } catch {
       toast("We couldn't place that bid. Try again in a moment.");
-      // Network error / timeout: the request may or may not have gone through server-side —
-      // resync so the UI reflects reality instead of trusting the pre-bid local state.
       void onRefetch?.();
     } finally {
       setBidFlight(false);
     }
   };
 
+  const customBidReserveSupported = Boolean(activeDb && !activeDb.listingId);
+  const handleSubmitCustomBid = async () => {
+    setActionError(null);
+    try {
+      const entered = Number.parseFloat(customBidDraft);
+      const payload = resolveLiveCustomBidPayload({
+        mode: customBidReserveSupported && customBidMode === "reserve" ? "reserve" : "exact",
+        enteredUsd: entered,
+        minNextBidUsd: Number(nextBidAmount),
+      });
+      await handlePlaceBid({
+        amountUsd: payload.amountUsd,
+        maxProxyUsd: payload.maxProxyUsd,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Enter a valid bid amount.";
+      setActionError(msg);
+      toast(msg);
+    }
+  };
+
   const handleOpenVariantShop = useCallback(() => {
     if (!activeDb || !pytCommerceLive) return;
+    setVariantSheetItemId(activeDb.id);
     setVariantSheetInitialVariantId(null);
     setVariantSheetOpen(true);
   }, [activeDb, pytCommerceLive]);
@@ -790,6 +922,11 @@ export function LiveSaleRoom({
       await handlePlaceBid();
       return;
     }
+    if (isVariantSpotAuctionArmed(activeDb)) {
+      toast("Host pinned this team for auction. Bidding opens when they start the timer.");
+      return;
+    }
+    setVariantSheetItemId(activeDb.id);
     setVariantSheetInitialVariantId(buyerPinnedVariant?.id ?? null);
     setVariantSheetOpen(true);
   }, [activeDb, buyerPinnedVariant?.id, handlePlaceBid, pytCommerceLive]);
@@ -923,6 +1060,18 @@ export function LiveSaleRoom({
             : fmt(currentTopBid)
           : "$0"}
       </p>
+      {roomType === "auction" && isWinning ? (
+        <p className="mt-1 text-sm font-bold text-gold-bright">You&apos;re winning</p>
+      ) : roomType === "auction" && activeDb ? (
+        <p className="mt-1 truncate text-sm font-bold text-zinc-50" data-testid="live-auction-leader-line">
+          {formatAuctionLeaderLine({
+            lastHighBidderUsername: activeDb.lastHighBidderUsername,
+            lastHighBidderId: activeDb.lastHighBidderId,
+            currentBidUsd: activeDb.currentBidUsd,
+            startingBidUsd: activeDb.startingBidUsd,
+          })}
+        </p>
+      ) : null}
       <p className="mt-0.5 line-clamp-2 text-[11px] font-medium text-zinc-200">{priceLine}</p>
       {!isHost && (roomType === "auction" || roomType === "sale") && !activeHasVariants ? (
         <LiveShippingIndicator
@@ -1005,70 +1154,152 @@ export function LiveSaleRoom({
           )}
         </div>
       ) : null}
-      <div className="mt-2 flex gap-2">
-        {roomType === "auction" ? (
-          <button
-            data-testid="live-bid-button"
-            type="button"
-            disabled={
-              actionsDisabled ||
-              activeSaleMissingListing ||
-              buyerAuctionBidBlocked ||
-              (Boolean(activeListingId) && Boolean(bidMeta?.auctionEnded))
-            }
-            onClick={() => void handlePlaceBid()}
-            className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
-          >
-            {`Place bid $${nextBidAmount}`}
-          </button>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {roomType === "auction" && customBidOpen ? (
+          <div className="flex flex-col gap-1.5 rounded-[var(--live-radius-chrome)] border border-white/12 bg-black/40 p-2.5">
+            <label className="flex min-h-10 items-center gap-2 rounded-md border border-white/12 bg-black/40 px-3">
+              <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-zinc-400">$</span>
+              <input
+                type="number"
+                min={Number(nextBidAmount)}
+                step="1"
+                inputMode="decimal"
+                placeholder={nextBidAmount}
+                value={customBidDraft}
+                onChange={(e) => setCustomBidDraft(e.target.value)}
+                className="min-w-0 flex-1 bg-transparent text-sm font-bold tabular-nums text-zinc-100 outline-none"
+                aria-label="Custom bid amount"
+              />
+            </label>
+            <div className="flex items-center justify-between gap-2 rounded-md border border-white/8 bg-black/30 px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-zinc-100">{LIVE_CUSTOM_BID_MODE_COPY.exact.label}</p>
+                <p className="text-[10px] leading-snug text-zinc-400">
+                  {customBidMode === "exact"
+                    ? LIVE_CUSTOM_BID_MODE_COPY.exact.description
+                    : "Off = Max bid (default). Bids the minimum now and auto-raises up to your amount."}
+                </p>
+                {!customBidReserveSupported ? (
+                  <p className="mt-1 text-[10px] text-zinc-500">Max bid is not available for marketplace listing lots.</p>
+                ) : (
+                  <p className="mt-1 text-[10px] text-zinc-500">
+                    {customBidMode === "exact"
+                      ? "Exact places your full amount immediately."
+                      : "Recommended — you only pay one increment above the competition."}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-label="Exact bid"
+                aria-checked={customBidMode === "exact"}
+                disabled={!customBidReserveSupported}
+                onClick={() => setCustomBidMode((m) => (m === "exact" ? "reserve" : "exact"))}
+                className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-40 ${
+                  customBidMode === "exact" ? "bg-gold/80" : "bg-white/15"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition ${
+                    customBidMode === "exact" ? "left-[22px]" : "left-0.5"
+                  }`}
+                />
+              </button>
+            </div>
+            <button
+              type="button"
+              disabled={actionsDisabled || bidFlight}
+              onClick={() => void handleSubmitCustomBid()}
+              className="min-h-10 rounded-md bg-gold px-3 text-[11px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-50"
+            >
+              {bidFlight
+                ? "Placing…"
+                : customBidReserveSupported && customBidMode === "reserve"
+                  ? "Set max bid"
+                  : "Place exact bid"}
+            </button>
+          </div>
         ) : null}
-        {activeHasVariants && !isHost ? (
-          hybridSpotCommerce ? (
+        <div className="flex gap-2">
+          {roomType === "auction" ? (
             <>
               <button
-                data-testid="live-variant-claim-button"
                 type="button"
-                disabled={variantShopDisabled}
-                onClick={() => handleOpenVariantShop()}
-                className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+                aria-pressed={customBidOpen}
+                onClick={() => setCustomBidOpen((v) => !v)}
+                className={`min-h-10 shrink-0 rounded-[var(--live-radius-chrome)] border px-2.5 text-[10px] font-bold uppercase tracking-wide transition ${
+                  customBidOpen
+                    ? "border-gold/50 bg-gold/15 text-gold-bright"
+                    : "border-white/14 bg-black/40 text-zinc-200"
+                }`}
               >
-                {variantShopLabel}
+                Custom
               </button>
               <button
                 data-testid="live-bid-button"
                 type="button"
-                disabled={variantSpotBidDisabled}
+                disabled={
+                  actionsDisabled ||
+                  activeSaleMissingListing ||
+                  buyerAuctionBidBlocked ||
+                  (Boolean(activeListingId) && Boolean(bidMeta?.auctionEnded))
+                }
                 onClick={() => void handlePlaceBid()}
-                className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-white transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+                className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+              >
+                {`Place bid $${nextBidAmount}`}
+              </button>
+            </>
+          ) : null}
+          {activeHasVariants && !isHost ? (
+            hybridSpotCommerce ? (
+              <>
+                <button
+                  data-testid="live-variant-claim-button"
+                  type="button"
+                  disabled={variantShopDisabled}
+                  onClick={() => handleOpenVariantShop()}
+                  className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+                >
+                  {variantShopLabel}
+                </button>
+                <button
+                  data-testid="live-bid-button"
+                  type="button"
+                  disabled={variantSpotBidDisabled}
+                  onClick={() => void handlePlaceBid()}
+                  className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-white transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+                >
+                  {variantSelectLabel}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                disabled={variantPickerDisabled}
+                onClick={() => void handleBuyerVariantCommerce()}
+                className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
               >
                 {variantSelectLabel}
               </button>
-            </>
-          ) : (
+            )
+          ) : null}
+          {roomType === "sale" && !activeHasVariants ? (
             <button
               type="button"
-              disabled={variantPickerDisabled}
-              onClick={() => void handleBuyerVariantCommerce()}
+              disabled={buyNowDisabled}
+              onClick={() => void handleBuyNow()}
               className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
             >
-              {variantSelectLabel}
+              {busy ? "Working…" : "Buy Now"}
             </button>
-          )
-        ) : null}
-        {roomType === "sale" && !activeHasVariants ? (
-          <button
-            type="button"
-            disabled={actionsDisabled || !activeDb?.listingId || activeSaleMissingListing}
-            onClick={() => void handleBuyNow()}
-            className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
-          >
-            {busy ? "Working…" : "Buy Now"}
-          </button>
-        ) : null}
+          ) : null}
+        </div>
       </div>
       {activeSaleMissingListing ? (
         <p className="mt-2 text-[10px] font-medium text-amber-200/90">
-          This live item is not linked to checkout yet. Ask the host in chat.
+          This live item needs a price before Buy Now checkout.
         </p>
       ) : null}
       <LiveBuyerWalletGateHint
@@ -1159,9 +1390,12 @@ export function LiveSaleRoom({
             : "Select an item"}
         </p>
         {roomType === "auction" && isWinning ? (
-          <p className="text-[9px] font-semibold uppercase tracking-wide text-gold-bright/85">You&apos;re winning</p>
+          <p className="mt-0.5 text-[12px] font-bold text-gold-bright">You&apos;re winning</p>
         ) : roomType === "auction" && activeDb ? (
-          <p className="text-[10px] font-semibold text-zinc-300">
+          <p
+            className="mt-0.5 truncate text-[12px] font-bold text-zinc-50"
+            data-testid="live-auction-leader-line"
+          >
             {formatAuctionLeaderLine({
               lastHighBidderUsername: activeDb.lastHighBidderUsername,
               lastHighBidderId: activeDb.lastHighBidderId,
@@ -1254,41 +1488,121 @@ export function LiveSaleRoom({
         </div>
       ) : null}
       {roomType === "auction" ? (
-        <div className="mt-2 flex min-h-10 items-center gap-1.5 max-[380px]:gap-1 md:min-h-11">
-          <span
-            className={`inline-flex min-h-10 min-w-[4.75rem] shrink-0 items-center justify-center rounded-full border border-white/14 bg-black/40 px-1.5 text-[9px] font-bold tabular-nums tracking-tight max-[380px]:min-w-[4.25rem] md:min-h-11 md:min-w-[5.5rem] md:px-2 md:text-[10px] ${
-              bidMeta?.auctionEnded
-                ? "text-zinc-500"
-                : countdownFinal
-                  ? "text-rose-200/95 motion-safe:[animation:live-countdown-pulse_1.15s_ease-in-out_infinite] motion-reduce:[animation:none]"
-                  : countdownUrgent
-                    ? "text-amber-200/95"
-                    : "text-zinc-200"
-            }`}
-          >
-            {activeLotBidPhase === "timer_ended_unsettled" || bidMeta?.auctionEnded
-              ? "Ended"
-              : countdownLabel ?? "Live"}
-          </span>
-          <button
-            data-testid="live-bid-button"
-            type="button"
-            disabled={
-              actionsDisabled ||
-              activeSaleMissingListing ||
-              buyerAuctionBidBlocked ||
-              (Boolean(activeListingId) && Boolean(bidMeta?.auctionEnded))
-            }
-            onClick={() => void handlePlaceBid()}
-            aria-label={`Place bid ${nextBidAmount} dollars`}
-            className="flex min-h-10 min-w-0 flex-1 items-center justify-center rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-2 text-[10px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,box-shadow,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-40 motion-reduce:transition-none motion-reduce:active:scale-100 md:min-h-11 md:px-3 md:text-[11px]"
-          >
-            <span className="min-w-0 truncate">
-              <span className="max-[380px]:hidden">Place bid </span>
-              <span className="hidden max-[380px]:inline">Bid </span>
-              <span className="tabular-nums">${nextBidAmount}</span>
+        <div className="mt-2 flex flex-col gap-1.5">
+          {customBidOpen ? (
+            <div className="flex flex-col gap-1.5 rounded-2xl border border-white/12 bg-black/40 p-2.5">
+              <label className="flex min-h-10 items-center gap-2 rounded-full border border-white/12 bg-black/40 px-3">
+                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-zinc-400">$</span>
+                <input
+                  type="number"
+                  min={Number(nextBidAmount)}
+                  step="1"
+                  inputMode="decimal"
+                  placeholder={nextBidAmount}
+                  value={customBidDraft}
+                  onChange={(e) => setCustomBidDraft(e.target.value)}
+                  className="min-w-0 flex-1 bg-transparent text-sm font-bold tabular-nums text-zinc-100 outline-none"
+                  aria-label="Custom bid amount"
+                />
+              </label>
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-white/8 bg-black/30 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold text-zinc-100">{LIVE_CUSTOM_BID_MODE_COPY.exact.label}</p>
+                  <p className="text-[10px] leading-snug text-zinc-400">
+                    {customBidMode === "exact"
+                      ? LIVE_CUSTOM_BID_MODE_COPY.exact.description
+                      : "Off = Max bid (default). Bids the minimum now and auto-raises up to your amount."}
+                  </p>
+                  {!customBidReserveSupported ? (
+                    <p className="mt-1 text-[10px] text-zinc-500">Max bid is not available for marketplace listing lots.</p>
+                  ) : (
+                    <p className="mt-1 text-[10px] text-zinc-500">
+                      {customBidMode === "exact"
+                        ? "Exact places your full amount immediately."
+                        : "Recommended — you only pay one increment above the competition."}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-label="Exact bid"
+                  aria-checked={customBidMode === "exact"}
+                  disabled={!customBidReserveSupported}
+                  onClick={() => setCustomBidMode((m) => (m === "exact" ? "reserve" : "exact"))}
+                  className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-40 ${
+                    customBidMode === "exact" ? "bg-gold/80" : "bg-white/15"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition ${
+                      customBidMode === "exact" ? "left-[22px]" : "left-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+              <button
+                type="button"
+                disabled={actionsDisabled || bidFlight}
+                onClick={() => void handleSubmitCustomBid()}
+                className="min-h-10 rounded-full bg-gold px-3 text-[11px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-50 md:min-h-11"
+              >
+                {bidFlight
+                  ? "Placing…"
+                  : customBidReserveSupported && customBidMode === "reserve"
+                    ? "Set max bid"
+                    : "Place exact bid"}
+              </button>
+            </div>
+          ) : null}
+          <div className="flex min-h-10 items-center gap-1.5 max-[380px]:gap-1 md:min-h-11">
+            <span
+              className={`inline-flex min-h-10 min-w-[4.75rem] shrink-0 items-center justify-center rounded-full border border-white/14 bg-black/40 px-1.5 text-[9px] font-bold tabular-nums tracking-tight max-[380px]:min-w-[4.25rem] md:min-h-11 md:min-w-[5.5rem] md:px-2 md:text-[10px] ${
+                bidMeta?.auctionEnded
+                  ? "text-zinc-500"
+                  : countdownFinal
+                    ? "text-rose-200/95 motion-safe:[animation:live-countdown-pulse_1.15s_ease-in-out_infinite] motion-reduce:[animation:none]"
+                    : countdownUrgent
+                      ? "text-amber-200/95"
+                      : "text-zinc-200"
+              }`}
+            >
+              {activeLotBidPhase === "timer_ended_unsettled" || bidMeta?.auctionEnded
+                ? "Ended"
+                : countdownLabel ?? "Live"}
             </span>
-          </button>
+            <button
+              type="button"
+              aria-pressed={customBidOpen}
+              onClick={() => setCustomBidOpen((v) => !v)}
+              className={`min-h-10 shrink-0 rounded-full border px-2.5 text-[10px] font-bold uppercase tracking-wide transition max-[380px]:px-2 max-[380px]:text-[9px] md:min-h-11 md:px-3 ${
+                customBidOpen
+                  ? "border-gold/50 bg-gold/15 text-gold-bright"
+                  : "border-white/14 bg-black/40 text-zinc-200"
+              }`}
+            >
+              Custom
+            </button>
+            <button
+              data-testid="live-bid-button"
+              type="button"
+              disabled={
+                actionsDisabled ||
+                activeSaleMissingListing ||
+                buyerAuctionBidBlocked ||
+                (Boolean(activeListingId) && Boolean(bidMeta?.auctionEnded))
+              }
+              onClick={() => void handlePlaceBid()}
+              aria-label={`Place bid ${nextBidAmount} dollars`}
+              className="flex min-h-10 min-w-0 flex-1 items-center justify-center rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-2 text-[10px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,box-shadow,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-40 motion-reduce:transition-none motion-reduce:active:scale-100 md:min-h-11 md:px-3 md:text-[11px]"
+            >
+              <span className="min-w-0 truncate">
+                <span className="max-[380px]:hidden">Place bid </span>
+                <span className="hidden max-[380px]:inline">Bid </span>
+                <span className="tabular-nums">${nextBidAmount}</span>
+              </span>
+            </button>
+          </div>
         </div>
       ) : null}
       {pytCommerceLive && !isHost ? (
@@ -1327,7 +1641,7 @@ export function LiveSaleRoom({
       {roomType === "sale" && !activeHasVariants ? (
         <button
           type="button"
-          disabled={actionsDisabled || !activeDb?.listingId || activeSaleMissingListing}
+          disabled={buyNowDisabled}
           onClick={() => void handleBuyNow()}
           className="mt-2 min-h-10 w-full rounded-full bg-gradient-to-r from-gold to-gold-bright text-[10px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
         >
@@ -1335,7 +1649,7 @@ export function LiveSaleRoom({
         </button>
       ) : null}
       {activeSaleMissingListing ? (
-        <p className="mt-1 text-[10px] font-medium text-amber-200/90">Checkout is not linked for this slot.</p>
+        <p className="mt-1 text-[10px] font-medium text-amber-200/90">This slot needs a price before Buy Now.</p>
       ) : null}
       <LiveBuyerWalletGateHint
         hide={isHost || !isLive || (roomType !== "auction" && roomType !== "sale") || activeHasVariants}
@@ -1385,34 +1699,48 @@ export function LiveSaleRoom({
           )
         : null;
 
+  const buyerSpotBoardExpandAction =
+    spotBoardMinimized && activeHasVariants && activeDb && !isHost ? (
+      <button
+        type="button"
+        onClick={() => setSpotBoardMinimized(false)}
+        className="mb-2 w-full rounded-full border border-white/15 bg-zinc-950/90 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-zinc-100 hover:border-white/25 hover:bg-zinc-900"
+      >
+        Show teams · Expand
+      </button>
+    ) : null;
+
   const buyerVariantClaimActions =
     pytCommerceLive && !isHost ? (
-      hybridSpotCommerce ? (
-        <div className="flex gap-2">
+      <div>
+        {buyerSpotBoardExpandAction}
+        {hybridSpotCommerce ? (
+          <div className="flex gap-2">
+            <BuyerVariantClaimCta
+              label={variantShopLabel}
+              disabled={variantShopDisabled}
+              onClick={() => handleOpenVariantShop()}
+              className="min-h-10 flex-1 rounded-full bg-gradient-to-r from-gold to-gold-bright px-3 text-[10px] font-black uppercase tracking-wide text-zinc-950 shadow-[0_0_22px_-8px_rgba(212,175,55,0.55)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
+            />
+            <button
+              data-testid="live-bid-button"
+              type="button"
+              disabled={variantSpotBidDisabled}
+              onClick={() => void handlePlaceBid()}
+              className="min-h-10 flex-1 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-3 text-[10px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
+            >
+              {variantSelectLabel}
+            </button>
+          </div>
+        ) : (
           <BuyerVariantClaimCta
-            label={variantShopLabel}
-            disabled={variantShopDisabled}
-            onClick={() => handleOpenVariantShop()}
-            className="min-h-10 flex-1 rounded-full bg-gradient-to-r from-gold to-gold-bright px-3 text-[10px] font-black uppercase tracking-wide text-zinc-950 shadow-[0_0_22px_-8px_rgba(212,175,55,0.55)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
+            label={variantSelectLabel}
+            disabled={variantPickerDisabled}
+            onClick={() => void handleBuyerVariantCommerce()}
           />
-          <button
-            data-testid="live-bid-button"
-            type="button"
-            disabled={variantSpotBidDisabled}
-            onClick={() => void handlePlaceBid()}
-            className="min-h-10 flex-1 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-3 text-[10px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
-          >
-            {variantSelectLabel}
-          </button>
-        </div>
-      ) : (
-        <BuyerVariantClaimCta
-          label={variantSelectLabel}
-          disabled={variantPickerDisabled}
-          onClick={() => void handleBuyerVariantCommerce()}
-        />
-      )
-    ) : undefined;
+        )}
+      </div>
+    ) : buyerSpotBoardExpandAction ?? undefined;
 
   const desktopItemBoardOverlay = desktopItemBoardCommerce ? (
     <BuyerLiveItemBoardOverlay commerce={desktopItemBoardCommerce} />
@@ -1475,26 +1803,35 @@ export function LiveSaleRoom({
     hostSellerId: sellerId,
     onBack: () => router.back(),
     centerOverlay:
-      isHost && activeHasVariants && activeDb ? (
+      activeHasVariants && activeDb && !(spotBoardMinimized && isBuyerDesktop && !isHost) ? (
         <LiveVariantSpotBoard
           item={activeDb}
-          hostMode
+          hostMode={isHost}
+          highlightUsername={!isHost ? session?.user?.username ?? null : null}
+          minimized={spotBoardMinimized}
+          onToggleMinimized={() => setSpotBoardMinimized((v) => !v)}
           onPinVariant={
-            activeDb.status === "active" && !isRandomVariantAssignment(activeDb.variantAssignmentMode)
+            isHost &&
+            activeDb.status === "active" &&
+            !isRandomVariantAssignment(activeDb.variantAssignmentMode) &&
+            !activeDb.variantBreakReadyAt &&
+            !activeDb.variantBreakBeganAt
               ? handleHostPinLiveVariant
               : undefined
           }
           pinBusy={pinVariantBusy}
         />
       ) : undefined,
+    centerOverlayAlign: (spotBoardMinimized ? "bottom" : "center") as "center" | "bottom",
     onNotifyMe: () => void handleNotifyMe(),
     streamPlaybackRefreshNonce,
     viewerAuthenticated: status === "authenticated",
     scheduledStartAt,
     thumbnailUrl,
+    teaserVideoUrl,
     buyerShellMode: isBuyerDesktop,
     showRightActions: !isHost,
-    shopHref,
+    onShop: isHost ? undefined : openBuyerShop,
     onShare: handleShare,
     onWallet: handleWallet,
     onTip: isLive && !isHost && !buyerPaymentRecoveryPending ? handleTip : undefined,
@@ -1550,8 +1887,7 @@ export function LiveSaleRoom({
                     selectable: buyerQueueRowSelectable(item),
                   }))}
                   selectedId={selectedId}
-                  shopHref={shopHref}
-                  onSelect={setSelectedId}
+                  onSelect={handleBuyerShopSelect}
                   actions={buyerVariantClaimActions}
                 />
               ) : undefined
@@ -1584,13 +1920,12 @@ export function LiveSaleRoom({
                         buyerQueueRows.find((r) => !r.isPinned) ??
                         buyerQueueRows[0];
                       return row
-                        ? `${row.metaLine} · ${buyerQueueRows.length} in lineup`
-                        : `${buyerQueueRows.length} in lineup`;
+                        ? `${row.metaLine} · ${buyerQueueRows.length} in shop`
+                        : `${buyerQueueRows.length} in shop`;
                     })()
                   }
                   queueCount={buyerQueueRows.length}
-                  shopHref={shopHref}
-                  onOpenQueue={() => setBuyerLineupOpen(true)}
+                  onOpenQueue={openBuyerShop}
                 />
               ) : null}
 
@@ -1612,9 +1947,9 @@ export function LiveSaleRoom({
       <BuyerLiveQueueSheet
         open={buyerLineupOpen && !isHost}
         onClose={() => setBuyerLineupOpen(false)}
-        title="Lineup"
-        subtitle={`${buyerQueueRows.length} item${buyerQueueRows.length === 1 ? "" : "s"} in queue`}
-        shopHref={shopHref}
+        title="Shop"
+        subtitle={`${buyerQueueRows.length} item${buyerQueueRows.length === 1 ? "" : "s"} in this room`}
+        sellerStoreHref={sellerStoreHref}
         footer={
           !isHost && (roomType === "auction" || roomType === "sale") && !activeHasVariants ? (
             <LiveShippingIndicator
@@ -1634,27 +1969,25 @@ export function LiveSaleRoom({
             metaLine: item.metaLine,
           }))}
           selectedId={selectedId}
-          onSelect={(id) => {
-            setSelectedId(id);
-            setBuyerLineupOpen(false);
-          }}
-          emptyHint="Items added by the host will appear here."
+          onSelect={handleBuyerShopSelect}
+          emptyHint="Items the host adds to this show will appear here."
         />
       </BuyerLiveQueueSheet>
-      {activeDb && activeHasVariants ? (
+      {variantSheetItem && isVariantPurchaseItem(variantSheetItem) ? (
         <LiveVariantSelectionSheet
           open={variantSheetOpen}
           onClose={() => {
             setVariantSheetOpen(false);
+            setVariantSheetItemId(null);
             setVariantSheetInitialVariantId(null);
           }}
-          item={activeDb}
+          item={variantSheetItem}
           liveRoomId={liveRoomId}
           walletReady={buyerLiveWalletReady}
           initialVariantId={variantSheetInitialVariantId}
           excludeVariantIds={
-            spotAuctionLive && activeDb.auctionVariantId
-              ? [activeDb.auctionVariantId]
+            spotAuctionLive && variantSheetItem.auctionVariantId
+              ? [variantSheetItem.auctionVariantId]
               : undefined
           }
           onWalletRequired={() => {
@@ -1689,7 +2022,7 @@ export function LiveSaleRoom({
         hostUsername={sellerShopUsername ?? hostDisplayName.replace(/^@+/, "")}
         isLive={isLive}
         category={roomCategory}
-        canNotifyFollowers={isHost}
+        canNotifyFollowers={isHost && discoveryVisibility !== "private"}
         onToast={toast}
       />
     </div>

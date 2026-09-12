@@ -24,6 +24,8 @@ type LiveNowRoomBase = {
   breakVaultCategory?: VaultBreakCategory;
   status: LiveShowStatus;
   scheduledFor?: string;
+  /** ISO start time for sorting (matches mobile `scheduledStartAtIso`). */
+  scheduledStartAtIso?: string | null;
   viewers: number;
   imageSeed: string;
   /** When set (e.g. DB-backed room), card uses this image instead of placeholder seed. */

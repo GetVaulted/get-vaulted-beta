@@ -35,6 +35,10 @@ vi.mock("@/lib/resolve-account-auth", () => ({
   resolveAccountUserId: vi.fn().mockResolvedValue({ userId: "u1" }),
 }));
 
+vi.mock("@/lib/user-block", () => ({
+  listHiddenPeerIdsForViewer: vi.fn().mockResolvedValue([]),
+}));
+
 function takeOf(mockFn: ReturnType<typeof vi.fn>): number | undefined {
   const args = mockFn.mock.calls[0]?.[0] as { take?: number } | undefined;
   return args?.take;
@@ -47,7 +51,7 @@ describe("account list endpoints apply defensive row caps", () => {
 
   it("GET /api/account/watchlist caps rows", async () => {
     const { GET } = await import("@/app/api/account/watchlist/route");
-    await GET();
+    await GET(new Request("https://example.com/api/account/watchlist"));
     expect(takeOf(watchlistFindMany)).toBeGreaterThan(0);
   });
 

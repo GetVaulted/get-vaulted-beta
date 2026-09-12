@@ -37,7 +37,7 @@ export function VaultQueueCarousel({
 
   if (queued.length === 0) {
     return (
-      <Text style={styles.empty}>Vault queue is empty — quick-add inventory or pull from listings.</Text>
+      <Text style={styles.empty}>Vault queue is empty — add a new lot, pull from your shop, or copy a prior show.</Text>
     );
   }
 

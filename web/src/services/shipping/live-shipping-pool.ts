@@ -9,12 +9,11 @@ import {
   type LiveShowShippingConfig,
   type PackageGroup,
 } from "@/lib/unified-shipping-engine";
-import { buildLiveShowShippingConfig } from "@/lib/live-show-shipping-terms";
+import { buildLiveShowShippingConfig, PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS } from "@/lib/live-show-shipping-terms";
 import { LIVE_BUNDLED_SHIPPING_DESTINATION_KEY } from "@/services/shipping/live-shipping-pricing";
 import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
 import {
-  resolveDefaultSellerProfileForLiveShow,
-  resolveSellerProfileForLiveRoomItem,
+  resolveBreakSpotSellerProfile,
   sellerProfileToProfileInput,
 } from "@/services/shipping/seller-shipping-profiles";
 import { tierFallbackCentsForPackageGroups } from "@/services/shipping/live-shipping-tier-estimate";
@@ -25,9 +24,58 @@ type Db = Pick<
   | "liveRoomItem"
   | "liveShippingSession"
   | "liveShippingSessionItem"
+  | "liveAuctionInventoryHold"
   | "platformShippingProfile"
   | "sellerShippingProfile"
+  | "listing"
 >;
+
+const LIVE_ITEM_SHIPPING_SELECT = {
+  id: true,
+  listingId: true,
+  shippingProfileId: true,
+  sellerShippingProfileId: true,
+  customWeightOz: true,
+  customLengthIn: true,
+  customWidthIn: true,
+  customHeightIn: true,
+  requiresSeparatePackage: true,
+  shippingProfile: true,
+  sellerShippingProfile: true,
+} as const;
+
+/**
+ * Resolve the queue-row shipping profile for a session order.
+ * Break/multi-unit wins create ephemeral listings that do not match `LiveRoomItem.listingId`,
+ * so fall back through the inventory hold that still points at the host liveRoomItem.
+ */
+export async function resolveLiveRoomItemForSessionOrder(
+  db: Db | TransactionClient,
+  args: { liveShowId: string; listingId: string; orderId: string },
+) {
+  const byListing = await db.liveRoomItem.findFirst({
+    where: { liveRoomId: args.liveShowId, listingId: args.listingId },
+    orderBy: { updatedAt: "desc" },
+    select: LIVE_ITEM_SHIPPING_SELECT,
+  });
+  if (byListing) return byListing;
+
+  const hold = await db.liveAuctionInventoryHold.findFirst({
+    where: {
+      liveRoomItemId: { not: null },
+      liveRoomItem: { liveRoomId: args.liveShowId },
+      OR: [{ orderId: args.orderId }, { listingId: args.listingId }],
+    },
+    orderBy: { updatedAt: "desc" },
+    select: { liveRoomItemId: true },
+  });
+  if (!hold?.liveRoomItemId) return null;
+
+  return db.liveRoomItem.findFirst({
+    where: { id: hold.liveRoomItemId, liveRoomId: args.liveShowId },
+    select: LIVE_ITEM_SHIPPING_SELECT,
+  });
+}
 
 export type BuyerShippingPoolTotals = {
   rawEstimateCents: number;
@@ -70,6 +118,35 @@ type ProfileRow = {
   overrides?: Parameters<typeof resolveShippingProfileDimensions>[1];
 };
 
+/**
+ * Already-charged session items keep the weight frozen at settle time.
+ * Re-resolving today's seller/platform profile (e.g. Helmets → separate 80oz box) would
+ * inflate the pool and claw back the difference on the buyer's next win via
+ * `max(0, newPool − alreadyCharged)`. Use this nestable parcel so past purchases only
+ * contribute their charged weight.
+ */
+export function frozenPriorPurchaseProfileRow(args: {
+  itemId: string;
+  appliedWeightOz: number;
+}): ProfileRow {
+  const weightOz = Math.max(1, args.appliedWeightOz);
+  return {
+    itemId: args.itemId,
+    profile: {
+      id: `frozen:${args.itemId}`,
+      slug: "session_frozen",
+      name: "Prior purchase",
+      defaultWeightOz: weightOz,
+      defaultLengthIn: 6,
+      defaultWidthIn: 4,
+      defaultHeightIn: 1,
+      bundleAllowed: true,
+      requiresSeparatePackage: false,
+      bundleGroup: "session_frozen",
+    },
+  };
+}
+
 export async function resolveLiveRoomItemShippingProfile(
   liveRoomItemId: string,
   db: Db | TransactionClient = prisma,
@@ -99,24 +176,17 @@ export async function resolveLiveRoomItemShippingProfile(
   });
   if (!item) return null;
 
-  if (item.sellerShippingProfile) {
-    const profile = sellerProfileToProfileInput(item.sellerShippingProfile);
-    return {
-      itemId: item.id,
-      profile,
-      overrides: item,
-      resolved: resolveShippingProfileDimensions(profile, item),
-    };
-  }
-
-  const sellerFallback = await resolveSellerProfileForLiveRoomItem({
+  // Seller profiles win (card mailer vs helmet by show category). Never prefer a stale
+  // platform card_lot weight when the show is a Helmets break under the $9.99 cap.
+  const sellerResolved = await resolveBreakSpotSellerProfile({
     sellerId: item.liveRoom.sellerId,
-    sellerShippingProfileId: item.sellerShippingProfileId,
     showDefaultSellerProfileId: item.liveRoom.defaultSellerShippingProfileId,
+    itemSellerProfileId: item.sellerShippingProfileId,
+    category: item.liveRoom.category,
     db: db as Db,
   });
-  if (sellerFallback) {
-    const profile = sellerProfileToProfileInput(sellerFallback);
+  if (sellerResolved) {
+    const profile = sellerProfileToProfileInput(sellerResolved);
     return {
       itemId: item.id,
       profile,
@@ -147,7 +217,17 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
     where: { id: sessionId },
     select: {
       liveShowId: true,
-      items: { orderBy: { createdAt: "asc" }, select: { orderId: true, listingId: true } },
+      items: {
+        // A sibling order whose payment failed/expired/was refunded or charged back never actually
+        // collected shipping. Leaving its session item in the pool permanently inflates every later
+        // pool recompute for this buyer/show (weight, estimate, cap math) even though that shipping
+        // was never paid — this is what made a later purchase look free/discounted after an earlier
+        // payment was declined and retried. See sumSessionReservedShippingCentsTx for the analogous
+        // fix on the settlement/ledger side.
+        where: { order: { paymentStatus: { notIn: ["failed", "expired", "refunded", "chargeback"] } } },
+        orderBy: { createdAt: "asc" },
+        select: { orderId: true, listingId: true, appliedWeightOz: true },
+      },
       liveShow: { select: { defaultShippingProfileId: true, category: true } },
     },
   });
@@ -155,25 +235,35 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
 
   const rows: ProfileRow[] = [];
   for (const si of session.items) {
-    const liveItem = await db.liveRoomItem.findFirst({
-      where: { liveRoomId: session.liveShowId, listingId: si.listingId },
-      orderBy: { updatedAt: "desc" },
-      select: {
-        id: true,
-        shippingProfileId: true,
-        customWeightOz: true,
-        customLengthIn: true,
-        customWidthIn: true,
-        customHeightIn: true,
-        requiresSeparatePackage: true,
-        shippingProfile: true,
-      },
+    const appliedWeightOz =
+      Number.isFinite(si.appliedWeightOz) && si.appliedWeightOz > 0 ? si.appliedWeightOz : null;
+    const liveItem = await resolveLiveRoomItemForSessionOrder(db, {
+      liveShowId: session.liveShowId,
+      listingId: si.listingId,
+      orderId: si.orderId,
     });
-    if (liveItem?.shippingProfile) {
-      rows.push({ itemId: liveItem.id, profile: liveItem.shippingProfile, overrides: liveItem });
+    const itemId = liveItem?.id ?? si.orderId;
+
+    // Past purchases: never re-price with today's profile mapping.
+    if (appliedWeightOz != null) {
+      rows.push(frozenPriorPurchaseProfileRow({ itemId, appliedWeightOz }));
       continue;
     }
-    const listing = await ("listing" in db ? db.listing : prisma.listing).findUnique({
+
+    // Prefer the same seller→platform resolution as win-preview / charge (never platform-only).
+    if (liveItem) {
+      const resolved = await resolveLiveRoomItemShippingProfile(liveItem.id, db);
+      if (resolved) {
+        rows.push({
+          itemId: resolved.itemId,
+          profile: resolved.profile,
+          overrides: resolved.overrides,
+        });
+        continue;
+      }
+    }
+
+    const listing = await db.listing.findUnique({
       where: { id: si.listingId },
       select: {
         shippingBaseWeightOz: true,
@@ -197,7 +287,7 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
           : null;
       const weightOz = parcelWeight ?? baseWeight ?? 4;
       rows.push({
-        itemId: liveItem?.id ?? si.orderId,
+        itemId,
         profile: {
           id: `listing:${si.listingId}`,
           slug: listing.shippingCategory ?? "live_spot",
@@ -207,8 +297,8 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
           defaultWidthIn: listing.parcelWidthIn ?? 6,
           defaultHeightIn: listing.parcelHeightIn ?? 1,
           bundleGroup: "general",
-          bundleAllowed: true,
-          requiresSeparatePackage: false,
+          bundleAllowed: !(liveItem?.requiresSeparatePackage === true),
+          requiresSeparatePackage: liveItem?.requiresSeparatePackage === true,
         },
         overrides: liveItem ?? undefined,
       });
@@ -221,7 +311,7 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
     });
     if (fallback) {
       rows.push({
-        itemId: liveItem?.id ?? si.orderId,
+        itemId,
         profile: fallback,
         overrides: liveItem ?? undefined,
       });
@@ -251,32 +341,35 @@ export function computePoolTotalsFromGroups(
   const rawEstimateCents =
     rawOverrideCents != null && Number.isFinite(rawOverrideCents) && rawOverrideCents >= 0
       ? Math.floor(rawOverrideCents)
-      : tierFallbackCentsForPackageGroups(
-          groups,
-          show.shippingCapEnabled ? show.shippingCapCents : null,
-        );
+      : tierFallbackCentsForPackageGroups(groups);
   const charge = computeLiveBuyerShippingCharge({
     rawShippoEstimateCents: rawEstimateCents,
     show,
     alreadyChargedCents: 0,
   });
 
-  const buyerTotalCents = charge.freeShippingApplied
-    ? 0
-    : show.shippingMode === "capped" || show.shippingCapEnabled
-      ? Math.min(
-          rawEstimateCents,
-          show.shippingCapCents ?? rawEstimateCents,
-        )
-      : rawEstimateCents;
-
-  const capCents =
-    show.shippingMode === "capped" || show.shippingCapEnabled ? show.shippingCapCents : null;
-  const capReached =
-    !charge.freeShippingApplied &&
-    (show.shippingMode === "capped" || show.shippingCapEnabled) &&
-    capCents != null &&
-    buyerTotalCents >= capCents;
+  // Always go through charge math so calculated mode still hits the $9.99 platform max.
+  // rawEstimateCents must stay uncapped (Shippo or tier); buyerTotalCents is the capped session total.
+  const buyerTotalCents = charge.buyerPaysCents;
+  const mode =
+    show.shippingMode ??
+    (show.freeShippingEnabled ? "free" : show.shippingCapEnabled ? "capped" : "calculated");
+  const totalsMeta = computeBuyerLiveShippingTotals({
+    shippingMode: mode,
+    shippingCapCents: show.shippingCapCents,
+    sellerPaysOverCap: show.sellerPaysOverCap,
+    estimatedEligibleBundleShippingCents: rawEstimateCents,
+    shippingAlreadyChargedCents: 0,
+  });
+  const capCents = charge.freeShippingApplied
+    ? null
+    : Math.min(
+        show.shippingCapCents != null && Number.isFinite(show.shippingCapCents)
+          ? Math.max(0, Math.floor(show.shippingCapCents))
+          : PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS,
+        PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS,
+      );
+  const capReached = totalsMeta.capReached;
 
   const separatePackageCount = groups.filter((g) =>
     g.items.some((i) => i.profile.requiresSeparatePackage),
@@ -370,10 +463,15 @@ export async function estimateWinItemShippingDeltaCents(args: {
   });
 
   const alreadyChargedCents = Math.max(0, session?.shippingChargedCents ?? 0);
-  const capCents = show.shippingCapCents;
+  const capCents =
+    show.shippingCapCents != null && Number.isFinite(show.shippingCapCents)
+      ? Math.min(Math.max(0, Math.floor(show.shippingCapCents)), PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS)
+      : PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS;
   if (
     session?.capReached === true ||
-    (shippingMode === "capped" && capCents != null && capCents > 0 && alreadyChargedCents >= capCents)
+    show.freeShippingEnabled ||
+    (capCents > 0 && alreadyChargedCents >= capCents) ||
+    alreadyChargedCents >= PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS
   ) {
     return 0;
   }
@@ -383,16 +481,17 @@ export async function estimateWinItemShippingDeltaCents(args: {
     ...currentRows,
     { itemId: winProfile.itemId, profile: winProfile.profile, overrides: winProfile.overrides },
   ];
-  const nextPoolBuyerTotal = computePoolTotalsFromGroups(
+  const nextPool = computePoolTotalsFromGroups(
     packageGroupsFromProfileRows(nextRows, show),
     show,
-  ).buyerTotalCents;
+  );
 
   return computeBuyerLiveShippingTotals({
     shippingMode,
     shippingCapCents: capCents,
     sellerPaysOverCap: show.sellerPaysOverCap !== false,
-    estimatedEligibleBundleShippingCents: nextPoolBuyerTotal,
+    // Pass uncapped raw so remaining-to-cap math matches settlement/subsidy paths.
+    estimatedEligibleBundleShippingCents: nextPool.rawEstimateCents,
     shippingAlreadyChargedCents: alreadyChargedCents,
   }).shippingDueForThisPurchaseCents;
 }

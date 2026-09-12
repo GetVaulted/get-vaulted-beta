@@ -29,4 +29,11 @@ describe("live show shipping profile inheritance", () => {
     expect(suggestShippingProfileSlugForCategory("Full Size Helmet Break")).toBe("full_size_helmet");
     expect(suggestShippingProfileSlugForCategory("Trading Cards")).toBe("trading_cards");
   });
+
+  it("maps card breaks to the light mailer band (not card_lot)", () => {
+    expect(suggestShippingProfileSlugForCategory("Live Break")).toBe("trading_cards");
+    expect(suggestShippingProfileSlugForCategory("NFL Break")).toBe("trading_cards");
+    expect(suggestShippingProfileSlugForCategory("Card Lot")).toBe("card_lot");
+    expect(suggestShippingProfileSlugForCategory("Random Lot")).toBe("card_lot");
+  });
 });

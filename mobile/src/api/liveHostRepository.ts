@@ -46,6 +46,8 @@ export type HostStreamPayload = {
   streamProvider: string;
   streamHealth: string;
   streamPaused?: boolean;
+  /** `stage_webrtc` | `channel_hls` — used for on-air / companion gating. */
+  streamMode?: string | null;
   playbackUrl: string | null;
   streamStartedAt: string | null;
   streamEndedAt: string | null;
@@ -60,6 +62,10 @@ export type LiveRoomHostDetail = {
   status: 'scheduled' | 'live' | 'ended';
   roomType: 'auction' | 'sale' | 'break';
   description?: string | null;
+  /** In-room show notes (not discovery description). */
+  showNotes?: string | null;
+  /** Unlisted private shows cannot blast followers from share. */
+  discoveryVisibility?: 'public' | 'private';
   scheduledStartAt?: string | null;
   startedAt?: string | null;
   endedAt?: string | null;
@@ -149,6 +155,7 @@ export async function fetchLiveRoomForHost(
     status: room.status,
     roomType: room.roomType,
     description: room.description ?? null,
+    showNotes: room.showNotes ?? null,
     scheduledStartAt: room.scheduledStartAt ?? null,
     startedAt: room.startedAt ?? null,
     endedAt: room.endedAt ?? null,
@@ -229,6 +236,66 @@ export async function patchLiveRoomAction(
   }
 }
 
+/**
+ * Edit a scheduled show's public metadata (title, discovery description, cover image, start time).
+ * Only includes keys the caller provides so untouched fields are left alone server-side.
+ * `scheduledStartAt: null` clears the scheduled time; `thumbnailUrl: ''` clears the cover.
+ */
+export async function patchLiveRoomMetadata(
+  accessToken: string,
+  roomId: string,
+  fields: {
+    title?: string;
+    description?: string;
+    thumbnailUrl?: string;
+    teaserVideoUrl?: string | null;
+    teaserVideoDurationMs?: number | null;
+    scheduledStartAt?: string | null;
+  },
+): Promise<void> {
+  const body: Record<string, unknown> = {};
+  if (typeof fields.title === 'string') body.title = fields.title;
+  if (typeof fields.description === 'string') body.description = fields.description;
+  if (typeof fields.thumbnailUrl === 'string') body.thumbnailUrl = fields.thumbnailUrl;
+  if ('teaserVideoUrl' in fields) {
+    body.teaserVideoUrl = fields.teaserVideoUrl;
+    body.teaserVideoDurationMs = fields.teaserVideoDurationMs ?? null;
+  }
+  if ('scheduledStartAt' in fields) body.scheduledStartAt = fields.scheduledStartAt;
+  if (Object.keys(body).length === 0) return;
+
+  const res = await hostFetch(`/api/live-rooms/${encodeURIComponent(roomId)}`, accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+  let j: { error?: string } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+}
+
+/** Seller in-room show notes (stored as live room `showNotes`, max 4000). */
+export async function patchLiveRoomShowNotes(
+  accessToken: string,
+  roomId: string,
+  showNotes: string,
+): Promise<void> {
+  const res = await hostFetch(`/api/live-rooms/${encodeURIComponent(roomId)}`, accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify({ showNotes }),
+  });
+  let j: { error?: string } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+}
+
 export async function fetchHostStream(
   accessToken: string,
   roomId: string,
@@ -259,7 +326,12 @@ export async function provisionHostStream(
   );
   let j: {
     stream?: HostStreamPayload;
-    ingest?: { endpoint?: string; oneTimeStreamKey?: string };
+    ingest?: {
+      endpoint?: string;
+      oneTimeStreamKey?: string;
+      participantToken?: string;
+      whipServerUrl?: string;
+    };
     error?: string;
   } = {};
   try {
@@ -268,8 +340,12 @@ export async function provisionHostStream(
     /* ignore */
   }
   if (!res.ok) throw new Error(apiErrorMessage(res, j));
-  const endpoint = j.ingest?.endpoint?.trim() ?? j.stream?.ingestEndpoint?.trim() ?? '';
-  const key = j.ingest?.oneTimeStreamKey?.trim() ?? '';
+  const endpoint =
+    j.ingest?.whipServerUrl?.trim() ??
+    j.ingest?.endpoint?.trim() ??
+    j.stream?.ingestEndpoint?.trim() ??
+    '';
+  const key = j.ingest?.oneTimeStreamKey?.trim() ?? j.ingest?.participantToken?.trim() ?? '';
   if (!endpoint || !key) throw new Error('Stream provision did not return ingest details.');
   if (!j.stream) throw new Error('Stream provision incomplete.');
   return { stream: j.stream, ingestEndpoint: endpoint, oneTimeStreamKey: key };
@@ -288,6 +364,8 @@ export function hostConsoleRoomToDetail(room: HostConsoleRoom): LiveRoomHostDeta
     status: room.status,
     roomType: room.roomType,
     description: room.description ?? null,
+    showNotes: room.showNotes ?? null,
+    discoveryVisibility: room.discoveryVisibility === 'private' ? 'private' : 'public',
     scheduledStartAt: room.scheduledStartAt ?? null,
     startedAt: room.startedAt ?? null,
     endedAt: room.endedAt ?? null,
@@ -312,6 +390,8 @@ export type HostRecentSaleRow = {
   statusLabel: string;
   occurredAt: string;
   spotLabel?: string | null;
+  platformFeeDueUsd?: number | null;
+  purchaseId?: string | null;
 };
 
 export type HostPaymentFailureRow = {
@@ -341,7 +421,23 @@ function parseRecentSaleRow(raw: unknown): HostRecentSaleRow | null {
   const statusLabel = typeof o.statusLabel === 'string' ? o.statusLabel : paymentTone;
   const occurredAt = typeof o.occurredAt === 'string' ? o.occurredAt : new Date().toISOString();
   const spotLabel = typeof o.spotLabel === 'string' ? o.spotLabel : null;
-  return { id, kind, buyerUsername, amountUsd, paymentTone, statusLabel, occurredAt, spotLabel };
+  const platformFeeDueUsd =
+    typeof o.platformFeeDueUsd === 'number' && Number.isFinite(o.platformFeeDueUsd)
+      ? o.platformFeeDueUsd
+      : null;
+  const purchaseId = typeof o.purchaseId === 'string' ? o.purchaseId.trim() : null;
+  return {
+    id,
+    kind,
+    buyerUsername,
+    amountUsd,
+    paymentTone,
+    statusLabel,
+    occurredAt,
+    spotLabel,
+    platformFeeDueUsd,
+    purchaseId,
+  };
 }
 
 function parsePaymentFailureRow(raw: unknown): HostPaymentFailureRow | null {
@@ -363,6 +459,19 @@ function parsePaymentFailureRow(raw: unknown): HostPaymentFailureRow | null {
   };
 }
 
+export type HostSellerShowSummary = {
+  showId: string;
+  status: string;
+  grossShowSalesCents: number;
+  refundedShowSalesCents: number;
+  netShowSalesCents: number;
+  paidOrderCount: number;
+  currentFeeRatePercent: number;
+  nextTierFeePercent: number | null;
+  amountUntilNextTierCents: number | null;
+  tierProgressPercent: number;
+};
+
 export type HostConsolePayload = {
   serverNowMs: number;
   syncScope?: 'lite' | 'full';
@@ -371,10 +480,54 @@ export type HostConsolePayload = {
   activeItem: LiveRoomItemRow | null;
   recentSalesTotalUsd: number;
   recentSales: HostRecentSaleRow[];
+  sellerSummary: HostSellerShowSummary | null;
   paymentFailures: HostPaymentFailureRow[];
   messages: HostConsoleMessage[];
   giveaways: LiveGiveawayRow[];
 };
+
+function parseSellerSummary(raw: unknown): HostSellerShowSummary | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const showId = typeof o.showId === 'string' ? o.showId : '';
+  if (!showId) return null;
+  const feeTier =
+    o.feeTier && typeof o.feeTier === 'object' ? (o.feeTier as Record<string, unknown>) : null;
+  return {
+    showId,
+    status: typeof o.status === 'string' ? o.status : 'unknown',
+    grossShowSalesCents:
+      typeof o.grossShowSalesCents === 'number' && Number.isFinite(o.grossShowSalesCents)
+        ? o.grossShowSalesCents
+        : 0,
+    refundedShowSalesCents:
+      typeof o.refundedShowSalesCents === 'number' && Number.isFinite(o.refundedShowSalesCents)
+        ? o.refundedShowSalesCents
+        : 0,
+    netShowSalesCents:
+      typeof o.netShowSalesCents === 'number' && Number.isFinite(o.netShowSalesCents)
+        ? o.netShowSalesCents
+        : 0,
+    paidOrderCount:
+      typeof o.paidOrderCount === 'number' && Number.isFinite(o.paidOrderCount) ? o.paidOrderCount : 0,
+    currentFeeRatePercent:
+      typeof o.currentFeeRatePercent === 'number' && Number.isFinite(o.currentFeeRatePercent)
+        ? o.currentFeeRatePercent
+        : 8,
+    nextTierFeePercent:
+      typeof feeTier?.nextTierFeePercent === 'number' && Number.isFinite(feeTier.nextTierFeePercent)
+        ? feeTier.nextTierFeePercent
+        : null,
+    amountUntilNextTierCents:
+      typeof o.amountUntilNextTierCents === 'number' && Number.isFinite(o.amountUntilNextTierCents)
+        ? o.amountUntilNextTierCents
+        : null,
+    tierProgressPercent:
+      typeof o.tierProgressPercent === 'number' && Number.isFinite(o.tierProgressPercent)
+        ? o.tierProgressPercent
+        : 0,
+  };
+}
 
 export async function fetchHostConsole(
   accessToken: string,
@@ -406,6 +559,7 @@ async function fetchHostConsoleFromApi(
     queueItems?: { item: LiveRoomItemRow }[];
     messages?: HostConsoleMessage[];
     recentSales?: unknown[];
+    sellerSummary?: unknown;
     sellerUnresolvedPaymentFailures?: unknown[];
     giveaways?: LiveGiveawayRow[];
     error?: string;
@@ -425,6 +579,7 @@ async function fetchHostConsoleFromApi(
     .map(parseRecentSaleRow)
     .filter((r): r is HostRecentSaleRow => r != null);
   const recentSalesTotalUsd = recentSales.reduce((sum, s) => sum + s.amountUsd, 0);
+  const sellerSummary = parseSellerSummary(j.sellerSummary);
   const paymentFailures = (j.sellerUnresolvedPaymentFailures ?? [])
     .map(parsePaymentFailureRow)
     .filter((r): r is HostPaymentFailureRow => r != null);
@@ -438,6 +593,7 @@ async function fetchHostConsoleFromApi(
     activeItem,
     recentSalesTotalUsd,
     recentSales,
+    sellerSummary,
     paymentFailures,
     messages,
     giveaways,

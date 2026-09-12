@@ -1,8 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { buildPresenceChannelKey } from "@/lib/live-room-presence-key";
+import {
+  releaseLiveRoomChannel,
+  retainLiveRoomChannel,
+  subscribeLiveRoomChannel,
+} from "@/lib/live-room-shared-channel";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
-import { roomChannel, RT_EVENT } from "@/lib/realtime-channels";
+import { RT_EVENT } from "@/lib/realtime-channels";
 import type { LiveRoomModeratorLevel } from "@/generated/prisma/enums";
 import { isPinnedMessageActive, msUntilPinnedMessageExpires } from "@/lib/trust/pinned-message-expiry";
 
@@ -129,15 +135,16 @@ export function useLiveRoomModerationState(liveRoomId: string, enabled = true) {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return undefined;
 
-    const channel = supabase
-      .channel(roomChannel(liveRoomId))
-      .on("broadcast", { event: RT_EVENT.moderationChanged }, () => {
-        void reload();
-      })
-      .subscribe();
+    const presenceKey = buildPresenceChannelKey(liveRoomId, null, false);
+    const channel = retainLiveRoomChannel(supabase, liveRoomId, presenceKey);
+    channel.on("broadcast", { event: RT_EVENT.moderationChanged }, () => {
+      void reload();
+    });
+    const unsubscribeStatus = subscribeLiveRoomChannel(liveRoomId, () => {});
 
     return () => {
-      void supabase.removeChannel(channel);
+      unsubscribeStatus();
+      releaseLiveRoomChannel(supabase, liveRoomId);
     };
   }, [enabled, liveRoomId, reload]);
 

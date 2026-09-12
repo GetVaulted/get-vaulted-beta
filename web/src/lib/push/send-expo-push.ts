@@ -71,11 +71,19 @@ export async function sendExpoPushForUser(payload: ExpoPushPayload): Promise<voi
     const pushTokens = await loadExpoPushTokens(payload.userId);
     if (pushTokens.length === 0) return;
 
+    // iOS home-screen icon badge only updates from the APNs `badge` field (or an explicit
+    // client setBadgeCountAsync). Without this, pushes alert but the red corner count never
+    // appears while the app is backgrounded / killed.
+    const unreadCount = await prisma.notification.count({
+      where: { userId: payload.userId, readAt: null },
+    });
+
     const messages: ExpoPushMessage[] = pushTokens.map((to) => ({
       to,
       sound: "default",
       title: payload.title.slice(0, 200),
       body: payload.body.slice(0, 2000),
+      badge: unreadCount,
       data: {
         href: payload.href.slice(0, 2000),
         type: payload.type,

@@ -1,5 +1,8 @@
 export type ListingInventoryChannel = "marketplace" | "live_show";
 
+export const LIVE_SHOW_INVENTORY_MARKER = "<!--gv-inventory:live_show-->";
+export const MARKETPLACE_INVENTORY_MARKER = "<!--gv-inventory:marketplace-->";
+
 const MARKER_RE = /<!--gv-inventory:(marketplace|live_show)-->/;
 const MARKER_STRIP_RE = /\n?<!--gv-inventory:(marketplace|live_show)-->/g;
 

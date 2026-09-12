@@ -7,6 +7,20 @@ import { describeAuctionChargeSlotForAdmin } from "@/lib/auction-bid-payment-lab
 import { AdminOrderPayoutPanel } from "@/components/admin/AdminOrderPayoutPanel";
 import { AdminOrderEvidencePanel } from "@/components/admin/AdminOrderEvidencePanel";
 
+type ShippingReconciliation = {
+  buyerShippingCents: number;
+  actualLabelCostCents: number | null;
+  labelStatus: "none" | "purchased" | "exception";
+  paidByPlatform: boolean;
+  sellerDeductionCents: number;
+  deductionStatus: string;
+  netShippingVarianceCents: number;
+  shippoTransactionId: string | null;
+  shippingLabelCostReversalId: string | null;
+  flagged: boolean;
+  flagReasons: string[];
+};
+
 type OrderPayload = {
   id: string;
   status: string;
@@ -32,6 +46,26 @@ type OrderPayload = {
   payoutHoldUntil: string | null;
   payoutReserveAmountCents: number;
   payoutMethod: string;
+  sellerPayoutProcessor?: string | null;
+  processorTransferId?: string | null;
+  paypalPayoutStatus?: string | null;
+  paypalPayoutFeeCents?: number | null;
+  shippingChargedCents: number | null;
+  shippingLabelCostCents: number | null;
+  shippingLabelCostReversedCents: number;
+  shippingLabelCostReversalId: string | null;
+  shippoTransactionId: string | null;
+  labelUrl: string | null;
+  labelCreatedAt: string | null;
+  shippingStatus: string | null;
+  shippingReconciliation: ShippingReconciliation | null;
+  liveShippingSession: {
+    id: string;
+    shippingChargedCents: number;
+    estimatedLabelCostCents: number | null;
+    finalLabelCostCents: number | null;
+    shippingMode: string | null;
+  } | null;
   payoutEvaluation: {
     sellerEligible: boolean;
     instantPayoutAllowed: boolean;
@@ -180,6 +214,110 @@ export function AdminOrderDetailPage() {
         </p>
       </section>
 
+      {data.shippingReconciliation ? (
+        <section
+          className={`mt-6 space-y-3 rounded-xl border p-4 text-xs ${
+            data.shippingReconciliation.flagged
+              ? "border-rose-500/40 bg-rose-500/[0.06]"
+              : "border-white/[0.08] bg-[#0a0a0d]/80"
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-sm font-bold uppercase tracking-wide text-zinc-400">
+              Shipping reconciliation
+            </h2>
+            {data.shippingReconciliation.flagged ? (
+              <span className="rounded-md bg-rose-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-300">
+                Flagged
+              </span>
+            ) : null}
+          </div>
+          <p className="text-[10px] text-zinc-500">
+            Buyer shipping is seller pass-through at charge. Platform pays Shippo for GV labels, then
+            claws actual label cost back via Stripe transfer reversal.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <p className="text-zinc-500">
+              Buyer shipping collected:{" "}
+              <span className="font-mono text-zinc-200">
+                {money(data.shippingReconciliation.buyerShippingCents / 100)}
+              </span>
+            </p>
+            <p className="text-zinc-500">
+              Actual label cost:{" "}
+              <span className="font-mono text-zinc-200">
+                {data.shippingReconciliation.actualLabelCostCents != null
+                  ? money(data.shippingReconciliation.actualLabelCostCents / 100)
+                  : "—"}
+              </span>
+            </p>
+            <p className="text-zinc-500">
+              Label status:{" "}
+              <span className="capitalize text-zinc-200">{data.shippingReconciliation.labelStatus}</span>
+            </p>
+            <p className="text-zinc-500">
+              Paid by platform:{" "}
+              <span className="text-zinc-200">
+                {data.shippingReconciliation.paidByPlatform ? "Yes" : "No"}
+              </span>
+            </p>
+            <p className="text-zinc-500">
+              Seller deduction:{" "}
+              <span className="font-mono text-zinc-200">
+                {money(data.shippingReconciliation.sellerDeductionCents / 100)}
+              </span>
+            </p>
+            <p className="text-zinc-500">
+              Deduction status:{" "}
+              <span className="font-mono text-zinc-200">{data.shippingReconciliation.deductionStatus}</span>
+            </p>
+            <p className="text-zinc-500">
+              Net shipping variance:{" "}
+              <span
+                className={`font-mono ${
+                  data.shippingReconciliation.netShippingVarianceCents === 0
+                    ? "text-zinc-200"
+                    : "text-rose-300"
+                }`}
+              >
+                {money(data.shippingReconciliation.netShippingVarianceCents / 100)}
+              </span>
+            </p>
+            <p className="text-zinc-500">
+              Seller payout status: <span className="capitalize text-zinc-200">{data.payoutStatus}</span>
+            </p>
+            <p className="text-zinc-500">
+              Reversal id:{" "}
+              <span className="font-mono text-[10px] text-zinc-300">
+                {data.shippingReconciliation.shippingLabelCostReversalId || "—"}
+              </span>
+            </p>
+          </div>
+          {data.liveShippingSession ? (
+            <p className="text-[10px] text-zinc-600">
+              Live session {data.liveShippingSession.id.slice(0, 12)}… · mode{" "}
+              {data.liveShippingSession.shippingMode ?? "—"} · session shipping charged{" "}
+              {money(data.liveShippingSession.shippingChargedCents / 100)} · session estimate/final label{" "}
+              {data.liveShippingSession.estimatedLabelCostCents != null
+                ? money(data.liveShippingSession.estimatedLabelCostCents / 100)
+                : "—"}
+              /
+              {data.liveShippingSession.finalLabelCostCents != null
+                ? money(data.liveShippingSession.finalLabelCostCents / 100)
+                : "—"}{" "}
+              (estimate fields may be set before any Shippo purchase)
+            </p>
+          ) : null}
+          {data.shippingReconciliation.flagReasons.length > 0 ? (
+            <ul className="space-y-1 text-[11px] text-rose-300">
+              {data.shippingReconciliation.flagReasons.map((r) => (
+                <li key={r}>• {r}</li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
+
       <AdminOrderPayoutPanel
         orderId={data.id}
         payoutStatus={data.payoutStatus}
@@ -189,6 +327,9 @@ export function AdminOrderDetailPage() {
         payoutHoldUntil={data.payoutHoldUntil}
         payoutReserveAmountCents={data.payoutReserveAmountCents}
         payoutMethod={data.payoutMethod}
+        sellerPayoutProcessor={data.sellerPayoutProcessor}
+        processorTransferId={data.processorTransferId}
+        paypalPayoutStatus={data.paypalPayoutStatus}
         payoutEvaluation={data.payoutEvaluation}
         onUpdated={() => void load()}
       />

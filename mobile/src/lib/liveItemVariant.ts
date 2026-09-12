@@ -1,6 +1,11 @@
 import type { LiveItemVariantSnapshot, LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 
-export type LiveItemSalesFormat = 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
+export type LiveItemSalesFormat =
+  | 'auction'
+  | 'buy_now'
+  | 'variant_selection'
+  | 'team_break'
+  | 'player_selection';
 
 const MAIN_DIVISION_LABELS = new Set([
   'AFC East',
@@ -88,18 +93,30 @@ export function sortVariantsForBuyerDisplay<T extends VariantDisplayOrderInput>(
   return indexed.map(({ v }) => v);
 }
 
-export function isVariantSalesFormat(format: string | null | undefined): format is 'variant_selection' | 'team_break' {
-  return format === 'variant_selection' || format === 'team_break';
+export function isVariantSalesFormat(
+  format: string | null | undefined,
+): format is 'variant_selection' | 'team_break' | 'player_selection' {
+  return format === 'variant_selection' || format === 'team_break' || format === 'player_selection';
 }
 
 export function isActiveVariantBuyerItem(snap: LiveRoomBuyerSnapshot | null | undefined): boolean {
-  if (!snap?.activeItemId || snap.status !== 'live') return false;
-  if (!isVariantSalesFormat(snap.activeItemSalesFormat)) return false;
-  return (snap.activeItemVariants?.length ?? 0) > 0;
+  if (!snap?.activeItemId) return false;
+  // Pre-sale: host may pin a PYT board while the room is still scheduled.
+  if (snap.status !== 'live' && snap.status !== 'scheduled') return false;
+  // Format alone is enough — do not require variants to be hydrated yet. An empty/lagging
+  // `activeItemVariants` array previously fell through to bid UI and could mis-route checkout.
+  return isVariantSalesFormat(snap.activeItemSalesFormat);
+}
+
+/** True when the active PYT/PYD lot has no open spots left (sold roster / break-in-progress). */
+export function isBuyerVariantRosterClosed(snap: LiveRoomBuyerSnapshot | null | undefined): boolean {
+  if (!isActiveVariantBuyerItem(snap)) return false;
+  const variants = snap!.activeItemVariants ?? [];
+  return variants.length > 0 && availableVariantCount(variants) <= 0;
 }
 
 export function variantIsAvailable(v: LiveItemVariantSnapshot): boolean {
-  return v.quantityRemaining > 0 && v.status !== 'sold_out';
+  return v.quantityRemaining > 0 && v.status !== 'sold_out' && v.status !== 'removed';
 }
 
 /**
@@ -150,6 +167,42 @@ export function evaluateFreshVariantsForCheckout(
   const fresh = result.variants.find((v) => v.id === selectedVariantId);
   if (!fresh || !variantIsAvailable(fresh)) {
     return { proceed: false, message: 'This spot was just taken. Pick another.', closeSheet: false };
+  }
+  return { proceed: true };
+}
+
+/** Same pre-charge gate for multi-select checkout — every selected id must still be open. */
+export function evaluateFreshVariantsForBatchCheckout(
+  result: RefreshVariantsResult,
+  selectedVariantIds: string[],
+): CheckoutAvailabilityDecision {
+  if (selectedVariantIds.length === 0) {
+    return { proceed: false, message: 'Select at least one spot.', closeSheet: false };
+  }
+  if (result.status === 'not_tracked') return { proceed: true };
+  if (result.status === 'item_changed') {
+    return {
+      proceed: false,
+      message: 'This lot has changed — please review before buying.',
+      closeSheet: true,
+    };
+  }
+  if (result.status === 'fetch_failed') {
+    return {
+      proceed: false,
+      message: "Couldn't verify availability — please try again.",
+      closeSheet: false,
+    };
+  }
+  for (const id of selectedVariantIds) {
+    const fresh = result.variants.find((v) => v.id === id);
+    if (!fresh || !variantIsAvailable(fresh)) {
+      return {
+        proceed: false,
+        message: 'One or more selected spots just sold out. Update your selection.',
+        closeSheet: false,
+      };
+    }
   }
   return { proceed: true };
 }
@@ -221,6 +274,27 @@ export function hostPinnedBuyerVariant(
   return pinned[0] ?? null;
 }
 
+/**
+ * Buyer-facing featured spot: prefer the live spot-auction variant id, then the host pin (`isHot`).
+ * Auctioned teams must stay labeled even if `isHot` is cleared mid-auction.
+ */
+export function featuredBuyerVariant(
+  snap: Pick<
+    LiveRoomBuyerSnapshot,
+    'activeItemVariants' | 'activeItemVariantAssignmentMode' | 'auctionVariantId' | 'activeSpotCommerceMode'
+  > | null | undefined,
+): LiveItemVariantSnapshot | null {
+  if (!snap) return null;
+  const variants = snap.activeItemVariants ?? [];
+  if (!variants.length) return null;
+  const auctionId = snap.auctionVariantId?.trim();
+  if (snap.activeSpotCommerceMode === 'auction' && auctionId) {
+    const auctioned = variants.find((v) => v.id === auctionId);
+    if (auctioned) return auctioned;
+  }
+  return hostPinnedBuyerVariant(variants, snap.activeItemVariantAssignmentMode);
+}
+
 export function buildExclusiveHostPinUpdates(
   variants: Array<{ id: string }>,
   pinnedVariantId: string,
@@ -228,10 +302,11 @@ export function buildExclusiveHostPinUpdates(
   return variants.map((v) => ({ id: v.id, isHot: v.id === pinnedVariantId }));
 }
 
-/** Buyer CTA on pinned PYT/PYD break — opens the team/division picker sheet. */
+/** Buyer CTA on pinned PYT/PYD/PYP break — opens the spot picker sheet. */
 export function variantClaimPrimaryLabel(format: LiveItemSalesFormat | null | undefined): string {
   if (format === 'team_break') return 'Claim Division';
   if (format === 'variant_selection') return 'Claim Team';
+  if (format === 'player_selection') return 'Claim Player';
   return 'Claim Spot';
 }
 
@@ -251,8 +326,10 @@ export function variantSelectSpotLabel(
   if (random) {
     if (format === 'team_break') return 'Random Division';
     if (format === 'variant_selection') return 'Random Team';
+    if (format === 'player_selection') return 'Random Player';
   }
   if (format === 'team_break') return 'Pick Your Division';
   if (format === 'variant_selection') return 'Pick Your Team';
+  if (format === 'player_selection') return 'Pick Your Player';
   return 'Select Spot';
 }

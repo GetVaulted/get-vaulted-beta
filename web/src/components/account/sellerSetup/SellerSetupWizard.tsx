@@ -13,6 +13,7 @@ import { WizardShell } from "@/components/account/sellerSetup/WizardShell";
 import { SELLER_SHIP_FROM_COUNTRY, sellerNeedsShipFromPhoneOnly } from "@/lib/seller-shipping-readiness";
 import {
   isPayoutSetupComplete,
+  isPayoutSetupSubmitted,
   isRequiredSellerSetupComplete,
   SELLER_HQ_PATH,
 } from "@/lib/seller-setup-state";
@@ -42,12 +43,18 @@ type SellerPayload = {
 type LiveReadinessChecks = {
   hasStripeAccount: boolean;
   stripeChargesEnabled: boolean;
+  stripePayoutSubmitted: boolean;
   hasShipFromAddress: boolean;
+  paypalPayoutReady?: boolean;
+  paypalSellerPayoutsEnabled?: boolean;
+  preferredSellerPayoutProcessor?: "STRIPE" | "PAYPAL";
 };
 
 type LiveReadiness = {
   checks: LiveReadinessChecks;
 };
+
+type PayoutRail = "STRIPE" | "PAYPAL";
 
 export function SellerSetupWizard() {
   const router = useRouter();
@@ -67,6 +74,10 @@ export function SellerSetupWizard() {
   const [stripePlatformConfigured, setStripePlatformConfigured] = useState(false);
   const [stripeEmbedOnboardingAvailable, setStripeEmbedOnboardingAvailable] = useState(false);
   const [stripeEmbedOpen, setStripeEmbedOpen] = useState(false);
+  const [payoutRail, setPayoutRail] = useState<PayoutRail>("STRIPE");
+  const [paypalEnabled, setPaypalEnabled] = useState(false);
+  const [paypalEmail, setPaypalEmail] = useState("");
+  const [paypalReady, setPaypalReady] = useState(false);
 
   const [shipName, setShipName] = useState("");
   const [shipStreet, setShipStreet] = useState("");
@@ -78,7 +89,6 @@ export function SellerSetupWizard() {
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const [displayName, setDisplayName] = useState("");
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [profileSaveBusy, setProfileSaveBusy] = useState(false);
   const [profileSaveError, setProfileSaveError] = useState<string | null>(null);
@@ -113,6 +123,15 @@ export function SellerSetupWizard() {
       setReadiness(j.readiness ?? null);
       setStripePlatformConfigured(j.stripePlatformConfigured === true);
       setStripeEmbedOnboardingAvailable(j.stripeEmbedOnboardingAvailable === true);
+      const checks = j.readiness?.checks;
+      if (checks?.preferredSellerPayoutProcessor === "PAYPAL" || checks?.paypalPayoutReady) {
+        setPayoutRail("PAYPAL");
+      } else {
+        setPayoutRail("STRIPE");
+      }
+      setPaypalReady(Boolean(checks?.paypalPayoutReady));
+      // Prefer readiness flag (same request as setup load) so PayPal chooser isn't lost if preference GET fails.
+      setPaypalEnabled(checks?.paypalSellerPayoutsEnabled === true);
       if (s) {
         setShipName(s.shipFromName ?? "");
         setShipStreet(s.shipFromStreet ?? "");
@@ -120,9 +139,27 @@ export function SellerSetupWizard() {
         setShipState(s.shipFromState ?? "");
         setShipZip(s.shipFromZip ?? "");
         setShipPhone(s.shipFromPhone ?? j.shipFromAddresses?.find((a) => a.isDefault)?.phone ?? j.shipFromAddresses?.[0]?.phone ?? "");
-        setDisplayName(s.name ?? "");
         setProfileImage(s.image);
         setShippingSaved(Boolean(j.readiness?.checks.hasShipFromAddress));
+      }
+      try {
+        const prefRes = await fetch("/api/account/seller/payout-preference", { credentials: "same-origin" });
+        if (prefRes.ok) {
+          const pref = (await prefRes.json()) as {
+            paypalSellerPayoutsEnabled?: boolean;
+            preferredSellerPayoutProcessor?: "STRIPE" | "PAYPAL";
+            paypalPayoutEmail?: string | null;
+            paypalPayoutVerifiedAt?: string | null;
+          };
+          if (typeof pref.paypalSellerPayoutsEnabled === "boolean") {
+            setPaypalEnabled(pref.paypalSellerPayoutsEnabled);
+          }
+          if (pref.preferredSellerPayoutProcessor === "PAYPAL") setPayoutRail("PAYPAL");
+          setPaypalEmail(pref.paypalPayoutEmail ?? "");
+          setPaypalReady(Boolean(pref.paypalPayoutVerifiedAt));
+        }
+      } catch {
+        /* email/preference optional — chooser still uses readiness flag above */
       }
     } finally {
       setLoading(false);
@@ -253,6 +290,49 @@ export function SellerSetupWizard() {
     }
   };
 
+  const patchPayoutPreference = async (body: {
+    preferredSellerPayoutProcessor?: "STRIPE" | "PAYPAL";
+    paypalPayoutEmail?: string | null;
+    verifyPayPalEmail?: boolean;
+  }) => {
+    setBusy(true);
+    setLoadError(null);
+    setPayoutReconcileError(null);
+    try {
+      const res = await fetch("/api/account/seller/payout-preference", {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        preferredSellerPayoutProcessor?: "STRIPE" | "PAYPAL";
+        paypalPayoutEmail?: string | null;
+        paypalPayoutVerifiedAt?: string | null;
+      };
+      if (!res.ok) {
+        setLoadError(j.error ?? "Could not update payout preference.");
+        return false;
+      }
+      if (j.preferredSellerPayoutProcessor === "PAYPAL" || j.preferredSellerPayoutProcessor === "STRIPE") {
+        setPayoutRail(j.preferredSellerPayoutProcessor);
+      }
+      setPaypalEmail(j.paypalPayoutEmail ?? "");
+      setPaypalReady(Boolean(j.paypalPayoutVerifiedAt));
+      await load();
+      return true;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const selectPayoutRail = (rail: PayoutRail) => {
+    setPayoutRail(rail);
+    setStripeEmbedOpen(false);
+    void patchPayoutPreference({ preferredSellerPayoutProcessor: rail });
+  };
+
   const saveShipFrom = async () => {
     setSaveError(null);
     const phoneOnly = sellerNeedsShipFromPhoneOnly({
@@ -355,14 +435,11 @@ export function SellerSetupWizard() {
     setProfileSaveError(null);
     setProfileSaveBusy(true);
     try {
-      const body: { name?: string; image?: string } = {};
-      if (displayName.trim()) body.name = displayName.trim();
-      if (profileImage) body.image = profileImage;
-      if (Object.keys(body).length) {
+      if (profileImage) {
         const res = await fetch("/api/account/profile", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ image: profileImage }),
         });
         const j = (await res.json().catch(() => ({}))) as { error?: string };
         if (!res.ok) {
@@ -432,7 +509,11 @@ export function SellerSetupWizard() {
   }
 
   const checks = readiness.checks;
-  const payoutsDone = isPayoutSetupComplete(checks);
+  // Local rail wins immediately on tap — Stripe already linked must not hide the PayPal email step.
+  const payoutsDone =
+    payoutRail === "PAYPAL"
+      ? Boolean(paypalReady || checks.paypalPayoutReady)
+      : isPayoutSetupSubmitted(checks);
   const payoutPhase = payoutsDone
     ? "connected"
     : payoutReconciling
@@ -459,11 +540,32 @@ export function SellerSetupWizard() {
       {step === 2 ? (
         <PayoutStep
           phase={payoutPhase}
+          rail={payoutRail}
+          paypalEnabled={paypalEnabled}
+          paypalEmail={paypalEmail}
+          paypalReady={paypalReady || Boolean(checks.paypalPayoutReady)}
           stripePlatformConfigured={stripePlatformConfigured}
           busy={busy}
           embedOpen={stripeEmbedOpen}
           loadError={loadError}
           reconcileError={payoutReconcileError}
+          onSelectRail={selectPayoutRail}
+          onPaypalEmailChange={setPaypalEmail}
+          onSavePaypalEmail={() => {
+            void patchPayoutPreference({
+              preferredSellerPayoutProcessor: "PAYPAL",
+              paypalPayoutEmail: paypalEmail,
+            });
+          }}
+          onVerifyPaypal={() => {
+            void patchPayoutPreference({
+              preferredSellerPayoutProcessor: "PAYPAL",
+              paypalPayoutEmail: paypalEmail,
+              verifyPayPalEmail: true,
+            }).then((ok) => {
+              if (ok) toast("PayPal payout email verified.");
+            });
+          }}
           onBack={goBack}
           onConnect={openPayoutConnect}
           onContinue={() => goToStep(3)}
@@ -471,7 +573,7 @@ export function SellerSetupWizard() {
           onCancelConfirm={() => {
             payoutReconcileAbortRef.current = true;
             setPayoutReconciling(false);
-            setPayoutReconcileError("Payout confirmation cancelled. Tap Connect payouts to try again.");
+            setPayoutReconcileError("Payout confirmation cancelled. Tap Connect Stripe to try again.");
           }}
           onEmbedClose={() => {
             setStripeEmbedOpen(false);
@@ -523,14 +625,12 @@ export function SellerSetupWizard() {
 
       {step === 4 ? (
         <ProfileStep
-          displayName={displayName}
           imageUrl={profileImage}
           saveBusy={profileSaveBusy}
           saveError={profileSaveError}
           sellerAgreementAccepted={sellerAgreementAccepted}
           onSellerAgreementChange={setSellerAgreementAccepted}
           onBack={goBack}
-          onDisplayNameChange={setDisplayName}
           onImageChange={setProfileImage}
           onSave={() => void saveProfile()}
           onSkip={skipProfile}

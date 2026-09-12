@@ -21,22 +21,42 @@ import {
   liveHostDefaultProfileId,
   liveHostShippingProfileOptions,
 } from '../../../api/liveHostShippingRepository';
+import {
+  fetchLiveRoomShopInventory,
+  fetchPriorLiveRoomsForCopy,
+  type LiveShopInventoryListing,
+  type PriorLiveRoomOption,
+} from '../../../api/liveRoomControlRepository';
 import { uploadListingImageViaWeb } from '../../../api/webListingsRepository';
 import {
   breakSpotCountForSaleType,
   emptyQuickLiveLotInput,
   isBreakLotSaleType,
   isPickBreakLotSaleType,
+  isPlayerBreakLotSaleType,
   parseUsdInput,
   syncPickBreakSpotDrafts,
+  syncPlayerPickSpotDrafts,
   validateQuickLiveLot,
   type LiveLotSaleType,
   type QuickLiveLotInput,
   type QuickLiveLotValues,
 } from '../../../lib/liveAuctionPricing';
-import type { LiveBreakVariantDraft } from '../../../lib/liveBreakPresets';
+import {
+  BOARD_PACK_LABELS,
+  DEFAULT_LIVE_BOARD_PACK,
+  LIVE_BOARD_PACKS,
+  boardPackSupportsDivisions,
+  boardPackTeamCount,
+  type LiveBoardPackId,
+  type LiveBreakVariantDraft,
+} from '../../../lib/liveBreakPresets';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { RANDOM_BREAK_SALE_TYPES_ENABLED } from '../../../../../shared/live-break-feature-flags';
+import {
+  parsePlayerSpotList,
+  PLAYER_SPOT_MAX,
+} from '../../../../../shared/live-player-spot-list';
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
 import { colors, radii, spacing } from '../../../theme';
 import { BreakSpotSetupGrid } from './BreakSpotSetupGrid';
@@ -44,13 +64,14 @@ import { BreakSpotSetupGrid } from './BreakSpotSetupGrid';
 const THUMBNAIL_MAX_BYTES = 20 * 1024 * 1024;
 
 type SaleCategory = 'teams_divisions' | 'auction' | 'buy_now';
-type BreakSaleType = 'pyt' | 'pyd' | 'random_pyt' | 'random_pyd';
+type BreakSaleType = 'pyt' | 'pyd' | 'pyp' | 'random_pyt' | 'random_pyd' | 'random_pyp';
+type AddSourceTab = 'new' | 'shop' | 'copy';
 
 const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
   {
     id: 'teams_divisions',
     label: SELLER_CONSOLE.saleCategoryTeamsDivisions,
-    sub: RANDOM_BREAK_SALE_TYPES_ENABLED ? 'Pick or random spots' : 'Pick your team or division',
+    sub: RANDOM_BREAK_SALE_TYPES_ENABLED ? 'Pick or random spots' : 'Teams, divisions, or players',
   },
   { id: 'auction', label: SELLER_CONSOLE.saleCategoryAuction, sub: 'Timed bidding' },
   { id: 'buy_now', label: SELLER_CONSOLE.saleCategoryBuyNow, sub: 'Fixed price' },
@@ -58,15 +79,22 @@ const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
 
 const BREAK_VARIANTS: { id: BreakSaleType; label: string; sub: string }[] = [
   { id: 'pyt', label: 'PYT', sub: 'Pick your team' },
-  { id: 'pyd', label: 'PYD', sub: 'Pick division' },
-  { id: 'random_pyt', label: 'Random Teams', sub: '32 · vault reveal' },
-  { id: 'random_pyd', label: 'Random Divisions', sub: '8 · vault reveal' },
+  { id: 'pyd', label: 'PYD', sub: 'Pick division · NFL' },
+  { id: 'pyp', label: 'PYP', sub: 'Pick your player' },
+  { id: 'random_pyt', label: 'Random Teams', sub: 'Vault reveal' },
+  { id: 'random_pyd', label: 'Random Divisions', sub: '8 · NFL' },
+  { id: 'random_pyp', label: 'Random Players', sub: 'Vault reveal' },
 ];
 
-/** Sale-type picker options actually shown to sellers — random breaks stay in `BREAK_VARIANTS` but are hidden while disabled. */
-const VISIBLE_BREAK_VARIANTS = RANDOM_BREAK_SALE_TYPES_ENABLED
-  ? BREAK_VARIANTS
-  : BREAK_VARIANTS.filter((v) => v.id === 'pyt' || v.id === 'pyd');
+function visibleBreakVariants(boardPack: LiveBoardPackId) {
+  const base = RANDOM_BREAK_SALE_TYPES_ENABLED
+    ? BREAK_VARIANTS
+    : BREAK_VARIANTS.filter((v) => v.id === 'pyt' || v.id === 'pyd' || v.id === 'pyp');
+  if (boardPackSupportsDivisions(boardPack)) return base;
+  return base.filter(
+    (v) => v.id === 'pyt' || v.id === 'pyp' || v.id === 'random_pyt' || v.id === 'random_pyp',
+  );
+}
 
 function saleCategoryForType(saleType: LiveLotSaleType): SaleCategory {
   if (saleType === 'buy_now') return 'buy_now';
@@ -91,6 +119,8 @@ export function AddInventoryModal({
   busy,
   onClose,
   onSubmit,
+  onSubmitFromShop,
+  onImportFromPriorRoom,
 }: {
   visible: boolean;
   accessToken: string;
@@ -98,9 +128,12 @@ export function AddInventoryModal({
   busy?: boolean;
   onClose: () => void;
   onSubmit: (payload: QuickLiveLotSubmitPayload, options?: QuickLiveLotSubmitOptions) => void;
+  onSubmitFromShop?: (listingIds: string[]) => void;
+  onImportFromPriorRoom?: (sourceRoomId: string) => void;
 }) {
   const insets = useSafeAreaInsets();
   const keyboardInset = useKeyboardInset();
+  const [addSource, setAddSource] = useState<AddSourceTab>('new');
   const [draft, setDraft] = useState<QuickLiveLotInput>(emptyQuickLiveLotInput());
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -108,19 +141,42 @@ export function AddInventoryModal({
   const [imageError, setImageError] = useState<string | null>(null);
   const [spotDrafts, setSpotDrafts] = useState<LiveBreakVariantDraft[]>([]);
   const [spotsCustomized, setSpotsCustomized] = useState(false);
+  const [boardPack, setBoardPack] = useState<LiveBoardPackId>(DEFAULT_LIVE_BOARD_PACK);
+  const [includeNcaaSpot, setIncludeNcaaSpot] = useState(false);
+  const [playerListText, setPlayerListText] = useState('');
   const [profileOptions, setProfileOptions] = useState<{ id: string; name: string; isDefault?: boolean }[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [profileOptionsAreSeller, setProfileOptionsAreSeller] = useState(true);
+  const [shopListings, setShopListings] = useState<LiveShopInventoryListing[]>([]);
+  const [shopLoading, setShopLoading] = useState(false);
+  const [shopError, setShopError] = useState<string | null>(null);
+  const [shopQuery, setShopQuery] = useState('');
+  const [selectedShopIds, setSelectedShopIds] = useState<string[]>([]);
+  const [priorRooms, setPriorRooms] = useState<PriorLiveRoomOption[]>([]);
+  const [priorLoading, setPriorLoading] = useState(false);
+  const [priorError, setPriorError] = useState<string | null>(null);
+  const [selectedPriorRoomId, setSelectedPriorRoomId] = useState('');
 
   const resetDraft = () => {
+    setAddSource('new');
     setDraft(emptyQuickLiveLotInput());
     setSpotDrafts([]);
     setSpotsCustomized(false);
+    setBoardPack(DEFAULT_LIVE_BOARD_PACK);
+    setIncludeNcaaSpot(false);
+    setPlayerListText('');
     setImageUri(null);
     setImageUrl(null);
     setImageUploading(false);
     setImageError(null);
     setSelectedProfileId('');
+    setShopListings([]);
+    setShopError(null);
+    setShopQuery('');
+    setSelectedShopIds([]);
+    setPriorRooms([]);
+    setPriorError(null);
+    setSelectedPriorRoomId('');
   };
 
   useEffect(() => {
@@ -143,6 +199,53 @@ export function AddInventoryModal({
   }, [visible]);
 
   useEffect(() => {
+    if (!visible || !accessToken.trim() || !roomId.trim() || addSource !== 'shop') return;
+    let cancelled = false;
+    setShopLoading(true);
+    setShopError(null);
+    void fetchLiveRoomShopInventory(accessToken, roomId)
+      .then((rows) => {
+        if (cancelled) return;
+        setShopListings(rows);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setShopError(e instanceof Error ? e.message : 'Could not load shop inventory.');
+        setShopListings([]);
+      })
+      .finally(() => {
+        if (!cancelled) setShopLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, addSource, roomId, visible]);
+
+  useEffect(() => {
+    if (!visible || !accessToken.trim() || !roomId.trim() || addSource !== 'copy') return;
+    let cancelled = false;
+    setPriorLoading(true);
+    setPriorError(null);
+    void fetchPriorLiveRoomsForCopy(accessToken, roomId)
+      .then((rooms) => {
+        if (cancelled) return;
+        setPriorRooms(rooms);
+        setSelectedPriorRoomId((prev) => prev || rooms[0]?.id || '');
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setPriorError(e instanceof Error ? e.message : 'Could not load prior shows.');
+        setPriorRooms([]);
+      })
+      .finally(() => {
+        if (!cancelled) setPriorLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, addSource, roomId, visible]);
+
+  useEffect(() => {
     if (!isPickBreakLotSaleType(draft.saleType)) {
       setSpotDrafts([]);
       setSpotsCustomized(false);
@@ -150,6 +253,22 @@ export function AddInventoryModal({
     }
     const basePrice = parseUsdInput(draft.price);
     const saleType = draft.saleType;
+    if (saleType === 'pyp') {
+      const parsed = parsePlayerSpotList(playerListText);
+      if (!parsed.ok) {
+        setSpotDrafts([]);
+        return;
+      }
+      setSpotDrafts((prev) =>
+        syncPlayerPickSpotDrafts({
+          prev,
+          names: parsed.names,
+          basePrice,
+          spotsCustomized,
+        }),
+      );
+      return;
+    }
     if (saleType !== 'pyt' && saleType !== 'pyd') return;
     setSpotDrafts((prev) =>
       syncPickBreakSpotDrafts({
@@ -157,18 +276,34 @@ export function AddInventoryModal({
         saleType,
         basePrice,
         spotsCustomized,
+        boardPack,
+        includeNcaaSpot,
       }),
     );
-  }, [draft.saleType, draft.price, spotsCustomized]);
+  }, [draft.saleType, draft.price, spotsCustomized, boardPack, includeNcaaSpot, playerListText]);
 
   const setSaleType = (saleType: LiveLotSaleType) => {
     setDraft((prev) => ({ ...prev, saleType }));
     setSpotDrafts([]);
     setSpotsCustomized(false);
+    if (saleType !== 'pyt' && saleType !== 'random_pyt') {
+      setIncludeNcaaSpot(false);
+    }
+  };
+
+  const setBoardPackAndReset = (pack: LiveBoardPackId) => {
+    setBoardPack(pack);
+    setSpotDrafts([]);
+    setSpotsCustomized(false);
+    if (pack !== 'nfl') setIncludeNcaaSpot(false);
+    if (!boardPackSupportsDivisions(pack) && (draft.saleType === 'pyd' || draft.saleType === 'random_pyd')) {
+      setDraft((prev) => ({ ...prev, saleType: 'pyt' }));
+    }
   };
 
   const saleCategory = saleCategoryForType(draft.saleType);
   const breakSaleType: BreakSaleType = isBreakLotSaleType(draft.saleType) ? draft.saleType : 'pyt';
+  const breakOptions = visibleBreakVariants(boardPack);
 
   const setSaleCategory = (category: SaleCategory) => {
     if (category === 'auction') setSaleType('auction');
@@ -223,7 +358,13 @@ export function AddInventoryModal({
       Alert.alert('Photo required', 'Add one product photo before saving to the show.');
       return;
     }
-    const validated = validateQuickLiveLot({ ...draft, spotDrafts });
+    const validated = validateQuickLiveLot({
+      ...draft,
+      spotDrafts,
+      boardPack,
+      includeNcaaSpot: boardPack === 'nfl' && includeNcaaSpot,
+      playerListText,
+    });
     if (!validated.ok) {
       Alert.alert('Add product', validated.message);
       return;
@@ -239,17 +380,31 @@ export function AddInventoryModal({
     if (addAnother) resetDraft();
   };
 
+  const isPlayerBreak = isPlayerBreakLotSaleType(draft.saleType);
+  const playerListPreview = parsePlayerSpotList(playerListText);
   const priceLabel =
     draft.saleType === 'auction'
       ? 'Starting bid'
-      : draft.saleType === 'pyt'
+      : draft.saleType === 'pyt' || draft.saleType === 'random_pyt'
         ? 'Price per team'
-        : draft.saleType === 'pyd'
+        : draft.saleType === 'pyd' || draft.saleType === 'random_pyd'
           ? 'Price per division'
-          : 'Buy-it-now price';
+          : draft.saleType === 'pyp' || draft.saleType === 'random_pyp'
+            ? 'Price per player'
+            : 'Buy-it-now price';
   const pricePlaceholder =
-    draft.saleType === 'auction' ? '1' : draft.saleType === 'pyt' || draft.saleType === 'pyd' ? '25' : '25';
-  const breakSpots = breakSpotCountForSaleType(draft.saleType);
+    draft.saleType === 'auction' ? '1' : isBreakLotSaleType(draft.saleType) ? '25' : '25';
+  const breakSpots = breakSpotCountForSaleType(
+    draft.saleType,
+    boardPack,
+    boardPack === 'nfl' && includeNcaaSpot,
+    playerListPreview.ok ? playerListPreview.names.length : 0,
+  );
+  const showNcaaOption =
+    boardPack === 'nfl' && (draft.saleType === 'pyt' || draft.saleType === 'random_pyt');
+  const playerCountLabel = playerListPreview.ok
+    ? `${playerListPreview.names.length} / ${PLAYER_SPOT_MAX}`
+    : `${playerListPreview.names?.length ?? 0} / ${PLAYER_SPOT_MAX}`;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
@@ -269,6 +424,161 @@ export function AddInventoryModal({
             contentContainerStyle={styles.scrollContent}
           >
             <Text style={styles.title}>Add to show</Text>
+            <View style={styles.sourceTabs}>
+              {(
+                [
+                  { id: 'new' as const, label: SELLER_CONSOLE.addSourceNew },
+                  { id: 'shop' as const, label: SELLER_CONSOLE.addSourceShop },
+                  { id: 'copy' as const, label: SELLER_CONSOLE.addSourceCopyShow },
+                ] as const
+              ).map((tab) => {
+                const on = addSource === tab.id;
+                return (
+                  <Pressable
+                    key={tab.id}
+                    style={[styles.sourceTab, on && styles.sourceTabOn]}
+                    onPress={() => setAddSource(tab.id)}
+                    disabled={busy}
+                  >
+                    <Text style={[styles.sourceTabTxt, on && styles.sourceTabTxtOn]} numberOfLines={1}>
+                      {tab.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {addSource === 'shop' ? (
+              <>
+                <Text style={styles.sub}>{SELLER_CONSOLE.addSourceShopHint}</Text>
+                <TextInput
+                  value={shopQuery}
+                  onChangeText={setShopQuery}
+                  placeholder="Search your shop…"
+                  placeholderTextColor={colors.textMuted}
+                  style={styles.input}
+                  editable={!busy}
+                />
+                {shopLoading ? <ActivityIndicator color={colors.gold} style={{ marginVertical: 12 }} /> : null}
+                {shopError ? <Text style={styles.errorTxt}>{shopError}</Text> : null}
+                {!shopLoading && !shopError && shopListings.length === 0 ? (
+                  <Text style={styles.sub}>
+                    No reusable shop items yet. Add inventory under Seller HQ → Live show, then pull them in here.
+                  </Text>
+                ) : null}
+                {shopListings
+                  .filter((row) => {
+                    const q = shopQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    return row.title.toLowerCase().includes(q);
+                  })
+                  .map((row) => {
+                    const selected = selectedShopIds.includes(row.id);
+                    const disabled = (!row.available && !selected) || Boolean(busy);
+                    const priceLabel =
+                      row.buyingFormat === 'auction'
+                        ? `Start $${Math.round(row.startingBidUsd ?? row.priceUsd ?? 0)}`
+                        : `$${Math.round(row.priceUsd ?? 0)}`;
+                    return (
+                      <Pressable
+                        key={row.id}
+                        style={[styles.shopRow, selected && styles.shopRowOn, disabled && styles.primaryOff]}
+                        onPress={() => {
+                          if (disabled && !selected) return;
+                          setSelectedShopIds((prev) =>
+                            prev.includes(row.id) ? prev.filter((id) => id !== row.id) : [...prev, row.id],
+                          );
+                        }}
+                        disabled={disabled && !selected}
+                      >
+                        <Image source={{ uri: row.imageUrl }} style={styles.shopThumb} contentFit="cover" />
+                        <View style={styles.shopMeta}>
+                          <Text style={styles.shopTitle} numberOfLines={2}>
+                            {row.title}
+                          </Text>
+                          <Text style={styles.shopSub} numberOfLines={2}>
+                            {row.inventoryChannel === 'live_show' ? 'Live show' : 'Marketplace'} · {priceLabel}
+                            {row.alreadyInQueue ? ' · Already in lineup' : ''}
+                            {row.inventoryHeld ? ' · Held in checkout' : ''}
+                          </Text>
+                        </View>
+                        <Ionicons
+                          name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+                          size={22}
+                          color={selected ? colors.gold : colors.textMuted}
+                        />
+                      </Pressable>
+                    );
+                  })}
+                <Pressable
+                  style={[
+                    styles.primary,
+                    (busy || selectedShopIds.length === 0 || !onSubmitFromShop) && styles.primaryOff,
+                  ]}
+                  onPress={() => {
+                    if (!onSubmitFromShop || selectedShopIds.length === 0) {
+                      Alert.alert('From my shop', 'Select at least one item.');
+                      return;
+                    }
+                    onSubmitFromShop(selectedShopIds);
+                  }}
+                  disabled={busy || selectedShopIds.length === 0 || !onSubmitFromShop}
+                >
+                  <Text style={styles.primaryTxt}>
+                    {busy ? 'Adding…' : `Add ${selectedShopIds.length || ''} to lineup`}
+                  </Text>
+                </Pressable>
+              </>
+            ) : addSource === 'copy' ? (
+              <>
+                <Text style={styles.sub}>{SELLER_CONSOLE.addSourceCopyHint}</Text>
+                {priorLoading ? <ActivityIndicator color={colors.gold} style={{ marginVertical: 12 }} /> : null}
+                {priorError ? <Text style={styles.errorTxt}>{priorError}</Text> : null}
+                {!priorLoading && !priorError && priorRooms.length === 0 ? (
+                  <Text style={styles.sub}>No prior shows found to copy from.</Text>
+                ) : null}
+                {priorRooms.map((room) => {
+                  const selected = selectedPriorRoomId === room.id;
+                  return (
+                    <Pressable
+                      key={room.id}
+                      style={[styles.shopRow, selected && styles.shopRowOn]}
+                      onPress={() => setSelectedPriorRoomId(room.id)}
+                      disabled={busy}
+                    >
+                      <View style={styles.shopMeta}>
+                        <Text style={styles.shopTitle} numberOfLines={2}>
+                          {room.title || 'Untitled show'}
+                        </Text>
+                        <Text style={styles.shopSub}>{room.status}</Text>
+                      </View>
+                      <Ionicons
+                        name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={22}
+                        color={selected ? colors.gold : colors.textMuted}
+                      />
+                    </Pressable>
+                  );
+                })}
+                <Pressable
+                  style={[
+                    styles.primary,
+                    (busy || !selectedPriorRoomId || !onImportFromPriorRoom) && styles.primaryOff,
+                  ]}
+                  onPress={() => {
+                    if (!onImportFromPriorRoom || !selectedPriorRoomId) {
+                      Alert.alert('Copy last show', 'Pick a previous show to copy from.');
+                      return;
+                    }
+                    onImportFromPriorRoom(selectedPriorRoomId);
+                  }}
+                  disabled={busy || !selectedPriorRoomId || !onImportFromPriorRoom}
+                >
+                  <Text style={styles.primaryTxt}>{busy ? 'Copying…' : 'Copy unsold lineup'}</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
             <Text style={styles.sub}>Title, photo, pricing, and quantity — queue as many lots as you need.</Text>
 
             <Text style={styles.fieldLbl}>Title</Text>
@@ -322,31 +632,111 @@ export function AddInventoryModal({
             </View>
 
             {saleCategory === 'teams_divisions' ? (
-              <View style={styles.saleTypeGrid}>
-                {VISIBLE_BREAK_VARIANTS.map((type) => {
-                  const active = draft.saleType === type.id;
-                  return (
-                    <Pressable
-                      key={type.id}
-                      style={[styles.saleTypeCard, active && styles.saleTypeCardActive]}
-                      onPress={() => setSaleType(type.id)}
-                      disabled={busy}
-                    >
-                      <Text style={[styles.saleTypeLabel, active && styles.saleTypeLabelActive]}>{type.label}</Text>
-                      <Text style={[styles.saleTypeSub, active && styles.saleTypeSubActive]}>{type.sub}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              <>
+                {!isPlayerBreak ? (
+                  <>
+                    <Text style={styles.fieldLbl}>Board</Text>
+                    <View style={styles.boardPackRow}>
+                      {LIVE_BOARD_PACKS.map((pack) => {
+                        const active = boardPack === pack.id;
+                        return (
+                          <Pressable
+                            key={pack.id}
+                            style={[styles.boardPackChip, active && styles.boardPackChipOn]}
+                            onPress={() => setBoardPackAndReset(pack.id)}
+                            disabled={busy}
+                          >
+                            <Text style={[styles.boardPackChipTxt, active && styles.boardPackChipTxtOn]}>
+                              {pack.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </>
+                ) : null}
+                <View style={styles.saleTypeGrid}>
+                  {breakOptions.map((type) => {
+                    const active = draft.saleType === type.id;
+                    const teamCount = boardPackTeamCount(boardPack);
+                    const sub =
+                      type.id === 'random_pyt'
+                        ? `${teamCount} · vault reveal`
+                        : type.id === 'pyt'
+                          ? `${BOARD_PACK_LABELS[boardPack]} · ${teamCount} teams`
+                          : type.id === 'pyp'
+                            ? 'Paste your checklist'
+                            : type.id === 'random_pyp'
+                              ? 'Paste · vault reveal'
+                              : type.sub;
+                    return (
+                      <Pressable
+                        key={type.id}
+                        style={[styles.saleTypeCard, active && styles.saleTypeCardActive]}
+                        onPress={() => setSaleType(type.id)}
+                        disabled={busy}
+                      >
+                        <Text style={[styles.saleTypeLabel, active && styles.saleTypeLabelActive]}>{type.label}</Text>
+                        <Text style={[styles.saleTypeSub, active && styles.saleTypeSubActive]}>{sub}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
             ) : null}
 
             {isBreakLotSaleType(draft.saleType) ? (
               <View style={styles.breakHint}>
                 <Ionicons name="grid-outline" size={16} color={colors.gold} />
                 <Text style={styles.breakHintTxt}>
-                  Buyers pick from {breakSpots} selectable spots. Sold spots disappear from the board.
+                  {isPlayerBreak
+                    ? draft.saleType === 'random_pyp'
+                      ? 'Buyers purchase a seat — Vault Reveal assigns a player from your list.'
+                      : 'One player per line. Buyers pick a name. Sold spots disappear from the board.'
+                    : `Buyers pick from ${breakSpots} selectable spots. Sold spots disappear from the board.`}
                 </Text>
               </View>
+            ) : null}
+
+            {isPlayerBreak ? (
+              <View>
+                <View style={styles.playerListHeader}>
+                  <Text style={styles.fieldLbl}>Player list</Text>
+                  <Text style={styles.playerCount}>{playerCountLabel}</Text>
+                </View>
+                <TextInput
+                  value={playerListText}
+                  onChangeText={(text) => {
+                    setPlayerListText(text);
+                    setSpotsCustomized(false);
+                  }}
+                  placeholder={'Mahomes\nAllen\nHurts\n…'}
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                  numberOfLines={6}
+                  textAlignVertical="top"
+                  style={[styles.input, styles.playerListInput]}
+                  editable={!busy}
+                />
+                {!playerListPreview.ok && playerListText.trim() ? (
+                  <Text style={styles.errorTxt}>{playerListPreview.message}</Text>
+                ) : null}
+              </View>
+            ) : null}
+
+            {showNcaaOption ? (
+              <Pressable
+                style={styles.ncaaRow}
+                onPress={() => setIncludeNcaaSpot((prev) => !prev)}
+                disabled={busy}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: includeNcaaSpot }}
+              >
+                <View style={[styles.ncaaCheck, includeNcaaSpot && styles.ncaaCheckOn]}>
+                  {includeNcaaSpot ? <Ionicons name="checkmark" size={14} color="#0c0c0e" /> : null}
+                </View>
+                <Text style={styles.ncaaTxt}>Add NCAA spot (buyable · off by default)</Text>
+              </Pressable>
             ) : null}
 
             <Text style={styles.fieldLbl}>{priceLabel}</Text>
@@ -362,7 +752,7 @@ export function AddInventoryModal({
 
             {isPickBreakLotSaleType(draft.saleType) && spotDrafts.length > 0 ? (
               <BreakSpotSetupGrid
-                saleType={draft.saleType}
+                saleType={draft.saleType === 'pyp' ? 'pyp' : draft.saleType === 'pyd' ? 'pyd' : 'pyt'}
                 spots={spotDrafts}
                 onChange={handleSpotDraftsChange}
                 disabled={busy}
@@ -416,6 +806,8 @@ export function AddInventoryModal({
                 <Text style={styles.primaryTxt}>{busy ? 'Saving…' : 'Save to show'}</Text>
               </Pressable>
             </View>
+              </>
+            )}
           </ScrollView>
         </View>
       </View>
@@ -446,6 +838,48 @@ const styles = StyleSheet.create({
   scrollContent: { padding: spacing.md, paddingTop: spacing.xs, gap: spacing.sm },
   title: { fontSize: 20, fontWeight: '900', color: colors.textPrimary },
   sub: { fontSize: 13, color: colors.textMuted, marginBottom: spacing.xs },
+  sourceTabs: {
+    flexDirection: 'row',
+    gap: 6,
+    padding: 4,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    marginBottom: spacing.xs,
+  },
+  sourceTab: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: radii.sm,
+    alignItems: 'center',
+  },
+  sourceTabOn: {
+    backgroundColor: 'rgba(212,175,55,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.4)',
+  },
+  sourceTabTxt: { fontSize: 10, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase' },
+  sourceTabTxtOn: { color: colors.gold },
+  shopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 10,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  shopRowOn: {
+    borderColor: 'rgba(212,175,55,0.45)',
+    backgroundColor: 'rgba(212,175,55,0.1)',
+  },
+  shopThumb: { width: 48, height: 48, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.06)' },
+  shopMeta: { flex: 1, minWidth: 0 },
+  shopTitle: { fontSize: 14, fontWeight: '800', color: colors.textPrimary },
+  shopSub: { marginTop: 2, fontSize: 11, color: colors.textMuted },
   fieldLbl: {
     fontSize: 10,
     fontWeight: '700',
@@ -500,6 +934,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   saleCategoryLabel: { fontSize: 12, fontWeight: '900', color: colors.textMuted },
+  boardPackRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
+  boardPackChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  boardPackChipOn: {
+    borderColor: 'rgba(212,175,55,0.55)',
+    backgroundColor: 'rgba(212,175,55,0.12)',
+  },
+  boardPackChipTxt: { fontSize: 13, fontWeight: '800', color: colors.textMuted },
+  boardPackChipTxtOn: { color: colors.gold },
   saleTypeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   saleTypeCard: {
     width: '47%',
@@ -532,6 +981,35 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(212,175,55,0.06)',
   },
   breakHintTxt: { flex: 1, fontSize: 12, lineHeight: 17, color: colors.textSecondary },
+  playerListHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  playerCount: { fontSize: 11, fontWeight: '700', color: colors.textMuted },
+  playerListInput: { minHeight: 120, paddingTop: 12 },
+  ncaaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 4,
+  },
+  ncaaCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ncaaCheckOn: {
+    borderColor: 'rgba(212,175,55,0.65)',
+    backgroundColor: colors.gold,
+  },
+  ncaaTxt: { flex: 1, fontSize: 12, color: colors.textSecondary, fontWeight: '600' },
   profileWrap: { gap: 8, marginBottom: spacing.xs },
   profileChip: {
     borderRadius: radii.md,

@@ -4,6 +4,7 @@ import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { LiveBadge } from '../../ui/LiveBadge';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
+import type { HostVideoFeedKind, HostVideoFeedStatus } from '../../../lib/hostVideoFeedStatus';
 import { formatLiveDurationHms } from '../../../lib/formatLiveDurationHms';
 import { colors, spacing } from '../../../theme';
 
@@ -12,13 +13,35 @@ function formatViewers(n: number) {
   return String(n);
 }
 
+function badgeVariantForFeed(
+  kind: HostVideoFeedKind,
+): 'live' | 'scheduled' | 'warning' | 'elsewhere' | 'offline' {
+  switch (kind) {
+    case 'live':
+      return 'live';
+    case 'elsewhere':
+      return 'elsewhere';
+    case 'connecting':
+    case 'paused':
+      return 'warning';
+    case 'offline':
+      return 'offline';
+    case 'scheduled':
+    default:
+      return 'scheduled';
+  }
+}
+
 export function SellerLiveOverlayHeader({
   paddingTop,
   hostName,
   hostAvatarUrl,
   streamTitle,
   viewerCount,
+  /** @deprecated Prefer `videoFeed` — kept for callers that only know on/off. */
   streamOnAir = false,
+  /** Buyer-facing video indicator (LIVE / Connecting / Paused / No video). */
+  videoFeed = null,
   liveStartedAt = null,
   onBack,
   onBroadcastSettings,
@@ -33,8 +56,8 @@ export function SellerLiveOverlayHeader({
   hostAvatarUrl: string | null;
   streamTitle: string;
   viewerCount: number;
-  /** True when the host camera / IVS publish is on air — same moment the show is live for buyers. */
   streamOnAir?: boolean;
+  videoFeed?: HostVideoFeedStatus | null;
   /** Room `startedAt` — drives the on-air elapsed timer. */
   liveStartedAt?: string | null;
   onBack: () => void;
@@ -50,10 +73,17 @@ export function SellerLiveOverlayHeader({
   const viewerPop = useRef(new Animated.Value(1)).current;
   const prevViewers = useRef(viewerCount);
 
-  const showLiveBadge = streamOnAir;
+  const feed: HostVideoFeedStatus =
+    videoFeed ??
+    (streamOnAir
+      ? { kind: 'live', label: 'LIVE', videoOnAir: true }
+      : { kind: 'scheduled', label: SELLER_CONSOLE.scheduled, videoOnAir: false });
+
+  const videoOnAir = feed.videoOnAir;
+  const showPulseRing = feed.kind === 'live' || feed.kind === 'elsewhere';
 
   useEffect(() => {
-    if (!showLiveBadge) return;
+    if (!showPulseRing) return;
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(ringPulse, { toValue: 1, duration: 1600, useNativeDriver: true }),
@@ -62,7 +92,7 @@ export function SellerLiveOverlayHeader({
     );
     loop.start();
     return () => loop.stop();
-  }, [ringPulse, showLiveBadge]);
+  }, [ringPulse, showPulseRing]);
 
   useEffect(() => {
     if (viewerCount === prevViewers.current) return;
@@ -87,6 +117,8 @@ export function SellerLiveOverlayHeader({
   const liveTimerDisplay =
     timerActive && liveStartedAt ? formatLiveDurationHms(liveStartedAt, nowMs) : null;
 
+  const badgeVariant = badgeVariantForFeed(feed.kind);
+
   return (
     <View style={[styles.wrap, { paddingTop, paddingHorizontal: spacing.md }]}>
       <View style={styles.row}>
@@ -96,10 +128,11 @@ export function SellerLiveOverlayHeader({
           </Pressable>
           <View style={styles.identity}>
             <View style={styles.avatarWrap}>
-              {showLiveBadge ? (
+              {showPulseRing ? (
                 <Animated.View
                   style={[
                     styles.avatarRing,
+                    feed.kind === 'elsewhere' && styles.avatarRingElsewhere,
                     { opacity: ringOpacity, transform: [{ scale: ringScale }] },
                   ]}
                 />
@@ -117,19 +150,15 @@ export function SellerLiveOverlayHeader({
           </View>
         </View>
         <View style={styles.right}>
-          {showLiveBadge ? (
-            <View style={styles.liveCluster}>
-              <LiveBadge compact pulse />
-              {liveTimerDisplay ? <Text style={styles.liveTimer}>{liveTimerDisplay}</Text> : null}
-              <Animated.Text style={[styles.viewers, { transform: [{ scale: viewerPop }] }]}>
-                {formatViewers(viewerCount)}
-              </Animated.Text>
-            </View>
-          ) : liveTimerDisplay ? (
-            <Text style={styles.liveTimer}>{liveTimerDisplay}</Text>
-          ) : (
-            <Text style={styles.scheduled}>{SELLER_CONSOLE.scheduled}</Text>
-          )}
+          <View style={styles.liveCluster}>
+            <LiveBadge compact pulse={feed.kind === 'live'} label={feed.label} variant={badgeVariant} />
+            {liveTimerDisplay && (videoOnAir || feed.kind === 'paused' || feed.kind === 'connecting') ? (
+              <Text style={styles.liveTimer}>{liveTimerDisplay}</Text>
+            ) : null}
+            <Animated.Text style={[styles.viewers, { transform: [{ scale: viewerPop }] }]}>
+              {formatViewers(viewerCount)}
+            </Animated.Text>
+          </View>
           <Pressable style={styles.iconBtn} onPress={onBroadcastSettings} accessibilityLabel="Broadcast settings">
             <Ionicons name="settings-outline" size={19} color="rgba(255,255,255,0.88)" />
           </Pressable>
@@ -197,12 +226,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.gold,
   },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.35)',
+  avatarRingElsewhere: {
+    borderColor: '#34d399',
   },
   textCol: { flex: 1, minWidth: 0 },
   hostName: {
@@ -240,12 +265,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
-  },
-  scheduled: {
-    color: 'rgba(255,255,255,0.65)',
-    fontSize: 11,
-    fontWeight: '700',
-    marginRight: 4,
   },
   iconBtn: { padding: 8 },
   endBtn: { padding: 8 },

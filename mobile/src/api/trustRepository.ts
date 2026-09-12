@@ -164,6 +164,31 @@ export type LiveRoomTipSummary = {
   tipModeratorUsername: string | null;
 };
 
+/** Same shape as host Sales — paid / retry / pending for mods to flag the seller. */
+export type LiveRoomModRecentSaleRow = {
+  id: string;
+  kind: 'order' | 'break_spot' | 'variant_purchase';
+  buyerUsername: string;
+  amountUsd: number;
+  paymentTone: 'paid' | 'retry' | 'pending';
+  statusLabel: string;
+  occurredAt: string;
+  spotLabel?: string | null;
+  itemTitle?: string | null;
+};
+
+export type LiveRoomModPaymentFailureRow = {
+  id: string;
+  kind: string;
+  buyerId: string;
+  buyerUsername: string | null;
+  amountUsd: number;
+  status: 'payment_failed' | 'recovery_pending';
+  failureReason: string | null;
+  failedAt: string;
+  itemTitle: string | null;
+};
+
 export type LiveRoomModerationSnapshot = {
   canModerate: boolean;
   isHost: boolean;
@@ -185,6 +210,8 @@ export type LiveRoomModerationSnapshot = {
   viewers: LiveRoomViewerRow[];
   tips: LiveRoomTipRow[];
   tipSummary: LiveRoomTipSummary | null;
+  recentSales: LiveRoomModRecentSaleRow[];
+  paymentFailures: LiveRoomModPaymentFailureRow[];
   myRestrictions: {
     muted: boolean;
     roomBanned: boolean;

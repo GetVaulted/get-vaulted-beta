@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { EscrowStatus, OrderPaymentMethod } from "@/generated/prisma/enums";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
-import { createNotification } from "@/lib/notifications";
-import { scheduleOrderLifecycleEmail } from "@/lib/order-lifecycle-email";
 import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { prisma } from "@/lib/prisma";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import {
   ORDER_MUST_BE_PAID_BEFORE_FULFILLMENT,
@@ -12,11 +10,9 @@ import {
 } from "@/lib/order-shipping-guards";
 import { assertValidEscrowTransition } from "@/services/escrow/state-machine";
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
@@ -24,7 +20,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const order = await prisma.order.findFirst({
     where: {
       id,
-      OR: [{ buyerId: session.user.id }, { sellerId: session.user.id }],
+      OR: [{ buyerId: auth.userId }, { sellerId: auth.userId }],
     },
     include: {
       listing: {
@@ -55,10 +51,8 @@ function trimStr(s: unknown, max: number): string {
 
 /** Seller: mark shipped (optional tracking) or add/update tracking on shipped orders. */
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
@@ -71,7 +65,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   const order = await prisma.order.findFirst({
-    where: { id, sellerId: session.user.id },
+    where: { id, sellerId: auth.userId },
     select: {
       id: true,
       buyerId: true,
@@ -154,25 +148,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         orderId: order.id,
         kind: SELLER_COMMERCE_KIND.fulfillmentInTransit,
         title: "Marked shipped",
-        body: `You marked “${lt}” as shipped.${tn ? ` Tracking: ${tn}.` : " Carrier scans will update status to on the way."}`,
+        body: `You marked “${lt}” as shipped.${tn ? ` Tracking: ${tn}.` : " Buyer is notified when the carrier scans the package."}`,
       });
     }
-    await createNotification(prisma, {
-      userId: order.buyerId,
-      type: "order_shipped",
-      title: "Order shipped",
-      body: tn
-        ? `“${lt}” was handed to the carrier. Tracking: ${tn}. You'll get another update when it's on the way.`
-        : `“${lt}” was marked shipped by the seller. You'll get an update when the carrier scans it in.`,
-      href: `/orders/${encodeURIComponent(id)}`,
-    });
-    scheduleOrderLifecycleEmail({
-      userId: order.buyerId,
-      kind: "order_shipped",
-      orderId: id,
-      listingTitle: order.listing.title,
-      trackingNumber: tn,
-    });
+    // Buyer "Shipped" / transit emails come from Shippo carrier scans, not this manual confirm.
     emitOrderLifecycleSync({
       orderId: id,
       parties: { sellerId: order.sellerId, buyerId: order.buyerId },
@@ -181,6 +160,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       paymentStatus: order.paymentStatus,
       extraPayload: { fulfillmentStatus: "shipped" },
     });
+    void import("@/services/payout/process-payout-tier-events").then(({ processSellerMarkedShippedPayoutEvaluation }) =>
+      processSellerMarkedShippedPayoutEvaluation(id),
+    );
     return NextResponse.json({ ok: true });
   }
 

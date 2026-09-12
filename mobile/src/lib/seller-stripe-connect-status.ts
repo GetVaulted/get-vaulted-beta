@@ -1,6 +1,6 @@
 import type { SellerConnectStatusResponse } from '../api/stripeConnectRepository';
 import { isSellerPayoutSetupComplete } from '../api/stripeConnectRepository';
-import { isPayoutSetupComplete, type SellerReadinessChecks } from './seller-setup-state';
+import { isPayoutSetupSubmitted, type SellerReadinessChecks } from './seller-setup-state';
 
 export type PayoutReconcileUiState =
   | 'complete'
@@ -8,19 +8,26 @@ export type PayoutReconcileUiState =
   | 'continue_stripe'
   | 'status_unavailable';
 
-/** Payout wizard step complete — seller readiness and/or live Connect status. */
+/** Payout wizard step complete — submitted (pending Stripe review OK) or fully verified. */
 export function isWizardPayoutStepComplete(
   checks: SellerReadinessChecks | null | undefined,
   connect: SellerConnectStatusResponse | null | undefined,
 ): boolean {
-  if (isPayoutSetupComplete(checks)) return true;
+  // PayPal rail is email-verify only — ignore Stripe Connect status for this step.
+  if (checks?.preferredSellerPayoutProcessor === 'PAYPAL') {
+    return Boolean(checks.paypalPayoutReady);
+  }
+  if (isPayoutSetupSubmitted(checks)) return true;
   if (isSellerPayoutSetupComplete(connect)) return true;
   if (!connect?.stripe_account_id?.trim()) return false;
   return Boolean(
-    connect.payout_setup_complete ||
-      connect.payout_setup_submitted ||
+    connect.payout_setup_submitted ||
+      connect.payout_setup_complete ||
       connect.stripe_onboarding_complete ||
-      connect.can_publish_active_listings,
+      connect.can_publish_active_listings ||
+      connect.onboarding_ui_status === 'pending_review' ||
+      connect.onboarding_ui_status === 'verified' ||
+      (connect.stripe_charges_enabled === true && connect.stripe_payouts_enabled === true),
   );
 }
 

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSellerFollowUserId } from "@/lib/resolve-seller-follow-auth";
 import { resolveSellerFromApiParam } from "@/lib/resolve-seller-route-param";
 import { createNotification } from "@/lib/notifications";
+import { isUserBlocked, viewerCanSeeUser } from "@/lib/user-block";
 
 export async function POST(req: Request, ctx: { params: Promise<{ sellerId: string }> }) {
   const auth = await requireSellerFollowUserId(req);
@@ -15,6 +16,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ sellerId: stri
 
   if (seller.id === session.userId) {
     return NextResponse.json({ error: "You cannot follow yourself." }, { status: 400 });
+  }
+
+  if (!(await viewerCanSeeUser(prisma, session.userId, seller.id))) {
+    return NextResponse.json({ error: "Seller not found." }, { status: 404 });
+  }
+  if (await isUserBlocked(prisma, session.userId, seller.id)) {
+    return NextResponse.json({ error: "You cannot follow this user." }, { status: 403 });
   }
 
   try {

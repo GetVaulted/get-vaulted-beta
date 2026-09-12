@@ -24,6 +24,12 @@ describe('mapLivePaymentFailureMessage', () => {
     );
   });
 
+  it('maps client request timeouts to a safe retry message', () => {
+    expect(mapLivePaymentFailureMessage('Request timed out after 15000ms: https://shopgetvaulted.com/api/...')).toMatch(
+      /taking too long/i,
+    );
+  });
+
   it('never surfaces raw stripe errors', () => {
     expect(mapLivePaymentFailureMessage('Stripe: No such payment_intent: pi_123')).toBe(
       'Your payment method needs attention.',

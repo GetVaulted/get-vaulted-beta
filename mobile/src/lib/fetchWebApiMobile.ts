@@ -1,6 +1,7 @@
 import { isLikelyHtmlEdgeResponse } from './betaApiResponse';
 import { buildWebApiUrl, getWebApiBaseUrl, misconfiguredWebApiHostWarning } from './webApiBaseUrl';
 import { readWebApiResponseText } from './webApiResponse';
+import { CONNECTION_ERROR_MESSAGE } from './friendlyErrorText';
 
 let warnedMisconfiguredHost = false;
 
@@ -58,7 +59,10 @@ async function fetchOnce(url: string, init: RequestInit, timeoutMs: number = DEF
     return await fetch(url, { ...init, cache: 'no-store', signal: timeoutController.signal });
   } catch (e) {
     if (timeoutController.signal.aborted && !(callerSignal?.aborted)) {
-      throw new Error(`Request timed out after ${timeoutMs}ms: ${url}`);
+      console.warn('[fetchWebApiMobile] request timed out', { url, timeoutMs });
+      const timeoutError = new Error(CONNECTION_ERROR_MESSAGE);
+      (timeoutError as Error & { isNetworkTimeout?: true }).isNetworkTimeout = true;
+      throw timeoutError;
     }
     throw e;
   } finally {
@@ -83,38 +87,46 @@ function logHtmlEdge(path: string, url: string, res: Response, preview: string):
 }
 
 /** Mobile → Next.js API fetch with the same headers as POST /api/live-rooms. */
-export async function fetchWebApiMobile(path: string, init: RequestInit = {}): Promise<Response> {
+export async function fetchWebApiMobile(
+  path: string,
+  init: RequestInit = {},
+  options?: { timeoutMs?: number },
+): Promise<Response> {
   const base = getWebApiBaseUrl();
   if (!base) {
-    throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
+    console.error('[fetchWebApiMobile] misconfigured: EXPO_PUBLIC_SITE_URL / EXPO_PUBLIC_WEB_API_URL not set');
+    throw new Error(CONNECTION_ERROR_MESSAGE);
   }
   warnMisconfiguredHostOnce(base);
 
   const { url } = buildWebApiUrl(path);
   if (!url) {
-    throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
+    console.error('[fetchWebApiMobile] misconfigured: could not build API URL', { path, base });
+    throw new Error(CONNECTION_ERROR_MESSAGE);
   }
 
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const headers = applyMobileApiHeaders(init);
   const requestInit: RequestInit = { ...init, headers };
 
   try {
-    let res = await fetchOnce(url, requestInit);
+    let res = await fetchOnce(url, requestInit, timeoutMs);
     let preview = await responsePreview(res);
     if (isLikelyHtmlEdgeResponse(res, preview)) {
       logHtmlEdge(path, url, res, preview);
       await new Promise((r) => setTimeout(r, 300));
-      res = await fetchOnce(url, requestInit);
+      res = await fetchOnce(url, requestInit, timeoutMs);
       preview = await responsePreview(res);
       if (isLikelyHtmlEdgeResponse(res, preview)) logHtmlEdge(path, url, res, preview);
     }
     return res;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(
-      msg.includes('Network request failed') || e instanceof TypeError
-        ? `Could not reach the Vaulted API at ${base}. Check your connection and env.`
-        : msg,
-    );
+    if ((e as Error & { isNetworkTimeout?: true })?.isNetworkTimeout) throw e;
+    if (msg.includes('Network request failed') || e instanceof TypeError) {
+      console.warn('[fetchWebApiMobile] connection failed before any response', { url, base });
+      throw new Error(CONNECTION_ERROR_MESSAGE);
+    }
+    throw e;
   }
 }

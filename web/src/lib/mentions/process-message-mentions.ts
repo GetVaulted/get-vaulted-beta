@@ -79,9 +79,13 @@ export async function processMessageMentions(args: ProcessArgs): Promise<Message
 
     const byUsername = new Map(users.map((u) => [u.username.toLowerCase(), u]));
     const uniqueById = new Map<string, { id: string; username: string }>();
+    const senderUsernameLower = args.senderUsername.trim().toLowerCase();
     for (const name of usernames) {
+      // Never tag yourself — skip before persist / notify / return.
+      if (name === senderUsernameLower) continue;
       const user = byUsername.get(name);
-      if (user) uniqueById.set(user.id, user);
+      if (!user || user.id === args.senderId) continue;
+      uniqueById.set(user.id, user);
     }
 
     let liveRoomTitle: string | null = null;

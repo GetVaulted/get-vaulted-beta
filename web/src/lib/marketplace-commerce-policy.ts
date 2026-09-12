@@ -1,4 +1,5 @@
 import type { BuyingFormat, ListingStatus } from "@/generated/prisma/client";
+import { LIVE_SHOW_INVENTORY_MARKER } from "@/lib/listing-inventory-channel";
 
 /** Legacy timed marketplace auction row (pre–buy-now-only policy). */
 export function isLegacyMarketplaceTimedAuction(row: {
@@ -29,11 +30,16 @@ export function isMarketplaceTimedAuctionPublishAttempt(body: {
   );
 }
 
-/** Public marketplace browse feed — buy-now listings only. */
+/**
+ * Public marketplace browse feed — buy-now listings only.
+ * Excludes live-show checkout listings (host New lot → Buy Now mint `active` rows
+ * tagged live_show for Stripe; those must stay off the catalog).
+ */
 export const PUBLIC_MARKETPLACE_LISTING_WHERE = {
   status: "active" as const,
   buyingFormat: "buy_now" as const,
   moderationRemovedAt: null,
   isCompanyListing: false,
   id: { not: { startsWith: "shot_" } },
+  description: { not: { contains: LIVE_SHOW_INVENTORY_MARKER } },
 };

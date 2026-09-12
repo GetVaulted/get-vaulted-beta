@@ -45,9 +45,10 @@ describe("buildLabelPrintPagePath", () => {
 });
 
 describe("parseCreateLabelRequestBody", () => {
-  it("reads labelFormat from POST JSON", () => {
+  it("reads labelFormat from POST JSON and defaults to 4x6 thermal", () => {
     expect(parseCreateLabelRequestBody({ labelFormat: "thermal_4x6" })).toBe("thermal_4x6");
-    expect(parseCreateLabelRequestBody({})).toBe("letter");
-    expect(parseCreateLabelRequestBody(null)).toBe("letter");
+    expect(parseCreateLabelRequestBody({ labelFormat: "letter" })).toBe("letter");
+    expect(parseCreateLabelRequestBody({})).toBe("thermal_4x6");
+    expect(parseCreateLabelRequestBody(null)).toBe("thermal_4x6");
   });
 });

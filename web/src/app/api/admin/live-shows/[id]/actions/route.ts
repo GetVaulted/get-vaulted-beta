@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { emitAuctionEnded, emitLiveDiscoveryChanged } from "@/lib/realtime-emit-server";
 import { finalizeLiveStreamReplay } from "@/lib/trust/live-replay-service";
-import { endHostStageSession } from "@/services/ivs";
+import { endHostStageSession, ensureStageHlsCompositionActive } from "@/services/ivs";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
 import { liveShowEndGmvFields } from "@/lib/live-show-gmv";
@@ -39,6 +39,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       data: {
         status: "ended",
         endedAt: new Date(),
+        viewerCount: 0,
+        viewerCountUpdatedAt: new Date(),
         ...liveShowEndGmvFields(room.completedSalesGmvUsd),
         roomVersion: { increment: 1 },
       },
@@ -69,6 +71,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       data: {
         status: "ended",
         endedAt: new Date(),
+        viewerCount: 0,
+        viewerCountUpdatedAt: new Date(),
         ...liveShowEndGmvFields(room.completedSalesGmvUsd),
         roomVersion: { increment: 1 },
       },
@@ -123,5 +127,33 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ ok: true, reportId: report.id });
   }
 
-  return NextResponse.json({ error: "Unknown action. Use end, cancel, or flag." }, { status: 400 });
+  if (action === "heal_composition") {
+    if (room.status !== "live") {
+      return NextResponse.json({ error: "Room is not live." }, { status: 409 });
+    }
+    await ensureStageHlsCompositionActive(id);
+    const after = await prisma.liveRoom.findUnique({
+      where: { id },
+      select: { ivsCompositionArn: true, lastIvsError: true },
+    });
+    await logTrustModerationAction({
+      actorUserId: gate.userId,
+      action: "admin_live_composition_healed",
+      targetType: "live_room",
+      targetId: id,
+      liveRoomId: id,
+      detail: {
+        note: note || null,
+        ivsCompositionArn: after?.ivsCompositionArn ?? null,
+        lastIvsError: after?.lastIvsError ?? null,
+      },
+    });
+    return NextResponse.json({
+      ok: true,
+      ivsCompositionArn: after?.ivsCompositionArn ?? null,
+      lastIvsError: after?.lastIvsError ?? null,
+    });
+  }
+
+  return NextResponse.json({ error: "Unknown action. Use end, cancel, flag, or heal_composition." }, { status: 400 });
 }

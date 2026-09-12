@@ -77,7 +77,7 @@ export function AccountLayawaysPage() {
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
       <div className="relative mx-auto w-full max-w-[1920px] px-3 pb-20 pt-6 sm:px-4 lg:px-10">
-        <AccountOrdersNav active="layaways" />
+        <AccountOrdersNav active="layaways" mode="buyer" />
         <header className="mt-6 border-b border-white/[0.07] pb-6">
           <h1 className="font-display text-2xl font-black tracking-tight text-foreground sm:text-3xl">My layaways</h1>
           <p className="mt-1.5 text-sm text-zinc-500">Reserve high-value items with a deposit and pay over time.</p>

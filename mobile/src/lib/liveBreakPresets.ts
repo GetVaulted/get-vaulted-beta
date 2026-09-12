@@ -1,4 +1,26 @@
-/** NFL PYT / PYD spot presets for live queue items (mirrors web live-item-variant-presets). */
+/** PYT / PYD spot presets for live queue items (mirrors web live-item-variant-presets). */
+
+import {
+  BOARD_PACK_LABELS,
+  DEFAULT_LIVE_BOARD_PACK,
+  NFL_TEAMS,
+  boardPackTeamCount,
+  findTeamByName,
+  teamColorForAbbr,
+  teamsForBoardPack,
+  type LiveBoardPackId,
+} from './liveBoardPacks';
+
+export type { LiveBoardPackId } from './liveBoardPacks';
+export {
+  BOARD_PACK_LABELS,
+  DEFAULT_LIVE_BOARD_PACK,
+  LIVE_BOARD_PACKS,
+  NFL_TEAMS,
+  boardPackSupportsDivisions,
+  boardPackTeamCount,
+  parseLiveBoardPack,
+} from './liveBoardPacks';
 
 export type LiveBreakVariantDraft = {
   label: string;
@@ -9,42 +31,23 @@ export type LiveBreakVariantDraft = {
   isHot?: boolean;
   /** Present when editing an existing queued item. */
   id?: string;
+  /** Sold spots stay visible but are not editable. */
+  soldOut?: boolean;
+  buyerUsername?: string | null;
 };
 
-export const NFL_TEAMS: { abbr: string; name: string }[] = [
-  { abbr: 'ARI', name: 'Cardinals' },
-  { abbr: 'ATL', name: 'Falcons' },
-  { abbr: 'BAL', name: 'Ravens' },
-  { abbr: 'BUF', name: 'Bills' },
-  { abbr: 'CAR', name: 'Panthers' },
-  { abbr: 'CHI', name: 'Bears' },
-  { abbr: 'CIN', name: 'Bengals' },
-  { abbr: 'CLE', name: 'Browns' },
-  { abbr: 'DAL', name: 'Cowboys' },
-  { abbr: 'DEN', name: 'Broncos' },
-  { abbr: 'DET', name: 'Lions' },
-  { abbr: 'GB', name: 'Packers' },
-  { abbr: 'HOU', name: 'Texans' },
-  { abbr: 'IND', name: 'Colts' },
-  { abbr: 'JAX', name: 'Jaguars' },
-  { abbr: 'KC', name: 'Chiefs' },
-  { abbr: 'LAC', name: 'Chargers' },
-  { abbr: 'LAR', name: 'Rams' },
-  { abbr: 'LV', name: 'Raiders' },
-  { abbr: 'MIA', name: 'Dolphins' },
-  { abbr: 'MIN', name: 'Vikings' },
-  { abbr: 'NE', name: 'Patriots' },
-  { abbr: 'NO', name: 'Saints' },
-  { abbr: 'NYG', name: 'Giants' },
-  { abbr: 'NYJ', name: 'Jets' },
-  { abbr: 'PHI', name: 'Eagles' },
-  { abbr: 'PIT', name: 'Steelers' },
-  { abbr: 'SEA', name: 'Seahawks' },
-  { abbr: 'SF', name: '49ers' },
-  { abbr: 'TB', name: 'Buccaneers' },
-  { abbr: 'TEN', name: 'Titans' },
-  { abbr: 'WAS', name: 'Commanders' },
-];
+export function liveBreakVariantIsSold(v: {
+  quantityRemaining?: number | null;
+  status?: string | null;
+}): boolean {
+  if (v.status === 'removed') return false;
+  const qty = typeof v.quantityRemaining === 'number' ? v.quantityRemaining : null;
+  return (qty != null && qty <= 0) || v.status === 'sold_out';
+}
+
+export function liveBreakVariantIsRemoved(v: { status?: string | null }): boolean {
+  return v.status === 'removed';
+}
 
 export const NFL_DIVISIONS: { label: string; conference: 'AFC' | 'NFC' }[] = [
   { label: 'AFC East', conference: 'AFC' },
@@ -57,7 +60,7 @@ export const NFL_DIVISIONS: { label: string; conference: 'AFC' | 'NFC' }[] = [
   { label: 'NFC West', conference: 'NFC' },
 ];
 
-/** Official-style primary brand hex per NFL abbreviation. */
+/** @deprecated Prefer BOARD_PACK_TEAM_COLORS.nfl via teamColorForAbbr */
 export const NFL_TEAM_COLORS: Record<string, string> = {
   ARI: '#97233F',
   ATL: '#000000',
@@ -104,8 +107,11 @@ export const NFL_DIVISION_COLORS: Record<string, string> = {
   'NFC West': '#003594',
 };
 
-export function buildPytVariants(priceUsd: number): LiveBreakVariantDraft[] {
-  return NFL_TEAMS.map((team, sortOrder) => ({
+export function buildPytVariants(
+  priceUsd: number,
+  boardPack: LiveBoardPackId = DEFAULT_LIVE_BOARD_PACK,
+): LiveBreakVariantDraft[] {
+  return teamsForBoardPack(boardPack).map((team, sortOrder) => ({
     label: team.name,
     priceUsd,
     quantityInitial: 1,
@@ -124,14 +130,17 @@ export function buildPydVariants(priceUsd: number): LiveBreakVariantDraft[] {
   }));
 }
 
-export function buildRandomTeamVariants(priceUsd: number): LiveBreakVariantDraft[] {
+export function buildRandomTeamVariants(
+  priceUsd: number,
+  boardPack: LiveBoardPackId = DEFAULT_LIVE_BOARD_PACK,
+): LiveBreakVariantDraft[] {
   return [
     {
-      label: 'Random NFL Team',
+      label: `Random ${BOARD_PACK_LABELS[boardPack]} Team`,
       priceUsd,
-      quantityInitial: 32,
+      quantityInitial: boardPackTeamCount(boardPack),
       sortOrder: 0,
-      color: 'nfl_teams',
+      color: `${boardPack}_teams`,
     },
   ];
 }
@@ -148,16 +157,15 @@ export function buildRandomDivisionVariants(priceUsd: number): LiveBreakVariantD
   ];
 }
 
-export function teamAbbrForVariant(label: string, color?: string | null): string | null {
+export function teamAbbrForVariant(label: string, color?: string | null, pack?: LiveBoardPackId | null): string | null {
   const raw = color?.trim();
   if (raw) {
     const lower = raw.toLowerCase();
-    if (lower !== 'nfl_teams' && lower !== 'nfl_divisions') {
+    if (!lower.endsWith('_teams') && lower !== 'nfl_divisions') {
       return raw.toUpperCase();
     }
   }
-  const match = NFL_TEAMS.find((t) => t.name.toLowerCase() === label.trim().toLowerCase());
-  return match?.abbr ?? null;
+  return findTeamByName(label, pack)?.abbr ?? null;
 }
 
 /** Compact division label for boards + reel pills (e.g. "AFC East" → "AFC E"). */
@@ -182,15 +190,18 @@ function divisionColorForLabelOrAbbr(label: string, abbr?: string | null): strin
 }
 
 /** Team/division brand color for vault drop reels and spot boards. */
-export function segmentColorForLabel(label: string, abbr?: string | null): string {
+export function segmentColorForLabel(label: string, abbr?: string | null, pack?: LiveBoardPackId | null): string {
   const divisionColor = divisionColorForLabelOrAbbr(label, abbr);
   if (divisionColor) return divisionColor;
   if (abbr?.trim()) {
-    const teamColor = NFL_TEAM_COLORS[abbr.trim().toUpperCase()];
+    const teamColor = teamColorForAbbr(abbr, pack);
     if (teamColor) return teamColor;
   }
-  const fromLabel = teamAbbrForVariant(label, null);
-  if (fromLabel && NFL_TEAM_COLORS[fromLabel]) return NFL_TEAM_COLORS[fromLabel]!;
+  const fromLabel = teamAbbrForVariant(label, null, pack);
+  if (fromLabel) {
+    const teamColor = teamColorForAbbr(fromLabel, pack);
+    if (teamColor) return teamColor;
+  }
   let hash = 0;
   for (let i = 0; i < label.length; i += 1) {
     hash = (hash * 31 + label.charCodeAt(i)) >>> 0;
@@ -202,12 +213,16 @@ export function segmentColorForLabel(label: string, abbr?: string | null): strin
 /** Per-spot color key for random pool boards (team abbr or division conference). */
 export function spotColorKeyForPoolLabel(
   label: string,
-  salesFormat: 'variant_selection' | 'team_break',
+  salesFormat: 'variant_selection' | 'team_break' | 'player_selection',
+  pack?: LiveBoardPackId | null,
 ): string | null {
   if (salesFormat === 'team_break') {
     return NFL_DIVISIONS.find((d) => d.label === label)?.conference ?? null;
   }
-  return NFL_TEAMS.find((t) => t.name.toLowerCase() === label.trim().toLowerCase())?.abbr ?? null;
+  if (salesFormat === 'player_selection') {
+    return null;
+  }
+  return findTeamByName(label, pack)?.abbr ?? null;
 }
 
 export function spotAccentColor(label: string, color?: string | null, isDivision?: boolean): string {

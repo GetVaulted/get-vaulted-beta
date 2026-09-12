@@ -9,26 +9,22 @@ import {
 import { SellerAgreementField } from "@/components/account/sellerSetup/SellerAgreementField";
 
 export function ProfileStep({
-  displayName,
   imageUrl,
   saveBusy,
   saveError,
   sellerAgreementAccepted,
   onSellerAgreementChange,
   onBack,
-  onDisplayNameChange,
   onImageChange,
   onSave,
   onSkip,
 }: {
-  displayName: string;
   imageUrl: string | null;
   saveBusy: boolean;
   saveError: string | null;
   sellerAgreementAccepted: boolean;
   onSellerAgreementChange: (value: boolean) => void;
   onBack: () => void;
-  onDisplayNameChange: (value: string) => void;
   onImageChange: (url: string) => void;
   onSave: () => void;
   onSkip: () => void;
@@ -45,7 +41,7 @@ export function ProfileStep({
       const blob = await compressImageFileToBlob(file);
       const fd = new FormData();
       fd.set("file", blob, "profile.jpg");
-      const res = await fetch("/api/uploads/listing-image", { method: "POST", body: fd });
+      const res = await fetch("/api/uploads/avatar", { method: "POST", body: fd });
       const j = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
       if (!res.ok || typeof j.url !== "string") {
         setUploadError(j.error ?? "Could not upload photo.");
@@ -63,7 +59,8 @@ export function ProfileStep({
     <WizardCard className="flex flex-1 flex-col">
       <h2 className="font-display text-xl font-black tracking-tight text-foreground sm:text-2xl">Seller profile</h2>
       <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-        Optional — photo and display name help buyers recognize your shop. Favorite categories are set when you create listings.
+        Optional — add a photo so buyers recognize your shop. Your username is your public name and @handle.
+        Favorite categories are set when you create listings.
       </p>
 
       <div className="mt-6 space-y-5">
@@ -93,17 +90,6 @@ export function ProfileStep({
           </button>
           {uploadError ? <p className="text-xs text-amber-200">{uploadError}</p> : null}
         </div>
-
-        <label>
-          <span className="mb-1 block text-xs font-medium text-zinc-400">Display name / bio</span>
-          <textarea
-            value={displayName}
-            onChange={(e) => onDisplayNameChange(e.target.value)}
-            rows={3}
-            placeholder="Tell buyers a little about your shop…"
-            className="w-full resize-none rounded-xl border border-white/10 bg-[#0c0c10] px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-gold/40"
-          />
-        </label>
       </div>
 
       {saveError ? <p className="mt-4 text-sm font-medium text-amber-200">{saveError}</p> : null}

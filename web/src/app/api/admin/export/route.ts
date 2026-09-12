@@ -37,6 +37,7 @@ export async function GET(req: Request) {
       pending: url.searchParams.get("pending") ?? undefined,
       from: url.searchParams.get("from") ?? undefined,
       to: url.searchParams.get("to") ?? undefined,
+      campaignId: url.searchParams.get("campaignId") ?? undefined,
     });
     return adminExportCsvResponse(payload);
   } catch (e) {

@@ -5,6 +5,7 @@ import {
   type TeamBoardLeague,
 } from '../lib/createLiveRoomPayload';
 import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
+import { fetchWebApiMobileWithSellerAuth, resolveSellerAccessToken } from '../lib/resolveSellerAccessToken';
 import { logVaultCommandCenter, supabaseJwtSub } from '../lib/logVaultCommandCenterFlow';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { liveRoomCategoryTagsForRow } from '../lib/liveRoomDisplay';
@@ -17,10 +18,14 @@ export type LiveRoomApiRow = {
   id: string;
   title: string;
   description: string | null;
+  /** In-room show notes — present on detail fetches; omit/empty on discovery lists. */
+  showNotes?: string | null;
   category: string;
   roomType: 'auction' | 'sale' | 'break';
   status: 'scheduled' | 'live' | 'ended';
   thumbnailUrl: string;
+  teaserVideoUrl?: string | null;
+  teaserVideoDurationMs?: number | null;
   /** Server-resolved cover art for discovery tiles (optional — client falls back). */
   previewImageUrl?: string;
   firstItemImageUrl?: string;
@@ -128,6 +133,8 @@ export type CreateLiveRoomInput = {
   scheduleMode: CreateScheduleMode;
   scheduledStartAt?: string | null;
   thumbnailUrl?: string | null;
+  teaserVideoUrl?: string | null;
+  teaserVideoDurationMs?: number | null;
   teamBoardLeague?: TeamBoardLeague;
   breakTotalSpots?: string | number;
   breakPricingMode?: BreakPricingMode;
@@ -145,7 +152,40 @@ export type CreateLiveRoomInput = {
   bundleEligiblePurchases?: boolean;
   recurringEnabled?: boolean;
   discoveryVisibility?: 'public' | 'private';
+  /** Seller-confirmed via the "continue from a show you ended recently?" toggle. */
+  continuationOfLiveRoomId?: string | null;
 };
+
+export type LiveRoomContinuationCandidate = {
+  id: string;
+  title: string;
+  endedAt: string;
+};
+
+/**
+ * Checks whether the seller has a recently-ended show (same roomType, ended within 24h) that this
+ * new show could continue — used to show a "continue from this show?" toggle before going live.
+ * Never links anything by itself; the seller must confirm, and the server re-validates at create
+ * time regardless of what this returns.
+ */
+export async function fetchLiveRoomContinuationCandidate(
+  accessToken: string,
+  roomType: LiveRoomApiRow['roomType'],
+): Promise<LiveRoomContinuationCandidate | null> {
+  try {
+    const token = await resolveSellerAccessToken(accessToken);
+    const res = await fetchWebApiMobileWithSellerAuth(
+      `/api/live-rooms/continuation-candidate?roomType=${encodeURIComponent(roomType)}`,
+      token,
+      { method: 'GET', headers: { Accept: 'application/json' } },
+    );
+    if (!res.ok) return null;
+    const j = (await res.json()) as { candidate: LiveRoomContinuationCandidate | null };
+    return j.candidate ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export async function createLiveRoom(
   accessToken: string,
@@ -156,7 +196,8 @@ export async function createLiveRoom(
     ...input,
     category: input.category?.trim() || 'Other',
   });
-  const sessionSub = supabaseJwtSub(accessToken);
+  const token = await resolveSellerAccessToken(accessToken);
+  const sessionSub = supabaseJwtSub(token);
   const sellerId = logContext?.sellerUserId ?? sessionSub;
   const apiBase = getWebApiBaseUrl();
   logVaultCommandCenter('room_create_request', {
@@ -172,12 +213,11 @@ export async function createLiveRoom(
     apiBase,
   });
 
-  const res = await fetchLiveRoomsApi('/api/live-rooms', {
+  const res = await fetchWebApiMobileWithSellerAuth('/api/live-rooms', token, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(body),
   });
@@ -297,6 +337,7 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
       id?: string;
       title?: string;
       description?: string | null;
+      showNotes?: string | null;
       category?: string;
       roomType?: LiveRoomApiRow['roomType'];
       status?: LiveRoomApiRow['status'];
@@ -323,6 +364,7 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
     id: r.id!,
     title: r.title ?? 'Live show',
     description: r.description ?? null,
+    showNotes: r.showNotes ?? null,
     category: r.category ?? 'Other',
     roomType: r.roomType ?? 'auction',
     status: r.status ?? 'scheduled',
@@ -340,9 +382,9 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
 
 async function fetchMyLiveRoomsFromApi(accessToken: string): Promise<LiveRoomApiRow[]> {
   const path = '/api/live-rooms?mine=1&includeEnded=1&limit=40';
-  const res = await fetchLiveRoomsApi(path, {
+  const res = await fetchWebApiMobileWithSellerAuth(path, accessToken, {
     method: 'GET',
-    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+    headers: { Accept: 'application/json' },
   });
   const logFetch = __DEV__ || process.env.EXPO_PUBLIC_VAULT_EVENTS_DEBUG === '1';
   if (!res.ok) {
@@ -377,19 +419,22 @@ export async function fetchMyLiveRooms(
   accessToken: string,
   options?: { force?: boolean },
 ): Promise<LiveRoomApiRow[]> {
+  // Refresh before cache keying — a stale JWT from React state was returning
+  // "Invalid or expired session" on Vault Events while other seller APIs worked.
+  const token = await resolveSellerAccessToken(accessToken);
   return readThroughSellerLiveRoomsCache(
-    accessToken,
-    () => fetchMyLiveRoomsFromApi(accessToken),
+    token,
+    () => fetchMyLiveRoomsFromApi(token),
     options,
   );
 }
 
 function hostFromRow(row: LiveRoomApiRow): Host {
+  // Always username — never sellerDisplayName/full legal name from OAuth profile.
   const uname = row.sellerUsername?.trim() || 'host';
-  const display = row.sellerDisplayName?.trim() || uname;
   return {
     id: row.sellerId?.trim() || uname,
-    name: display,
+    name: uname,
     handle: `@${uname}`,
     avatarUrl: resolveLiveRoomMediaUrl(row.sellerAvatarUrl) ?? '',
     verified: false,
@@ -404,6 +449,7 @@ function previewImageForRow(row: LiveRoomApiRow, category: CategoryId): string {
   return resolveLiveRoomPreviewImage({
     thumbnailUrl: row.thumbnailUrl,
     firstItemImageUrl: row.firstItemImageUrl,
+    sellerAvatarUrl: row.sellerAvatarUrl,
     category,
   });
 }
@@ -441,6 +487,7 @@ export function liveRoomRowToLiveStream(row: LiveRoomApiRow): LiveStream {
     roomStatus: row.status,
     scheduledStartAtIso: row.scheduledStartAt,
     previewImageUrl: previewImageForRow(row, cat),
+    teaserVideoUrl: row.teaserVideoUrl?.trim() || null,
     thumbnailGradient: ['#05070a', '#0c1018'] as [string, string],
     host: hostFromRow(row),
     currentItem: row.activeItemTitle?.trim() || 'Live',

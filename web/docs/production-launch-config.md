@@ -44,6 +44,30 @@ The diagnostic **never** returns `sk_`, `whsec_`, or `re_` values. `stripePublis
 
 On the **Next.js** Netlify site (same site as beta, production context):
 
+### DATABASE_URL — is it pooler :6543?
+
+In Netlify → Site configuration → Environment variables → open `DATABASE_URL` (Production). You only need the **host** and **port** — ignore the password.
+
+| What you see in the URL | Verdict |
+|-------------------------|---------|
+| `….pooler.supabase.com:6543/…` | Good — transaction pooler |
+| `….pooler.supabase.com:5432/…` | OK on Netlify — app rewrites this to `:6543` at runtime |
+| `db.xkaaicokjgmpbctfermj.supabase.co:5432/…` | Bad for serverless — direct DB; change to transaction pooler |
+| Host has `pooler` but you can’t find `:6543` or `:5432` | Treat as unknown — copy host only and compare below |
+| Value is secret-masked and only the end shows `…it=1` | Likely ends with `connection_limit=1` — good flag, still reveal host/port once |
+
+**If Netlify hides the value (secret):** Netlify will not let you read it back after save. Don’t fight the UI — either:
+
+1. **Overwrite** Production with a fresh URI from Supabase → Database → Connection string → **Transaction** (port 6543), or  
+2. After deploy, open admin Platform Health — API / Database shows **host:port only** (no password).
+
+**Correct shape (password redacted):**
+`postgresql://postgres.xkaaicokjgmpbctfermj:***@aws-0-REGION.pooler.supabase.com:6543/postgres`
+
+From Supabase → Project Settings → Database → Connection string → **Transaction** pooler (port 6543). Prefer URI with `pgbouncer=true` (app also adds `connection_limit=1` in serverless).
+
+Keep a separate **Direct** connection string only for migrations (`DIRECT_URL` / local migrate) — not for Netlify `DATABASE_URL`.
+
 ### Stripe — switch to live mode
 
 | Variable | Production value |
@@ -52,6 +76,7 @@ On the **Next.js** Netlify site (same site as beta, production context):
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `pk_live_…` from Stripe Dashboard (live mode) |
 | `STRIPE_WEBHOOK_SECRET` | Signing secret from **live** webhook endpoint |
 | `STRIPE_CONNECT_PUBLIC_APP_URL` | `https://shopgetvaulted.com` |
+| `CRON_SECRET` | Random secret for `POST /api/cron/stripe-reconcile` (and other crons) |
 
 **Leave beta/preview contexts on test keys** if you use Netlify deploy contexts — only the production context for `shopgetvaulted.com` must use live keys.
 
@@ -114,8 +139,19 @@ Then trigger a **production deploy**.
 2. **Developers → API keys** — copy live `sk_live_` and `pk_live_` into Netlify (step 1).
 3. **Developers → Webhooks** — add endpoint:
    - URL: `https://shopgetvaulted.com/api/stripe/webhook`
-   - Events: at minimum `checkout.session.completed`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `account.updated`, `charge.refunded` (match existing beta endpoint list).
+   - Events (full set handled by `processStripeWebhookEvent`):
+     - `checkout.session.completed`
+     - `checkout.session.expired`
+     - `payment_intent.succeeded`
+     - `payment_intent.payment_failed`
+     - `charge.refunded`
+     - `charge.dispute.created`
+     - `charge.dispute.closed`
+     - `account.updated`
+     - `capability.updated`
    - Copy **Signing secret** → `STRIPE_WEBHOOK_SECRET` on Netlify production.
+   - Disable any endpoint pointing at `/.netlify/functions/stripe-webhook` (legacy; Next.js is source of truth).
+   - Verify with: `cd web && npm run check:stripe-setup`
 4. **Connect** — confirm platform settings; return URLs resolve via `STRIPE_CONNECT_PUBLIC_APP_URL`.
 5. **Tax** — enable Stripe Tax + TX registration if collecting sales tax (see Admin → Sales tax nexus).
 

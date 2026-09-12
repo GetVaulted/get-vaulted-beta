@@ -18,12 +18,19 @@ const LABEL_PURCHASED_FULFILLMENT = new Set([
 export type SellerLabelOrderFields = {
   shippoTransactionId?: string | null;
   labelUrl?: string | null;
-  fulfillmentStatus?: string;
+  fulfillmentStatus?: string | null;
 };
 
 export function orderHasPurchasedLabel(order: SellerLabelOrderFields): boolean {
+  if (order.fulfillmentStatus === "exception") return false;
   if (order.shippoTransactionId?.trim() || order.labelUrl?.trim()) return true;
   return LABEL_PURCHASED_FULFILLMENT.has(order.fulfillmentStatus ?? "");
+}
+
+/** True when the order has a usable carrier label (not a failed/exception attempt). */
+export function orderHasUsableShippingLabel(order: SellerLabelOrderFields): boolean {
+  if (order.fulfillmentStatus === "exception") return false;
+  return Boolean(order.labelUrl?.trim() || order.shippoTransactionId?.trim());
 }
 
 export function orderHasLabelFile(labelUrl?: string | null): boolean {

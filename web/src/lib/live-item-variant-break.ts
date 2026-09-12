@@ -70,7 +70,7 @@ export async function beginVariantTeamBreak(liveRoomId: string, liveRoomItemId: 
   });
   if (!item) return { ok: false as const, error: "Item not found." };
   if (item.status !== "active") return { ok: false as const, error: "Pin this break item first." };
-  if (item.salesFormat !== "team_break" && item.salesFormat !== "variant_selection") {
+  if (item.salesFormat !== "team_break" && item.salesFormat !== "variant_selection" && item.salesFormat !== "player_selection") {
     return { ok: false as const, error: "This lot is not a spot-sale break." };
   }
   if (!item.variantBreakReadyAt) {

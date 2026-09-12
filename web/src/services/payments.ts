@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { EscrowStatus, OrderPaymentMethod, OrderRefundRequestStatus } from "@/generated/prisma/enums";
 import { createNotification } from "@/lib/notifications";
+import { marketplaceSellerItemSoldNotification } from "@/lib/marketplace-seller-item-sold-notification";
 import { scheduleOrderLifecycleEmail } from "@/lib/order-lifecycle-email";
 import {
   commitReferralCreditReservation,
@@ -9,6 +10,17 @@ import {
   releaseReferralCreditReservation,
   reserveReferralCreditForCheckout,
 } from "@/lib/referral-credit";
+import {
+  commitPlatformCreditReservation,
+  releasePlatformCreditReservation,
+  reservePlatformCreditForCheckout,
+} from "@/lib/giveaway/platform-credit";
+// TEMP DISABLED (incident) — re-enable alongside the call site below once diagnosed.
+// import { fundSellerCreditShortfallIfNeeded } from "@/services/payout/fund-seller-credit-shortfall";
+import {
+  orderItemSaleBasisUsd,
+  referralCreditAppliedCents,
+} from "@/lib/referral-credit-payout";
 import { estimateEscrowFeeCents, isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
 import { prisma } from "@/lib/prisma";
 import {
@@ -24,21 +36,36 @@ import {
   logIgnoredMarketplacePaymentIntentWebhook,
 } from "@/lib/stripe-payment-intent-webhook";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { logPayoutEligibilityDecision } from "@/lib/payout-audit-log";
+import { reportUrgentPaymentAnomaly } from "@/lib/cron-anomaly-alert";
+import {
+  liveSavedCardSellerReady,
+  resolveLiveSellerDestinationAccount,
+  resolveLiveSellerPayoutProcessor,
+  sellerStripeCollectSelect,
+} from "@/lib/seller-stripe-collect-ready";
 import { buildOrderTaxPersistFields } from "@/lib/sales-tax-order";
 import { recordTaxDestinationVolumeOnOrderPaid } from "@/lib/sales-tax-reporting";
+import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
 import {
   buildCheckoutTaxSessionFields,
   buildMarketplaceCheckoutTaxBundle,
-  connectCheckoutPaymentIntentData,
+  connectOrPlatformHeldCheckoutPaymentIntentData,
   loadSellerShipFromForTax,
   fetchCheckoutSessionTax,
   fetchPaymentIntentTax,
   recordStripeTaxTransaction,
+  recordTaxMonitoringOnlyTransaction,
+  reverseStripeTaxTransaction,
   STRIPE_TAX_CODE_SHIPPING,
   STRIPE_TAX_CODE_TANGIBLE,
   stripeLineItemProductData,
   TAX_PROVIDER_STRIPE,
 } from "@/lib/stripe-tax";
+import { persistOrderStripeChargeLedger } from "@/lib/stripe-charge-ledger";
+import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
+import { moneyFlowLog } from "@/lib/money-flow-log";
+import { sanitizeStripePaymentIntentId } from "@/lib/stripe-payment-intent-id";
 import {
   resolveBuyNowCheckoutLane,
   resolveOrderCheckoutLane,
@@ -50,6 +77,7 @@ import {
 } from "@/lib/stripe-checkout-session";
 import { fetchCheckoutSessionChargeBreakdown } from "@/lib/stripe-checkout-breakdown";
 import {
+  ensureOrderPlatformFeeSnapshotPersisted,
   getLiveRoomCompletedSalesGmvUsd,
   recordLiveShowCompletedSaleTx,
   resolveCheckoutApplicationFeeCents,
@@ -81,7 +109,7 @@ import {
   estimateFirstItemLiveShippingCentsForListingTx,
   removeOrderFromLiveShippingSessionOnRefundTx,
 } from "@/services/shipping/live-shipping-pricing";
-import { syncOrderShippingFromLiveSessionTx } from "@/services/shipping/live-commerce-shipping-settlement";
+import { syncOrderShippingFromLiveSessionTx, resolvePayOrderLiveShippingUsd, hasLiveShippingTermsSnapshot } from "@/services/shipping/live-commerce-shipping-settlement";
 
 /** @remarks Conceptually `payment_pending` — persisted value for compatibility. */
 export const PAYMENT_PENDING = "pending_payment" as const;
@@ -146,6 +174,9 @@ export async function processAuctionPaymentExpiries(): Promise<void> {
     releaseReferralCreditReservation(o.id).catch((e) =>
       console.error("[referral-credit] release failed (auction payment expired)", { orderId: o.id, error: e }),
     );
+    releasePlatformCreditReservation(o.id).catch((e) =>
+      console.error("[platform-credit] release failed (auction payment expired)", { orderId: o.id, error: e }),
+    );
     await createNotification(prisma, {
       userId: o.buyerId,
       type: "auction_payment_expired",
@@ -185,65 +216,114 @@ function siteUrl(): string {
 /** Stripe's minimum chargeable amount — never let a referral-credit discount push a charge below this. */
 const MIN_STRIPE_CHARGE_USD = 0.5;
 
-type ReferralCreditCheckoutFields = {
+type StoreCreditCheckoutFields = {
   itemPriceUsd: number;
   totalUsd: number;
   referralCreditAppliedUsd: number;
+  platformCreditAppliedUsd: number;
 };
 
 /**
  * Buy Now: `createBuyNowCheckoutSession`'s enclosing transaction always (re)computes
  * `itemPriceUsd`/`totalUsd` from the listing's full, undiscounted price — on both brand-new orders
  * and every "resume an existing pending checkout" branch — since the transaction has no knowledge
- * of referral credit (reservation happens after it commits, per `reserveReferralCreditForCheckout`'s
- * non-transactional contract). So any previously-reserved credit for this exact order (tracked in
- * `referralCreditAppliedUsd`, untouched by the transaction) must be re-subtracted here on every call
- * rather than re-reserved — re-reserving would double-spend the buyer's credit.
+ * of store credit (reservation happens after it commits). Previously-reserved referral + platform
+ * credit for this order must be re-subtracted here rather than re-reserved.
+ *
+ * Credits apply only when `applyReferralCredit` is true (buyer opt-in at checkout; covers both
+ * referral and Get Vaulted / platform credit).
  */
-async function applyReferralCreditForBuyNowOrder(
+async function applyStoreCreditsForBuyNowOrder(
   order: {
     id: string;
     itemPriceUsd: number;
     shippingPriceUsd: number;
     taxUsd: number;
     referralCreditAppliedUsd: number;
+    platformCreditAppliedUsd: number;
   },
   buyerId: string,
-): Promise<ReferralCreditCheckoutFields> {
-  const unchanged = {
-    itemPriceUsd: order.itemPriceUsd,
-    totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
-    referralCreditAppliedUsd: order.referralCreditAppliedUsd,
-  };
+  applyStoreCredit: boolean,
+): Promise<StoreCreditCheckoutFields> {
+  let itemPriceUsd = order.itemPriceUsd;
+  let referralApplied = 0;
+  let platformApplied = 0;
 
+  if (!applyStoreCredit) {
+    if (order.referralCreditAppliedUsd > 0) {
+      await releaseReferralCreditReservation(order.id);
+    }
+    if (order.platformCreditAppliedUsd > 0) {
+      await releasePlatformCreditReservation(order.id);
+    }
+    if (order.referralCreditAppliedUsd > 0 || order.platformCreditAppliedUsd > 0) {
+      const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { totalUsd, referralCreditAppliedUsd: 0, platformCreditAppliedUsd: 0 },
+      });
+    }
+    return {
+      itemPriceUsd,
+      totalUsd: itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
+      referralCreditAppliedUsd: 0,
+      platformCreditAppliedUsd: 0,
+    };
+  }
+
+  // Referral first, then platform credit on remaining room above Stripe minimum.
   if (order.referralCreditAppliedUsd > 0) {
-    const reapply = Math.min(
+    referralApplied = Math.min(
       order.referralCreditAppliedUsd,
-      Math.max(0, order.itemPriceUsd - MIN_STRIPE_CHARGE_USD),
+      Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD),
     );
-    if (reapply <= 0) return unchanged;
-    const itemPriceUsd = order.itemPriceUsd - reapply;
-    const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
-    await prisma.order.update({ where: { id: order.id }, data: { itemPriceUsd, totalUsd } });
-    return { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reapply };
+    if (referralApplied > 0) itemPriceUsd -= referralApplied;
+  } else {
+    try {
+      const maxApplyUsd = Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD);
+      if (maxApplyUsd >= 0.01) {
+        referralApplied = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, order.id);
+        if (referralApplied > 0) itemPriceUsd -= referralApplied;
+      }
+    } catch (e) {
+      console.error("[referral-credit] reserve failed (buy now checkout)", { orderId: order.id, error: e });
+    }
   }
 
-  try {
-    const maxApplyUsd = Math.max(0, order.itemPriceUsd - MIN_STRIPE_CHARGE_USD);
-    if (maxApplyUsd <= 0) return unchanged;
-    const reserved = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, order.id);
-    if (reserved <= 0) return unchanged;
-    const itemPriceUsd = order.itemPriceUsd - reserved;
-    const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reserved },
-    });
-    return { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reserved };
-  } catch (e) {
-    console.error("[referral-credit] reserve failed (buy now checkout)", { orderId: order.id, error: e });
-    return unchanged;
+  if (order.platformCreditAppliedUsd > 0) {
+    platformApplied = Math.min(
+      order.platformCreditAppliedUsd,
+      Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD),
+    );
+    if (platformApplied > 0) itemPriceUsd -= platformApplied;
+  } else {
+    try {
+      const maxApplyUsd = Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD);
+      if (maxApplyUsd >= 0.01) {
+        platformApplied = await reservePlatformCreditForCheckout(buyerId, maxApplyUsd, order.id);
+        if (platformApplied > 0) itemPriceUsd -= platformApplied;
+      }
+    } catch (e) {
+      console.error("[platform-credit] reserve failed (buy now checkout)", { orderId: order.id, error: e });
+    }
   }
+
+  const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      itemPriceUsd,
+      totalUsd,
+      referralCreditAppliedUsd: referralApplied,
+      platformCreditAppliedUsd: platformApplied,
+    },
+  });
+  return {
+    itemPriceUsd,
+    totalUsd,
+    referralCreditAppliedUsd: referralApplied,
+    platformCreditAppliedUsd: platformApplied,
+  };
 }
 
 /**
@@ -251,40 +331,112 @@ async function applyReferralCreditForBuyNowOrder(
  * `createPayOrderCheckoutSession`): unlike Buy Now, this order's `itemPriceUsd` is set once at
  * order creation and never reset by this function — so once credit has been reserved and applied
  * for this order, `itemPriceUsd` already reflects the discount and must not be discounted again.
+ *
+ * Credits apply only when `applyReferralCredit` is true (buyer opt-in; referral + platform).
  */
-async function applyReferralCreditForPayOrder(
+async function applyStoreCreditsForPayOrder(
   order: {
     id: string;
     itemPriceUsd: number;
     shippingPriceUsd: number;
     taxUsd: number;
     referralCreditAppliedUsd: number;
+    platformCreditAppliedUsd: number;
   },
   buyerId: string,
-): Promise<ReferralCreditCheckoutFields> {
-  const unchanged = {
-    itemPriceUsd: order.itemPriceUsd,
-    totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
-    referralCreditAppliedUsd: order.referralCreditAppliedUsd,
-  };
-  if (order.referralCreditAppliedUsd > 0) return unchanged;
+  applyStoreCredit: boolean,
+): Promise<StoreCreditCheckoutFields> {
+  if (!applyStoreCredit) {
+    const restore =
+      (order.referralCreditAppliedUsd > 0 ? order.referralCreditAppliedUsd : 0) +
+      (order.platformCreditAppliedUsd > 0 ? order.platformCreditAppliedUsd : 0);
+    if (restore > 0) {
+      const restoredItem = order.itemPriceUsd + restore;
+      const totalUsd = restoredItem + order.shippingPriceUsd + order.taxUsd;
+      if (order.referralCreditAppliedUsd > 0) await releaseReferralCreditReservation(order.id);
+      if (order.platformCreditAppliedUsd > 0) await releasePlatformCreditReservation(order.id);
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          itemPriceUsd: restoredItem,
+          totalUsd,
+          referralCreditAppliedUsd: 0,
+          platformCreditAppliedUsd: 0,
+        },
+      });
+      return {
+        itemPriceUsd: restoredItem,
+        totalUsd,
+        referralCreditAppliedUsd: 0,
+        platformCreditAppliedUsd: 0,
+      };
+    }
+    return {
+      itemPriceUsd: order.itemPriceUsd,
+      totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
+      referralCreditAppliedUsd: 0,
+      platformCreditAppliedUsd: 0,
+    };
+  }
+
+  if (order.referralCreditAppliedUsd > 0 || order.platformCreditAppliedUsd > 0) {
+    return {
+      itemPriceUsd: order.itemPriceUsd,
+      totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
+      referralCreditAppliedUsd: order.referralCreditAppliedUsd,
+      platformCreditAppliedUsd: order.platformCreditAppliedUsd,
+    };
+  }
+
+  let itemPriceUsd = order.itemPriceUsd;
+  let referralApplied = 0;
+  let platformApplied = 0;
 
   try {
-    const maxApplyUsd = Math.max(0, order.itemPriceUsd - MIN_STRIPE_CHARGE_USD);
-    if (maxApplyUsd <= 0) return unchanged;
-    const reserved = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, order.id);
-    if (reserved <= 0) return unchanged;
-    const itemPriceUsd = order.itemPriceUsd - reserved;
-    const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reserved },
-    });
-    return { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reserved };
+    const maxApplyUsd = Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD);
+    if (maxApplyUsd >= 0.01) {
+      referralApplied = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, order.id);
+      if (referralApplied > 0) itemPriceUsd -= referralApplied;
+    }
   } catch (e) {
     console.error("[referral-credit] reserve failed (pay order checkout)", { orderId: order.id, error: e });
-    return unchanged;
   }
+
+  try {
+    const maxApplyUsd = Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD);
+    if (maxApplyUsd >= 0.01) {
+      platformApplied = await reservePlatformCreditForCheckout(buyerId, maxApplyUsd, order.id);
+      if (platformApplied > 0) itemPriceUsd -= platformApplied;
+    }
+  } catch (e) {
+    console.error("[platform-credit] reserve failed (pay order checkout)", { orderId: order.id, error: e });
+  }
+
+  if (referralApplied <= 0 && platformApplied <= 0) {
+    return {
+      itemPriceUsd: order.itemPriceUsd,
+      totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
+      referralCreditAppliedUsd: 0,
+      platformCreditAppliedUsd: 0,
+    };
+  }
+
+  const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      itemPriceUsd,
+      totalUsd,
+      referralCreditAppliedUsd: referralApplied,
+      platformCreditAppliedUsd: platformApplied,
+    },
+  });
+  return {
+    itemPriceUsd,
+    totalUsd,
+    referralCreditAppliedUsd: referralApplied,
+    platformCreditAppliedUsd: platformApplied,
+  };
 }
 
 /**
@@ -376,6 +528,9 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
         status: "paid",
         escrowStatus: EscrowStatus.buyer_paid,
         shippingChargedCents,
+        // Escrow isn't a Stripe balance transaction — this confirmation moment is the
+        // authoritative payment date for this order, nothing to upgrade it to later.
+        paidAt: new Date(),
       },
     });
 
@@ -424,14 +579,16 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
 
   void initializeOrderPayoutOnPayment(orderId);
 
-  const lt = order.listing.title.length > 90 ? `${order.listing.title.slice(0, 87)}…` : order.listing.title;
+  const sellerNote = marketplaceSellerItemSoldNotification({
+    listingTitle: order.listing.title,
+    itemPriceUsd: order.itemPriceUsd,
+    orderId,
+  });
   await createNotification(prisma, {
     userId: order.sellerId,
-    type: "seller_ready_to_ship",
-    title: "Payment received — ready to ship",
-    body: `“${lt}” is paid. Create a shipping label from Sales or mark shipped when you send.`,
-    href: `/orders/${encodeURIComponent(orderId)}`,
+    ...sellerNote,
   });
+  const lt = order.listing.title.length > 90 ? `${order.listing.title.slice(0, 87)}…` : order.listing.title;
   await createNotification(prisma, {
     userId: order.buyerId,
     type: "purchase_complete",
@@ -461,6 +618,10 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
     paymentStatus: PAYMENT_PAID,
     listingStatus: "sold",
   });
+
+  void import("@/lib/giveaway/purchase-entries")
+    .then((m) => m.onOrderPaidForGiveaways(orderId))
+    .catch((e) => console.warn("[giveaway] purchase entry hook failed (escrow)", orderId, e));
 
   for (const lay of closedLayaways) {
     const { emitLayawayLifecycleSync } = await import("@/lib/marketplace/ecosystem-sync");
@@ -522,6 +683,8 @@ type BuyNowCheckoutSessionArgs = {
   successPath?: string;
   cancelPath?: string;
   paymentMethodId?: string | null;
+  /** Buyer opt-in — referral credit is never auto-applied. */
+  applyReferralCredit?: boolean;
 };
 
 export async function createBuyNowCheckoutSession(
@@ -662,7 +825,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
         moderationRemovedAt: true,
         isCompanyListing: true,
         seller: {
-          select: { stripeAccountId: true, stripeOnboardingComplete: true, trustapUserId: true },
+          select: { ...sellerStripeCollectSelect, trustapUserId: true },
         },
       },
     });
@@ -714,7 +877,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
     }
 
     if (!rowUseEscrow) {
-      if (!listingRow.seller.stripeAccountId || !listingRow.seller.stripeOnboardingComplete) {
+      if (!liveSavedCardSellerReady(listingRow.seller)) {
         throw new Error("SELLER_NOT_READY");
       }
     }
@@ -884,22 +1047,36 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
         error: e,
       }),
     );
+    releasePlatformCreditReservation(deletedOrderIdForCreditRelease).catch((e) =>
+      console.error("[platform-credit] release failed (stale failed order replaced)", {
+        orderId: deletedOrderIdForCreditRelease,
+        error: e,
+      }),
+    );
   }
 
   const rowEscrow = order.paymentMethod === OrderPaymentMethod.escrow;
 
   if (!rowEscrow) {
-    const credit = await applyReferralCreditForBuyNowOrder(order, args.buyerId);
+    const credit = await applyStoreCreditsForBuyNowOrder(
+      order,
+      args.buyerId,
+      args.applyReferralCredit === true,
+    );
     order.itemPriceUsd = credit.itemPriceUsd;
     order.totalUsd = credit.totalUsd;
+    order.referralCreditAppliedUsd = credit.referralCreditAppliedUsd;
+    order.platformCreditAppliedUsd = credit.platformCreditAppliedUsd;
   }
 
   const liveRoomIdForFee = await resolveLiveRoomIdForLiveRoomItem(liveRoomItemId);
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: order.itemPriceUsd,
+    // Fee on full item; referral credit is platform-funded and does not shrink seller basis.
+    saleAmountUsd: orderItemSaleBasisUsd(order),
     isCompanyListing: Boolean(listing.isCompanyListing),
     liveRoomId: liveRoomIdForFee,
     sellerId: listing.sellerId,
+    orderId: order.id,
   });
 
   if (rowEscrow) {
@@ -946,6 +1123,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
         })
         .catch(() => {});
       releaseReferralCreditReservation(order.id).catch(() => {});
+      releasePlatformCreditReservation(order.id).catch(() => {});
       throw e;
     }
   }
@@ -956,6 +1134,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
       orderId: order.id,
       paymentMethodId: args.paymentMethodId,
       liveRoomItemId,
+      applyReferralCredit: args.applyReferralCredit === true,
     });
     if (charge.outcome === "paid") {
       return { embedded: true, paid: true, orderId: order.id };
@@ -977,6 +1156,19 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
 
   const stripe = getStripe();
 
+  // Prefer reusing an open session when this order already has a persisted tax calculation —
+  // avoids a billable Stripe Tax Calculation API call on every "Pay" click.
+  const priorTaxCents = Math.max(0, order.taxAmountCents ?? 0);
+  if (order.stripeCheckoutSessionId && order.stripeTaxCalculationId) {
+    const earlyReuse = await reuseOpenCheckoutSessionIfMatching({
+      sessionId: order.stripeCheckoutSessionId,
+      expectedSubtotalCents: buyNowCheckoutSubtotalCents(order) + priorTaxCents,
+      expectedTaxCents: priorTaxCents,
+      collectTax: true,
+    });
+    if (earlyReuse) return { url: earlyReuse };
+  }
+
   const taxBundle = await buildMarketplaceCheckoutTaxBundle({
     buyerId: args.buyerId,
     shipTo: {
@@ -990,6 +1182,8 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
     itemPriceUsd: order.itemPriceUsd,
     shippingPriceUsd: order.shippingPriceUsd,
     applicationFeeCents: feeCents,
+    referralCreditAppliedUsd: order.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: order.platformCreditAppliedUsd,
     sellerShipFrom: await loadSellerShipFromForTax(listing.sellerId),
   });
 
@@ -1020,10 +1214,14 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
           liveRoomItemId: liveRoomItemId ?? "",
           ...taxBundle.metadata,
         },
-        payment_intent_data: connectCheckoutPaymentIntentData({
-          destinationAccountId: listing.seller.stripeAccountId!,
+        payment_intent_data: connectOrPlatformHeldCheckoutPaymentIntentData({
+          sellerPayoutProcessor: resolveLiveSellerPayoutProcessor(listing.seller),
+          destinationAccountId: resolveLiveSellerDestinationAccount(listing.seller),
           applicationFeeCents: feeCents,
           sellerTransferCents: taxBundle.sellerTransferCents,
+          processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(expectedSubtotalCents) : 0,
+          referralCreditAppliedCents: referralCreditAppliedCents(order),
+          maxSellerTransferCents: buyNowCheckoutSubtotalCents(order),
           metadata: { orderId: order.id, kind: "buy_now" },
         }),
         line_items: [
@@ -1101,6 +1299,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
       })
       .catch(() => {});
     releaseReferralCreditReservation(order.id).catch(() => {});
+    releasePlatformCreditReservation(order.id).catch(() => {});
     throw e;
   }
 }
@@ -1111,6 +1310,8 @@ export async function createPayOrderCheckoutSession(args: {
   orderId: string;
   successPath?: string;
   cancelPath?: string;
+  /** Buyer opt-in — referral credit is never auto-applied. */
+  applyReferralCredit?: boolean;
 }): Promise<{ url: string }> {
   await processAuctionPaymentExpiries();
   const base = siteUrl();
@@ -1123,7 +1324,7 @@ export async function createPayOrderCheckoutSession(args: {
     },
     include: {
       listing: { select: { id: true, title: true, sellerId: true, isCompanyListing: true } },
-      seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true, trustapUserId: true } },
+      seller: { select: { ...sellerStripeCollectSelect, trustapUserId: true } },
       liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
     },
   });
@@ -1154,15 +1355,23 @@ export async function createPayOrderCheckoutSession(args: {
       where: { id: order.id, buyerId: args.buyerId },
       include: {
         listing: { select: { id: true, title: true, sellerId: true, isCompanyListing: true } },
-        seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true, trustapUserId: true } },
+        seller: { select: { ...sellerStripeCollectSelect, trustapUserId: true } },
         liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
       },
     });
   }
 
   const payOrder = order;
-  let shippingPriceUsd = payOrder.shippingPriceUsd;
-  if (payOrder.liveShippingSession?.id) {
+  // Once live shipping is settled into an immutable terms snapshot, never rewrite
+  // shippingPriceUsd from a later session estimate refresh (Shippo/tier).
+  const liveShippingLockedBySnapshot = hasLiveShippingTermsSnapshot(payOrder.shippingTermsSnapshotJson);
+  let shippingPriceUsd = resolvePayOrderLiveShippingUsd({
+    orderShippingPriceUsd: payOrder.shippingPriceUsd,
+    shippingTermsSnapshotJson: payOrder.shippingTermsSnapshotJson,
+    sessionShippingCostCents: payOrder.liveShippingSession?.shippingCostCents,
+    siblingPaidShippingCents: 0,
+  });
+  if (payOrder.liveShippingSession?.id && !liveShippingLockedBySnapshot) {
     const paidOrders = await prisma.order.findMany({
       where: {
         liveShippingSessionId: payOrder.liveShippingSession.id,
@@ -1173,10 +1382,17 @@ export async function createPayOrderCheckoutSession(args: {
     const alreadyChargedCents = paidOrders
       .filter((o) => o.id !== payOrder.id)
       .reduce((sum, o) => sum + Math.round(Math.max(0, o.shippingPriceUsd) * 100), 0);
-    const remainingCents = Math.max(0, payOrder.liveShippingSession.shippingCostCents - alreadyChargedCents);
-    shippingPriceUsd = remainingCents / 100;
+    shippingPriceUsd = resolvePayOrderLiveShippingUsd({
+      orderShippingPriceUsd: payOrder.shippingPriceUsd,
+      shippingTermsSnapshotJson: payOrder.shippingTermsSnapshotJson,
+      sessionShippingCostCents: payOrder.liveShippingSession.shippingCostCents,
+      siblingPaidShippingCents: alreadyChargedCents,
+    });
   }
-  if (Math.abs(shippingPriceUsd - payOrder.shippingPriceUsd) > 0.0001) {
+  if (
+    !liveShippingLockedBySnapshot &&
+    Math.abs(shippingPriceUsd - payOrder.shippingPriceUsd) > 0.0001
+  ) {
     const refreshed = await prisma.order.update({
       where: { id: payOrder.id },
       data: {
@@ -1185,7 +1401,7 @@ export async function createPayOrderCheckoutSession(args: {
       },
       include: {
         listing: { select: { id: true, title: true, sellerId: true, isCompanyListing: true } },
-        seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true, trustapUserId: true } },
+        seller: { select: { ...sellerStripeCollectSelect, trustapUserId: true } },
         liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
       },
     });
@@ -1246,18 +1462,38 @@ export async function createPayOrderCheckoutSession(args: {
   }
 
   const stripe = getStripe();
-  if (!order.seller.stripeAccountId || !order.seller.stripeOnboardingComplete) throw new Error("SELLER_NOT_READY");
+  if (!liveSavedCardSellerReady(order.seller)) throw new Error("SELLER_NOT_READY");
 
-  const payOrderCredit = await applyReferralCreditForPayOrder(order, args.buyerId);
+  const payOrderCredit = await applyStoreCreditsForPayOrder(
+    order,
+    args.buyerId,
+    args.applyReferralCredit === true,
+  );
   order.itemPriceUsd = payOrderCredit.itemPriceUsd;
   order.totalUsd = payOrderCredit.totalUsd;
+  order.referralCreditAppliedUsd = payOrderCredit.referralCreditAppliedUsd;
+  order.platformCreditAppliedUsd = payOrderCredit.platformCreditAppliedUsd;
 
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: order.itemPriceUsd,
+    // Fee on full item; referral credit is platform-funded and does not shrink seller basis.
+    saleAmountUsd: orderItemSaleBasisUsd(order),
     isCompanyListing: Boolean(order.listing.isCompanyListing),
     liveRoomId: order.liveShippingSession?.liveShowId ?? null,
     sellerId: order.sellerId,
+    orderId: order.id,
   });
+
+  const priorPayOrderTaxCents = Math.max(0, order.taxAmountCents ?? 0);
+  if (order.stripeCheckoutSessionId && order.stripeTaxCalculationId) {
+    const earlyReuse = await reuseOpenCheckoutSessionIfMatching({
+      sessionId: order.stripeCheckoutSessionId,
+      expectedSubtotalCents:
+        Math.round(order.itemPriceUsd * 100) + Math.round(shippingPriceUsd * 100) + priorPayOrderTaxCents,
+      expectedTaxCents: priorPayOrderTaxCents,
+      collectTax: true,
+    });
+    if (earlyReuse) return { url: earlyReuse };
+  }
 
   const taxBundle = await buildMarketplaceCheckoutTaxBundle({
     buyerId: args.buyerId,
@@ -1272,11 +1508,14 @@ export async function createPayOrderCheckoutSession(args: {
     itemPriceUsd: order.itemPriceUsd,
     shippingPriceUsd,
     applicationFeeCents: feeCents,
+    referralCreditAppliedUsd: order.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: order.platformCreditAppliedUsd,
     sellerShipFrom: await loadSellerShipFromForTax(order.sellerId),
   });
 
-  const expectedSubtotalCents =
-    Math.round(order.itemPriceUsd * 100) + Math.round(shippingPriceUsd * 100) + taxBundle.taxAmountCents;
+  const payOrderMerchandiseCents =
+    Math.round(order.itemPriceUsd * 100) + Math.round(shippingPriceUsd * 100);
+  const expectedSubtotalCents = payOrderMerchandiseCents + taxBundle.taxAmountCents;
   const reusedUrl = await reuseOpenCheckoutSessionIfMatching({
     sessionId: order.stripeCheckoutSessionId,
     expectedSubtotalCents,
@@ -1302,10 +1541,14 @@ export async function createPayOrderCheckoutSession(args: {
         buyerId: args.buyerId,
         ...taxBundle.metadata,
       },
-      payment_intent_data: connectCheckoutPaymentIntentData({
-        destinationAccountId: order.seller.stripeAccountId,
+      payment_intent_data: connectOrPlatformHeldCheckoutPaymentIntentData({
+        sellerPayoutProcessor: resolveLiveSellerPayoutProcessor(order.seller),
+        destinationAccountId: resolveLiveSellerDestinationAccount(order.seller),
         applicationFeeCents: feeCents,
         sellerTransferCents: taxBundle.sellerTransferCents,
+        processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(expectedSubtotalCents) : 0,
+        referralCreditAppliedCents: referralCreditAppliedCents(order),
+        maxSellerTransferCents: payOrderMerchandiseCents,
         metadata: { orderId: order.id, kind: "pay_order" },
       }),
       line_items: [
@@ -1375,9 +1618,9 @@ export async function createBreakSpotCheckoutSession(args: {
 
   const seller = await prisma.user.findUnique({
     where: { id: spot.liveRoom.sellerId },
-    select: { stripeAccountId: true, stripeOnboardingComplete: true },
+    select: sellerStripeCollectSelect,
   });
-  if (!seller?.stripeAccountId || !seller.stripeOnboardingComplete) throw new Error("SELLER_NOT_READY");
+  if (!liveSavedCardSellerReady(seller)) throw new Error("SELLER_NOT_READY");
 
   const priceUsd = spot.priceUsd;
   const feeCents = await resolveCheckoutApplicationFeeCents({
@@ -1387,10 +1630,19 @@ export async function createBreakSpotCheckoutSession(args: {
     sellerId: spot.liveRoom.sellerId,
   });
 
-  const taxFields = await buildCheckoutTaxSessionFields({
-    buyerId: args.userId,
-    collectShippingAddress: true,
-  });
+  // Buyer must already have a saved shipping address to reach checkout (Vault Wallet gate),
+  // so use it directly for the nexus check instead of handing tax entirely to Stripe's
+  // automatic_tax — which only knows Stripe's own tax registrations, not our per-state
+  // TaxNexusState settings, and can misclassify buyers in states we haven't registered in.
+  const buyerShippingForTax = await resolveBuyerDefaultShippingForOrder(args.userId);
+  const taxFields = await buildCheckoutTaxSessionFields(
+    buyerShippingForTax
+      ? { buyerId: args.userId, shipTo: buyerShippingForTax }
+      : { buyerId: args.userId, collectShippingAddress: true },
+  );
+
+  const sellerPayoutProcessor = resolveLiveSellerPayoutProcessor(seller);
+  const destinationAccountId = resolveLiveSellerDestinationAccount(seller);
 
   const session = await stripe.checkout.sessions.create(
     {
@@ -1406,9 +1658,15 @@ export async function createBreakSpotCheckoutSession(args: {
         userId: args.userId,
       },
       payment_intent_data: {
-        application_fee_amount: feeCents,
-        transfer_data: { destination: seller.stripeAccountId },
-        metadata: { breakSpotId: spot.id, kind: "break_spot" },
+        ...connectOrPlatformHeldCheckoutPaymentIntentData({
+          sellerPayoutProcessor,
+          destinationAccountId,
+          applicationFeeCents: feeCents,
+          sellerTransferCents: null,
+          processingFeeCents:
+            feeCents > 0 ? estimateStripeProcessingFeeCents(Math.round(priceUsd * 100)) : 0,
+          metadata: { breakSpotId: spot.id, kind: "break_spot" },
+        }),
       },
       line_items: [
         {
@@ -1622,9 +1880,17 @@ export async function reconcileStalePendingCheckoutSessionsGlobal(limit = 25): P
 
 export async function finalizeStripeMarketplaceOrderPaid(
   orderId: string,
-  paymentIntentId: string | null,
+  rawPaymentIntentId: string | null,
   sessionId: string | null,
 ) {
+  // Guard (financial-reconciliation-audit-2026-08 bug #18): several live-purchase finalize paths
+  // (variant purchase, variant batch, live buy-now, break spot) historically forwarded whatever id
+  // their charge returned through this same parameter — a real Stripe PaymentIntent id for the
+  // Stripe rail, but a PayPal/Venmo capture id for the PayPal buyer rail. Never let anything that
+  // isn't Stripe-shaped reach `stripePaymentIntentId`, the Stripe tax-from-PI lookup, or the
+  // charge-ledger persist below — PayPal/Venmo orders are stamped correctly via
+  // `stampOrderPaidViaPayPalRail` (paymentProcessor + processorPaymentId) before this ever runs.
+  const paymentIntentId = sanitizeStripePaymentIntentId(rawPaymentIntentId);
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     select: {
@@ -1639,7 +1905,11 @@ export async function finalizeStripeMarketplaceOrderPaid(
       taxUsd: true,
       taxAmountCents: true,
       stripeTaxCalculationId: true,
+      shipRecipientName: true,
+      shipAddress: true,
+      shipCity: true,
       shipState: true,
+      shipZip: true,
       shipCountry: true,
       liveShippingSession: { select: { liveShowId: true } },
       listing: { select: { title: true, buyingFormat: true } },
@@ -1708,6 +1978,9 @@ export async function finalizeStripeMarketplaceOrderPaid(
         ...taxFields,
         itemPriceUsd,
         shippingPriceUsd,
+        // Placeholder — persistOrderStripeChargeLedger below upgrades this to the authoritative
+        // Stripe charge.created timestamp once the async ledger fetch completes. Never left null.
+        paidAt: new Date(),
       },
     });
     if (claim.count === 0) return { claimed: false as const, closedLayaways: [] };
@@ -1754,6 +2027,19 @@ export async function finalizeStripeMarketplaceOrderPaid(
   void commitReferralCreditReservation(orderId, orderId).catch((e) =>
     console.error("[referral-credit] commit failed", { orderId, error: e }),
   );
+  void commitPlatformCreditReservation(orderId, orderId).catch((e) =>
+    console.error("[platform-credit] commit failed", { orderId, error: e }),
+  );
+
+  // TEMP DISABLED (incident): buyers were failing to check out after this shipped. Disabling the
+  // call (not the feature) while we diagnose — see fund-seller-credit-shortfall.ts.
+  // void fundSellerCreditShortfallIfNeeded(orderId).catch((e) =>
+  //   console.error("[credit-shortfall] fund attempt failed", { orderId, error: e }),
+  // );
+
+  void import("@/lib/giveaway/purchase-entries")
+    .then((m) => m.onOrderPaidForGiveaways(orderId))
+    .catch((e) => console.warn("[giveaway] purchase entry hook failed", orderId, e));
 
   void recordTaxDestinationVolumeOnOrderPaid({
     shipState: order.shipState,
@@ -1766,18 +2052,64 @@ export async function finalizeStripeMarketplaceOrderPaid(
   void recordStripeTaxTransaction({
     taxCalculationId: taxFields.stripeTaxCalculationId,
     reference: orderId,
+    persistToOrderId: orderId,
+  });
+
+  // Monitoring-only: even when this ship-to state isn't enabled for collection, tell Stripe about
+  // the sale (at $0 tax, since we're not registered there) so it shows up in Stripe's own economic
+  // nexus threshold tracking instead of being invisible. No-ops for states already going through
+  // the real collect-tax path above (taxFields.stripeTaxCalculationId already set).
+  void (async () => {
+    try {
+      const sellerShipFrom = await loadSellerShipFromForTax(order.sellerId);
+      await recordTaxMonitoringOnlyTransaction({
+        orderId,
+        itemPriceUsd,
+        shippingPriceUsd,
+        shipTo: {
+          shipRecipientName: order.shipRecipientName,
+          shipAddress: order.shipAddress,
+          shipCity: order.shipCity,
+          shipState: order.shipState,
+          shipZip: order.shipZip,
+          shipCountry: order.shipCountry,
+        },
+        sellerShipFrom,
+        alreadyHasCalculation: Boolean(taxFields.stripeTaxCalculationId),
+      });
+    } catch (e) {
+      console.warn("[sales-tax] monitoring-only tax record failed", { orderId, error: e });
+    }
+  })();
+
+  void persistOrderStripeChargeLedger({
+    orderId,
+    paymentIntentId,
+  }).catch((e) => console.warn("[money-flow] charge ledger persist failed", orderId, e));
+
+  void ensureOrderPlatformFeeSnapshotPersisted(orderId).catch((e) =>
+    console.warn("[money-flow] platform fee snapshot persist failed", orderId, e),
+  );
+
+  moneyFlowLog("payment_intent_created", {
+    orderId,
+    paymentIntentId,
+    sessionId,
+    kind: "finalize_marketplace_paid",
   });
 
   void initializeOrderPayoutOnPayment(orderId);
 
-  const lt = order.listing.title.length > 90 ? `${order.listing.title.slice(0, 87)}…` : order.listing.title;
+  const sellerNote = marketplaceSellerItemSoldNotification({
+    listingTitle: order.listing.title,
+    itemPriceUsd,
+    orderId,
+  });
   await createNotification(prisma, {
     userId: order.sellerId,
-    type: "seller_ready_to_ship",
-    title: "Payment received — ready to ship",
-    body: `“${lt}” is paid. Create a shipping label from Sales or mark shipped when you send.`,
-    href: `/orders/${encodeURIComponent(orderId)}`,
+    ...sellerNote,
   });
+  const lt = order.listing.title.length > 90 ? `${order.listing.title.slice(0, 87)}…` : order.listing.title;
   await createNotification(prisma, {
     userId: order.buyerId,
     type: "purchase_complete",
@@ -1932,6 +2264,72 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         await finalizeLiveItemVariantPurchasePaid(purchaseId, pi ?? undefined);
         return;
       }
+
+      if (kind === "trade_platform_fee") {
+        const tradeOfferId = session.metadata?.tradeOfferId;
+        const payerUserId = session.metadata?.payerUserId;
+        if (!tradeOfferId || !payerUserId) return;
+        const shippingChargedCentsRaw = session.metadata?.shippingChargedCents;
+        const shippingChargedCents =
+          shippingChargedCentsRaw != null && Number.isFinite(Number(shippingChargedCentsRaw))
+            ? Math.round(Number(shippingChargedCentsRaw))
+            : null;
+        const { finalizeTradePlatformFeePaid } = await import("@/lib/trade-platform-fee-checkout");
+        await finalizeTradePlatformFeePaid({
+          tradeOfferId,
+          payerUserId,
+          checkoutSessionId: session.id,
+          shippingChargedCents,
+          shippoRateObjectId: session.metadata?.shippoRateObjectId ?? null,
+          carrier: session.metadata?.carrier ?? null,
+          serviceLevel: session.metadata?.serviceLevel ?? null,
+        });
+        return;
+      }
+
+      if (kind === "off_platform_platform_fee") {
+        const purchaseId = session.metadata?.purchaseId;
+        const sellerUserId = session.metadata?.sellerUserId;
+        if (!purchaseId || !sellerUserId) return;
+        const { finalizeOffPlatformPlatformFeePaid } = await import(
+          "@/lib/off-platform-platform-fee-checkout"
+        );
+        await finalizeOffPlatformPlatformFeePaid({
+          purchaseId,
+          sellerUserId,
+          checkoutSessionId: session.id,
+          paymentIntentId: pi ?? null,
+        });
+        return;
+      }
+
+      if (kind === "trade_cash") {
+        const tradeOfferId = session.metadata?.tradeOfferId;
+        const payerUserId = session.metadata?.payerUserId;
+        if (!tradeOfferId || !payerUserId) return;
+        const { finalizeTradeCashPaid } = await import("@/lib/trade-cash-checkout");
+        await finalizeTradeCashPaid({
+          tradeOfferId,
+          payerUserId,
+          checkoutSessionId: session.id,
+          paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null,
+        });
+        return;
+      }
+
+      if (kind === "trade_deposit") {
+        const tradeOfferId = session.metadata?.tradeOfferId;
+        const payerUserId = session.metadata?.payerUserId;
+        if (!tradeOfferId || !payerUserId) return;
+        const { finalizeTradeDepositPaid } = await import("@/lib/trade-deposit-checkout");
+        await finalizeTradeDepositPaid({
+          tradeOfferId,
+          payerUserId,
+          checkoutSessionId: session.id,
+          paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null,
+        });
+        return;
+      }
       break;
     }
     case "checkout.session.expired": {
@@ -1974,6 +2372,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
                 data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
               });
               releaseReferralCreditReservation(orderId).catch(() => {});
+              releasePlatformCreditReservation(orderId).catch(() => {});
               await ensureLiveRoomPaymentFailureRecorded({
                 liveRoomId: item.liveRoomId,
                 buyerId: order.buyerId,
@@ -1995,6 +2394,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
                 },
               });
               releaseReferralCreditReservation(orderId).catch(() => {});
+              releasePlatformCreditReservation(orderId).catch(() => {});
             }
           } else {
             await releaseActiveInventoryHoldsForOrderId(orderId).catch(() => {});
@@ -2007,6 +2407,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
               },
             });
             releaseReferralCreditReservation(orderId).catch(() => {});
+            releasePlatformCreditReservation(orderId).catch(() => {});
           }
         } else {
           await releaseActiveInventoryHoldsForOrderId(orderId).catch(() => {});
@@ -2019,6 +2420,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
             data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
           });
           releaseReferralCreditReservation(orderId).catch(() => {});
+          releasePlatformCreditReservation(orderId).catch(() => {});
         }
       }
       if (session.metadata?.kind === "break_spot" && session.metadata.breakSpotId) {
@@ -2067,12 +2469,47 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
 
       if (kind === "variant_purchase_saved_pm") {
         const purchaseId = pi.metadata?.purchaseId?.trim() || null;
-        if (purchaseId) {
+        const batchId = pi.metadata?.batchId?.trim() || null;
+        if (batchId) {
+          const { finalizeLiveItemVariantPurchaseBatchPaid } = await import(
+            "@/lib/live-item-variant-batch-purchase"
+          );
+          const { emitLiveRoomQueueItemsChanged } = await import("@/lib/realtime-emit-server");
+          await finalizeLiveItemVariantPurchaseBatchPaid(batchId, pi.id);
+          const purchase = await prisma.liveItemVariantPurchase.findFirst({
+            where: { batchId },
+            select: { liveRoomId: true },
+          });
+          if (purchase) emitLiveRoomQueueItemsChanged(purchase.liveRoomId);
+        } else if (purchaseId) {
           const { finalizeLiveItemVariantPurchasePaid } = await import("@/lib/live-item-variant-purchase");
           const { emitLiveRoomQueueItemsChanged } = await import("@/lib/realtime-emit-server");
           await finalizeLiveItemVariantPurchasePaid(purchaseId, pi.id);
           const purchase = await prisma.liveItemVariantPurchase.findUnique({
             where: { id: purchaseId },
+            select: { liveRoomId: true, batchId: true },
+          });
+          if (purchase?.batchId) {
+            const { finalizeLiveItemVariantPurchaseBatchPaid } = await import(
+              "@/lib/live-item-variant-batch-purchase"
+            );
+            await finalizeLiveItemVariantPurchaseBatchPaid(purchase.batchId, pi.id);
+          }
+          if (purchase) emitLiveRoomQueueItemsChanged(purchase.liveRoomId);
+        }
+        break;
+      }
+
+      if (kind === "variant_batch_purchase_saved_pm") {
+        const batchId = pi.metadata?.batchId?.trim() || null;
+        if (batchId) {
+          const { finalizeLiveItemVariantPurchaseBatchPaid } = await import(
+            "@/lib/live-item-variant-batch-purchase"
+          );
+          const { emitLiveRoomQueueItemsChanged } = await import("@/lib/realtime-emit-server");
+          await finalizeLiveItemVariantPurchaseBatchPaid(batchId, pi.id);
+          const purchase = await prisma.liveItemVariantPurchase.findFirst({
+            where: { batchId },
             select: { liveRoomId: true },
           });
           if (purchase) emitLiveRoomQueueItemsChanged(purchase.liveRoomId);
@@ -2135,9 +2572,49 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       const orderId = pi.metadata?.orderId?.trim() || null;
       const kind = pi.metadata?.kind ?? null;
 
-      if (kind === "variant_purchase_saved_pm") {
+      if (kind === "variant_purchase_saved_pm" || kind === "variant_batch_purchase_saved_pm") {
         const purchaseId = pi.metadata?.purchaseId?.trim() || null;
-        if (purchaseId) {
+        const batchIdMeta = pi.metadata?.batchId?.trim() || null;
+        let resolvedBatchId = batchIdMeta;
+        if (!resolvedBatchId && purchaseId) {
+          const row = await prisma.liveItemVariantPurchase.findUnique({
+            where: { id: purchaseId },
+            select: { batchId: true },
+          });
+          resolvedBatchId = row?.batchId ?? null;
+        }
+        if (resolvedBatchId) {
+          const { releaseVariantPurchaseBatchOnCheckoutExpired } = await import(
+            "@/lib/live-item-variant-batch-purchase"
+          );
+          await releaseVariantPurchaseBatchOnCheckoutExpired(resolvedBatchId);
+          const batchPurchase = await prisma.liveItemVariantPurchase.findFirst({
+            where: { batchId: resolvedBatchId },
+            select: {
+              id: true,
+              liveRoomId: true,
+              liveRoomItemId: true,
+              buyerId: true,
+              totalUsd: true,
+            },
+          });
+          if (batchPurchase) {
+            const sum = await prisma.liveItemVariantPurchase.aggregate({
+              where: { batchId: resolvedBatchId },
+              _sum: { totalUsd: true },
+            });
+            await ensureLiveRoomPaymentFailureRecorded({
+              liveRoomId: batchPurchase.liveRoomId,
+              buyerId: batchPurchase.buyerId,
+              kind: "variant_purchase",
+              variantPurchaseId: batchPurchase.id,
+              liveRoomItemId: batchPurchase.liveRoomItemId,
+              amountUsd: sum._sum.totalUsd ?? batchPurchase.totalUsd,
+              itemTitle: "Multiple spots",
+              failureReason: pi.last_payment_error?.message ?? "Your card was declined.",
+            });
+          }
+        } else if (purchaseId) {
           const purchase = await prisma.liveItemVariantPurchase.findUnique({
             where: { id: purchaseId },
             select: {
@@ -2444,6 +2921,13 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
           });
         });
 
+        moneyFlowLog("refund_created", { orderId: o.id, stripeRefundId, source: "charge.refunded" });
+        void reverseStripeTaxTransaction({
+          orderId: o.id,
+          reverseAmountCents: o.taxAmountCents ?? 0,
+          reason: "charge_refunded_webhook",
+        });
+
         const title = o.listing?.title ?? "your order";
         await createNotification(prisma, {
           userId: o.buyerId,
@@ -2474,6 +2958,9 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
           orderStatus: "cancelled",
           paymentStatus: PAYMENT_REFUNDED,
         });
+        void import("@/lib/giveaway/purchase-entries")
+          .then((m) => m.clawbackPurchaseEntriesForOrder(o.id))
+          .catch((e) => console.warn("[giveaway] purchase clawback failed (charge.refunded)", o.id, e));
       }
       break;
     }
@@ -2537,16 +3024,19 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
               buyerId: true,
               listingId: true,
               paymentMethod: true,
+              payoutStatus: true,
               payoutBlockedReason: true,
               itemPriceUsd: true,
               taxAmountCents: true,
               listing: { select: { title: true } },
               liveShippingSession: { select: { liveShowId: true } },
+              seller: { select: { stripeAccountId: true } },
             },
           })
         : null;
       if (!order) break;
       const title = order.listing?.title ?? "an order";
+      const wasAlreadyPaidOutBeforeDisputeLoss = order.payoutStatus === "paid_out";
       if (dispute.status === "won") {
         // Only clear a hold this handler itself set — never override an unrelated admin block.
         await prisma.order.updateMany({
@@ -2565,6 +3055,12 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         // this app. Mirror `charge.refunded` bookkeeping — permanently block payout, mark the
         // order, and roll back any live-show GMV so later sales in the same show aren't taxed
         // at an incorrectly low tier because of a sale that was ultimately unwound.
+        //
+        // The "Stripe reverses the seller's transferred share outside this app" line above is an
+        // ASSUMPTION, not a verified fact — it was never checked against the seller's actual
+        // Connect balance (financial reconciliation audit, bug #14). If this order was already
+        // bank-paid-out before the dispute was lost, or if the reversal leaves the seller's
+        // Connect balance negative, that needs a loud, verified alert rather than silence.
         await prisma.$transaction(async (tx) => {
           await tx.order.update({
             where: { id: order.id },
@@ -2614,6 +3110,47 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
             }
           }
         });
+
+        // Verify against real Stripe state instead of trusting the "Stripe already handled it"
+        // assumption. Only bother reading the balance when there's an actual elevated-risk
+        // signal (order was already paid out) — routine chargebacks on held funds don't need it.
+        if (wasAlreadyPaidOutBeforeDisputeLoss) {
+          const sellerAccountId = order.seller.stripeAccountId?.trim() || null;
+          let balanceNote = "seller has no Stripe Connect account on file";
+          let balanceLooksNegative = false;
+          if (sellerAccountId) {
+            try {
+              const balance = await stripe.balance.retrieve({ stripeAccount: sellerAccountId });
+              const availableCents = balance.available
+                .filter((b) => b.currency === "usd")
+                .reduce((sum, b) => sum + b.amount, 0);
+              const pendingCents = balance.pending
+                .filter((b) => b.currency === "usd")
+                .reduce((sum, b) => sum + b.amount, 0);
+              balanceLooksNegative = availableCents < 0;
+              balanceNote = `available=${availableCents}c pending=${pendingCents}c`;
+            } catch (e) {
+              balanceNote = `balance check failed: ${e instanceof Error ? e.message : String(e)}`;
+            }
+          }
+          reportUrgentPaymentAnomaly(
+            "chargeback_lost_after_payout_already_released",
+            `orderId=${order.id} sellerId=${order.sellerId} disputeId=${dispute.id} ` +
+              `— this order was already paid_out to the seller before the dispute was lost. ` +
+              `Stripe's own chargeback reversal is assumed to claw back the seller's share, but that ` +
+              `has NOT been independently verified here. Seller Connect balance: ${balanceNote}.` +
+              (balanceLooksNegative ? " Balance is negative — needs manual follow-up." : ""),
+          );
+          await logPayoutEligibilityDecision({
+            sellerId: order.sellerId,
+            orderId: order.id,
+            action: "order_payout_blocked",
+            previousStatus: "paid_out",
+            newStatus: "blocked",
+            reason: `Chargeback lost after payout was already released (disputeId=${dispute.id}). Seller Connect balance: ${balanceNote}.`,
+          });
+        }
+
         await createNotification(prisma, {
           userId: order.sellerId,
           type: "stripe_dispute",
@@ -2643,6 +3180,11 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
           orderStatus: "cancelled",
           paymentStatus: PAYMENT_CHARGEBACK,
         });
+        void import("@/lib/giveaway/purchase-entries")
+          .then((m) => m.clawbackPurchaseEntriesForOrder(order.id))
+          .catch((e) =>
+            console.warn("[giveaway] purchase clawback failed (chargeback)", order.id, e),
+          );
       }
       break;
     }
@@ -2657,6 +3199,16 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         pending_verification: account.requirements?.pending_verification ?? [],
       });
       await syncStripeConnectUserRowsForAccountId(account.id);
+      const currentlyDue = account.requirements?.currently_due ?? [];
+      if (currentlyDue.length > 0) {
+        const { scheduleNotifySellersStripeActionRequired } = await import(
+          "@/lib/notify-seller-stripe-action-required"
+        );
+        scheduleNotifySellersStripeActionRequired({
+          stripeAccountId: account.id,
+          currentlyDue,
+        });
+      }
       break;
     }
     case "capability.updated": {
@@ -2672,6 +3224,21 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       if (!accountId) break;
       console.info("[stripe capability.updated]", { accountId, capabilityId: cap.id });
       await syncStripeConnectUserRowsForAccountId(accountId);
+      try {
+        const account = await stripe.accounts.retrieve(accountId);
+        const currentlyDue = account.requirements?.currently_due ?? [];
+        if (currentlyDue.length > 0) {
+          const { scheduleNotifySellersStripeActionRequired } = await import(
+            "@/lib/notify-seller-stripe-action-required"
+          );
+          scheduleNotifySellersStripeActionRequired({
+            stripeAccountId: accountId,
+            currentlyDue,
+          });
+        }
+      } catch (e) {
+        console.warn("[stripe capability.updated] account retrieve for notify failed", e);
+      }
       break;
     }
     default:

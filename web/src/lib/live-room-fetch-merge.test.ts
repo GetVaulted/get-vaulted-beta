@@ -31,6 +31,8 @@ function item(id: string, itemVersion: number, patch: Partial<LiveRoomItemDTO> =
     status: patch.status ?? "active",
     sortOrder: patch.sortOrder ?? 0,
     teamBoardMisc: patch.teamBoardMisc ?? false,
+    teamBoardNcaa: patch.teamBoardNcaa ?? false,
+    customRandomPoolLabels: patch.customRandomPoolLabels ?? null,
     itemVersion,
     biddingOpen: patch.biddingOpen ?? false,
     auctionEndsAt: patch.auctionEndsAt ?? null,
@@ -56,9 +58,11 @@ function room(partial: Partial<LiveRoomDetailDTO> & Pick<LiveRoomDetailDTO, "ite
     sellerUsername: "host",
     title: "Show",
     description: "",
+    showNotes: "",
     category: "Other",
     roomType: "break",
     status: "live",
+    discoveryVisibility: "public",
     thumbnailUrl: "",
     viewerCount: 0,
     roomVersion: 1,
@@ -77,6 +81,8 @@ function room(partial: Partial<LiveRoomDetailDTO> & Pick<LiveRoomDetailDTO, "ite
     tipModeratorId: null,
     tipModeratorUsername: null,
     tipsToModerator: false,
+    teaserVideoUrl: null,
+    teaserVideoDurationMs: null,
   };
 
   const merged: LiveRoomDetailDTO = {

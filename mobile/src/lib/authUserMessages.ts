@@ -5,7 +5,7 @@ export const AUTH_USER_MESSAGES = {
   signUpConfirmEmail:
     'We sent a confirmation link. After you confirm, return here and sign in.',
   passwordResetSent:
-    'If an account exists for that address, you will receive a reset link shortly.',
+    'If an account exists for that address, you will receive a reset link shortly. Open the link to choose a new password, then come back here and sign in.',
   passwordResetBody: 'We will email you a link to choose a new password.',
   socialNotConfigured: 'Social sign-in is not configured.',
   socialSignInFailed: 'Could not complete social sign-in. Try again or use email and password.',

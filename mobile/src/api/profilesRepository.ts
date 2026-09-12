@@ -1,9 +1,11 @@
+import { readAsStringAsync } from 'expo-file-system/legacy';
 import {
   evaluateUsernamePolicy,
   normalizeUsernameForStorage,
   USERNAME_UNAVAILABLE_MESSAGE,
   usernamePolicyUserMessage,
 } from '../lib/username-policy';
+import { postJsonWithTimeout } from '../lib/postJsonWithTimeout';
 import { prepareProfileAvatarForUpload, avatarUrlWithCacheBust } from '../lib/profileAvatarUpload';
 import { getSupabase } from '../lib/supabase';
 import type { ProfileLite } from '../types/tradeOffers';
@@ -120,34 +122,107 @@ export async function checkUsernameAvailable(raw: string): Promise<{ available: 
     }
     return {
       available: false,
-      message: __DEV__ ? `Could not verify username: ${rowError.message}` : 'Could not verify username. Try again.',
+      message: __DEV__
+        ? `Could not verify username: ${rowError.message}`
+        : 'Could not verify username. Try again.',
     };
   }
-  if (rows && rows.length > 0) {
-    return { available: false, message: USERNAME_UNAVAILABLE_MESSAGE };
-  }
+  if (rows?.length) return { available: false, message: USERNAME_UNAVAILABLE_MESSAGE };
 
   return { available: true };
 }
 
+async function withDeadline<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function avatarUploadEndpoints(): string[] {
+  const endpoints: string[] = [];
+  const fnBase = process.env.EXPO_PUBLIC_NETLIFY_FUNCTIONS_BASE?.trim().replace(/\/+$/, '');
+  if (fnBase) endpoints.push(`${fnBase}/upload-avatar`);
+  const site = (process.env.EXPO_PUBLIC_WEB_API_URL || process.env.EXPO_PUBLIC_SITE_URL)?.trim().replace(/\/+$/, '');
+  if (site) endpoints.push(`${site}/api/uploads/avatar`);
+  return endpoints;
+}
+
 /**
- * Upload a circle-cropped JPEG to Storage `avatars/{userId}/avatar.jpg` and return the public URL.
+ * Upload via JSON base64 + XMLHttpRequest timeout.
+ * Prefers Netlify `upload-avatar` (service role), then Next `/api/uploads/avatar`.
  */
 export async function uploadMyAvatar(userId: string, localUri: string, _mimeType?: string): Promise<string> {
   const sb = getSupabase();
   if (!sb) throw new Error('Supabase is not configured');
-  const preparedUri = await prepareProfileAvatarForUpload(localUri);
-  const path = `${userId}/avatar.jpg`;
-  const response = await fetch(preparedUri);
-  const body = await response.arrayBuffer();
-  const { error: upErr } = await sb.storage.from('avatars').upload(path, body, {
-    contentType: 'image/jpeg',
-    upsert: true,
-  });
-  if (upErr) throw new Error(upErr.message);
-  const { data } = sb.storage.from('avatars').getPublicUrl(path);
-  if (!data?.publicUrl) throw new Error('Could not resolve avatar URL');
-  return avatarUrlWithCacheBust(data.publicUrl);
+  const authId = userId.trim();
+  if (!authId) throw new Error('Sign in again to upload a profile photo.');
+
+  const endpoints = avatarUploadEndpoints();
+  if (!endpoints.length) {
+    throw new Error('Upload host is not configured. Set EXPO_PUBLIC_SITE_URL.');
+  }
+
+  const { data: sessionData } = await withDeadline(sb.auth.getSession(), 8_000, 'session');
+  const accessToken = sessionData.session?.access_token?.trim();
+  if (!accessToken) throw new Error('Sign in again to upload a profile photo.');
+
+  // Crop modal already prepares; only re-encode raw library URIs (seller setup).
+  const needsPrepare = !/ImageManipulator|ImagePicker/i.test(localUri);
+  const preparedUri = needsPrepare
+    ? await withDeadline(prepareProfileAvatarForUpload(localUri), 15_000, 'photo prepare')
+    : localUri;
+  const base64 = await withDeadline(readAsStringAsync(preparedUri, { encoding: 'base64' }), 10_000, 'read photo');
+  if (!base64?.trim()) throw new Error('Could not read photo data.');
+
+  const body = JSON.stringify({ base64, contentType: 'image/jpeg' });
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    'X-GV-Client': 'getvaulted-mobile',
+  };
+
+  let lastError = 'Upload failed.';
+  for (const url of endpoints) {
+    try {
+      const res = await postJsonWithTimeout(url, headers, body, 40_000);
+      let payload: { url?: string; error?: string } | null = null;
+      try {
+        payload = JSON.parse(res.text) as { url?: string; error?: string };
+      } catch {
+        payload = null;
+      }
+      if (res.status >= 200 && res.status < 300 && payload?.url?.trim()) {
+        const busted = avatarUrlWithCacheBust(payload.url.trim());
+        void sb
+          .from('profiles')
+          .update({ avatar_url: busted })
+          .eq('id', authId)
+          .then(({ error }) => {
+            if (error) console.warn('[uploadMyAvatar] profiles update', error.message);
+          });
+        void sb.auth.updateUser({ data: { avatar_url: busted } }).then(({ error }) => {
+          if (error) console.warn('[uploadMyAvatar] auth metadata', error.message);
+        });
+        return busted;
+      }
+      lastError = payload?.error?.trim() || `Upload failed (${res.status}).`;
+      // Auth errors won't succeed on the fallback host either.
+      if (res.status === 401 || res.status === 403) break;
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : 'Upload failed.';
+    }
+  }
+
+  throw new Error(lastError);
 }
 
 export async function fetchProfileIdByUsername(raw: string): Promise<string | null> {

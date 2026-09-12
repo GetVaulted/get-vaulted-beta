@@ -36,7 +36,7 @@ describe("resolveUnpinnedActiveItemStatus", () => {
     ).toBe("queued");
   });
 
-  it("marks a break item sold when every spot is gone", () => {
+  it("keeps a fully sold break item queued (not auto-sold) so the seller can re-pin it to review the roster", () => {
     expect(
       resolveUnpinnedActiveItemStatus({
         salesFormat: "team_break",
@@ -45,6 +45,6 @@ describe("resolveUnpinnedActiveItemStatus", () => {
         status: "active",
         variants: [{ quantityRemaining: 0, status: "sold_out" }],
       }),
-    ).toBe("sold");
+    ).toBe("queued");
   });
 });

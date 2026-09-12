@@ -16,17 +16,27 @@ export function SellerHQPremiumBanner({
   connect,
   connectLoading,
   setupProgress,
+  sellerActivated,
+  wizardComplete,
   onPress,
 }: {
   hasUser: boolean;
   connect: SellerConnectStatusResponse | null;
   connectLoading?: boolean;
   setupProgress: number;
+  sellerActivated?: boolean;
+  wizardComplete?: boolean;
   onPress: (phase: SellerHQEntryPhase) => void;
 }) {
-  const phase = resolveSellerHQEntryPhase({ hasUser, connect });
+  const phase = resolveSellerHQEntryPhase({
+    hasUser,
+    connect,
+    sellerActivated,
+    wizardComplete,
+  });
   const copy = sellerHQEntryCopy(phase);
   const ready = phase === 'ready';
+  const showProgress = !ready && setupProgress < 1;
 
   return (
     <Pressable
@@ -60,7 +70,7 @@ export function SellerHQPremiumBanner({
             <Text style={styles.body}>{copy.body}</Text>
           </View>
         </View>
-        {!ready ? (
+        {showProgress ? (
           <View style={styles.progressBlock}>
             <View style={styles.progressTrack}>
               <LinearGradient

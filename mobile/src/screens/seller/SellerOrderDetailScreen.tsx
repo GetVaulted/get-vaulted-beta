@@ -15,13 +15,17 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  createSellerShippingLabel,
   fetchSellerSalesOrderDetailBundle,
+  markSellerOrderShipped,
   regenerateSellerShippingLabel,
   repairSellerShippingLabel,
   type SellerOrderActivityRow,
   type SellerSalesOrderDetail,
 } from '../../api/sellerSalesRepository';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
+import { SellerCreateLabelSheet } from '../../components/seller/SellerCreateLabelSheet';
+import { SellerMarkShippedSheet } from '../../components/seller/SellerMarkShippedSheet';
 import { SellerOrderCompactTimeline } from '../../components/seller/SellerOrderCompactTimeline';
 import { OrderRefundRequestSection } from '../../components/orders/OrderRefundRequestSection';
 import { SellerShippingLabelPanel } from '../../components/seller/SellerShippingLabelPanel';
@@ -33,6 +37,7 @@ import {
   resolveSellerQuickActions,
   type SellerQuickActionKind,
 } from '../../lib/sellerOrderDetailDisplay';
+import { sellerShipQueuePhase } from '../../lib/sellerShipQueue';
 import {
   estimatePlatformFeeUsd,
   estimateStripeProcessingFeeUsd,
@@ -100,7 +105,11 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const { platformFeePercent: livePlatformFeePercent, feeRateLabel: liveFeeRateLabel } = usePlatformFee();
-  const [labelActionBusy, setLabelActionBusy] = useState<'repair' | 'regenerate' | null>(null);
+  const [labelActionBusy, setLabelActionBusy] = useState<'repair' | 'regenerate' | 'create' | 'ship' | null>(
+    null,
+  );
+  const [showCreateLabel, setShowCreateLabel] = useState(false);
+  const [showShipOwnCarrier, setShowShipOwnCarrier] = useState(false);
 
   const loadOrder = useCallback(async (): Promise<OrderBundle | null> => {
     if (!session?.access_token) return null;
@@ -120,6 +129,18 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
   const listingImage = detail?.listing.images?.[0]?.url;
   const needsLabel = detail?.paymentStatus === 'paid' && !orderHasPurchasedLabel(detail);
   const hasLabelPanel = detail ? orderHasPurchasedLabel(detail) : false;
+  const queuePhase = detail
+    ? sellerShipQueuePhase({
+        id: detail.id,
+        status: detail.status,
+        paymentStatus: detail.paymentStatus,
+        fulfillmentStatus: detail.fulfillmentStatus,
+        shippoTransactionId: detail.shippoTransactionId,
+        labelUrl: detail.labelUrl,
+        trackingNumber: detail.trackingNumber,
+      })
+    : null;
+  const canMarkDroppedOff = queuePhase === 'print_and_ship';
 
   const orderTotals = detail ? resolveSellerOrderTotals(detail) : null;
   const saleAmountUsd = orderTotals?.itemPriceUsd ?? 0;
@@ -136,6 +157,78 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
   const headline = detail ? resolveSellerOrderHeadline(detail) : null;
   const quickActions = detail ? resolveSellerQuickActions(detail) : [];
   const timeline = detail ? buildSellerTimelineCompact(detail) : [];
+
+  const createLabel = async (
+    parcel: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number },
+    labelFormat: 'thermal_4x6' | 'letter',
+  ) => {
+    if (!session?.access_token || !detail) return;
+    setLabelActionBusy('create');
+    try {
+      const result = await createSellerShippingLabel(session.access_token, detail.id, {
+        manualParcel: parcel,
+        labelFormat,
+      });
+      if (!result.ok) {
+        Alert.alert('Create label', result.error);
+        return;
+      }
+      setShowCreateLabel(false);
+      if (result.labelUrl?.trim()) void Linking.openURL(result.labelUrl);
+      await reload();
+    } finally {
+      setLabelActionBusy(null);
+    }
+  };
+
+  const markDroppedOff = () => {
+    if (!session?.access_token || !detail) return;
+    Alert.alert(
+      'Mark dropped off?',
+      'Confirms you handed the package to the carrier. Tracking updates when they scan it.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Dropped off',
+          onPress: () => {
+            void (async () => {
+              setLabelActionBusy('ship');
+              try {
+                const result = await markSellerOrderShipped(
+                  session.access_token!,
+                  detail.id,
+                  detail.trackingNumber,
+                );
+                if (!result.ok) {
+                  Alert.alert('Could not update', result.error);
+                  return;
+                }
+                await reload();
+              } finally {
+                setLabelActionBusy(null);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
+  const shipOwnCarrier = async (trackingNumber: string | null) => {
+    if (!session?.access_token || !detail) return;
+    setLabelActionBusy('ship');
+    try {
+      const result = await markSellerOrderShipped(session.access_token, detail.id, trackingNumber);
+      if (!result.ok) {
+        Alert.alert('Could not update', result.error);
+        return;
+      }
+      setShowShipOwnCarrier(false);
+      await reload();
+    } finally {
+      setLabelActionBusy(null);
+    }
+  };
 
   const repairLabel = async () => {
     if (!session?.access_token || !detail) return;
@@ -195,6 +288,14 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
     }
     if (kind === 'open_tracking' && detail.trackingUrl?.trim()) {
       void Linking.openURL(detail.trackingUrl);
+      return;
+    }
+    if (kind === 'create_label') {
+      setShowCreateLabel(true);
+      return;
+    }
+    if (kind === 'mark_dropped_off') {
+      markDroppedOff();
       return;
     }
     if (kind === 'retrieve_label') return repairLabel();
@@ -275,12 +376,43 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
             </View>
 
             {needsLabel ? (
-              <View style={styles.desktopCard}>
-                <Ionicons name="desktop-outline" size={20} color={colors.gold} />
-                <Text style={styles.desktopTxt}>
-                  Create labels in Seller Studio on desktop. Print and reprint labels here after purchase.
+              <View style={styles.createCard}>
+                <Text style={styles.createTitle}>Ready to ship</Text>
+                <Text style={styles.createBody}>
+                  Purchase a shipping label here — same flow as Seller Studio on web. Shipping it
+                  yourself instead? Mark it shipped and add your own tracking number.
                 </Text>
+                <View style={styles.createActions}>
+                  <Pressable
+                    style={styles.createBtn}
+                    disabled={labelActionBusy !== null}
+                    onPress={() => setShowCreateLabel(true)}
+                  >
+                    <Text style={styles.createBtnTxt}>
+                      {labelActionBusy === 'create' ? 'Creating…' : 'Create label'}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.shipOwnBtn}
+                    disabled={labelActionBusy !== null}
+                    onPress={() => setShowShipOwnCarrier(true)}
+                  >
+                    <Text style={styles.shipOwnBtnTxt}>Ship it yourself</Text>
+                  </Pressable>
+                </View>
               </View>
+            ) : null}
+
+            {canMarkDroppedOff ? (
+              <Pressable
+                style={styles.droppedBtn}
+                disabled={labelActionBusy !== null}
+                onPress={markDroppedOff}
+              >
+                <Text style={styles.droppedBtnTxt}>
+                  {labelActionBusy === 'ship' ? 'Saving…' : 'Mark dropped off'}
+                </Text>
+              </Pressable>
             ) : null}
 
             {hasLabelPanel ? (
@@ -304,7 +436,7 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
 
             <SellerOrderCompactTimeline steps={timeline} />
 
-            {detail.liveShowId && (detail.paymentStatus === 'paid' || detail.paymentStatus === 'refunded') ? (
+            {detail.paymentStatus === 'paid' || detail.paymentStatus === 'refunded' ? (
               <OrderRefundRequestSection
                 accessToken={session?.access_token}
                 orderId={detail.id}
@@ -346,8 +478,17 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
               {payoutStatus?.detail ? <Text style={styles.line}>{payoutStatus.detail}</Text> : null}
               <MoneyLine label={`Get Vaulted (${orderFeeRateLabel})`} value={`−${formatMoney(platformFeeUsd)}`} />
               <MoneyLine label={`Stripe (${STRIPE_FEE_RATE_LABEL})`} value={`−${formatMoney(stripeFeeUsd)}`} />
+              {(detail.shippingLabelCostReversedCents ?? detail.shippingLabelCostCents ?? 0) > 0 ? (
+                <MoneyLine
+                  label="Shipping label"
+                  value={`−${formatMoney((detail.shippingLabelCostReversedCents ?? detail.shippingLabelCostCents ?? 0) / 100)}`}
+                />
+              ) : null}
               <View style={styles.divider} />
               <MoneyLine label="Est. payout" value={formatMoney(detail.payoutEstimateUsd ?? 0)} strong accent />
+              <Text style={styles.line}>
+                Shipping collected at checkout is yours. A Get Vaulted label deducts the carrier cost from payout.
+              </Text>
             </View>
 
             {activityLog.length > 0 ? (
@@ -401,6 +542,27 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
               )}
             </View>
           ) : null}
+
+          <SellerCreateLabelSheet
+            visible={showCreateLabel}
+            title="Confirm package details"
+            subtitle={detail?.listing.title}
+            accessToken={session?.access_token}
+            confirmBusy={labelActionBusy === 'create'}
+            onClose={() => setShowCreateLabel(false)}
+            onConfirm={(parcel, format) => {
+              void createLabel(parcel, format);
+            }}
+          />
+
+          <SellerMarkShippedSheet
+            visible={showShipOwnCarrier}
+            subtitle="Confirms you're shipping this order yourself (no Get Vaulted label). Add your tracking number so the buyer can follow it."
+            initialTrackingNumber={detail?.trackingNumber}
+            confirmBusy={labelActionBusy === 'ship'}
+            onClose={() => setShowShipOwnCarrier(false)}
+            onConfirm={(trackingNumber) => void shipOwnCarrier(trackingNumber)}
+          />
         </>
       )}
     </View>
@@ -470,16 +632,46 @@ const styles = StyleSheet.create({
   },
   heroNextTitle: { color: colors.textPrimary, fontSize: 15, fontWeight: '700' },
   heroNextSub: { color: colors.textSecondary, fontSize: 12, marginTop: 4, lineHeight: 17 },
-  desktopCard: {
-    flexDirection: 'row',
+  createCard: {
     gap: spacing.sm,
     padding: spacing.md,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: `${colors.gold}44`,
-    backgroundColor: `${colors.gold}12`,
+    borderColor: 'rgba(56,189,248,0.35)',
+    backgroundColor: 'rgba(14,116,144,0.12)',
   },
-  desktopTxt: { flex: 1, color: colors.textPrimary, fontSize: 13, lineHeight: 18 },
+  createTitle: { color: colors.textPrimary, fontSize: 15, fontWeight: '800' },
+  createBody: { color: colors.textSecondary, fontSize: 13, lineHeight: 18 },
+  createBtn: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(56,189,248,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(56,189,248,0.45)',
+  },
+  createBtnTxt: { color: '#7DD3FC', fontSize: 13, fontWeight: '800' },
+  createActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  shipOwnBtn: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  shipOwnBtnTxt: { color: colors.textSecondary, fontSize: 13, fontWeight: '800' },
+  droppedBtn: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: `${colors.gold}55`,
+    backgroundColor: `${colors.gold}14`,
+  },
+  droppedBtnTxt: { color: colors.gold, fontSize: 13, fontWeight: '800' },
   card: {
     padding: spacing.md,
     borderRadius: radii.lg,

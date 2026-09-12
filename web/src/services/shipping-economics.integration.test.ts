@@ -35,6 +35,16 @@ vi.mock("@/lib/shippo", () => ({
   verifyShippoWebhookSignature: () => true,
 }));
 
+vi.mock("@/services/shipping/charge-seller-label-cost", () => ({
+  chargeSellerForLabelCost: vi.fn().mockResolvedValue({
+    ok: true,
+    reversedCents: 625,
+    reversalId: "trr_int_1",
+    skipped: false,
+  }),
+  markOrderLabelCostReversalFailed: vi.fn().mockResolvedValue(undefined),
+}));
+
 const sessionHoisted = vi.hoisted(() => ({
   getServerSession: vi.fn(),
 }));

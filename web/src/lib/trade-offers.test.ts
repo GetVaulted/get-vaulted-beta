@@ -1,5 +1,48 @@
 import { describe, expect, it, vi } from "vitest";
-import { expireOfferIfNeeded, formatTradeEventNote } from "@/lib/trade-offers";
+import { expireOfferIfNeeded, formatTradeEventNote, resolveTradeCashParties } from "@/lib/trade-offers";
+
+describe("resolveTradeCashParties", () => {
+  it("assigns proposer as payer when proposer adds cash", () => {
+    expect(
+      resolveTradeCashParties({
+        proposerId: "p1",
+        recipientId: "r1",
+        proposerCashUsd: 25,
+        recipientCashUsd: 0,
+      }),
+    ).toEqual({ amountUsd: 25, payerUserId: "p1", payeeUserId: "r1" });
+  });
+
+  it("assigns recipient as payer when recipient adds cash", () => {
+    expect(
+      resolveTradeCashParties({
+        proposerId: "p1",
+        recipientId: "r1",
+        proposerCashUsd: 0,
+        recipientCashUsd: 10,
+      }),
+    ).toEqual({ amountUsd: 10, payerUserId: "r1", payeeUserId: "p1" });
+  });
+
+  it("returns null when both sides have cash or neither", () => {
+    expect(
+      resolveTradeCashParties({
+        proposerId: "p1",
+        recipientId: "r1",
+        proposerCashUsd: 0,
+        recipientCashUsd: 0,
+      }),
+    ).toBeNull();
+    expect(
+      resolveTradeCashParties({
+        proposerId: "p1",
+        recipientId: "r1",
+        proposerCashUsd: 5,
+        recipientCashUsd: 5,
+      }),
+    ).toBeNull();
+  });
+});
 
 describe("formatTradeEventNote", () => {
   it("formats offer_created JSON into readable trade terms", () => {

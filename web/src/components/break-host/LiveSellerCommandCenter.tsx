@@ -3,6 +3,8 @@
 import { useState, type ReactNode } from "react";
 import { HostRecentSalesTile } from "@/components/break-host/HostRecentSalesTile";
 import { LiveShowFeeTierTile } from "@/components/break-host/LiveShowFeeTierTile";
+import { LiveShowSalesTile } from "@/components/break-host/LiveShowSalesTile";
+import type { LiveShowSellerSummaryDTO } from "@/lib/live-show-seller-summary-shared";
 import { VaultQueueCarousel, type VaultQueueRow } from "@/components/break-host/vault/VaultQueueCarousel";
 import { LiveHostRoomGovernance } from "@/components/trust/LiveHostRoomGovernance";
 import type { HostRecentSaleRowDTO } from "@/lib/live-room-recent-sales";
@@ -71,6 +73,9 @@ export type LiveSellerCommandCenterProps = {
   onCopyPublic: () => void;
   recentSales: HostRecentSaleRowDTO[];
   feeTier?: LiveShowFeeTierSnapshot | null;
+  sellerSummary?: LiveShowSellerSummaryDTO | null;
+  sellerSummaryLoading?: boolean;
+  sellerSummaryRefreshError?: boolean;
   vaultMode?: VaultMode;
   onVaultModeChange?: (mode: VaultMode) => void;
   roomEnergyScore?: number;
@@ -210,6 +215,9 @@ export function LiveSellerCommandCenter({
   onCopyPublic,
   recentSales,
   feeTier,
+  sellerSummary,
+  sellerSummaryLoading,
+  sellerSummaryRefreshError,
   vaultMode = "auction_night",
   onVaultModeChange,
   roomEnergyScore,
@@ -231,7 +239,7 @@ export function LiveSellerCommandCenter({
   const spotStats = isVariantItem ? summarizeVariantSpots(commerceItem?.variants) : null;
   const leaderLine = item
     ? isVariantItem && spotStats
-      ? `${spotStats.available} spots open · ${spotStats.sold} sold`
+      ? `${spotStats.available} of ${spotStats.available + spotStats.sold} spots open · ${spotStats.sold} sold`
       : formatAuctionLeaderLine({
           lastHighBidderUsername: item.lastHighBidderUsername,
           lastHighBidderId: item.lastHighBidderId,
@@ -415,8 +423,15 @@ export function LiveSellerCommandCenter({
           <CollapsibleSection title="Analytics" glass defaultOpen={false}>
             <div className="space-y-2">
               <LiveRoomEnergyMeter score={panelEnergy.score} level={panelEnergy.level} compact />
-              {feeTier ? <LiveShowFeeTierTile tier={feeTier} /> : null}
               <HostRecentSalesTile rows={recentSales} />
+              <LiveShowSalesTile
+                summary={sellerSummary}
+                loading={sellerSummaryLoading}
+                refreshError={sellerSummaryRefreshError}
+              />
+              {feeTier || sellerSummary ? (
+                <LiveShowFeeTierTile tier={feeTier} summary={sellerSummary} />
+              ) : null}
             </div>
           </CollapsibleSection>
         </div>
@@ -671,8 +686,15 @@ export function LiveSellerCommandCenter({
           ) : null}
           <CollapsibleSection title="Analytics" glass defaultOpen={false}>
             <div className="space-y-2">
-              {feeTier ? <LiveShowFeeTierTile tier={feeTier} /> : null}
               <HostRecentSalesTile rows={recentSales} />
+              <LiveShowSalesTile
+                summary={sellerSummary}
+                loading={sellerSummaryLoading}
+                refreshError={sellerSummaryRefreshError}
+              />
+              {feeTier || sellerSummary ? (
+                <LiveShowFeeTierTile tier={feeTier} summary={sellerSummary} />
+              ) : null}
             </div>
           </CollapsibleSection>
         </div>

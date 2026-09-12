@@ -7,10 +7,14 @@ import { sortVariantsForBuyerDisplay } from "@/lib/live-item-variant-display-ord
 import { isVariantSalesFormat, isRandomVariantAssignment, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
 import { formatSoldSpotBuyerLabel } from "@/lib/live-variant-spot-board";
 import {
+  createLiveVariantBatchPurchaseIdempotencyKey,
   createLiveVariantPurchaseIdempotencyKey,
   purchaseLiveItemVariant,
+  purchaseLiveItemVariantBatch,
   syncLiveItemVariantPurchase,
+  syncLiveItemVariantPurchaseBatch,
 } from "@/lib/live-variant-purchase-client";
+import { formatBatchSpotCelebrationLabel } from "@/lib/live-spot-celebration";
 import { HoldToBuyButton } from "@/components/live-auction/HoldToBuyButton";
 import {
   fetchLiveVariantCheckoutPreview,
@@ -57,6 +61,10 @@ function summarizeSpots(variants: LiveItemVariantDTO[]) {
   };
 }
 
+function variantIsAvailable(v: LiveItemVariantDTO) {
+  return v.quantityRemaining > 0 && v.status !== "sold_out";
+}
+
 export function LiveVariantSelectionSheet({
   open,
   onClose,
@@ -68,54 +76,90 @@ export function LiveVariantSelectionSheet({
   initialVariantId,
   onPurchased,
 }: LiveVariantSelectionSheetProps) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkoutPreview, setCheckoutPreview] = useState<LiveVariantCheckoutPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [spotSearch, setSpotSearch] = useState("");
 
   const isRandom = isRandomVariantAssignment(item.variantAssignmentMode);
+  const isDivisionBreak = item.salesFormat === "team_break";
+  const isPlayerBreak = item.salesFormat === "player_selection";
+  const spotNoun = isDivisionBreak ? "divisions" : isPlayerBreak ? "players" : "teams";
+  const spotNounSingular = isDivisionBreak ? "division" : isPlayerBreak ? "player" : "team";
   const pickerVariants = useMemo(() => {
     const exclude = new Set(excludeVariantIds ?? []);
     return (item.variants ?? []).filter((v) => !exclude.has(v.id));
   }, [excludeVariantIds, item.variants]);
   const variants = useMemo(() => sortVariantsForBuyerDisplay(pickerVariants), [pickerVariants]);
-  const selected = variants.find((v) => v.id === selectedId) ?? null;
+  const showSpotSearch = !isRandom && isPlayerBreak && variants.length > 12;
+  const filteredVariants = useMemo(() => {
+    const q = spotSearch.trim().toLowerCase();
+    if (!q) return variants;
+    return variants.filter((v) => v.label.toLowerCase().includes(q));
+  }, [spotSearch, variants]);
+  const selectedVariants = useMemo(
+    () => variants.filter((v) => selectedIds.includes(v.id)),
+    [selectedIds, variants],
+  );
+  const selected = selectedVariants[0] ?? null;
+  const selectionCount = selectedVariants.length;
   const spotSummary = useMemo(() => summarizeSpots(variants), [variants]);
   const pickerBase = variantBuyerSelectLabel(item.salesFormat, isRandom);
-  const pickerTitle = selected ? `${pickerBase}: ${selected.label}` : pickerBase;
+  const pickerTitle =
+    selectionCount === 0
+      ? pickerBase
+      : selectionCount === 1
+        ? `${pickerBase}: ${selectedVariants[0]!.label}`
+        : `${pickerBase}: ${selectionCount} selected`;
   const unitPrice = selected?.priceUsd ?? spotSummary.fromPrice ?? 0;
-  const quantity = 1;
 
   const spotPrice = useMemo(() => {
-    if (!selected) return 0;
-    return Math.round(selected.priceUsd * quantity * 100) / 100;
-  }, [quantity, selected]);
+    if (selectedVariants.length === 0) return 0;
+    return Math.round(selectedVariants.reduce((sum, v) => sum + v.priceUsd, 0) * 100) / 100;
+  }, [selectedVariants]);
 
   const totalDue = checkoutPreview?.chargeNowUsd ?? spotPrice;
   const chargeNow = totalDue;
 
   useEffect(() => {
     if (!open) {
-      setSelectedId(null);
+      setSelectedIds([]);
       setError(null);
       setBusy(false);
       setCheckoutPreview(null);
       setPreviewLoading(false);
+      setSpotSearch("");
       return;
     }
     if (isRandom) {
-      const available = variants.find((v) => v.quantityRemaining > 0 && v.status !== "sold_out");
-      if (available) setSelectedId(available.id);
+      const available = variants.find((v) => variantIsAvailable(v));
+      if (available) setSelectedIds([available.id]);
       return;
     }
     if (
       initialVariantId &&
-      variants.some((v) => v.id === initialVariantId && v.quantityRemaining > 0 && v.status !== "sold_out")
+      selectedIds.length === 0 &&
+      variants.some((v) => v.id === initialVariantId && variantIsAvailable(v))
     ) {
-      setSelectedId(initialVariantId);
+      setSelectedIds([initialVariantId]);
+      return;
     }
+    setSelectedIds((prev) => {
+      const next = prev.filter((id) => variants.some((v) => v.id === id && variantIsAvailable(v)));
+      return next.length === prev.length ? prev : next;
+    });
   }, [open, isRandom, variants, initialVariantId]);
+
+  const toggleSpot = (variantId: string) => {
+    if (isRandom) return;
+    setSelectedIds((prev) => {
+      if (prev.includes(variantId)) return prev.filter((id) => id !== variantId);
+      return [...prev, variantId];
+    });
+    setError(null);
+  };
 
   useEffect(() => {
     if (!open || !walletReady || spotPrice <= 0) {
@@ -141,15 +185,26 @@ export function LiveVariantSelectionSheet({
     };
   }, [item.id, liveRoomId, open, spotPrice, walletReady]);
 
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || busy) return;
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [busy, onClose, open]);
+
   if (!open || !isVariantSalesFormat(item.salesFormat) || variants.length === 0) return null;
 
   const checkout = async () => {
-    if (!selected) {
-      setError("Select a spot first.");
+    if (selectedVariants.length === 0) {
+      setError(`Select ${isDivisionBreak ? "a division" : "a team"} first.`);
       return;
     }
-    if (selected.quantityRemaining <= 0 || selected.status === "sold_out") {
-      setError("That spot was just taken. Pick another.");
+    if (selectedVariants.some((v) => !variantIsAvailable(v))) {
+      setError("One or more spots were just taken. Update your selection.");
       return;
     }
     if (!walletReady) {
@@ -158,14 +213,34 @@ export function LiveVariantSelectionSheet({
     }
     setBusy(true);
     setError(null);
+    const useBatch = !isRandom && selectedVariants.length >= 2;
+    const celebrationLabel = useBatch
+      ? formatBatchSpotCelebrationLabel(selectedVariants.map((v) => v.label))
+      : selectedVariants[0]!.label;
+    const purchasedPayload = {
+      itemId: item.id,
+      variantId: selectedVariants[0]!.id,
+      quantity: selectedVariants.length,
+      label: celebrationLabel,
+      amountUsd: checkoutPreview?.chargeNowUsd ?? spotPrice,
+    };
     try {
-      const res = await purchaseLiveItemVariant({
-        liveRoomId,
-        itemId: item.id,
-        variantId: selected.id,
-        quantity,
-        idempotencyKey: createLiveVariantPurchaseIdempotencyKey(selected.id),
-      });
+      const res = useBatch
+        ? await purchaseLiveItemVariantBatch({
+            liveRoomId,
+            itemId: item.id,
+            variantIds: selectedVariants.map((v) => v.id),
+            idempotencyKey: createLiveVariantBatchPurchaseIdempotencyKey(
+              selectedVariants.map((v) => v.id),
+            ),
+          })
+        : await purchaseLiveItemVariant({
+            liveRoomId,
+            itemId: item.id,
+            variantId: selectedVariants[0]!.id,
+            quantity: 1,
+            idempotencyKey: createLiveVariantPurchaseIdempotencyKey(selectedVariants[0]!.id),
+          });
       if (!res.ok) {
         if (res.status === 401 && res.signInUrl) {
           window.location.href = res.signInUrl;
@@ -180,11 +255,8 @@ export function LiveVariantSelectionSheet({
       }
       if (res.ok && "paid" in res && res.paid) {
         onPurchased?.({
-          itemId: item.id,
-          variantId: selected.id,
-          quantity,
-          label: selected.label,
-          amountUsd: selected.priceUsd * quantity,
+          ...purchasedPayload,
+          label: res.labels?.length ? formatBatchSpotCelebrationLabel(res.labels) : celebrationLabel,
         });
         onClose();
         return;
@@ -204,20 +276,21 @@ export function LiveVariantSelectionSheet({
           setError(conf.error.message ?? "Payment authentication failed.");
           return;
         }
-        const synced = await syncLiveItemVariantPurchase({
-          liveRoomId,
-          itemId: item.id,
-          variantId: selected.id,
-          purchaseId: res.purchaseId,
-        });
+        const synced =
+          useBatch && res.batchId
+            ? await syncLiveItemVariantPurchaseBatch({
+                liveRoomId,
+                itemId: item.id,
+                batchId: res.batchId,
+              })
+            : await syncLiveItemVariantPurchase({
+                liveRoomId,
+                itemId: item.id,
+                variantId: selectedVariants[0]!.id,
+                purchaseId: res.purchaseId,
+              });
         if (synced.ok && "paid" in synced && synced.paid) {
-          onPurchased?.({
-            itemId: item.id,
-            variantId: selected.id,
-            quantity,
-            label: selected.label,
-            amountUsd: selected.priceUsd * quantity,
-          });
+          onPurchased?.(purchasedPayload);
           onClose();
           return;
         }
@@ -239,7 +312,7 @@ export function LiveVariantSelectionSheet({
   const allSold = spotSummary.available <= 0;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[55] flex items-end justify-center">
+    <div className="pointer-events-none fixed inset-0 z-[55] flex items-end justify-center sm:items-center sm:p-4">
       <button
         type="button"
         aria-label="Close checkout"
@@ -248,14 +321,15 @@ export function LiveVariantSelectionSheet({
       />
       <div
         role="dialog"
-        aria-label="Checkout"
-        className="pointer-events-auto relative z-10 flex max-h-[72vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-white/10 bg-[#0b0b10] shadow-2xl"
+        aria-modal="true"
+        aria-label={pickerTitle}
+        className="pointer-events-auto relative z-10 flex max-h-[min(72vh,40rem)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-white/10 bg-[#0b0b10] shadow-2xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/[0.06] px-4 pb-2 pt-3">
           <div>
-            <h2 className="text-lg font-black text-white">Checkout</h2>
+            <h2 className="text-lg font-black text-white">{pickerBase}</h2>
             <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-zinc-500">
               <span aria-hidden>🔒</span>
               Secure checkout · encrypted by Stripe
@@ -265,9 +339,12 @@ export function LiveVariantSelectionSheet({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex size-8 items-center justify-center rounded-full bg-white/[0.06] text-zinc-300"
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-white/12 bg-white/[0.06] px-3 text-xs font-bold text-zinc-200 hover:bg-white/[0.1] hover:text-white"
           >
-            ×
+            <span aria-hidden className="text-base leading-none">
+              ×
+            </span>
+            Close
           </button>
         </div>
 
@@ -296,38 +373,59 @@ export function LiveVariantSelectionSheet({
             <p className="text-sm font-black text-white">{pickerTitle}</p>
             <p className="mt-0.5 text-[11px] font-semibold text-zinc-500">
               {isRandom
-                ? "Hold to buy — Vault Reveal assigns your team from what's left"
-                : selected
-                  ? "Confirm your spot and hold to buy below"
-                  : "Tap a team or division to continue"}
+                ? "Hold to buy — Vault Reveal assigns your spot from what's left"
+                : selectionCount > 0
+                  ? walletReady
+                    ? selectionCount > 1
+                      ? `Hold to buy to pay ${fmtMoney(chargeNow)} for ${selectionCount} spots — shipping and tax below`
+                      : `Hold to buy to pay ${fmtMoney(chargeNow)} now — spot, shipping, and tax below`
+                    : `Confirm ${spotNounSingular}, then hold to buy to checkout`
+                  : `Tap ${spotNoun} to multi-select, then checkout`}
             </p>
             {!isRandom ? (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {variants.map((v) => (
-                  <VariantPill
-                    key={v.id}
-                    variant={v}
-                    selected={selectedId === v.id}
-                    onSelect={() => {
-                      if (v.quantityRemaining <= 0 || v.status === "sold_out") return;
-                      setSelectedId(v.id);
-                      setError(null);
-                    }}
+              <>
+                {showSpotSearch ? (
+                  <input
+                    type="search"
+                    value={spotSearch}
+                    onChange={(e) => setSpotSearch(e.target.value)}
+                    placeholder="Search players…"
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500"
+                    aria-label="Search players"
                   />
-                ))}
-              </div>
+                ) : null}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {filteredVariants.map((v) => (
+                    <VariantPill
+                      key={v.id}
+                      variant={v}
+                      selected={selectedIds.includes(v.id)}
+                      onSelect={() => {
+                        if (!variantIsAvailable(v)) return;
+                        toggleSpot(v.id);
+                      }}
+                    />
+                  ))}
+                </div>
+                {showSpotSearch && filteredVariants.length === 0 ? (
+                  <p className="mt-2 text-[11px] font-semibold text-zinc-500">No players match that search.</p>
+                ) : null}
+              </>
             ) : (
               <div className="mt-3 rounded-xl border border-amber-400/25 bg-gradient-to-r from-amber-500/10 to-zinc-950/80 px-4 py-3 text-center">
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200/90">Vault Reveal</p>
                 <p className="mt-1 text-sm font-bold text-white">
-                  {spotSummary.available} {item.salesFormat === "team_break" ? "divisions" : "teams"} left in the pool
+                  {spotSummary.available} {spotNoun} left in the pool
                 </p>
               </div>
             )}
           </div>
 
           <div className="mt-4 space-y-2 rounded-xl border border-white/[0.08] bg-black/30 px-3 py-2 text-[11px]">
-            <SummaryRow label="Spot price" value={selected ? fmtMoney(spotPrice) : "—"} />
+            <SummaryRow
+              label={selectionCount > 1 ? `Spot prices (${selectionCount})` : "Spot price"}
+              value={selectionCount > 0 ? fmtMoney(spotPrice) : "—"}
+            />
             <SummaryRow
               label="Shipping"
               value={
@@ -370,18 +468,22 @@ export function LiveVariantSelectionSheet({
           <div className="flex shrink-0 items-end gap-3 border-t border-white/[0.08] px-4 py-3">
           <div className="min-w-[5.5rem]">
             <p className="text-[10px] font-extrabold uppercase tracking-wide text-zinc-500">Total due</p>
-            <p className="font-mono text-2xl font-black text-amber-300">{selected ? fmtMoney(totalDue) : "—"}</p>
+            <p className="font-mono text-2xl font-black text-amber-300">{selectionCount > 0 ? fmtMoney(totalDue) : "—"}</p>
           </div>
           <div className="min-w-0 flex-1">
             <HoldToBuyButton
               label={
-                selected
+                selectionCount > 0
                   ? isRandom
                     ? `Hold to buy · vault reveal · ${fmtMoney(chargeNow)}`
-                    : `Hold to buy · ${fmtMoney(chargeNow)}`
-                  : "Select a spot"
+                    : selectionCount > 1
+                      ? `Hold to buy · ${selectionCount} spots · ${fmtMoney(chargeNow)}`
+                      : `Hold to buy · ${fmtMoney(chargeNow)}`
+                  : isRandom
+                    ? "Hold to buy"
+                    : "Select spots"
               }
-              disabled={!selected || allSold}
+              disabled={selectionCount === 0 || allSold}
               busy={busy}
               onHoldStart={() => {
                 if (!walletReady) {
@@ -402,7 +504,7 @@ export function LiveVariantSelectionSheet({
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="w-16 font-bold text-zinc-500">{label}</span>
+      <span className="w-[7.5rem] shrink-0 font-bold text-zinc-500">{label}</span>
       <span className="flex-1 text-right font-semibold text-zinc-300">{value}</span>
     </div>
   );

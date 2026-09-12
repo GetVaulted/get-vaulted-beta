@@ -1,31 +1,60 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
+import { AppState, Platform, type AppStateStatus } from 'react-native';
 import {
   addOnPublishStateChangedListener,
-  addOnStageConnectionStateChangedListener,
   addOnStageErrorListener,
   destroyLocalStreams,
   initializeLocalStreams,
   joinStage,
   leaveStage,
+  getSupportedCameraZoomStops,
   requestPermissions,
+  setCameraZoom as nativeSetCameraZoom,
   setMicrophoneMuted,
   setStreamsPublished,
   swapCamera,
 } from 'expo-realtime-ivs-broadcast';
-import { endHostStageSession, requestHostStageToken } from '../api/liveRoomStreamRepository';
+import {
+  endHostStageSession,
+  refreshHostStageToken,
+  requestHostStageToken,
+} from '../api/liveRoomStreamRepository';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
-import { shouldSuspendLiveStageMedia } from '../lib/livePlaybackAppState';
+import {
+  LIVE_BACKGROUND_SUSPEND_DWELL_MS,
+  shouldAutoResumeOnForeground,
+  shouldForceLocalStreamRefreshBeforeHostResume,
+  shouldHostBackgroundAutoPause,
+  shouldPreferWarmHostResume,
+  shouldStayPausedAfterIntentionalUnpublish,
+  canAttemptHostResumeShow,
+  shouldTreatHostResumeAsAlreadyLive,
+} from '../lib/livePlaybackAppState';
 import {
   cameraPermissionDeniedMessage,
   cameraPermissionUnavailableMessage,
   SELLER_DEFAULT_CAMERA_FACING,
   type SellerCameraFacing,
 } from '../lib/sellerHostCamera';
+import { withIvsStageSerialized } from '../lib/ivsStageGate';
 import { ensureStageSdkInitialized } from '../lib/stageSdk';
 
 export type MobileHostBroadcastPhase = 'idle' | 'starting' | 'live' | 'paused' | 'stopping';
 export type SellerCameraPermissionState = 'idle' | 'requesting' | 'granted' | 'denied' | 'unavailable';
+
+/** Refresh before server host TTL expires (720 min). Fallback if expiresInSeconds missing. */
+const HOST_TOKEN_REFRESH_LEAD_MS = 60 * 60 * 1000;
+const HOST_TOKEN_REFRESH_FALLBACK_MS = 11 * 60 * 60 * 1000;
+/** Soft cap per reconnect burst — after this we wait and keep looping while still live. */
+const HOST_MAX_REJOIN_ATTEMPTS = 8;
+const HOST_REJOIN_LOOP_DELAY_MS = 5_000;
+
+function hostTokenRefreshDelayMs(expiresInSeconds: number): number {
+  if (expiresInSeconds > 0) {
+    return Math.max(60_000, expiresInSeconds * 1000 - HOST_TOKEN_REFRESH_LEAD_MS);
+  }
+  return HOST_TOKEN_REFRESH_FALLBACK_MS;
+}
 
 function friendlyPublishError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
@@ -50,6 +79,21 @@ export function useMobileStagePublish(args: {
   previewEnabled: boolean;
   onBroadcastStarted?: () => void;
   onStreamRefresh?: () => void;
+  /**
+   * Fired when the host app backgrounds while live — host should PATCH streamPaused=true
+   * so buyers see "Host paused" (same as the Pause button).
+   * May return a Promise; foreground re-fire awaits it so the DB catches up before Play.
+   */
+  onBackgroundAutoPause?: () => void | Promise<void>;
+  /**
+   * Fired on foreground return after a real backgrounding (never a foreground Pause-button tap —
+   * see `minimizeShow`'s `causedByBackground`) — should do the full screen-level Resume (Stage
+   * republish + PATCH streamPaused=false), the same as a Resume-button tap. The host asked for
+   * this explicitly: closing out (home swipe, a call, a text notification, anything that
+   * backgrounds the app) and coming back should just go straight back to live, no manual tap
+   * required. A genuine Pause-button tap still requires an explicit Resume tap — unchanged.
+   */
+  onBackgroundAutoResume?: () => void | Promise<void>;
 }) {
   const startInFlightRef = useRef(false);
   const wentLiveRef = useRef(false);
@@ -57,21 +101,65 @@ export function useMobileStagePublish(args: {
   const localStreamsReadyRef = useRef(false);
   const rearDefaultAppliedRef = useRef(false);
   const previewInitInFlightRef = useRef(false);
+  /** Shared preview init so concurrent Go Live / Retry await the same work instead of bailing. */
+  const previewInitPromiseRef = useRef<Promise<boolean> | null>(null);
+  /** Shared start promise so Retry doesn't silent-return while a start is in flight. */
+  const startPromiseRef = useRef<Promise<boolean> | null>(null);
   const listenerSubsRef = useRef<Array<{ remove: () => void }>>([]);
   const phaseRef = useRef<MobileHostBroadcastPhase>('idle');
   const interruptedPublishRef = useRef(false);
   const mountedRef = useRef(true);
+  const intentionalStopRef = useRef(false);
+  /** Pause button or app-background pause — stay paused until host taps Resume. */
+  const intentionalPauseRef = useRef(false);
+  /** Wall clock when minimize / Pause started — drives warm vs cold Play after long holds. */
+  const pauseStartedAtRef = useRef<number | null>(null);
+  /**
+   * True only when the current pause was triggered by the app actually backgrounding
+   * (AppState timer below) — never by a foreground Pause-button tap. Android tears down the
+   * camera preview's native Surface on a real backgrounding; resumeShow() consumes this to
+   * force a local camera stream refresh so buyers don't end up on a frozen feed.
+   * See shouldForceLocalStreamRefreshBeforeHostResume.
+   */
+  const backgroundedWhilePausedRef = useRef(false);
+  const reconnectInFlightRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  /** Bumped to cancel stale reconnect/AppState timers after stop / failed start / Retry. */
+  const reconnectEpochRef = useRef(0);
+  const tokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectPublishRef = useRef<(trigger: string) => void>(() => {});
+
+  const bumpReconnectEpoch = useCallback(() => {
+    reconnectEpochRef.current += 1;
+  }, []);
+
+  const canAutoRecoverPublish = useCallback(() => {
+    if (!mountedRef.current || intentionalStopRef.current || !wentLiveRef.current) return false;
+    if (intentionalPauseRef.current) return false;
+    if (startInFlightRef.current || startPromiseRef.current || reconnectInFlightRef.current) return false;
+    const p = phaseRef.current;
+    return p === 'live' || p === 'paused';
+  }, []);
 
   const [phase, setPhase] = useState<MobileHostBroadcastPhase>('idle');
   const [error, setError] = useState<string | null>(null);
+  /** True only while setStreamsPublished(true) is active — not merely phase=live/paused. */
+  const [publishing, setPublishing] = useState(false);
   const [localPreviewReady, setLocalPreviewReady] = useState(false);
   const [permissionState, setPermissionState] = useState<SellerCameraPermissionState>('idle');
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [cameraFacing, setCameraFacing] = useState<SellerCameraFacing>(SELLER_DEFAULT_CAMERA_FACING);
+  const [cameraZoom, setCameraZoomState] = useState<number>(1);
+  const [zoomStops, setZoomStops] = useState<number[]>([1]);
   const [microphoneMuted, setMicrophoneMutedState] = useState(false);
 
   const cbRef = useRef(args);
   cbRef.current = args;
+
+  const setPublishingActive = useCallback((next: boolean) => {
+    publishingRef.current = next;
+    if (mountedRef.current) setPublishing(next);
+  }, []);
 
   useEffect(() => {
     phaseRef.current = phase;
@@ -84,40 +172,153 @@ export function useMobileStagePublish(args: {
     };
   }, []);
 
+  /**
+   * Whatnot-style Minimize: Pause button and leave-app share this path.
+   * Unpublish only — Stage stays joined (keep-session-alive). Never idle/Retry/leaveStage.
+   *
+   * `causedByBackground` distinguishes a real app-background from a foreground Pause-button tap —
+   * unconditionally set here (not just on the background path) so a stale `true` from an earlier
+   * backgrounding this session can never leak into a later manual Pause and wrongly auto-resume it
+   * on the next foreground return. See the AppState 'active' handler below for the actual auto-resume.
+   */
+  const minimizeShow = useCallback(async (opts?: { causedByBackground?: boolean }) => {
+    if (intentionalStopRef.current) return;
+    const p = phaseRef.current;
+    if (p !== 'live' && p !== 'paused' && p !== 'starting') return;
+    const alreadyMinimized = intentionalPauseRef.current && p === 'paused' && !publishingRef.current;
+
+    backgroundedWhilePausedRef.current = Boolean(opts?.causedByBackground);
+    intentionalPauseRef.current = true;
+    interruptedPublishRef.current = true;
+    if (pauseStartedAtRef.current == null) {
+      pauseStartedAtRef.current = Date.now();
+    }
+    bumpReconnectEpoch();
+    setPublishingActive(false);
+    if (mountedRef.current) {
+      setPhase('paused');
+      setError(null);
+    }
+
+    // Signal buyers first — iOS often kills network after unpublish/background settles.
+    try {
+      await cbRef.current.onBackgroundAutoPause?.();
+    } catch {
+      /* retried on foreground */
+    }
+
+    if (alreadyMinimized) return;
+    try {
+      await withIvsStageSerialized(async () => {
+        await setStreamsPublished(false);
+      });
+    } catch {
+      /* stay paused — native unpublish can throw after OS suspend */
+    }
+    if (mountedRef.current) {
+      setPhase('paused');
+      setError(null);
+    }
+  }, [bumpReconnectEpoch, setPublishingActive]);
+
+  const minimizeShowRef = useRef(minimizeShow);
+  minimizeShowRef.current = minimizeShow;
+
   useEffect(() => {
+    let minimizeTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearMinimizeTimer = () => {
+      if (minimizeTimer != null) {
+        clearTimeout(minimizeTimer);
+        minimizeTimer = null;
+      }
+    };
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (next === 'active') {
-        if (!interruptedPublishRef.current) return;
-        interruptedPublishRef.current = false;
-        const currentPhase = phaseRef.current;
-        if (currentPhase !== 'live' && currentPhase !== 'paused') return;
-        void (async () => {
-          try {
-            await setStreamsPublished(true);
-            if (!mountedRef.current) return;
-            publishingRef.current = true;
-            setPhase('live');
-          } catch {
-            /* call or another app may still hold the mic */
-          }
-        })();
+      // True background (home / app switcher): same Minimize path as the Pause button.
+      // Do NOT minimize on iOS `inactive` alone (Control Center / banners).
+      // Debounce: brief exit→return must not unpublish mid-suspend (native Stage crash).
+      if (
+        shouldHostBackgroundAutoPause({
+          appState: next,
+          wentLive: wentLiveRef.current,
+          intentionalStop: intentionalStopRef.current,
+          phase: phaseRef.current,
+        })
+      ) {
+        clearMinimizeTimer();
+        minimizeTimer = setTimeout(() => {
+          minimizeTimer = null;
+          if (AppState.currentState !== 'background') return;
+          // Real backgrounding (not a foreground Pause tap) — resumeShow() must force a
+          // fresh camera stream on Android. See shouldForceLocalStreamRefreshBeforeHostResume.
+          // Also what tells the 'active' handler below to auto-resume rather than wait for a tap.
+          void minimizeShowRef.current({ causedByBackground: true });
+        }, LIVE_BACKGROUND_SUSPEND_DWELL_MS);
         return;
       }
 
-      if (!shouldSuspendLiveStageMedia(next)) return;
-      if (!publishingRef.current && phaseRef.current !== 'live') return;
-
-      interruptedPublishRef.current = true;
-      publishingRef.current = false;
-      void setStreamsPublished(false).catch(() => {
-        /* ignore — releasing the mic avoids native crashes during phone calls */
-      });
-      if (phaseRef.current === 'live' && mountedRef.current) {
-        setPhase('paused');
+      if (next !== 'active') return;
+      clearMinimizeTimer();
+      if (intentionalPauseRef.current || (phaseRef.current === 'paused' && !publishingRef.current)) {
+        // Real backgrounding (home swipe, phone call, notification swiped into another app, etc.)
+        // — the host never chose to pause, so go straight back to live without making them tap
+        // Resume. A genuine foreground Pause-button tap (causedByBackground false) still stays
+        // minimized until the host explicitly taps Resume — that choice is unchanged.
+        if (
+          shouldAutoResumeOnForeground({
+            intentionalPause: intentionalPauseRef.current,
+            causedByBackground: backgroundedWhilePausedRef.current,
+          })
+        ) {
+          // Delegate to the screen-level resume — the hook's own resumeShow only republishes to
+          // Stage; it never PATCHes streamPaused=false server-side (see onBackgroundAutoPause's
+          // symmetric PATCH true). Calling resumeShow() directly here would bring the host's own
+          // camera back live while leaving buyers stuck on "Host paused" forever — the exact bug
+          // just fixed for the crash-recovery path, reintroduced for the plain-background path.
+          void cbRef.current.onBackgroundAutoResume?.();
+          return;
+        }
+        // Stay minimized until host taps Resume — re-fire Host paused (background PATCH often dies).
+        if (intentionalPauseRef.current) {
+          if (mountedRef.current) {
+            setPhase('paused');
+            setError(null);
+          }
+          void (async () => {
+            try {
+              await cbRef.current.onBackgroundAutoPause?.();
+            } catch {
+              /* best-effort */
+            }
+          })();
+        }
+        return;
       }
+      // No auto-republish after minimize — Whatnot Resume is explicit.
     });
-    return () => sub.remove();
+    return () => {
+      clearMinimizeTimer();
+      sub.remove();
+    };
   }, []);
+
+  const clearTokenRefreshTimer = useCallback(() => {
+    if (tokenRefreshTimerRef.current != null) {
+      clearTimeout(tokenRefreshTimerRef.current);
+      tokenRefreshTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleTokenRefresh = useCallback(
+    (expiresInSeconds: number) => {
+      clearTokenRefreshTimer();
+      const delayMs = hostTokenRefreshDelayMs(expiresInSeconds);
+      tokenRefreshTimerRef.current = setTimeout(() => {
+        if (!wentLiveRef.current || intentionalStopRef.current || intentionalPauseRef.current) return;
+        reconnectPublishRef.current('token_refresh');
+      }, delayMs);
+    },
+    [clearTokenRefreshTimer],
+  );
 
   const clearStageListeners = useCallback(() => {
     for (const sub of listenerSubsRef.current) {
@@ -127,41 +328,61 @@ export function useMobileStagePublish(args: {
   }, []);
 
   const teardownStageConnection = useCallback(async () => {
-    clearStageListeners();
-    publishingRef.current = false;
-    try {
-      await setStreamsPublished(false);
-    } catch {
-      /* ignore */
-    }
-    try {
-      await leaveStage();
-    } catch {
-      /* ignore */
-    }
-  }, [clearStageListeners]);
+    await withIvsStageSerialized(async () => {
+      clearTokenRefreshTimer();
+      clearStageListeners();
+      setPublishingActive(false);
+      try {
+        await setStreamsPublished(false);
+      } catch {
+        /* ignore */
+      }
+      try {
+        await leaveStage();
+      } catch {
+        /* ignore */
+      }
+    });
+  }, [clearStageListeners, clearTokenRefreshTimer]);
 
   const releaseLocalDevices = useCallback(async () => {
-    await teardownStageConnection();
-    try {
-      await destroyLocalStreams();
-    } catch {
-      /* ignore */
-    }
-    localStreamsReadyRef.current = false;
-    rearDefaultAppliedRef.current = false;
-    if (mountedRef.current) {
-      setLocalPreviewReady(false);
-      setCameraFacing(SELLER_DEFAULT_CAMERA_FACING);
-      setMicrophoneMutedState(false);
-      setPermissionState('idle');
-    }
-    try {
-      await setMicrophoneMuted(false);
-    } catch {
-      /* ignore */
-    }
-  }, [teardownStageConnection]);
+    intentionalStopRef.current = true;
+    intentionalPauseRef.current = false;
+    backgroundedWhilePausedRef.current = false;
+    await withIvsStageSerialized(async () => {
+      clearTokenRefreshTimer();
+      clearStageListeners();
+      setPublishingActive(false);
+      try {
+        await setStreamsPublished(false);
+      } catch {
+        /* ignore */
+      }
+      try {
+        await leaveStage();
+      } catch {
+        /* ignore */
+      }
+      try {
+        await destroyLocalStreams();
+      } catch {
+        /* ignore */
+      }
+      localStreamsReadyRef.current = false;
+      rearDefaultAppliedRef.current = false;
+      if (mountedRef.current) {
+        setLocalPreviewReady(false);
+        setCameraFacing(SELLER_DEFAULT_CAMERA_FACING);
+        setMicrophoneMutedState(false);
+        setPermissionState('idle');
+      }
+      try {
+        await setMicrophoneMuted(false);
+      } catch {
+        /* ignore */
+      }
+    });
+  }, [clearStageListeners, clearTokenRefreshTimer]);
 
   const endServerSession = useCallback(async () => {
     if (!cbRef.current.accessToken.trim()) return;
@@ -182,46 +403,59 @@ export function useMobileStagePublish(args: {
   const ensureLocalPreview = useCallback(async (): Promise<boolean> => {
     if (!isStageWebrtcEnabled()) return false;
     if (localStreamsReadyRef.current) return true;
-    if (previewInitInFlightRef.current) return false;
+    if (previewInitPromiseRef.current) return previewInitPromiseRef.current;
 
-    previewInitInFlightRef.current = true;
-    setPermissionState('requesting');
-    setPermissionError(null);
-    setError(null);
+    const run = (async (): Promise<boolean> => {
+      previewInitInFlightRef.current = true;
+      setPermissionState('requesting');
+      setPermissionError(null);
+      setError(null);
 
+      try {
+        await ensureStageSdkInitialized('studio');
+        const perms = await requestPermissions();
+        if (perms.camera === 'unavailable' || perms.microphone === 'unavailable') {
+          setPermissionState('unavailable');
+          setPermissionError(cameraPermissionUnavailableMessage());
+          return false;
+        }
+        if (perms.camera === 'denied' || perms.microphone === 'denied') {
+          setPermissionState('denied');
+          setPermissionError(cameraPermissionDeniedMessage());
+          return false;
+        }
+
+        await withIvsStageSerialized(async () => {
+          await initializeLocalStreams();
+          await applyDefaultRearCamera();
+        });
+
+        localStreamsReadyRef.current = true;
+        setLocalPreviewReady(true);
+        setPermissionState('granted');
+        return true;
+      } catch (err) {
+        const msg = friendlyPublishError(err);
+        if (/permission|denied/i.test(msg)) {
+          setPermissionState('denied');
+          setPermissionError(msg);
+        } else {
+          setPermissionState('unavailable');
+          setPermissionError(msg);
+        }
+        return false;
+      } finally {
+        previewInitInFlightRef.current = false;
+      }
+    })();
+
+    previewInitPromiseRef.current = run;
     try {
-      await ensureStageSdkInitialized();
-      const perms = await requestPermissions();
-      if (perms.camera === 'unavailable' || perms.microphone === 'unavailable') {
-        setPermissionState('unavailable');
-        setPermissionError(cameraPermissionUnavailableMessage());
-        return false;
-      }
-      if (perms.camera === 'denied' || perms.microphone === 'denied') {
-        setPermissionState('denied');
-        setPermissionError(cameraPermissionDeniedMessage());
-        return false;
-      }
-
-      await initializeLocalStreams();
-      await applyDefaultRearCamera();
-
-      localStreamsReadyRef.current = true;
-      setLocalPreviewReady(true);
-      setPermissionState('granted');
-      return true;
-    } catch (err) {
-      const msg = friendlyPublishError(err);
-      if (/permission|denied/i.test(msg)) {
-        setPermissionState('denied');
-        setPermissionError(msg);
-      } else {
-        setPermissionState('unavailable');
-        setPermissionError(msg);
-      }
-      return false;
+      return await run;
     } finally {
-      previewInitInFlightRef.current = false;
+      if (previewInitPromiseRef.current === run) {
+        previewInitPromiseRef.current = null;
+      }
     }
   }, [applyDefaultRearCamera]);
 
@@ -240,28 +474,64 @@ export function useMobileStagePublish(args: {
   }, [releaseLocalDevices]);
 
   const retryPreviewPermission = useCallback(async () => {
+    // Wait out any in-flight init so we don't destroy streams mid-setup then bail.
+    if (previewInitPromiseRef.current) {
+      await previewInitPromiseRef.current.catch(() => false);
+    }
     localStreamsReadyRef.current = false;
     rearDefaultAppliedRef.current = false;
     setLocalPreviewReady(false);
-    setPermissionState('idle');
+    setPermissionState('requesting');
     setPermissionError(null);
-    try {
-      await destroyLocalStreams();
-    } catch {
-      /* ignore */
-    }
+    await withIvsStageSerialized(async () => {
+      try {
+        await destroyLocalStreams();
+      } catch {
+        /* ignore */
+      }
+    });
     await ensureLocalPreview();
   }, [ensureLocalPreview]);
+
+  const refreshZoomStops = useCallback(async () => {
+    if (!localStreamsReadyRef.current) return;
+    try {
+      const stops = await getSupportedCameraZoomStops();
+      const clean = Array.isArray(stops)
+        ? stops.filter((s) => typeof s === 'number' && Number.isFinite(s) && s > 0)
+        : [];
+      setZoomStops(clean.length ? Array.from(new Set(clean)).sort((a, b) => a - b) : [1]);
+    } catch {
+      setZoomStops([1]);
+    }
+  }, []);
+
+  const setCameraZoom = useCallback(async (factor: number) => {
+    if (!localStreamsReadyRef.current) return;
+    try {
+      const applied = await nativeSetCameraZoom(factor);
+      if (applied) setCameraZoomState(factor);
+    } catch (err) {
+      setError(friendlyPublishError(err));
+    }
+  }, []);
 
   const flipCamera = useCallback(async () => {
     if (!localStreamsReadyRef.current) return;
     try {
       await swapCamera();
       setCameraFacing((prev) => (prev === 'front' ? 'back' : 'front'));
+      // Zoom resets to 1x on a lens/position swap; refresh the supported stops for the new camera.
+      setCameraZoomState(1);
+      void refreshZoomStops();
     } catch (err) {
       setError(friendlyPublishError(err));
     }
-  }, []);
+  }, [refreshZoomStops]);
+
+  useEffect(() => {
+    if (localPreviewReady) void refreshZoomStops();
+  }, [localPreviewReady, refreshZoomStops]);
 
   const toggleMicrophoneMute = useCallback(async () => {
     if (!localStreamsReadyRef.current) return;
@@ -274,82 +544,400 @@ export function useMobileStagePublish(args: {
     }
   }, [microphoneMuted]);
 
-  const start = useCallback(async () => {
-    if (!isStageWebrtcEnabled()) {
-      setError('Real-Time streaming is disabled in this build.');
-      return;
-    }
-    if (startInFlightRef.current || publishingRef.current) return;
-    if (!cbRef.current.accessToken.trim()) {
-      setError('Sign in to start broadcasting.');
-      return;
-    }
+  const attachPublishListeners = useCallback(
+    (opts: { onFirstLive: () => void; allowReconnect: boolean }) => {
+      clearStageListeners();
 
-    const previewOk = localStreamsReadyRef.current || (await ensureLocalPreview());
-    if (!previewOk) {
-      setError(permissionError ?? cameraPermissionDeniedMessage());
-      return;
-    }
-
-    startInFlightRef.current = true;
-    wentLiveRef.current = false;
-    setPhase('starting');
-    setError(null);
-
-    const markLive = () => {
-      if (wentLiveRef.current) return;
-      wentLiveRef.current = true;
-      publishingRef.current = true;
-      setPhase('live');
-      void cbRef.current.onBroadcastStarted?.();
-      cbRef.current.onStreamRefresh?.();
-    };
-
-    try {
-      const tokenPayload = await requestHostStageToken(cbRef.current.roomId, cbRef.current.accessToken);
-
-      const connSub = addOnStageConnectionStateChangedListener((evt) => {
-        if (evt.state === 'connected' && !evt.error) {
-          markLive();
-        }
-      });
-
+      // Do NOT mark live on Stage "connected" — that fires before publish and left wentLiveRef
+      // stuck true when setStreamsPublished failed (Retry banner + reconnect crash).
       const pubSub = addOnPublishStateChangedListener((evt) => {
-        if (evt.state === 'published') markLive();
+        if (evt.state === 'published') {
+          opts.onFirstLive();
+          return;
+        }
         if (evt.state === 'failed') {
+          // Pause / leave-app calls setStreamsPublished(false) on purpose — that often surfaces as
+          // publish "failed". Stay on Host paused with Play; never drop to idle + Retry (black feed).
+          if (shouldStayPausedAfterIntentionalUnpublish(intentionalPauseRef.current)) {
+            setPublishingActive(false);
+            if (mountedRef.current) {
+              setPhase('paused');
+              setError(null);
+            }
+            return;
+          }
+          // Still joining Go Live — let start()'s catch clear state; do not reconnect yet.
+          if (startInFlightRef.current || !wentLiveRef.current) {
+            if (!startInFlightRef.current) {
+              setError(evt.error || 'Publish failed.');
+              setPhase('idle');
+              setPublishingActive(false);
+              void teardownStageConnection();
+              void endServerSession();
+            }
+            return;
+          }
+          if (opts.allowReconnect && !intentionalStopRef.current) {
+            reconnectPublishRef.current('publish_failed');
+            return;
+          }
           setError(evt.error || 'Publish failed.');
           setPhase('idle');
-          publishingRef.current = false;
+          setPublishingActive(false);
+          wentLiveRef.current = false;
+          bumpReconnectEpoch();
           void teardownStageConnection();
           void endServerSession();
         }
       });
 
       const errSub = addOnStageErrorListener((evt) => {
-        if (!evt.isFatal || !publishingRef.current) return;
+        if (!evt.isFatal) return;
+        // Background pause can tear the Stage socket — keep Host paused so Play can full-rejoin.
+        if (shouldStayPausedAfterIntentionalUnpublish(intentionalPauseRef.current)) {
+          setPublishingActive(false);
+          if (mountedRef.current) {
+            setPhase('paused');
+            setError(null);
+          }
+          return;
+        }
+        if (startInFlightRef.current || !wentLiveRef.current) {
+          if (!startInFlightRef.current && (publishingRef.current || wentLiveRef.current)) {
+            setError(evt.description || `stage_error_${evt.code}`);
+            setPhase('idle');
+            setPublishingActive(false);
+            wentLiveRef.current = false;
+            bumpReconnectEpoch();
+            void teardownStageConnection();
+            void endServerSession();
+          }
+          return;
+        }
+        if (opts.allowReconnect && !intentionalStopRef.current) {
+          reconnectPublishRef.current(`stage_error_${evt.code}`);
+          return;
+        }
         setError(evt.description || `stage_error_${evt.code}`);
         setPhase('idle');
-        publishingRef.current = false;
+        setPublishingActive(false);
+        wentLiveRef.current = false;
+        bumpReconnectEpoch();
         void teardownStageConnection();
         void endServerSession();
       });
 
-      listenerSubsRef.current = [connSub, pubSub, errSub];
+      listenerSubsRef.current = [pubSub, errSub];
+    },
+    [bumpReconnectEpoch, clearStageListeners, endServerSession, setPublishingActive, teardownStageConnection],
+  );
 
-      await joinStage(tokenPayload.token);
-      await setStreamsPublished(true);
-    } catch (err) {
-      await teardownStageConnection();
-      await endServerSession();
-      setPhase('idle');
-      setError(friendlyPublishError(err));
-    } finally {
-      startInFlightRef.current = false;
+  const reconnectPublish = useCallback(
+    async (trigger: string) => {
+      if (
+        reconnectInFlightRef.current ||
+        intentionalStopRef.current ||
+        intentionalPauseRef.current ||
+        !wentLiveRef.current ||
+        startInFlightRef.current ||
+        startPromiseRef.current
+      ) {
+        return;
+      }
+      if (phaseRef.current !== 'live' && phaseRef.current !== 'paused' && phaseRef.current !== 'starting') {
+        return;
+      }
+      // Never auto-rejoin while the host intentionally paused (button or background).
+      if (phaseRef.current === 'paused' && !publishingRef.current) {
+        return;
+      }
+
+      const epoch = reconnectEpochRef.current;
+
+      if (reconnectAttemptsRef.current >= HOST_MAX_REJOIN_ATTEMPTS) {
+        if (mountedRef.current) {
+          setError('Reconnecting to live…');
+          // Stay "live" intent — never park on paused unless the host tapped Pause.
+          if (phaseRef.current !== 'paused') setPhase('starting');
+        }
+        setPublishingActive(false);
+        setTimeout(() => {
+          if (epoch !== reconnectEpochRef.current) return;
+          if (!intentionalStopRef.current && wentLiveRef.current && !startInFlightRef.current) {
+            reconnectAttemptsRef.current = 0;
+            reconnectPublishRef.current('rejoin_loop');
+          }
+        }, HOST_REJOIN_LOOP_DELAY_MS);
+        return;
+      }
+
+      reconnectInFlightRef.current = true;
+      reconnectAttemptsRef.current += 1;
+      clearTokenRefreshTimer();
+      if (mountedRef.current && phaseRef.current !== 'paused') {
+        setPhase('starting');
+        setError(null);
+      }
+
+      try {
+        await withIvsStageSerialized(async () => {
+          clearStageListeners();
+          try {
+            await setStreamsPublished(false);
+          } catch {
+            /* ignore */
+          }
+          try {
+            await leaveStage();
+          } catch {
+            /* ignore */
+          }
+        });
+
+        if (
+          epoch !== reconnectEpochRef.current ||
+          intentionalStopRef.current ||
+          !mountedRef.current ||
+          !wentLiveRef.current
+        ) {
+          return;
+        }
+
+        const tokenPayload = await refreshHostStageToken(
+          cbRef.current.roomId,
+          cbRef.current.accessToken,
+        );
+
+        if (epoch !== reconnectEpochRef.current || intentionalStopRef.current || !wentLiveRef.current) {
+          return;
+        }
+
+        attachPublishListeners({
+          onFirstLive: () => {
+            reconnectAttemptsRef.current = 0;
+            setPublishingActive(true);
+            if (mountedRef.current) {
+              setPhase('live');
+              setError(null);
+            }
+            scheduleTokenRefresh(tokenPayload.expiresInSeconds);
+            cbRef.current.onStreamRefresh?.();
+          },
+          allowReconnect: true,
+        });
+
+        await withIvsStageSerialized(async () => {
+          await joinStage(tokenPayload.token);
+          await setStreamsPublished(true);
+        });
+
+        if (epoch !== reconnectEpochRef.current || intentionalStopRef.current || !wentLiveRef.current) {
+          return;
+        }
+
+        setPublishingActive(true);
+        reconnectAttemptsRef.current = 0;
+        if (mountedRef.current) {
+          setPhase('live');
+          setError(null);
+        }
+        scheduleTokenRefresh(tokenPayload.expiresInSeconds);
+        cbRef.current.onStreamRefresh?.();
+      } catch (err) {
+        if (epoch !== reconnectEpochRef.current || intentionalStopRef.current || !wentLiveRef.current) {
+          return;
+        }
+        if (reconnectAttemptsRef.current >= HOST_MAX_REJOIN_ATTEMPTS) {
+          if (mountedRef.current) {
+            setError(friendlyPublishError(err) || 'Reconnecting to live…');
+            if (phaseRef.current !== 'paused') setPhase('starting');
+          }
+          setPublishingActive(false);
+          setTimeout(() => {
+            if (epoch !== reconnectEpochRef.current) return;
+            if (!intentionalStopRef.current && wentLiveRef.current && !startInFlightRef.current) {
+              reconnectAttemptsRef.current = 0;
+              reconnectPublishRef.current('rejoin_loop');
+            }
+          }, HOST_REJOIN_LOOP_DELAY_MS);
+        } else {
+          const delay = 1_500;
+          setTimeout(() => {
+            if (epoch !== reconnectEpochRef.current) return;
+            if (!intentionalStopRef.current && wentLiveRef.current && !startInFlightRef.current) {
+              reconnectPublishRef.current(
+                trigger.startsWith('retry_') || trigger.includes('token_refresh')
+                  ? trigger
+                  : `retry_${trigger}`,
+              );
+            }
+          }, delay);
+        }
+      } finally {
+        reconnectInFlightRef.current = false;
+      }
+    },
+    [attachPublishListeners, clearStageListeners, clearTokenRefreshTimer, scheduleTokenRefresh],
+  );
+
+  reconnectPublishRef.current = (trigger: string) => {
+    void reconnectPublish(trigger);
+  };
+
+  // Keepalive: if the OS silently drops publish while the host stays in-room, nudge it back.
+  useEffect(() => {
+    if (phase !== 'live') return undefined;
+    const id = setInterval(() => {
+      if (!canAutoRecoverPublish() || phaseRef.current !== 'live') return;
+      const epoch = reconnectEpochRef.current;
+      void withIvsStageSerialized(async () => {
+        await setStreamsPublished(true);
+      }).catch(() => {
+        if (epoch === reconnectEpochRef.current && canAutoRecoverPublish()) {
+          reconnectPublishRef.current('keepalive');
+        }
+      });
+    }, 20_000);
+    return () => clearInterval(id);
+  }, [canAutoRecoverPublish, phase]);
+
+  const start = useCallback(async (opts?: { force?: boolean }): Promise<boolean> => {
+    if (!isStageWebrtcEnabled()) {
+      setError('Real-Time streaming is disabled in this build.');
+      return false;
     }
-  }, [ensureLocalPreview, endServerSession, permissionError, teardownStageConnection]);
+    if (!cbRef.current.accessToken.trim()) {
+      setError('Sign in to start broadcasting.');
+      return false;
+    }
+
+    // Retry from a failed / stuck Go Live: cancel recoveries, then tear down half-open state.
+    if (opts?.force) {
+      intentionalStopRef.current = true;
+      intentionalPauseRef.current = false;
+      bumpReconnectEpoch();
+      let spins = 0;
+      while (reconnectInFlightRef.current && spins < 40) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 50));
+        spins += 1;
+      }
+      try {
+        await teardownStageConnection();
+        await endServerSession();
+      } catch {
+        /* best-effort reset */
+      }
+      startInFlightRef.current = false;
+      setPublishingActive(false);
+      wentLiveRef.current = false;
+      reconnectAttemptsRef.current = 0;
+      startPromiseRef.current = null;
+      setPhase('idle');
+      setError(null);
+      // Keep intentionalStop until the new start run begins so stale reconnects cannot sneak in.
+    }
+
+    if (startPromiseRef.current) {
+      return startPromiseRef.current;
+    }
+    if (publishingRef.current && phaseRef.current === 'live' && wentLiveRef.current && !opts?.force) {
+      return true;
+    }
+
+    const run = (async (): Promise<boolean> => {
+      const previewOk = localStreamsReadyRef.current || (await ensureLocalPreview());
+      if (!previewOk) {
+        const msg = permissionError ?? cameraPermissionDeniedMessage();
+        intentionalStopRef.current = false;
+        setError(msg);
+        setPhase('idle');
+        return false;
+      }
+
+      startInFlightRef.current = true;
+      intentionalStopRef.current = false;
+      intentionalPauseRef.current = false;
+      wentLiveRef.current = false;
+      setPublishingActive(false);
+      reconnectAttemptsRef.current = 0;
+      setPhase('starting');
+      setError(null);
+
+      const markLive = () => {
+        if (wentLiveRef.current) return;
+        wentLiveRef.current = true;
+        setPublishingActive(true);
+        reconnectAttemptsRef.current = 0;
+        setPhase('live');
+        void cbRef.current.onBroadcastStarted?.();
+        cbRef.current.onStreamRefresh?.();
+      };
+
+      try {
+        const tokenPayload = await requestHostStageToken(cbRef.current.roomId, cbRef.current.accessToken);
+
+        attachPublishListeners({
+          onFirstLive: () => {
+            markLive();
+            scheduleTokenRefresh(tokenPayload.expiresInSeconds);
+          },
+          // Reconnect only after we have actually gone live once.
+          allowReconnect: true,
+        });
+
+        await withIvsStageSerialized(async () => {
+          await joinStage(tokenPayload.token);
+          await setStreamsPublished(true);
+        });
+        // Publish succeeded — mark live even if the native "published" event raced past us.
+        markLive();
+        scheduleTokenRefresh(tokenPayload.expiresInSeconds);
+        return true;
+      } catch (err) {
+        intentionalStopRef.current = true;
+        bumpReconnectEpoch();
+        try {
+          await teardownStageConnection();
+          await endServerSession();
+        } catch {
+          /* best-effort */
+        }
+        wentLiveRef.current = false;
+        setPublishingActive(false);
+        reconnectAttemptsRef.current = 0;
+        intentionalStopRef.current = false;
+        setPhase('idle');
+        setError(friendlyPublishError(err));
+        return false;
+      } finally {
+        startInFlightRef.current = false;
+      }
+    })();
+
+    startPromiseRef.current = run;
+    try {
+      return await run;
+    } finally {
+      if (startPromiseRef.current === run) {
+        startPromiseRef.current = null;
+      }
+    }
+  }, [
+    attachPublishListeners,
+    bumpReconnectEpoch,
+    ensureLocalPreview,
+    endServerSession,
+    permissionError,
+    scheduleTokenRefresh,
+    teardownStageConnection,
+  ]);
 
   /** Stop publishing to buyers; keep local preview for the seller. */
   const stop = useCallback(async () => {
+    intentionalStopRef.current = true;
+    intentionalPauseRef.current = false;
+    bumpReconnectEpoch();
+    clearTokenRefreshTimer();
     setPhase((prev) => (prev === 'live' || prev === 'starting' || prev === 'paused' ? 'stopping' : prev));
     if (!publishingRef.current && phase === 'idle') return;
     setError(null);
@@ -361,36 +949,234 @@ export function useMobileStagePublish(args: {
       setError(friendlyPublishError(err));
     } finally {
       wentLiveRef.current = false;
+      setPublishingActive(false);
       interruptedPublishRef.current = false;
+      reconnectAttemptsRef.current = 0;
       setPhase('idle');
     }
-  }, [endServerSession, phase, teardownStageConnection]);
+  }, [bumpReconnectEpoch, clearTokenRefreshTimer, endServerSession, phase, teardownStageConnection]);
 
-  /** Pause video/audio to buyers while keeping the stage session warm. */
-  const pause = useCallback(async () => {
-    if (phase !== 'live' || !publishingRef.current) return;
-    setError(null);
-    try {
-      await setStreamsPublished(false);
-      publishingRef.current = false;
-      setPhase('paused');
-    } catch (err) {
-      setError(friendlyPublishError(err));
+  /**
+   * Whatnot/TikTok/eBay Resume: keep the Stage session alive.
+   * Warm path = republish on the same join (Pause / leave-app never leaveStage).
+   * Cold path = leave + token + join only after process death or warm failure.
+   */
+  const resumeShow = useCallback(async (): Promise<boolean> => {
+    // Wait out a finishing reconnect/start so Play is not a silent no-op.
+    let spins = 0;
+    while ((reconnectInFlightRef.current || startInFlightRef.current) && spins < 40) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      spins += 1;
     }
-  }, [phase]);
+    if (reconnectInFlightRef.current || startInFlightRef.current) return false;
 
-  /** Resume publishing after a pause. */
-  const resume = useCallback(async () => {
-    if (phase !== 'paused') return;
-    setError(null);
-    try {
-      await setStreamsPublished(true);
-      publishingRef.current = true;
-      setPhase('live');
-    } catch (err) {
-      setError(friendlyPublishError(err));
+    const p = phaseRef.current;
+    const resumeGate = {
+      phase: p,
+      publishing: publishingRef.current,
+      intentionalPause: intentionalPauseRef.current,
+    };
+    if (!canAttemptHostResumeShow(resumeGate)) return false;
+
+    // Stuck Host-paused flag while already publishing — Play only clears streamPaused.
+    // Never take this shortcut after an intentional Pause (even if phase briefly says live).
+    if (shouldTreatHostResumeAsAlreadyLive(resumeGate) && !intentionalPauseRef.current) {
+      intentionalPauseRef.current = false;
+      interruptedPublishRef.current = false;
+      pauseStartedAtRef.current = null;
+      if (mountedRef.current) {
+        setPhase('live');
+        setError(null);
+      }
+      cbRef.current.onStreamRefresh?.();
+      return true;
     }
-  }, [phase]);
+
+    intentionalPauseRef.current = true;
+    intentionalStopRef.current = false;
+    setError(null);
+
+    const pauseDurationMs =
+      pauseStartedAtRef.current != null ? Date.now() - pauseStartedAtRef.current : undefined;
+
+    // Android: a real backgrounding tore down the camera preview's Surface while the local
+    // stream object survived, so the normal warm/cold republish below would reuse a stream
+    // bound to a dead Surface — buyers get a frozen feed until force-close. Force a full
+    // destroy + recreate of the local camera/mic before republishing. Never applies to a
+    // foreground Pause tap, and never applies on iOS (see the guard function's doc comment).
+    if (
+      shouldForceLocalStreamRefreshBeforeHostResume({
+        platform: Platform.OS,
+        backgroundedWhilePaused: backgroundedWhilePausedRef.current,
+      })
+    ) {
+      backgroundedWhilePausedRef.current = false;
+      await retryPreviewPermission();
+    }
+
+    const previewOk = localStreamsReadyRef.current || (await ensureLocalPreview());
+    if (!previewOk) {
+      const msg = permissionError ?? cameraPermissionDeniedMessage();
+      intentionalPauseRef.current = true;
+      setPublishingActive(false);
+      if (mountedRef.current) {
+        setPhase('paused');
+        setError(msg);
+      }
+      return false;
+    }
+
+    reconnectInFlightRef.current = true;
+    clearTokenRefreshTimer();
+    if (mountedRef.current) {
+      setPhase('starting');
+      setError(null);
+    }
+
+    const markLive = (expiresInSeconds?: number) => {
+      intentionalPauseRef.current = false;
+      interruptedPublishRef.current = false;
+      pauseStartedAtRef.current = null;
+      setPublishingActive(true);
+      wentLiveRef.current = true;
+      reconnectAttemptsRef.current = 0;
+      if (mountedRef.current) {
+        setPhase('live');
+        setError(null);
+      }
+      if (expiresInSeconds != null) scheduleTokenRefresh(expiresInSeconds);
+      cbRef.current.onStreamRefresh?.();
+    };
+
+    /** Attach before setStreamsPublished so we don't miss a fast "published" event. */
+    const waitForPublished = (timeoutMs: number) =>
+      new Promise<boolean>((resolve) => {
+        let done = false;
+        const finish = (ok: boolean) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          sub.remove();
+          resolve(ok);
+        };
+        const timer = setTimeout(() => finish(false), timeoutMs);
+        const sub = addOnPublishStateChangedListener((evt) => {
+          if (evt.state === 'published') finish(true);
+          if (evt.state === 'failed') finish(false);
+        });
+      });
+
+    try {
+      // Warm Play only for short Pause — overnight / long hold needs a fresh Stage join.
+      const preferWarm = shouldPreferWarmHostResume({
+        phase: p === 'paused' ? 'paused' : 'idle',
+        intentionalPause: true,
+        pauseDurationMs,
+      });
+
+      if (preferWarm) {
+        const publishedWait = waitForPublished(5_000);
+        try {
+          await withIvsStageSerialized(async () => {
+            await setStreamsPublished(true);
+          });
+          const published = await publishedWait;
+          if (!published) {
+            throw new Error('warm_republish_failed');
+          }
+          if (intentionalStopRef.current || !mountedRef.current) {
+            if (mountedRef.current) setPhase('paused');
+            return false;
+          }
+          markLive();
+          return true;
+        } catch {
+          await publishedWait;
+          /* fall through to full rejoin */
+        }
+      }
+
+      await withIvsStageSerialized(async () => {
+        clearStageListeners();
+        try {
+          await setStreamsPublished(false);
+        } catch {
+          /* ignore */
+        }
+        try {
+          await leaveStage();
+        } catch {
+          /* ignore */
+        }
+      });
+
+      if (intentionalStopRef.current || !mountedRef.current) {
+        if (mountedRef.current) setPhase('paused');
+        return false;
+      }
+
+      // POST prepareHostStageSession — same as Go Live: reconnecting health + Stage→HLS heal.
+      // PATCH refresh alone leaves overnight-torn composition dead and buyers on Waiting…
+      const tokenPayload = await requestHostStageToken(cbRef.current.roomId, cbRef.current.accessToken);
+
+      if (intentionalStopRef.current || !mountedRef.current) {
+        if (mountedRef.current) setPhase('paused');
+        return false;
+      }
+
+      attachPublishListeners({
+        onFirstLive: () => {
+          markLive(tokenPayload.expiresInSeconds);
+        },
+        allowReconnect: true,
+      });
+
+      const publishedWait = waitForPublished(8_000);
+      await withIvsStageSerialized(async () => {
+        await joinStage(tokenPayload.token);
+        await setStreamsPublished(true);
+      });
+
+      if (intentionalStopRef.current || !mountedRef.current) {
+        if (mountedRef.current) setPhase('paused');
+        return false;
+      }
+
+      const published = await publishedWait;
+      if (!published) {
+        throw new Error('cold_republish_failed');
+      }
+
+      markLive(tokenPayload.expiresInSeconds);
+      return true;
+    } catch (err) {
+      // Live show recovery failed — stay minimized (Play), never idle Retry.
+      intentionalPauseRef.current = true;
+      setPublishingActive(false);
+      wentLiveRef.current = true;
+      if (mountedRef.current) {
+        setPhase('paused');
+        setError(friendlyPublishError(err));
+      }
+      return false;
+    } finally {
+      reconnectInFlightRef.current = false;
+    }
+  }, [
+    attachPublishListeners,
+    clearStageListeners,
+    clearTokenRefreshTimer,
+    ensureLocalPreview,
+    permissionError,
+    retryPreviewPermission,
+    scheduleTokenRefresh,
+    setPublishingActive,
+  ]);
+
+  /** @deprecated Prefer minimizeShow — Pause button alias. */
+  const pause = minimizeShow;
+  /** @deprecated Prefer resumeShow — Play button alias. */
+  const resume = resumeShow;
 
   /** End show — fully release camera/mic hardware. */
   const releaseCamera = useCallback(async () => {
@@ -407,8 +1193,13 @@ export function useMobileStagePublish(args: {
     permissionState,
     permissionError,
     cameraFacing,
+    cameraZoom,
+    zoomStops,
+    setCameraZoom,
     start,
     stop,
+    minimizeShow,
+    resumeShow,
     pause,
     resume,
     releaseCamera,
@@ -416,6 +1207,6 @@ export function useMobileStagePublish(args: {
     toggleMicrophoneMute,
     microphoneMuted,
     retryPreviewPermission,
-    isPublishing: phase === 'live' || phase === 'starting' || phase === 'paused',
+    isPublishing: publishing,
   };
 }

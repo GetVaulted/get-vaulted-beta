@@ -86,6 +86,18 @@ export const WALLET_METHOD_CATALOG: WalletMethodCatalogEntry[] = [
     savableInWallet: true,
   },
   {
+    id: "venmo",
+    label: "Venmo",
+    eligibility: ["live", "marketplace", "trade"],
+    savableInWallet: true,
+  },
+  {
+    id: "paypal",
+    label: "PayPal",
+    eligibility: ["live", "marketplace", "trade"],
+    savableInWallet: true,
+  },
+  {
     id: "affirm",
     label: "Affirm",
     eligibility: ["marketplace_only"],
@@ -137,12 +149,18 @@ export function stripeCheckoutSessionPaymentOptions(lane: CommercePaymentLane): 
   return { payment_method_types: checkoutPaymentMethodTypesForLane(lane) };
 }
 
-/** Optional wallet add flows — off by default until enabled in Stripe Dashboard + env. */
+/** Optional wallet add flows — off only when explicitly disabled (Cash App / Link / Amazon Pay). */
+export function isStripeWalletOptionalMethodEnabled(envKey: string): boolean {
+  return process.env[envKey] !== "false";
+}
+
 export function walletOptionalPaymentMethodTypes(): StripeCheckoutPaymentMethodType[] {
   const types: StripeCheckoutPaymentMethodType[] = [];
-  if (process.env.STRIPE_WALLET_LINK_ENABLED === "true") types.push("link");
-  if (process.env.STRIPE_WALLET_CASH_APP_ENABLED === "true") types.push("cashapp");
-  if (process.env.STRIPE_WALLET_AMAZON_PAY_ENABLED === "true") types.push("amazon_pay");
+  // Default ON so Live/Vault Wallet show Cash App / Link / Amazon Pay once Stripe Dashboard allows them.
+  // Set STRIPE_WALLET_*_ENABLED=false to hide.
+  if (isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_LINK_ENABLED")) types.push("link");
+  if (isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_CASH_APP_ENABLED")) types.push("cashapp");
+  if (isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_AMAZON_PAY_ENABLED")) types.push("amazon_pay");
   return types;
 }
 
@@ -159,16 +177,25 @@ export function stripeSetupIntentPaymentOptions(): {
 }
 
 /**
- * Off-session / saved-card PaymentIntent recovery — instant methods only, no redirects.
- * Live lane uses card-only because saved-card checkout always charges an attached card PM.
+ * Off-session / saved-PM PaymentIntent recovery — instant methods only (no BNPL / ACH).
+ * Live accepts the same instant types as marketplace so saved Cash App / Link / Amazon Pay
+ * can be charged on auction wins and spots (not card-only).
  */
 export function stripeOffSessionPaymentIntentOptions(lane: "live" | "marketplace"): {
   payment_method_types: StripeCheckoutPaymentMethodType[];
 } {
-  if (lane === "live") {
-    return { payment_method_types: ["card"] };
-  }
+  void lane;
   return { payment_method_types: [...INSTANT_STRIPE_PAYMENT_METHOD_TYPES] };
+}
+
+/** Stripe PM types eligible for live bidding / off-session live charges. */
+export const LIVE_ELIGIBLE_STRIPE_PAYMENT_METHOD_TYPES = [
+  ...INSTANT_STRIPE_PAYMENT_METHOD_TYPES,
+] as const;
+
+export function isLiveEligibleStripePaymentMethodType(type: string | null | undefined): boolean {
+  const t = (type ?? "").toLowerCase();
+  return (LIVE_ELIGIBLE_STRIPE_PAYMENT_METHOD_TYPES as readonly string[]).includes(t);
 }
 
 export function resolveBuyNowCheckoutLane(liveRoomItemId?: string | null): CommercePaymentLane {

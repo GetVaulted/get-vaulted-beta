@@ -5,6 +5,7 @@ import {
   MARKETPLACE_BNPL_STRIPE_PAYMENT_METHOD_TYPES,
   assertLivePaymentMethodPolicy,
   checkoutPaymentMethodTypesForLane,
+  isLiveEligibleStripePaymentMethodType,
   paymentMethodTypesIncludeBnpl,
   resolveBuyNowCheckoutLane,
   resolveOrderCheckoutLane,
@@ -41,15 +42,20 @@ describe("stripe-payment-method-config", () => {
     expect(paymentMethodTypesIncludeBnpl(types)).toBe(false);
   });
 
-  it("wallet setup intent defaults to card only until optional methods are enabled", () => {
+  it("wallet setup intent includes optional instant methods by default", () => {
     const { payment_method_types } = stripeSetupIntentPaymentOptions();
     expect(paymentMethodTypesIncludeBnpl(payment_method_types)).toBe(false);
-    expect(payment_method_types).toEqual(["card"]);
+    expect(payment_method_types).toEqual(
+      expect.arrayContaining(["card", "link", "cashapp", "amazon_pay"]),
+    );
   });
 
   it("off-session recovery PaymentIntent excludes BNPL for live and marketplace", () => {
-    expect(stripeOffSessionPaymentIntentOptions("live").payment_method_types).toEqual(["card"]);
+    expect(stripeOffSessionPaymentIntentOptions("live").payment_method_types).toEqual([
+      ...INSTANT_STRIPE_PAYMENT_METHOD_TYPES,
+    ]);
     const { payment_method_types } = stripeOffSessionPaymentIntentOptions("marketplace");
+    expect(payment_method_types).toEqual([...INSTANT_STRIPE_PAYMENT_METHOD_TYPES]);
     expect(paymentMethodTypesIncludeBnpl(payment_method_types)).toBe(false);
   });
 
@@ -86,5 +92,26 @@ describe("stripe-payment-method-config", () => {
     expect(apple).toBeTruthy();
     expect(walletMethodEligibilityLabel(affirm!)).toBe("Marketplace checkout only");
     expect(walletMethodEligibilityLabel(apple!)).toBe("Available for Live, Marketplace, Trade");
+  });
+
+  it("treats cashapp and card as live-eligible instant methods", () => {
+    expect(isLiveEligibleStripePaymentMethodType("card")).toBe(true);
+    expect(isLiveEligibleStripePaymentMethodType("cashapp")).toBe(true);
+    expect(isLiveEligibleStripePaymentMethodType("affirm")).toBe(false);
+    expect(isLiveEligibleStripePaymentMethodType("us_bank_account")).toBe(false);
+  });
+
+  it("includes Venmo in the live wallet catalog", () => {
+    const venmo = WALLET_METHOD_CATALOG.find((e) => e.id === "venmo");
+    expect(venmo).toBeTruthy();
+    expect(venmo!.eligibility).toEqual(expect.arrayContaining(["live", "marketplace", "trade"]));
+    expect(venmo!.savableInWallet).toBe(true);
+  });
+
+  it("includes PayPal in the live wallet catalog", () => {
+    const paypal = WALLET_METHOD_CATALOG.find((e) => e.id === "paypal");
+    expect(paypal).toBeTruthy();
+    expect(paypal!.eligibility).toEqual(expect.arrayContaining(["live", "marketplace", "trade"]));
+    expect(paypal!.savableInWallet).toBe(true);
   });
 });

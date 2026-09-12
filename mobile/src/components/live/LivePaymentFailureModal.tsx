@@ -9,16 +9,21 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { useStripe } from '@stripe/stripe-react-native';
 import type { LiveBuyerPaymentFailureSnapshot } from '../../api/liveRoomBuyerRepository';
 import { retryLivePaymentFailure } from '../../api/livePaymentFailureRepository';
+import { useLiveConfirmPayment } from './LiveStripeProvider';
 import {
   isShippingAddressRecoveryFailure,
   mapLivePaymentFailureMessage,
   recoveryStatusMessage,
   PAYMENT_RECOVERY_SUBTITLE,
 } from '../../lib/livePaymentFailureCopy';
+import {
+  shouldOpenWalletPaymentSetupOnRecovery,
+  walletRecoveryPaymentSetupStartWith,
+} from '../../lib/androidPaymentSheetPresentation';
 import { colors, spacing } from '../../theme';
+import { withLivePlaybackCommerceHold } from '../../lib/livePlaybackCommerceHold';
 import { LiveRoomText } from './LiveRoomText';
 import { WalletSheet } from '../wallet/WalletSheet';
 
@@ -47,7 +52,7 @@ export function LivePaymentFailureModal({
   onWalletOverlayChange,
   onBlockerActiveChange,
 }: Props) {
-  const { confirmPayment } = useStripe();
+  const confirmPayment = useLiveConfirmPayment();
   const [busy, setBusy] = useState(false);
   const [statusLine, setStatusLine] = useState<string | null>(null);
   // Once a new card is saved + retried, the original failure reason ("Your card has expired") is
@@ -59,7 +64,11 @@ export function LivePaymentFailureModal({
 
   const reasonLine = cardSaved ? null : mapLivePaymentFailureMessage(failure.failureReason);
   const shippingRecovery = isShippingAddressRecoveryFailure(failure.failureReason);
-  const walletInitialStep = shippingRecovery ? ('shipping' as const) : ('main' as const);
+  // Card declines jump into payment setup; shipping failures open the address step.
+  // Android must NOT auto-start PaymentSheet (`card`) inside nested Modals — that stuck buyers.
+  const walletInitialStep = shippingRecovery ? ('shipping' as const) : ('payment' as const);
+  const openPaymentSetupOnMount = shouldOpenWalletPaymentSetupOnRecovery({ shippingRecovery });
+  const paymentSetupStartWith = walletRecoveryPaymentSetupStartWith();
 
   useEffect(() => {
     onBlockerActiveChange?.(visible && !walletOpen);
@@ -136,7 +145,13 @@ export function LivePaymentFailureModal({
           return true;
         }
         if (result.ok && 'requiresAction' in result && result.requiresAction) {
-          const conf = await confirmPayment(result.clientSecret, { paymentMethodType: 'Card' });
+          if (!confirmPayment) {
+            setStatusLine('Payments are still starting up — try again in a moment.');
+            return false;
+          }
+          const conf = await withLivePlaybackCommerceHold(() =>
+            confirmPayment(result.clientSecret, { paymentMethodType: 'Card' }),
+          );
           if (conf.error) {
             const msg = mapLivePaymentFailureMessage(conf.error.message, conf.error.code);
             setStatusLine(msg);
@@ -225,7 +240,8 @@ export function LivePaymentFailureModal({
         animationType="none"
         transparent
         statusBarTranslucent
-        onRequestClose={() => {}}
+        presentationStyle="overFullScreen"
+        onRequestClose={onLeaveRoom}
       >
         <View style={styles.backdrop} accessibilityViewIsModal>
           <Animated.View
@@ -261,24 +277,24 @@ export function LivePaymentFailureModal({
               <Pressable
                 style={[styles.primaryBtn, busy && styles.disabled]}
                 disabled={busy}
+                onPress={openWalletForRecovery}
+                accessibilityRole="button"
+                accessibilityLabel="Update Wallet"
+              >
+                <LiveRoomText style={styles.primaryLabel}>Update Wallet</LiveRoomText>
+              </Pressable>
+              <Pressable
+                style={[styles.secondaryBtn, busy && styles.disabled]}
+                disabled={busy}
                 onPress={() => void runRetry()}
                 accessibilityRole="button"
                 accessibilityLabel="Retry payment"
               >
                 {busy ? (
-                  <ActivityIndicator color={colors.background} />
+                  <ActivityIndicator color={colors.textPrimary} />
                 ) : (
-                  <LiveRoomText style={styles.primaryLabel}>Retry payment</LiveRoomText>
+                  <LiveRoomText style={styles.secondaryLabel}>Retry payment</LiveRoomText>
                 )}
-              </Pressable>
-              <Pressable
-                style={[styles.secondaryBtn, busy && styles.disabled]}
-                disabled={busy}
-                onPress={openWalletForRecovery}
-                accessibilityRole="button"
-                accessibilityLabel="Update Wallet"
-              >
-                <LiveRoomText style={styles.secondaryLabel}>Update Wallet</LiveRoomText>
               </Pressable>
               <Pressable
                 style={[styles.tertiaryBtn, busy && styles.disabled]}
@@ -301,6 +317,8 @@ export function LivePaymentFailureModal({
           roomId={roomId}
           recoveryMode
           initialStep={walletInitialStep}
+          openPaymentSetupOnMount={openPaymentSetupOnMount}
+          paymentSetupStartWith={paymentSetupStartWith}
           onPaymentMethodSaved={handlePaymentMethodSaved}
           onActiveChange={(active) => {
             if (active) onWalletOverlayChange?.(true);

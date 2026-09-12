@@ -44,7 +44,7 @@ export async function shareLiveRoomInApp(input: ShareLiveRoomInAppInput): Promis
   const [room, sender] = await Promise.all([
     prisma.liveRoom.findUnique({
       where: { id: liveRoomId },
-      select: { id: true, title: true, sellerId: true, status: true },
+      select: { id: true, title: true, sellerId: true, status: true, discoveryVisibility: true },
     }),
     prisma.user.findUnique({
       where: { id: senderId },
@@ -68,6 +68,10 @@ export async function shareLiveRoomInApp(input: ShareLiveRoomInAppInput): Promis
   if (input.notifyFollowers) {
     if (room.sellerId !== senderId) {
       throw new Error("NOT_HOST");
+    }
+    // Private shows are invite-only — never blast the full follower list.
+    if (room.discoveryVisibility === "private") {
+      throw new Error("PRIVATE_NO_FOLLOWER_BLAST");
     }
     const followerRows = await prisma.sellerFollow.findMany({
       where: { sellerId: senderId },

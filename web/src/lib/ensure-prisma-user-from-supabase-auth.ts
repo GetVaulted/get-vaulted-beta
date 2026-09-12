@@ -101,9 +101,6 @@ export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuth
   }
 
   const { username, usernameChosenAt } = await resolveInitialUsername(supabaseUser);
-  const displayRaw = meta?.display_name;
-  const display =
-    typeof displayRaw === "string" && displayRaw.trim() ? displayRaw.trim().slice(0, 120) : null;
 
   const emailVerifiedAt = supabaseUser.email_confirmed_at
     ? new Date(supabaseUser.email_confirmed_at)
@@ -117,7 +114,7 @@ export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuth
         email,
         username,
         usernameChosenAt,
-        name: display,
+        name: username,
         emailVerified: emailVerifiedAt,
         referralCode: ownReferralCode,
       },
@@ -126,6 +123,14 @@ export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuth
     if (referralCode) {
       await attributeReferralOnSignup(created.id, referralCode);
     }
+    const { scheduleNotifyAdmins } = await import("@/lib/admin/notify-admins");
+    scheduleNotifyAdmins({
+      type: "admin_new_user",
+      title: "New account created",
+      body: `@${username} (${email}) just signed up.`,
+      href: "/admin/users",
+      dedupeKey: `new-user:${created.id}`,
+    });
     return created.id;
   } catch {
     const byEmail = await prisma.user.findUnique({ where: { email }, select: { id: true } });

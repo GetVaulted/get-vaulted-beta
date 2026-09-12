@@ -14,6 +14,21 @@ export type LiveVariantCheckoutPreviewForRoom = LiveVariantCheckoutPreview & {
   liveRoomItemId: string;
 };
 
+/**
+ * Buyer shipping + tax for the active pinned AUCTION or BUY-NOW lot (not PYT/PYD spots — those use
+ * `variantCheckoutPreview`). Powers the pinned-box shipping + tax line on mobile and web.
+ */
+export type LivePinnedShippingTaxDTO = {
+  liveRoomItemId: string;
+  /** Auction lot (final price unknown until it sells) → clients show "+ Tax" instead of an amount. */
+  isAuction: boolean;
+  shippingUsd: number;
+  shippingDisplay: string;
+  taxApplies: boolean;
+  taxUsd: number;
+  taxDisplay: string;
+};
+
 export function variantCheckoutPreviewItemPriceUsd(item: LiveRoomItemDTO): number {
   if (!isVariantPurchaseItem(item)) return 0;
   const pinned = hostPinnedBuyerVariant(item.variants, item.variantAssignmentMode);
@@ -50,7 +65,52 @@ export async function resolveLiveVariantCheckoutPreviewForActiveItem(args: {
     liveRoomId: args.liveRoomId,
     liveRoomItemId: item.id,
     itemPriceUsd,
+    // Room GET enrichment — do not create Stripe Tax calculations on every refetch.
+    includeTaxEstimate: false,
   });
   if (!preview) return null;
   return { ...preview, liveRoomItemId: item.id };
+}
+
+/** Shipping + tax for the active auction / buy-now pinned lot (not PYT/PYD variant spots). */
+export async function resolveLivePinnedShippingTaxPreview(args: {
+  buyerId: string;
+  liveRoomId: string;
+  activeItem: LiveRoomItemDTO | null | undefined;
+}): Promise<LivePinnedShippingTaxDTO | null> {
+  const item = args.activeItem;
+  if (!item) return null;
+  // PYT/PYD spots already surface shipping + tax through `variantCheckoutPreview`.
+  if (isVariantPurchaseItem(item)) return null;
+
+  const isAuction =
+    item.salesFormat === "auction" || item.biddingOpen === true || item.currentBidUsd != null;
+
+  const priceCandidate = isAuction
+    ? item.currentBidUsd ?? item.startingBidUsd ?? item.priceUsd ?? 0
+    : item.priceUsd ?? item.startingBidUsd ?? 0;
+  const itemPriceUsd =
+    Number.isFinite(priceCandidate) && (priceCandidate ?? 0) > 0
+      ? Math.round((priceCandidate as number) * 100) / 100
+      : 0;
+  if (itemPriceUsd <= 0) return null;
+
+  const preview = await getLiveVariantCheckoutPreview({
+    buyerId: args.buyerId,
+    liveRoomId: args.liveRoomId,
+    liveRoomItemId: item.id,
+    itemPriceUsd,
+    includeTaxEstimate: false,
+  });
+  if (!preview) return null;
+
+  return {
+    liveRoomItemId: item.id,
+    isAuction,
+    shippingUsd: preview.shippingUsd,
+    shippingDisplay: preview.shippingDisplay,
+    taxApplies: preview.taxApplies,
+    taxUsd: preview.taxUsd,
+    taxDisplay: preview.taxDisplay,
+  };
 }

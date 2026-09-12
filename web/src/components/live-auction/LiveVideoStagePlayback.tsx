@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Hls from "hls.js";
 import {
+  browserCanLoadHlsJsBundle,
   isLiveStreamSignal,
+  liveStageObjectFitForPlayback,
   parseBuyerSafeStreamPayload,
   preferHlsOverWebrtcOnClient,
   preferNativeHlsElementPlayback,
@@ -36,6 +38,8 @@ type LiveVideoStagePlaybackProps = {
   scheduledStartAt?: string | null;
   /** Host-uploaded thumbnail. Shown as background placeholder until live video starts playing. */
   thumbnailUrl?: string | null;
+  /** Short looping promo for scheduled rooms. */
+  teaserVideoUrl?: string | null;
   onNotifyMe?: () => void;
   /** Fill the stage edge-to-edge instead of nested 9:16 letterbox plate. */
   fillPortraitFrame?: boolean;
@@ -56,26 +60,35 @@ const BACKOFF_BASE_MS = 900;
 /** While the room is live, re-probe playback if video stays blank this long. */
 const LIVE_PLAYBACK_HEALTH_MS = 15_000;
 const NO_VIDEO_RECOVER_MS = 12_000;
+/**
+ * The Stage→Channel HLS mirror can take several seconds to start producing segments after go-live.
+ * Suppress the hard "couldn't load stream" error during this warm-up window so guests see a steady
+ * "connecting" state instead of the error flashing on/off every retry cycle.
+ */
+const STREAM_WARMUP_GRACE_MS = 45_000;
 
 /** Shared low-latency HLS.js tuning — used by both the seller center stage and buyer room. */
 const HLS_LOW_LATENCY_CONFIG = {
   enableWorker: true,
   lowLatencyMode: true,
-  liveSyncDurationCount: 2,
-  liveMaxLatencyDurationCount: 4,
-  backBufferLength: 30,
-  maxBufferLength: 30,
-  maxMaxBufferLength: 60,
+  // Stay ~1 segment behind live; larger counts add multi-second OBS delay.
+  liveSyncDurationCount: 1,
+  liveMaxLatencyDurationCount: 2,
+  // Catch up gently before seeking when the playlist advances.
+  maxLiveSyncPlaybackRate: 1.5,
+  backBufferLength: 4,
+  maxBufferLength: 4,
+  maxMaxBufferLength: 6,
 } as const;
 
-/** If playback drifts more than this far behind the live edge, snap forward toward live. */
-const LIVE_EDGE_DRIFT_THRESHOLD_S = 12;
-/** Land this many seconds behind the live edge after a corrective seek (small buffer). */
-const LIVE_EDGE_TARGET_OFFSET_S = 2;
+/** Seek when playback drifts more than this far behind the live edge. */
+const LIVE_EDGE_DRIFT_THRESHOLD_S = 3;
+/** Land this many seconds behind the live edge after a corrective seek. */
+const LIVE_EDGE_TARGET_OFFSET_S = 0.75;
 /** How often the live-edge correction loop runs while a stream is playing. */
-const LIVE_EDGE_TICK_MS = 5000;
+const LIVE_EDGE_TICK_MS = 1000;
 /** Minimum gap between corrective seeks so we never thrash the decoder. */
-const LIVE_EDGE_SEEK_COOLDOWN_MS = 8000;
+const LIVE_EDGE_SEEK_COOLDOWN_MS = 2500;
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -183,10 +196,12 @@ export function LiveVideoStagePlayback({
   streamPlaybackRefreshNonce,
   scheduledStartAt = null,
   thumbnailUrl = null,
+  teaserVideoUrl = null,
   onNotifyMe,
   fillPortraitFrame = false,
 }: LiveVideoStagePlaybackProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const teaserVideoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const mutedRef = useRef(false);
   const pollRef = useRef<number | null>(null);
@@ -218,6 +233,8 @@ export function LiveVideoStagePlayback({
   const [playerFatal, setPlayerFatal] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [muted, setMuted] = useState(false);
+  /** Teaser starts muted for browser autoplay; tap Unmute for sound. */
+  const [teaserMuted, setTeaserMuted] = useState(true);
   const [debugEngine, setDebugEngine] = useState<"none" | "hls" | "native">("none");
   const [hlsFatalRetries, setHlsFatalRetries] = useState(0);
   const [hydrated, setHydrated] = useState(false);
@@ -226,6 +243,7 @@ export function LiveVideoStagePlayback({
   const [liveDebug, setLiveDebug] = useState<{ drift: number | null; liveEdge: number | null; currentTime: number } | null>(null);
   const [streamMode, setStreamMode] = useState<string>("channel_hls");
   const [stageAvailable, setStageAvailable] = useState(false);
+  const [inStreamWarmupGrace, setInStreamWarmupGrace] = useState(true);
   const [transport, setTransport] = useState<"none" | "webrtc" | "hls">("none");
   /** Forces useStageSubscribe to leave + rejoin (visibility resume, recoverable disconnect). */
   const [webrtcSubscribeEpoch, setWebrtcSubscribeEpoch] = useState(0);
@@ -241,6 +259,16 @@ export function LiveVideoStagePlayback({
     if (roomLifecycleLive) return;
     const id = window.setInterval(() => setTick((x) => x + 1), 1000);
     return () => window.clearInterval(id);
+  }, [roomLifecycleLive]);
+
+  useEffect(() => {
+    if (!roomLifecycleLive) {
+      setInStreamWarmupGrace(true);
+      return;
+    }
+    setInStreamWarmupGrace(true);
+    const id = window.setTimeout(() => setInStreamWarmupGrace(false), STREAM_WARMUP_GRACE_MS);
+    return () => window.clearTimeout(id);
   }, [roomLifecycleLive]);
 
   const detachHls = useCallback(() => {
@@ -303,6 +331,7 @@ export function LiveVideoStagePlayback({
       setVideoHasData(false);
       setAutoplayBlocked(false);
       el.muted = mutedRef.current;
+      el.volume = 1;
       el.playsInline = true;
       el.setAttribute("playsinline", "");
       el.setAttribute("webkit-playsinline", "");
@@ -357,6 +386,19 @@ export function LiveVideoStagePlayback({
         return;
       }
 
+      // Never fetch the hls.js chunk on engines that cannot parse optional chaining — script
+      // evaluation throws a global SyntaxError that Sentry reports even when import() is awaited.
+      if (!browserCanLoadHlsJsBundle()) {
+        if (epoch !== attachEpochRef.current) return;
+        if (canNativeHls) {
+          attachNativeHls();
+          return;
+        }
+        setDebugEngine("none");
+        setPlayerFatal(true);
+        return;
+      }
+
       try {
         const { default: HlsCtor } = await import("hls.js");
         if (epoch !== attachEpochRef.current) return;
@@ -383,6 +425,20 @@ export function LiveVideoStagePlayback({
             setVideoHasData(true);
             tryPlay();
           });
+          const pinLiveEdge = (source: string) => {
+            const videoEl = videoRef.current;
+            if (!videoEl) return;
+            enforceLiveEdge({
+              el: videoEl,
+              hls,
+              roomId: liveRoomId,
+              source,
+              verbose: false,
+              lastSeekAtRef: lastLiveSeekAtRef,
+            });
+          };
+          hls.on(HlsCtor.Events.LEVEL_UPDATED, () => pinLiveEdge("level_updated"));
+          hls.on(HlsCtor.Events.FRAG_CHANGED, () => pinLiveEdge("frag_changed"));
           // Re-pin to the live edge on every playlist/segment update, not just once on attach.
           hls.on(HlsCtor.Events.ERROR, (_, data) => {
             if (!data.fatal) return;
@@ -475,6 +531,17 @@ export function LiveVideoStagePlayback({
       setLoading(false);
       retryRef.current = 0;
       setHlsFatalRetries(0);
+
+      // Host paused: stop painting/decoding video under the standby screen (OBS may still ingest).
+      if (safe.streamPaused) {
+        transportRef.current = "none";
+        setTransport("none");
+        lastAttachedKeyRef.current = "";
+        setDebugEngine("none");
+        detachHls();
+        setVideoHasData(false);
+        return;
+      }
 
       const signalLive = isLiveStreamSignal(safe.streamHealth);
       // A fresh live signal resets the one-shot WebRTC failover guard so a new Go Live retries WebRTC.
@@ -621,7 +688,7 @@ export function LiveVideoStagePlayback({
   useStageSubscribe({
     roomId: liveRoomId,
     videoRef,
-    active: transport === "webrtc",
+    active: transport === "webrtc" && !streamPaused,
     muted,
     refreshNonce: streamPlaybackRefreshNonce,
     subscribeEpoch: webrtcSubscribeEpoch,
@@ -675,18 +742,41 @@ export function LiveVideoStagePlayback({
       const since = noVideoSinceRef.current;
       if (since == null || Date.now() - since < NO_VIDEO_RECOVER_MS) return;
       noVideoSinceRef.current = Date.now();
-      webrtcFailedRef.current = false;
-      webrtcFailoverCountRef.current = 0;
       lastAttachedKeyRef.current = "";
       setPlayerFatal(false);
       setHlsFatalRetries(0);
-      logIvsWeb("buyer playback health recover", { roomId: liveRoomId, transport: transportRef.current });
+      // WebRTC has yielded no host video for the whole recover window. Escalate toward the HLS
+      // mirror instead of resetting the failover counter — the reset was trapping buyers on a
+      // never-playing WebRTC subscribe while the Stage→Channel HLS mirror was live.
       if (transportRef.current === "webrtc") {
+        webrtcFailoverCountRef.current += 1;
+        if (webrtcFailoverCountRef.current >= MAX_WEBRTC_FAILOVERS) {
+          webrtcFailedRef.current = true;
+          transportRef.current = "hls";
+          setTransport("hls");
+          setVideoHasData(false);
+          logIvsWeb("buyer playback error", {
+            roomId: liveRoomId,
+            reason: "webrtc_novideo_failover_hls",
+            fallback: "hls",
+          });
+          void fetchStream();
+          return;
+        }
+        logIvsWeb("buyer playback health recover", {
+          roomId: liveRoomId,
+          transport: "webrtc",
+          failoverAttempt: webrtcFailoverCountRef.current,
+        });
         setWebrtcSubscribeEpoch((n) => n + 1);
-      } else {
-        transportRef.current = "none";
-        setTransport("none");
+        void fetchStream();
+        return;
       }
+      // Already latched to HLS via failover — retry HLS re-attach without flipping back to a
+      // dead WebRTC subscribe.
+      logIvsWeb("buyer playback health recover", { roomId: liveRoomId, transport: transportRef.current });
+      transportRef.current = webrtcFailedRef.current ? "hls" : "none";
+      setTransport(transportRef.current);
       void fetchStream();
     }, LIVE_PLAYBACK_HEALTH_MS);
     return () => window.clearInterval(id);
@@ -694,7 +784,10 @@ export function LiveVideoStagePlayback({
 
   useEffect(() => {
     const el = videoRef.current;
-    if (el) el.muted = muted;
+    if (el) {
+      el.muted = muted;
+      el.volume = 1;
+    }
   }, [muted]);
 
   // Continuous live-edge correction loop. Runs for BOTH HLS.js and native Safari/iOS (which ignores
@@ -735,7 +828,7 @@ export function LiveVideoStagePlayback({
     };
   }, [transport, videoHasData, streamHealth, playbackUrl, liveRoomId]);
 
-  const hlsSurface = resolveLivePlaybackSurfaceState({
+  const hlsSurfaceRaw = resolveLivePlaybackSurfaceState({
     loading,
     fetchFailed,
     reconnecting,
@@ -745,6 +838,9 @@ export function LiveVideoStagePlayback({
     playerFatal,
     roomLifecycleLive,
   });
+  // The Stage→Channel HLS mirror can take several seconds to warm up after go-live — don't flash
+  // the hard error at guests while that's still plausibly in progress.
+  const hlsSurface = hlsSurfaceRaw === "error" && inStreamWarmupGrace ? "connecting" : hlsSurfaceRaw;
   // WebRTC has no playbackUrl, so the HLS-oriented surface resolver can't classify it — drive it
   // off connection state (videoHasData) instead.
   const surface =
@@ -776,12 +872,38 @@ export function LiveVideoStagePlayback({
    */
   const streamAttaching =
     roomLifecycleLive && showVideoLayer && (transport === "hls" || transport === "webrtc");
-  const showThumbnailLayer = isUsableThumbnail(thumbnailUrl) && !videoHasData && !streamAttaching;
+  const teaserUrl = typeof teaserVideoUrl === "string" ? teaserVideoUrl.trim() : "";
+  const showTeaserLayer =
+    Boolean(teaserUrl) &&
+    !roomLifecycleLive &&
+    roomStatus !== "ended" &&
+    !videoHasData &&
+    !streamAttaching;
+  const showThumbnailLayer =
+    isUsableThumbnail(thumbnailUrl) && !videoHasData && !streamAttaching && !showTeaserLayer;
+
+  useEffect(() => {
+    if (!showTeaserLayer) return;
+    const el = teaserVideoRef.current;
+    if (!el) return;
+    el.loop = true;
+    el.muted = teaserMuted;
+    el.playsInline = true;
+    void el.play().catch(() => {
+      /* autoplay may still require mute — already muted by default */
+    });
+  }, [showTeaserLayer, teaserUrl, teaserMuted]);
 
   const scheduledPhase = useMemo(() => {
     if (roomLifecycleLive || !hydrated) return null;
     return resolveScheduledPrereleasePhase(Date.now(), scheduledStartMs, roomLifecycleLive);
   }, [roomLifecycleLive, hydrated, scheduledStartMs, tick]);
+
+  const liveVideoObjectFit = liveStageObjectFitForPlayback({ streamMode, transport });
+  const liveVideoFitClass =
+    liveVideoObjectFit === "contain"
+      ? "absolute inset-0 h-full w-full object-contain object-center opacity-[0.97]"
+      : "absolute inset-0 h-full w-full object-cover object-center opacity-[0.97]";
 
   return (
     <div className="absolute inset-0 z-[1] overflow-hidden bg-black">
@@ -817,13 +939,67 @@ export function LiveVideoStagePlayback({
         </div>
       ) : null}
 
+      {showTeaserLayer && teaserUrl ? (
+        <div className="absolute inset-0 z-[1] bg-black">
+          {fillPortraitFrame ? (
+            <video
+              ref={teaserVideoRef}
+              key={teaserUrl}
+              src={teaserUrl}
+              className="absolute inset-0 h-full w-full object-cover object-center"
+              muted={teaserMuted}
+              playsInline
+              loop
+              autoPlay
+              controls={false}
+              preload="auto"
+              aria-label="Show preview video"
+            />
+          ) : (
+            <div className="flex min-h-0 min-w-0 size-full items-center justify-center">
+              <div className={PORTRAIT_LIVE_PLATE}>
+                <video
+                  ref={teaserVideoRef}
+                  key={teaserUrl}
+                  src={teaserUrl}
+                  className="absolute inset-0 h-full w-full object-cover object-center"
+                  muted={teaserMuted}
+                  playsInline
+                  loop
+                  autoPlay
+                  controls={false}
+                  preload="auto"
+                  aria-label="Show preview video"
+                />
+              </div>
+            </div>
+          )}
+          {teaserMuted ? (
+            <button
+              type="button"
+              onClick={() => {
+                setTeaserMuted(false);
+                const el = teaserVideoRef.current;
+                if (el) {
+                  el.muted = false;
+                  void el.play().catch(() => {});
+                }
+              }}
+              className="pointer-events-auto absolute bottom-20 left-1/2 z-[4] -translate-x-1/2 rounded-full border border-white/25 bg-black/70 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white backdrop-blur-md hover:bg-black/85"
+            >
+              Unmute preview
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       {showVideoLayer ? (
         <div className="absolute inset-0 z-[2] bg-black">
           {fillPortraitFrame ? (
             <video
               ref={videoRef}
               data-live-stage-video="true"
-              className="absolute inset-0 h-full w-full object-cover object-center opacity-[0.97]"
+              className={liveVideoFitClass}
               muted={muted}
               playsInline
               controls={false}
@@ -837,7 +1013,7 @@ export function LiveVideoStagePlayback({
                 <video
                   ref={videoRef}
                   data-live-stage-video="true"
-                  className="absolute inset-0 h-full w-full object-cover object-center opacity-[0.97]"
+                  className={liveVideoFitClass}
                   muted={muted}
                   playsInline
                   controls={false}

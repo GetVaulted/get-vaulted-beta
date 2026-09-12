@@ -8,6 +8,7 @@ import { mapListingCategoryToCategoryId } from '../../../api/listingsFeedReposit
 import { formatBreakRoomTileCategoryLine, formatLiveRoomCategoryLabel } from '../../../lib/liveRoomDisplay';
 import {
   canCancelVaultEvent,
+  canEditVaultEvent,
   formatEventWhen,
   primaryCta,
   statusLabel,
@@ -29,6 +30,7 @@ export function VaultEventCard({
   onPress,
   onPrimaryAction,
   onCancel,
+  onEdit,
   cancelBusy,
 }: {
   room: LiveRoomApiRow;
@@ -37,12 +39,14 @@ export function VaultEventCard({
   onPress: () => void;
   onPrimaryAction: () => void;
   onCancel?: () => void;
+  onEdit?: () => void;
   cancelBusy?: boolean;
 }) {
   const pulse = useRef(new Animated.Value(0.4)).current;
   const isLive = displayStatus === 'live';
   const cta = primaryCta(displayStatus);
   const showCancel = Boolean(onCancel && canCancelVaultEvent(room));
+  const showEdit = Boolean(onEdit && canEditVaultEvent(room));
   const cover = room.thumbnailUrl?.trim() || FALLBACK_COVER;
   const categoryLabel =
     formatBreakRoomTileCategoryLine(room.category, room.roomType === 'break') ??
@@ -88,7 +92,24 @@ export function VaultEventCard({
           {isLive ? <View style={styles.liveDot} /> : null}
           <Text style={[styles.statusTxt, isLive && styles.statusTxtLive]}>{statusLabel(displayStatus)}</Text>
         </View>
-        <Text style={styles.category}>{categoryLabel}</Text>
+        <View style={styles.topRight}>
+          {showEdit ? (
+            <Pressable
+              style={styles.editPill}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                onEdit?.();
+              }}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Edit show"
+            >
+              <Ionicons name="create-outline" size={14} color={colors.gold} />
+              <Text style={styles.editTxt}>Edit</Text>
+            </Pressable>
+          ) : null}
+          <Text style={styles.category}>{categoryLabel}</Text>
+        </View>
       </View>
       <View style={styles.body}>
         <Text style={styles.title} numberOfLines={2}>
@@ -198,6 +219,23 @@ const styles = StyleSheet.create({
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.live },
   statusTxt: { fontSize: 10, fontWeight: '900', letterSpacing: 0.8, color: colors.gold },
   statusTxtLive: { color: '#fff' },
+  topRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  editPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212,175,55,0.4)',
+  },
+  editTxt: { fontSize: 11, fontWeight: '800', color: colors.gold },
   category: {
     fontSize: 10,
     fontWeight: '700',

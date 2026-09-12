@@ -19,6 +19,35 @@ export const INTEGRATION_PROJECT_ROOT = join(__dirname, "..", "..");
 
 let sharedClient: PrismaClient | null = null;
 
+/**
+ * Hardcoded, env-independent blocklist of Supabase project refs that integration tests must
+ * never migrate, reset, or otherwise mutate — regardless of what .env / .env.local /
+ * DATABASE_URL / DIRECT_URL currently resolve to. Add the production ref here too if it ever
+ * differs from beta.
+ */
+const DESTRUCTIVE_OPERATION_BLOCKLIST: readonly string[] = [EXPECTED_BETA_PROJECT_REF];
+
+/**
+ * Refuse if `urlOrHost` (a full postgres URL, or a bare "host:port") resolves to a blocklisted
+ * Supabase project ref. NOTE: Supabase pooler URLs (`postgres.<ref>@host:port`) encode the ref
+ * in the *username*, which a bare "host:port" string does not carry — so this check alone
+ * cannot detect a pooler-style beta host from `migrate status` output. It's still applied to
+ * the *intended* dbUrl (which does have the full username) and to the *resolved* host as
+ * defense-in-depth; the exact-host-string comparison in bootstrapIntegrationPrisma below is the
+ * check that does not depend on ref-parsing and is the real backstop for pooler URLs.
+ */
+function assertNotDestructiveTarget(label: string, urlOrHost: string): void {
+  const asUrl = urlOrHost.includes("://") ? urlOrHost : `postgresql://x@${urlOrHost}/x`;
+  const ref = supabaseProjectRefFromUrl(asUrl);
+  if (ref && DESTRUCTIVE_OPERATION_BLOCKLIST.includes(ref)) {
+    throw new Error(
+      `Refusing destructive integration-test operation: ${label} resolved to Supabase project "${ref}", ` +
+        "which is a known beta/production project. This check is independent of .env, .env.local, " +
+        "DATABASE_URL, and DIRECT_URL, and cannot be bypassed by environment configuration.",
+    );
+  }
+}
+
 function integrationDatabaseUrl(): string {
   const explicitIntegration = process.env.INTEGRATION_DATABASE_URL?.trim() ?? "";
   const url = explicitIntegration || process.env.DATABASE_URL?.trim() || "";
@@ -40,20 +69,60 @@ function integrationDatabaseUrl(): string {
   return normalizeIntegrationDatabaseUrl(url);
 }
 
+/** Env for every Prisma CLI child process spawned against the integration DB. Forces BOTH
+ *  DATABASE_URL and DIRECT_URL — prisma.config.ts resolves `DIRECT_URL || DATABASE_URL`, and
+ *  DIRECT_URL in .env.local points at beta. Forcing only DATABASE_URL (the previous behavior)
+ *  let `migrate deploy` silently resolve against beta instead of the disposable integration DB. */
+function integrationCliEnv(dbUrl: string): NodeJS.ProcessEnv {
+  return { ...process.env, DATABASE_URL: dbUrl, DIRECT_URL: dbUrl };
+}
+
+/**
+ * Ask the Prisma CLI what datasource it actually resolved, using the exact env we're about to
+ * run migrate/reset with. Deliberately does NOT rely on the command's exit code: `prisma migrate
+ * status` exits non-zero whenever there are pending or failed migrations, which is the normal,
+ * expected state of a disposable integration database before `migrate deploy` has run. We only
+ * need its stdout, which prints the resolved datasource line before it evaluates migration state.
+ */
+function resolvePrismaDatasourceHost(env: NodeJS.ProcessEnv): string {
+  let output: string;
+  try {
+    output = execSync("npx prisma migrate status", { cwd: INTEGRATION_PROJECT_ROOT, stdio: "pipe", env }).toString();
+  } catch (err) {
+    const stdout = (err as { stdout?: Buffer | string } | null)?.stdout;
+    output = stdout ? stdout.toString() : "";
+  }
+  const match = output.match(/Datasource "db":.*?at "([^"]+)"/);
+  if (!match) {
+    throw new Error(
+      "Could not determine the Prisma CLI's resolved datasource from `migrate status` output. Refusing to " +
+        `proceed without confirming the target database.\n---\n${output}`,
+    );
+  }
+  return match[1];
+}
+
 /** Apply migrations (`migrate deploy`) and return a connected Prisma client bound as the integration override. */
 export async function bootstrapIntegrationPrisma(): Promise<PrismaClient> {
   const dbUrl = integrationDatabaseUrl();
+  assertNotDestructiveTarget("intended integration database URL", dbUrl);
   await assertSupabaseIntegrationProjectReachable(dbUrl);
-  execSync("npx prisma migrate deploy", {
-    cwd: INTEGRATION_PROJECT_ROOT,
-    stdio: "pipe",
-    env: { ...process.env, DATABASE_URL: dbUrl },
-  });
-  execSync("npx prisma generate", {
-    cwd: INTEGRATION_PROJECT_ROOT,
-    stdio: "pipe",
-    env: { ...process.env, DATABASE_URL: dbUrl },
-  });
+
+  const env = integrationCliEnv(dbUrl);
+  const resolvedHost = resolvePrismaDatasourceHost(env);
+  assertNotDestructiveTarget("Prisma CLI's resolved datasource", resolvedHost);
+
+  const expectedHost = new URL(dbUrl.replace(/^postgresql:/, "http:").replace(/^postgres:/, "http:")).host;
+  if (resolvedHost !== expectedHost) {
+    throw new Error(
+      `Refusing to run migrate deploy: Prisma CLI resolved the datasource to "${resolvedHost}", but the ` +
+        `integration database is "${expectedHost}". This usually means DIRECT_URL or DATABASE_URL in ` +
+        ".env.local overrode the integration override. Aborting before any migration runs.",
+    );
+  }
+
+  execSync("npx prisma migrate deploy", { cwd: INTEGRATION_PROJECT_ROOT, stdio: "pipe", env });
+  execSync("npx prisma generate", { cwd: INTEGRATION_PROJECT_ROOT, stdio: "pipe", env });
   if (sharedClient) {
     await sharedClient.$disconnect().catch(() => {});
   }
@@ -345,6 +414,7 @@ export type SeedOrderOpts = {
   liveShippingSessionId?: string | null;
   shippingChargedCents?: number | null;
   shippingLabelCostCents?: number | null;
+  buyerAddressId?: string | null;
 };
 
 export async function seedOrder(p: PrismaClient, opts: SeedOrderOpts) {
@@ -378,6 +448,7 @@ export async function seedOrder(p: PrismaClient, opts: SeedOrderOpts) {
     liveShippingSessionId: opts.liveShippingSessionId ?? undefined,
     shippingChargedCents: opts.shippingChargedCents ?? undefined,
     shippingLabelCostCents: opts.shippingLabelCostCents ?? undefined,
+    buyerAddressId: opts.buyerAddressId ?? undefined,
   };
   const extra = Object.fromEntries(
     Object.entries(optional).filter(([, v]) => v !== undefined),
@@ -395,6 +466,44 @@ export async function seedPaidOrder(p: PrismaClient, opts: SeedPaidOrderOpts) {
     ...opts,
     paymentStatus: opts.paymentStatus ?? "paid",
     status: opts.status ?? "paid",
+  });
+}
+
+export type SeedBuyerShippingAddressOpts = {
+  userId: string;
+  fullName?: string;
+  phone?: string;
+  line1?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+};
+
+/**
+ * Buyer shipping address with a valid, normalizable US contact phone. Required for Shippo
+ * buyer-contact resolution — see `resolveBuyerShippoContact` / `BUYER_SHIPPO_CONTACT_MISSING`
+ * in `@/lib/shippo-label-contacts`, which reads `Order.buyerAddress.phone` exclusively (there is
+ * no fallback to a phone field on `User`). Any integration test whose order needs to reach the
+ * real Shippo purchase path must create one of these and pass its id as `buyerAddressId` to
+ * `seedOrder`.
+ */
+export async function seedBuyerShippingAddress(p: PrismaClient, opts: SeedBuyerShippingAddressOpts) {
+  return p.address.create({
+    data: {
+      userId: opts.userId,
+      type: "shipping",
+      name: "Shipping address",
+      fullName: opts.fullName ?? "Integration Buyer",
+      line1: opts.line1 ?? "1 Test St",
+      city: opts.city ?? "Austin",
+      state: opts.state ?? "TX",
+      postalCode: opts.postalCode ?? "78701",
+      country: opts.country ?? "US",
+      phone: opts.phone ?? "5555550100",
+      isDefault: true,
+      isVerified: true,
+    },
   });
 }
 

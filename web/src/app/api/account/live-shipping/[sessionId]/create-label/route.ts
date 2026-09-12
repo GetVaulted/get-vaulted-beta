@@ -19,9 +19,38 @@ export async function POST(req: Request, ctx: { params: Promise<{ sessionId: str
   const sessionId = decodeURIComponent(raw);
 
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = (await req.json().catch(() => ({}))) as {
+      labelFormat?: string;
+      selectedRateObjectId?: unknown;
+      manualParcel?: { weightOz?: unknown; lengthIn?: unknown; widthIn?: unknown; heightIn?: unknown };
+    };
     const labelFormat = parseCreateLabelRequestBody(body);
-    const result = await generateBundledShippoLabelForSession(sessionId, session.user.id, { labelFormat });
+    const selectedRateObjectId =
+      typeof body.selectedRateObjectId === "string" && body.selectedRateObjectId.trim()
+        ? body.selectedRateObjectId.trim()
+        : undefined;
+
+    // Optional seller-confirmed package dimensions (bypasses calculated package groups).
+    const mp = body.manualParcel;
+    const manualParcel =
+      mp &&
+      typeof mp.weightOz === "number" && mp.weightOz > 0 &&
+      typeof mp.lengthIn === "number" && mp.lengthIn > 0 &&
+      typeof mp.widthIn === "number" && mp.widthIn > 0 &&
+      typeof mp.heightIn === "number" && mp.heightIn > 0
+        ? {
+            weightOz: Math.max(0.1, Number(mp.weightOz)),
+            lengthIn: Math.max(0.1, Number(mp.lengthIn)),
+            widthIn: Math.max(0.1, Number(mp.widthIn)),
+            heightIn: Math.max(0.1, Number(mp.heightIn)),
+          }
+        : undefined;
+
+    const result = await generateBundledShippoLabelForSession(sessionId, session.user.id, {
+      labelFormat,
+      manualParcel,
+      selectedRateObjectId,
+    });
     if (!result.labelUrl && !result.alreadyExisted) {
       return NextResponse.json({
         ...result,

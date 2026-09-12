@@ -33,6 +33,8 @@ function baseItem(overrides: Partial<LiveRoomItemDTO> = {}): LiveRoomItemDTO {
     status: "queued",
     sortOrder: 0,
     teamBoardMisc: false,
+    teamBoardNcaa: false,
+    customRandomPoolLabels: null,
     itemVersion: 1,
     biddingOpen: false,
     auctionEndsAt: null,
@@ -131,7 +133,7 @@ describe("live-buyer-queue-projection", () => {
     expect(rows.map((r) => r.id)).toEqual(["first", "second"]);
   });
 
-  it("allows pre-bid and buy-now shop actions", () => {
+  it("allows pre-bid, buy-now, and PYT shop actions", () => {
     const auction = buildBuyerQueueLineupRow(baseItem({ salesFormat: "auction", status: "active" }), {
       roomIsLive: true,
       nowMs: Date.now(),
@@ -165,6 +167,8 @@ describe("live-buyer-queue-projection", () => {
     expect(auction.queueAction).toBe("pre_bid");
     expect(buyerQueueRowSelectable(bin)).toBe(true);
     expect(bin.queueAction).toBe("buy_now");
-    expect(buyerQueueRowSelectable(pyt)).toBe(false);
+    expect(buyerQueueRowSelectable(pyt)).toBe(true);
+    expect(pyt.queueAction).toBe("variant_shop");
+    expect(pyt.metaLine).toContain("Open now");
   });
 });

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 import { updateMyProfile } from '../api/profilesRepository';
 import { setKeepMeLoggedInPreference } from '../lib/authSessionStorage';
+import { warmPresenceSlot } from '../lib/liveRoomPresenceKey';
 import { resolveInitialAuthSession } from '../lib/recoverInvalidAuthSession';
 import { ensureSupabaseReady, getSupabase, isSupabaseConfigured, resetSupabaseBootstrap } from '../lib/supabase';
 import { runSupabaseAuthOp } from '../lib/supabaseAuthRetry';
@@ -63,9 +64,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(initial);
         setGuestExploreMode(false);
 
+        // Load the persisted live-room presence identity before any screen (including a live
+        // room) can mount, so viewer presence tracking never falls back to minting a fresh
+        // random identity on cold start — see liveRoomPresenceKey.ts for why that mattered.
+        // Fire-and-forget rather than awaited: this was blocking the entire app's first paint on
+        // an AsyncStorage round-trip, adding real, user-visible delay to every cold launch, for a
+        // guarantee it doesn't actually need to be in the critical path for. The buyer still has to
+        // navigate past this screen to a live room (seconds of real time) before
+        // `resolvePresenceSlotSync` could ever run — AsyncStorage typically resolves in well under
+        // that window, so the protection this exists for still holds in practice.
+        void warmPresenceSlot(initial?.user?.id ?? null);
+
         const { data: sub } = sb.auth.onAuthStateChange((event, next) => {
           setLastAuthEvent(event);
           setSession(next);
+          // Defense-in-depth for sign-in after guest browsing: non-blocking, since login already
+          // has enough network latency to make the cold-start race here vanishingly unlikely.
+          void warmPresenceSlot(next?.user?.id ?? null);
         });
         unsubscribe = () => sub.subscription.unsubscribe();
       } catch {
@@ -170,12 +185,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const trimmed = email.trim();
     if (!trimmed) throw new Error('Enter your email address.');
+    // Must land on the web reset page — without redirectTo, Supabase uses Site URL and the link is useless.
+    const site = (
+      process.env.EXPO_PUBLIC_SITE_URL?.trim() ||
+      process.env.EXPO_PUBLIC_SHARE_SITE_URL?.trim() ||
+      'https://shopgetvaulted.com'
+    ).replace(/\/+$/, '');
+    const redirectTo = `${site}/reset-password`;
     const { error } = await runSupabaseAuthOp(() => {
-      const sb = getSupabase();
-      if (!sb || !isSupabaseConfigured()) {
+      const client = getSupabase();
+      if (!client || !isSupabaseConfigured()) {
         throw new Error('Supabase is not configured (EXPO_PUBLIC_SUPABASE_URL / ANON_KEY).');
       }
-      return sb.auth.resetPasswordForEmail(trimmed);
+      return client.auth.resetPasswordForEmail(trimmed, { redirectTo });
     });
     if (error) throw error;
   }, []);

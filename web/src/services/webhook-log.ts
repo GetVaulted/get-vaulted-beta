@@ -51,6 +51,17 @@ export async function markWebhookLogFailure(id: string, message: string): Promis
   });
 }
 
+/**
+ * Final rejection (bad signature / not a real provider event). Mark processed so Health does not
+ * treat probe traffic as "stuck unprocessed" forever; keep `error` for audit.
+ */
+export async function markWebhookLogRejected(id: string, message: string): Promise<void> {
+  await prisma.webhookEventLog.update({
+    where: { id },
+    data: { processed: true, error: message.slice(0, 8000) },
+  });
+}
+
 export async function markWebhookLogSkippedDuplicate(id: string): Promise<void> {
   await prisma.webhookEventLog.update({
     where: { id },

@@ -20,6 +20,7 @@ function Stat({ label, value, highlight }: { label: string; value: string; highl
   );
 }
 
+/** Mirrors web MarketplaceItemTrustVault — real signals only (no fabricated response/ship %). */
 export function ProductDetailTrustVault({ metrics }: { metrics: ItemTrustMetrics }) {
   return (
     <View style={styles.wrap}>
@@ -30,8 +31,6 @@ export function ProductDetailTrustVault({ metrics }: { metrics: ItemTrustMetrics
         <Stat label="Seller level" value={metrics.sellerLevel ?? 'Vault seller'} highlight />
         <Stat label="Completed sales" value={metrics.completedSales} />
         <Stat label="Account standing" value={metrics.accountStanding} />
-        <Stat label="Response time" value={metrics.responseTime} />
-        <Stat label="Ship performance" value={metrics.shipPerformance} />
         <Stat label="Authentication" value={metrics.authenticationStatus} />
       </View>
     </View>

@@ -56,6 +56,9 @@ const prismaMock = vi.hoisted(() => ({
   order: {
     findUnique: vi.fn(),
   },
+  liveItemVariantPurchase: {
+    findUnique: vi.fn(),
+  },
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
@@ -71,6 +74,7 @@ describe("reconcileStripeWithDatabase", () => {
     hoisted.reconcileStalePendingCheckoutSessionsGlobal.mockResolvedValue(0);
     prismaMock.webhookEventLog.findFirst.mockResolvedValue(null);
     prismaMock.order.findUnique.mockResolvedValue(null);
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(null);
   });
 
   it("short-circuits when Stripe is not configured", async () => {
@@ -159,6 +163,25 @@ describe("reconcileStripeWithDatabase", () => {
 
     expect(hoisted.processStripeWebhookEvent).toHaveBeenCalledTimes(1);
     expect(report.healed[0]).toMatchObject({ category: "payment_intent", stripeId: "pi_1" });
+  });
+
+  it("replays a succeeded saved-card PaymentIntent for a PYT variant purchase", async () => {
+    hoisted.paymentIntentsList.mockResolvedValue({
+      data: [
+        {
+          id: "pi_variant",
+          status: "succeeded",
+          metadata: { kind: "variant_purchase_saved_pm", purchaseId: "vp_1" },
+        },
+      ],
+    });
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue({ id: "vp_1" });
+
+    const { reconcileStripeWithDatabase } = await import("@/services/stripe-reconciliation");
+    const report = await reconcileStripeWithDatabase();
+
+    expect(hoisted.processStripeWebhookEvent).toHaveBeenCalledTimes(1);
+    expect(report.healed[0]).toMatchObject({ category: "payment_intent", stripeId: "pi_variant" });
   });
 
   it("does not reconcile checkout-session-driven PaymentIntent kinds again (avoids double-processing)", async () => {

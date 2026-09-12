@@ -8,6 +8,7 @@ import {
 import { settleLiveAuctionItemWhenMarkedSold } from "@/lib/live-auction-item-sold-settle";
 import { createOrderFromAuctionWin } from "@/lib/offer-fulfillment";
 import { captureLiveRoomItemShippingSnapshotTx } from "@/services/shipping/live-item-shipping-snapshot";
+import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
 
 export type CloseActiveUnitSaleResult = {
   closed: boolean;
@@ -119,38 +120,66 @@ export async function closeActiveLiveRoomItemUnitSale(
     sellerId = settleOut.sellerId;
     listingTitle = settleOut.listingTitle;
     itemPriceUsd = settleOut.itemPriceUsd;
-  } else if (winnerId && winUsd >= 1 && !item.listingId) {
-    const listing = await tx.listing.create({
-      data: {
-        sellerId: args.sellerId,
-        title: unitTitle,
-        category: args.roomType === "break" ? "Live break" : "Live sale",
-        condition: "See title",
-        buyingFormat: "auction",
-        status: "auction_live",
-        priceUsd: winUsd,
-        startingBidUsd: item.startingBidUsd ?? item.priceUsd ?? 1,
-        currentBidUsd: winUsd,
-        auctionEndsAt: new Date(0),
-        shippingPriceUsd: 0,
-      },
-      select: { id: true },
-    });
+  } else if (winnerId && winUsd >= 1) {
+    await captureLiveRoomItemShippingSnapshotTx(tx, args.liveRoomItemId);
+    let listingId = item.listingId?.trim() || null;
+    let shippingPriceUsd = 0;
+    if (listingId) {
+      const listingRow = await tx.listing.findUnique({
+        where: { id: listingId },
+        select: { id: true, moderationRemovedAt: true, shippingPriceUsd: true },
+      });
+      if (!listingRow || listingRow.moderationRemovedAt) {
+        listingId = null;
+      } else {
+        shippingPriceUsd = listingRow.shippingPriceUsd ?? 0;
+        await tx.listing.update({
+          where: { id: listingId },
+          data: {
+            title: unitTitle,
+            priceUsd: winUsd,
+            currentBidUsd: winUsd,
+            auctionEndsAt: new Date(0),
+            status: "auction_live",
+          },
+        });
+      }
+    }
+    if (!listingId) {
+      const listing = await tx.listing.create({
+        data: {
+          sellerId: args.sellerId,
+          title: unitTitle,
+          category: args.roomType === "break" ? "Live break" : "Live sale",
+          condition: "See title",
+          buyingFormat: "auction",
+          status: "auction_live",
+          priceUsd: winUsd,
+          startingBidUsd: item.startingBidUsd ?? item.priceUsd ?? 1,
+          currentBidUsd: winUsd,
+          auctionEndsAt: new Date(0),
+          shippingPriceUsd: 0,
+        },
+        select: { id: true },
+      });
+      listingId = listing.id;
+      shippingPriceUsd = 0;
+    }
     await tx.bid.create({
       data: {
-        listingId: listing.id,
+        listingId,
         bidderId: winnerId,
         amountUsd: winUsd,
         maxBidUsd: winUsd,
       },
     });
     const { orderId: oid } = await createOrderFromAuctionWin(tx, {
-      listingId: listing.id,
+      listingId,
       listingTitle: unitTitle,
       buyerId: winnerId,
       sellerId: args.sellerId,
       itemPriceUsd: winUsd,
-      shippingPriceUsd: 0,
+      shippingPriceUsd,
       liveAuctionLiveShowId: args.liveRoomId,
       liveRoomItemId: args.liveRoomItemId,
       skipWinNotifications: args.skipWinNotifications ?? true,
@@ -191,6 +220,12 @@ export async function closeActiveLiveRoomItemUnitSale(
       clutchTimeEnabled: false,
       itemVersion: { increment: 1 },
     },
+  });
+  // Live hold-to-bid stores maxProxyUsd on this same item row. If we keep those proxies,
+  // the next unit's startAuction re-applies them and the prior winner auto-wins without bidding.
+  await clearLiveAuctionProxyBidsForItem(tx, {
+    liveRoomId: args.liveRoomId,
+    itemId: item.id,
   });
   await tx.liveRoom.update({
     where: { id: args.liveRoomId },

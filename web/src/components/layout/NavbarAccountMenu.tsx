@@ -49,27 +49,29 @@ function buildSections(
   setupPhase: ReturnType<typeof useSellerSetupState>["phase"],
   liveEnabled: boolean,
 ): { sections: MenuSection[]; bottomItems: MenuItem[] } {
-  const setupHref = sellerSetupMenuHref(setupPhase === "loading" ? "not_started" : setupPhase);
-  const setupLabel =
-    setupPhase === "loading" ? "Start Seller Setup" : sellerSetupMenuLabel(setupPhase);
-
+  // While seller status is still loading, do not point at setup — that caused a one-frame
+  // "Start Seller Setup" flash for activated sellers every time the Account menu opened.
   const sellingItems: MenuItem[] =
-    setupPhase === "ready"
+    setupPhase === "ready" || setupPhase === "loading"
       ? [
           { href: SELLER_HQ_PATH, label: "Seller HQ", icon: <StoreIcon /> },
-          { href: "/account/listings", label: "My Listings", icon: <TagIcon /> },
-          { href: "/account/sales", label: "Sales", icon: <ReceiptIcon /> },
-          {
-            href: liveHref(liveEnabled, "/seller/live"),
-            label: "Go Live",
-            icon: <BroadcastIcon />,
-            variant: "cta",
-          },
+          ...(setupPhase === "ready"
+            ? [
+                { href: "/account/listings", label: "My Listings", icon: <TagIcon /> },
+                { href: "/account/sales", label: "Sales", icon: <ReceiptIcon /> },
+                {
+                  href: liveHref(liveEnabled, "/seller/live"),
+                  label: "Go Live",
+                  icon: <BroadcastIcon />,
+                  variant: "cta" as const,
+                },
+              ]
+            : []),
         ]
       : [
           {
-            href: setupHref,
-            label: setupLabel,
+            href: sellerSetupMenuHref(setupPhase),
+            label: sellerSetupMenuLabel(setupPhase),
             icon: <SparkIcon />,
             variant: "cta",
           },
@@ -84,6 +86,7 @@ function buildSections(
       { href: "/account/orders", label: "Orders", icon: <PackageIcon /> },
       { href: "/account/watchlist", label: "Watchlist", icon: <HeartIcon /> },
       { href: "/account/following", label: "Followers & Following", icon: <UsersIcon /> },
+      { href: "/account/blocked", label: "Blocked users", icon: <UsersIcon /> },
     ],
   };
 
@@ -285,9 +288,39 @@ export function NavbarAccountMenu({
   variant = "dropdown",
 }: NavbarAccountMenuProps) {
   const [open, setOpen] = useState(false);
+  const [profileImage, setProfileImage] = useState<string | null>(user.image?.trim() || null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const liveMarketplaceEnabled = useLiveMarketplaceEnabled();
   const { phase: setupPhase, refetch: refetchSellerSetup } = useSellerSetupState(true);
+
+  const displayUser = useMemo(
+    () => ({ ...user, image: profileImage || user.image?.trim() || null }),
+    [profileImage, user],
+  );
+
+  useEffect(() => {
+    setProfileImage(user.image?.trim() || null);
+  }, [user.image]);
+
+  // PC nav avatar: load from account profile if session still has no photo.
+  useEffect(() => {
+    if (user.image?.trim()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/account/profile", { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const j = (await res.json().catch(() => ({}))) as { user?: { image?: string | null } };
+        const image = j.user?.image?.trim() || null;
+        if (!cancelled && image) setProfileImage(image);
+      } catch {
+        /* best-effort */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user.image, user.username]);
 
   const { sections, bottomItems } = useMemo(
     () => buildSections(setupPhase, liveMarketplaceEnabled),
@@ -322,7 +355,7 @@ export function NavbarAccountMenu({
   if (variant === "list") {
     return (
       <div className={className}>
-        <IdentityHeader user={user} onNavigate={handleNavigate} compact />
+        <IdentityHeader user={displayUser} onNavigate={handleNavigate} compact />
         <MenuSections
           sections={sections}
           bottomItems={bottomItems}
@@ -345,12 +378,12 @@ export function NavbarAccountMenu({
         aria-haspopup="menu"
         aria-label="Account menu"
       >
-        {user.image ? (
+        {displayUser.image ? (
           // eslint-disable-next-line @next/next/no-img-element -- external avatar URLs
-          <img src={user.image} alt="" className="size-7 rounded-full object-cover" />
+          <img src={displayUser.image} alt="" className="size-7 rounded-full object-cover" />
         ) : (
           <span className="inline-flex size-7 items-center justify-center rounded-full bg-gold/15 text-[10px] font-bold text-gold-bright">
-            {userInitials(user)}
+            {userInitials(displayUser)}
           </span>
         )}
         <span className="hidden max-w-[7rem] truncate lg:inline">@{user.username}</span>
@@ -361,7 +394,7 @@ export function NavbarAccountMenu({
           className="absolute right-0 top-full z-[70] mt-2 max-h-[min(80vh,32rem)] w-72 overflow-y-auto rounded-xl border border-border-subtle bg-[#0a0a0c] py-2 shadow-[0_16px_48px_-12px_rgba(0,0,0,0.85)]"
           role="menu"
         >
-          <IdentityHeader user={user} onNavigate={handleNavigate} />
+          <IdentityHeader user={displayUser} onNavigate={handleNavigate} />
           <MenuSections
             sections={sections}
             bottomItems={bottomItems}

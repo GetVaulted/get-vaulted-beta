@@ -25,6 +25,7 @@ import {
 import { loadSellerPayoutTierDashboard } from "@/services/payout/recalculate-seller-payout-tier";
 import { recalculateSellerPayoutTier } from "@/services/payout/recalculate-seller-payout-tier";
 import { estimateSellerOrderPayoutUsd, resolvePlatformFeePercentForSellerOrder } from "@/lib/seller-payout-estimate";
+import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 
 const orderSelect = {
@@ -44,7 +45,10 @@ const orderSelect = {
   labelUrl: true,
   itemPriceUsd: true,
   shippingPriceUsd: true,
+  referralCreditAppliedUsd: true,
   totalUsd: true,
+  shippingLabelCostCents: true,
+  shippingLabelCostReversedCents: true,
   payoutStatus: true,
   payoutMethod: true,
   payoutBlockedReason: true,
@@ -54,6 +58,10 @@ const orderSelect = {
   fundsReleasedAt: true,
   labelCreatedAt: true,
   carrierAcceptedAt: true,
+  sellerPayoutProcessor: true,
+  processorTransferId: true,
+  shippedAt: true,
+  liveShippingSessionId: true,
   listing: { select: { isCompanyListing: true } },
   liveShippingSession: {
     select: {
@@ -64,18 +72,17 @@ const orderSelect = {
 } as const;
 
 /**
- * Actual dollar amount transferred to the seller's Connect balance at charge time (item +
- * shipping − platform fee). Instant-payout exposure limits must be measured against this, not
- * raw `itemPriceUsd` — otherwise the platform's real risk (what it could lose to a subsequent
- * refund/chargeback after paying out instantly) is measured against the wrong number, understating
- * exposure on high-shipping orders and overstating it on high-fee orders. `payoutReserveAmountCents`
- * is intentionally NOT subtracted here: it's bookkeeping only today (computed after the Stripe
- * transfer already happened) and does not reduce what actually reached the seller — see
- * `payoutReserveAmountCents` schema comment for the full policy writeup.
+ * Seller net for instant-payout exposure: item + shipping − platform fee − GV label cost already
+ * clawed back. Instant-payout limits must track what remains on the Connect balance after label
+ * deductions, not raw `itemPriceUsd`. `payoutReserveAmountCents` is intentionally NOT subtracted
+ * here: it's bookkeeping only today (computed after the Stripe transfer already happened).
  */
 function resolveOrderSellerNetUsd(order: {
   itemPriceUsd: number;
   shippingPriceUsd: number;
+  referralCreditAppliedUsd?: number | null;
+  shippingLabelCostCents?: number | null;
+  shippingLabelCostReversedCents?: number | null;
   paymentStatus: string;
   listing: { isCompanyListing: boolean };
   liveShippingSession: {
@@ -85,18 +92,21 @@ function resolveOrderSellerNetUsd(order: {
 }): number {
   const liveShowId = order.liveShippingSession?.liveShowId ?? null;
   const liveShow = order.liveShippingSession?.liveShow ?? null;
+  const saleBasisUsd = orderItemSaleBasisUsd(order);
   const feePct = resolvePlatformFeePercentForSellerOrder({
     isCompanyListing: order.listing.isCompanyListing,
     liveShowId,
     liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
-    orderItemPriceUsd: order.itemPriceUsd,
+    orderItemPriceUsd: saleBasisUsd,
     orderPaymentStatus: order.paymentStatus,
   });
   return estimateSellerOrderPayoutUsd({
-    itemPriceUsd: order.itemPriceUsd,
+    itemPriceUsd: saleBasisUsd,
     shippingPriceUsd: order.shippingPriceUsd,
     platformFeePercent: feePct,
     payoutReserveAmountCents: 0,
+    shippingLabelCostCents: order.shippingLabelCostCents,
+    shippingLabelCostReversedCents: order.shippingLabelCostReversedCents,
   });
 }
 
@@ -217,6 +227,7 @@ async function finalizeOrderPayoutRelease(
     escrowReleasePaused: boolean;
     listingId: string;
     fundsReleasedAt: Date | null;
+    sellerPayoutProcessor?: "STRIPE" | "PAYPAL";
   },
   recordInstantUsd?: number,
 ): Promise<void> {
@@ -242,8 +253,16 @@ async function finalizeOrderPayoutRelease(
       escrowStatus: order.escrowStatus,
       escrowReleasePaused: order.escrowReleasePaused,
     });
+  } else if (order.sellerPayoutProcessor === "PAYPAL") {
+    const { releaseSellerPayPalPayout } = await import("@/services/payout/paypal-seller-payout");
+    const paypal = await releaseSellerPayPalPayout(orderId);
+    released = paypal.ok;
+    if (!released) return;
   } else {
-    released = true;
+    const { releaseSellerStripePayout } = await import("@/services/payout/stripe-seller-payout");
+    const stripePay = await releaseSellerStripePayout(orderId);
+    released = stripePay.ok;
+    if (!released) return;
   }
 
   if (!released) return;
@@ -304,11 +323,34 @@ async function loadOrderEvalContext(orderId: string, sellerId: string): Promise<
   };
 }
 
-/** Instant tier: release when a valid shipping label exists. */
+/** Instant tier (PayPal rail): release when a valid shipping label exists.
+ * Stripe rail: label only triggers clawback earlier — bank payout waits until shipped. */
 export async function processLabelCreatedPayoutEvaluation(orderId: string): Promise<void> {
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: orderSelect });
   if (!order || order.paymentStatus !== "paid" || order.payoutStatus === OrderPayoutStatus.paid_out) return;
   if (!order.shippoTransactionId && !order.labelUrl) return;
+
+  const now = new Date();
+  await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      labelCreatedAt: order.labelCreatedAt ?? now,
+    },
+  });
+
+  // Stripe Connect: funds stay on the connected account (manual payouts) until ship.
+  // Label purchase already ran chargeSellerForLabelCost (clawback to Get Vaulted).
+  if (order.sellerPayoutProcessor !== "PAYPAL" && order.paymentMethod !== OrderPaymentMethod.escrow) {
+    await logPayoutEligibilityDecision({
+      sellerId: order.sellerId,
+      orderId,
+      action: "order_payout_evaluated",
+      previousStatus: order.payoutStatus,
+      newStatus: order.payoutStatus,
+      reason: "stripe_label_clawback_hold_until_shipped",
+    });
+    return;
+  }
 
   const dashboard = await loadSellerPayoutTierDashboard(order.sellerId);
   if (
@@ -333,7 +375,6 @@ export async function processLabelCreatedPayoutEvaluation(orderId: string): Prom
     return;
   }
 
-  const now = new Date();
   const prev = order.payoutStatus;
 
   await prisma.order.update({
@@ -357,45 +398,146 @@ export async function processLabelCreatedPayoutEvaluation(orderId: string): Prom
   );
 }
 
-/** Fast tier: release on first carrier acceptance scan (in transit). */
-export async function processCarrierAcceptancePayoutEvaluation(orderId: string): Promise<void> {
+/**
+ * Stripe rail: mark order ready for admin bank payout (manual Connect hold → you push).
+ * PayPal rail: still finalize automatically (platform-held → PayPal payout API).
+ */
+export async function processShippedPayoutEvaluation(orderId: string): Promise<void> {
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: orderSelect });
   if (!order || order.paymentStatus !== "paid" || order.payoutStatus === OrderPayoutStatus.paid_out) return;
 
-  const dashboard = await loadSellerPayoutTierDashboard(order.sellerId);
-  if (!dashboard) return;
-  const tier = dashboard.evaluation.effectiveTier;
-  if (tier !== SellerPayoutTier.fast && tier !== SellerPayoutTier.instant) return;
-  // Instant tier already released on label — skip duplicate release at acceptance.
-  if (tier === SellerPayoutTier.instant) return;
+  const {
+    orderLooksShippedForBankPayout,
+    orderLabelClawbackSettledForBankPayout,
+  } = await import("@/services/payout/stripe-seller-payout");
+  if (!orderLooksShippedForBankPayout(order)) return;
 
   const ctx = await loadOrderEvalContext(orderId, order.sellerId);
   if (!ctx || ctx.orderBlocked) return;
 
   const now = new Date();
   const prev = order.payoutStatus;
+  const sellerNetUsd = resolveOrderSellerNetUsd(order);
+
+  // PayPal: platform-held — release on ship/label path as before.
+  if (order.sellerPayoutProcessor === "PAYPAL") {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        shippedAt: order.shippedAt ?? now,
+        carrierAcceptedAt: order.carrierAcceptedAt ?? now,
+        payoutStatus: OrderPayoutStatus.fast_payout_ready,
+        payoutReserveAmountCents: ctx.reserveCents,
+      },
+    });
+    await finalizeOrderPayoutRelease(
+      orderId,
+      order.sellerId,
+      prev,
+      OrderPayoutStatus.fast_payout_ready,
+      OrderPayoutMethod.fast_after_acceptance,
+      "shipped_paypal_payout_release",
+      { ...order, shippedAt: order.shippedAt ?? now, carrierAcceptedAt: order.carrierAcceptedAt ?? now },
+    );
+    return;
+  }
+
+  if (!orderLabelClawbackSettledForBankPayout(order)) {
+    await logPayoutEligibilityDecision({
+      sellerId: order.sellerId,
+      orderId,
+      action: "order_payout_evaluated",
+      previousStatus: prev,
+      newStatus: prev,
+      reason: "stripe_shipped_waiting_label_clawback",
+    });
+    return;
+  }
+
+  if (order.liveShippingSessionId) {
+    const siblings = await prisma.order.findMany({
+      where: {
+        liveShippingSessionId: order.liveShippingSessionId,
+        paymentStatus: "paid",
+        status: { not: "cancelled" },
+      },
+      select: {
+        shippedAt: true,
+        carrierAcceptedAt: true,
+        fulfillmentStatus: true,
+        status: true,
+      },
+    });
+    if (!siblings.every((s) => orderLooksShippedForBankPayout(s))) {
+      await logPayoutEligibilityDecision({
+        sellerId: order.sellerId,
+        orderId,
+        action: "order_payout_evaluated",
+        previousStatus: prev,
+        newStatus: prev,
+        reason: "stripe_waiting_live_session_fully_shipped",
+      });
+      return;
+    }
+  }
 
   await prisma.order.update({
     where: { id: orderId },
     data: {
+      shippedAt: order.shippedAt ?? now,
       carrierAcceptedAt: order.carrierAcceptedAt ?? now,
       payoutStatus: OrderPayoutStatus.fast_payout_ready,
+      payoutMethod: OrderPayoutMethod.fast_after_acceptance,
       payoutReserveAmountCents: ctx.reserveCents,
+      payoutBlockedReason: null,
     },
   });
 
-  await finalizeOrderPayoutRelease(
+  await logPayoutEligibilityDecision({
+    sellerId: order.sellerId,
     orderId,
-    order.sellerId,
-    prev,
-    OrderPayoutStatus.fast_payout_ready,
-    OrderPayoutMethod.fast_after_acceptance,
-    "fast_tier_carrier_acceptance",
-    order,
-  );
+    action: "order_payout_evaluated",
+    previousStatus: prev,
+    newStatus: OrderPayoutStatus.fast_payout_ready,
+    reason: "stripe_ready_for_admin_bank_payout",
+  });
+
+  if (prev !== OrderPayoutStatus.fast_payout_ready) {
+    const { scheduleNotifyAdminsBankPayoutReady, loadSellerHandleForPayoutAlert } = await import(
+      "@/lib/admin/notify-admins-bank-payout-ready"
+    );
+    const handle = await loadSellerHandleForPayoutAlert(order.sellerId);
+    scheduleNotifyAdminsBankPayoutReady({
+      orderId,
+      sellerId: order.sellerId,
+      sellerUsername: handle,
+      estimatedNetUsd: sellerNetUsd,
+    });
+  }
 }
 
-/** Standard tier: existing delivery-confirmed path (delegates to tier-aware hold). */
+/** Carrier acceptance scan (in transit) — primary ship signal for GV labels. */
+export async function processCarrierAcceptancePayoutEvaluation(orderId: string): Promise<void> {
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: orderSelect });
+  if (!order || order.paymentStatus !== "paid" || order.payoutStatus === OrderPayoutStatus.paid_out) return;
+
+  const now = new Date();
+  if (!order.carrierAcceptedAt) {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { carrierAcceptedAt: now },
+    });
+  }
+
+  await processShippedPayoutEvaluation(orderId);
+}
+
+/** Seller marked shipped in HQ (external tracking or pre-scan). */
+export async function processSellerMarkedShippedPayoutEvaluation(orderId: string): Promise<void> {
+  await processShippedPayoutEvaluation(orderId);
+}
+
+/** Standard tier: delivery-confirmed path; Stripe ship-hold uses delivery as fallback. */
 export async function processStandardDeliveryPayoutEvaluation(orderId: string): Promise<void> {
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: orderSelect });
   if (!order || order.paymentStatus !== "paid") return;
@@ -409,20 +551,31 @@ export async function processStandardDeliveryPayoutEvaluation(orderId: string): 
       where: { id: orderId },
       data: { deliveryConfirmedAt: new Date() },
     });
-    // Must match the amount originally recorded in `recordInstantPayoutRelease` at label-creation
-    // time (also `resolveOrderSellerNetUsd`) or outstanding exposure drifts permanently upward.
     await reduceOutstandingInstantExposure(order.sellerId, resolveOrderSellerNetUsd(order));
     return;
   }
 
   if (order.payoutStatus === OrderPayoutStatus.paid_out) return;
 
+  // Stripe: delivery is a fallback if carrier/mark-shipped never fired bank payout yet.
+  if (order.sellerPayoutProcessor !== "PAYPAL" && order.paymentMethod !== OrderPaymentMethod.escrow) {
+    const now = new Date();
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        deliveryConfirmedAt: order.deliveryConfirmedAt ?? now,
+        shippedAt: order.shippedAt ?? now,
+      },
+    });
+    await processShippedPayoutEvaluation(orderId);
+    return;
+  }
+
   const dashboard = await loadSellerPayoutTierDashboard(order.sellerId);
   if (!dashboard) return;
 
   const tier = dashboard.evaluation.effectiveTier;
   if (tier === SellerPayoutTier.instant || tier === SellerPayoutTier.fast) {
-    // Higher tiers should have released earlier; delivery is a no-op for payout timing.
     await prisma.order.update({
       where: { id: orderId },
       data: { deliveryConfirmedAt: order.deliveryConfirmedAt ?? new Date() },
@@ -441,18 +594,9 @@ export async function processStandardDeliveryPayoutEvaluation(orderId: string): 
   const prev = order.payoutStatus;
 
   if (evaluation.instantPayoutAllowed) {
-    // This legacy per-seller instant tier releases exactly at delivery confirmation, so there is
-    // no future settlement event to reduce outstanding exposure against — intentionally not
-    // recorded via `recordInstantPayoutRelease` (unlike the label/carrier tiers) to avoid
-    // permanently inflating the seller's outstanding-exposure ledger. Per-order/daily limits are
-    // still enforced so a burst of legacy-tier deliveries can't bypass instant payout caps.
     const sellerNetUsd = resolveOrderSellerNetUsd(order);
     const limitCheck = await checkInstantPayoutLimits(order.sellerId, sellerNetUsd);
     if (!limitCheck.allowed) {
-      // Leave payoutStatus untouched (do not fall through to the "not eligible" branch below,
-      // whose `evaluation.recommendedStatus` would still read `instant_payout_ready` here since
-      // eligibility itself said yes — only our own limit check said no). The order is retried on
-      // the next evaluation cycle once daily/outstanding limits have room again.
       await logInstantPayoutLimitFallback({
         sellerId: order.sellerId,
         orderId,

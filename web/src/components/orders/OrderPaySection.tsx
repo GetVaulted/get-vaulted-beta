@@ -1,11 +1,15 @@
 "use client";
 
 import { loadStripe } from "@stripe/stripe-js";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { VaultedSecureCheckoutPanel } from "@/components/checkout/VaultedSecureCheckoutPanel";
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
 import { estimateEscrowFeeCents, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
 import { VAULTED_SECURE_CHECKOUT } from "@/lib/vaulted-secure-checkout-copy";
+
+function formatMoney(n: number) {
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+}
 
 export function OrderPaySection({
   orderId,
@@ -28,6 +32,38 @@ export function OrderPaySection({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [referralCreditUsd, setReferralCreditUsd] = useState(0);
+  const [vaultCreditsUsd, setVaultCreditsUsd] = useState(0);
+  const [applyReferralCredit, setApplyReferralCredit] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/account/wallet", { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const j = (await res.json()) as {
+          wallet?: { referralCreditUsd?: number; vaultCreditsUsd?: number };
+        };
+        const bal = Number(j.wallet?.referralCreditUsd ?? 0);
+        const vault = Number(j.wallet?.vaultCreditsUsd ?? 0);
+        if (!cancelled && Number.isFinite(bal) && bal > 0) setReferralCreditUsd(bal);
+        if (!cancelled && Number.isFinite(vault) && vault > 0) setVaultCreditsUsd(vault);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const storeCreditUsd = referralCreditUsd + vaultCreditsUsd;
+  const referralDiscountUsd = useMemo(() => {
+    if (!applyReferralCredit || storeCreditUsd <= 0) return 0;
+    return Math.min(storeCreditUsd, Math.max(0, totalUsd - 0.5));
+  }, [applyReferralCredit, storeCreditUsd, totalUsd]);
+  const displayTotal = Math.max(0, totalUsd - referralDiscountUsd);
 
   if (!isBuyer) return null;
 
@@ -57,7 +93,7 @@ export function OrderPaySection({
       const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}/charge-saved`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ applyReferralCredit: applyReferralCredit === true }),
       });
       const data = (await res.json()) as {
         error?: string;
@@ -125,6 +161,7 @@ export function OrderPaySection({
         body: JSON.stringify({
           kind: "pay_order",
           orderId,
+          applyReferralCredit: applyReferralCredit === true,
           successPath: `/orders/${encodeURIComponent(orderId)}`,
           cancelPath: `/orders/${encodeURIComponent(orderId)}`,
         }),
@@ -181,6 +218,30 @@ export function OrderPaySection({
           Time remaining: <PaymentDeadlineCountdown deadlineIso={deadlineIso} />
         </p>
       ) : null}
+      {storeCreditUsd > 0 ? (
+        <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-gold/20 bg-gold/5 px-3 py-3 text-sm text-zinc-300">
+          <input
+            type="checkbox"
+            className="mt-1 size-4 accent-gold"
+            checked={applyReferralCredit}
+            onChange={(e) => setApplyReferralCredit(e.target.checked)}
+          />
+          <span>
+            Apply available credits ({formatMoney(storeCreditUsd)}
+            {vaultCreditsUsd > 0 && referralCreditUsd > 0
+              ? ` — ${formatMoney(vaultCreditsUsd)} Get Vaulted + ${formatMoney(referralCreditUsd)} referral`
+              : vaultCreditsUsd > 0
+                ? " Get Vaulted Credit"
+                : " referral"}
+            )
+            {referralDiscountUsd > 0 ? (
+              <span className="mt-0.5 block text-xs text-emerald-400/90">
+                Order total becomes {formatMoney(displayTotal)}
+              </span>
+            ) : null}
+          </span>
+        </label>
+      ) : null}
       {error ? <p className="mt-2 text-xs font-medium text-rose-300">{error}</p> : null}
       <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         {showSavedCardCta ? (
@@ -203,7 +264,13 @@ export function OrderPaySection({
               : "inline-flex h-11 items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright px-8 text-sm font-bold text-zinc-950 shadow-[0_0_28px_-6px_rgba(201,162,39,0.5)] transition hover:brightness-110 disabled:opacity-60"
           }
         >
-          {busy && !showSavedCardCta ? "Redirecting…" : busy ? "Please wait…" : useVaultedSecureCheckout ? VAULTED_SECURE_CHECKOUT.cta : "Pay with Stripe Checkout"}
+          {busy && !showSavedCardCta
+            ? "Redirecting…"
+            : busy
+              ? "Please wait…"
+              : useVaultedSecureCheckout
+                ? VAULTED_SECURE_CHECKOUT.cta
+                : "Pay with Stripe Checkout"}
         </button>
       </div>
     </div>

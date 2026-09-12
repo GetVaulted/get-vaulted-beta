@@ -1,6 +1,6 @@
-import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect, useIsFocused, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 import { fetchLiveShowsForDiscovery } from '../api/liveShowsDiscoveryRepository';
 import { fetchLiveRoomPublicById, liveRoomRowToLiveStream } from '../api/liveRoomsRepository';
@@ -15,32 +15,124 @@ import type { LiveStackParamList } from '../navigation/types';
 import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
 import { navigateAuthLogin, navigateAuthSignUp } from '../navigation/rootNavigationRef';
 import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
+import { useStickyLiveAuth } from '../hooks/useStickyLiveAuth';
+import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
+import { pinSelectedLiveStream, mergeLiveFeedStreams } from '../lib/pinSelectedLiveStream';
 import { colors } from '../theme';
 import type { LiveStream } from '../types';
 
 function seedStreamsFromCache(streamId: string): { streams: LiveStream[]; ready: boolean } {
   const cached = getHomeFeedMemorySnapshot()?.live ?? [];
   if (!cached.length) return { streams: [], ready: false };
-  return { streams: cached, ready: cached.some((s) => s.id === streamId) };
+  const pinned = pinSelectedLiveStream(cached, streamId);
+  return { streams: pinned, ready: pinned.some((s) => s.id === streamId) };
 }
 
 export function LiveRoomScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const route = useRoute<RouteProp<LiveStackParamList, 'LiveRoom'>>();
   const { streamId } = route.params;
-  const { user, guestExploreMode, session } = useAuth();
+  const { user, guestExploreMode, session, lastAuthEvent } = useAuth();
+  const liveAuth = useStickyLiveAuth({ user, session, lastAuthEvent });
   const seed = useMemo(() => seedStreamsFromCache(streamId), [streamId]);
   const [streams, setStreams] = useState<LiveStream[]>(seed.streams);
   const [loading, setLoading] = useState(!seed.ready);
   const [roomVisitNonce, setRoomVisitNonce] = useState(0);
+  // Drives full playback teardown when the buyer leaves this screen (back / tab switch / pushed
+  // screen). `useIsFocused` is false whenever any parent navigator is also unfocused, so it covers
+  // the tab-switch case where the screen stays mounted and would otherwise keep playing audio.
+  const isFocused = useIsFocused();
 
   useKeepScreenAwakeWhileFocused('live-room-buyer');
 
+  const applyStreams = useCallback(
+    (next: LiveStream[] | ((prev: LiveStream[]) => LiveStream[]), opts?: { pinSelected?: boolean }) => {
+      setStreams((prev) => {
+        const resolved = typeof next === 'function' ? next(prev) : next;
+        // Pin only on cold open — mid-session re-pin reorders under the pager (random swipe).
+        if (opts?.pinSelected || prev.length === 0) {
+          return pinSelectedLiveStream(resolved, streamId);
+        }
+        return mergeLiveFeedStreams(prev, resolved);
+      });
+    },
+    [streamId],
+  );
+
+  const reloadStreams = useCallback(async () => {
+    if (!isSupabaseConfigured() && !getWebApiBaseUrl()) {
+      applyStreams([]);
+      setLoading(false);
+      return;
+    }
+
+    const cache = getHomeFeedMemorySnapshot() ?? (await loadHomeFeedCache());
+    if (cache?.live.length) {
+      applyStreams(cache.live);
+      if (cache.live.some((s) => s.id === streamId)) {
+        setLoading(false);
+      }
+    }
+
+    // Prefer the single room first so video paints without waiting on the full discovery directory.
+    try {
+      let singleRoom: LiveStream | null = null;
+      if (streamId) {
+        const row = await fetchLiveRoomPublicById(streamId);
+        if (row && (row.status === 'live' || row.status === 'scheduled')) {
+          singleRoom = liveRoomRowToLiveStream(row);
+          applyStreams((prev) => {
+            if (prev.some((s) => s.id === streamId)) {
+              return prev.map((s) => (s.id === streamId ? { ...s, ...singleRoom! } : s));
+            }
+            return [singleRoom!, ...prev];
+          });
+          setLoading(false);
+          prefetchLiveStreamRooms([streamId], session?.access_token);
+        }
+      }
+
+      const pack = await fetchLiveShowsForDiscovery();
+      let next = pack.live;
+      if (streamId && !next.some((s) => s.id === streamId)) {
+        if (singleRoom) {
+          next = [singleRoom, ...next];
+        } else {
+          const cachedRow = cache?.live.find((s) => s.id === streamId);
+          if (cachedRow) {
+            next = [cachedRow, ...next];
+          }
+        }
+      }
+      applyStreams(next);
+      if (streamId) {
+        prefetchLiveStreamRooms([streamId], session?.access_token);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [applyStreams, session?.access_token, streamId]);
+
   useFocusEffect(
     useCallback(() => {
-      setRoomVisitNonce((n) => n + 1);
-    }, []),
+      // Soft visit — do NOT remount the whole feed via React key;
+      // remount racing IVS leave/join blanks video until app kill.
+      viewerLifecycleLog('screen_focused', { streamId, layer: 'LiveRoomScreen' });
+      // Re-focus after in-app nav (profile/DM/Settings) must soft-resume — bumping
+      // roomVisitNonce force-restarts Stage/HLS as if opening a brand-new show.
+      void reloadStreams();
+      return () => {
+        viewerLifecycleLog('screen_blurred', { streamId, layer: 'LiveRoomScreen' });
+      };
+    }, [reloadStreams, streamId]),
   );
+
+  // First entry / stream change — re-seed the pager list so we don't paint the prior show.
+  useLayoutEffect(() => {
+    setStreams(seed.streams);
+    setLoading(!seed.ready);
+    setRoomVisitNonce((n) => n + 1);
+  }, [streamId, seed]);
 
   const blockGuestLive = guestExploreMode && !user;
 
@@ -49,51 +141,6 @@ export function LiveRoomScreen() {
     navigation.goBack();
     alertGuestLiveRestricted();
   }, [blockGuestLive, navigation]);
-
-  useEffect(() => {
-    if (!isSupabaseConfigured() && !getWebApiBaseUrl()) {
-      setStreams([]);
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      const cache = getHomeFeedMemorySnapshot() ?? (await loadHomeFeedCache());
-      if (cancelled) return;
-
-      if (cache?.live.length) {
-        setStreams(cache.live);
-        if (cache.live.some((s) => s.id === streamId)) {
-          setLoading(false);
-        }
-      }
-
-      try {
-        const pack = await fetchLiveShowsForDiscovery();
-        if (cancelled) return;
-        let next = pack.live;
-        if (streamId && !next.some((s) => s.id === streamId)) {
-          const row = await fetchLiveRoomPublicById(streamId);
-          if (row && (row.status === 'live' || row.status === 'scheduled')) {
-            next = [liveRoomRowToLiveStream(row), ...next];
-          }
-        }
-        setStreams(next);
-        if (next.length) {
-          const start = next.findIndex((s) => s.id === streamId);
-          const warm = [start, start - 1, start + 1]
-            .filter((i) => i >= 0 && i < next.length)
-            .map((i) => next[i]!.id);
-          prefetchLiveStreamRooms(warm, session?.access_token);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [streamId, session?.access_token]);
 
   const onRequireAuth = useCallback(() => {
     Alert.alert('Account required', 'Log in to chat, follow, shop, and bid in live rooms.', [
@@ -116,18 +163,24 @@ export function LiveRoomScreen() {
   }
 
   return (
-    <LiveStripeProvider accessToken={session?.access_token}>
+    <LiveStripeProvider accessToken={liveAuth.accessToken}>
       <View style={styles.screen}>
         <VerticalLiveFeed
-          key={`${streamId}-${roomVisitNonce}`}
           streams={streams}
           initialStreamId={streamId}
           roomVisitNonce={roomVisitNonce}
-          onBack={() => navigation.goBack()}
-          signedIn={Boolean(user)}
+          screenFocused={isFocused}
+          onBack={() => {
+            if (navigation.canGoBack()) {
+              navigation.goBack();
+              return;
+            }
+            navigation.navigate('LiveDiscovery');
+          }}
+          signedIn={liveAuth.signedIn}
           onRequireAuth={onRequireAuth}
-          accessToken={session?.access_token}
-          userId={user?.id}
+          accessToken={liveAuth.accessToken}
+          userId={liveAuth.userId}
         />
       </View>
     </LiveStripeProvider>
@@ -142,5 +195,6 @@ const styles = StyleSheet.create({
   centered: {
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: colors.background,
   },
 });

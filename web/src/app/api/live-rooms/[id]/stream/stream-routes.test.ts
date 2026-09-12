@@ -5,7 +5,10 @@ const hoisted = vi.hoisted(() => ({
   getServerSessionSafe: vi.fn(),
   hostAccess: vi.fn(),
   liveRoomFindUnique: vi.fn(),
+  liveRoomUpdate: vi.fn(),
   provisionRoomStream: vi.fn(),
+  prepareObsWhipSession: vi.fn(),
+  rotateObsWhipParticipantToken: vi.fn(),
   prepareHostWebBroadcastSession: vi.fn(),
   endHostWebBroadcastSession: vi.fn(),
   rotateStreamKey: vi.fn(),
@@ -15,6 +18,12 @@ const hoisted = vi.hoisted(() => ({
   prepareHostStageSession: vi.fn(),
   createViewerStageToken: vi.fn(),
   endHostStageSession: vi.fn(),
+  ensureStageHlsCompositionActive: vi.fn(),
+  schedulePausedBroadcastAwsTeardown: vi.fn(),
+  cancelPausedBroadcastAwsTeardown: vi.fn(),
+  reconcileStagePublisherHealth: vi.fn(async () => "skip" as const),
+  ensureChannelLowLatencyMode: vi.fn(async () => true),
+  getIvsChannelLatencyMode: vi.fn(async () => "LOW" as const),
   checkRateLimit: vi.fn(() => ({ ok: true as const, remaining: 29, resetAt: Date.now() + 60_000 })),
   userFindUnique: vi.fn(),
 }));
@@ -36,6 +45,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     liveRoom: {
       findUnique: hoisted.liveRoomFindUnique,
+      update: hoisted.liveRoomUpdate,
     },
     user: {
       findUnique: hoisted.userFindUnique,
@@ -53,6 +63,8 @@ vi.mock("@/lib/ivs-ops-log", () => ({
 
 vi.mock("@/services/ivs", () => ({
   provisionRoomStream: hoisted.provisionRoomStream,
+  prepareObsWhipSession: hoisted.prepareObsWhipSession,
+  rotateObsWhipParticipantToken: hoisted.rotateObsWhipParticipantToken,
   prepareHostWebBroadcastSession: hoisted.prepareHostWebBroadcastSession,
   endHostWebBroadcastSession: hoisted.endHostWebBroadcastSession,
   rotateStreamKey: hoisted.rotateStreamKey,
@@ -62,6 +74,12 @@ vi.mock("@/services/ivs", () => ({
   prepareHostStageSession: hoisted.prepareHostStageSession,
   createViewerStageToken: hoisted.createViewerStageToken,
   endHostStageSession: hoisted.endHostStageSession,
+  ensureStageHlsCompositionActive: hoisted.ensureStageHlsCompositionActive,
+  schedulePausedBroadcastAwsTeardown: hoisted.schedulePausedBroadcastAwsTeardown,
+  cancelPausedBroadcastAwsTeardown: hoisted.cancelPausedBroadcastAwsTeardown,
+  reconcileStagePublisherHealth: hoisted.reconcileStagePublisherHealth,
+  ensureChannelLowLatencyMode: hoisted.ensureChannelLowLatencyMode,
+  getIvsChannelLatencyMode: hoisted.getIvsChannelLatencyMode,
 }));
 
 vi.mock("@/lib/realtime-emit-server", () => ({
@@ -106,12 +124,26 @@ describe("live room stream routes", () => {
     vi.clearAllMocks();
     const sellerSession = { user: { id: "seller_1" } };
     hoisted.liveRoomFindUnique.mockResolvedValue(streamRow());
+    hoisted.liveRoomUpdate.mockResolvedValue(streamRow({ streamMode: "channel_hls" }));
     hoisted.getServerSession.mockResolvedValue(sellerSession);
     hoisted.getServerSessionSafe.mockResolvedValue(sellerSession);
     hoisted.hostAccess.mockResolvedValue({ ok: true, room: { id: "room_1", sellerId: "seller_1" }, isAdmin: false });
     hoisted.provisionRoomStream.mockResolvedValue({
       ingestEndpoint: "rtmps://ingest",
       streamKeyValue: "sk_live_secret",
+      channelArn: "arn:aws:ivs:us-east-1:123:channel/abc",
+    });
+    hoisted.prepareObsWhipSession.mockResolvedValue({
+      whipServerUrl: "https://global.whip.live-video.net",
+      participantToken: "whip_token_secret",
+      expiresInSeconds: 43200,
+      stageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
+      participantId: "participant_obs",
+    });
+    hoisted.rotateObsWhipParticipantToken.mockResolvedValue({
+      whipServerUrl: "https://global.whip.live-video.net",
+      participantToken: "whip_token_rotated",
+      expiresInSeconds: 43200,
     });
     hoisted.prepareHostWebBroadcastSession.mockResolvedValue({
       roomId: "room_1",
@@ -139,6 +171,7 @@ describe("live room stream routes", () => {
       expiresInSeconds: 1200,
     });
     hoisted.endHostStageSession.mockResolvedValue(undefined);
+    hoisted.ensureStageHlsCompositionActive.mockResolvedValue(undefined);
     hoisted.checkRateLimit.mockReturnValue({ ok: true as const, remaining: 29, resetAt: Date.now() + 60_000 });
     hoisted.userFindUnique.mockResolvedValue({
       id: "seller_1",
@@ -147,14 +180,41 @@ describe("live room stream routes", () => {
     });
   });
 
-  it("host can provision stream", async () => {
-    const res = await provision(new Request("http://x", { method: "POST" }), {
+  it("host can provision stream via WHIP by default", async () => {
+    const res = await provision(new Request("http://x", { method: "POST", body: "{}" }), {
       params: Promise.resolve({ id: "room_1" }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ingest?: { oneTimeStreamKey?: string } };
+    const body = (await res.json()) as {
+      ingest?: { oneTimeStreamKey?: string; endpoint?: string };
+      protocol?: string;
+    };
+    expect(body.protocol).toBe("whip");
+    expect(body.ingest?.oneTimeStreamKey).toBe("whip_token_secret");
+    expect(body.ingest?.endpoint).toContain("whip.live-video.net");
+    expect(hoisted.prepareObsWhipSession).toHaveBeenCalledWith("room_1", "seller_1");
+  });
+
+  it("host can provision legacy RTMPS when requested", async () => {
+    const res = await provision(
+      new Request("http://x", { method: "POST", body: JSON.stringify({ protocol: "rtmps" }) }),
+      { params: Promise.resolve({ id: "room_1" }) },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ingest?: { oneTimeStreamKey?: string; endpoint?: string };
+      protocol?: string;
+    };
+    expect(body.protocol).toBe("rtmps");
     expect(body.ingest?.oneTimeStreamKey).toBe("sk_live_secret");
+    expect(body.ingest?.endpoint).toMatch(/^rtmps:\/\//);
     expect(hoisted.provisionRoomStream).toHaveBeenCalledWith("room_1");
+    expect(hoisted.liveRoomUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "room_1" },
+        data: { streamMode: "channel_hls" },
+      }),
+    );
   });
 
   it("buyer cannot provision stream", async () => {
@@ -172,9 +232,15 @@ describe("live room stream routes", () => {
     expect(res.status).toBe(200);
     expect(hoisted.syncLiveRoomStreamFromIvs).toHaveBeenCalledWith("room_1");
     expect(hoisted.reconcileStaleLiveStreamWithRoomStatus).toHaveBeenCalledWith("room_1");
-    const body = (await res.json()) as { viewerRole?: string; stream?: Record<string, unknown> };
+    expect(hoisted.reconcileStagePublisherHealth).toHaveBeenCalledWith("room_1", { force: true });
+    const body = (await res.json()) as {
+      viewerRole?: string;
+      stream?: Record<string, unknown>;
+    };
     expect(body.viewerRole).toBe("host");
     expect(typeof body.stream?.ingestEndpoint).toBe("string");
+    // actualLatencyMode may be null when GetChannel is mocked/unavailable in unit tests
+    expect("actualLatencyMode" in (body.stream ?? {})).toBe(true);
   });
 
   it("GET sync=1 is unauthorized without session", async () => {
@@ -194,6 +260,30 @@ describe("live room stream routes", () => {
     });
     expect(res.status).toBe(403);
     expect(hoisted.syncLiveRoomStreamFromIvs).not.toHaveBeenCalled();
+  });
+
+  it("buyer GET for channel_hls runs throttled IVS health sync", async () => {
+    hoisted.liveRoomFindUnique
+      .mockResolvedValueOnce(
+        streamRow({
+          streamMode: "channel_hls",
+          streamHealth: "offline",
+          lastIvsStatusSyncAt: null,
+        }),
+      )
+      .mockResolvedValueOnce(
+        streamRow({
+          streamMode: "channel_hls",
+          streamHealth: "live",
+        }),
+      );
+    const res = await getStream(new Request("http://x/api/live-rooms/room_1/stream"), {
+      params: Promise.resolve({ id: "room_1" }),
+    });
+    expect(res.status).toBe(200);
+    expect(hoisted.syncLiveRoomStreamFromIvs).toHaveBeenCalledWith("room_1");
+    const body = (await res.json()) as { stream?: { streamHealth?: string } };
+    expect(body.stream?.streamHealth).toBe("live");
   });
 
   it("buyer cannot receive stream key", async () => {
@@ -226,9 +316,13 @@ describe("live room stream routes", () => {
   });
 
   it("provision is idempotent through service call", async () => {
-    await provision(new Request("http://x", { method: "POST" }), { params: Promise.resolve({ id: "room_1" }) });
-    await provision(new Request("http://x", { method: "POST" }), { params: Promise.resolve({ id: "room_1" }) });
-    expect(hoisted.provisionRoomStream).toHaveBeenCalledTimes(2);
+    await provision(new Request("http://x", { method: "POST", body: "{}" }), {
+      params: Promise.resolve({ id: "room_1" }),
+    });
+    await provision(new Request("http://x", { method: "POST", body: "{}" }), {
+      params: Promise.resolve({ id: "room_1" }),
+    });
+    expect(hoisted.prepareObsWhipSession).toHaveBeenCalledTimes(2);
   });
 
   it("rotate key is host-only", async () => {

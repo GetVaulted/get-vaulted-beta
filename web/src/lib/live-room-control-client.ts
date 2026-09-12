@@ -232,6 +232,8 @@ export async function createLiveRoomItem(
     priceUsd?: number | null;
     startingBidUsd?: number | null;
     teamBoardMisc?: boolean;
+    teamBoardNcaa?: boolean;
+    customRandomPoolLabels?: string[] | null;
     /** Units on this queue row (one tile). */
     quantity?: number;
     salesFormat?: string;
@@ -259,6 +261,117 @@ export async function createLiveRoomItem(
     return {
       ok: false,
       error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server. Check your connection and that you are signed in.",
+      issues: [],
+    };
+  }
+}
+
+export type LiveShopInventoryListing = {
+  id: string;
+  title: string;
+  imageUrl: string;
+  priceUsd: number | null;
+  startingBidUsd: number | null;
+  buyingFormat: string;
+  status: string;
+  inventoryChannel: "marketplace" | "live_show";
+  alreadyInQueue: boolean;
+  inventoryHeld: boolean;
+  available: boolean;
+};
+
+export async function fetchLiveRoomShopInventory(
+  liveRoomId: string,
+): Promise<ApiResult<{ listings: LiveShopInventoryListing[] }>> {
+  try {
+    const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/shop-inventory`, {
+      cache: "no-store",
+      credentials: "include",
+    });
+    const payload = await readJsonSafe<{ listings?: LiveShopInventoryListing[]; error?: string }>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not load shop inventory.");
+      return { ok: false, error, issues };
+    }
+    return { ok: true, data: { listings: Array.isArray(payload?.listings) ? payload.listings : [] } };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server.",
+      issues: [],
+    };
+  }
+}
+
+export type PriorLiveRoomOption = {
+  id: string;
+  title: string;
+  status: string;
+  updatedAt?: string | null;
+};
+
+export async function fetchPriorLiveRoomsForCopy(
+  currentRoomId: string,
+): Promise<ApiResult<{ rooms: PriorLiveRoomOption[] }>> {
+  try {
+    const res = await fetch(`/api/live-rooms?mine=1&includeEnded=1&limit=40`, {
+      cache: "no-store",
+      credentials: "include",
+    });
+    const payload = await readJsonSafe<{ rooms?: PriorLiveRoomOption[]; error?: string }>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not load prior shows.");
+      return { ok: false, error, issues };
+    }
+    const rooms = (Array.isArray(payload?.rooms) ? payload.rooms : []).filter(
+      (r) => r.id && r.id !== currentRoomId,
+    );
+    return { ok: true, data: { rooms } };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server.",
+      issues: [],
+    };
+  }
+}
+
+export async function importLiveRoomItemsFromRoom(
+  liveRoomId: string,
+  sourceRoomId: string,
+): Promise<ApiResult<{ imported: number; skipped: number; sourceTitle?: string }>> {
+  try {
+    const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/import-from-room`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ sourceRoomId }),
+    });
+    const payload = await readJsonSafe<{
+      imported?: number;
+      skipped?: number;
+      sourceTitle?: string;
+      error?: string;
+    }>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not copy lineup.");
+      return { ok: false, error, issues };
+    }
+    return {
+      ok: true,
+      data: {
+        imported: typeof payload?.imported === "number" ? payload.imported : 0,
+        skipped: typeof payload?.skipped === "number" ? payload.skipped : 0,
+        sourceTitle: payload?.sourceTitle,
+      },
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server.",
       issues: [],
     };
   }

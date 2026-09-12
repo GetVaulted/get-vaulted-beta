@@ -11,7 +11,9 @@ import {
 export type { LiveShowShippingMode, LiveShowCarrierPreference, LiveShowShippingTerms } from "../../../shared/live-show-shipping-config";
 export {
   DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS,
+  PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS,
   resolveLiveShowShippingCapCents,
+  standardLiveShowShippingCapIncrementCents,
   roomFlagsFromShippingMode,
   shippingModeFromRoomFlags,
   defaultLiveShowShippingTerms,
@@ -35,12 +37,11 @@ export function liveShowShippingTermsFromRoom(room: {
   defaultShippingProfileId?: string | null;
   defaultSellerShippingProfileId?: string | null;
 }): LiveShowShippingTerms {
+  const mode = shippingModeFromRoomFlags(room);
+  const capCents = mode === "capped" ? resolveLiveShowShippingCapCents(room.shippingCapCents) : null;
   return {
-    shippingMode: shippingModeFromRoomFlags(room),
-    shippingCapCents:
-      shippingModeFromRoomFlags(room) === "capped"
-        ? resolveLiveShowShippingCapCents(room.shippingCapCents)
-        : null,
+    shippingMode: mode,
+    shippingCapCents: capCents,
     carrierPreference: room.carrierPreference ?? "best_rate",
     bundleEligiblePurchases: room.bundleEligiblePurchases !== false,
     sellerPaysOverCap: room.sellerPaysOverCap !== false,
@@ -69,13 +70,11 @@ export function liveRoomShippingPatchFromMode(args: {
   shippingCapCents: number | null;
 } {
   const flags = roomFlagsFromShippingMode(args.shippingMode);
+  const capCents = args.shippingMode === "capped" ? resolveLiveShowShippingCapCents(args.shippingCapCents) : null;
   return {
     shippingMode: args.shippingMode,
     ...flags,
-    shippingCapCents:
-      args.shippingMode === "capped"
-        ? resolveLiveShowShippingCapCents(args.shippingCapCents)
-        : null,
+    shippingCapCents: capCents,
   };
 }
 

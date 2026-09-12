@@ -15,7 +15,7 @@ export function WalletAddPaymentMethodForm({
   active,
   onSaved,
   onCancel,
-  submitLabel = "Save card",
+  submitLabel = "Save payment method",
 }: Props) {
   const payRef = useRef<HTMLDivElement>(null);
   const stripeRef = useRef<Stripe | null>(null);
@@ -177,7 +177,7 @@ export function WalletAddPaymentMethodForm({
   return (
     <div className="space-y-3">
       <p className="text-xs leading-relaxed text-zinc-500">
-        Secure form powered by Stripe. Your card saves to your Vault Wallet and stays on this live show.
+        Secure form powered by Stripe. Save a card or Cash App Pay to your Vault Wallet for live wins and marketplace.
       </p>
       {error ? <p className="text-xs font-medium text-rose-300">{error}</p> : null}
       <div ref={payRef} className="min-h-[200px] rounded-xl border border-white/[0.08] bg-black/40 p-3" />

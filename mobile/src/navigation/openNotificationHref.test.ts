@@ -28,6 +28,14 @@ describe('openNotificationHref', () => {
     expect(nav.navigate).toHaveBeenCalledWith('SellerOrderDetail', { orderId: 'order_1' });
   });
 
+  it('routes /account/seller to Seller HQ for Stripe Connect follow-up', () => {
+    const nav = fakeNav();
+    expect(openNotificationHref(nav, '/account/seller', { type: 'stripe_connect_action_required' })).toBe(
+      true,
+    );
+    expect(nav.navigate).toHaveBeenCalledWith('MainTabs', { screen: 'HQ' });
+  });
+
   it('routes a listing href to ProductDetail', () => {
     const nav = fakeNav();
     expect(openNotificationHref(nav, '/listing/lst_1')).toBe(true);
@@ -66,6 +74,14 @@ describe('openNotificationHref', () => {
       openNotificationHref(nav, '/seller/live');
       expect(nav.navigate).not.toHaveBeenCalledWith('SellerProfileByUsername', expect.anything());
     });
+
+    it('routes host console href to SellerHostRoom', () => {
+      const nav = fakeNav();
+      expect(openNotificationHref(nav, '/seller/live/room_abc/console', { type: 'live_host_starting_soon' })).toBe(
+        true,
+      );
+      expect(nav.navigate).toHaveBeenCalledWith('SellerHostRoom', { roomId: 'room_abc' });
+    });
   });
 
   it('routes a trade offer href to ReviewOffer in Trade Center', () => {
@@ -94,6 +110,18 @@ describe('openNotificationHref', () => {
         listingId: 'lst_1',
         offerId: 'offer_42',
       });
+    });
+
+    it('still opens Vault Studio when type is offer_received (push/inbox always send that type)', () => {
+      const nav = fakeNav();
+      expect(
+        openNotificationHref(nav, '/seller/listings/lst_1?offerId=offer_42', { type: 'offer_received' }),
+      ).toBe(true);
+      expect(nav.navigate).toHaveBeenCalledWith('SellerListingManagement', {
+        listingId: 'lst_1',
+        offerId: 'offer_42',
+      });
+      expect(nav.navigate).not.toHaveBeenCalledWith('MainTabs', { screen: 'Marketplace' });
     });
 
     it('decodes an encoded listing id', () => {

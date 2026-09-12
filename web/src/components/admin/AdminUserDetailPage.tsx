@@ -83,6 +83,95 @@ type Summary = {
   }>;
 };
 
+type ActivityItem = {
+  id: string;
+  kind: string;
+  label: string;
+  detail: string | null;
+  at: string;
+  href: string | null;
+};
+
+type ActivityPayload = { items: ActivityItem[]; lookbackDays: number };
+
+type ReferralSnapshot = {
+  referralCode: string | null;
+  referredBy: { id: string; username: string } | null;
+  referredAt: string | null;
+  availableUsd: number;
+  pendingUsd: number;
+  reservedUsd: number;
+  spentUsd: number;
+  voidedUsd: number;
+  successfulReferrals: number;
+  referredUserCount: number;
+  credits: Array<{
+    id: string;
+    status: string;
+    role: string;
+    amountUsd: number;
+    createdAt: string;
+    availableAt: string;
+    voidReason: string | null;
+    sourceOrder: { id: string; totalUsd: number; paymentStatus: string };
+    spentOrderId: string | null;
+  }>;
+};
+
+type PlatformCreditRow = {
+  id: string;
+  amountUsd: number;
+  status: string;
+  sourceType: string;
+  sourceRef: string;
+  spentOrderId: string | null;
+  spentAt: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+  createdAt: string;
+};
+
+type PlatformCreditSnapshot = {
+  availableUsd: number;
+  pendingUsd: number;
+  spentUsd: number;
+  voidedUsd: number;
+  credits: PlatformCreditRow[];
+};
+
+type AddressRow = {
+  id: string;
+  type: string;
+  name: string;
+  fullName: string;
+  company: string | null;
+  line1: string;
+  line2: string | null;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  phone: string | null;
+  email: string | null;
+  isDefault: boolean;
+  isVerified: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type AddressPayload = { addresses: AddressRow[] };
+
+type LinkedPeer = {
+  userId: string;
+  username: string;
+  email: string;
+  suspendedAt: string | null;
+  score: number;
+  signals: Array<{ kind: string; label: string; evidence: string }>;
+};
+
+type LinkedPayload = { peers: LinkedPeer[] };
+
 function pct(n: number) {
   return `${(n * 100).toFixed(2)}%`;
 }
@@ -105,8 +194,27 @@ export function AdminUserDetailPage() {
   const [exposureLimit, setExposureLimit] = useState("");
   const [platformFeePercent, setPlatformFeePercent] = useState("");
   const [platformFeeExpiresAt, setPlatformFeeExpiresAt] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [usernameReason, setUsernameReason] = useState("");
+  const [usernameBusy, setUsernameBusy] = useState(false);
+  const [usernameMessage, setUsernameMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activity, setActivity] = useState<ActivityPayload | null>(null);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [linked, setLinked] = useState<LinkedPayload | null>(null);
+  const [linkedLoading, setLinkedLoading] = useState(true);
+  const [addresses, setAddresses] = useState<AddressRow[] | null>(null);
+  const [addressesLoading, setAddressesLoading] = useState(true);
+  const [referral, setReferral] = useState<ReferralSnapshot | null>(null);
+  const [referralLoading, setReferralLoading] = useState(true);
+  const [platformCredit, setPlatformCredit] = useState<PlatformCreditSnapshot | null>(null);
+  const [platformCreditLoading, setPlatformCreditLoading] = useState(true);
+  const [creditAmount, setCreditAmount] = useState("");
+  const [creditReason, setCreditReason] = useState("");
+  const [creditBusy, setCreditBusy] = useState(false);
+  const [creditError, setCreditError] = useState<string | null>(null);
+  const [creditMessage, setCreditMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -126,6 +234,160 @@ export function AdminUserDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    setActivityLoading(true);
+    setLinkedLoading(true);
+    setReferralLoading(true);
+    setPlatformCreditLoading(true);
+    setAddressesLoading(true);
+    void (async () => {
+      try {
+        const [actRes, linkRes, refRes, creditRes, addrRes] = await Promise.all([
+          fetch(`/api/admin/users/${encodeURIComponent(userId)}/activity`, { cache: "no-store" }),
+          fetch(`/api/admin/users/${encodeURIComponent(userId)}/linked-accounts`, { cache: "no-store" }),
+          fetch(`/api/admin/users/${encodeURIComponent(userId)}/referral-credits`, { cache: "no-store" }),
+          fetch(`/api/admin/users/${encodeURIComponent(userId)}/platform-credit`, { cache: "no-store" }),
+          fetch(`/api/admin/users/${encodeURIComponent(userId)}/addresses`, { cache: "no-store" }),
+        ]);
+        if (cancelled) return;
+        if (actRes.ok) setActivity((await actRes.json()) as ActivityPayload);
+        else setActivity(null);
+        if (linkRes.ok) setLinked((await linkRes.json()) as LinkedPayload);
+        else setLinked(null);
+        if (refRes.ok) {
+          const j = (await refRes.json()) as { referral?: ReferralSnapshot };
+          setReferral(j.referral ?? null);
+        } else setReferral(null);
+        if (creditRes.ok) setPlatformCredit((await creditRes.json()) as PlatformCreditSnapshot);
+        else setPlatformCredit(null);
+        if (addrRes.ok) {
+          const j = (await addrRes.json()) as AddressPayload;
+          setAddresses(j.addresses);
+        } else setAddresses(null);
+      } finally {
+        if (!cancelled) {
+          setActivityLoading(false);
+          setLinkedLoading(false);
+          setReferralLoading(false);
+          setPlatformCreditLoading(false);
+          setAddressesLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const changeUsername = async () => {
+    if (!newUsername.trim()) {
+      setError("Enter a new username.");
+      return;
+    }
+    if (!usernameReason.trim()) {
+      setError("Reason is required when changing a username.");
+      return;
+    }
+    setUsernameBusy(true);
+    setError(null);
+    setUsernameMessage(null);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set_username",
+          username: newUsername.trim(),
+          reason: usernameReason.trim(),
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        username?: string;
+        previousUsername?: string;
+      };
+      if (!res.ok) {
+        setError(typeof j.error === "string" ? j.error : "Username change failed.");
+        return;
+      }
+      setUsernameMessage(
+        j.previousUsername && j.username && j.previousUsername !== j.username
+          ? `Username updated: @${j.previousUsername} → @${j.username}`
+          : `Username set to @${j.username ?? newUsername.trim()}`,
+      );
+      setNewUsername("");
+      setUsernameReason("");
+      await load();
+    } finally {
+      setUsernameBusy(false);
+    }
+  };
+
+  const grantCredit = async () => {
+    const amount = Number(creditAmount);
+    if (!creditReason.trim()) {
+      setCreditError("Reason is required.");
+      return;
+    }
+    if (!Number.isFinite(amount) || amount < 0.01) {
+      setCreditError("Enter an amount of at least $0.01.");
+      return;
+    }
+    setCreditBusy(true);
+    setCreditError(null);
+    setCreditMessage(null);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/platform-credit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amountUsd: amount, reason: creditReason.trim() }),
+      });
+      const j = (await res.json().catch(() => ({}))) as PlatformCreditSnapshot & { error?: string };
+      if (!res.ok) {
+        setCreditError(typeof j.error === "string" ? j.error : "Grant failed.");
+        return;
+      }
+      setPlatformCredit(j);
+      setCreditMessage(`Granted $${amount.toFixed(2)} in Get Vaulted Credit.`);
+      setCreditAmount("");
+      setCreditReason("");
+    } finally {
+      setCreditBusy(false);
+    }
+  };
+
+  /** Unstick credit left in "reserved" limbo by a checkout attempt that never cleanly finished. */
+  const releaseStuckCredit = async () => {
+    setCreditBusy(true);
+    setCreditError(null);
+    setCreditMessage(null);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/platform-credit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "release_stuck" }),
+      });
+      const j = (await res.json().catch(() => ({}))) as PlatformCreditSnapshot & {
+        error?: string;
+        releasedCount?: number;
+      };
+      if (!res.ok) {
+        setCreditError(typeof j.error === "string" ? j.error : "Release failed.");
+        return;
+      }
+      setPlatformCredit(j);
+      setCreditMessage(
+        (j.releasedCount ?? 0) > 0
+          ? `Released ${j.releasedCount} stuck reservation(s) back to available.`
+          : "No stuck reservations found — nothing to release.",
+      );
+    } finally {
+      setCreditBusy(false);
+    }
+  };
 
   const act = async (action: string, extra?: Record<string, unknown>) => {
     if (action !== "recalculate" && !reason.trim()) {
@@ -194,16 +456,366 @@ export function AdminUserDetailPage() {
       <Link href="/admin/users" className="text-xs font-semibold text-zinc-500 hover:text-gold-bright">
         ← Users
       </Link>
-      <h1 className="font-display mt-4 text-xl font-black tracking-tight">Seller risk & payout program</h1>
+      <h1 className="font-display mt-4 text-xl font-black tracking-tight">User review</h1>
       <p className="mt-1 text-xs text-zinc-500">
         @{data.seller.username} · {data.seller.email}
+      </p>
+      <p className="mt-1 text-[11px] text-zinc-600">
+        Recent activity and linked-account signals are review-only (first-party product data).
       </p>
 
       {error ? (
         <p className="mt-4 rounded-lg border border-rose-400/25 bg-rose-950/30 px-3 py-2 text-xs text-rose-100">{error}</p>
       ) : null}
+      {usernameMessage ? (
+        <p className="mt-4 rounded-lg border border-emerald-400/25 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-100">
+          {usernameMessage}
+        </p>
+      ) : null}
 
-      <section className="mt-6 grid gap-4 lg:grid-cols-3">
+      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+        <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Addresses</h2>
+        <p className="mt-1 text-[10px] text-zinc-600">
+          Shipping, billing, return, and ship-from addresses saved on this account.
+        </p>
+        {addressesLoading ? (
+          <p className="mt-3 text-zinc-500">Loading…</p>
+        ) : !addresses?.length ? (
+          <p className="mt-3 text-zinc-500">No addresses saved for this user.</p>
+        ) : (
+          <ul className="mt-3 grid gap-3 sm:grid-cols-2">
+            {addresses.map((a) => (
+              <li key={a.id} className="rounded-lg border border-white/[0.06] bg-[#050506] p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-gold-bright">
+                    {a.type.replace(/_/g, " ")}
+                  </span>
+                  <span className="flex gap-1">
+                    {a.isDefault ? (
+                      <span className="rounded-full border border-emerald-400/30 bg-emerald-950/30 px-2 py-0.5 text-[9px] font-bold uppercase text-emerald-200">
+                        Default
+                      </span>
+                    ) : null}
+                    {a.isVerified ? (
+                      <span className="rounded-full border border-sky-400/30 bg-sky-950/30 px-2 py-0.5 text-[9px] font-bold uppercase text-sky-200">
+                        Verified
+                      </span>
+                    ) : null}
+                  </span>
+                </div>
+                <p className="mt-2 font-semibold text-zinc-100">{a.fullName}</p>
+                {a.company ? <p className="text-zinc-400">{a.company}</p> : null}
+                <p className="mt-1 text-zinc-300">
+                  {a.line1}
+                  {a.line2 ? `, ${a.line2}` : ""}
+                </p>
+                <p className="text-zinc-300">
+                  {a.city}, {a.state} {a.postalCode} · {a.country}
+                </p>
+                {a.phone ? <p className="mt-1 text-zinc-500">{a.phone}</p> : null}
+                {a.email ? <p className="text-zinc-500">{a.email}</p> : null}
+                <p className="mt-2 text-[10px] text-zinc-600">
+                  Updated {new Date(a.updatedAt).toLocaleString()}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+        <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Change username</h2>
+        <p className="mt-1 text-[10px] text-zinc-600">
+          Fix typos or mistaken usernames. Bypasses the 60-day self-service lock; still enforces uniqueness and reserved names.
+        </p>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="flex min-w-[10rem] flex-1 flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+            New username
+            <input
+              value={newUsername}
+              onChange={(e) => setNewUsername(e.target.value)}
+              className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+              placeholder={`currently @${data.seller.username}`}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <label className="flex min-w-[14rem] flex-[2] flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+            Reason
+            <input
+              value={usernameReason}
+              onChange={(e) => setUsernameReason(e.target.value)}
+              className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+              placeholder="User typo / support request"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={usernameBusy}
+            onClick={() => void changeUsername()}
+            className="rounded-lg border border-gold/35 bg-gold/10 px-3 py-1.5 text-xs font-semibold text-gold-bright hover:bg-gold/15 disabled:opacity-50"
+          >
+            {usernameBusy ? "Saving…" : "Set username"}
+          </button>
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Referral credits</h2>
+          <Link href="/admin/referrals" className="text-[10px] font-semibold text-gold-bright hover:underline">
+            Open referrals tracker →
+          </Link>
+        </div>
+        {referralLoading ? (
+          <p className="mt-3 text-zinc-500">Loading…</p>
+        ) : !referral ? (
+          <p className="mt-3 text-zinc-500">Could not load referral data.</p>
+        ) : (
+          <>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <p className="text-[10px] text-zinc-500">Available</p>
+                <p className="font-semibold text-emerald-300">${referral.availableUsd.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-zinc-500">Pending</p>
+                <p className="font-semibold text-amber-300">${referral.pendingUsd.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-zinc-500">Spent / voided</p>
+                <p className="font-semibold text-zinc-200">
+                  ${referral.spentUsd.toFixed(2)} / ${referral.voidedUsd.toFixed(2)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-zinc-500">Successful referrals</p>
+                <p className="font-semibold text-zinc-200">
+                  {referral.successfulReferrals} · {referral.referredUserCount} attributed signups
+                </p>
+              </div>
+            </div>
+            <p className="mt-3 text-[11px] text-zinc-500">
+              Code: <span className="font-mono text-zinc-300">{referral.referralCode ?? "—"}</span>
+              {referral.referredBy ? (
+                <>
+                  {" "}
+                  · Referred by{" "}
+                  <Link
+                    href={`/admin/users/${encodeURIComponent(referral.referredBy.id)}`}
+                    className="text-gold-bright hover:underline"
+                  >
+                    @{referral.referredBy.username}
+                  </Link>
+                </>
+              ) : null}
+            </p>
+            {referral.credits.length > 0 ? (
+              <ul className="mt-3 max-h-48 space-y-1.5 overflow-y-auto border-t border-white/[0.04] pt-3">
+                {referral.credits.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                    <span className="text-zinc-400">
+                      {c.role} · {c.status}
+                      {c.voidReason ? ` (${c.voidReason})` : ""}
+                    </span>
+                    <span className="tabular-nums text-zinc-200">${c.amountUsd.toFixed(2)}</span>
+                    <Link
+                      href={`/admin/orders/${encodeURIComponent(c.sourceOrder.id)}`}
+                      className="text-sky-300 hover:underline"
+                    >
+                      source order
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-zinc-500">No credit ledger rows for this user.</p>
+            )}
+          </>
+        )}
+      </section>
+
+      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+        <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Get Vaulted Credit</h2>
+        <p className="mt-1 text-[10px] text-zinc-600">
+          Spendable platform store credit (not withdrawable). Grants here are logged with your reason to this
+          user's audit trail below.
+        </p>
+        {creditError ? (
+          <p className="mt-3 rounded-lg border border-rose-400/25 bg-rose-950/30 px-3 py-2 text-rose-100">
+            {creditError}
+          </p>
+        ) : null}
+        {creditMessage ? (
+          <p className="mt-3 rounded-lg border border-emerald-400/25 bg-emerald-950/30 px-3 py-2 text-emerald-100">
+            {creditMessage}
+          </p>
+        ) : null}
+        {platformCreditLoading ? (
+          <p className="mt-3 text-zinc-500">Loading…</p>
+        ) : !platformCredit ? (
+          <p className="mt-3 text-zinc-500">Could not load credit data.</p>
+        ) : (
+          <>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <p className="text-[10px] text-zinc-500">Available</p>
+                <p className="font-semibold text-emerald-300">${platformCredit.availableUsd.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-zinc-500">Pending (in checkout)</p>
+                <p className="font-semibold text-amber-300">${platformCredit.pendingUsd.toFixed(2)}</p>
+                {platformCredit.pendingUsd > 0 ? (
+                  <button
+                    type="button"
+                    disabled={creditBusy}
+                    onClick={() => void releaseStuckCredit()}
+                    className="mt-1 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[10px] font-semibold text-amber-100/90 disabled:opacity-40"
+                    title="If this has been sitting here longer than a checkout normally takes, it's likely stuck from an interrupted attempt — not lost, just not spendable until released."
+                  >
+                    {creditBusy ? "Releasing…" : "Release stuck reservations"}
+                  </button>
+                ) : null}
+              </div>
+              <div>
+                <p className="text-[10px] text-zinc-500">Spent</p>
+                <p className="font-semibold text-zinc-200">${platformCredit.spentUsd.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-zinc-500">Voided</p>
+                <p className="font-semibold text-zinc-200">${platformCredit.voidedUsd.toFixed(2)}</p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-white/[0.06] pt-4">
+              <label className="flex w-28 flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+                Amount (USD)
+                <input
+                  type="number"
+                  min={0.01}
+                  step={0.01}
+                  value={creditAmount}
+                  onChange={(e) => setCreditAmount(e.target.value)}
+                  placeholder="25.00"
+                  className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+                />
+              </label>
+              <label className="flex min-w-[14rem] flex-1 flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+                Reason (required)
+                <input
+                  value={creditReason}
+                  onChange={(e) => setCreditReason(e.target.value)}
+                  placeholder="Goodwill credit for delayed shipment, promo, testing, etc."
+                  className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+                />
+              </label>
+              <button
+                type="button"
+                disabled={creditBusy || !creditAmount.trim() || !creditReason.trim()}
+                onClick={() => void grantCredit()}
+                className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-200 disabled:opacity-40"
+              >
+                {creditBusy ? "Granting…" : "Grant credit"}
+              </button>
+            </div>
+
+            {platformCredit.credits.length > 0 ? (
+              <ul className="mt-4 max-h-48 space-y-1.5 overflow-y-auto border-t border-white/[0.04] pt-3">
+                {platformCredit.credits.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                    <span className="text-zinc-400">
+                      {c.sourceType.replace(/_/g, " ")} · {c.status}
+                      {c.voidReason ? ` (${c.voidReason})` : ""}
+                    </span>
+                    <span className="tabular-nums text-zinc-200">${c.amountUsd.toFixed(2)}</span>
+                    <span className="text-zinc-600">{new Date(c.createdAt).toLocaleString()}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-4 text-zinc-500">No credit ledger rows for this user.</p>
+            )}
+          </>
+        )}
+      </section>
+
+      <section className="mt-6 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Recent activity</h2>
+          <p className="mt-1 text-[10px] text-zinc-600">
+            Last {activity?.lookbackDays ?? 90} days · joins/chats/bids/orders (silent lurkers may not appear)
+          </p>
+          {activityLoading ? (
+            <p className="mt-3 text-zinc-500">Loading…</p>
+          ) : !activity?.items.length ? (
+            <p className="mt-3 text-zinc-500">No recorded product activity in this window.</p>
+          ) : (
+            <ul className="mt-3 max-h-80 space-y-2 overflow-y-auto">
+              {activity.items.map((item) => (
+                <li key={item.id} className="border-b border-white/[0.04] pb-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      {item.href ? (
+                        <Link href={item.href} className="font-semibold text-gold-bright hover:underline">
+                          {item.label}
+                        </Link>
+                      ) : (
+                        <span className="font-semibold text-zinc-200">{item.label}</span>
+                      )}
+                      {item.detail ? <p className="mt-0.5 text-zinc-500">{item.detail}</p> : null}
+                    </div>
+                    <time className="shrink-0 text-[10px] tabular-nums text-zinc-600">
+                      {new Date(item.at).toLocaleString()}
+                    </time>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Possible linked accounts</h2>
+            <Link href="/admin/trust/linked-accounts" className="text-[10px] font-semibold text-gold-bright hover:underline">
+              Platform scan →
+            </Link>
+          </div>
+          <p className="mt-1 text-[10px] text-zinc-600">Shared Stripe / payment / device / email / ship-to signals</p>
+          {linkedLoading ? (
+            <p className="mt-3 text-zinc-500">Loading…</p>
+          ) : !linked?.peers.length ? (
+            <p className="mt-3 text-zinc-500">No linked-account signals found for this user.</p>
+          ) : (
+            <ul className="mt-3 max-h-80 space-y-2 overflow-y-auto">
+              {linked.peers.map((peer) => (
+                <li key={peer.userId} className="border-b border-white/[0.04] pb-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <Link
+                        href={`/admin/users/${encodeURIComponent(peer.userId)}`}
+                        className="font-semibold text-gold-bright hover:underline"
+                      >
+                        @{peer.username}
+                      </Link>
+                      <span className="ml-2 text-zinc-500">{peer.email}</span>
+                      {peer.suspendedAt ? <span className="ml-2 text-rose-300">Suspended</span> : null}
+                      <p className="mt-0.5 text-zinc-500">
+                        {peer.signals.map((s) => s.label).join(" · ")}
+                      </p>
+                    </div>
+                    <span className="shrink-0 tabular-nums text-amber-200">score {peer.score}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+
+      <h2 className="font-display mt-10 text-lg font-black tracking-tight text-zinc-100">Seller risk & payout program</h2>
+
+      <section className="mt-4 grid gap-4 lg:grid-cols-3">
         <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs lg:col-span-1">
           <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Seller level</h2>
           <p className="mt-2 text-lg font-black text-gold-bright">{data.seller.sellerLevelLabel}</p>

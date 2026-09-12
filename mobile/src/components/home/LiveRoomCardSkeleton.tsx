@@ -5,13 +5,19 @@ import { LIVE_ROOM_CARD_GAP, LIVE_ROOM_CARD_SNAP, LIVE_ROOM_CARD_WIDTH } from '.
 
 const IMAGE_ASPECT = 5 / 4;
 const BODY_HEIGHT = 58;
+/** Match LiveNowPreviewCard glow + card padding so skeleton cover height matches. */
+const GLOW_INSET = 1.5 + 1;
 
-function coverHeight(cardWidth: number) {
-  return Math.round(cardWidth * IMAGE_ASPECT);
+function coverWidthForCard(cardWidth: number) {
+  return Math.max(1, Math.round(cardWidth - GLOW_INSET * 2 - spacing.sm * 2));
+}
+
+function coverHeight(coverWidth: number) {
+  return Math.round(coverWidth * IMAGE_ASPECT);
 }
 
 export const LIVE_ROOM_CARD_TOTAL_HEIGHT =
-  24 + spacing.sm + coverHeight(LIVE_ROOM_CARD_WIDTH) + BODY_HEIGHT + spacing.sm * 2;
+  24 + spacing.sm + coverHeight(coverWidthForCard(LIVE_ROOM_CARD_WIDTH)) + BODY_HEIGHT + spacing.sm * 2;
 
 function LiveRoomCardSkeleton({
   index,
@@ -20,7 +26,7 @@ function LiveRoomCardSkeleton({
   index: number;
   width?: number;
 }) {
-  const imageHeight = coverHeight(width);
+  const imageHeight = coverHeight(coverWidthForCard(width));
   return (
     <View style={[styles.card, { width }]}>
       <View style={styles.hostRow}>

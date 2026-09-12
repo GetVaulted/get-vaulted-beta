@@ -29,11 +29,20 @@ describe('liveBuyerSnapshotClock', () => {
     expect(next.biddingOpen).toBe(false);
   });
 
-  it('stops timer immediately on purchase_completed', () => {
+  it('stops timer immediately on purchase_completed but keeps lot until sold out is explicit', () => {
     const next = applyBuyerSnapshotPurchaseCompleted(snap(), 'item-1', Date.now());
     expect(next.lotBidPhase).toBe('settled');
     expect(next.auctionEndsAt).toBeNull();
     expect(next.biddingOpen).toBe(false);
+    expect(next.activeItemId).toBe('item-1');
+  });
+
+  it('clears pinned lot only when itemSoldOut is true', () => {
+    const next = applyBuyerSnapshotPurchaseCompleted(snap(), 'item-1', Date.now(), {
+      itemSoldOut: true,
+    });
+    expect(next.activeItemId).toBeNull();
+    expect(next.lotBidPhase).toBe('settled');
   });
 
   it('keeps lot ready after multi-qty no-bid round', () => {
@@ -44,5 +53,19 @@ describe('liveBuyerSnapshotClock', () => {
     expect(next.lotBidPhase).toBe('not_started');
     expect(next.activeItemId).toBe('item-1');
     expect(next.currentBidUsd).toBeNull();
+  });
+
+  // Regression: a no-bid round must not advance the lot's unit number on the buyer's screen.
+  // The realtime merge only resets bid state — it must leave `activeItemTitle` (e.g. "Break 1 #15")
+  // exactly as the server last sent it, so the buyer keeps seeing #15 until the unit actually sells.
+  it('keeps the lot unit number (#15) unchanged through a no-bid round', () => {
+    const next = applyBuyerSnapshotPurchaseCompleted(
+      snap({ activeItemTitle: 'Break 1 #15' }),
+      'item-1',
+      Date.now(),
+      { noBids: true, itemSoldOut: false },
+    );
+    expect(next.activeItemTitle).toBe('Break 1 #15');
+    expect(next.activeItemId).toBe('item-1');
   });
 });

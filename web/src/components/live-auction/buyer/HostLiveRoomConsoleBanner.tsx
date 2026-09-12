@@ -5,15 +5,12 @@ import Link from "next/link";
 /** Shown when the seller views `/live/[id]` — queue management stays in seller console, not buyer UI. */
 export function HostLiveRoomConsoleBanner({
   liveRoomId,
-  roomType,
 }: {
   liveRoomId: string;
-  roomType: "auction" | "sale" | "break";
+  /** Retained for call-site compatibility; every room type now hosts from the seller console. */
+  roomType?: "auction" | "sale" | "break";
 }) {
-  const consoleHref =
-    roomType === "break"
-      ? `/seller/live/${encodeURIComponent(liveRoomId)}/console`
-      : "/seller/live";
+  const consoleHref = `/seller/live/${encodeURIComponent(liveRoomId)}/console`;
 
   return (
     <div className="rounded-xl border border-gold/30 bg-gold/10 px-3 py-2.5">

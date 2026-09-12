@@ -24,6 +24,7 @@ export const ADMIN_EXPORT_REPORT_IDS = [
   "seller-risk",
   "refund-requests",
   "live-shows",
+  "giveaway-entrants",
 ] as const;
 
 export type AdminExportReportId = (typeof ADMIN_EXPORT_REPORT_IDS)[number];
@@ -40,6 +41,7 @@ export type AdminExportParams = {
   pending?: string;
   from?: string;
   to?: string;
+  campaignId?: string;
 };
 
 function centsToUsd(cents: number): string {
@@ -53,7 +55,7 @@ function parseDateParam(raw: string | undefined): Date | undefined {
 }
 
 function reconciliationRange(raw: string | undefined): ReconciliationRangeKey {
-  if (raw === "7d" || raw === "30d" || raw === "90d" || raw === "all") return raw;
+  if (raw === "24h" || raw === "7d" || raw === "30d" || raw === "90d" || raw === "all") return raw;
   return "30d";
 }
 
@@ -87,13 +89,15 @@ export async function buildAdminExportPayload(
     case "tax-nexus":
       return buildTaxNexusExport();
     case "orders":
-      return buildOrdersExport(params.status);
+      return buildOrdersExport(params.status, parseDateParam(params.from), parseDateParam(params.to));
     case "seller-risk":
       return buildSellerRiskExport(params.tier, params.pending === "1");
     case "refund-requests":
       return buildRefundRequestsExport();
     case "live-shows":
       return buildLiveShowsExport(params.status);
+    case "giveaway-entrants":
+      return buildGiveawayEntrantsExport(params.campaignId);
     default: {
       const _exhaustive: never = report;
       throw new Error(`Unsupported export report: ${_exhaustive}`);
@@ -251,10 +255,34 @@ async function buildTaxNexusExport(): Promise<CsvExportPayload> {
   };
 }
 
-async function buildOrdersExport(statusRaw: string | undefined): Promise<CsvExportPayload> {
+/**
+ * One Order per row, with the actual Stripe identifiers/amounts needed to match each row against
+ * a Stripe activity export line-by-line — not just GV's own summary. Filters by `paidAt` (falling
+ * back to `createdAt` only for rows not yet backfilled, matching prismaSaleAtFilter/
+ * admin-reconciliation.ts) rather than `createdAt`, so the same window used for the 30-day
+ * reconciliation report is the same window exported here.
+ */
+async function buildOrdersExport(
+  statusRaw: string | undefined,
+  from?: Date,
+  to?: Date,
+): Promise<CsvExportPayload> {
   const status = (statusRaw ?? "all").trim();
   const where: Prisma.OrderWhereInput = {};
   if (status !== "all" && status.length > 0) where.status = status;
+  if (from || to) {
+    const paidAt: { gte?: Date; lt?: Date } = {};
+    const createdAt: { gte?: Date; lt?: Date } = {};
+    if (from) {
+      paidAt.gte = from;
+      createdAt.gte = from;
+    }
+    if (to) {
+      paidAt.lt = to;
+      createdAt.lt = to;
+    }
+    where.OR = [{ paidAt }, { AND: [{ paidAt: null }, { createdAt }] }];
+  }
 
   const rows = await prisma.order.findMany({
     where,
@@ -272,6 +300,8 @@ async function buildOrdersExport(statusRaw: string | undefined): Promise<CsvExpo
     headers: [
       "orderId",
       "createdAt",
+      "paidAt",
+      "paidAtSource",
       "status",
       "paymentStatus",
       "fulfillmentStatus",
@@ -284,6 +314,12 @@ async function buildOrdersExport(statusRaw: string | undefined): Promise<CsvExpo
       "shipState",
       "shipCountry",
       "taxJurisdictionState",
+      "stripePaymentIntentId",
+      "stripeChargeId",
+      "stripeBalanceTransactionId",
+      "stripeProcessingFeeCents",
+      "stripeTransferId",
+      "stripeNetCents",
       "listingId",
       "listingTitle",
       "isCompanyListing",
@@ -297,6 +333,10 @@ async function buildOrdersExport(statusRaw: string | undefined): Promise<CsvExpo
     rows: rows.map((o) => [
       o.id,
       o.createdAt.toISOString(),
+      o.paidAt?.toISOString() ?? "",
+      // Never blank this out or infer it — null means genuinely undetermined (see the schema
+      // comment on Order.paidAtSource), not "assume Stripe-verified".
+      o.paidAtSource ?? "",
       o.status,
       o.paymentStatus,
       o.fulfillmentStatus,
@@ -309,6 +349,12 @@ async function buildOrdersExport(statusRaw: string | undefined): Promise<CsvExpo
       o.shipState,
       o.shipCountry,
       o.taxJurisdictionState ?? "",
+      o.stripePaymentIntentId ?? "",
+      o.stripeChargeId ?? "",
+      o.stripeBalanceTransactionId ?? "",
+      o.stripeProcessingFeeCents ?? "",
+      o.stripeTransferId ?? "",
+      o.stripeNetCents ?? "",
       o.listingId,
       o.listing.title,
       o.listing.isCompanyListing,
@@ -536,6 +582,46 @@ async function buildLiveShowsExport(statusRaw: string | undefined): Promise<CsvE
       r.endedAt?.toISOString() ?? "",
       r.lastIvsError ?? "",
     ]),
+  };
+}
+
+async function buildGiveawayEntrantsExport(campaignId: string | undefined): Promise<CsvExportPayload> {
+  if (!campaignId?.trim()) {
+    throw new Error("campaignId required for giveaway-entrants export");
+  }
+  const id = campaignId.trim();
+  const campaign = await prisma.giveawayCampaign.findUnique({
+    where: { id },
+    select: { slug: true, title: true },
+  });
+  const grouped = await prisma.giveawayEntryLedger.groupBy({
+    by: ["userId"],
+    where: { campaignId: id },
+    _sum: { quantity: true },
+  });
+  const users = await prisma.user.findMany({
+    where: { id: { in: grouped.map((g) => g.userId) } },
+    select: { id: true, username: true, email: true, emailVerified: true, createdAt: true },
+  });
+  const byId = new Map(users.map((u) => [u.id, u]));
+  const rows = grouped
+    .map((g) => {
+      const u = byId.get(g.userId);
+      return [
+        g.userId,
+        u?.username ?? "",
+        u?.email ?? "",
+        u?.emailVerified?.toISOString() ?? "",
+        u?.createdAt.toISOString() ?? "",
+        String(g._sum.quantity ?? 0),
+      ];
+    })
+    .sort((a, b) => Number(b[5]) - Number(a[5]));
+
+  return {
+    filename: `giveaway-entrants-${campaign?.slug ?? id}`,
+    headers: ["userId", "username", "email", "emailVerified", "accountCreatedAt", "totalEntries"],
+    rows,
   };
 }
 

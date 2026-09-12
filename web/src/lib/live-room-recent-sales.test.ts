@@ -5,10 +5,10 @@ import {
 } from "./live-room-recent-sales";
 
 describe("includeHostRecentSaleRow", () => {
-  it("includes paid and failed rows only", () => {
+  it("includes paid, failed, and processing rows", () => {
     expect(includeHostRecentSaleRow({ paymentTone: "paid" })).toBe(true);
     expect(includeHostRecentSaleRow({ paymentTone: "retry" })).toBe(true);
-    expect(includeHostRecentSaleRow({ paymentTone: "pending" })).toBe(false);
+    expect(includeHostRecentSaleRow({ paymentTone: "pending" })).toBe(true);
   });
 });
 

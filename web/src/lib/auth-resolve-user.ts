@@ -5,6 +5,7 @@ const userSelect = {
   id: true,
   email: true,
   username: true,
+  image: true,
   role: true,
   suspendedAt: true,
   accountDeletedAt: true,
@@ -16,6 +17,7 @@ export type AuthResolvedUser = {
   id: string;
   email: string;
   username: string;
+  image: string | null;
   role: "user" | "admin";
   suspendedAt: Date | null;
   emailVerified: Date | null;
@@ -68,6 +70,7 @@ export async function resolveAuthUserForToken(args: {
       id: row.id,
       email: row.email,
       username: row.username,
+      image: row.image?.trim() || null,
       role,
       suspendedAt: row.suspendedAt,
       emailVerified: row.emailVerified,

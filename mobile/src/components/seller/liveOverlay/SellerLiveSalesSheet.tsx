@@ -11,12 +11,26 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { HostPaymentFailureRow, HostRecentSaleRow } from '../../../api/liveHostRepository';
+import type {
+  HostPaymentFailureRow,
+  HostRecentSaleRow,
+  HostSellerShowSummary,
+} from '../../../api/liveHostRepository';
+import { createOffPlatformPlatformFeeCheckout } from '../../../api/liveRoomControlRepository';
 import { cancelHostPaymentFailure } from '../../../api/livePaymentFailureRepository';
+import { openStripeCheckoutSession } from '../../../lib/openStripeCheckoutSession';
 import { colors, radii, spacing } from '../../../theme';
 
 function fmtUsd(n: number) {
   return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function fmtFeePercent(pct: number) {
+  return `${pct.toFixed(2).replace(/\.00$/, '')}%`;
+}
+
+function centsToUsd(cents: number) {
+  return Math.round(cents) / 100;
 }
 
 function kindLabel(kind: HostRecentSaleRow['kind'], statusLabel?: string) {
@@ -42,6 +56,7 @@ type Props = {
   accessToken: string;
   roomId: string;
   recentSales: HostRecentSaleRow[];
+  sellerSummary?: HostSellerShowSummary | null;
   paymentFailures: HostPaymentFailureRow[];
   onRefresh: () => Promise<void>;
   onToast?: (msg: string) => void;
@@ -53,6 +68,7 @@ export function SellerLiveSalesSheet({
   accessToken,
   roomId,
   recentSales,
+  sellerSummary,
   paymentFailures,
   onRefresh,
   onToast,
@@ -60,11 +76,41 @@ export function SellerLiveSalesSheet({
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
   const [cancelBusyId, setCancelBusyId] = useState<string | null>(null);
+  const [feeBusyId, setFeeBusyId] = useState<string | null>(null);
 
   const needsAttention = useMemo(
     () =>
-      paymentFailures.length + recentSales.filter((r) => r.paymentTone === 'retry').length,
+      paymentFailures.length +
+      recentSales.filter((r) => r.paymentTone === 'retry' || (r.platformFeeDueUsd ?? 0) > 0).length,
     [paymentFailures.length, recentSales],
+  );
+
+  const onPayPlatformFee = useCallback(
+    async (row: HostRecentSaleRow) => {
+      const purchaseId = row.purchaseId?.trim();
+      if (!purchaseId || feeBusyId) return;
+      setFeeBusyId(row.id);
+      try {
+        const checkout = await createOffPlatformPlatformFeeCheckout({
+          accessToken,
+          roomId,
+          purchaseId,
+        });
+        if (checkout.alreadyPaid) {
+          onToast?.('Platform fee already paid');
+          await onRefresh();
+          return;
+        }
+        if (!checkout.url) throw new Error('Could not start fee checkout.');
+        await openStripeCheckoutSession(checkout.url);
+        await onRefresh();
+      } catch (e) {
+        onToast?.(e instanceof Error ? e.message : 'Could not open fee payment.');
+      } finally {
+        setFeeBusyId(null);
+      }
+    },
+    [accessToken, feeBusyId, onRefresh, onToast, roomId],
   );
 
   const onPullRefresh = useCallback(async () => {
@@ -163,6 +209,39 @@ export function SellerLiveSalesSheet({
             ) : null}
 
             <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Show sales</Text>
+              <Text style={styles.showSalesAmount}>
+                {fmtUsd(centsToUsd(sellerSummary?.grossShowSalesCents ?? 0))}
+              </Text>
+              <Text style={styles.sectionHint}>
+                {sellerSummary && sellerSummary.paidOrderCount > 0
+                  ? `${sellerSummary.paidOrderCount} paid sale${sellerSummary.paidOrderCount === 1 ? '' : 's'} · includes shipping & tax`
+                  : 'Total paid sales during this show (incl. shipping & tax)'}
+              </Text>
+            </View>
+
+            {sellerSummary ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Current platform fee tier</Text>
+                <Text style={styles.feeTierPercent}>{fmtFeePercent(sellerSummary.currentFeeRatePercent)}</Text>
+                <Text style={styles.sectionHint}>
+                  Next sale fee: {fmtFeePercent(sellerSummary.currentFeeRatePercent)}
+                  {sellerSummary.amountUntilNextTierCents != null && sellerSummary.nextTierFeePercent != null
+                    ? ` · ${fmtUsd(centsToUsd(sellerSummary.amountUntilNextTierCents))} until ${fmtFeePercent(sellerSummary.nextTierFeePercent)}`
+                    : ' · top tier unlocked'}
+                </Text>
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: `${Math.min(100, Math.max(0, sellerSummary.tierProgressPercent))}%` },
+                    ]}
+                  />
+                </View>
+              </View>
+            ) : null}
+
+            <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Recent sales</Text>
                 <Text style={styles.sectionMeta}>{recentSales.length ? `${recentSales.length} shown` : ''}</Text>
@@ -172,6 +251,7 @@ export function SellerLiveSalesSheet({
               ) : (
                 recentSales.map((r) => {
                   const badge = toneStyle(r.paymentTone);
+                  const feeDue = (r.platformFeeDueUsd ?? 0) > 0;
                   return (
                     <View key={r.id} style={styles.saleRow}>
                       <View style={styles.saleBody}>
@@ -185,6 +265,21 @@ export function SellerLiveSalesSheet({
                           </Text>
                         ) : null}
                         <Text style={styles.saleAmount}>{fmtUsd(r.amountUsd)}</Text>
+                        {feeDue ? (
+                          <Pressable
+                            style={[styles.feePayBtn, feeBusyId === r.id && styles.feePayBtnBusy]}
+                            disabled={feeBusyId === r.id}
+                            onPress={() => void onPayPlatformFee(r)}
+                          >
+                            {feeBusyId === r.id ? (
+                              <ActivityIndicator color="#111" size="small" />
+                            ) : (
+                              <Text style={styles.feePayBtnTxt}>
+                                Pay fee {fmtUsd(r.platformFeeDueUsd!)}
+                              </Text>
+                            )}
+                          </Pressable>
+                        ) : null}
                       </View>
                       <View style={[styles.badge, badge.wrap]}>
                         <Text style={[styles.badgeTxt, badge.text]}>{r.statusLabel}</Text>
@@ -277,6 +372,29 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
+  showSalesAmount: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#ecfdf5',
+    fontVariant: ['tabular-nums'],
+  },
+  feeTierPercent: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#fef3c7',
+    fontVariant: ['tabular-nums'],
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: 'rgba(251,191,36,0.85)',
+  },
   sectionHint: {
     fontSize: 12,
     color: 'rgba(255,255,255,0.55)',
@@ -354,6 +472,22 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.78)',
     marginTop: 4,
     fontVariant: ['tabular-nums'],
+  },
+  feePayBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    borderRadius: radii.sm,
+    backgroundColor: colors.gold,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    minWidth: 110,
+    alignItems: 'center',
+  },
+  feePayBtnBusy: { opacity: 0.7 },
+  feePayBtnTxt: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#111',
   },
   badge: {
     borderRadius: radii.sm,

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  browserCanLoadHlsJsBundle,
+  liveStageObjectFitForStreamMode,
+  liveStageObjectFitForPlayback,
   parseBuyerSafeStreamPayload,
   preferHlsOverWebrtcOnClient,
   preferNativeHlsElementPlayback,
@@ -8,6 +11,18 @@ import {
 } from "@/lib/live-stream-playback";
 
 describe("live-stream-playback", () => {
+  it("liveStageObjectFitForStreamMode letterboxes OBS/HLS and fills phone Stage", () => {
+    expect(liveStageObjectFitForStreamMode("channel_hls")).toBe("contain");
+    expect(liveStageObjectFitForStreamMode("stage_webrtc")).toBe("cover");
+    expect(liveStageObjectFitForStreamMode(null)).toBe("cover");
+  });
+
+  it("liveStageObjectFitForPlayback letterboxes Stage→HLS mirrors", () => {
+    expect(liveStageObjectFitForPlayback({ streamMode: "stage_webrtc", transport: "hls" })).toBe("contain");
+    expect(liveStageObjectFitForPlayback({ streamMode: "stage_webrtc", transport: "webrtc" })).toBe("cover");
+    expect(liveStageObjectFitForPlayback({ streamMode: "channel_hls", transport: "hls" })).toBe("contain");
+  });
+
   it("parseBuyerSafeStreamPayload reads only nested stream fields", () => {
     const parsed = parseBuyerSafeStreamPayload({
       stream: {
@@ -62,6 +77,13 @@ describe("live-stream-playback", () => {
       userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile",
     });
     expect(preferNativeHlsElementPlayback()).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it("browserCanLoadHlsJsBundle is false without window and true when optional chaining parses", () => {
+    expect(browserCanLoadHlsJsBundle()).toBe(false);
+    vi.stubGlobal("window", {});
+    expect(browserCanLoadHlsJsBundle()).toBe(true);
     vi.unstubAllGlobals();
   });
 

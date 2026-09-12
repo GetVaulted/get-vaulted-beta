@@ -59,9 +59,15 @@ export function sellerConsoleToolbarScale(layoutWidth: number): number {
   return Math.max(1.28, liveRoomHudScale(layoutWidth));
 }
 
+/**
+ * Light phone typography/control bump for live overlays (chat, composer, rails).
+ * Kept modest so HUD density stays usable; iPad still uses the larger HUD scale.
+ */
+export const LIVE_ROOM_PHONE_OVERLAY_SCALE = 1.1;
+
 /** Alias — chat/composer overlays use the same scale as the commerce HUD. */
 export function liveRoomOverlayScale(layoutWidth: number): number {
-  return isIpadLiveRoomLayout(layoutWidth) ? liveRoomHudScale(layoutWidth) : 1;
+  return isIpadLiveRoomLayout(layoutWidth) ? liveRoomHudScale(layoutWidth) : LIVE_ROOM_PHONE_OVERLAY_SCALE;
 }
 
 export function computeLiveRoomUiMetrics(

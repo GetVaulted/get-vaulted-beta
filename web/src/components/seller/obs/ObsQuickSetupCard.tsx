@@ -67,6 +67,7 @@ export function ObsQuickSetupCard({
         ) : setup.connectionState !== "live" ? (
           <p className="flex min-h-10 items-center text-xs text-zinc-400">
             Paste credentials below, then click <span className="mx-1 font-semibold text-zinc-200">Start Streaming</span> in OBS.
+            Do not tap Go Live on the phone for an OBS show — Start Show here, then stream from OBS.
           </p>
         ) : (
           <p className="flex min-h-10 items-center text-xs font-semibold text-emerald-200">OBS signal detected — you are ready to sell.</p>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import {
   conversationKindLabel,
+  healRequestThreadsAcceptedByReply,
   offerStatusChip,
   orderStatusChip,
   resolveThreadContext,
@@ -15,6 +16,10 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const inbox = url.searchParams.get("inbox") === "request" ? "request" : "primary";
+
+  // Move answered request threads into Inbox before listing so the folder switch is visible
+  // on refresh (not only after opening an individual chat).
+  await healRequestThreadsAcceptedByReply(uid);
 
   const threads = await prisma.messageThread.findMany({
     where: {
@@ -38,7 +43,7 @@ export async function GET(req: Request) {
       messages: {
         orderBy: { createdAt: "desc" },
         take: 1,
-        select: { body: true, createdAt: true, kind: true, systemEvent: true },
+        select: { body: true, imageUrl: true, createdAt: true, kind: true, systemEvent: true },
       },
     },
   });
@@ -99,10 +104,11 @@ export async function GET(req: Request) {
         offerId: t.offerId,
         orderId: t.orderId,
         liveRoomId: t.liveRoomId,
+        tradeOfferId: ctx.tradeOfferId ?? null,
         otherUserId: other.id,
         otherUsername: other.username,
         otherAvatarUrl: other.image,
-        lastPreview: last?.body ?? "",
+        lastPreview: last?.body || (last?.imageUrl ? "📷 Photo" : ""),
         lastAt: last ? last.createdAt.toISOString() : t.updatedAt.toISOString(),
         lastKind: last?.kind ?? "user",
         unreadCount: unreadMap.get(t.id) ?? 0,

@@ -8,8 +8,11 @@ import { parseLiveItemSalesFormat } from "@/lib/live-item-variant-serialize";
 import type { LiveItemVariantAssignmentMode } from "@/generated/prisma/client";
 import { validateLiveRoomItemThumbnail } from "@/lib/listing-photo-requirements";
 import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
+import { resolveListingBackedQueueFields } from "@/lib/live-room-shop-inventory";
+import { ensureLiveBuyNowItemCheckoutListingTx } from "@/lib/live-buy-now-checkout-listing";
 import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
 import { resolveDefaultSellerProfileForLiveShow } from "@/services/shipping/seller-shipping-profiles";
+import { normalizeCustomRandomPoolLabels } from "../../../../../../../shared/live-player-spot-list";
 
 type PostBody = {
   title?: string;
@@ -21,6 +24,9 @@ type PostBody = {
   reservePriceUsd?: number | null;
   sortOrder?: number;
   teamBoardMisc?: boolean;
+  teamBoardNcaa?: boolean;
+  /** Custom player names for random player_selection reveal pool. */
+  customRandomPoolLabels?: string[] | null;
   /** Units on this single queue row (one tile). Max 512. */
   quantity?: number | string;
   salesFormat?: string;
@@ -62,34 +68,103 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const title = typeof body.title === "string" ? body.title.trim() : "";
-  if (!title) return NextResponse.json({ error: "Title is required." }, { status: 400 });
   const quantity = parseQuantity(body.quantity);
-
   const listingId = typeof body.listingId === "string" && body.listingId.trim() ? body.listingId.trim() : null;
-  if (listingId && !isAdmin) {
+
+  let title = typeof body.title === "string" ? body.title.trim() : "";
+  let imageUrl = typeof body.imageUrl === "string" ? body.imageUrl.trim().slice(0, 2000) : "";
+  let priceUsd = typeof body.priceUsd === "number" && Number.isFinite(body.priceUsd) ? body.priceUsd : null;
+  let startingBidUsd =
+    typeof body.startingBidUsd === "number" && Number.isFinite(body.startingBidUsd) ? body.startingBidUsd : null;
+  let salesFormatBody = typeof body.salesFormat === "string" ? body.salesFormat : undefined;
+  let listingPreferredShippingProfileId: string | null = null;
+
+  if (listingId) {
+    const listingOwnerId = isAdmin ? room.sellerId : userId;
     const listing = await prisma.listing.findFirst({
-      where: { id: listingId, sellerId: userId },
+      where: { id: listingId, sellerId: listingOwnerId },
+      select: {
+        id: true,
+        sellerId: true,
+        title: true,
+        description: true,
+        buyingFormat: true,
+        status: true,
+        priceUsd: true,
+        startingBidUsd: true,
+        workspaceKey: true,
+        moderationRemovedAt: true,
+        platformShippingProfileId: true,
+        images: { select: { url: true, sortOrder: true }, orderBy: { sortOrder: "asc" } },
+      },
+    });
+    if (!listing) {
+      return NextResponse.json(
+        { error: isAdmin ? "Listing not found for this room's seller." : "Listing not found for this seller." },
+        { status: 400 },
+      );
+    }
+
+    const alreadyQueued = await prisma.liveRoomItem.findFirst({
+      where: {
+        liveRoomId,
+        listingId,
+        status: { in: ["queued", "active"] },
+      },
       select: { id: true },
     });
-    if (!listing) return NextResponse.json({ error: "Listing not found for this seller." }, { status: 400 });
-  }
-  if (listingId && isAdmin) {
-    const listing = await prisma.listing.findFirst({
-      where: { id: listingId, sellerId: room.sellerId },
+    if (alreadyQueued) {
+      return NextResponse.json(
+        { error: "That listing is already in this show's lineup." },
+        { status: 409 },
+      );
+    }
+
+    const now = new Date();
+    const activeHold = await prisma.liveAuctionInventoryHold.findFirst({
+      where: {
+        listingId,
+        status: "active",
+        expiresAt: { gt: now },
+      },
       select: { id: true },
     });
-    if (!listing) return NextResponse.json({ error: "Listing not found for this room's seller." }, { status: 400 });
+    if (activeHold) {
+      return NextResponse.json(
+        { error: "That listing is reserved in checkout and cannot be added right now." },
+        { status: 409 },
+      );
+    }
+
+    const resolved = resolveListingBackedQueueFields({
+      listing,
+      title: title || undefined,
+      imageUrl: imageUrl || undefined,
+      priceUsd,
+      startingBidUsd,
+      salesFormat: salesFormatBody,
+      shippingProfileId:
+        typeof body.shippingProfileId === "string" && body.shippingProfileId.trim()
+          ? body.shippingProfileId.trim()
+          : null,
+    });
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: 400 });
+    }
+    title = resolved.fields.title;
+    imageUrl = resolved.fields.imageUrl;
+    priceUsd = resolved.fields.priceUsd;
+    startingBidUsd = resolved.fields.startingBidUsd;
+    salesFormatBody = resolved.fields.salesFormat;
+    listingPreferredShippingProfileId = resolved.fields.shippingProfileId;
   }
 
-  const imageUrl = typeof body.imageUrl === "string" ? body.imageUrl.trim().slice(0, 2000) : "";
+  if (!title) return NextResponse.json({ error: "Title is required." }, { status: 400 });
+
   const thumbValidation = validateLiveRoomItemThumbnail(imageUrl);
   if (!thumbValidation.ok) {
     return NextResponse.json({ error: thumbValidation.error }, { status: 400 });
   }
-  const priceUsd = typeof body.priceUsd === "number" && Number.isFinite(body.priceUsd) ? body.priceUsd : null;
-  const startingBidUsd =
-    typeof body.startingBidUsd === "number" && Number.isFinite(body.startingBidUsd) ? body.startingBidUsd : null;
   /** Bid increments are system-controlled; hosts cannot set them on create. */
   const bidIncrementUsd = null;
   const reservePriceUsd =
@@ -114,8 +189,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const teamBoardMisc =
     body.teamBoardMisc === true && room.roomType === "break" && room.teamBoardLeague === "nfl";
+  const teamBoardNcaa =
+    body.teamBoardNcaa === true && room.roomType === "break" && room.teamBoardLeague === "nfl";
 
-  const salesFormat = parseLiveItemSalesFormat(body.salesFormat);
+  const salesFormat = parseLiveItemSalesFormat(salesFormatBody);
   const variantAssignmentMode: LiveItemVariantAssignmentMode =
     body.variantAssignmentMode === "random" && isVariantSalesFormat(salesFormat) ? "random" : "pick";
   const variantDrafts = isVariantSalesFormat(salesFormat) ? normalizeVariantDrafts(body.variants) : [];
@@ -123,10 +200,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: "Add at least one selectable option for variant items." }, { status: 400 });
   }
 
+  const customRandomPoolLabels =
+    salesFormat === "player_selection" && variantAssignmentMode === "random"
+      ? normalizeCustomRandomPoolLabels(body.customRandomPoolLabels)
+      : null;
+  if (salesFormat === "player_selection" && variantAssignmentMode === "random" && !customRandomPoolLabels) {
+    return NextResponse.json(
+      { error: "Add at least 2 player names for a random player break." },
+      { status: 400 },
+    );
+  }
+
   const explicitProfileId =
     typeof body.shippingProfileId === "string" && body.shippingProfileId.trim()
       ? body.shippingProfileId.trim()
-      : null;
+      : listingPreferredShippingProfileId;
   const inheritedProfile = await resolveDefaultProfileForLiveShow({
     showDefaultProfileId: room.defaultShippingProfileId,
     category: room.category,
@@ -158,6 +246,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const inheritedSellerProfile = await resolveDefaultSellerProfileForLiveShow({
       sellerId: room.sellerId,
       showDefaultSellerProfileId: room.defaultSellerShippingProfileId,
+      category: room.category,
       db: prisma,
     });
     sellerShippingProfileId = inheritedSellerProfile?.id ?? null;
@@ -176,8 +265,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     status: "queued" as const,
     sortOrder,
     teamBoardMisc,
-    quantity: isVariantSalesFormat(salesFormat) ? 1 : quantity,
-    quantityInitial: isVariantSalesFormat(salesFormat) ? 1 : quantity,
+    teamBoardNcaa,
+    customRandomPoolLabels: customRandomPoolLabels ?? undefined,
+    quantity: isVariantSalesFormat(salesFormat)
+      ? Math.max(1, variantDrafts.reduce((sum, v) => sum + Math.max(1, Math.floor(v.quantityInitial ?? 1)), 0))
+      : quantity,
+    quantityInitial: isVariantSalesFormat(salesFormat)
+      ? Math.max(1, variantDrafts.reduce((sum, v) => sum + Math.max(1, Math.floor(v.quantityInitial ?? 1)), 0))
+      : quantity,
     salesFormat,
     variantAssignmentMode,
     variantSpotCommerceDefault: isVariantSalesFormat(salesFormat) ? ("hybrid" as const) : undefined,
@@ -232,6 +327,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
             sortOrder: v.sortOrder ?? i,
           })),
         });
+      }
+      // Host "New lot → Buy Now" without From my shop still needs a checkout listing.
+      if (salesFormat === "buy_now" && !listingId) {
+        const ensured = await ensureLiveBuyNowItemCheckoutListingTx(tx, {
+          liveRoomId,
+          liveRoomItemId: created.id,
+        });
+        if (!ensured.ok) {
+          throw Object.assign(new Error(ensured.error), { code: ensured.code });
+        }
       }
       return created;
     });

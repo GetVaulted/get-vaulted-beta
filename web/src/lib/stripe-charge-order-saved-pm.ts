@@ -2,17 +2,32 @@ import Stripe from "stripe";
 import { OrderPaymentMethod } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
-import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
+import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId, getBuyerPreferredWalletPaymentMethodId } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
+import {
+  chargeOrderWithPayPalRailWallet,
+  isPayPalRailWalletPaymentMethodId,
+  stampOrderPaidViaPayPalRail,
+} from "@/lib/paypal-buyer-rail";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { stripeOffSessionPaymentIntentOptions } from "@/lib/stripe-payment-method-config";
 import { orderTaxUpdateData } from "@/lib/sales-tax-order";
 import {
-  connectPaymentIntentTransferData,
+  connectOrPlatformHeldPaymentIntentTransferData,
   resolveConnectPaymentTaxPlan,
 } from "@/lib/sales-tax-charge";
 import { resolveCheckoutApplicationFeeCents, resolveLiveRoomIdForOrder } from "@/lib/live-show-gmv";
-import { finalizeLiveBuyNowPurchaseComplete } from "@/lib/live-buy-now-purchase";
+import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
+import {
+  liveSavedCardSellerReady,
+  resolveLiveSellerDestinationAccount,
+  resolveLiveSellerPayoutProcessor,
+  sellerStripeCollectSelect,
+} from "@/lib/seller-stripe-collect-ready";
+import {
+  finalizeLiveBuyNowPurchaseComplete,
+  refreshBuyerShippingOnOrderIfIncomplete,
+} from "@/lib/live-buy-now-purchase";
 import { syncOrderShippingFromLiveSessionTx } from "@/services/shipping/live-commerce-shipping-settlement";
 import {
   finalizeStripeMarketplaceOrderPaid,
@@ -25,39 +40,97 @@ import {
   PAYMENT_REQUIRES_ACTION,
 } from "@/services/payments";
 import { releaseReferralCreditReservation, reserveReferralCreditForCheckout } from "@/lib/referral-credit";
+import {
+  releasePlatformCreditReservation,
+  reservePlatformCreditForCheckout,
+} from "@/lib/giveaway/platform-credit";
+import { orderItemSaleBasisUsd, referralCreditAppliedCents } from "@/lib/referral-credit-payout";
 
-/** Stripe's minimum chargeable amount — never let a referral-credit discount push a charge below this. */
+/** Stripe's minimum chargeable amount — never let store-credit discounts push a charge below this. */
 const MIN_STRIPE_CHARGE_USD = 0.5;
 
 /**
- * Applies (or re-applies) a referral credit discount to a saved-card order charge, right before the
- * PaymentIntent amount is computed. Guards against double-reserving: if this order already has
- * `referralCreditAppliedUsd` set — from a prior saved-card charge attempt, OR from the same order's
- * Stripe-Checkout-session flow (`createPayOrderCheckoutSession`) having already reserved credit for
- * it — the previously-discounted `itemPriceUsd` already on the row is reused as-is.
+ * Applies (or re-applies) referral + platform store credit to a saved-card order charge.
+ * Guards against double-reserving when credit fields are already set on the order.
  */
-async function applyReferralCreditForSavedCardOrder(
+export async function applyStoreCreditsForSavedCardOrder(
   orderId: string,
   buyerId: string,
   itemPriceUsd: number,
   referralCreditAppliedUsd: number,
-): Promise<{ itemPriceUsd: number }> {
-  if (referralCreditAppliedUsd > 0) return { itemPriceUsd };
+  platformCreditAppliedUsd: number,
+  applyStoreCredit: boolean,
+): Promise<{
+  itemPriceUsd: number;
+  referralCreditAppliedUsd: number;
+  platformCreditAppliedUsd: number;
+}> {
+  if (!applyStoreCredit) {
+    const restore =
+      (referralCreditAppliedUsd > 0 ? referralCreditAppliedUsd : 0) +
+      (platformCreditAppliedUsd > 0 ? platformCreditAppliedUsd : 0);
+    if (restore > 0) {
+      const restored = itemPriceUsd + restore;
+      if (referralCreditAppliedUsd > 0) await releaseReferralCreditReservation(orderId);
+      if (platformCreditAppliedUsd > 0) await releasePlatformCreditReservation(orderId);
+      await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          itemPriceUsd: restored,
+          referralCreditAppliedUsd: 0,
+          platformCreditAppliedUsd: 0,
+        },
+      });
+      return { itemPriceUsd: restored, referralCreditAppliedUsd: 0, platformCreditAppliedUsd: 0 };
+    }
+    return { itemPriceUsd, referralCreditAppliedUsd: 0, platformCreditAppliedUsd: 0 };
+  }
+
+  if (referralCreditAppliedUsd > 0 || platformCreditAppliedUsd > 0) {
+    return { itemPriceUsd, referralCreditAppliedUsd, platformCreditAppliedUsd };
+  }
+
+  let nextItem = itemPriceUsd;
+  let referralApplied = 0;
+  let platformApplied = 0;
+
   try {
-    const maxApplyUsd = Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD);
-    if (maxApplyUsd <= 0) return { itemPriceUsd };
-    const reserved = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, orderId);
-    if (reserved <= 0) return { itemPriceUsd };
-    const discountedItemPriceUsd = itemPriceUsd - reserved;
-    await prisma.order.update({
-      where: { id: orderId },
-      data: { itemPriceUsd: discountedItemPriceUsd, referralCreditAppliedUsd: reserved },
-    });
-    return { itemPriceUsd: discountedItemPriceUsd };
+    const maxApplyUsd = Math.max(0, nextItem - MIN_STRIPE_CHARGE_USD);
+    if (maxApplyUsd >= 0.01) {
+      referralApplied = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, orderId);
+      if (referralApplied > 0) nextItem -= referralApplied;
+    }
   } catch (e) {
     console.error("[referral-credit] reserve failed (saved-card checkout)", { orderId, error: e });
-    return { itemPriceUsd };
   }
+
+  try {
+    const maxApplyUsd = Math.max(0, nextItem - MIN_STRIPE_CHARGE_USD);
+    if (maxApplyUsd >= 0.01) {
+      platformApplied = await reservePlatformCreditForCheckout(buyerId, maxApplyUsd, orderId);
+      if (platformApplied > 0) nextItem -= platformApplied;
+    }
+  } catch (e) {
+    console.error("[platform-credit] reserve failed (saved-card checkout)", { orderId, error: e });
+  }
+
+  if (referralApplied <= 0 && platformApplied <= 0) {
+    return { itemPriceUsd, referralCreditAppliedUsd: 0, platformCreditAppliedUsd: 0 };
+  }
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      itemPriceUsd: nextItem,
+      referralCreditAppliedUsd: referralApplied,
+      platformCreditAppliedUsd: platformApplied,
+    },
+  });
+  return {
+    itemPriceUsd: nextItem,
+    referralCreditAppliedUsd: referralApplied,
+    platformCreditAppliedUsd: platformApplied,
+  };
 }
 
 /** Short grace window granted when a buyer is actively recovering an expired auction-win order. */
@@ -220,6 +293,8 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
   orderId: string;
   /** Force this PM (recovery retry). Overrides Order.paymentLabel so a stale card is never reused. */
   paymentMethodId?: string | null;
+  /** Buyer opt-in — referral credit is never auto-applied. */
+  applyReferralCredit?: boolean;
 }): Promise<ChargeOrderSavedPmOutcome> {
   await processAuctionPaymentExpiries();
 
@@ -231,7 +306,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     where: { id: args.orderId, buyerId: args.buyerId },
     include: {
       listing: { select: { id: true, buyingFormat: true, status: true, isCompanyListing: true } },
-      seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true } },
+      seller: { select: sellerStripeCollectSelect },
       liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
     },
   });
@@ -266,7 +341,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     return { outcome: "error", code: "ORDER_NOT_ELIGIBLE_SAVED_CARD" };
   }
 
-  if (!row.seller.stripeAccountId || !row.seller.stripeOnboardingComplete) {
+  if (!liveSavedCardSellerReady(row.seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY" };
   }
 
@@ -293,6 +368,8 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
   }
 
   await syncLiveBundledShippingOnOrder(row.id);
+  // Auction wins often start with ship placeholders; Wallet default is required for nexus tax (e.g. TX).
+  await refreshBuyerShippingOnOrderIfIncomplete(row.id);
 
   const buyer = await prisma.user.findUnique({
     where: { id: args.buyerId },
@@ -311,6 +388,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
       taxUsd: true,
       totalUsd: true,
       referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
       stripePaymentIntentId: true,
       shipRecipientName: true,
       shipAddress: true,
@@ -321,20 +399,23 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     },
   });
 
-  const credit = await applyReferralCreditForSavedCardOrder(
+  const credit = await applyStoreCreditsForSavedCardOrder(
     row.id,
     args.buyerId,
     orderFresh.itemPriceUsd,
     orderFresh.referralCreditAppliedUsd,
+    orderFresh.platformCreditAppliedUsd,
+    args.applyReferralCredit === true,
   );
 
   const liveRoomId =
     row.liveShippingSession?.liveShowId ?? (await resolveLiveRoomIdForOrder(row.id));
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: credit.itemPriceUsd,
+    saleAmountUsd: orderItemSaleBasisUsd(credit),
     isCompanyListing: Boolean(row.listing.isCompanyListing),
     liveRoomId,
     sellerId: row.sellerId,
+    orderId: row.id,
   });
 
   const taxPlan = await resolveConnectPaymentTaxPlan({
@@ -349,6 +430,8 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     itemPriceUsd: credit.itemPriceUsd,
     shippingPriceUsd: orderFresh.shippingPriceUsd,
     applicationFeeCents: feeCents,
+    referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: credit.platformCreditAppliedUsd,
     sellerId: row.sellerId,
   });
 
@@ -386,10 +469,15 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
           listingId: row.listingId,
           ...taxPlan.metadata,
         },
-        ...connectPaymentIntentTransferData({
-          destinationAccountId: row.seller.stripeAccountId,
+        ...connectOrPlatformHeldPaymentIntentTransferData({
+          sellerPayoutProcessor: resolveLiveSellerPayoutProcessor(row.seller),
+          destinationAccountId: resolveLiveSellerDestinationAccount(row.seller),
           applicationFeeCents: feeCents,
           sellerTransferCents: taxPlan.sellerTransferCents,
+          processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
+          referralCreditAppliedCents: referralCreditAppliedCents(credit),
+          maxSellerTransferCents:
+            Math.round(credit.itemPriceUsd * 100) + Math.round(orderFresh.shippingPriceUsd * 100),
         }),
       },
       // PM is part of the key so a recovery retry with a NEW card creates a fresh PaymentIntent
@@ -405,6 +493,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
       data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
     });
     releaseReferralCreditReservation(row.id).catch(() => {});
+    releasePlatformCreditReservation(row.id).catch(() => {});
     return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED" };
   } catch (e) {
     const stripeDebug = buildStripeChargeErrorDebug(e, {
@@ -423,6 +512,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
         })
         .catch(() => {});
       releaseReferralCreditReservation(row.id).catch(() => {});
+    releasePlatformCreditReservation(row.id).catch(() => {});
       console.error("[payment recovery] stripe charge declined", { orderId: row.id, ...stripeDebug });
       return { outcome: "error", code: "CARD_DECLINED", stripeDebug };
     }
@@ -453,12 +543,60 @@ export async function chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard(args: {
 }): Promise<ChargeOrderSavedPmOutcome> {
   const row = await prisma.order.findFirst({
     where: { id: args.orderId, buyerId: args.buyerId },
-    select: { paymentLabel: true, paymentStatus: true },
+    select: {
+      paymentLabel: true,
+      paymentStatus: true,
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
+      taxUsd: true,
+      totalUsd: true,
+      listing: { select: { title: true } },
+    },
   });
   if (!row) return { outcome: "error", code: "ORDER_NOT_FOUND" };
   if (row.paymentStatus === PAYMENT_PAID) return { outcome: "paid" };
 
   const explicitPm = args.paymentMethodId?.trim() ?? "";
+  const preferred =
+    (isStripePaymentMethodId(explicitPm) || isPayPalRailWalletPaymentMethodId(explicitPm)
+      ? explicitPm
+      : null) ??
+    (isStripePaymentMethodId(row.paymentLabel) || isPayPalRailWalletPaymentMethodId(row.paymentLabel)
+      ? row.paymentLabel!.trim()
+      : null) ??
+    (await getBuyerPreferredWalletPaymentMethodId(args.buyerId));
+
+  if (preferred && isPayPalRailWalletPaymentMethodId(preferred)) {
+    await syncLiveBundledShippingOnOrder(args.orderId);
+    await refreshBuyerShippingOnOrderIfIncomplete(args.orderId);
+    const fresh = await prisma.order.findUniqueOrThrow({
+      where: { id: args.orderId },
+      select: { itemPriceUsd: true, shippingPriceUsd: true, taxUsd: true, totalUsd: true },
+    });
+    const amountUsd =
+      typeof fresh.totalUsd === "number" && fresh.totalUsd > 0
+        ? fresh.totalUsd
+        : fresh.itemPriceUsd + fresh.shippingPriceUsd + (fresh.taxUsd ?? 0);
+    const charged = await chargeOrderWithPayPalRailWallet({
+      buyerId: args.buyerId,
+      orderId: args.orderId,
+      amountUsd,
+      description: row.listing?.title ?? `Order ${args.orderId}`,
+      walletPaymentMethodId: preferred,
+    });
+    if (charged.outcome !== "paid") {
+      return { outcome: "error", code: charged.code };
+    }
+    await stampOrderPaidViaPayPalRail({
+      orderId: args.orderId,
+      buyerId: args.buyerId,
+      walletPaymentMethodId: preferred,
+      processorPaymentId: charged.processorPaymentId,
+    });
+    await finalizeStripeMarketplaceOrderPaid(args.orderId, null, null);
+    return { outcome: "paid", paymentIntentId: charged.processorPaymentId };
+  }
+
   const current = row.paymentLabel?.trim() ?? "";
   // Prefer the explicit (recovery) PM, then any valid stored PM, then the buyer's default card.
   const pmId = isStripePaymentMethodId(explicitPm)
@@ -486,6 +624,9 @@ export async function chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard(args: {
     buyerId: args.buyerId,
     orderId: args.orderId,
     paymentMethodId: pmId,
+    // Live auction win is an instant saved-card settlement, same category as Live Buy Now — auto-apply
+    // available referral + Get Vaulted Credit here too, for parity across every live purchase path.
+    applyReferralCredit: true,
   });
 }
 
@@ -638,6 +779,8 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
   liveRoomId: string;
   liveRoomItemId: string;
   paymentMethodId?: string | null;
+  /** Buyer opt-in — referral credit is never auto-applied. */
+  applyReferralCredit?: boolean;
 }): Promise<ChargeOrderSavedPmOutcome> {
   if (!isStripeConfigured()) return { outcome: "error", code: "STRIPE_NOT_CONFIGURED" };
 
@@ -645,7 +788,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
     where: { id: args.orderId, buyerId: args.buyerId },
     include: {
       listing: { select: { id: true, buyingFormat: true, status: true, isCompanyListing: true } },
-      seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true } },
+      seller: { select: sellerStripeCollectSelect },
       liveShippingSession: { select: { liveShowId: true } },
     },
   });
@@ -655,11 +798,65 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
   if (row.listing.buyingFormat !== "buy_now" || row.listing.status !== "active") {
     return { outcome: "error", code: "ORDER_NOT_ELIGIBLE_SAVED_CARD" };
   }
-  if (!row.seller.stripeAccountId || !row.seller.stripeOnboardingComplete) {
+  if (!liveSavedCardSellerReady(row.seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY" };
   }
 
   let pmId = args.paymentMethodId?.trim() ?? row.paymentLabel?.trim() ?? "";
+  if (!isStripePaymentMethodId(pmId) && !isPayPalRailWalletPaymentMethodId(pmId)) {
+    pmId = (await getBuyerPreferredWalletPaymentMethodId(args.buyerId)) ?? "";
+  }
+
+  if (isPayPalRailWalletPaymentMethodId(pmId)) {
+    await syncLiveBundledShippingOnOrder(row.id);
+    await refreshBuyerShippingOnOrderIfIncomplete(row.id);
+    const orderFreshRail = await prisma.order.findUniqueOrThrow({
+      where: { id: row.id },
+      select: {
+        totalUsd: true,
+        itemPriceUsd: true,
+        shippingPriceUsd: true,
+        taxUsd: true,
+        referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
+      },
+    });
+    const creditRail = await applyStoreCreditsForSavedCardOrder(
+      row.id,
+      args.buyerId,
+      orderFreshRail.itemPriceUsd,
+      orderFreshRail.referralCreditAppliedUsd,
+      orderFreshRail.platformCreditAppliedUsd,
+      args.applyReferralCredit === true,
+    );
+    const amountUsd =
+      creditRail.itemPriceUsd + orderFreshRail.shippingPriceUsd + (orderFreshRail.taxUsd ?? 0);
+    if (amountUsd < 0.5) return { outcome: "error", code: "INVALID_ORDER_AMOUNT" };
+    const charged = await chargeOrderWithPayPalRailWallet({
+      buyerId: args.buyerId,
+      orderId: row.id,
+      amountUsd,
+      description: `Live buy-now ${args.liveRoomItemId}`,
+      walletPaymentMethodId: pmId,
+    });
+    if (charged.outcome !== "paid") {
+      return { outcome: "error", code: charged.code };
+    }
+    await stampOrderPaidViaPayPalRail({
+      orderId: row.id,
+      buyerId: args.buyerId,
+      walletPaymentMethodId: pmId,
+      processorPaymentId: charged.processorPaymentId,
+    });
+    await finalizeLiveBuyNowPurchaseComplete({
+      orderId: row.id,
+      liveRoomId: args.liveRoomId,
+      liveRoomItemId: args.liveRoomItemId,
+      paymentIntentId: charged.processorPaymentId,
+    });
+    return { outcome: "paid", paymentIntentId: charged.processorPaymentId };
+  }
+
   if (!isStripePaymentMethodId(pmId)) {
     pmId = (await getBuyerDefaultCardPaymentMethodId(args.buyerId)) ?? "";
   }
@@ -679,6 +876,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
       itemPriceUsd: true,
       shippingPriceUsd: true,
       referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
       stripePaymentIntentId: true,
       shipRecipientName: true,
       shipAddress: true,
@@ -689,19 +887,22 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
     },
   });
 
-  const credit = await applyReferralCreditForSavedCardOrder(
+  const credit = await applyStoreCreditsForSavedCardOrder(
     row.id,
     args.buyerId,
     orderFresh.itemPriceUsd,
     orderFresh.referralCreditAppliedUsd,
+    orderFresh.platformCreditAppliedUsd,
+    args.applyReferralCredit === true,
   );
 
   const liveRoomId = args.liveRoomId || row.liveShippingSession?.liveShowId || (await resolveLiveRoomIdForOrder(row.id));
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: credit.itemPriceUsd,
+    saleAmountUsd: orderItemSaleBasisUsd(credit),
     isCompanyListing: Boolean(row.listing.isCompanyListing),
     liveRoomId,
     sellerId: row.sellerId,
+    orderId: row.id,
   });
 
   const taxPlan = await resolveConnectPaymentTaxPlan({
@@ -716,6 +917,8 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
     itemPriceUsd: credit.itemPriceUsd,
     shippingPriceUsd: orderFresh.shippingPriceUsd,
     applicationFeeCents: feeCents,
+    referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: credit.platformCreditAppliedUsd,
     sellerId: row.sellerId,
   });
 
@@ -766,10 +969,15 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
           userId: args.buyerId,
           ...taxPlan.metadata,
         },
-        ...connectPaymentIntentTransferData({
-          destinationAccountId: row.seller.stripeAccountId,
+        ...connectOrPlatformHeldPaymentIntentTransferData({
+          sellerPayoutProcessor: resolveLiveSellerPayoutProcessor(row.seller),
+          destinationAccountId: resolveLiveSellerDestinationAccount(row.seller),
           applicationFeeCents: feeCents,
           sellerTransferCents: taxPlan.sellerTransferCents,
+          processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
+          referralCreditAppliedCents: referralCreditAppliedCents(credit),
+          maxSellerTransferCents:
+            Math.round(credit.itemPriceUsd * 100) + Math.round(orderFresh.shippingPriceUsd * 100),
         }),
       },
       // Include the PM so a recovery retry with a new card does not replay the prior intent.
@@ -794,6 +1002,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
       data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
     });
     releaseReferralCreditReservation(row.id).catch(() => {});
+    releasePlatformCreditReservation(row.id).catch(() => {});
     return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED" };
   } catch (e) {
     const stripeDebug = buildStripeChargeErrorDebug(e, {
@@ -811,6 +1020,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
         })
         .catch(() => {});
       releaseReferralCreditReservation(row.id).catch(() => {});
+    releasePlatformCreditReservation(row.id).catch(() => {});
       console.error("[payment recovery] stripe charge declined", { orderId: row.id, ...stripeDebug });
       return { outcome: "error", code: "CARD_DECLINED", stripeDebug };
     }
@@ -833,6 +1043,8 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
   orderId: string;
   paymentMethodId?: string | null;
   liveRoomItemId?: string | null;
+  /** Buyer opt-in — referral credit is never auto-applied. */
+  applyReferralCredit?: boolean;
 }): Promise<ChargeOrderSavedPmOutcome> {
   if (!isStripeConfigured()) return { outcome: "error", code: "STRIPE_NOT_CONFIGURED" };
 
@@ -840,7 +1052,7 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
     where: { id: args.orderId, buyerId: args.buyerId },
     include: {
       listing: { select: { id: true, buyingFormat: true, status: true, isCompanyListing: true } },
-      seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true } },
+      seller: { select: sellerStripeCollectSelect },
       liveShippingSession: { select: { liveShowId: true } },
     },
   });
@@ -850,7 +1062,7 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
   if (row.listing.buyingFormat !== "buy_now" || row.listing.status !== "active") {
     return { outcome: "error", code: "ORDER_NOT_ELIGIBLE_SAVED_CARD" };
   }
-  if (!row.seller.stripeAccountId || !row.seller.stripeOnboardingComplete) {
+  if (!liveSavedCardSellerReady(row.seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY" };
   }
 
@@ -883,6 +1095,7 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
       shippingPriceUsd: true,
       taxUsd: true,
       referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
       stripePaymentIntentId: true,
       shipRecipientName: true,
       shipAddress: true,
@@ -893,19 +1106,22 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
     },
   });
 
-  const credit = await applyReferralCreditForSavedCardOrder(
+  const credit = await applyStoreCreditsForSavedCardOrder(
     row.id,
     args.buyerId,
     orderFresh.itemPriceUsd,
     orderFresh.referralCreditAppliedUsd,
+    orderFresh.platformCreditAppliedUsd,
+    args.applyReferralCredit === true,
   );
 
   const liveRoomId = row.liveShippingSession?.liveShowId ?? (await resolveLiveRoomIdForOrder(row.id));
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: credit.itemPriceUsd,
+    saleAmountUsd: orderItemSaleBasisUsd(credit),
     isCompanyListing: Boolean(row.listing.isCompanyListing),
     liveRoomId,
     sellerId: row.sellerId,
+    orderId: row.id,
   });
 
   const taxPlan = await resolveConnectPaymentTaxPlan({
@@ -920,6 +1136,8 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
     itemPriceUsd: credit.itemPriceUsd,
     shippingPriceUsd: orderFresh.shippingPriceUsd,
     applicationFeeCents: feeCents,
+    referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: credit.platformCreditAppliedUsd,
     sellerId: row.sellerId,
   });
 
@@ -963,10 +1181,15 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
           userId: args.buyerId,
           ...taxPlan.metadata,
         },
-        ...connectPaymentIntentTransferData({
-          destinationAccountId: row.seller.stripeAccountId,
+        ...connectOrPlatformHeldPaymentIntentTransferData({
+          sellerPayoutProcessor: resolveLiveSellerPayoutProcessor(row.seller),
+          destinationAccountId: resolveLiveSellerDestinationAccount(row.seller),
           applicationFeeCents: feeCents,
           sellerTransferCents: taxPlan.sellerTransferCents,
+          processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
+          referralCreditAppliedCents: referralCreditAppliedCents(credit),
+          maxSellerTransferCents:
+            Math.round(credit.itemPriceUsd * 100) + Math.round(orderFresh.shippingPriceUsd * 100),
         }),
       },
       { idempotencyKey: `marketplace_buy_now_${row.id}_${amountCents}_${pmId}` },
@@ -985,6 +1208,7 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
       data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
     });
     releaseReferralCreditReservation(row.id).catch(() => {});
+    releasePlatformCreditReservation(row.id).catch(() => {});
     return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED" };
   } catch (e) {
     const stripeDebug = buildStripeChargeErrorDebug(e, {
@@ -1002,6 +1226,7 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
         })
         .catch(() => {});
       releaseReferralCreditReservation(row.id).catch(() => {});
+    releasePlatformCreditReservation(row.id).catch(() => {});
       return { outcome: "error", code: "CARD_DECLINED", stripeDebug };
     }
     console.error("[marketplace buy now] ambiguous stripe charge error — order left untouched pending reconciliation", {

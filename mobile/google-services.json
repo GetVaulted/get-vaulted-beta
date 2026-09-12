@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "979659775478",
+    "project_id": "get-vaulted",
+    "storage_bucket": "get-vaulted.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:979659775478:android:b200097349e8b8e7353bd7",
+        "android_client_info": {
+          "package_name": "com.getvaulted.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "979659775478-prladtg93pgdqtl45pq0hm8vkbclugq3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBgvOQDZ6HBueUKVndbclm184CIt1z-vdw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "979659775478-prladtg93pgdqtl45pq0hm8vkbclugq3.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -34,15 +34,18 @@ import { marketplacePlatformFeePercent, applicationFeeCentsFromSubtotalUsd } fro
 import { resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
 import { getStripe } from "@/lib/stripe";
 import { stripeCheckoutSessionPaymentOptions } from "@/lib/stripe-payment-method-config";
+import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
 import {
   connectCheckoutPaymentIntentData,
   estimateSalesTaxCents,
   fetchCheckoutSessionTax,
   loadSellerShipFromForTax,
   recordStripeTaxTransaction,
+  reverseStripeTaxTransaction,
   stripeLineItemProductData,
   STRIPE_TAX_CODE_TANGIBLE,
 } from "@/lib/stripe-tax";
+import { persistOrderStripeChargeLedger } from "@/lib/stripe-charge-ledger";
 import { buildOrderTaxPersistFields, orderTaxUpdateData } from "@/lib/sales-tax-order";
 import { prisma } from "@/lib/prisma";
 import { grantReferralCreditsForQualifyingOrder } from "@/lib/referral-credit";
@@ -574,6 +577,7 @@ export async function createLayawayDepositCheckout(args: {
     isCompanyListing: listing.isCompanyListing,
     liveRoomId: null,
     sellerId: listing.sellerId,
+    orderId: order.id,
   });
 
   // Sales tax for the *entire* layaway sale (full item + shipping, not just the deposit) is
@@ -632,6 +636,7 @@ export async function createLayawayDepositCheckout(args: {
     destinationAccountId: listing.seller.stripeAccountId!,
     applicationFeeCents: feeCents,
     sellerTransferCents: taxAmountCents > 0 ? Math.max(0, depositCents - feeCents) : null,
+    processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(depositCents + taxAmountCents) : 0,
     metadata: piMetadata,
   });
 
@@ -779,7 +784,12 @@ export async function finalizeLayawayDepositPaid(args: {
   void recordStripeTaxTransaction({
     taxCalculationId: taxInfo?.stripeTaxCalculationId ?? null,
     reference: args.orderId,
+    persistToOrderId: args.orderId,
   });
+  void persistOrderStripeChargeLedger({
+    orderId: args.orderId,
+    paymentIntentId: args.paymentIntentId,
+  }).catch((e) => console.warn("[layaway] charge ledger persist failed", args.orderId, e));
 
   const lay = await prisma.layaway.findUnique({
     where: { id: args.layawayId },
@@ -874,6 +884,7 @@ export async function createLayawayBalanceCheckout(args: {
     isCompanyListing: lay.listing.isCompanyListing,
     liveRoomId: null,
     sellerId: lay.sellerId,
+    orderId: lay.orderId,
   });
 
   const session = await stripe.checkout.sessions.create({
@@ -908,7 +919,9 @@ export async function createLayawayBalanceCheckout(args: {
         layawayId: lay.id,
         layawayPaymentId: paymentRow.id,
       },
-      application_fee_amount: feeCents,
+      // Seller absorbs Stripe processing (2.9% + $0.30) on each installment charge.
+      application_fee_amount:
+        feeCents + (feeCents > 0 ? estimateStripeProcessingFeeCents(Math.round(payUsd * 100)) : 0),
       transfer_data: { destination: lay.listing.seller.stripeAccountId! },
     },
   });
@@ -1057,6 +1070,11 @@ export async function completeLayawayPlan(layawayId: string): Promise<void> {
         // `totalUsd` reconciles exactly like a normal taxable sale (item + shipping + tax).
         totalUsd: roundUsd(lay.originalPriceUsd + lay.shippingPriceUsd + (lay.order.taxUsd ?? 0)),
         stripePaymentIntentId: lastPayment?.stripePaymentIntentId ?? lay.order.stripePaymentIntentId ?? undefined,
+        // Placeholder — the persistOrderStripeChargeLedger call below (final installment's PI)
+        // upgrades this to the authoritative Stripe charge.created timestamp once fetched. The
+        // order only becomes a genuine "sale" for reconciliation purposes once fully paid off, so
+        // this moment — not the deposit's — is the correct payment date for the whole order.
+        paidAt: new Date(),
       },
     });
     await consumeListingInventoryHoldTx(tx, {
@@ -1073,6 +1091,18 @@ export async function completeLayawayPlan(layawayId: string): Promise<void> {
   });
 
   await initializeOrderPayoutOnPayment(lay.orderId);
+
+  // Upgrade the paidAt placeholder above to the final installment's real Stripe charge.created,
+  // and pick up its fee/charge/transfer fields — this call was missing entirely before (the
+  // deposit's own persistOrderStripeChargeLedger call at finalizeLayawayDepositPaid only ever
+  // covers the deposit's PI, not the installment that actually completed the plan).
+  const finalPaymentIntentId = lastPayment?.stripePaymentIntentId ?? lay.order.stripePaymentIntentId ?? null;
+  if (finalPaymentIntentId) {
+    void persistOrderStripeChargeLedger({
+      orderId: lay.orderId,
+      paymentIntentId: finalPaymentIntentId,
+    }).catch((e) => console.warn("[layaway] final charge ledger persist failed", lay.orderId, e));
+  }
 
   // Referral program: a layaway order only counts as "paid" once fully paid off (not at
   // deposit) — this is the layaway equivalent of `finalizeStripeMarketplaceOrderPaid`'s grant
@@ -1230,6 +1260,11 @@ export async function defaultLayawayPlan(layawayId: string): Promise<void> {
         await prisma.order.update({
           where: { id: lay.orderId },
           data: { taxRefundedCents: { increment: taxRefundCents } },
+        });
+        void reverseStripeTaxTransaction({
+          orderId: lay.orderId,
+          reverseAmountCents: taxRefundCents,
+          reason: "layaway_default_tax_refund",
         });
       } catch (e) {
         console.error("[layaway] tax refund failed", lay.id, e);

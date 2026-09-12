@@ -1,8 +1,10 @@
 import type { PaymentProcessor, SellerPayoutProcessor, WalletPaymentMethodType } from "@/generated/prisma/client";
+import { isStripeWalletOptionalMethodEnabled } from "@/lib/stripe-payment-method-config";
+import { isBuyerPayPalWalletConfigured, isBuyerVenmoPayConfigured } from "@/lib/paypal-auth";
 
 export type { PaymentProcessor, SellerPayoutProcessor, WalletPaymentMethodType };
 
-/** Stripe-supported wallet methods we expose in Vault Wallet (Venmo is Phase 2 / PayPal path). */
+/** Stripe-supported wallet methods we expose in Vault Wallet (Venmo/PayPal are separate PayPal paths). */
 export const STRIPE_WALLET_METHOD_TYPES: WalletPaymentMethodType[] = [
   "card",
   "apple_pay",
@@ -11,6 +13,16 @@ export const STRIPE_WALLET_METHOD_TYPES: WalletPaymentMethodType[] = [
   "cash_app_pay",
   "paypal",
 ];
+
+/** Buyer Venmo option in Vault Wallet / Live. Backend link lives at POST /api/account/payment-methods/venmo-setup. */
+export function isWalletVenmoEnabled(): boolean {
+  return process.env.WALLET_VENMO_ENABLED !== "false";
+}
+
+/** Buyer PayPal Wallet option in Vault Wallet / Live. */
+export function isWalletPayPalEnabled(): boolean {
+  return process.env.WALLET_PAYPAL_ENABLED !== "false";
+}
 
 export type WalletCapabilities = {
   stripeConfigured: boolean;
@@ -21,7 +33,7 @@ export type WalletCapabilities = {
   cashAppPay: boolean;
   amazonPay: boolean;
   paypal: boolean;
-  /** Phase 2 — separate PayPal/Venmo processor, not Stripe Connect. */
+  /** PayPal/Venmo buyer rail — UI option; linking completed via venmo-setup API. */
   venmo: boolean;
 };
 
@@ -63,11 +75,12 @@ export function defaultWalletCapabilities(stripeConfigured: boolean): WalletCapa
     card: stripeConfigured,
     applePay: stripeConfigured,
     googlePay: stripeConfigured,
-    link: stripeConfigured && process.env.STRIPE_WALLET_LINK_ENABLED === "true",
-    cashAppPay: stripeConfigured && process.env.STRIPE_WALLET_CASH_APP_ENABLED === "true",
-    amazonPay: stripeConfigured && process.env.STRIPE_WALLET_AMAZON_PAY_ENABLED === "true",
-    paypal: false,
-    venmo: false,
+    link: stripeConfigured && isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_LINK_ENABLED"),
+    cashAppPay: stripeConfigured && isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_CASH_APP_ENABLED"),
+    amazonPay: stripeConfigured && isStripeWalletOptionalMethodEnabled("STRIPE_WALLET_AMAZON_PAY_ENABLED"),
+    paypal: isWalletPayPalEnabled() && isBuyerPayPalWalletConfigured(),
+    /** Shown when UI flag is on; linking requires PAYPAL_BUYER_VENMO_ENABLED + credentials. */
+    venmo: isWalletVenmoEnabled() && isBuyerVenmoPayConfigured(),
   };
 }
 
@@ -115,6 +128,17 @@ export function orderPaymentProcessorLabel(processor: PaymentProcessor): string 
   return processor === "PAYPAL_VENMO" ? "PayPal / Venmo" : "Stripe";
 }
 
+export function sellerPayoutProcessorLabel(processor: SellerPayoutProcessor): string {
+  return processor === "PAYPAL" ? "PayPal" : "Stripe Connect";
+}
+
 export function shouldUseStripeConnectPayout(processor: PaymentProcessor): boolean {
   return processor === "STRIPE";
+}
+
+/** Buyer charge stays on platform when seller payout rail is PayPal. */
+export function shouldUsePlatformHeldStripeCharge(
+  sellerPayoutProcessor: SellerPayoutProcessor,
+): boolean {
+  return sellerPayoutProcessor === "PAYPAL";
 }
