@@ -42,6 +42,8 @@ export async function releaseSellerPayPalPayout(orderId: string): Promise<{
       referralCreditAppliedUsd: true,
       shippingLabelCostCents: true,
       shippingLabelCostReversedCents: true,
+      shippoTransactionId: true,
+      labelUrl: true,
       platformFeeCents: true,
       listing: { select: { isCompanyListing: true } },
       liveShippingSession: {
@@ -73,6 +75,27 @@ export async function releaseSellerPayPalPayout(orderId: string): Promise<{
   }
   if (order.payoutStatus === OrderPayoutStatus.paid_out) {
     return { ok: true, reason: "already_paid_out" };
+  }
+
+  // Mirrors the Stripe bank-payout rail's hard gate (see stripe-seller-payout.ts): the cross-order
+  // liability offset below only recovers what a payout can cover, it doesn't guarantee THIS order's
+  // own label cost is settled before money leaves the platform. Without this, PayPal payouts had one
+  // fewer layer of protection than Stripe payouts — same bug class that already burned Get Vaulted
+  // once on the Stripe rail. Not force-bypassable, same as the Stripe check. Dynamic import to avoid
+  // coupling this PayPal-only module to the Stripe SDK at load time (same pattern used elsewhere to
+  // cross-import between the two payout rails).
+  const { orderLabelClawbackSettledForBankPayout } = await import(
+    "@/services/payout/stripe-seller-payout"
+  );
+  if (!orderLabelClawbackSettledForBankPayout(order)) {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        payoutStatus: OrderPayoutStatus.manual_review,
+        payoutBlockedReason: "label_clawback_pending_before_bank_payout",
+      },
+    });
+    return { ok: false, reason: "label_clawback_pending" };
   }
 
   const email = order.seller.paypalPayoutEmail?.trim();
