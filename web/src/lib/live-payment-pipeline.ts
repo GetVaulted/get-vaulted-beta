@@ -791,6 +791,49 @@ export async function syncLiveItemVariantPurchasePaymentIntent(args: {
 }
 
 /**
+ * Heal a set of pending `liveItemVariantPurchase` rows against Stripe.
+ *
+ * BUG FIX (multi-spot batch checkout): rows that share a `batchId` come from ONE combined
+ * checkout covering ONE shared Stripe PaymentIntent for their total. They must be healed
+ * TOGETHER through the batch-aware sync (`syncLiveItemVariantPurchaseBatchPaymentIntent`), never
+ * one row at a time through the single-item sync — the single-item path's failure branch
+ * (`releaseVariantPurchaseOnCheckoutExpired`) knows nothing about sibling rows and will happily
+ * mark just ONE spot of a paid multi-spot batch "failed" and put it back up for sale, even though
+ * the buyer's single charge already covers it. That is exactly how a buyer could be charged in
+ * full for e.g. 3 spots while the host console showed only 1 as sold and the other 2 as
+ * "declined" — this reconciler (run on every host-console poll, see
+ * `live-room-recent-sales.ts`) was racing the checkout's own finalize and tearing the batch apart.
+ */
+async function healPendingVariantPurchaseRows(
+  rows: { id: string; buyerId: string; batchId: string | null }[],
+): Promise<number> {
+  let healed = 0;
+  const settledBatchIds = new Set<string>();
+  for (const row of rows) {
+    try {
+      if (row.batchId) {
+        if (settledBatchIds.has(row.batchId)) continue;
+        settledBatchIds.add(row.batchId);
+        const result = await syncLiveItemVariantPurchaseBatchPaymentIntent({
+          buyerId: row.buyerId,
+          batchId: row.batchId,
+        });
+        if (result.outcome === "paid") healed += 1;
+        continue;
+      }
+      const result = await syncLiveItemVariantPurchasePaymentIntent({
+        buyerId: row.buyerId,
+        purchaseId: row.id,
+      });
+      if (result.outcome === "paid") healed += 1;
+    } catch (e) {
+      console.warn("[live] healPendingVariantPurchaseRows", row.id, row.batchId ?? null, e);
+    }
+  }
+  return healed;
+}
+
+/**
  * Heal PYT/variant purchases stuck in `pending_payment` after Stripe already succeeded
  * (missed webhook / client never synced). Safe to call from buyer order lists.
  */
@@ -802,23 +845,11 @@ export async function reconcileBuyerPendingVariantPurchases(buyerId: string, lim
       paymentStatus: "pending_payment",
       stripePaymentIntentId: { not: null },
     },
-    select: { id: true },
+    select: { id: true, batchId: true },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
-  let healed = 0;
-  for (const row of pending) {
-    try {
-      const result = await syncLiveItemVariantPurchasePaymentIntent({
-        buyerId,
-        purchaseId: row.id,
-      });
-      if (result.outcome === "paid") healed += 1;
-    } catch (e) {
-      console.warn("[live] reconcileBuyerPendingVariantPurchases", row.id, e);
-    }
-  }
-  return healed;
+  return healPendingVariantPurchaseRows(pending.map((row) => ({ ...row, buyerId })));
 }
 
 /**
@@ -835,23 +866,11 @@ export async function reconcileLiveRoomPendingVariantPurchases(
       paymentStatus: "pending_payment",
       stripePaymentIntentId: { not: null },
     },
-    select: { id: true, buyerId: true },
+    select: { id: true, buyerId: true, batchId: true },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
-  let healed = 0;
-  for (const row of pending) {
-    try {
-      const result = await syncLiveItemVariantPurchasePaymentIntent({
-        buyerId: row.buyerId,
-        purchaseId: row.id,
-      });
-      if (result.outcome === "paid") healed += 1;
-    } catch (e) {
-      console.warn("[live] reconcileLiveRoomPendingVariantPurchases", row.id, e);
-    }
-  }
-  return healed;
+  return healPendingVariantPurchaseRows(pending);
 }
 
 export async function settleLiveItemVariantPurchase(args: {
