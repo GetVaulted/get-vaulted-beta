@@ -107,7 +107,38 @@ function isUsableLivePaymentMethod(pm: Stripe.PaymentMethod): boolean {
   return true;
 }
 
-async function resolveDefaultPaymentMethodId(customerId: string): Promise<string | null> {
+type WalletPmType = (typeof WALLET_PM_STRIPE_TYPES)[number];
+
+/**
+ * Fetches every wallet-eligible PaymentMethod type for a Stripe Customer in one parallel
+ * round trip, instead of one `list` call per type run one after another. Callers that need
+ * both "what's the default" and "what's the full list" should fetch this ONCE and pass it to
+ * both, rather than each independently re-listing every type (the bug behind GET-VAULTED-H:
+ * one wallet page load was making 15-20+ sequential Stripe calls and tripping Stripe's rate
+ * limit — see stripe.com/docs/rate-limits).
+ */
+async function fetchStripeWalletPaymentMethodsByType(
+  stripe: Stripe,
+  customerId: string,
+): Promise<Map<WalletPmType, Stripe.PaymentMethod[]>> {
+  const lists = await Promise.all(
+    WALLET_PM_STRIPE_TYPES.map((pmType) => stripe.paymentMethods.list({ customer: customerId, type: pmType })),
+  );
+  const byType = new Map<WalletPmType, Stripe.PaymentMethod[]>();
+  WALLET_PM_STRIPE_TYPES.forEach((pmType, i) => byType.set(pmType, lists[i].data));
+  return byType;
+}
+
+/**
+ * @param byType Optional pre-fetched wallet PaymentMethods (see `fetchStripeWalletPaymentMethodsByType`).
+ * When provided, this never re-lists Stripe for the fallback scan — it reuses what the caller
+ * already fetched. Only pass this when the caller is about to use (or already used) that same
+ * fetch for something else; otherwise omit it and this fetches on its own as before.
+ */
+async function resolveDefaultPaymentMethodId(
+  customerId: string,
+  byType?: Map<WalletPmType, Stripe.PaymentMethod[]>,
+): Promise<string | null> {
   const stripe = getStripe();
   const customer = await stripe.customers.retrieve(customerId, {
     expand: ["invoice_settings.default_payment_method"],
@@ -122,16 +153,18 @@ async function resolveDefaultPaymentMethodId(customerId: string): Promise<string
   }
   if (defaultId) {
     try {
-      const pm = await stripe.paymentMethods.retrieve(defaultId);
+      // Reuse an already-fetched copy when we have one instead of a fresh `retrieve` call.
+      const cached = byType ? [...byType.values()].flat().find((pm) => pm.id === defaultId) : undefined;
+      const pm = cached ?? (await stripe.paymentMethods.retrieve(defaultId));
       if (isUsableLivePaymentMethod(pm)) return defaultId;
     } catch {
       /* fall through to first usable wallet PM */
     }
   }
 
+  const typeLists = byType ?? (await fetchStripeWalletPaymentMethodsByType(stripe, customerId));
   for (const pmType of WALLET_PM_STRIPE_TYPES) {
-    const list = await stripe.paymentMethods.list({ customer: customerId, type: pmType });
-    const valid = list.data.find((pm) => isUsableLivePaymentMethod(pm));
+    const valid = (typeLists.get(pmType) ?? []).find((pm) => isUsableLivePaymentMethod(pm));
     if (valid) return valid.id;
   }
   return null;
@@ -179,12 +212,13 @@ async function listStripeBuyerWalletPaymentMethods(userId: string): Promise<Buye
   if (!customerId) return [];
 
   const stripe = getStripe();
-  const defaultId = await resolveDefaultPaymentMethodId(customerId);
+  const byType = await fetchStripeWalletPaymentMethodsByType(stripe, customerId);
+  const defaultId = await resolveDefaultPaymentMethodId(customerId, byType);
   const rows: BuyerWalletPaymentMethodDTO[] = [];
 
   for (const pmType of WALLET_PM_STRIPE_TYPES) {
-    const list = await stripe.paymentMethods.list({ customer: customerId, type: pmType });
-    for (const pm of list.data) {
+    const list = byType.get(pmType) ?? [];
+    for (const pm of list) {
       const card = pm.card;
       const walletType = stripePmTypeToWalletType(pm.type, card?.wallet?.type ?? null);
       let brand = formatBrand(card?.brand ?? pm.type);
