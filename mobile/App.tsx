@@ -15,11 +15,26 @@ import {
 } from './src/lib/recoverInvalidAuthSession';
 import { AppLayoutProvider } from './src/layout/AppLayoutProvider';
 import { RootNavigator } from './src/navigation/RootNavigator';
+import * as Sentry from '@sentry/react-native';
+
+Sentry.init({
+  dsn: 'https://d50499adf72e53b7ea655a0b5f52fb84@o4511672261214208.ingest.us.sentry.io/4512076212666368',
+
+  // Adds more context data to events (IP address, cookies, user, etc.)
+  // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
+  sendDefaultPii: true,
+
+  // Enable Logs
+  enableLogs: true,
+
+  // uncomment the line below to enable Spotlight (https://spotlightjs.com)
+  // spotlight: __DEV__,
+});
 
 WebBrowser.maybeCompleteAuthSession();
 configureGlobalTextScaling();
 
-export default function App() {
+export default Sentry.wrap(function App() {
   useEffect(() => {
     void loadHomeFeedCache();
     prefetchStripePublishableKey();
@@ -51,7 +66,7 @@ export default function App() {
       <StatusBar style="light" />
     </GestureHandlerRootView>
   );
-}
+});
 
 const styles = StyleSheet.create({
   root: {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Platform, type AppStateStatus } from 'react-native';
+import * as Sentry from '@sentry/react-native';
 import {
   addOnPublishStateChangedListener,
   addOnStageErrorListener,
@@ -578,6 +579,11 @@ export function useMobileStagePublish(args: {
             return;
           }
           if (opts.allowReconnect && !intentionalStopRef.current) {
+            Sentry.addBreadcrumb({
+              category: 'ivs_stage',
+              message: `publish_failed error=${evt.error ?? ''}`,
+              level: 'warning',
+            });
             reconnectPublishRef.current('publish_failed');
             return;
           }
@@ -593,6 +599,13 @@ export function useMobileStagePublish(args: {
 
       const errSub = addOnStageErrorListener((evt) => {
         if (!evt.isFatal) return;
+        // Every fatal Stage error, whether or not it leads to a reconnect below — gives us a
+        // trail of breadcrumbs in Sentry leading up to whatever happens next.
+        Sentry.addBreadcrumb({
+          category: 'ivs_stage',
+          message: `stage_error code=${evt.code} desc=${evt.description ?? ''}`,
+          level: 'warning',
+        });
         // Background pause can tear the Stage socket — keep Host paused so Play can full-rejoin.
         if (shouldStayPausedAfterIntentionalUnpublish(intentionalPauseRef.current)) {
           setPublishingActive(false);
@@ -615,6 +628,16 @@ export function useMobileStagePublish(args: {
           return;
         }
         if (opts.allowReconnect && !intentionalStopRef.current) {
+          // This is the pattern behind the "sellers show disconnected" reports (2026-09-11/12):
+          // a fatal Stage error while live triggers a leave+rejoin, which shows up in AWS IVS as
+          // a brand-new stream session. Logged as a warning (not error) since the reconnect
+          // usually succeeds on its own — see the rejoin_loop capture below for the case where it
+          // doesn't.
+          Sentry.captureMessage(`IVS stage fatal error triggered reconnect (code ${evt.code})`, {
+            level: 'warning',
+            tags: { roomId: cbRef.current.roomId, ivsErrorCode: String(evt.code) },
+            extra: { description: evt.description, priorAttempts: reconnectAttemptsRef.current },
+          });
           reconnectPublishRef.current(`stage_error_${evt.code}`);
           return;
         }
@@ -655,6 +678,13 @@ export function useMobileStagePublish(args: {
       const epoch = reconnectEpochRef.current;
 
       if (reconnectAttemptsRef.current >= HOST_MAX_REJOIN_ATTEMPTS) {
+        // The show is stuck cycling leave/rejoin faster than it can hold a connection — this is
+        // the actual "disconnected" symptom sellers reported, not a one-off blip. Report as an
+        // error (not a breadcrumb) so it surfaces in Sentry's issue stream on its own.
+        Sentry.captureMessage('Host stage reconnect exhausted max attempts — entering rejoin loop', {
+          level: 'error',
+          tags: { roomId: cbRef.current.roomId, trigger },
+        });
         if (mountedRef.current) {
           setError('Reconnecting to live…');
           // Stay "live" intent — never park on paused unless the host tapped Pause.
@@ -670,6 +700,12 @@ export function useMobileStagePublish(args: {
         }, HOST_REJOIN_LOOP_DELAY_MS);
         return;
       }
+
+      Sentry.addBreadcrumb({
+        category: 'ivs_stage',
+        message: `reconnectPublish attempt ${reconnectAttemptsRef.current + 1}/${HOST_MAX_REJOIN_ATTEMPTS} trigger=${trigger}`,
+        level: 'info',
+      });
 
       reconnectInFlightRef.current = true;
       reconnectAttemptsRef.current += 1;
@@ -714,6 +750,13 @@ export function useMobileStagePublish(args: {
 
         attachPublishListeners({
           onFirstLive: () => {
+            if (reconnectAttemptsRef.current > 0) {
+              Sentry.addBreadcrumb({
+                category: 'ivs_stage',
+                message: `reconnect recovered after ${reconnectAttemptsRef.current} attempt(s)`,
+                level: 'info',
+              });
+            }
             reconnectAttemptsRef.current = 0;
             setPublishingActive(true);
             if (mountedRef.current) {
@@ -748,6 +791,11 @@ export function useMobileStagePublish(args: {
           return;
         }
         if (reconnectAttemptsRef.current >= HOST_MAX_REJOIN_ATTEMPTS) {
+          Sentry.captureMessage('Host stage reconnect exhausted max attempts — entering rejoin loop', {
+            level: 'error',
+            tags: { roomId: cbRef.current.roomId, trigger },
+            extra: { lastError: err instanceof Error ? err.message : String(err) },
+          });
           if (mountedRef.current) {
             setError(friendlyPublishError(err) || 'Reconnecting to live…');
             if (phaseRef.current !== 'paused') setPhase('starting');
@@ -794,6 +842,11 @@ export function useMobileStagePublish(args: {
         await setStreamsPublished(true);
       }).catch(() => {
         if (epoch === reconnectEpochRef.current && canAutoRecoverPublish()) {
+          Sentry.addBreadcrumb({
+            category: 'ivs_stage',
+            message: 'keepalive setStreamsPublished failed',
+            level: 'warning',
+          });
           reconnectPublishRef.current('keepalive');
         }
       });

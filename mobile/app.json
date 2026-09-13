@@ -146,6 +146,14 @@
           "merchantIdentifier": "merchant.com.getvaulted.app",
           "enableGooglePay": false
         }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "get-vaulted-mobile",
+          "organization": "get-vaulted"
+        }
       ]
     ],
     "extra": {
