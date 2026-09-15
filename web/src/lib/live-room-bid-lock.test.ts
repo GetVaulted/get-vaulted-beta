@@ -37,6 +37,7 @@ describe("live-room-bid-lock helpers", () => {
         currentBidUsd: 25,
         startingBidUsd: 10,
         priceUsd: 10,
+        bidIncrementUsd: null,
         biddingOpen: true,
         auctionEndsAt: null,
         clutchTimeEnabled: false,

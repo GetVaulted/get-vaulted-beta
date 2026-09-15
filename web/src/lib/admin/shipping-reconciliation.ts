@@ -10,6 +10,8 @@ import {
   type LabelLiabilityDisplayStatus,
 } from "@/services/shipping/label-liability";
 
+export type { LabelLiabilityDisplayStatus };
+
 export type ShippingDeductionStatus =
   | "no_label"
   | "label_purchased_pending_debit"

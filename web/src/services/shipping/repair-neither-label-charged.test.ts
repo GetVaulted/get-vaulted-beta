@@ -167,6 +167,8 @@ describe("NEITHER_LABEL_CHARGED classification + finance invariants", () => {
         sellerCreditTransferId: "tr_credit",
         clawbackIdempotencyKey: null,
         creditIdempotencyKey: null,
+        sellerRecoveredCents: 0,
+        writtenOffCents: 0,
       },
       {
         id: "b",
@@ -183,6 +185,8 @@ describe("NEITHER_LABEL_CHARGED classification + finance invariants", () => {
         sellerCreditTransferId: "tr_credit",
         clawbackIdempotencyKey: null,
         creditIdempotencyKey: null,
+        sellerRecoveredCents: 0,
+        writtenOffCents: 0,
       },
     ]);
     expect(summary.chargeableLabelCostCents).toBe(0);

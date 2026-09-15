@@ -894,7 +894,7 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
     const stripe = getStripe();
     try {
       const refund = await stripe.refunds.create({
-        payment_intent: order.stripePaymentIntentId,
+        payment_intent: order.stripePaymentIntentId ?? undefined,
         amount: refundAmountCents,
         // Destination-charge orders transfer (item + shipping - fee) to the seller's Connect
         // account at charge time. Without reverse_transfer, Stripe refunds the buyer entirely out

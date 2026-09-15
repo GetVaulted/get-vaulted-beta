@@ -6,7 +6,7 @@ import {
   sendBreakAuctionWinNotificationsDeferred,
   type BreakRoundFinalizeResult,
 } from "@/lib/break-live-auction-round-finalize";
-import type { LiveRoomItemStatus } from "@/generated/prisma/client";
+import type { LiveItemSalesFormat, LiveRoomItemStatus } from "@/generated/prisma/client";
 import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server";
 import { prisma } from "@/lib/prisma";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
@@ -185,11 +185,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       return NextResponse.json({ error: "salesFormat must be buy_now or auction." }, { status: 400 });
     }
 
-    // Security fix: When switching from buy_now to auction, automatically set startingBidUsd 
+    // Security fix: When switching from buy_now to auction, automatically set startingBidUsd
     // based on previous priceUsd to prevent purchase gap. This is atomic with the format change.
     const prevFormat = item.salesFormat;
     const updateData: {
-      salesFormat: string;
+      salesFormat: LiveItemSalesFormat;
       biddingOpen: boolean;
       auctionEndsAt: Date | null;
       currentBidUsd: number | null;

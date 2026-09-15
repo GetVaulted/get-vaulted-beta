@@ -430,6 +430,11 @@ export async function processShippedPayoutEvaluation(orderId: string): Promise<v
         payoutReserveAmountCents: ctx.reserveCents,
       },
     });
+    const orderForPayoutRelease = {
+      ...order,
+      shippedAt: order.shippedAt ?? now,
+      carrierAcceptedAt: order.carrierAcceptedAt ?? now,
+    };
     await finalizeOrderPayoutRelease(
       orderId,
       order.sellerId,
@@ -437,7 +442,7 @@ export async function processShippedPayoutEvaluation(orderId: string): Promise<v
       OrderPayoutStatus.fast_payout_ready,
       OrderPayoutMethod.fast_after_acceptance,
       "shipped_paypal_payout_release",
-      { ...order, shippedAt: order.shippedAt ?? now, carrierAcceptedAt: order.carrierAcceptedAt ?? now },
+      orderForPayoutRelease,
     );
     return;
   }

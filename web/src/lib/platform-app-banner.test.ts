@@ -6,6 +6,7 @@ describe("resolvePublicAppBanner", () => {
     enabled: true,
     title: "Invite friends. Earn credit.",
     body: "Share your link.",
+    imageUrl: "",
     ctaLabel: "Get my link",
     href: "/account/referrals",
     dismissKey: "referral-v1",

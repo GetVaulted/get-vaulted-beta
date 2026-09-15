@@ -868,6 +868,14 @@ export async function recordTaxMonitoringOnlyTransaction(args: {
       { idempotencyKey: `taxcalc_monitor_${args.orderId}`.slice(0, 255) },
     );
 
+    if (!calculation.id) {
+      console.warn("[stripe-tax] calculation missing id; skipping monitoring transaction", {
+        orderId: args.orderId,
+        stateCode,
+      });
+      return;
+    }
+
     await stripe.tax.transactions.createFromCalculation(
       { calculation: calculation.id, reference: `${args.orderId}_monitor` },
       { idempotencyKey: `tax_txn_monitor_${args.orderId}`.slice(0, 255) },

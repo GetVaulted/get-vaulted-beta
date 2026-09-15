@@ -45,7 +45,7 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
       adminUserId: gate.userId,
       approve: body.approve,
       note: body.note,
-      forceRefund: body.forceRefund === true,
+      forceRefund: Boolean(body.forceRefund),
     });
     return NextResponse.json({ request });
   } catch (e) {

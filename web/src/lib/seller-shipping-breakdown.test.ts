@@ -21,6 +21,8 @@ function financeRow(overrides: Partial<LabelFinanceRow> = {}): LabelFinanceRow {
     sellerCreditTransferId: null,
     clawbackIdempotencyKey: "k1",
     creditIdempotencyKey: null,
+    sellerRecoveredCents: 0,
+    writtenOffCents: 0,
     ...overrides,
   };
 }

@@ -131,6 +131,8 @@ export async function GET(req: Request) {
           sellerCreditTransferId: true,
           clawbackIdempotencyKey: true,
           creditIdempotencyKey: true,
+          sellerRecoveredCents: true,
+          writtenOffCents: true,
         },
       },
       liveShippingSession: {

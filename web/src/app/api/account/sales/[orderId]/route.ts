@@ -77,6 +77,8 @@ const orderSelect = {
       sellerCreditTransferId: true,
       clawbackIdempotencyKey: true,
       creditIdempotencyKey: true,
+      sellerRecoveredCents: true,
+      writtenOffCents: true,
     },
   },
   liveShippingSession: {

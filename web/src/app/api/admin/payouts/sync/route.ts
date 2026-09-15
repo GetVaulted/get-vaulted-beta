@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     if (!marked.ok) {
       return NextResponse.json({ error: marked.error }, { status: 400 });
     }
-    return NextResponse.json({ ok: true, ...marked });
+    return NextResponse.json(marked);
   }
 
   const sellerId =

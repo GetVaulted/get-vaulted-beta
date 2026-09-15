@@ -71,11 +71,12 @@ export async function GET(request: Request) {
     });
 
     if (user.stripeAccountId?.trim()) {
+      const stripeAccountIdForPayoutsSync = user.stripeAccountId;
       try {
         const stripe = getStripe();
         const account = await stripe.accounts.retrieve(user.stripeAccountId);
         void import("@/lib/seller-stripe-connect").then(({ ensureSellerStripeManualPayouts }) =>
-          ensureSellerStripeManualPayouts(stripe, user.stripeAccountId!).catch(() => undefined),
+          ensureSellerStripeManualPayouts(stripe, stripeAccountIdForPayoutsSync).catch(() => undefined),
         );
         const currentlyDue = account.requirements?.currently_due ?? [];
         payoutSetupSubmitted = isStripePayoutSetupSubmittedFromAccount(account);

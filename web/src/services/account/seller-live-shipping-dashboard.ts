@@ -88,6 +88,8 @@ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db = 
               sellerCreditTransferId: true,
               clawbackIdempotencyKey: true,
               creditIdempotencyKey: true,
+              sellerRecoveredCents: true,
+              writtenOffCents: true,
             },
           },
           listing: { select: { title: true, shipAlone: true } },

@@ -103,6 +103,8 @@ const orderLedgerSelect = {
       sellerCreditTransferId: true,
       clawbackIdempotencyKey: true,
       creditIdempotencyKey: true,
+      sellerRecoveredCents: true,
+      writtenOffCents: true,
     },
     orderBy: { createdAt: "asc" },
   },

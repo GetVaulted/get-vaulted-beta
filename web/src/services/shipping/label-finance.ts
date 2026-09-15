@@ -217,6 +217,8 @@ export async function recalculateOrderLabelFinanceSummary(
       sellerCreditTransferId: true,
       clawbackIdempotencyKey: true,
       creditIdempotencyKey: true,
+      sellerRecoveredCents: true,
+      writtenOffCents: true,
     },
   });
 
