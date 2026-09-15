@@ -1,5 +1,5 @@
 diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
-index 7f05628..5075a08 100644
+index 7f05628..d421882 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
 +++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoRealtimeIvsBroadcastModule.kt
 @@ -73,6 +73,10 @@ class ExpoRealtimeIvsBroadcastModule : Module(), IVSStageManagerDelegate, Pictur
@@ -54,18 +54,34 @@ index 7f05628..5075a08 100644
 +    }
  }
 diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
-index b1047d4..fb89e4e 100644
+index b1047d4..8c97830 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
 +++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
-@@ -1,6 +1,7 @@
+@@ -1,6 +1,8 @@
  package expo.modules.realtimeivsbroadcast
  
++import android.app.ActivityManager
  import android.content.Context
 +import android.media.AudioManager
  import android.os.Build
  import android.os.Handler
  import android.os.Looper
-@@ -94,7 +95,28 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+@@ -41,6 +43,14 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+     private val previewViews = mutableListOf<WeakReference<ExpoIVSStagePreviewView>>()
+     private var targetParticipantId: String? = null
+ 
++    // Cap concurrent remote video decode subscriptions. Every AUDIO_VIDEO subscription spins up a
++    // real MediaCodec decoder in the SDK; unconditionally subscribing every remote participant's
++    // video regardless of whether it is ever rendered exhausts decoder resources and native memory
++    // as headcount grows, which is the direct cause of MediaCodec OOM crashes in the decode path
++    // (AndroidVideoDecoder.deliverDecodedFrame -> MediaCodec.dequeueOutputBuffer). Participants
++    // beyond the cap still get audio, just not decoded video, until a slot frees up.
++    private val maxConcurrentVideoSubscriptions = 6
++
+     companion object {
+         @JvmStatic
+         var instance: IVSStageManager? = null
+@@ -94,7 +104,40 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
          Log.i("ExpoIVSStageManager", "✅ IVSStageManager: Local streams initialized.")
      }
  
@@ -87,6 +103,18 @@ index b1047d4..fb89e4e 100644
 +        }
 +    }
 +
++    /**
++     * True for devices where a high-res/high-bitrate real-time publish risks OOM: the OS's own
++     * "low RAM device" flag, or a small per-app heap ceiling (memoryClass) as a second signal
++     * since isLowRamDevice() alone is coarse on some OEM builds.
++     */
++    private fun isConstrainedMemoryDevice(): Boolean {
++        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
++        val lowRamFlagged = am.isLowRamDevice
++        val smallHeap = am.memoryClass <= 192
++        return lowRamFlagged || smallHeap
++    }
++
      fun initializeStage(audioConfig: StageAudioConfiguration? = null, videoConfig: StageVideoConfiguration? = null) {
 +        // Default to studio (media volume) before any DeviceDiscovery/Stage creation.
 +        setAudioPreset("studio")
@@ -94,22 +122,44 @@ index b1047d4..fb89e4e 100644
          // Setup audio configuration
          val audioConfiguration = StageAudioConfiguration()
          val finalAudioConfig = audioConfig ?: audioConfiguration
-@@ -103,9 +125,11 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+@@ -103,14 +146,29 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
          // Setup video configuration
          val videoConfiguration = StageVideoConfiguration()
          val finalVideoConfig = videoConfig ?: videoConfiguration
 -        finalVideoConfig.targetFramerate?.let { (it as? Number)?.toInt()?.let { fr -> finalVideoConfig.targetFramerate = fr } }
 -        finalVideoConfig.maxBitrate?.let { (it as? Number)?.toInt()?.let { br -> finalVideoConfig.maxBitrate = br } }
 -        finalVideoConfig.minBitrate?.let { (it as? Number)?.toInt()?.let { br -> finalVideoConfig.minBitrate = br } }
+-        finalVideoConfig.setSize(
+-            BroadcastConfiguration.Vec2(
+-                720F, 1280F
 +        // High-quality real-time publish: raise the ceiling above the IVS SDK default so the feed
 +        // is sharp and smooth on strong networks. WebRTC still adapts down on weak uplinks to keep
 +        // latency sub-second. Real-time is billed per participant-minute, so higher bitrate is free.
++        // Devices the OS itself flags as memory-constrained get a lower ceiling instead, to reduce
++        // OOM risk in the capture/encode pipeline.
++        val constrainedDevice = isConstrainedMemoryDevice()
 +        finalVideoConfig.targetFramerate = 30
-+        finalVideoConfig.maxBitrate = 2_500_000
-         finalVideoConfig.setSize(
-             BroadcastConfiguration.Vec2(
-                 720F, 1280F
-@@ -139,6 +163,41 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
++        if (constrainedDevice) {
++            finalVideoConfig.maxBitrate = 1_200_000
++            finalVideoConfig.setSize(
++                BroadcastConfiguration.Vec2(
++                    540F, 960F
++                )
++            )
++            Log.i("ExpoIVSStageManager", "Constrained-memory device detected - using reduced publish config (540x960 @ 1.2Mbps)")
++        } else {
++            finalVideoConfig.maxBitrate = 2_500_000
++            finalVideoConfig.setSize(
++                BroadcastConfiguration.Vec2(
++                    720F, 1280F
++                )
+             )
+-        )
++        }
+ 
+         this.stageConfiguration.audioConfiguration = finalAudioConfig
+         this.stageConfiguration.videoConfiguration = finalVideoConfig
+@@ -139,6 +197,41 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
          setStreamsPublished(false)
          stage?.leave()
          stage = null
@@ -151,7 +201,7 @@ index b1047d4..fb89e4e 100644
      }
  
      /// Fully releases camera and microphone hardware resources.
-@@ -176,6 +235,15 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+@@ -176,6 +269,15 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
          Log.i("ExpoIVSStageManager", "✅ Microphone muted: $muted")
      }
  
@@ -167,8 +217,40 @@ index b1047d4..fb89e4e 100644
      fun swapCamera() {
          if (cameraStream == null) {
              Log.e("ExpoIVSStageManager", "❌ Cannot swap camera, stream not initialized.")
+@@ -352,7 +454,10 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+     }
+ 
+     override fun shouldSubscribeToParticipant(stage: Stage, participantInfo: ParticipantInfo): Stage.SubscribeType {
+-        return if (participantInfo.isLocal) Stage.SubscribeType.NONE else Stage.SubscribeType.AUDIO_VIDEO
++        if (participantInfo.isLocal) return Stage.SubscribeType.NONE
++        val index = participants.indexOfFirst { it.info.participantId == participantInfo.participantId }
++        val withinVideoCap = index in 0 until maxConcurrentVideoSubscriptions
++        return if (withinVideoCap) Stage.SubscribeType.AUDIO_VIDEO else Stage.SubscribeType.AUDIO_ONLY
+     }
+ 
+     // MARK: - Stage.Renderer Implementation
+@@ -375,6 +480,9 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+     override fun onParticipantJoined(stage: Stage, participantInfo: ParticipantInfo) {
+         if (participantInfo.isLocal) return
+         participants.add(StageParticipant(info = participantInfo))
++        // Re-evaluate shouldSubscribeToParticipant now that this participant has a known index -
++        // it may have been queried (and defaulted to audio-only) before this callback ran.
++        stage.refreshStrategy()
+         delegate?.stageManagerDidEmitEvent("onParticipantJoined", mapOf("participantId" to participantInfo.participantId))
+         Log.i("ExpoIVSStageManager", "✅ Renderer: Participant joined: ${participantInfo.participantId}")
+     }
+@@ -394,6 +502,9 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+         }
+ 
+         participants.removeAll { it.info.participantId == participantInfo.participantId }
++        // A video slot may have freed up - let the next participant in line get promoted to
++        // AUDIO_VIDEO.
++        stage.refreshStrategy()
+         delegate?.stageManagerDidEmitEvent("onParticipantLeft", mapOf("participantId" to participantInfo.participantId))
+         Log.i("ExpoIVSStageManager", "✅ Renderer: Participant left: ${participantInfo.participantId}")
+     }
 diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/PictureInPictureManager.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/PictureInPictureManager.kt
-index 422d078..7fd653c
+index 422d078..465bb35 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/PictureInPictureManager.kt
 +++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/PictureInPictureManager.kt
 @@ -35,6 +35,16 @@ data class PiPOptions(
@@ -206,7 +288,7 @@ index 422d078..7fd653c
          }
      }
 diff --git a/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts b/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts
-index 7173e36..9da7603 100644
+index 7173e36..fc207ec 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts
 +++ b/node_modules/expo-realtime-ivs-broadcast/build/index.d.ts
 @@ -5,6 +5,7 @@ export { ExpoIVSStagePreviewView } from './ExpoIVSStagePreviewView';
@@ -237,7 +319,7 @@ index 7173e36..9da7603 100644
  /**
   * Mute or unmute the camera.
 diff --git a/node_modules/expo-realtime-ivs-broadcast/build/index.js b/node_modules/expo-realtime-ivs-broadcast/build/index.js
-index eda6386..8b60883 100644
+index eda6386..ca53483 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/build/index.js
 +++ b/node_modules/expo-realtime-ivs-broadcast/build/index.js
 @@ -10,6 +10,9 @@ export { useStageParticipants } from './useStageParticipants';
@@ -281,7 +363,7 @@ index eda6386..8b60883 100644
      return await ExpoRealtimeIvsBroadcastModule.setMicrophoneMuted(muted);
  }
 diff --git a/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift b/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift
-index 8aafd8a..78dd9a2 100644
+index 8aafd8a..b6b2102 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift
 +++ b/node_modules/expo-realtime-ivs-broadcast/ios/ExpoRealtimeIvsBroadcastModule.swift
 @@ -32,6 +32,10 @@ public class ExpoRealtimeIvsBroadcastModule: Module, IVSStageManagerDelegate {
@@ -327,14 +409,13 @@ index 8aafd8a..78dd9a2 100644
        self.ivsStageManager?.setMicrophoneMuted(muted: muted)
      }
 diff --git a/node_modules/expo-realtime-ivs-broadcast/ios/IVSPictureInPictureController.swift b/node_modules/expo-realtime-ivs-broadcast/ios/IVSPictureInPictureController.swift
-index 71d368a..933987a 100644
+index 71d368a..135aff9 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/ios/IVSPictureInPictureController.swift
 +++ b/node_modules/expo-realtime-ivs-broadcast/ios/IVSPictureInPictureController.swift
-@@ -445,6 +445,14 @@ public class IVSPictureInPictureController: NSObject {
-             }
+@@ -446,6 +446,14 @@ public class IVSPictureInPictureController: NSObject {
              return
          }
-+
+ 
 +        // Amazon IVS remote Stage PiP: must use AVPictureInPictureController(ivsImagePreviewView:).
 +        // The generic Video-Call / sample-buffer path keeps audio but paints black video in background.
 +        if options.sourceView == .remote,
@@ -342,14 +423,14 @@ index 71d368a..933987a 100644
 +            setupWithOfficialIVSRemotePreview(ivsPreview)
 +            return
 +        }
-         
++        
          guard let pipVideoCallVC = pipVideoCallViewController else {
              print("🖼️ [PiP] Error: Must call enable() before setupWithSourceView()")
-@@ -474,6 +482,68 @@ public class IVSPictureInPictureController: NSObject {
-         
+             return
+@@ -475,6 +483,68 @@ public class IVSPictureInPictureController: NSObject {
          completeSetupWithSourceView(sourceView, pipVideoCallVC: pipVideoCallVC)
      }
-+
+ 
 +    /// Pull the real IVSImagePreviewView out of an Expo wrapper or direct reference.
 +    private func resolveIVSImagePreviewView(from view: UIView) -> IVSImagePreviewView? {
 +        if let preview = view as? IVSImagePreviewView {
@@ -411,26 +492,27 @@ index 71d368a..933987a 100644
 +        print("🖼️ [PiP] isPictureInPicturePossible: \(controller.isPictureInPicturePossible)")
 +        print("🖼️ [PiP] autoEnterOnBackground: \(options.autoEnterOnBackground)")
 +    }
-     
++    
      /// Retry setup with exponential backoff
      private func retrySetupWithSourceView(_ sourceView: UIView, pipVideoCallVC: AVPictureInPictureVideoCallViewController, attempt: Int) {
+         let maxAttempts = 10
 diff --git a/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift b/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
-index f92f823..5cc4208 100644
+index f92f823..b7f9ca8 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
 +++ b/node_modules/expo-realtime-ivs-broadcast/ios/IVSStageManager.swift
-@@ -32,6 +32,12 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
-     
+@@ -33,6 +33,12 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
      // Available cameras discovered via AVFoundation
      private(set) var availableCameras: [AVCaptureDevice] = []
-+
+ 
 +    // Ultra-wide (0.5x) cameras, tracked separately so the front/back swap logic keeps using the
 +    // standard wide lens while zoom-out can opt into the ultra-wide lens.
 +    private var ultraWideCameras: [AVCaptureDevice] = []
 +    private(set) var currentZoomFactor: Double = 1.0
 +    private var usingUltraWide: Bool = false
-     
++    
      // Camera mute state (sends placeholder frames when muted)
      private(set) var isCameraMuted: Bool = false
+     private var placeholderTimer: Timer?
 @@ -44,6 +50,17 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
      override init() {
          super.init()
@@ -458,11 +540,10 @@ index f92f823..5cc4208 100644
                  print("📸 [CustomCameraCapture] ✅ Added camera input: \(camera.localizedName)")
              } else {
                  print("📸 [CustomCameraCapture] ❌ Cannot add camera input")
-@@ -229,6 +248,85 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
-         
+@@ -230,6 +249,85 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
          return success
      }
-+
+ 
 +    // MARK: - Zoom / lens control
 +
 +    /// Zoom stops the current position supports, e.g. [0.5, 1, 2, 3]. 0.5 is offered only when an
@@ -541,9 +622,10 @@ index f92f823..5cc4208 100644
 +        print("📸 [CustomCameraCapture] ✅ Zoom set to \(factor) (ultraWide=\(wantUltraWide))")
 +        return true
 +    }
-     
++    
      // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
      
+     private var captureFrameCount: Int = 0
 @@ -624,13 +722,23 @@ class IVSStageManager: NSObject, IVSStageStreamDelegate, IVSStageStrategy, IVSSt
      }
  
@@ -780,7 +862,7 @@ index f92f823..5cc4208 100644
                      } else {
                          print("🖼️ [PiP] No remote views available yet - will retry when view registers")
 diff --git a/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts b/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
-index b5f4c71..69dca24 100644
+index b5f4c71..9afc21a 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
 +++ b/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
 @@ -6,12 +6,16 @@ import { LocalAudioConfig, LocalVideoConfig, PermissionStatusMap, ExpoRealtimeIv
@@ -801,7 +883,7 @@ index b5f4c71..69dca24 100644
    setCameraMuted(muted: boolean, placeholderText?: string | null): Promise<void>;
    isCameraMuted(): Promise<boolean>;
 diff --git a/node_modules/expo-realtime-ivs-broadcast/src/index.ts b/node_modules/expo-realtime-ivs-broadcast/src/index.ts
-index a6c36ed..ff9f729 100644
+index a6c36ed..c513d93 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/src/index.ts
 +++ b/node_modules/expo-realtime-ivs-broadcast/src/index.ts
 @@ -32,6 +32,15 @@ export async function initializeStage(audioConfig?: LocalAudioConfig, videoConfi
