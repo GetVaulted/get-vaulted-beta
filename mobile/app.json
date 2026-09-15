@@ -5,6 +5,12 @@
     "version": "1.0.12",
     "scheme": "getvaulted",
     "orientation": "portrait",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/6119563c-2c33-4ada-b3f4-8c42b8e2be7c"
+    },
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
@@ -107,6 +113,7 @@
       "favicon": "./assets/icon.png"
     },
     "plugins": [
+      "expo-updates",
       [
         "expo-image-picker",
         {

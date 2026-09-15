@@ -229,6 +229,55 @@ npm run release:submit
 | `preview` | internal | TestFlight / Play internal testing |
 | `production` | store | App Store + Play production releases |
 
+## Over-the-air updates (EAS Update)
+
+JS/TS/asset-only changes (no new native dependency, no native config change, no Expo SDK bump)
+can ship to installed apps via `eas update` — **no App Review, no Play review, users get it on
+their next cold start.** Set up once via `runtimeVersion: { policy: "fingerprint" }` in
+`app.json` — EAS computes a fingerprint of the native code at build time, so a binary only
+accepts an OTA update whose JS was built against the *same* native code. This is why "will it
+update without submission" only works for non-native changes: anything that changes the
+fingerprint (new native module, permission, SDK bump) makes EAS Update refuse to serve the
+update to that binary — it just waits for the next real build, which is the safety net that
+keeps OTA from ever pushing JS that doesn't match what's compiled into the app.
+
+**One-time requirement:** everyone needs a binary built *after* this OTA setup landed (i.e. any
+build from `release:build` / `eas build` going forward, once `expo-updates` is installed).
+Existing installs on older binaries can't retroactively gain OTA — they pick it up the normal
+way, via their next store update.
+
+### Publishing an update
+
+```powershell
+npm run update:preview      # ships to whoever has a `preview` (internal/TestFlight) build
+npm run update:production   # ships to production App Store / Play installs
+```
+
+Both run `release:check` (typecheck + tests) first. Add a message:
+
+```powershell
+npm run update:production -- --message "Fix PYT host pin unpin"
+```
+
+### When you still need a real build instead
+
+- Added or upgraded a native dependency (anything with native code, not pure JS)
+- Changed a native `app.json` field (permissions, icons/splash, plugin config, bundle id, etc.)
+- Bumped the Expo SDK version
+
+Any of those changes the native fingerprint, so `eas update` will build fine but the already
+-installed binaries won't accept it — you'll need `release:build` + `release:submit` (or the
+`preview` profile for internal testers) instead, same as before.
+
+### Rolling back a bad OTA update
+
+```powershell
+eas update --branch production --republish --group <previous-update-group-id>
+```
+
+Find `<previous-update-group-id>` from `eas update:list --branch production` or the Updates
+dashboard on expo.dev.
+
 ## Quick command reference
 
 | Goal | Command |
@@ -240,3 +289,5 @@ npm run release:submit
 | Submit both (production) | `npm run release:submit` |
 | Build both (internal) | `eas build --platform all --profile preview` |
 | Submit Android internal | `eas submit --platform android --profile preview --latest` |
+| OTA update (preview) | `npm run update:preview` |
+| OTA update (production) | `npm run update:production` |
