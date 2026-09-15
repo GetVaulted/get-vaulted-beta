@@ -68,10 +68,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   }
 
   const pending = isOwner ? await prisma.offer.count({ where: { listingId: row.id, status: "pending" } }) : 0;
-  const bc =
+  const [bc, sellerCompletedOrderCount] = await Promise.all([
     row.buyingFormat === "auction"
-      ? await prisma.bid.count({ where: { listingId: row.id } })
-      : undefined;
+      ? prisma.bid.count({ where: { listingId: row.id } })
+      : Promise.resolve(undefined),
+    prisma.order.count({ where: { sellerId: row.sellerId } }),
+  ]);
   let auctionPaymentDeadlineIso: string | null | undefined;
   if (isOwner && row.status === "awaiting_auction_payment") {
     const ord = await prisma.order.findUnique({
@@ -85,11 +87,19 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       ? await getLatestEndRequestForListing(row.id)
       : null;
 
+  const marketplace = isDetailVisible
+    ? {
+        ...dbListingToMarketplace(row, bc != null ? { bidCount: bc } : undefined),
+        sellerCompletedOrderCount,
+      }
+    : null;
+
   return NextResponse.json({
-    marketplace: isDetailVisible ? dbListingToMarketplace(row, bc != null ? { bidCount: bc } : undefined) : null,
+    marketplace,
     stored: isOwner ? dbListingToStored(row, pending, bc, { auctionPaymentDeadlineIso }) : null,
     bidCount: isOwner && row.buyingFormat === "auction" ? bc ?? 0 : undefined,
     endRequest: isOwner ? endRequest : null,
+    sellerCompletedOrderCount: isDetailVisible ? sellerCompletedOrderCount : undefined,
   });
 }
 

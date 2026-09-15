@@ -30,14 +30,14 @@ export async function notifyLiveAuctionWinPaymentOutcome(args: {
       : `You won "${titleShort}" at ${priceStr}. We could not charge your card. Update your payment method in the show before the host continues.`;
 
   const sellerTitle = paid
-    ? "Auction ended — paid"
+    ? "Auction ended — approved"
     : paymentFailed
-      ? "Auction ended — payment failed"
+      ? "Auction ended — declined"
       : "Auction ended — payment pending";
   const sellerBody = paid
     ? `Payment received for "${titleShort}".`
     : paymentFailed
-      ? `Auto-charge failed for "${titleShort}". The winner must update payment before you start the next lot.`
+      ? `Auto-charge declined for "${titleShort}". The winner must update payment before you start the next lot.`
       : needsAuth
         ? `The winner may need to complete authentication for "${titleShort}".`
         : `Winner must update payment for "${titleShort}" before the show continues.`;

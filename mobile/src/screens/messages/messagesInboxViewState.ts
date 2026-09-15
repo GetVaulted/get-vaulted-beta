@@ -1,3 +1,5 @@
+import { friendlyErrorText } from '../../lib/friendlyErrorText';
+
 export type MessagesInboxViewState = 'loading' | 'error' | 'empty' | 'list';
 
 /**
@@ -20,6 +22,5 @@ export function deriveMessagesInboxViewState(params: {
 
 /** Friendly copy for the inline error state — falls back when the thrown error has no message. */
 export function describeInboxLoadError(e: unknown): string {
-  if (e instanceof Error && e.message.trim()) return e.message.trim();
-  return "Couldn't load your messages.";
+  return friendlyErrorText(e, "Couldn't load your messages.");
 }

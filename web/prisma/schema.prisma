@@ -48,6 +48,13 @@ enum UserRole {
   admin
 }
 
+/// Client platform reporting signed-in app presence heartbeats.
+enum AppPresencePlatform {
+  ios
+  android
+  web
+}
+
 enum LiveRoomType {
   auction
   sale
@@ -99,6 +106,8 @@ enum LiveItemSalesFormat {
   buy_now
   variant_selection
   team_break
+  /// Host-defined player list (Pick Your Player / Random Player).
+  player_selection
 }
 
 /// PYT/PYD spot board default — hybrid lets host run fixed checkout or timed auction per pin.
@@ -123,6 +132,8 @@ enum LiveItemVariantStatus {
   available
   reserved
   sold_out
+  /// Host removed team from the board without a sale (not counted in Show sales).
+  removed
 }
 
 enum LiveItemVariantPurchaseStatus {
@@ -130,6 +141,31 @@ enum LiveItemVariantPurchaseStatus {
   paid
   failed
   cancelled
+}
+
+/// How the buyer paid the seller outside Get Vaulted (host-recorded).
+enum OffPlatformSettlementMethod {
+  venmo
+  paypal
+  cash_app
+  cash
+  zelle
+  other
+}
+
+/// Required when an off-platform mark-sold is recorded at $0.
+enum OffPlatformZeroReason {
+  giveaway
+  comp
+  mistake
+  other
+}
+
+/// Platform fee owed by the seller for an off-platform sale.
+enum OffPlatformPlatformFeeStatus {
+  unpaid
+  paid
+  waived
 }
 
 enum LiveRoomPaymentFailureStatus {
@@ -151,6 +187,8 @@ enum LiveRoomMessageType {
   purchase
   system
   tip
+  /** Host/mod only — never returned or broadcast to buyers. */
+  staff
 }
 
 enum TipRecipientMode {
@@ -182,6 +220,7 @@ enum TeamBoardLeague {
   nfl
   nba
   mlb
+  nhl
 }
 
 /// How marketplace order payment is collected.
@@ -459,6 +498,23 @@ enum DisputeEvidenceStatus {
   failed
 }
 
+/// IVS auto-recording lifecycle for a finished live show.
+enum LiveStreamRecordingStatus {
+  pending
+  recording
+  ready
+  failed
+  expired
+}
+
+/// Admin ZIP archive of an S3 HLS recording package.
+enum LiveStreamArchiveStatus {
+  none
+  preparing
+  ready
+  failed
+}
+
 enum ShippingCategory {
   raw_card
   slab
@@ -485,6 +541,7 @@ enum TradeOfferStatus {
   countered
   accepted
   completed
+  disputed
   declined
   cancelled
   expired
@@ -502,6 +559,19 @@ enum TradeOfferEventType {
   offer_declined
   offer_cancelled
   offer_expired
+  platform_fee_paid
+  cash_paid
+  shipping_label_purchased
+  shipping_label_failed
+  party_shipped
+  party_received
+  offer_completed
+  dispute_opened
+  cash_released
+  cash_refunded
+  dispute_resolved
+  deposit_paid
+  deposit_refunded
 }
 
 model User {
@@ -516,6 +586,14 @@ model User {
   suspendedAt                   DateTime?
   /// Stripe Connect Express / Standard connected account id (`acct_...`).
   stripeAccountId               String?
+  /// Seller preference: Stripe Connect (default) vs PayPal Payouts at release.
+  preferredSellerPayoutProcessor SellerPayoutProcessor      @default(STRIPE)
+  /// PayPal email that receives seller payouts when preference is PAYPAL.
+  paypalPayoutEmail             String?
+  /// Set when the PayPal payout email is confirmed / linked for payouts.
+  paypalPayoutVerifiedAt        DateTime?
+  /// Optional PayPal merchant / payer id after OAuth link.
+  paypalMerchantId              String?
   /// True when Stripe reports charges enabled and payouts ready for selling.
   stripeOnboardingComplete      Boolean                     @default(false)
   /// Mirrors Stripe Account.charges_enabled (Connect).
@@ -528,6 +606,26 @@ model User {
   stripeVerificationStatus      String?
   /// Stripe Customer id (`cus_...`) for buyer saved payment methods (auction / checkout).
   stripeCustomerId              String?
+  /// PayPal vault customer id when buyer linked Venmo / PayPal wallet.
+  paypalBuyerCustomerId         String?
+  /// Vaulted Venmo payment token id (PayPal `/v3/vault/payment-tokens`).
+  venmoPaymentTokenId           String?
+  venmoUsername                 String?
+  venmoVaultedAt                DateTime?
+  /// Pending Venmo setup token while buyer completes PayPal/Venmo approval.
+  venmoPendingSetupTokenId      String?
+  venmoPendingSetupNonce        String?
+  venmoPendingSetupMobile       Boolean                     @default(false)
+  /// Vaulted PayPal Wallet payment token id (PayPal `/v3/vault/payment-tokens`).
+  paypalWalletPaymentTokenId    String?
+  paypalWalletEmail             String?
+  paypalWalletVaultedAt         DateTime?
+  /// Pending PayPal Wallet setup while buyer completes approval.
+  paypalPendingSetupTokenId     String?
+  paypalPendingSetupNonce       String?
+  paypalPendingSetupMobile      Boolean                     @default(false)
+  /// Preferred wallet instrument: Stripe `pm_…`, `venmo_<tokenId>`, or `paypal_<tokenId>`.
+  buyerDefaultWalletPaymentMethodId String?
   /// Seller ship-from (origin) for Shippo label purchase.
   shipFromName                  String?
   shipFromStreet                String?
@@ -675,6 +773,27 @@ model User {
   sellerShippingProfiles             SellerShippingProfile[]
   notificationBroadcastsSent         NotificationBroadcast[]     @relation("NotificationBroadcastCreatedBy")
   referralCredits                    ReferralCredit[]            @relation("ReferralCreditOwner")
+  platformCredits                    PlatformCredit[]            @relation("PlatformCreditOwner")
+  giveawayEntryLedgers               GiveawayEntryLedger[]
+  giveawayFraudFlags                 GiveawayFraudFlag[]
+  giveawayCampaignsWon               GiveawayCampaign[]          @relation("GiveawayCampaignWinner")
+  giveawayDrawsWon                   GiveawayDraw[]              @relation("GiveawayDrawWinner")
+  giveawayDrawsAsAdmin               GiveawayDraw[]              @relation("GiveawayDrawAdmin")
+  appPresence                        UserAppPresence[]
+}
+
+/// Signed-in foreground heartbeat for admin “online now” (one row per user + platform).
+model UserAppPresence {
+  id         String              @id @default(cuid())
+  userId     String
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform   AppPresencePlatform
+  lastSeenAt DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  @@unique([userId, platform])
+  @@index([lastSeenAt])
+  @@index([platform, lastSeenAt])
 }
 
 /// Single-use email verification OTP for signup (hashed at rest; expires).
@@ -936,12 +1055,72 @@ model TradeOffer {
   status             TradeOfferStatus @default(pending)
   proposerCashUsd    Float            @default(0)
   recipientCashUsd   Float            @default(0)
+  /// When the cash adder paid the on-platform trade cash Checkout (Stripe). Held by platform until release.
+  cashPaidAt         DateTime?
+  cashCheckoutSessionId String?
+  cashPaymentIntentId   String?
+  /// When held trade cash was transferred to the payee (after both confirm receipt or admin release).
+  cashReleasedAt     DateTime?
+  cashTransferId     String?
+  /// When held trade cash was refunded to the payer (dispute / admin).
+  cashRefundedAt     DateTime?
+  cashRefundId       String?
+  cashReleaseError   String?
+  /// Participant opened a cash/fulfillment dispute — freezes completion and cash release.
+  disputedAt         DateTime?
+  disputeOpenedByUserId String?
+  disputeReason      String?
+  /// Refundable security deposit (straight / $0-cash trades). Platform-held until both confirm or admin refunds.
+  proposerDepositPaidAt DateTime?
+  recipientDepositPaidAt DateTime?
+  proposerDepositCheckoutSessionId String?
+  recipientDepositCheckoutSessionId String?
+  proposerDepositPaymentIntentId String?
+  recipientDepositPaymentIntentId String?
+  proposerDepositRefundedAt DateTime?
+  recipientDepositRefundedAt DateTime?
+  proposerDepositRefundId String?
+  recipientDepositRefundId String?
+  /// Locked refundable deposit amount (cents) for both parties — set on first deposit checkout.
+  securityDepositCents Int?
   messageToRecipient String?
-  // Future hook only: optional trade-linked conversation id.
-  // MVP keeps chat disabled; structured offer state + timeline are authoritative.
-  // Any future messaging must remain participant-scoped from the trade detail page.
+  // Optional trade-linked conversation id (participant-scoped from the trade detail page).
+  // Structured offer state + timeline remain authoritative for terms.
   conversationId     String?
   expiresAt          DateTime?
+  /// When the proposer paid the $2.99 Get Vaulted platform fee.
+  proposerPlatformFeePaidAt DateTime?
+  /// When the recipient paid the $2.99 Get Vaulted platform fee.
+  recipientPlatformFeePaidAt DateTime?
+  proposerPlatformFeeCheckoutSessionId String?
+  recipientPlatformFeeCheckoutSessionId String?
+  /// Shipping portion charged (cents) in the combined platform-fee + label checkout.
+  proposerShippingChargedCents Int?
+  recipientShippingChargedCents Int?
+  proposerShippoShipmentId String?
+  recipientShippoShipmentId String?
+  proposerShippoRateObjectId String?
+  recipientShippoRateObjectId String?
+  proposerShippoTransactionId String?
+  recipientShippoTransactionId String?
+  proposerLabelUrl String?
+  recipientLabelUrl String?
+  proposerTrackingNumber String?
+  recipientTrackingNumber String?
+  proposerTrackingUrl String?
+  recipientTrackingUrl String?
+  proposerLabelPurchasedAt DateTime?
+  recipientLabelPurchasedAt DateTime?
+  proposerLabelErrorMessage String?
+  recipientLabelErrorMessage String?
+  /// When this party marked their outbound package as shipped.
+  proposerShippedAt DateTime?
+  recipientShippedAt DateTime?
+  /// When this party confirmed they received the counterparty's package.
+  proposerReceivedAt DateTime?
+  recipientReceivedAt DateTime?
+  /// Optional parcel tier for outbound quotes (defaults to cards_slabs).
+  shippingWeightTier String?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
@@ -999,7 +1178,10 @@ model LiveRoom {
   sellerId                String
   seller                  User                        @relation(fields: [sellerId], references: [id], onDelete: Cascade)
   title                   String
+  /// Public schedule / discovery blurb (not in-room show notes).
   description             String                      @default("")
+  /// In-room show notes for people who enter the show (not discovery/share).
+  showNotes               String                      @default("")
   /// Browse / filter bucket (matches live directory chips)
   category                String                      @default("Other")
   roomType                LiveRoomType
@@ -1007,7 +1189,13 @@ model LiveRoom {
   /// `public` = listed on Live Shows; `private` = reachable only via shared link.
   discoveryVisibility     LiveRoomDiscoveryVisibility @default(public)
   thumbnailUrl            String                      @default("")
+  /// Short looping promo video (seller-uploaded) shown in scheduled rooms before go-live.
+  teaserVideoUrl          String?
+  /// Teaser length in milliseconds (validated on upload; max 15s).
+  teaserVideoDurationMs   Int?
   viewerCount             Int                         @default(0)
+  /// Last time `viewerCount` was written from live presence. Null / stale → discovery shows 0.
+  viewerCountUpdatedAt    DateTime?
   streamProvider          LiveStreamProvider          @default(none)
   streamMode              LiveStreamMode              @default(stage_webrtc)
   streamHealth            LiveStreamHealth            @default(not_provisioned)
@@ -1025,6 +1213,21 @@ model LiveRoom {
   streamEndedAt           DateTime?
   lastIvsStatusSyncAt     DateTime?
   lastIvsError            String?
+  /// When the host's WebRTC publisher was first detected absent while the room is still `live`.
+  /// Cleared when a publisher returns; drives zombie-room auto-recovery. Null when host is present.
+  hostAbsentSince         DateTime?
+  /// Set when the T−15 host “get ready” notification was sent. Cleared if `scheduledStartAt` changes.
+  hostPreStartNotifiedAt  DateTime?
+  /// Set when the T−30 host reminder push was sent. Cleared if `scheduledStartAt` changes.
+  hostT30NotifiedAt       DateTime?
+  /// Set when the T−5 host reminder push was sent. Cleared if `scheduledStartAt` changes.
+  hostT5NotifiedAt        DateTime?
+  /// Set when the T-0 "time to go live" push was sent. Cleared if `scheduledStartAt` changes.
+  hostGoLiveNotifiedAt    DateTime?
+  /// Set when a scheduled show was auto-cancelled (status → `ended`) for never going live within
+  /// an hour of `scheduledStartAt`. Distinguishes a no-show auto-cancel from a normal completed
+  /// show or a seller/admin-initiated cancel, both of which also land on `ended`.
+  autoCancelledAt         DateTime?
   /// SHA-256 hash of OBS browser-source widget token (plain token shown once on rotate).
   obsWidgetTokenHash      String?
   obsWidgetTokenRotatedAt DateTime?
@@ -1110,9 +1313,18 @@ model LiveRoom {
   /// When true, seller absorbs shipping above buyer cap (default platform behavior).
   sellerPaysOverCap              Boolean                   @default(true)
 
+  /// Auto-detected at creation (same seller, same roomType, ended within the continuation window —
+  /// see `findRecentEndedLiveRoomIdForContinuation`): when a seller ends a stream mid-break and
+  /// starts a new one shortly after, the new show is linked to the old one so a returning buyer's
+  /// live-show shipping cap carries forward instead of resetting to $0. No seller action required.
+  continuationOfLiveRoomId String?
+  continuationOf           LiveRoom?  @relation("LiveRoomContinuation", fields: [continuationOfLiveRoomId], references: [id], onDelete: SetNull)
+  continuations            LiveRoom[] @relation("LiveRoomContinuation")
+
   @@index([sellerId, status])
   @@index([status, scheduledStartAt])
   @@index([tipModeratorId])
+  @@index([continuationOfLiveRoomId])
 }
 
 /// Viewer tip during a live show — tracked separately from item/break sales (no platform fee, no GMV tier impact).
@@ -1270,6 +1482,10 @@ model LiveRoomItem {
   sortOrder                   Int                            @default(0)
   /// NFL break: when true, MISC appears on the team board while this item is active.
   teamBoardMisc               Boolean                        @default(false)
+  /// NFL PYT: when true, an NCAA buyable spot is included and NCAA appears on the team board.
+  teamBoardNcaa               Boolean                        @default(false)
+  /// Custom random-reveal pool labels (Pick Your Player random). JSON string array.
+  customRandomPoolLabels      Json?
   /// Monotonic item-state version for realtime ordering/reconciliation.
   itemVersion                 Int                            @default(0)
   /// When the lot is `active`, host must set this true (via Start) before buyers can bid / claim for timed window.
@@ -1362,8 +1578,23 @@ model LiveItemVariantPurchase {
   /// Wheel-assigned team/division label (random assignment mode).
   revealedLabel           String?
   revealedAbbr            String?
-  fulfillmentOrderId      String?                       @unique
+  /// Shared id when multiple spots are paid in one checkout (one Order / one PaymentIntent).
+  batchId                 String?
+  /// Shared across a batch; not unique so N purchases can point at one Order.
+  fulfillmentOrderId      String?
   fulfillmentOrder        Order?                        @relation("VariantPurchaseFulfillmentOrder", fields: [fulfillmentOrderId], references: [id], onDelete: SetNull)
+  /// Host-recorded sale settled outside Get Vaulted (Venmo / Cash App / etc.).
+  settlementChannel       String?
+  offPlatformMethod       OffPlatformSettlementMethod?
+  offPlatformZeroReason   OffPlatformZeroReason?
+  offPlatformNote         String?
+  /// Platform fee the seller owes Get Vaulted for this off-platform sale (USD cents).
+  platformFeeCents        Int?
+  platformFeePercent      Float?
+  platformFeeStatus       OffPlatformPlatformFeeStatus?
+  platformFeePaidAt       DateTime?
+  platformFeeCheckoutSessionId String?
+  platformFeePaymentIntentId   String?
   createdAt               DateTime                      @default(now())
 
   /// Hard DB-level backstop against the random-reveal pool draw racing two concurrent purchases
@@ -1373,6 +1604,9 @@ model LiveItemVariantPurchase {
   @@index([variantId, paymentStatus])
   @@index([liveRoomId, createdAt])
   @@index([buyerId, createdAt])
+  @@index([batchId])
+  @@index([fulfillmentOrderId])
+  @@index([platformFeeStatus, createdAt])
 }
 
 /// Unresolved live-show payment failure — blocks buyer commerce in-room until paid or cleared.
@@ -1577,6 +1811,10 @@ model Order {
   taxAmountCents             Int                        @default(0)
   taxProvider                String?
   stripeTaxCalculationId     String?
+  /// Stripe Tax Transaction id (`tax_…`) created after payment via createFromCalculation.
+  stripeTaxTransactionId     String?
+  /// Stripe Tax Transaction reversal id after a refund that reverses the tax transaction.
+  stripeTaxTransactionReversalId String?
   /// US state code where tax was collected (buyer ship-to jurisdiction).
   taxJurisdictionState       String?
   /// Item subtotal included in tax calculation (cents).
@@ -1624,6 +1862,28 @@ model Order {
   escrowReleaseInFlight      Boolean                    @default(false)
   stripeCheckoutSessionId    String?
   stripePaymentIntentId      String?
+  /// Platform Charge id (`ch_…`) for the buyer payment.
+  stripeChargeId             String?
+  /// Charge BalanceTransaction id (`txn_…`) — source of truth for card processing fee.
+  stripeBalanceTransactionId String?
+  /// Actual Stripe card processing fee from balance_transaction.fee (cents).
+  stripeProcessingFeeCents   Int?
+  /// Application fee amount kept by the platform (cents), from Charge/ApplicationFee when available.
+  /// NOTE: On untaxed Connect charges this may equal platform fee + seller-paid Stripe processing —
+  /// do NOT use as the seller-facing "Get Vaulted fee". Prefer `platformFeeCents` below.
+  stripeApplicationFeeCents  Int?
+  /// Immutable Get Vaulted platform fee (cents) snapshot at charge time — item subtotal only.
+  platformFeeCents           Int?
+  /// Fee percent applied at charge time (e.g. 6.75). Never recompute from today's admin config.
+  platformFeePercentApplied  Float?
+  /// Fee basis in cents at charge time (item subtotal; excludes shipping/tax/tips).
+  platformFeeBasisCents      Int?
+  /// Prior completed live-show GMV (USD) used for tier at charge time. Null for marketplace.
+  platformFeePriorShowGmvUsd Float?
+  /// True when a seller-specific platform fee override was applied at charge time.
+  platformFeeSellerOverrideApplied Boolean @default(false)
+  /// Net to platform balance from the charge BT (cents). Does not include later Tax API usage bills.
+  stripeNetCents             Int?
   /// Payment processor abstraction — Stripe default; PayPal/Venmo when enabled separately.
   paymentProcessor           PaymentProcessor           @default(STRIPE)
   walletPaymentMethodType    WalletPaymentMethodType    @default(card)
@@ -1631,6 +1891,10 @@ model Order {
   processorCustomerId        String?
   processorTransferId        String?
   sellerPayoutProcessor      SellerPayoutProcessor      @default(STRIPE)
+  /// PayPal Payouts fee (cents) when seller rail is PAYPAL; null when unused or unknown.
+  paypalPayoutFeeCents       Int?
+  /// Async PayPal payout lifecycle: pending | success | failed | returned | unclaimed.
+  paypalPayoutStatus         String?
   walletPaymentMethodId      String?
   /// When set (auction win unpaid), buyer must pay before this instant or the order expires.
   paymentDeadlineAt          DateTime?
@@ -1641,7 +1905,7 @@ model Order {
   sellerShipFromAddressId    String?
   sellerShipFromAddress      Address?                   @relation("OrderSellerShipFromAddress", fields: [sellerShipFromAddressId], references: [id], onDelete: SetNull)
   liveShippingSessionItem    LiveShippingSessionItem?
-  variantPurchaseFulfillment LiveItemVariantPurchase?   @relation("VariantPurchaseFulfillmentOrder")
+  variantPurchaseFulfillment LiveItemVariantPurchase[]  @relation("VariantPurchaseFulfillmentOrder")
   breakSpotFulfillment       BreakSpot?                 @relation("BreakSpotFulfillmentOrder")
   inventoryHolds             LiveAuctionInventoryHold[]
   layaway                    Layaway?
@@ -1658,6 +1922,14 @@ model Order {
   shippingChargedCents       Int?
   /// Carrier label price from Shippo (cents) when a label is purchased.
   shippingLabelCostCents     Int?
+  /// Stripe Connect destination-charge transfer id (tr_…) for this order's payment.
+  stripeTransferId           String?
+  /// Latest Stripe transfer reversal id (trr_…) that clawed back a Get Vaulted label cost.
+  shippingLabelCostReversalId String?
+  /// Shippo transaction id that was last successfully charged to the seller (idempotency).
+  shippingLabelCostChargedShippoTransactionId String?
+  /// Cumulative label cost reversed from the seller Connect balance (cents). Used for payout net.
+  shippingLabelCostReversedCents Int                    @default(0)
   /// Seller subsidy when cap/free shipping applies (cents).
   sellerShippingSubsidyCents Int                        @default(0)
   shippingCapApplied         Boolean                    @default(false)
@@ -1675,18 +1947,53 @@ model Order {
   payoutMethod               OrderPayoutMethod          @default(standard)
   payoutReserveAmountCents   Int                        @default(0)
   payoutHoldUntil            DateTime?
+  /// Referral + platform credit applied beyond what the platform fee could absorb (cents) — the
+  /// gap Get Vaulted funds directly so the seller still receives full sale price. Null when no
+  /// shortfall exists on this order.
+  sellerCreditShortfallCents Int?
+  /// Stripe Connect Transfer id (`tr_…`) that funded the shortfall above, once sent.
+  sellerCreditShortfallTransferId String?
+  sellerCreditShortfallFundedAt   DateTime?
+  /// Set when the automatic top-up transfer failed (no Connect account, low platform balance,
+  /// Stripe error) — paired with `payoutStatus = manual_review` so it surfaces in admin queues.
+  sellerCreditShortfallFailedAt   DateTime?
+  sellerCreditShortfallFailureDetail String?
+  sellerCreditShortfallIdempotencyKey String?
   /// When a valid Shippo label was created (instant payout trigger).
   labelCreatedAt             DateTime?
   /// First carrier acceptance scan (fast payout trigger).
   carrierAcceptedAt          DateTime?
   refundRequests             OrderRefundRequest[]
   shipmentPackages           ShipmentPackage[]
+  labelFinances              ShipmentLabelFinance[]
   referralCredits            ReferralCredit[]           @relation("ReferralCreditSourceOrder")
   /// Referral credit applied to this order's charge (USD) — buyer-facing order summary + audit.
   /// Informational only; ledger truth is `ReferralCredit` rows with `spentOrderId` = this order.
   referralCreditAppliedUsd   Float                      @default(0)
+  /// Platform / giveaway store credit applied to this order's charge (USD).
+  platformCreditAppliedUsd   Float                      @default(0)
+  platformCreditsSpent       PlatformCredit[]           @relation("PlatformCreditSpentOrder")
   createdAt                  DateTime                   @default(now())
   updatedAt                  DateTime                   @updatedAt
+  /// When the buyer's payment actually cleared (Stripe charge.created once the async ledger
+  /// backfill runs; a `new Date()` placeholder is written synchronously the moment paymentStatus
+  /// first flips to a paid-bucket value, so this is never null for any order that ever reached
+  /// paid/layaway_completed/refunded/chargeback). Financial reconciliation against Stripe MUST use
+  /// this field, not createdAt — an order can be created well before it's actually paid (deferred
+  /// auction-win payment, saved-card retries, layaway). Operational reports (order lists, seller
+  /// sales history, buyer order history) intentionally keep using createdAt — do not repoint those.
+  /// See web/docs/financial-reconciliation-audit-2026-08.md.
+  paidAt                     DateTime?
+  /// Provenance of `paidAt` — set ONLY when conclusively known:
+  /// - stripe_authoritative: paidAt is the real Stripe Charge.created (persistOrderStripeChargeLedger).
+  /// - created_at_fallback: no recoverable Stripe charge existed (no PaymentIntent, or the Stripe
+  ///   fetch failed) — paidAt was copied from createdAt and must NOT be treated as Stripe-verified.
+  /// Null means "not yet determined" (a placeholder paidAt was just written and the async Stripe
+  /// ledger upgrade hasn't run yet) OR "not applicable" (escrow / $0 giveaway orders, which never
+  /// have a Stripe charge and whose paidAt is a genuine non-Stripe confirmation moment, not a
+  /// fallback copy of createdAt). Never infer Stripe-verification from a null value either way —
+  /// query this field explicitly.
+  paidAtSource               OrderPaidAtSource?
 
   @@index([escrowTransactionId])
   @@index([liveShippingSessionId])
@@ -1699,6 +2006,17 @@ model Order {
   @@index([status, createdAt])
   // processAuctionPaymentExpiries scans unpaid orders past their payment deadline.
   @@index([paymentStatus, paymentDeadlineAt])
+  // Financial reconciliation's payment-date window (admin-reconciliation.ts, prismaSaleAtFilter).
+  @@index([paidAt])
+  // Backfill verification: count STRIPE_AUTHORITATIVE vs CREATED_AT_FALLBACK.
+  @@index([paidAtSource])
+}
+
+/// Provenance tag for Order.paidAt — see the field comment. Financial reconciliation must be able
+/// to tell a real Stripe-verified payment date apart from a createdAt-copied stand-in.
+enum OrderPaidAtSource {
+  stripe_authoritative
+  created_at_fallback
 }
 
 /// Live show order cancel / return refund workflow (buyer request → seller → optional support escalation).
@@ -1725,6 +2043,11 @@ model OrderRefundRequest {
   returnReceivedAt     DateTime?
   refundedAt           DateTime?
   stripeRefundId       String?
+  /// Refund id from whichever processor actually completed this refund — Stripe refund (`re_…`)
+  /// or a PayPal/Venmo capture-refund id. Populated for every processor; `stripeRefundId` above
+  /// stays Stripe-only (kept for backward compatibility with existing tooling that reads it
+  /// directly) rather than being overloaded to also hold non-Stripe ids — see bug #18.
+  processorRefundId    String?
   createdAt            DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
 
@@ -1783,6 +2106,157 @@ model ReferralCredit {
   @@unique([sourceOrderId, role])
   @@index([userId, status])
   @@index([status, availableAt])
+}
+
+// ---------------------------------------------------------------------------
+// Platform giveaway campaigns (site-wide; separate from live-room LiveGiveaway)
+// ---------------------------------------------------------------------------
+
+enum GiveawayCampaignStatus {
+  draft
+  scheduled
+  active
+  paused
+  ended
+  cancelled
+}
+
+enum GiveawayPrizeType {
+  platform_credit
+  cash
+  product
+  custom
+}
+
+enum GiveawayEntryType {
+  existing_user
+  new_signup
+  referral
+  purchase
+  manual_adjustment
+}
+
+enum GiveawayDrawStatus {
+  pending_confirm
+  confirmed
+  superseded
+}
+
+enum PlatformCreditStatus {
+  available
+  reserved
+  spent
+  voided
+}
+
+enum PlatformCreditSourceType {
+  giveaway_prize
+  admin_grant
+}
+
+/// Site-wide giveaway campaign (e.g. $500 Get Vaulted Credit). Configurable from admin.
+model GiveawayCampaign {
+  id                 String                 @id @default(cuid())
+  slug               String                 @unique
+  title              String
+  description        String                 @default("")
+  rulesText          String                 @default("")
+  prizeType          GiveawayPrizeType      @default(platform_credit)
+  prizeAmountUsd     Float                  @default(0)
+  prizeLabel         String                 @default("")
+  prizeMetadata      Json?
+  status             GiveawayCampaignStatus @default(draft)
+  startsAt           DateTime
+  endsAt             DateTime
+  winnerUserId       String?
+  winnerUser         User?                  @relation("GiveawayCampaignWinner", fields: [winnerUserId], references: [id], onDelete: SetNull)
+  winnerConfirmedAt  DateTime?
+  prizeAwardedAt     DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  entries    GiveawayEntryLedger[]
+  fraudFlags GiveawayFraudFlag[]
+  draws      GiveawayDraw[]
+
+  @@index([status, startsAt, endsAt])
+}
+
+/// Append-only entry ledger — never store entry counts on User.
+model GiveawayEntryLedger {
+  id             String            @id @default(cuid())
+  campaignId     String
+  campaign       GiveawayCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entryType      GiveawayEntryType
+  quantity       Int               @default(1)
+  source         String
+  idempotencyKey String            @unique
+  metadata       Json?
+  createdAt      DateTime          @default(now())
+
+  @@index([campaignId, userId])
+  @@index([campaignId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model GiveawayFraudFlag {
+  id         String            @id @default(cuid())
+  campaignId String?
+  campaign   GiveawayCampaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reason     String
+  detail     String            @default("")
+  createdAt  DateTime          @default(now())
+
+  @@index([campaignId, userId])
+  @@index([userId, createdAt])
+  @@unique([campaignId, userId, reason])
+}
+
+model GiveawayDraw {
+  id             String             @id @default(cuid())
+  campaignId     String
+  campaign       GiveawayCampaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  winnerUserId   String
+  winnerUser     User               @relation("GiveawayDrawWinner", fields: [winnerUserId], references: [id], onDelete: Cascade)
+  totalEntries   Int
+  totalEntrants  Int
+  drawSeed       String
+  drawHash       String
+  isRedraw       Boolean            @default(false)
+  redrawReason   String?
+  adminUserId    String
+  adminUser      User               @relation("GiveawayDrawAdmin", fields: [adminUserId], references: [id], onDelete: Cascade)
+  status         GiveawayDrawStatus @default(pending_confirm)
+  createdAt      DateTime           @default(now())
+
+  @@index([campaignId, createdAt])
+}
+
+/// Spendable Get Vaulted Credit (giveaway prizes, admin grants). Not withdrawable.
+model PlatformCredit {
+  id             String                   @id @default(cuid())
+  userId         String
+  user           User                     @relation("PlatformCreditOwner", fields: [userId], references: [id], onDelete: Cascade)
+  amountUsd      Float
+  status         PlatformCreditStatus     @default(available)
+  sourceType     PlatformCreditSourceType
+  sourceRef      String
+  reservedForRef String?
+  reservedAt     DateTime?
+  spentOrderId   String?
+  spentOrder     Order?                   @relation("PlatformCreditSpentOrder", fields: [spentOrderId], references: [id], onDelete: SetNull)
+  spentAt        DateTime?
+  voidedAt       DateTime?
+  voidReason     String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  @@unique([sourceType, sourceRef])
+  @@index([userId, status])
 }
 
 /// Persistent seller metrics for payout tier eligibility and risk review.
@@ -1969,6 +2443,12 @@ model ProcessedStripeEvent {
   processedAt DateTime @default(now())
 }
 
+/// Idempotency for PayPal webhook event ids (payout batch / item notifications).
+model ProcessedPayPalEvent {
+  id          String   @id
+  processedAt DateTime @default(now())
+}
+
 /// Inbound webhook audit trail (Stripe / Shippo). Inspect when debugging payment or tracking issues.
 model WebhookEventLog {
   id         String   @id @default(cuid())
@@ -2086,6 +2566,9 @@ model Message {
   kind        MessageKind   @default(user)
   systemEvent String?
   body        String
+  /// Optional photo attachment (Supabase Storage public URL). Messages may have text, an
+  /// image, or both — `body` may be "" when the message is image-only.
+  imageUrl    String?
   readAt      DateTime?
   createdAt   DateTime      @default(now())
 
@@ -2304,22 +2787,32 @@ model SellerStreamBan {
 
 /// Post-show stream replay metadata (IVS recording URL or manifest).
 model LiveStreamReplay {
-  id               String    @id @default(cuid())
+  id               String                    @id @default(cuid())
   liveRoomId       String
-  liveRoom         LiveRoom  @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  liveRoom         LiveRoom                  @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
   sellerId         String
-  seller           User      @relation("LiveStreamReplaySeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  seller           User                      @relation("LiveStreamReplaySeller", fields: [sellerId], references: [id], onDelete: Cascade)
   streamSessionId  String?
   replayUrl        String
   durationSeconds  Int?
   startedAt        DateTime
   endedAt          DateTime
+  recordingStatus  LiveStreamRecordingStatus @default(pending)
+  s3Bucket         String?
+  s3KeyPrefix      String?
+  hlsMasterKey     String?
+  archiveS3Key     String?
+  archiveStatus    LiveStreamArchiveStatus   @default(none)
+  recordingError   String?
   deletedAt        DateTime?
   deletedByAdminId String?
-  createdAt        DateTime  @default(now())
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
 
   @@index([liveRoomId, createdAt])
   @@index([sellerId, createdAt])
+  @@index([recordingStatus, createdAt])
+  @@index([archiveStatus, updatedAt])
 }
 
 /// Admin-generated dispute / moderation evidence package (JSON summary + links).
@@ -2454,27 +2947,165 @@ model ShipmentPackage {
   status                ShipmentPackageStatus @default(estimated)
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
+  labelFinance          ShipmentLabelFinance?
 
   @@index([liveShippingSessionId, packageIndex])
   @@index([orderId])
 }
 
+enum ShipmentLabelFinancePurpose {
+  initial
+  replacement
+  additional_package
+}
+
+enum ShipmentLabelFinanceStatus {
+  active
+  replaced
+  void_pending
+  voided
+  refund_pending
+  refunded
+  /// Shippo purchase failed (ERROR/INVALID); not a chargeable label cost.
+  failed_purchase
+}
+
+/// Per-Shippo-transaction label clawback/credit ledger (source of truth for seller label money).
+/// Order.shippingLabelCost* fields are recalculated summaries; do not treat them as full history.
+model ShipmentLabelFinance {
+  id                            String                       @id @default(cuid())
+  orderId                       String
+  order                         Order                        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  liveShippingSessionId         String?
+  shipmentPackageId             String?                      @unique
+  shipmentPackage               ShipmentPackage?             @relation(fields: [shipmentPackageId], references: [id], onDelete: SetNull)
+  shippoTransactionId           String
+  shippoShipmentId              String?
+  /// Chargeable purchased label cost (0 for failed_purchase).
+  labelCostCents                Int
+  /// Selected rate quote before purchase; not proof of Shippo billing.
+  quotedLabelCostCents          Int?
+  purpose                       ShipmentLabelFinancePurpose  @default(initial)
+  replacesShippoTransactionId   String?
+  status                        ShipmentLabelFinanceStatus   @default(active)
+  sellerClawbackCents           Int                          @default(0)
+  sellerClawbackReversalId      String?
+  sellerCreditCents             Int                          @default(0)
+  sellerCreditTransferId        String?
+  clawbackIdempotencyKey        String?
+  creditIdempotencyKey          String?
+  /// Shared repair-level idempotency key when one Stripe transfer covers multiple failed labels.
+  repairCreditIdempotencyKey    String?
+  shippoStatus                  String?
+  shippoObjectState             String?
+  shippoMessagesJson            Json?
+  clawbackFailedAt              DateTime?
+  clawbackFailureDetail         String?
+  creditFailedAt                DateTime?
+  creditFailureDetail           String?
+  /// Cumulative amount recovered via a SECONDARY mechanism (e.g. payout offset, admin manual
+  /// recovery) after the primary immediate clawback (sellerClawbackCents) failed or fell short.
+  /// Distinct from sellerClawbackCents so the primary-vs-secondary recovery path stays auditable.
+  sellerRecoveredCents           Int                          @default(0)
+  /// First moment this label had chargeable cost with no successful primary clawback covering it —
+  /// i.e. when an "outstanding shipping liability" was first established. Never cleared/reset; a
+  /// permanent audit marker even after the liability is later fully recovered or written off.
+  liabilityEstablishedAt         DateTime?
+  /// Admin-absorbed loss for this label (e.g. seller account closed, balance permanently
+  /// unrecoverable). Reduces outstanding liability without claiming a real recovery occurred.
+  writtenOffCents                Int                          @default(0)
+  writtenOffAt                   DateTime?
+  writtenOffReason               String?
+  writtenOffByAdminId            String?
+  liabilityRecoveries            ShipmentLabelLiabilityRecovery[]
+  createdAt                     DateTime                     @default(now())
+  updatedAt                     DateTime                     @updatedAt
+
+  @@unique([orderId, shippoTransactionId])
+  @@index([orderId])
+  @@index([orderId, status])
+  @@index([shippoTransactionId])
+  @@index([replacesShippoTransactionId])
+  @@index([sellerClawbackReversalId])
+  @@index([sellerCreditTransferId])
+  @@index([repairCreditIdempotencyKey])
+  @@index([liabilityEstablishedAt])
+}
+
+enum ShipmentLabelLiabilityRecoveryMethod {
+  /// Offset deducted from a Stripe Connect bank payout before it was sent.
+  payout_offset_stripe
+  /// Offset deducted from a PayPal seller payout before it was sent.
+  payout_offset_paypal
+  /// Admin-triggered manual retry of the original Connect transfer reversal.
+  retry_clawback
+  /// Admin manually recorded a recovery outside the automated mechanisms (rare).
+  manual_admin
+}
+
+enum ShipmentLabelLiabilityRecoveryOutcome {
+  recovered
+  failed
+  /// Attempted but a prior attempt with the same transactionId already recorded this recovery.
+  skipped_idempotent
+}
+
+/// Append-only audit trail of every attempt to recover outstanding shipping liability for a label,
+/// whether it succeeded, failed, or was a no-op idempotency skip. Never mutated after insert.
+model ShipmentLabelLiabilityRecovery {
+  id                      String                                @id @default(cuid())
+  shipmentLabelFinanceId  String
+  shipmentLabelFinance    ShipmentLabelFinance                  @relation(fields: [shipmentLabelFinanceId], references: [id], onDelete: Cascade)
+  sellerId                String
+  method                  ShipmentLabelLiabilityRecoveryMethod
+  outcome                 ShipmentLabelLiabilityRecoveryOutcome
+  amountCents             Int
+  /// Stripe payout id / PayPal payout item id / admin action id this recovery rode on; used for
+  /// idempotency (never apply the same transactionId twice against the same label).
+  transactionId           String?
+  detail                  String?
+  createdAt               DateTime                              @default(now())
+
+  @@index([shipmentLabelFinanceId])
+  @@index([sellerId])
+  @@index([transactionId])
+  @@index([shipmentLabelFinanceId, transactionId])
+}
+
 /// Admin-editable marketplace platform fee (single-row config).
 model PlatformMarketplaceFeeConfig {
   id                 String   @id @default("default")
-  platformFeePercent Float    @default(8)
+  platformFeePercent Float    @default(6.75)
   updatedAt          DateTime @updatedAt
   updatedByUserId    String?
+}
+
+/// Admin-editable home-screen promo banner (mobile/web). Change copy anytime — no app rebuild.
+model PlatformAppBanner {
+  id              String    @id @default("default")
+  enabled         Boolean   @default(false)
+  title           String    @default("")
+  body            String    @default("")
+  /// Button label shown on the banner (e.g. "Get my link").
+  ctaLabel        String    @default("")
+  /// App/web path opened on tap (e.g. `/account/referrals`). Empty = non-tappable.
+  href            String    @default("")
+  /// Change this to re-show the banner after users dismissed a previous version.
+  dismissKey      String    @default("default")
+  startsAt        DateTime?
+  endsAt          DateTime?
+  updatedAt       DateTime  @updatedAt
+  updatedByUserId String?
 }
 
 /// Admin-editable live show volume fee tiers (single-row config).
 model PlatformLiveShowFeeConfig {
   id                String   @id @default("default")
-  tier1FeePercent   Float    @default(8)
-  tier2ThresholdUsd Float    @default(1000)
-  tier2FeePercent   Float    @default(7.25)
-  tier3ThresholdUsd Float    @default(3000)
-  tier3FeePercent   Float    @default(6.5)
+  tier1FeePercent   Float    @default(6.75)
+  tier2ThresholdUsd Float    @default(3000)
+  tier2FeePercent   Float    @default(5.75)
+  tier3ThresholdUsd Float    @default(5500)
+  tier3FeePercent   Float    @default(5)
   updatedAt         DateTime @updatedAt
   updatedByUserId   String?
 }

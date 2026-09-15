@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { LiveRoomType, Prisma, TeamBoardLeague } from "@/generated/prisma/client";
 import type { LiveShowCarrierPreference } from "@/generated/prisma/enums";
 import { getServerSessionSafe } from "@/lib/auth";
-import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
+import { resolveLiveRoomsUserId, resolveOptionalLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { isDevTempNoDatabaseMode } from "@/lib/dev-temp-no-db";
 import { isHiddenFixtureSellerEmail, prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
 import { prismaLiveRoomCreateHint, serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
@@ -28,6 +28,11 @@ import {
 } from "@/services/shipping/platform-shipping-profiles";
 import { isPublicDiscoveryLiveRoom, parseLiveRoomDiscoveryVisibility } from "@/lib/live-room-public-discovery";
 import { buildWeeklyRecurringScheduleDates } from "@/lib/live-room-recurring-schedule";
+import { parseLiveTeaserFieldsFromBody } from "@/lib/live-room-teaser";
+import { listHiddenPeerIdsForViewer } from "@/lib/user-block";
+import { scheduleNotifyAdminsLiveShowCreated } from "@/lib/live-show-created-admin-notify";
+import { effectiveLiveRoomViewerCount } from "@/lib/live-room-viewer-count-freshness";
+import { isEligibleLiveRoomContinuationCandidate } from "@/lib/live-room-continuation";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
 
@@ -101,10 +106,26 @@ export async function GET(req: Request) {
         : {}),
     };
 
+    const viewerId =
+      bearerUserId ??
+      session?.user?.id ??
+      (await resolveOptionalLiveRoomsUserId(req));
+    if (viewerId && !viewingOwnSellerRooms) {
+      const hiddenHosts = await listHiddenPeerIdsForViewer(prisma, viewerId);
+      if (hiddenHosts.length > 0) {
+        if (sellerId && hiddenHosts.includes(sellerId)) {
+          return NextResponse.json({ rooms: [] });
+        }
+        if (!sellerId) {
+          where.sellerId = { notIn: hiddenHosts };
+        }
+      }
+    }
+
     const rows = await prisma.liveRoom.findMany({
       where,
       include: {
-        seller: { select: { username: true, name: true, image: true } },
+        seller: { select: { username: true, image: true } },
         tipModerator: { select: { username: true } },
         items: {
           select: {
@@ -126,11 +147,45 @@ export async function GET(req: Request) {
       take: limit,
     });
 
+    // Seller HQ (includeEnded): live → scheduled → ended.
+    // Discovery (no ended): live first, then scheduled soonest-first.
+    // Bugfix: ended rooms used to sort by scheduledStartAt ASC with scheduled rooms, so dozens of
+    // old ended shows buried brand-new scheduled rooms past the top-of-list slice.
     const sorted = [...rows].sort((a, b) => {
-      if (a.status === b.status) return 0;
-      if (a.status === "live") return -1;
-      if (b.status === "live") return 1;
-      return 0;
+      const rank = (status: string) => {
+        if (status === "live") return 0;
+        if (status === "scheduled") return 1;
+        return 2; // ended / other
+      };
+      const ra = rank(a.status);
+      const rb = rank(b.status);
+      if (ra !== rb) return ra - rb;
+
+      if (ra === 0) {
+        const viewerDelta =
+          effectiveLiveRoomViewerCount({
+            viewerCount: b.viewerCount ?? 0,
+            viewerCountUpdatedAt: b.viewerCountUpdatedAt,
+          }) -
+          effectiveLiveRoomViewerCount({
+            viewerCount: a.viewerCount ?? 0,
+            viewerCountUpdatedAt: a.viewerCountUpdatedAt,
+          });
+        if (viewerDelta !== 0) return viewerDelta;
+        return b.updatedAt.getTime() - a.updatedAt.getTime();
+      }
+
+      if (ra === 1) {
+        const aStart = a.scheduledStartAt?.getTime() ?? Number.POSITIVE_INFINITY;
+        const bStart = b.scheduledStartAt?.getTime() ?? Number.POSITIVE_INFINITY;
+        const aMs = Number.isFinite(aStart) ? aStart : Number.POSITIVE_INFINITY;
+        const bMs = Number.isFinite(bStart) ? bStart : Number.POSITIVE_INFINITY;
+        if (aMs !== bMs) return aMs - bMs;
+        return b.updatedAt.getTime() - a.updatedAt.getTime();
+      }
+
+      // Ended: most recently updated first so the list isn't dominated by ancient shows.
+      return b.updatedAt.getTime() - a.updatedAt.getTime();
     });
 
     const visibleRows = viewingOwnSellerRooms
@@ -155,6 +210,7 @@ export async function GET(req: Request) {
       const previewImageUrl = resolveLiveRoomPreviewImage({
         thumbnailUrl: r.thumbnailUrl,
         firstItemImageUrl,
+        sellerAvatarUrl: r.seller?.image,
         category: r.category,
       });
       return {
@@ -165,12 +221,21 @@ export async function GET(req: Request) {
         roomType: r.roomType,
         status: r.status,
         thumbnailUrl: r.thumbnailUrl ?? "",
+        teaserVideoUrl: r.teaserVideoUrl?.trim() || null,
+        teaserVideoDurationMs:
+          typeof r.teaserVideoDurationMs === "number" && Number.isFinite(r.teaserVideoDurationMs)
+            ? Math.round(r.teaserVideoDurationMs)
+            : null,
         previewImageUrl,
         firstItemImageUrl,
         sellerId: r.sellerId,
         sellerAvatarUrl: resolveLiveRoomMediaUrl(r.seller?.image ?? ""),
-        sellerDisplayName: r.seller?.name?.trim() || r.seller?.username || "seller",
-        viewerCount: r.viewerCount,
+        // Public show cards must use username only — never legal/full name from User.name.
+        sellerDisplayName: r.seller?.username?.trim() || "seller",
+        viewerCount: effectiveLiveRoomViewerCount({
+          viewerCount: r.viewerCount,
+          viewerCountUpdatedAt: r.viewerCountUpdatedAt,
+        }),
         scheduledStartAt: r.scheduledStartAt?.toISOString() ?? null,
         startedAt: r.startedAt?.toISOString() ?? null,
         endedAt: r.endedAt?.toISOString() ?? null,
@@ -210,6 +275,8 @@ type PostBody = {
   category?: string;
   roomType?: string;
   thumbnailUrl?: string;
+  teaserVideoUrl?: string | null;
+  teaserVideoDurationMs?: number | null;
   scheduledStartAt?: string | null;
   /** Required when roomType is `break`: nfl | nba | mlb */
   teamBoardLeague?: string;
@@ -239,6 +306,12 @@ type PostBody = {
   discoveryVisibility?: string;
   visibility?: string;
   isPrivate?: boolean;
+  /**
+   * Seller-confirmed via the "continue from a show you ended recently?" toggle (see
+   * `GET /api/live-rooms/continuation-candidate`). Always re-validated server-side against the same
+   * seller/roomType/24h-window rules before it's used — a stale, expired, or spoofed id is ignored.
+   */
+  continuationOfLiveRoomId?: string | null;
 };
 
 function peekBearerJwtSub(req: Request): string | null {
@@ -325,6 +398,10 @@ export async function POST(req: Request) {
   const description = typeof body.description === "string" ? body.description.trim().slice(0, 4000) : "";
   const category = typeof body.category === "string" ? body.category.trim().slice(0, 64) : "Other";
   const thumbnailUrl = typeof body.thumbnailUrl === "string" ? body.thumbnailUrl.trim().slice(0, 50000) : "";
+  const teaserParsed = parseLiveTeaserFieldsFromBody(body);
+  if (!teaserParsed.ok) {
+    return NextResponse.json({ error: teaserParsed.error }, { status: 400 });
+  }
 
   let scheduledStartAt: Date | null = null;
   if (body.scheduledStartAt) {
@@ -345,7 +422,7 @@ export async function POST(req: Request) {
     const p = parseTeamBoardLeague(rawLg);
     if (!p) {
       return NextResponse.json(
-        { error: "Break rooms require teamBoardLeague (nfl, nba, or mlb)." },
+        { error: "Break rooms require teamBoardLeague (nfl, nba, mlb, or nhl)." },
         { status: 400 },
       );
     }
@@ -452,6 +529,8 @@ export async function POST(req: Request) {
     status: "scheduled" as const,
     discoveryVisibility,
     thumbnailUrl,
+    teaserVideoUrl: teaserParsed.data.teaserVideoUrl ?? null,
+    teaserVideoDurationMs: teaserParsed.data.teaserVideoDurationMs ?? null,
     scheduledStartAt,
     teamBoardLeague,
     tipModeratorId: tipBuilt.data.tipModeratorId,
@@ -561,11 +640,35 @@ export async function POST(req: Request) {
     );
   }
 
+  // Link this show to a recently-ended one only if the seller explicitly confirmed it via the
+  // "continue from a show you ended recently?" toggle (see
+  // GET /api/live-rooms/continuation-candidate). The client's claimed id is never trusted at face
+  // value — re-validated here against the same seller/roomType/24h-window rules, so a stale,
+  // expired, or spoofed id is silently ignored rather than applied. This is what makes a returning
+  // buyer's live-show shipping cap carry forward instead of resetting to $0. Never applies to a
+  // batch of future recurring shows (those aren't "continuing" anything).
+  const requestedContinuationOfLiveRoomId =
+    typeof body.continuationOfLiveRoomId === "string" ? body.continuationOfLiveRoomId.trim() : "";
+  const continuationOfLiveRoomId =
+    !recurringEnabled && requestedContinuationOfLiveRoomId
+      ? await isEligibleLiveRoomContinuationCandidate({
+          sellerId,
+          roomType: rt,
+          candidateId: requestedContinuationOfLiveRoomId,
+        })
+          .then((eligible) => (eligible ? requestedContinuationOfLiveRoomId : null))
+          .catch(() => null)
+      : null;
+
   try {
     const createdIds: string[] = [];
+    const seller = await prisma.user.findUnique({
+      where: { id: sellerId },
+      select: { username: true },
+    });
 
     for (const slot of scheduleSlots) {
-      const slotRoomData = { ...roomData, scheduledStartAt: slot };
+      const slotRoomData = { ...roomData, scheduledStartAt: slot, continuationOfLiveRoomId };
 
       if (rt === "break") {
         const created = await prisma.$transaction(async (tx) => {
@@ -584,6 +687,13 @@ export async function POST(req: Request) {
         });
         createdIds.push(created.id);
         emitLiveDiscoveryChanged({ roomId: created.id, status: "scheduled", reason: "created" });
+        scheduleNotifyAdminsLiveShowCreated({
+          roomId: created.id,
+          title: title.slice(0, 200),
+          roomType: rt,
+          sellerUsername: seller?.username,
+          scheduledStartAt: slot,
+        });
         logCreate("created_break", { id: created.id, recurring: recurringEnabled });
       } else {
         const room = await prisma.liveRoom.create({
@@ -592,6 +702,13 @@ export async function POST(req: Request) {
         });
         createdIds.push(room.id);
         emitLiveDiscoveryChanged({ roomId: room.id, status: "scheduled", reason: "created" });
+        scheduleNotifyAdminsLiveShowCreated({
+          roomId: room.id,
+          title: title.slice(0, 200),
+          roomType: rt,
+          sellerUsername: seller?.username,
+          scheduledStartAt: slot,
+        });
         logCreate("created", { id: room.id, recurring: recurringEnabled });
       }
     }

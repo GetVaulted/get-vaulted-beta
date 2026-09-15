@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useStripe } from '@stripe/stripe-react-native';
 import { useCallback, useEffect, useState } from 'react';
+import { useLiveConfirmPayment } from './LiveStripeProvider';
 import {
   ActivityIndicator,
   Modal,
@@ -28,6 +28,7 @@ import {
 } from '../../api/liveTipsRepository';
 import { colors, radii, spacing } from '../../theme';
 import { formatTipPaymentMethodLabel } from './liveTipPayment';
+import { withLivePlaybackCommerceHold } from '../../lib/livePlaybackCommerceHold';
 
 type Props = {
   visible: boolean;
@@ -53,7 +54,7 @@ export function LiveTipSheet({
   onError,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { confirmPayment } = useStripe();
+  const confirmPayment = useLiveConfirmPayment();
   const [amountUsd, setAmountUsd] = useState(10);
   const [customAmount, setCustomAmount] = useState('');
   const [message, setMessage] = useState('');
@@ -119,7 +120,13 @@ export function LiveTipSheet({
         paymentMethodId: selectedPmId,
       });
       if ('requiresAction' in result) {
-        const conf = await confirmPayment(result.clientSecret, { paymentMethodType: 'Card' });
+        if (!confirmPayment) {
+          onError('Payments are still starting up — try again in a moment.');
+          return;
+        }
+        const conf = await withLivePlaybackCommerceHold(() =>
+          confirmPayment(result.clientSecret, { paymentMethodType: 'Card' }),
+        );
         if (conf.error) {
           onError(conf.error.message ?? 'Payment confirmation failed.');
           return;

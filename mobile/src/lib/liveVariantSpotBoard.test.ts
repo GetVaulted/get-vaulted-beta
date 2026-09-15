@@ -180,6 +180,73 @@ describe('buildVariantSpotDisplayRows pick mode', () => {
     });
 
     expect(rows[0]?.sold).toBe(true);
+    expect(rows[0]?.unavailable).toBe(false);
+  });
+
+  it('keeps removed teams on the board as unavailable (not sold, not hidden)', () => {
+    const rows = buildVariantSpotDisplayRows({
+      salesFormat: 'variant_selection',
+      variantAssignmentMode: 'pick',
+      variants: [
+        {
+          id: 'v-open',
+          label: 'Cowboys',
+          priceUsd: 25,
+          quantityRemaining: 1,
+          status: 'available',
+          sortOrder: 0,
+          isHot: false,
+          buyerUsername: null,
+        },
+        {
+          id: 'v-removed',
+          label: 'Giants',
+          priceUsd: 25,
+          quantityRemaining: 0,
+          status: 'removed',
+          sortOrder: 1,
+          isHot: true,
+          buyerUsername: null,
+        },
+      ],
+    });
+
+    expect(rows).toHaveLength(2);
+    const removed = rows.find((r) => r.id === 'v-removed');
+    expect(removed?.unavailable).toBe(true);
+    expect(removed?.sold).toBe(false);
+    expect(removed?.isHot).toBe(false);
+    expect(removed?.buyerUsername).toBeNull();
+
+    const summary = summarizeVariantSpotBoard({
+      salesFormat: 'variant_selection',
+      variantAssignmentMode: 'pick',
+      variants: [
+        {
+          id: 'v-open',
+          label: 'Cowboys',
+          priceUsd: 25,
+          quantityRemaining: 1,
+          status: 'available',
+          sortOrder: 0,
+          isHot: false,
+          buyerUsername: null,
+        },
+        {
+          id: 'v-removed',
+          label: 'Giants',
+          priceUsd: 25,
+          quantityRemaining: 0,
+          status: 'removed',
+          sortOrder: 1,
+          isHot: false,
+          buyerUsername: null,
+        },
+      ],
+    });
+    expect(summary.openCount).toBe(1);
+    expect(summary.soldCount).toBe(0);
+    expect(summary.unavailableCount).toBe(1);
   });
 
   it('returns an empty list when variants are missing or the format is not a variant sale', () => {
@@ -349,7 +416,7 @@ describe('summarizeVariantSpotBoard (FIX 6 reconciliation)', () => {
   it('returns zeroed counts gracefully for an empty/non-variant item', () => {
     expect(
       summarizeVariantSpotBoard({ salesFormat: 'auction', variantAssignmentMode: 'pick', variants: [] }),
-    ).toEqual({ rows: [], openCount: 0, soldCount: 0 });
+    ).toEqual({ rows: [], openCount: 0, soldCount: 0, unavailableCount: 0 });
   });
 });
 

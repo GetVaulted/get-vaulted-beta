@@ -9,19 +9,67 @@ export type SellerLifecycleState =
 export const SELLER_SETUP_PATH = "/account/seller/setup";
 export const SELLER_HQ_PATH = "/account/seller";
 
+export type SellerPayoutProcessorChoice = "STRIPE" | "PAYPAL";
+
 export type SellerReadinessChecks = {
   hasStripeAccount: boolean;
+  /** Full Stripe verification clear (charges / onboarding complete). Required to sell / go live on Stripe rail. */
   stripeChargesEnabled: boolean;
+  /**
+   * Hosted Connect submitted (details_submitted + no currently_due).
+   * Pending Stripe review still counts — enough to finish the seller wizard / unlock HQ.
+   */
+  stripePayoutSubmitted: boolean;
   hasShipFromAddress: boolean;
+  /** Seller chose PayPal and has a verified payout email. */
+  paypalPayoutReady?: boolean;
+  preferredSellerPayoutProcessor?: SellerPayoutProcessorChoice;
 };
 
 export type SellerSetupPhase = "loading" | "not_started" | "partial" | "ready";
 
+function isStripePayoutReady(checks: SellerReadinessChecks): boolean {
+  return Boolean(
+    checks.hasStripeAccount && (checks.stripePayoutSubmitted || checks.stripeChargesEnabled),
+  );
+}
+
+/** Wizard payout step — ready for the seller's *chosen* rail only. */
+export function isPayoutSetupSubmitted(checks: SellerReadinessChecks | null | undefined): boolean {
+  if (!checks) return false;
+  // Choosing PayPal must not look "done" just because Stripe was connected earlier.
+  if (checks.preferredSellerPayoutProcessor === "PAYPAL") {
+    return Boolean(checks.paypalPayoutReady);
+  }
+  if (checks.paypalPayoutReady) return true;
+  return isStripePayoutReady(checks);
+}
+
+/** Full payout verification — publish / go-live gate (not wizard). */
+export function isPayoutSetupComplete(checks: SellerReadinessChecks | null | undefined): boolean {
+  if (!checks) return false;
+  if (checks.preferredSellerPayoutProcessor === "PAYPAL") {
+    return Boolean(checks.paypalPayoutReady);
+  }
+  if (checks.paypalPayoutReady) return true;
+  return Boolean(checks.hasStripeAccount && checks.stripeChargesEnabled);
+}
+
+/** Wizard / Seller HQ unlock — payout rail ready (+ ship-from), not full Stripe verification. */
 export function isRequiredSellerSetupComplete(
   checks: SellerReadinessChecks | null | undefined,
 ): boolean {
   if (!checks) return false;
-  return Boolean(checks.hasStripeAccount && checks.stripeChargesEnabled && checks.hasShipFromAddress);
+  return Boolean(isPayoutSetupSubmitted(checks) && checks.hasShipFromAddress);
+}
+
+function sellerSetupStarted(checks: SellerReadinessChecks | null | undefined): boolean {
+  return Boolean(
+    checks?.hasStripeAccount ||
+      checks?.hasShipFromAddress ||
+      checks?.paypalPayoutReady ||
+      checks?.preferredSellerPayoutProcessor === "PAYPAL",
+  );
 }
 
 /** Seller is fully activated (required setup + onboarding wizard finished). */
@@ -39,8 +87,7 @@ export function resolveSellerSetupPhase(
 ): SellerSetupPhase {
   if (loading) return "loading";
   if (isSellerActivated(checks, wizardComplete)) return "ready";
-  const started = Boolean(checks?.hasStripeAccount || checks?.hasShipFromAddress);
-  return started ? "partial" : "not_started";
+  return sellerSetupStarted(checks) ? "partial" : "not_started";
 }
 
 export function sellerSetupMenuLabel(phase: SellerSetupPhase): string {
@@ -74,7 +121,7 @@ export function computeSellerSetupProgress(input: SellerSetupProgressInput): {
 } {
   const checks = input.checks;
   const steps = [
-    Boolean(checks?.hasStripeAccount && checks?.stripeChargesEnabled),
+    isPayoutSetupSubmitted(checks),
     Boolean(checks?.hasShipFromAddress),
     input.hasProfilePhoto,
     input.hasBio,
@@ -82,10 +129,6 @@ export function computeSellerSetupProgress(input: SellerSetupProgressInput): {
   ];
   const completed = steps.filter(Boolean).length;
   return { completed, total: steps.length };
-}
-
-export function isPayoutSetupComplete(checks: SellerReadinessChecks | null | undefined): boolean {
-  return Boolean(checks?.hasStripeAccount && checks?.stripeChargesEnabled);
 }
 
 export function resolveSellerLifecycleState(input: {
@@ -100,6 +143,5 @@ export function resolveSellerLifecycleState(input: {
     return input.canGoLive ? "LIVE_ENABLED" : "VERIFIED_SELLER";
   }
   if (isRequiredSellerSetupComplete(checks)) return "READY_FOR_SELLER_HQ";
-  const started = Boolean(checks?.hasStripeAccount || checks?.hasShipFromAddress);
-  return started ? "IN_PROGRESS" : "NOT_STARTED";
+  return sellerSetupStarted(checks) ? "IN_PROGRESS" : "NOT_STARTED";
 }

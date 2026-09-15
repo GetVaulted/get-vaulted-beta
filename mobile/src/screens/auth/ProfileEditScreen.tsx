@@ -25,6 +25,7 @@ import {
 import { ProfileAvatarCropModal } from '../../components/profile/ProfileAvatarCropModal';
 import { SellerHQEntryBanner } from '../../components/seller/SellerHQEntryBanner';
 import { useAuth } from '../../auth/AuthContext';
+import { useSellerSetupState } from '../../hooks/useSellerSetupState';
 import { useSellerStripeConnect } from '../../hooks/useSellerStripeConnect';
 import type { SellerHQEntryPhase } from '../../lib/sellerHubEntry';
 import { avatarUrlWithCacheBust } from '../../lib/profileAvatarUpload';
@@ -43,8 +44,8 @@ export function ProfileEditScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { user, session } = useAuth();
   const sellerConnect = useSellerStripeConnect(session?.access_token);
+  const sellerSetup = useSellerSetupState(session?.access_token, user?.id, Boolean(user?.id));
   const [username, setUsername] = useState('');
-  const [displayName, setDisplayName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -60,7 +61,6 @@ export function ProfileEditScreen({ navigation }: Props) {
       const p = await fetchProfileById(user.id);
       setUsername(p?.username ?? '');
       setInitialUsername(p?.username ?? '');
-      setDisplayName(p?.display_name ?? '');
       if (session?.access_token) {
         try {
           const eligibility = await fetchUsernameChangeStatus(session.access_token);
@@ -109,17 +109,19 @@ export function ProfileEditScreen({ navigation }: Props) {
 
   const onCropConfirm = async (preparedUri: string) => {
     if (!user?.id) return;
+    // Close crop immediately — do not trap the user behind a disabled Cancel while uploading.
+    setCropUri(null);
     setUploadingAvatar(true);
     setAvatarUrl(preparedUri);
     try {
       const publicUrl = await uploadMyAvatar(user.id, preparedUri);
-      await persistProfileAvatarEverywhere({
+      setAvatarUrl(publicUrl);
+      // Web Prisma sync is secondary; never keep the spinner for it.
+      void persistProfileAvatarEverywhere({
         userId: user.id,
         accessToken: session?.access_token,
         publicUrl,
-      });
-      setAvatarUrl(publicUrl);
-      setCropUri(null);
+      }).catch((e) => console.warn('[ProfileEditScreen] avatar web sync', e));
       Alert.alert('Saved', 'Your profile picture was updated.');
     } catch (e) {
       setAvatarUrl((prev) => (prev === preparedUri ? null : prev));
@@ -134,7 +136,6 @@ export function ProfileEditScreen({ navigation }: Props) {
     setSaving(true);
     try {
       const trimmedUsername = username.trim();
-      const trimmedDisplay = displayName.trim();
       const usernameChanged = trimmedUsername !== initialUsername.trim();
 
       if (usernameChanged) {
@@ -150,8 +151,9 @@ export function ProfileEditScreen({ navigation }: Props) {
         setInitialUsername(trimmedUsername);
       }
 
+      // Keep display_name locked to username (same identity as @mentions).
       await updateMyProfile(user.id, {
-        display_name: trimmedDisplay || undefined,
+        display_name: usernameChanged ? trimmedUsername : initialUsername.trim() || trimmedUsername,
       });
       Alert.alert('Saved', 'Your profile was updated.');
       navigation.goBack();
@@ -198,6 +200,8 @@ export function ProfileEditScreen({ navigation }: Props) {
             hasUser={Boolean(user)}
             connect={sellerConnect.status}
             connectLoading={sellerConnect.loading}
+            sellerActivated={sellerSetup.displayActivated}
+            wizardComplete={sellerSetup.wizardComplete}
             compact
             onPress={(phase: SellerHQEntryPhase) => {
               if (phase === 'guest') {
@@ -221,7 +225,7 @@ export function ProfileEditScreen({ navigation }: Props) {
               ) : (
                 <View style={[styles.avatarImg, styles.avatarFallback]}>
                   <Text style={styles.avatarFallbackText}>
-                    {(displayName || username || '?').trim().slice(0, 1).toUpperCase() || '?'}
+                    {(username || '?').trim().slice(0, 1).toUpperCase() || '?'}
                   </Text>
                 </View>
               )}
@@ -247,19 +251,13 @@ export function ProfileEditScreen({ navigation }: Props) {
             placeholder="username"
             placeholderTextColor={colors.textMuted}
             autoCapitalize="none"
+            autoCorrect={false}
             value={username}
             onChangeText={setUsername}
             editable={!usernameLocked}
           />
           {usernameLockHint ? <Text style={styles.lockHint}>{usernameLockHint}</Text> : null}
-          <Text style={styles.label}>Display name</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Display name"
-            placeholderTextColor={colors.textMuted}
-            value={displayName}
-            onChangeText={setDisplayName}
-          />
+          <Text style={styles.hint}>Your username is your public name and @handle everywhere.</Text>
           <Pressable style={[styles.primary, saving && { opacity: 0.7 }]} disabled={saving} onPress={() => void onSave()}>
             {saving ? (
               <ActivityIndicator color={colors.background} />
@@ -327,6 +325,7 @@ const styles = StyleSheet.create({
   },
   inputDisabled: { opacity: 0.55 },
   lockHint: { color: colors.textMuted, fontSize: 12, marginTop: -spacing.xs },
+  hint: { color: colors.textMuted, fontSize: 12, marginTop: -spacing.xs },
   primary: {
     marginTop: spacing.lg,
     backgroundColor: colors.gold,

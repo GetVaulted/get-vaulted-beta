@@ -1,16 +1,30 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { spacing } from '../../../theme';
+import { colors, spacing } from '../../../theme';
 
 type Props = {
   bottom: number;
   onShare: () => void;
+  onNotes: () => void;
+  hasNotes?: boolean;
 };
 
-/** Right-edge share control for the seller host console. */
-export function SellerHostSideRail({ bottom, onShare }: Props) {
+/** Right-edge controls for the seller host console. */
+export function SellerHostSideRail({ bottom, onShare, onNotes, hasNotes }: Props) {
   return (
     <View style={[styles.rail, { bottom }]} pointerEvents="box-none">
+      <Pressable
+        style={styles.railBtn}
+        onPress={onNotes}
+        accessibilityLabel={hasNotes ? 'Edit show notes' : 'Add show notes'}
+        hitSlop={6}
+      >
+        <View>
+          <Ionicons name="document-text-outline" size={22} color="rgba(255,255,255,0.92)" />
+          {hasNotes ? <View style={styles.dot} /> : null}
+        </View>
+        <Text style={styles.railLabel}>Notes</Text>
+      </Pressable>
       <Pressable
         style={styles.railBtn}
         onPress={onShare}
@@ -29,6 +43,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: spacing.sm,
     alignItems: 'center',
+    gap: spacing.md,
     zIndex: 14,
   },
   railBtn: {
@@ -42,5 +57,16 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '600',
     letterSpacing: 0.15,
+  },
+  dot: {
+    position: 'absolute',
+    top: -1,
+    right: -3,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.gold,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.45)',
   },
 });

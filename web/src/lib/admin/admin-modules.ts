@@ -1,20 +1,26 @@
 export type AdminModuleId =
   | "live-shows"
+  | "live-recordings"
   | "finance"
   | "fees"
   | "shipping-profiles"
   | "seller-risk"
+  | "bank-payouts"
+  | "paypal-payouts"
   | "moderation"
   | "users"
   | "fulfillment"
   | "trust"
   | "support-tickets"
   | "notifications"
+  | "app-banner"
   | "health"
   | "listings"
   | "orders"
   | "reports"
-  | "tax";
+  | "tax"
+  | "referrals"
+  | "giveaways";
 
 export type AdminModuleDef = {
   id: AdminModuleId;
@@ -33,6 +39,13 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
     description: "Active, scheduled, and ended shows — stream health, auctions, viewer counts, admin controls.",
     href: "/admin/live-shows",
     accent: "rose",
+  },
+  {
+    id: "live-recordings",
+    title: "Live Recordings",
+    description: "IVS show recordings (30-day retention) — prepare ZIP and download for external archive.",
+    href: "/admin/live-recordings",
+    accent: "sky",
   },
   {
     id: "finance",
@@ -61,6 +74,20 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
     description: "Payout tiers, GMV, standing, dispute rates, suspend or restore privileges.",
     href: "/admin/seller-risk",
     accent: "amber",
+  },
+  {
+    id: "bank-payouts",
+    title: "Bank Payouts",
+    description: "Shipped Stripe orders ready for you to push Connect bank payouts.",
+    href: "/admin/payouts",
+    accent: "emerald",
+  },
+  {
+    id: "paypal-payouts",
+    title: "PayPal Payouts",
+    description: "Every paid order on the PayPal seller-payout rail and exactly where it stands.",
+    href: "/admin/payouts/paypal",
+    accent: "sky",
   },
   {
     id: "moderation",
@@ -109,6 +136,13 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
     accent: "gold",
   },
   {
+    id: "app-banner",
+    title: "Home Banner",
+    description: "Remote promo on the app front page — referrals, drops, announcements. No rebuild to change copy.",
+    href: "/admin/app-banner",
+    accent: "gold",
+  },
+  {
     id: "health",
     title: "Platform Health",
     description: "Supabase, API, Stripe webhooks, IVS, Shippo, and job failures.",
@@ -143,40 +177,67 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
     href: "/admin/tax",
     accent: "amber",
   },
+  {
+    id: "referrals",
+    title: "Referral credits",
+    description: "Ledger, wallets, pending holds, spent and voided referral credit.",
+    href: "/admin/referrals",
+    accent: "gold",
+  },
+  {
+    id: "giveaways",
+    title: "Giveaways",
+    description: "Platform credit giveaways — entries, draws, winners, and prize awards.",
+    href: "/admin/giveaways",
+    accent: "emerald",
+  },
 ];
 
 export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
   [
     "live-shows",
+    "live-recordings",
     "finance",
     "fees",
     "shipping-profiles",
     "seller-risk",
+    "bank-payouts",
+    "paypal-payouts",
     "moderation",
     "users",
     "fulfillment",
     "trust",
     "support-tickets",
     "notifications",
+    "app-banner",
     "health",
+    "referrals",
+    "giveaways",
   ].includes(m.id),
 );
 
 export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[] = [
   { href: "/admin", label: "Command Center", exact: true },
   { href: "/admin/live-shows", label: "Live" },
+  { href: "/admin/live-recordings", label: "Recordings" },
   { href: "/admin/finance", label: "Finance" },
   { href: "/admin/reconciliation", label: "Reconciliation" },
   { href: "/admin/fees", label: "Fees" },
   { href: "/admin/shipping-profiles", label: "Shipping" },
   { href: "/admin/seller-risk", label: "Seller Risk" },
+  { href: "/admin/payouts", label: "Bank payouts" },
+  { href: "/admin/payouts/paypal", label: "PayPal payouts" },
   { href: "/admin/moderation", label: "Moderation" },
   { href: "/admin/users-management", label: "Users" },
   { href: "/admin/fulfillment", label: "Fulfillment" },
   { href: "/admin/trust", label: "Trust" },
+  { href: "/admin/trust/linked-accounts", label: "Linked accounts" },
   { href: "/admin/support-tickets", label: "Support" },
   { href: "/admin/notifications", label: "Notifications" },
+  { href: "/admin/app-banner", label: "Home banner" },
   { href: "/admin/health", label: "Health" },
+  { href: "/admin/referrals", label: "Referrals" },
+  { href: "/admin/giveaways", label: "Giveaways" },
   { href: "/admin/tax", label: "Tax" },
 ];
 

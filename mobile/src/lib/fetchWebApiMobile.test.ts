@@ -35,8 +35,10 @@ describe('fetchWebApiMobile timeout behavior', () => {
 
     const { fetchWebApiMobile } = await import('./fetchWebApiMobile');
 
+    // Message is the friendly, user-facing copy (see friendlyErrorText.ts) — the regression this
+    // guards against is the promise actually rejecting instead of hanging forever, not the wording.
     const pending = fetchWebApiMobile('/api/listings');
-    const assertion = expect(pending).rejects.toThrow(/timed out/i);
+    const assertion = expect(pending).rejects.toThrow(/network error/i);
 
     await vi.advanceTimersByTimeAsync(20000);
     await assertion;

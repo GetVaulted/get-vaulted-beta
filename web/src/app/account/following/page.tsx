@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SellerFollowButton } from "@/components/seller/SellerFollowButton";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
+import { listHiddenPeerIdsForViewer } from "@/lib/user-block";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +15,9 @@ export default async function AccountFollowingPage() {
   }
 
   const userId = session.user.id;
+  const hiddenIds = new Set(await listHiddenPeerIdsForViewer(prisma, userId));
 
-  const [following, followers] = await Promise.all([
+  const [followingRaw, followersRaw] = await Promise.all([
     prisma.sellerFollow.findMany({
       where: { followerId: userId },
       orderBy: { createdAt: "desc" },
@@ -43,6 +45,9 @@ export default async function AccountFollowingPage() {
       },
     }),
   ]);
+
+  const following = followingRaw.filter((row) => !hiddenIds.has(row.seller.id));
+  const followers = followersRaw.filter((row) => !hiddenIds.has(row.follower.id));
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 pb-20 pt-8 sm:px-6 lg:px-10">

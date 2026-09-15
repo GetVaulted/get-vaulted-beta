@@ -179,7 +179,8 @@ describe("fulfillment: label API + Shippo webhook (integration)", () => {
     const buyerTransitNotifications = await prisma.notification.findMany({
       where: { userId: buyer.id, type: { in: ["order_shipped", "order_in_transit"] } },
     });
-    expect(buyerTransitNotifications.length).toBeGreaterThan(0);
+    expect(buyerTransitNotifications.some((n) => n.type === "order_shipped")).toBe(true);
+    expect(buyerTransitNotifications.some((n) => n.type === "order_in_transit")).toBe(true);
 
     const eventsAfterTransit = await prisma.sellerCommerceEvent.findMany({
       where: { sellerId: seller.id, orderId: order.id },

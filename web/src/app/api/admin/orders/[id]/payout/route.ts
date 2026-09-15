@@ -51,6 +51,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       paymentMethod: true,
       fulfillmentStatus: true,
       payoutStatus: true,
+      sellerPayoutProcessor: true,
+      shippedAt: true,
       escrowStatus: true,
       escrowTransactionId: true,
       escrowProvider: true,
@@ -76,15 +78,35 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (order.paymentStatus !== "paid") {
       return NextResponse.json({ error: "Order is not paid." }, { status: 400 });
     }
-    if (!order.seller.stripeAccountId || !order.seller.stripeOnboardingComplete) {
-      return NextResponse.json(
-        { error: "Cannot release payout — seller has no verified Stripe payout account." },
-        { status: 400 },
-      );
+
+    const isPaypalRail = order.sellerPayoutProcessor === "PAYPAL";
+    if (!isPaypalRail) {
+      if (!order.seller.stripeAccountId || !order.seller.stripeOnboardingComplete) {
+        return NextResponse.json(
+          { error: "Cannot release payout — seller has no verified Stripe payout account." },
+          { status: 400 },
+        );
+      }
     }
-    if (order.fulfillmentStatus !== "delivered" && !order.deliveryConfirmedAt) {
+
+    // Hold-until-shipped model: bank payout after ship + label clawback (or delivered).
+    // Do not require delivery when the order is already marked shipped / carrier-accepted.
+    const {
+      orderLooksShippedForBankPayout,
+      orderLabelClawbackSettledForBankPayout,
+    } = await import("@/services/payout/stripe-seller-payout");
+    const shippedOk =
+      orderLooksShippedForBankPayout({
+        shippedAt: order.shippedAt,
+        carrierAcceptedAt: null,
+        fulfillmentStatus: order.fulfillmentStatus,
+        status: null,
+      }) ||
+      order.fulfillmentStatus === "delivered" ||
+      Boolean(order.deliveryConfirmedAt);
+    if (!shippedOk) {
       return NextResponse.json(
-        { error: "Delivery must be confirmed before releasing payout." },
+        { error: "Order must be shipped (or delivery confirmed) before releasing payout." },
         { status: 400 },
       );
     }
@@ -157,6 +179,40 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           throw e;
         }
       }
+    } else if (isPaypalRail) {
+      const { releaseSellerPayPalPayout } = await import("@/services/payout/paypal-seller-payout");
+      const paypal = await releaseSellerPayPalPayout(orderId);
+      if (!paypal.ok && paypal.reason !== "already_paid_out" && paypal.reason !== "zero_net") {
+        return NextResponse.json(
+          { error: `PayPal payout failed: ${paypal.reason ?? "unknown"}` },
+          { status: 502 },
+        );
+      }
+    } else {
+      // Stripe Connect: clawback must be settled before bank payout (unless force already passed ship).
+      const full = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: {
+          shippoTransactionId: true,
+          labelUrl: true,
+          shippingLabelCostCents: true,
+          shippingLabelCostReversedCents: true,
+        },
+      });
+      if (full && !orderLabelClawbackSettledForBankPayout(full)) {
+        return NextResponse.json(
+          { error: "Label clawback must complete before releasing Stripe bank payout." },
+          { status: 409 },
+        );
+      }
+      const { releaseSellerStripePayout } = await import("@/services/payout/stripe-seller-payout");
+      const stripePay = await releaseSellerStripePayout(orderId, { force: true });
+      if (!stripePay.ok && stripePay.reason !== "already_paid_out" && stripePay.reason !== "zero_net") {
+        return NextResponse.json(
+          { error: `Stripe bank payout failed: ${stripePay.reason ?? "unknown"}` },
+          { status: 502 },
+        );
+      }
     }
 
     await prisma.order.update({
@@ -226,6 +282,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ ok: true, payoutStatus: OrderPayoutStatus.manual_review });
   }
 
+  if (action === "mark_already_paid") {
+    const { markOrderBankPayoutAlreadyPaid } = await import("@/lib/admin/reconcile-stripe-bank-payouts");
+    const marked = await markOrderBankPayoutAlreadyPaid({
+      orderId,
+      adminId: gate.userId,
+      reason,
+    });
+    if (!marked.ok) {
+      return NextResponse.json({ error: marked.error }, { status: 400 });
+    }
+    return NextResponse.json({ ok: true, payoutStatus: OrderPayoutStatus.paid_out });
+  }
+
   if (action === "reevaluate") {
     await processDeliveryPayoutEvaluation(orderId);
     const fresh = await prisma.order.findUnique({
@@ -236,7 +305,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   return NextResponse.json(
-    { error: "Invalid action. Use release_payout, block_payout, manual_review, or reevaluate." },
+    {
+      error:
+        "Invalid action. Use release_payout, block_payout, manual_review, mark_already_paid, or reevaluate.",
+    },
     { status: 400 },
   );
 }

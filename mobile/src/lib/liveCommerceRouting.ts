@@ -3,15 +3,33 @@ import { Dimensions, Platform } from 'react-native';
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import type { LiveStream } from '../types';
 import { isActiveVariantBuyerItem } from './liveItemVariant';
-import { isVariantSpotAuctionLive, isVariantSpotFixedCheckoutLive } from './liveVariantSpotCommerce';
+import { isVariantSpotAuctionLive } from './liveVariantSpotCommerce';
 
-/** Plain fixed-price buy now in a sale room (not PYT/PYD variant checkout). */
+/** Sale-room lot that should use auction bid UI (not Buy Now). */
+export function isSaleRoomAuctionLot(
+  roomSnap: LiveRoomBuyerSnapshot | null | undefined,
+): boolean {
+  if (!roomSnap?.activeItemId || roomSnap.roomType !== 'sale') return false;
+  if (isActiveVariantBuyerItem(roomSnap)) return false;
+  if (roomSnap.activeItemSalesFormat === 'auction') return true;
+  if (roomSnap.biddingOpen === true) return true;
+  if (roomSnap.lotBidPhase && roomSnap.lotBidPhase !== 'inactive') return true;
+  return false;
+}
+
+/** Fixed-price buy now lot (not PYT/PYD variant checkout, not timed auction). */
 export function isActiveBuyNowBuyerItem(
   roomSnap: LiveRoomBuyerSnapshot | null | undefined,
 ): boolean {
   if (!roomSnap?.activeItemId || roomSnap.status !== 'live') return false;
   if (isActiveVariantBuyerItem(roomSnap)) return false;
-  return roomSnap.roomType === 'sale';
+  if (isSaleRoomAuctionLot(roomSnap)) return false;
+  // An explicit fixed-price lot is buyable in ANY room type — a host can pin a Buy Now item during
+  // a PYT/PYD break or an auction show and buyers should get a Buy button, not the bid UI. A
+  // null/unset format only defaults to Buy Now in sale rooms; elsewhere it stays an auction lot so
+  // we never mistake a bid item for a buy.
+  if (roomSnap.activeItemSalesFormat === 'buy_now') return true;
+  return roomSnap.roomType === 'sale' && roomSnap.activeItemSalesFormat == null;
 }
 
 /** True when HUD primary action is auction bid (slide or Bid label). */

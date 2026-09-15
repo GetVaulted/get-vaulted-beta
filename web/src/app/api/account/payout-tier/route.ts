@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { accountStandingLabel } from "@/services/payout/account-standing";
 import { getCachedPayoutProgramConfig, ensurePayoutProgramCache } from "@/services/payout/payout-program-settings";
 import {
@@ -13,15 +13,14 @@ import {
 } from "@/services/payout/seller-payout-tier";
 import { SellerPayoutTier } from "@/generated/prisma/enums";
 
-export async function GET() {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function GET(req: Request) {
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth.userId;
 
   await ensurePayoutProgramCache();
-  await recalculateSellerPayoutTier(session.user.id);
-  const dashboard = await loadSellerPayoutTierDashboard(session.user.id);
+  await recalculateSellerPayoutTier(userId);
+  const dashboard = await loadSellerPayoutTierDashboard(userId);
   if (!dashboard) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const { seller, metrics, evaluation } = dashboard;

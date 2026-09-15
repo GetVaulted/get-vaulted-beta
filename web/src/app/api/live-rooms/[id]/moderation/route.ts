@@ -16,6 +16,8 @@ import {
 } from "@/lib/trust/live-room-moderation";
 import { listAllowedModerationActions } from "@/lib/trust/live-room-moderator-permissions";
 import { listLiveRoomTipLedger } from "@/lib/live-tip-ledger";
+import { fetchHostRecentSales } from "@/lib/live-room-recent-sales";
+import { listUnresolvedPaymentFailuresForRoom } from "@/lib/live-room-payment-failure";
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
@@ -82,6 +84,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const modQueue = modCtx.canModerate ? await listLiveRoomModQueue(liveRoomId) : [];
   const viewers = modCtx.canModerate ? await listLiveRoomRecentViewers(liveRoomId) : [];
   const tipLedger = modCtx.canModerate ? await listLiveRoomTipLedger(liveRoomId) : null;
+  const [recentSales, paymentFailures] = modCtx.canModerate
+    ? await Promise.all([
+        fetchHostRecentSales(liveRoomId, room.sellerId).catch(() => []),
+        listUnresolvedPaymentFailuresForRoom(liveRoomId).catch(() => []),
+      ])
+    : [[], []];
 
   const isModerator = modCtx.isModerator;
 
@@ -107,6 +115,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     viewers,
     tips: tipLedger?.tips ?? [],
     tipSummary: tipLedger?.summary ?? null,
+    recentSales,
+    paymentFailures,
   });
 }
 

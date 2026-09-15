@@ -131,7 +131,22 @@ export async function closeAuctionIfDue(tx: TransactionClient, listingId: string
 
 export async function closeAuctionIfDuePrisma(listingId: string): Promise<void> {
   await processAuctionPaymentExpiries();
-  await prisma.$transaction(async (tx) => {
-    await closeAuctionIfDue(tx, listingId);
-  });
+  try {
+    // Default Prisma interactive-transaction timeout is 5s. The common case here is a single
+    // read (listing isn't an expired auction), but a just-ended auction with bids does several
+    // sequential writes (order + notifications) — under a brief DB hiccup (e.g. connection pool
+    // still warming up after a restart) that can blow past 5s and throw, which — since this is
+    // awaited directly from the listing page with no try/catch there — 500'd the entire page for
+    // whoever was viewing that item. Give it real headroom, and since this work is explicitly
+    // idempotent ("safe to call multiple times" above), swallow a failure here rather than crash
+    // the page: the next page view (or the payment-expiry sweep) retries it.
+    await prisma.$transaction(
+      async (tx) => {
+        await closeAuctionIfDue(tx, listingId);
+      },
+      { timeout: 15_000, maxWait: 8_000 },
+    );
+  } catch (e) {
+    console.error("[closeAuctionIfDuePrisma] failed — will retry on next view", listingId, e);
+  }
 }

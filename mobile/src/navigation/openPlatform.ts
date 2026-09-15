@@ -180,6 +180,14 @@ export function openMyOrders(navigation?: { navigate: RootNav['navigate'] }) {
   if (rootNavigationRef.isReady()) rootNavigationRef.navigate('BuyerOrders');
 }
 
+export function openAdminOps(navigation?: { navigate: RootNav['navigate'] }) {
+  if (navigation) {
+    (navigation as RootNav).navigate('AdminOpsHome');
+    return;
+  }
+  if (rootNavigationRef.isReady()) rootNavigationRef.navigate('AdminOpsHome');
+}
+
 /** @deprecated use openSettings */
 export function openProfileSettings(navigation?: NavigationProp<ParamListBase>) {
   openSettings(navigation as { navigate: RootNav['navigate'] });

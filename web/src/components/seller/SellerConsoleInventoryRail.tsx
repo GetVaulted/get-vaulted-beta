@@ -132,7 +132,7 @@ export function SellerConsoleInventoryRail({
           </button>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2">
         <VaultQueueCarousel
           tab={tab}
           onTab={onTab}

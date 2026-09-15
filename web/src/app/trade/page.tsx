@@ -1,16 +1,19 @@
 import Link from "next/link";
+import { TradeBuyerPitchCard } from "@/components/trade/TradeBuyerPitchCard";
 import { getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  TRADE_COVERS_BULLETS,
+  TRADE_HANDLES_BULLETS,
+  TRADE_HOW_IT_WORKS_STEPS,
+  TRADE_HUB_ALIGNED_NOTE,
+  TRADE_HUB_HERO_SUB,
+  TRADE_HUB_HERO_TITLE,
+  TRADE_HUB_START_SUB,
+  TRADE_HUB_START_TITLE,
+} from "@/lib/trade-trust-copy";
 
 export const dynamic = "force-dynamic";
-
-const START_STEPS = [
-  "Add your item",
-  "Choose what you want",
-  "Add cash if needed",
-  "Send offer",
-  "Ship with tracking once accepted",
-] as const;
 
 export default async function TradeHubPage() {
   const session = await getServerSessionSafe();
@@ -33,23 +36,18 @@ export default async function TradeHubPage() {
         <header className="mb-6">
           <p className="text-[10px] font-black uppercase tracking-[0.22em] text-gold-bright/85">Trade Center</p>
           <h1 className="font-display mt-2 text-2xl font-black tracking-tight text-foreground sm:text-4xl">
-            Structured trade offers on Get Vaulted
+            {TRADE_HUB_HERO_TITLE}
           </h1>
-          <p className="mt-2 max-w-2xl text-sm text-zinc-400 sm:text-base">
-            Start a protected offer or manage your trade block — incoming, sent, and active deals in one place.
-          </p>
+          <p className="mt-2 max-w-2xl text-sm text-zinc-400 sm:text-base">{TRADE_HUB_HERO_SUB}</p>
         </header>
 
         <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
           <article className="rounded-3xl border border-white/[0.1] bg-[#0a0a0d]/90 p-6 shadow-[0_28px_60px_-36px_rgba(0,0,0,0.85)] sm:p-8">
             <p className="text-[10px] font-black uppercase tracking-[0.22em] text-gold-bright/85">Start a trade</p>
             <h2 className="font-display mt-2 text-xl font-black tracking-tight text-foreground sm:text-2xl">
-              Build and send a protected offer
+              {TRADE_HUB_START_TITLE}
             </h2>
-            <p className="mt-2 text-sm text-zinc-400">
-              Pick your card, choose what you want in return, add cash if needed, and send a structured offer with full
-              status history.
-            </p>
+            <p className="mt-2 text-sm text-zinc-400">{TRADE_HUB_START_SUB}</p>
             <Link
               href={signedIn ? "/trade/new" : "/signin?returnTo=%2Ftrade%2Fnew"}
               className="mt-6 inline-flex h-12 w-full items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright px-6 text-sm font-bold text-zinc-950 shadow-[0_12px_34px_-14px_rgba(201,162,39,0.6)] transition hover:brightness-110 sm:w-auto"
@@ -57,7 +55,7 @@ export default async function TradeHubPage() {
               Start a trade
             </Link>
             <div className="mt-6 space-y-3">
-              {START_STEPS.map((step, idx) => (
+              {TRADE_HOW_IT_WORKS_STEPS.map((step, idx) => (
                 <div
                   key={step}
                   className="flex items-start gap-3 rounded-xl border border-white/[0.06] bg-[#09090c]/75 px-3 py-2.5"
@@ -105,13 +103,31 @@ export default async function TradeHubPage() {
             </div>
             <div className="mt-4 rounded-2xl border border-white/[0.08] bg-[#09090c]/75 p-4">
               <p className="text-xs font-semibold text-zinc-200">Staying aligned</p>
-              <p className="mt-1 text-xs text-zinc-500">
-                The offer record is your source of truth for terms and status. Keep shipping and coordination details in
-                the trade thread when available.
-              </p>
+              <p className="mt-1 text-xs text-zinc-500">{TRADE_HUB_ALIGNED_NOTE}</p>
             </div>
           </article>
         </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <article className="rounded-2xl border border-white/[0.08] bg-[#0a0a0d]/90 p-5">
+            <p className="text-xs font-semibold text-zinc-100">What Get Vaulted covers</p>
+            <ul className="mt-2 space-y-1.5 text-xs text-zinc-500">
+              {TRADE_COVERS_BULLETS.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </article>
+          <article className="rounded-2xl border border-white/[0.08] bg-[#0a0a0d]/90 p-5">
+            <p className="text-xs font-semibold text-zinc-100">What you handle</p>
+            <ul className="mt-2 space-y-1.5 text-xs text-zinc-500">
+              {TRADE_HANDLES_BULLETS.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </article>
+        </div>
+
+        <TradeBuyerPitchCard />
       </section>
     </main>
   );

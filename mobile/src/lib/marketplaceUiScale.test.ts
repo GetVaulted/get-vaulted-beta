@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  computeMarketplaceGrid,
   computeMarketplaceLayoutMetrics,
   isCompactMarketplaceLayout,
   marketplaceUiScale,
+  MARKETPLACE_GRID_GAP,
   MARKETPLACE_REF_WIDTH,
 } from './marketplaceUiScale';
 
@@ -57,5 +59,31 @@ describe('computeMarketplaceLayoutMetrics', () => {
     expect(proMax17.scale).toBe(1);
     expect(displayZoom.scale).toBeLessThan(1);
     expect(displayZoom.listingCardWidth).toBeLessThan(proMax15.listingCardWidth);
+  });
+});
+
+describe('computeMarketplaceGrid', () => {
+  it('uses 2 columns on phone content widths', () => {
+    const grid = computeMarketplaceGrid(358);
+    expect(grid.cols).toBe(2);
+    expect(grid.cardWidth).toBe(Math.floor((358 - MARKETPLACE_GRID_GAP) / 2));
+  });
+
+  it('adds columns on wide tablet content widths (capped at 4)', () => {
+    expect(computeMarketplaceGrid(760).cols).toBeGreaterThanOrEqual(3);
+    expect(computeMarketplaceGrid(2000).cols).toBe(4);
+  });
+
+  it('fills the row exactly: cols * cardWidth + gaps <= contentWidth', () => {
+    for (const w of [320, 358, 430, 700, 900, 1200]) {
+      const g = computeMarketplaceGrid(w);
+      const used = g.cols * g.cardWidth + g.gap * (g.cols - 1);
+      expect(used).toBeLessThanOrEqual(w);
+      expect(g.cardWidth).toBeGreaterThan(0);
+    }
+  });
+
+  it('never drops below 2 columns even on tiny widths', () => {
+    expect(computeMarketplaceGrid(1).cols).toBe(2);
   });
 });

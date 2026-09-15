@@ -1,16 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
 import type { SellerLiveShippingDashboard, SellerLiveShippingSessionRow } from "@/lib/seller-live-shipping-dashboard-types";
-import { openLabelForPrint } from "@/lib/seller-shipping-label-state";
 import type { SellerLabelPrintFormat } from "@/lib/shippo-label-format";
+import { openLabelForPrint } from "@/lib/seller-shipping-label-state";
+import { LabelSizePicker } from "@/components/account/LabelSizePicker";
 import {
   countShipQueueActions,
   orderIdsAwaitingBundledLabel,
   sellerShipQueueEligible,
   sellerShipQueuePhase,
+  type SellerShipQueuePhase,
 } from "@/lib/seller-ship-queue";
 
 export type ShipWorkspaceOrder = {
@@ -32,6 +34,7 @@ export type ShipWorkspaceOrder = {
 };
 
 type BundledFeedback = { tone: "error" | "success" | "warning"; message: string };
+type ManualParcel = { weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
 
 type Props = {
   orders: ShipWorkspaceOrder[];
@@ -40,9 +43,19 @@ type Props = {
   bundledBusySessionId: string | null;
   bundledSessionFeedback?: Record<string, BundledFeedback>;
   labelError: string | null;
-  onCreateLabel: (orderId: string, labelFormat?: SellerLabelPrintFormat) => void;
-  onCreateBundledLabel: (sessionId: string, labelFormat?: SellerLabelPrintFormat) => void;
+  onCreateLabel: (
+    orderId: string,
+    manualParcel?: ManualParcel,
+    labelFormat?: "letter" | "thermal_4x6",
+  ) => void;
+  onCreateBundledLabel: (
+    sessionId: string,
+    manualParcel?: ManualParcel,
+    labelFormat?: "letter" | "thermal_4x6",
+    selectedRateObjectId?: string,
+  ) => void;
   onMarkShipped: (order: ShipWorkspaceOrder) => void;
+  onMarkBundleShipped: (session: SellerLiveShippingSessionRow) => void;
 };
 
 function formatDate(iso: string) {
@@ -91,12 +104,13 @@ function PrimaryButton({
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
-  tone?: "gold" | "sky" | "emerald";
+  tone?: "gold" | "sky" | "emerald" | "muted";
 }) {
   const tones = {
     gold: "bg-gradient-to-r from-gold to-gold-bright text-zinc-950 hover:brightness-110",
     sky: "border border-sky-400/40 bg-sky-500/20 text-sky-50 hover:bg-sky-500/30",
     emerald: "border border-emerald-400/35 bg-emerald-500/15 text-emerald-50 hover:bg-emerald-500/25",
+    muted: "border border-white/12 bg-white/[0.03] text-zinc-300 hover:border-white/20 hover:bg-white/[0.06]",
   };
   return (
     <button
@@ -124,6 +138,22 @@ function OrderThumb({ url, title }: { url?: string; title: string }) {
   );
 }
 
+const PARCEL_PRESETS: Array<{
+  label: string;
+  description: string;
+  weightOz: number;
+  lengthIn: number;
+  widthIn: number;
+  heightIn: number;
+}> = [
+  { label: "Card mailer", description: "PWE / bubble mailer, a few cards", weightOz: 4, lengthIn: 6, widthIn: 4, heightIn: 1 },
+  { label: "Padded mailer", description: "Bubble mailer, stack of cards or small items", weightOz: 8, lengthIn: 9, widthIn: 6, heightIn: 1 },
+  { label: "Small box", description: "Graded slab, loose packs, multiple cards", weightOz: 16, lengthIn: 10, widthIn: 7, heightIn: 3 },
+  { label: "Medium box", description: "Large haul, mix of items from a break", weightOz: 32, lengthIn: 12, widthIn: 9, heightIn: 5 },
+  { label: "Mini helmet", description: "Mini collectible helmet (~1.5 lbs)", weightOz: 24, lengthIn: 11, widthIn: 8, heightIn: 7 },
+  { label: "Full-size helmet", description: "Full NFL / MLB helmet (~5 lbs)", weightOz: 80, lengthIn: 14, widthIn: 12, heightIn: 12 },
+];
+
 function ShipOrderCard({
   order,
   labelBusyId,
@@ -133,14 +163,42 @@ function ShipOrderCard({
 }: {
   order: ShipWorkspaceOrder;
   labelBusyId: string | null;
-  onCreateLabel: (orderId: string) => void;
+  onCreateLabel: (
+    orderId: string,
+    manualParcel?: ManualParcel,
+    labelFormat?: "letter" | "thermal_4x6",
+  ) => void;
   onMarkShipped: (order: ShipWorkspaceOrder) => void;
-  phase: "needs_label" | "print_and_ship" | "awaiting_carrier" | "in_transit" | "wait_payment";
+  phase: Exclude<SellerShipQueuePhase, "other">;
 }) {
   const thumb = order.listing.images[0]?.url;
   const busy = labelBusyId === order.id;
+  const [showParcelModal, setShowParcelModal] = useState(false);
+  const [activePreset, setActivePreset] = useState("Card mailer");
+  const [labelFormat, setLabelFormat] = useState<SellerLabelPrintFormat>("thermal_4x6");
+  const [weightOz, setWeightOz] = useState("4");
+  const [lengthIn, setLengthIn] = useState("6");
+  const [widthIn, setWidthIn] = useState("4");
+  const [heightIn, setHeightIn] = useState("1");
+
+  const applyPreset = (p: (typeof PARCEL_PRESETS)[number]) => {
+    setWeightOz(String(p.weightOz));
+    setLengthIn(String(p.lengthIn));
+    setWidthIn(String(p.widthIn));
+    setHeightIn(String(p.heightIn));
+    setActivePreset(p.label);
+  };
+
+  const parsedParcel = {
+    weightOz: parseFloat(weightOz),
+    lengthIn: parseFloat(lengthIn),
+    widthIn: parseFloat(widthIn),
+    heightIn: parseFloat(heightIn),
+  };
+  const parcelValid = Object.values(parsedParcel).every((v) => Number.isFinite(v) && v > 0);
 
   return (
+    <>
     <article className="flex flex-col gap-4 rounded-2xl border border-white/[0.08] bg-[#0a0a0d] p-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 flex-1 gap-3.5">
         <OrderThumb url={thumb} title={order.listing.title} />
@@ -170,57 +228,53 @@ function ShipOrderCard({
 
       <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
         {phase === "needs_label" ? (
-          <PrimaryButton tone="sky" disabled={busy} onClick={() => onCreateLabel(order.id)}>
+          <PrimaryButton tone="sky" disabled={busy} onClick={() => setShowParcelModal(true)}>
             {busy ? "Creating…" : "Create label"}
           </PrimaryButton>
         ) : null}
-        {phase === "print_and_ship" && order.labelUrl ? (
-          <>
-            <PrimaryButton tone="gold" onClick={() => openLabelForPrint(order.labelUrl!, "letter")}>
-              Print label
-            </PrimaryButton>
-            <PrimaryButton tone="gold" onClick={() => openLabelForPrint(order.labelUrl!, "thermal_4x6")}>
-              Print 4×6
-            </PrimaryButton>
-          </>
+        {phase === "needs_label" ? (
+          <PrimaryButton tone="muted" disabled={busy} onClick={() => onMarkShipped(order)}>
+            Ship it yourself
+          </PrimaryButton>
+        ) : null}
+        {(phase === "print_and_ship" || phase === "awaiting_carrier") && order.labelUrl ? (
+          <PrimaryButton tone="gold" onClick={() => openLabelForPrint(order.labelUrl!)}>
+            {phase === "print_and_ship" ? "Print label" : "Reprint"}
+          </PrimaryButton>
         ) : null}
         {phase === "print_and_ship" ? (
           <PrimaryButton tone="emerald" onClick={() => onMarkShipped(order)}>
-            Mark shipped
+            Dropped off
           </PrimaryButton>
         ) : null}
         {phase === "awaiting_carrier" ? (
-          <span className="rounded-xl border border-white/10 px-4 py-2 text-xs text-zinc-400">
-            Awaiting carrier scan — status updates to on the way automatically
+          <span className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-100/90">
+            Pending carrier scan
           </span>
         ) : null}
-        {phase === "in_transit" && order.trackingUrl ? (
+        {(phase === "in_transit" || phase === "done") && order.trackingUrl ? (
           <a
             href={order.trackingUrl}
             target="_blank"
             rel="noreferrer"
             className="inline-flex h-11 items-center justify-center rounded-xl border border-white/12 px-5 text-sm font-semibold text-zinc-200 transition hover:border-gold/35"
           >
-            Track package
+            Track
           </a>
         ) : null}
         {phase === "in_transit" && order.labelUrl ? (
-          <>
-            <button
-              type="button"
-              onClick={() => openLabelForPrint(order.labelUrl!, "letter")}
-              className="inline-flex h-11 items-center justify-center rounded-xl border border-white/12 px-4 text-sm font-medium text-zinc-400 transition hover:text-zinc-200"
-            >
-              Reprint
-            </button>
-            <button
-              type="button"
-              onClick={() => openLabelForPrint(order.labelUrl!, "thermal_4x6")}
-              className="inline-flex h-11 items-center justify-center rounded-xl border border-gold/25 px-4 text-sm font-medium text-gold-bright/90 transition hover:border-gold/40"
-            >
-              Reprint 4×6
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={() => openLabelForPrint(order.labelUrl!)}
+            className="inline-flex h-11 items-center justify-center rounded-xl border border-white/12 px-4 text-sm font-medium text-zinc-400 transition hover:text-zinc-200"
+          >
+            Reprint
+          </button>
+        ) : null}
+        {phase === "done" ? (
+          <span className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-100/90">
+            Delivered
+          </span>
         ) : null}
         <Link
           href={`/account/sales/${encodeURIComponent(order.id)}`}
@@ -230,6 +284,90 @@ function ShipOrderCard({
         </Link>
       </div>
     </article>
+
+    {showParcelModal ? (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+        onClick={(e) => { if (e.target === e.currentTarget) setShowParcelModal(false); }}
+      >
+        <div className="w-full max-w-lg rounded-2xl border border-white/[0.1] bg-[#0e0e12] p-5 shadow-2xl">
+          <h2 className="text-base font-bold text-zinc-100">Confirm package details</h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            Select the package type that matches what you&apos;re actually shipping, then adjust if needed.
+          </p>
+          <div className="mt-3 rounded-lg border border-zinc-700/50 bg-zinc-900/60 px-3 py-2 text-[11px] text-zinc-400">
+            <span className="font-semibold text-zinc-300">{order.listing.title}</span>
+            {" · "}@{order.buyer.username}
+            {" · "}
+            {order.shipCity}, {order.shipState}
+          </div>
+          <p className="mt-4 text-[10px] font-bold uppercase tracking-wide text-zinc-500">Package type</p>
+          <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+            {PARCEL_PRESETS.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => applyPreset(p)}
+                className={`rounded-lg border px-2.5 py-2 text-left transition ${
+                  activePreset === p.label
+                    ? "border-sky-400/60 bg-sky-500/15 text-sky-50"
+                    : "border-white/[0.08] bg-zinc-900/60 text-zinc-300 hover:border-white/20 hover:bg-zinc-800/60"
+                }`}
+              >
+                <p className="text-[11px] font-semibold leading-tight">{p.label}</p>
+                <p className="mt-0.5 text-[10px] leading-tight text-zinc-400 line-clamp-2">{p.description}</p>
+                <p className="mt-1 font-mono text-[10px] text-zinc-500">
+                  {p.weightOz} oz · {p.lengthIn}×{p.widthIn}×{p.heightIn}&quot;
+                </p>
+              </button>
+            ))}
+          </div>
+          <p className="mt-4 text-[10px] font-bold uppercase tracking-wide text-zinc-500">Adjust if needed</p>
+          <div className="mt-1.5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {(
+              [
+                ["Weight (oz)", weightOz, setWeightOz],
+                ["Length (in)", lengthIn, setLengthIn],
+                ["Width (in)", widthIn, setWidthIn],
+                ["Height (in)", heightIn, setHeightIn],
+              ] as [string, string, (v: string) => void][]
+            ).map(([lbl, val, setter]) => (
+              <label key={lbl} className="flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">{lbl}</span>
+                <input
+                  type="number" min="0.1" step="0.1"
+                  value={val}
+                  onChange={(e) => { setter(e.target.value); setActivePreset(""); }}
+                  className="w-full rounded-lg border border-white/[0.12] bg-zinc-900 px-2.5 py-2 font-mono text-sm text-zinc-100 outline-none focus:border-sky-400/60 focus:ring-1 focus:ring-sky-400/30"
+                />
+              </label>
+            ))}
+          </div>
+          <LabelSizePicker className="mt-4" value={labelFormat} onChange={setLabelFormat} />
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowParcelModal(false)}
+              className="rounded-lg border border-white/[0.1] px-4 py-2 text-[12px] font-semibold text-zinc-300 transition hover:border-white/20 hover:text-zinc-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!parcelValid}
+              onClick={() => {
+                setShowParcelModal(false);
+                onCreateLabel(order.id, parsedParcel, labelFormat);
+              }}
+              className="rounded-lg border border-sky-400/40 bg-sky-500/20 px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-sky-50 transition hover:bg-sky-500/30 disabled:opacity-40"
+            >
+              Create {labelFormat === "thermal_4x6" ? "4×6" : "letter"} label
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    </>
   );
 }
 
@@ -238,19 +376,120 @@ function BundleShipCard({
   bundledBusySessionId,
   bundledSessionFeedback,
   onCreateBundledLabel,
+  onMarkBundleShipped,
 }: {
   session: SellerLiveShippingSessionRow;
   bundledBusySessionId: string | null;
   bundledSessionFeedback?: BundledFeedback;
-  onCreateBundledLabel: (sessionId: string) => void;
+  onCreateBundledLabel: (
+    sessionId: string,
+    manualParcel?: ManualParcel,
+    labelFormat?: "letter" | "thermal_4x6",
+    selectedRateObjectId?: string,
+  ) => void;
+  onMarkBundleShipped?: (session: SellerLiveShippingSessionRow) => void;
 }) {
+  const [showParcelModal, setShowParcelModal] = useState(false);
+  const [activePreset, setActivePreset] = useState("Card mailer");
+  const [labelFormat, setLabelFormat] = useState<SellerLabelPrintFormat>("thermal_4x6");
+  const [weightOz, setWeightOz] = useState("4");
+  const [lengthIn, setLengthIn] = useState("6");
+  const [widthIn, setWidthIn] = useState("4");
+  const [heightIn, setHeightIn] = useState("1");
+  const [rateBusy, setRateBusy] = useState(false);
+  const [rateError, setRateError] = useState<string | null>(null);
+  const [rates, setRates] = useState<
+    { objectId: string; amountCents: number; carrier: string; service: string; estimatedDays: number | null }[]
+  >([]);
+  const [selectedRateId, setSelectedRateId] = useState<string | null>(null);
+  const [chargedCents, setChargedCents] = useState(0);
+  const rateReqId = useRef(0);
+
+  const applyPreset = (p: (typeof PARCEL_PRESETS)[number]) => {
+    setWeightOz(String(p.weightOz));
+    setLengthIn(String(p.lengthIn));
+    setWidthIn(String(p.widthIn));
+    setHeightIn(String(p.heightIn));
+    setActivePreset(p.label);
+  };
+
+  const parsedParcel = {
+    weightOz: parseFloat(weightOz),
+    lengthIn: parseFloat(lengthIn),
+    widthIn: parseFloat(widthIn),
+    heightIn: parseFloat(heightIn),
+  };
+  const parcelValid = Object.values(parsedParcel).every((v) => Number.isFinite(v) && v > 0);
+
+  useEffect(() => {
+    if (!showParcelModal || !parcelValid) {
+      setRates([]);
+      setSelectedRateId(null);
+      setRateError(null);
+      setRateBusy(false);
+      return;
+    }
+    const reqId = ++rateReqId.current;
+    setRateBusy(true);
+    setRateError(null);
+    const t = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await fetch(
+            `/api/account/live-shipping/${encodeURIComponent(session.sessionId)}/preview-rates`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(parsedParcel),
+            },
+          );
+          const j = (await res.json().catch(() => ({}))) as {
+            error?: string;
+            rates?: {
+              objectId: string;
+              amountCents: number;
+              carrier: string;
+              service: string;
+              estimatedDays: number | null;
+            }[];
+            shippingChargedCents?: number;
+          };
+          if (rateReqId.current !== reqId) return;
+          if (!res.ok) {
+            setRates([]);
+            setSelectedRateId(null);
+            setRateError(j.error ?? "Could not quote USPS/UPS rates.");
+            return;
+          }
+          const nextRates = Array.isArray(j.rates) ? j.rates.filter((r) => r.objectId) : [];
+          setRates(nextRates);
+          setSelectedRateId(nextRates[0]?.objectId ?? null);
+          if (typeof j.shippingChargedCents === "number") setChargedCents(j.shippingChargedCents);
+          setRateError(null);
+        } catch {
+          if (rateReqId.current !== reqId) return;
+          setRates([]);
+          setSelectedRateId(null);
+          setRateError("Network error — could not quote rates.");
+        } finally {
+          if (rateReqId.current === reqId) setRateBusy(false);
+        }
+      })();
+    }, 450);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- quote when dims change
+  }, [showParcelModal, weightOz, lengthIn, widthIn, heightIn, parcelValid, session.sessionId]);
+
   const buyer = session.buyer.name?.trim()
     ? `${session.buyer.name} (@${session.buyer.username})`
     : `@${session.buyer.username}`;
   const busy = bundledBusySessionId === session.sessionId;
   const labelUrl = session.bundledLabel?.labelUrl;
+  const selectedRate = rates.find((r) => r.objectId === selectedRateId) ?? rates[0] ?? null;
+  const marginCents = selectedRate ? chargedCents - selectedRate.amountCents : null;
 
   return (
+    <>
     <article className="rounded-2xl border border-sky-500/25 bg-sky-950/15 p-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -263,19 +502,19 @@ function BundleShipCard({
         </div>
         <div className="flex flex-wrap gap-2">
           {session.canCreateBundledLabel ? (
-            <PrimaryButton tone="sky" disabled={busy} onClick={() => onCreateBundledLabel(session.sessionId)}>
-              {busy ? "Creating…" : "Create bundle label"}
+            <PrimaryButton tone="sky" disabled={busy} onClick={() => setShowParcelModal(true)}>
+              {busy ? "Creating…" : "Create label"}
+            </PrimaryButton>
+          ) : null}
+          {session.canCreateBundledLabel && onMarkBundleShipped ? (
+            <PrimaryButton tone="muted" disabled={busy} onClick={() => onMarkBundleShipped(session)}>
+              Ship it yourself
             </PrimaryButton>
           ) : null}
           {labelUrl ? (
-            <>
-              <PrimaryButton tone="gold" onClick={() => openLabelForPrint(labelUrl, "letter")}>
-                Print bundle label
-              </PrimaryButton>
-              <PrimaryButton tone="gold" onClick={() => openLabelForPrint(labelUrl, "thermal_4x6")}>
-                Print 4×6
-              </PrimaryButton>
-            </>
+            <PrimaryButton tone="gold" onClick={() => openLabelForPrint(labelUrl)}>
+              Print
+            </PrimaryButton>
           ) : null}
         </div>
       </div>
@@ -299,15 +538,202 @@ function BundleShipCard({
         <p className="mt-2 text-xs text-amber-200/90">Ship-alone session — create a label on each order below.</p>
       ) : null}
     </article>
+
+    {showParcelModal ? (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+        onClick={(e) => { if (e.target === e.currentTarget) setShowParcelModal(false); }}
+      >
+        <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/[0.1] bg-[#0e0e12] p-5 shadow-2xl">
+          <h2 className="text-base font-bold text-zinc-100">Confirm package details</h2>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            Adjust the package, then pick a USPS or UPS rate before creating the label.
+          </p>
+          <div className="mt-3 rounded-lg border border-zinc-700/50 bg-zinc-900/60 px-3 py-2 text-[11px] text-zinc-400">
+            <span className="font-semibold text-zinc-300">{session.liveShowTitle}</span>
+            {" · "}
+            {buyer}
+            {" · "}
+            {session.orderCount} order{session.orderCount === 1 ? "" : "s"}
+            {" · "}
+            <span className="font-mono text-zinc-500">System est: {session.pricingWeightOz.toFixed(1)} oz</span>
+          </div>
+
+          <p className="mt-4 text-[10px] font-bold uppercase tracking-wide text-zinc-500">Package type</p>
+          <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+            {PARCEL_PRESETS.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => applyPreset(p)}
+                className={`rounded-lg border px-2.5 py-2 text-left transition ${
+                  activePreset === p.label
+                    ? "border-sky-400/60 bg-sky-500/15 text-sky-50"
+                    : "border-white/[0.08] bg-zinc-900/60 text-zinc-300 hover:border-white/20 hover:bg-zinc-800/60"
+                }`}
+              >
+                <p className="text-[11px] font-semibold leading-tight">{p.label}</p>
+                <p className="mt-0.5 text-[10px] leading-tight text-zinc-400 line-clamp-2">{p.description}</p>
+                <p className="mt-1 font-mono text-[10px] text-zinc-500">
+                  {p.weightOz} oz · {p.lengthIn}×{p.widthIn}×{p.heightIn}&quot;
+                </p>
+              </button>
+            ))}
+          </div>
+
+          <p className="mt-4 text-[10px] font-bold uppercase tracking-wide text-zinc-500">Adjust if needed</p>
+          <div className="mt-1.5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {(
+              [
+                ["Weight (oz)", weightOz, setWeightOz],
+                ["Length (in)", lengthIn, setLengthIn],
+                ["Width (in)", widthIn, setWidthIn],
+                ["Height (in)", heightIn, setHeightIn],
+              ] as [string, string, (v: string) => void][]
+            ).map(([lbl, val, setter]) => (
+              <label key={lbl} className="flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">{lbl}</span>
+                <input
+                  type="number" min="0.1" step="0.1"
+                  value={val}
+                  onChange={(e) => { setter(e.target.value); setActivePreset(""); }}
+                  className="w-full rounded-lg border border-white/[0.12] bg-zinc-900 px-2.5 py-2 font-mono text-sm text-zinc-100 outline-none focus:border-sky-400/60 focus:ring-1 focus:ring-sky-400/30"
+                />
+              </label>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[10px] text-zinc-600">L × W × H — measure the outside of the box or mailer</p>
+
+          <LabelSizePicker className="mt-4" value={labelFormat} onChange={setLabelFormat} />
+
+          <div className="mt-4 rounded-lg border border-white/[0.08] bg-zinc-950/80 px-3 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">USPS &amp; UPS rates</p>
+            {rateBusy ? (
+              <p className="mt-1.5 text-[12px] text-zinc-400">Getting Shippo rates…</p>
+            ) : rateError ? (
+              <p className="mt-1.5 text-[12px] text-rose-200">{rateError}</p>
+            ) : rates.length > 0 ? (
+              <>
+                <ul className="mt-2 space-y-1.5">
+                  {rates.map((r) => {
+                    const selected = r.objectId === selectedRate?.objectId;
+                    return (
+                      <li key={r.objectId}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedRateId(r.objectId)}
+                          className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition ${
+                            selected
+                              ? "border-sky-400/50 bg-sky-500/15"
+                              : "border-white/[0.08] bg-zinc-900/50 hover:border-white/20"
+                          }`}
+                        >
+                          <span className="text-[11px] text-zinc-300">
+                            <span className="font-semibold text-zinc-100">{r.carrier}</span> {r.service}
+                            {r.estimatedDays != null ? ` · ~${r.estimatedDays}d` : ""}
+                          </span>
+                          <span className="font-mono text-[11px] text-zinc-100">
+                            {(r.amountCents / 100).toLocaleString("en-US", {
+                              style: "currency",
+                              currency: "USD",
+                              maximumFractionDigits: 2,
+                            })}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {chargedCents > 0 && selectedRate ? (
+                  <p className="mt-2 text-[11px] text-zinc-400">
+                    Buyer paid{" "}
+                    {(chargedCents / 100).toLocaleString("en-US", {
+                      style: "currency",
+                      currency: "USD",
+                      maximumFractionDigits: 2,
+                    })}
+                    {marginCents != null ? (
+                      <>
+                        {" · "}
+                        <span className={marginCents < 0 ? "font-semibold text-rose-300" : "font-semibold text-emerald-300"}>
+                          {(marginCents / 100).toLocaleString("en-US", {
+                            style: "currency",
+                            currency: "USD",
+                            maximumFractionDigits: 2,
+                          })}{" "}
+                          margin
+                        </span>
+                      </>
+                    ) : null}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="mt-1.5 text-[12px] text-zinc-500">Enter package details to see USPS and UPS rates.</p>
+            )}
+          </div>
+
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowParcelModal(false)}
+              className="rounded-lg border border-white/[0.1] px-4 py-2 text-[12px] font-semibold text-zinc-300 transition hover:border-white/20 hover:text-zinc-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!parcelValid || rateBusy || !selectedRate}
+              onClick={() => {
+                setShowParcelModal(false);
+                onCreateBundledLabel(session.sessionId, parsedParcel, labelFormat, selectedRate?.objectId);
+              }}
+              className="rounded-lg border border-sky-400/40 bg-sky-500/20 px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-sky-50 transition hover:bg-sky-500/30 disabled:opacity-40"
+            >
+              {selectedRate
+                ? `Create ${labelFormat === "thermal_4x6" ? "4×6" : "letter"} · ${(selectedRate.amountCents / 100).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 })}`
+                : `Create ${labelFormat === "thermal_4x6" ? "4×6" : "letter"} label`}
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    </>
   );
 }
 
-function SectionHeading({ count, label }: { count: number; label: string }) {
+function SectionHeading({
+  count,
+  label,
+  hint,
+}: {
+  count: number;
+  label: string;
+  hint?: string;
+}) {
   if (count === 0) return null;
   return (
-    <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-zinc-500">
-      {label} <span className="text-gold-bright/90">({count})</span>
-    </h2>
+    <div>
+      <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-zinc-500">
+        {label} <span className="text-gold-bright/90">({count})</span>
+      </h2>
+      {hint ? <p className="mt-1 text-xs text-zinc-600">{hint}</p> : null}
+    </div>
+  );
+}
+
+function StagePill({ label, count, tone }: { label: string; count: number; tone: "gold" | "amber" | "sky" | "emerald" | "zinc" }) {
+  const tones = {
+    gold: "border-gold/30 bg-gold/10 text-gold-bright",
+    amber: "border-amber-400/30 bg-amber-500/10 text-amber-100",
+    sky: "border-sky-400/30 bg-sky-500/10 text-sky-100",
+    emerald: "border-emerald-400/30 bg-emerald-500/10 text-emerald-100",
+    zinc: "border-white/10 bg-white/[0.03] text-zinc-400",
+  };
+  return (
+    <div className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide ${tones[tone]}`}>
+      {label} <span className="tabular-nums">{count}</span>
+    </div>
   );
 }
 
@@ -321,9 +747,10 @@ export function AccountSellerShipWorkspace({
   onCreateLabel,
   onCreateBundledLabel,
   onMarkShipped,
+  onMarkBundleShipped,
 }: Props) {
-  const [showInTransit, setShowInTransit] = useState(false);
-  const [showAwaitingCarrier, setShowAwaitingCarrier] = useState(false);
+  const [showComplete, setShowComplete] = useState(false);
+  const [showWaitPayment, setShowWaitPayment] = useState(false);
 
   const awaitingBundleIds = useMemo(
     () => orderIdsAwaitingBundledLabel(liveShipping?.sessions ?? []),
@@ -332,9 +759,9 @@ export function AccountSellerShipWorkspace({
 
   const buckets = useMemo(() => {
     const needsLabel: ShipWorkspaceOrder[] = [];
-    const printAndShip: ShipWorkspaceOrder[] = [];
-    const awaitingCarrier: ShipWorkspaceOrder[] = [];
-    const inTransit: ShipWorkspaceOrder[] = [];
+    const pendingShipment: Array<{ order: ShipWorkspaceOrder; phase: "print_and_ship" | "awaiting_carrier" }> = [];
+    const shipped: ShipWorkspaceOrder[] = [];
+    const complete: ShipWorkspaceOrder[] = [];
     const waitPayment: ShipWorkspaceOrder[] = [];
 
     for (const order of orders) {
@@ -342,45 +769,59 @@ export function AccountSellerShipWorkspace({
       const phase = sellerShipQueuePhase(order);
       if (phase === "needs_label") {
         if (!awaitingBundleIds.has(order.id)) needsLabel.push(order);
-      } else if (phase === "print_and_ship") printAndShip.push(order);
-      else if (phase === "awaiting_carrier") awaitingCarrier.push(order);
-      else if (phase === "in_transit") inTransit.push(order);
-      else if (phase === "wait_payment") waitPayment.push(order);
+      } else if (phase === "print_and_ship" || phase === "awaiting_carrier") {
+        pendingShipment.push({ order, phase });
+      } else if (phase === "in_transit") {
+        shipped.push(order);
+      } else if (phase === "done") {
+        complete.push(order);
+      } else if (phase === "wait_payment") {
+        waitPayment.push(order);
+      }
     }
 
-    return { needsLabel, printAndShip, awaitingCarrier, inTransit, waitPayment };
+    // Keep complete list tidy — newest first, cap display set.
+    complete.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+
+    return { needsLabel, pendingShipment, shipped, complete: complete.slice(0, 40), waitPayment };
   }, [orders, awaitingBundleIds]);
 
-  const bundleCards = useMemo(() => {
-    const sessions = liveShipping?.sessions ?? [];
-    return sessions.filter(
-      (s) =>
-        s.canCreateBundledLabel ||
-        Boolean(s.bundledLabel?.labelUrl) ||
-        (s.ordersNeedingLabels.length > 0 && s.labelStatus !== "awaiting_payment"),
-    );
-  }, [liveShipping]);
+  const createBundles = useMemo(
+    () => (liveShipping?.sessions ?? []).filter((s) => s.canCreateBundledLabel),
+    [liveShipping],
+  );
+  const printBundles = useMemo(
+    () =>
+      (liveShipping?.sessions ?? []).filter(
+        (s) => Boolean(s.bundledLabel?.labelUrl) && !s.canCreateBundledLabel,
+      ),
+    [liveShipping],
+  );
 
   const actionCounts = countShipQueueActions(orders, { skipOrderIds: awaitingBundleIds });
-  const totalActions =
-    actionCounts.needsLabel +
-    actionCounts.printAndShip +
-    bundleCards.filter((s) => s.canCreateBundledLabel || s.bundledLabel?.labelUrl).length;
+  const needsLabelCount = buckets.needsLabel.length + createBundles.length;
+  const pendingShipmentCount = buckets.pendingShipment.length + printBundles.length;
+  const activeCount = needsLabelCount + pendingShipmentCount;
 
-  if (totalActions === 0 && buckets.waitPayment.length === 0 && buckets.inTransit.length === 0) {
+  if (
+    activeCount === 0 &&
+    buckets.waitPayment.length === 0 &&
+    buckets.shipped.length === 0 &&
+    buckets.complete.length === 0
+  ) {
     return (
       <div className="mt-8 space-y-4">
         <SetupBanner liveShipping={liveShipping} />
         <div className="rounded-2xl border border-white/[0.08] bg-[#0a0a0d]/80 px-6 py-14 text-center">
           <p className="font-display text-xl font-semibold text-foreground">Nothing to ship right now</p>
           <p className="mx-auto mt-2 max-w-md text-sm text-zinc-500">
-            Paid orders that need labels or packing will show up here automatically.
+            When a buyer pays, packages move through: Needs label → Pending shipment → Shipped → Complete.
           </p>
           <Link
             href="/account/sales?view=all"
             className="mt-6 inline-flex text-sm font-semibold text-gold-bright hover:underline"
           >
-            View all sales history →
+            View sales history →
           </Link>
         </div>
       </div>
@@ -388,38 +829,44 @@ export function AccountSellerShipWorkspace({
   }
 
   return (
-    <div className="mt-6 space-y-6">
+    <div className="mt-6 space-y-8">
       <SetupBanner liveShipping={liveShipping} />
 
       {labelError ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 text-sm text-rose-100">{labelError}</p>
       ) : null}
 
-      {totalActions > 0 ? (
+      <div className="flex flex-wrap gap-2">
+        <StagePill label="Needs label" count={needsLabelCount} tone="sky" />
+        <StagePill label="Pending shipment" count={pendingShipmentCount} tone="amber" />
+        <StagePill label="Shipped" count={buckets.shipped.length} tone="gold" />
+        <StagePill label="Complete" count={actionCounts.complete} tone="emerald" />
+      </div>
+
+      {activeCount > 0 ? (
         <p className="rounded-xl border border-gold/20 bg-gold/[0.06] px-4 py-3 text-sm text-zinc-200">
-          <span className="font-semibold text-gold-bright">{totalActions}</span> shipment
-          {totalActions === 1 ? "" : "s"} need your attention — print labels, mark shipped, then carrier scans update status.
+          <span className="font-semibold text-gold-bright">{activeCount}</span> package
+          {activeCount === 1 ? "" : "s"} need your attention — create/print labels, then wait for the carrier scan.
         </p>
       ) : null}
 
-      {bundleCards.length > 0 ? (
+      {needsLabelCount > 0 ? (
         <section className="space-y-3">
-          <SectionHeading count={bundleCards.length} label="Live bundles" />
-          {bundleCards.map((session) => (
+          <SectionHeading
+            count={needsLabelCount}
+            label="Needs label"
+            hint="Create a shipping label for paid orders."
+          />
+          {createBundles.map((session) => (
             <BundleShipCard
               key={session.sessionId}
               session={session}
               bundledBusySessionId={bundledBusySessionId}
               bundledSessionFeedback={bundledSessionFeedback?.[session.sessionId]}
               onCreateBundledLabel={onCreateBundledLabel}
+              onMarkBundleShipped={onMarkBundleShipped}
             />
           ))}
-        </section>
-      ) : null}
-
-      {buckets.needsLabel.length > 0 ? (
-        <section className="space-y-3">
-          <SectionHeading count={buckets.needsLabel.length} label="Create labels" />
           {buckets.needsLabel.map((order) => (
             <ShipOrderCard
               key={order.id}
@@ -433,15 +880,28 @@ export function AccountSellerShipWorkspace({
         </section>
       ) : null}
 
-      {buckets.printAndShip.length > 0 ? (
+      {pendingShipmentCount > 0 ? (
         <section className="space-y-3">
-          <SectionHeading count={buckets.printAndShip.length} label="Print & ship" />
-          {buckets.printAndShip.map((order) => (
+          <SectionHeading
+            count={pendingShipmentCount}
+            label="Pending shipment"
+            hint="Label is ready. Print it, drop off the package, then wait for the first carrier scan."
+          />
+          {printBundles.map((session) => (
+            <BundleShipCard
+              key={session.sessionId}
+              session={session}
+              bundledBusySessionId={bundledBusySessionId}
+              bundledSessionFeedback={bundledSessionFeedback?.[session.sessionId]}
+              onCreateBundledLabel={onCreateBundledLabel}
+            />
+          ))}
+          {buckets.pendingShipment.map(({ order, phase }) => (
             <ShipOrderCard
               key={order.id}
               order={order}
               labelBusyId={labelBusyId}
-              phase="print_and_ship"
+              phase={phase}
               onCreateLabel={onCreateLabel}
               onMarkShipped={onMarkShipped}
             />
@@ -449,15 +909,19 @@ export function AccountSellerShipWorkspace({
         </section>
       ) : null}
 
-      {buckets.waitPayment.length > 0 ? (
+      {buckets.shipped.length > 0 ? (
         <section className="space-y-3">
-          <SectionHeading count={buckets.waitPayment.length} label="Waiting on buyer payment" />
-          {buckets.waitPayment.map((order) => (
+          <SectionHeading
+            count={buckets.shipped.length}
+            label="Shipped"
+            hint="Carrier has scanned the package — in transit to the buyer."
+          />
+          {buckets.shipped.map((order) => (
             <ShipOrderCard
               key={order.id}
               order={order}
               labelBusyId={labelBusyId}
-              phase="wait_payment"
+              phase="in_transit"
               onCreateLabel={onCreateLabel}
               onMarkShipped={onMarkShipped}
             />
@@ -465,22 +929,26 @@ export function AccountSellerShipWorkspace({
         </section>
       ) : null}
 
-      {buckets.awaitingCarrier.length > 0 ? (
+      {buckets.complete.length > 0 ? (
         <section className="space-y-3">
           <button
             type="button"
-            onClick={() => setShowAwaitingCarrier((v) => !v)}
-            className="text-[11px] font-black uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300"
+            onClick={() => setShowComplete((v) => !v)}
+            className="text-left"
           >
-            Handed to carrier ({buckets.awaitingCarrier.length}) {showAwaitingCarrier ? "▾" : "▸"}
+            <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300">
+              Complete <span className="text-gold-bright/90">({buckets.complete.length})</span>{" "}
+              {showComplete ? "▾" : "▸"}
+            </h2>
+            <p className="mt-1 text-xs text-zinc-600">Delivered to the buyer.</p>
           </button>
-          {showAwaitingCarrier
-            ? buckets.awaitingCarrier.map((order) => (
+          {showComplete
+            ? buckets.complete.map((order) => (
                 <ShipOrderCard
                   key={order.id}
                   order={order}
                   labelBusyId={labelBusyId}
-                  phase="awaiting_carrier"
+                  phase="done"
                   onCreateLabel={onCreateLabel}
                   onMarkShipped={onMarkShipped}
                 />
@@ -489,22 +957,22 @@ export function AccountSellerShipWorkspace({
         </section>
       ) : null}
 
-      {buckets.inTransit.length > 0 ? (
+      {buckets.waitPayment.length > 0 ? (
         <section className="space-y-3">
           <button
             type="button"
-            onClick={() => setShowInTransit((v) => !v)}
+            onClick={() => setShowWaitPayment((v) => !v)}
             className="text-[11px] font-black uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300"
           >
-            On the way ({buckets.inTransit.length}) {showInTransit ? "▾" : "▸"}
+            Waiting on payment ({buckets.waitPayment.length}) {showWaitPayment ? "▾" : "▸"}
           </button>
-          {showInTransit
-            ? buckets.inTransit.map((order) => (
+          {showWaitPayment
+            ? buckets.waitPayment.map((order) => (
                 <ShipOrderCard
                   key={order.id}
                   order={order}
                   labelBusyId={labelBusyId}
-                  phase="in_transit"
+                  phase="wait_payment"
                   onCreateLabel={onCreateLabel}
                   onMarkShipped={onMarkShipped}
                 />

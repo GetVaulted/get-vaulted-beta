@@ -1,17 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { MobileHostBroadcastPhase } from '../../../hooks/useMobileStagePublish';
-import { confirmEndLive, confirmStartLive } from '../../../lib/sellerBroadcastConfirm';
+import { confirmEndLive, confirmStartLive, confirmStartObsShow } from '../../../lib/sellerBroadcastConfirm';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii } from '../../../theme';
 
 type Props = {
   phase: MobileHostBroadcastPhase;
   roomStatus: 'scheduled' | 'live' | 'ended';
+  /** Server Host paused flag — show Play even if phase briefly still says live. */
+  streamPaused?: boolean;
+  /** Another device owns the camera — show companion chrome instead of Stop/Resume fight. */
+  companionMode?: boolean;
+  /** Room is on OBS / RTMP (`channel_hls`) — Start show must not open the phone camera. */
+  obsMode?: boolean;
   stageEnabled: boolean;
   cameraReady: boolean;
   busy: boolean;
   onStart: () => void;
+  /** Explicit phone-camera take-over (OBS / companion). Defaults to onStart. */
+  onTakeOverCamera?: () => void;
   onStop: () => void;
   onPause?: () => void;
   onResume?: () => void;
@@ -24,10 +32,14 @@ type Props = {
 export function SellerBroadcastControl({
   phase,
   roomStatus,
+  streamPaused = false,
+  companionMode = false,
+  obsMode = false,
   stageEnabled,
   cameraReady,
   busy,
   onStart,
+  onTakeOverCamera,
   onStop,
   onPause,
   onResume,
@@ -38,16 +50,118 @@ export function SellerBroadcastControl({
 
   const stopping = phase === 'stopping';
   const roomEnded = roomStatus === 'ended';
+  const roomLive = roomStatus === 'live';
   const isOnAir = phase === 'live' || phase === 'paused' || stopping;
-  const canShow = cameraReady || isOnAir;
-  if (!canShow || roomEnded) return null;
-
-  const showStop = isOnAir;
-  const showPause = showStop && phase === 'live' && Boolean(onPause);
-  const showResume = showStop && phase === 'paused' && Boolean(onResume);
-  const starting = busy && (phase === 'idle' || phase === 'starting');
   const iconSize = headerCompact ? 15 : compact ? 18 : 20;
   const btnSize = headerCompact ? 32 : compact ? 44 : 48;
+  const takeOver = onTakeOverCamera ?? onStart;
+  const obsCommandCenter = obsMode && !isOnAir && phase !== 'starting';
+
+  // OBS path (or remote publisher): command center chrome — never auto-open this phone's camera.
+  if (
+    (companionMode || obsCommandCenter) &&
+    phase !== 'live' &&
+    phase !== 'paused' &&
+    phase !== 'starting' &&
+    phase !== 'stopping'
+  ) {
+    const badgeLabel = obsMode ? SELLER_CONSOLE.obsLiveBadge : SELLER_CONSOLE.companionLiveBadge;
+    return (
+      <View style={styles.row}>
+        {roomLive || obsMode ? (
+          <View
+            style={[styles.companionBadge, { height: btnSize, paddingHorizontal: headerCompact ? 8 : 10 }]}
+            accessibilityLabel={badgeLabel}
+          >
+            <View style={styles.companionDot} />
+            {!headerCompact ? (
+              <Text style={styles.companionTxt} numberOfLines={1}>
+                {badgeLabel}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+        {!roomLive && obsMode ? (
+          <Pressable
+            style={[
+              styles.play,
+              compact && styles.playCompact,
+              { width: headerCompact ? btnSize : undefined, height: btnSize, paddingHorizontal: headerCompact ? 0 : 12 },
+              busy && styles.disabled,
+            ]}
+            onPress={() => {
+              if (busy) return;
+              confirmStartObsShow(onStart);
+            }}
+            disabled={busy}
+            accessibilityLabel={SELLER_CONSOLE.goLive}
+          >
+            {busy ? (
+              <ActivityIndicator color="#0a0a0a" size="small" />
+            ) : (
+              <Ionicons name="play" size={iconSize} color="#0a0a0a" />
+            )}
+          </Pressable>
+        ) : null}
+        {roomLive ? (
+          <Pressable
+            style={[
+              styles.stop,
+              compact && styles.stopCompact,
+              { width: btnSize, height: btnSize },
+              busy && styles.disabled,
+            ]}
+            onPress={() => {
+              if (busy) return;
+              confirmEndLive(onStop);
+            }}
+            disabled={busy}
+            accessibilityLabel={SELLER_CONSOLE.stopStream}
+          >
+            <Ionicons name="stop" size={iconSize} color="#fecdd3" />
+          </Pressable>
+        ) : null}
+        <Pressable
+          style={[
+            styles.takeOver,
+            { width: headerCompact ? undefined : btnSize + 36, height: btnSize, paddingHorizontal: headerCompact ? 8 : 10 },
+            busy && styles.disabled,
+          ]}
+          onPress={() => {
+            if (busy) return;
+            // Don't hard-disable on !cameraReady — that made the button a silent no-op on a
+            // device that's never requested camera/mic access. Let the handler explain why and
+            // route to the permission prompt instead of tapping doing nothing visible.
+            if (!cameraReady) {
+              takeOver();
+              return;
+            }
+            confirmStartLive(takeOver);
+          }}
+          disabled={busy}
+          accessibilityLabel={SELLER_CONSOLE.companionTakeOverCamera}
+        >
+          <Ionicons name="videocam-outline" size={iconSize} color="#ecfdf5" />
+        </Pressable>
+      </View>
+    );
+  }
+
+  // Live room + idle (process remount / failed warm Play): still show Stop + Resume — do not
+  // hide the whole control when cameraReady is briefly false (private shows hit this often).
+  const needsLiveRecovery = roomLive && (phase === 'idle' || phase === 'starting' || streamPaused);
+  const canShow = cameraReady || isOnAir || needsLiveRecovery;
+  if (!canShow || roomEnded) return null;
+
+  const showStop = isOnAir || needsLiveRecovery;
+  const showResume =
+    Boolean(onResume) &&
+    (phase === 'paused' ||
+      streamPaused ||
+      (roomLive && (phase === 'idle' || phase === 'starting')));
+  const showPause = showStop && phase === 'live' && !streamPaused && !showResume && Boolean(onPause);
+  const starting = busy && (phase === 'idle' || phase === 'starting');
+  const resuming = Boolean(busy && showResume);
 
   const onPrimaryPress = () => {
     if (showStop) {
@@ -57,6 +171,11 @@ export function SellerBroadcastControl({
     }
     if (!cameraReady || busy || stopping) return;
     confirmStartLive(onStart);
+  };
+
+  const onResumePress = () => {
+    if (busy || stopping) return;
+    onResume?.();
   };
 
   const primaryDisabled = stopping || (showStop ? busy : !cameraReady || busy);
@@ -84,11 +203,15 @@ export function SellerBroadcastControl({
             { width: btnSize, height: btnSize },
             (stopping || busy) && styles.disabled,
           ]}
-          onPress={onResume}
+          onPress={onResumePress}
           disabled={stopping || busy}
           accessibilityLabel={SELLER_CONSOLE.resumeStream}
         >
-          <Ionicons name="play" size={iconSize} color="#fde68a" />
+          {resuming ? (
+            <ActivityIndicator color="#fde68a" size="small" />
+          ) : (
+            <Ionicons name="play" size={iconSize} color="#fde68a" />
+          )}
         </Pressable>
       ) : null}
       <Pressable
@@ -102,7 +225,7 @@ export function SellerBroadcastControl({
         disabled={primaryDisabled}
         accessibilityLabel={showStop ? SELLER_CONSOLE.stopStream : SELLER_CONSOLE.startStream}
       >
-        {starting || stopping ? (
+        {starting || stopping || (busy && !showResume && showStop) ? (
           <ActivityIndicator color={showStop ? '#fecdd3' : '#0a0a0a'} size="small" />
         ) : (
           <Ionicons
@@ -157,6 +280,38 @@ const styles = StyleSheet.create({
   },
   stopCompact: {
     borderColor: 'rgba(244,63,94,0.45)',
+  },
+  companionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(52,211,153,0.4)',
+    backgroundColor: 'rgba(6,46,36,0.75)',
+    paddingHorizontal: 10,
+  },
+  companionDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#6ee7b7',
+  },
+  companionTxt: {
+    maxWidth: 88,
+    color: '#ecfdf5',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  takeOver: {
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   disabled: { opacity: 0.55 },
 });

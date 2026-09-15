@@ -29,6 +29,8 @@ jobs:
 
       - name: Typecheck
         working-directory: web
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npx tsc --noEmit
 
       - name: Test

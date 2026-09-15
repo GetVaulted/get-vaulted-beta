@@ -5,6 +5,7 @@ import {
   GetChannelCommand,
   GetStreamCommand,
   StopStreamCommand,
+  UpdateChannelCommand,
   IvsClient,
   type ChannelLatencyMode,
   type ChannelType,
@@ -14,11 +15,16 @@ import {
   CreateParticipantTokenCommand,
   CreateStageCommand,
   DeleteStageCommand,
+  GetCompositionCommand,
   IVSRealTimeClient,
+  ListParticipantsCommand,
+  ListStageSessionsCommand,
   ParticipantTokenCapability,
   StartCompositionCommand,
   StopCompositionCommand,
 } from "@aws-sdk/client-ivs-realtime";
+import { decideCompositionHealAction } from "@/lib/live-composition-heal";
+import { IVS_WHIP_SERVER_URL, isIvsWhipIngestEndpoint } from "@/lib/ivs-whip-ingest";
 import type { LiveStreamHealth } from "@/generated/prisma/client";
 import { logIvsOpsServer, type IvsStreamHealthOpSource } from "@/lib/ivs-ops-log";
 import { prisma } from "@/lib/prisma";
@@ -99,15 +105,86 @@ function createChannelName(roomId: string): string {
   return `vaulted-live-${sanitized}-${Date.now()}`;
 }
 
+/** IVS Recording configuration ARN for auto-VOD to S3 (optional in local/dev). */
+export function getIvsRecordingConfigurationArn(): string | null {
+  const arn = process.env.AWS_IVS_RECORDING_CONFIGURATION_ARN?.trim() || "";
+  return arn || null;
+}
+
+/**
+ * Attach the env Recording configuration to an existing channel when missing.
+ * Safe no-op when ARN unset or channel already points at the same config.
+ */
+export async function ensureChannelRecordingConfiguration(channelArn: string): Promise<boolean> {
+  const recordingConfigurationArn = getIvsRecordingConfigurationArn();
+  if (!recordingConfigurationArn) return false;
+
+  const client = makeClient();
+  try {
+    const current = await client.send(new GetChannelCommand({ arn: channelArn }));
+    const existing = current.channel?.recordingConfigurationArn?.trim() || "";
+    if (existing === recordingConfigurationArn) return false;
+
+    await client.send(
+      new UpdateChannelCommand({
+        arn: channelArn,
+        recordingConfigurationArn,
+      }),
+    );
+    logIvsOpsServer("ivs_channel_recording_attached", {
+      channelArnLen: channelArn.length,
+      hadPriorConfig: Boolean(existing),
+    });
+    return true;
+  } catch (e) {
+    logIvsOpsServer("ivs_channel_recording_attach_failed", {
+      channelArnLen: channelArn.length,
+      error: e instanceof Error ? e.message.slice(0, 200) : "unknown",
+    });
+    return false;
+  }
+}
+
+/** Force LOW latency on an existing channel when env is configured for LOW (OBS delay fix).
+ * Returns true when the channel is LOW after this call (already was, or was updated). */
+export async function ensureChannelLowLatencyMode(channelArn: string): Promise<boolean> {
+  if (getEnv().latencyMode !== "LOW") return false;
+  const client = makeClient();
+  try {
+    const current = await client.send(new GetChannelCommand({ arn: channelArn }));
+    const existing = (current.channel?.latencyMode ?? "").toUpperCase();
+    if (existing === "LOW") return true;
+    await client.send(
+      new UpdateChannelCommand({
+        arn: channelArn,
+        latencyMode: "LOW",
+      }),
+    );
+    logIvsOpsServer("ivs_channel_latency_set_low", {
+      channelArnLen: channelArn.length,
+      previousLatencyMode: existing || "unknown",
+    });
+    return true;
+  } catch (e) {
+    logIvsOpsServer("ivs_channel_latency_set_low_failed", {
+      channelArnLen: channelArn.length,
+      error: e instanceof Error ? e.message.slice(0, 200) : "unknown",
+    });
+    return false;
+  }
+}
+
 export async function createChannel(roomId: string) {
   const env = getEnv();
   const client = makeClient();
   const inputName = createChannelName(roomId);
+  const recordingConfigurationArn = getIvsRecordingConfigurationArn();
   const out = await client.send(
     new CreateChannelCommand({
       name: inputName,
       type: env.channelType,
       latencyMode: env.latencyMode,
+      ...(recordingConfigurationArn ? { recordingConfigurationArn } : {}),
       tags: {
         app: "vaulted-live",
         roomId,
@@ -126,6 +203,7 @@ export async function createChannel(roomId: string) {
     configuredLatencyMode: env.latencyMode,
     // Actual mode echoed back by AWS on the freshly created channel — confirms LOW vs NORMAL.
     actualLatencyMode: out.channel.latencyMode ?? "unknown",
+    recordingConfigured: Boolean(recordingConfigurationArn),
   });
   return {
     arn: out.channel.arn,
@@ -163,7 +241,32 @@ export async function getIvsChannelLatencyMode(channelArn: string): Promise<stri
   }
 }
 
-export async function getStreamStatus(channelArn: string) {
+export type IvsGetStreamStatusResult = {
+  state: string;
+  health: LiveStreamHealth;
+  /**
+   * True when GetStream failed for a reason other than “not broadcasting”.
+   * Callers must NOT commit offline from a failed probe — that flaps OBS shows.
+   */
+  probeFailed?: boolean;
+};
+
+/** AWS GetStream throws this when the channel has no active ingest (true offline). */
+export function isIvsChannelNotBroadcastingError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const name =
+    "name" in err && typeof (err as { name?: unknown }).name === "string"
+      ? (err as { name: string }).name
+      : "";
+  const code =
+    "Code" in err && typeof (err as { Code?: unknown }).Code === "string"
+      ? (err as { Code: string }).Code
+      : "";
+  const token = `${name} ${code}`.toLowerCase();
+  return token.includes("channelnotbroadcasting");
+}
+
+export async function getStreamStatus(channelArn: string): Promise<IvsGetStreamStatusResult> {
   try {
     const client = makeClient();
     const out = await client.send(new GetStreamCommand({ channelArn }));
@@ -172,9 +275,17 @@ export async function getStreamStatus(channelArn: string) {
       state,
       health: mapIvsStatusToRoomHealth(state),
     };
-  } catch {
-    /** Channel not broadcasting / no active stream — treat as offline (do not log ARNs). */
-    return { state: "OFFLINE", health: "offline" as LiveStreamHealth };
+  } catch (err) {
+    if (isIvsChannelNotBroadcastingError(err)) {
+      return { state: "OFFLINE", health: "offline" };
+    }
+    const message = err instanceof Error ? err.message.slice(0, 160) : "unknown";
+    const name =
+      err && typeof err === "object" && "name" in err && typeof (err as { name?: unknown }).name === "string"
+        ? (err as { name: string }).name
+        : "unknown";
+    logIvsOpsServer("ivs_get_stream_probe_failed", { errorName: name, message });
+    return { state: "UNKNOWN", health: "offline", probeFailed: true };
   }
 }
 
@@ -201,8 +312,18 @@ type StreamHealthCommitResult =
  * Persists IVS-derived stream health, bumps `roomVersion` when health changes, emits buyer-safe realtime.
  * Does **not** change `LiveRoom.status` (auction / go-live remain app-driven).
  */
+/**
+ * Grace window after a stage Go Live during which the still-warming HLS channel must not downgrade
+ * stream health. Covers the ~1s gap where the stream publishes (streamHealth=live) before the room
+ * status flips to "live", plus the ~6s before the HLS mirror composition starts. Without this, a
+ * buyer stream poll in that window reads the empty channel as offline, marks the fresh stage
+ * offline + stamps streamEndedAt, buyers go black, and the deferred mirror never starts — forcing
+ * the host to leave and re-enter to recover.
+ */
+const STAGE_GOLIVE_HEALTH_GRACE_MS = 90_000;
+
 /** Stage WebRTC rides the Real-Time Stage — IVS channel polls must not downgrade live buyers to offline. */
-async function ignoreChannelHealthDowngradeForActiveStage(args: {
+export async function ignoreChannelHealthDowngradeForActiveStage(args: {
   liveRoomId: string;
   newHealth: LiveStreamHealth;
 }): Promise<boolean> {
@@ -215,19 +336,87 @@ async function ignoreChannelHealthDowngradeForActiveStage(args: {
     select: {
       status: true,
       streamMode: true,
-      streamHealth: true,
       ivsStageArn: true,
+      streamStartedAt: true,
     },
   });
-  if (!room || room.streamMode !== "stage_webrtc" || !room.ivsStageArn || room.status !== "live") {
+  if (!room || room.streamMode !== "stage_webrtc" || !room.ivsStageArn) {
     return false;
   }
 
-  const wasLiveish =
-    room.streamHealth === "live" ||
-    room.streamHealth === "connecting" ||
-    room.streamHealth === "error";
-  return wasLiveish;
+  // The Real-Time Stage (WebRTC) is the source of truth for stage rooms; the HLS channel mirror
+  // legitimately lags Go Live by several seconds and is absent during host reconnects. While the
+  // room is live, an empty channel must never mark the stage offline — health is driven by
+  // Go Live / End Show + soft-disconnect, not the channel poll.
+  if (room.status === "live") return true;
+
+  // Go-Live transition: the stream publishes (streamHealth=live) ~1s before room.status flips to
+  // "live", so a buyer poll in that sliver would otherwise mark the fresh stage offline.
+  const startedMs = room.streamStartedAt?.getTime() ?? 0;
+  return startedMs > 0 && Date.now() - startedMs < STAGE_GOLIVE_HEALTH_GRACE_MS;
+}
+
+/**
+ * How long OBS (`channel_hls`) must stay offline/ended before we commit a health downgrade.
+ * Brief IVS GetStream gaps (or OBS encoder reconnect) otherwise flap live ↔ offline and remount buyers.
+ */
+export const OBS_CHANNEL_OFFLINE_CONFIRM_MS = 30_000;
+const OBS_OFFLINE_PENDING_PREFIX = "obs_offline_pending:";
+
+/**
+ * Debounce OBS channel offline/ended transitions.
+ * Returns true when the downgrade should be ignored (still within the confirm window).
+ */
+export async function debounceObsChannelHealthDowngrade(args: {
+  liveRoomId: string;
+  previousHealth: LiveStreamHealth;
+  newHealth: LiveStreamHealth;
+}): Promise<boolean> {
+  const downgrading =
+    args.newHealth === "offline" || args.newHealth === "ended" || args.newHealth === "error";
+  if (!downgrading) return false;
+  if (args.previousHealth !== "live" && args.previousHealth !== "connecting") return false;
+
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: args.liveRoomId },
+    select: { status: true, streamMode: true, lastIvsError: true },
+  });
+  if (!room || room.status !== "live" || room.streamMode !== "channel_hls") {
+    return false;
+  }
+
+  const now = Date.now();
+  const raw = room.lastIvsError ?? "";
+  if (raw.startsWith(OBS_OFFLINE_PENDING_PREFIX)) {
+    const started = Date.parse(raw.slice(OBS_OFFLINE_PENDING_PREFIX.length));
+    if (Number.isFinite(started) && now - started >= OBS_CHANNEL_OFFLINE_CONFIRM_MS) {
+      return false;
+    }
+    await prisma.liveRoom.update({
+      where: { id: args.liveRoomId },
+      data: { lastIvsStatusSyncAt: new Date() },
+    });
+    logIvsOpsServer("ivs_stream_health_obs_offline_debounced", {
+      roomId: args.liveRoomId,
+      attemptedHealth: args.newHealth,
+      phase: "hold",
+    });
+    return true;
+  }
+
+  await prisma.liveRoom.update({
+    where: { id: args.liveRoomId },
+    data: {
+      lastIvsStatusSyncAt: new Date(),
+      lastIvsError: `${OBS_OFFLINE_PENDING_PREFIX}${new Date(now).toISOString()}`,
+    },
+  });
+  logIvsOpsServer("ivs_stream_health_obs_offline_debounced", {
+    roomId: args.liveRoomId,
+    attemptedHealth: args.newHealth,
+    phase: "start",
+  });
+  return true;
 }
 
 export async function commitLiveRoomStreamHealthFromIvs(args: {
@@ -257,8 +446,18 @@ export async function commitLiveRoomStreamHealthFromIvs(args: {
     return { kind: "unchanged_health", newHealth: room.streamHealth, roomVersion: room.roomVersion };
   }
 
-  const now = new Date();
   const previousHealth = room.streamHealth;
+  if (
+    await debounceObsChannelHealthDowngrade({
+      liveRoomId,
+      previousHealth,
+      newHealth,
+    })
+  ) {
+    return { kind: "unchanged_health", newHealth: previousHealth, roomVersion: room.roomVersion };
+  }
+
+  const now = new Date();
 
   if (previousHealth === newHealth) {
     await prisma.liveRoom.update({
@@ -321,7 +520,9 @@ export async function commitLiveRoomStreamHealthFromIvs(args: {
 }
 
 /**
- * Poll IVS `GetStream` and reconcile `LiveRoom.streamHealth` (+ timestamps). Keeps `room.status` unchanged.
+ * Poll IVS `GetStream` and reconcile `LiveRoom.streamHealth` (+ timestamps).
+ * For OBS (`channel_hls`), a live/connecting signal also auto-starts a scheduled room so hosts
+ * do not need to tap Play on the phone for inventory to go live.
  */
 export async function syncLiveRoomStreamFromIvs(liveRoomId: string): Promise<StreamHealthCommitResult | null> {
   const room = await prisma.liveRoom.findUnique({
@@ -332,13 +533,19 @@ export async function syncLiveRoomStreamFromIvs(liveRoomId: string): Promise<Str
       streamProvider: true,
       ivsChannelArn: true,
       streamHealth: true,
+      streamMode: true,
     },
   });
   if (!room || room.streamProvider !== "aws_ivs" || !room.ivsChannelArn) {
     return null;
   }
 
-  const { health } = await getStreamStatus(room.ivsChannelArn);
+  const streamStatus = await getStreamStatus(room.ivsChannelArn);
+  if (streamStatus.probeFailed) {
+    logIvsOpsServer("ivs_stream_sync_skipped_probe_failed", { roomId: liveRoomId });
+    return null;
+  }
+  const health = streamStatus.health;
   // Diagnostic: confirm the channel's *actual* latency mode from AWS (not just env), to catch
   // older rooms whose channel was provisioned before LOW-latency config.
   const actualLatencyMode = await getIvsChannelLatencyMode(room.ivsChannelArn);
@@ -347,7 +554,32 @@ export async function syncLiveRoomStreamFromIvs(liveRoomId: string): Promise<Str
     actualLatencyMode: actualLatencyMode ?? "unknown",
     configuredLatencyMode: getEnv().latencyMode,
   });
-  return commitLiveRoomStreamHealthFromIvs({ liveRoomId, newHealth: health, opSource: "sync_get_stream" });
+  // Older OBS channels may still be NORMAL (~10–30s delay). Never UpdateChannel while ingest is
+  // live/connecting — mid-stream latency flips can force OBS disconnect/reconnect.
+  if (actualLatencyMode && actualLatencyMode.toUpperCase() !== "LOW" && getEnv().latencyMode === "LOW") {
+    if (health === "live" || health === "connecting") {
+      logIvsOpsServer("ivs_channel_latency_upgrade_skipped_active_ingest", {
+        roomId: liveRoomId,
+        health,
+        previousLatencyMode: actualLatencyMode,
+      });
+    } else {
+      const ok = await ensureChannelLowLatencyMode(room.ivsChannelArn);
+      logIvsOpsServer("ivs_channel_latency_upgrade_result", {
+        roomId: liveRoomId,
+        ok,
+        previousLatencyMode: actualLatencyMode,
+      });
+    }
+  }
+  const result = await commitLiveRoomStreamHealthFromIvs({ liveRoomId, newHealth: health, opSource: "sync_get_stream" });
+  if (room.streamMode === "channel_hls" && (health === "live" || health === "connecting")) {
+    const { maybeAutoStartObsRoomOnIngestSignal } = await import("@/lib/live-obs-auto-start");
+    await maybeAutoStartObsRoomOnIngestSignal(liveRoomId).catch((e) =>
+      console.error("[IVS] obs auto-start failed", liveRoomId, e),
+    );
+  }
+  return result;
 }
 
 /**
@@ -356,12 +588,19 @@ export async function syncLiveRoomStreamFromIvs(liveRoomId: string): Promise<Str
 export async function applyRecordedIvsStreamState(liveRoomId: string, ivsStateToken: string): Promise<StreamHealthCommitResult | null> {
   const room = await prisma.liveRoom.findUnique({
     where: { id: liveRoomId },
-    select: { streamProvider: true },
+    select: { streamProvider: true, streamMode: true },
   });
   if (!room || room.streamProvider !== "aws_ivs") return null;
   const normalized = normalizeExternalIvsStateToken(ivsStateToken);
   const health = mapIvsStatusToRoomHealth(normalized);
-  return commitLiveRoomStreamHealthFromIvs({ liveRoomId, newHealth: health, opSource: "recorded_state" });
+  const result = await commitLiveRoomStreamHealthFromIvs({ liveRoomId, newHealth: health, opSource: "recorded_state" });
+  if (room.streamMode === "channel_hls" && (health === "live" || health === "connecting")) {
+    const { maybeAutoStartObsRoomOnIngestSignal } = await import("@/lib/live-obs-auto-start");
+    await maybeAutoStartObsRoomOnIngestSignal(liveRoomId).catch((e) =>
+      console.error("[IVS] obs auto-start failed", liveRoomId, e),
+    );
+  }
+  return result;
 }
 
 export async function findLiveRoomIdByIvsChannelArn(channelArn: string): Promise<string | null> {
@@ -384,7 +623,12 @@ export async function reconcileStaleLiveStreamWithRoomStatus(liveRoomId: string)
   if (!room || room.status !== "live" || room.streamProvider !== "aws_ivs" || !room.ivsChannelArn) {
     return null;
   }
-  const { health } = await getStreamStatus(room.ivsChannelArn);
+  const streamStatus = await getStreamStatus(room.ivsChannelArn);
+  if (streamStatus.probeFailed) {
+    logIvsOpsServer("ivs_stale_reconcile_skipped_probe_failed", { roomId: liveRoomId });
+    return null;
+  }
+  const health = streamStatus.health;
   const ivsDown = health === "offline" || health === "ended";
   const wasExpectingSignal =
     room.streamHealth === "live" ||
@@ -420,6 +664,7 @@ export async function provisionRoomStream(roomId: string): Promise<IvsProvisionR
     room.ivsIngestEndpoint &&
     room.ivsStreamKeyArn
   ) {
+    await ensureChannelRecordingConfiguration(room.ivsChannelArn);
     const rotated = await rotateStreamKey(roomId, room.ivsChannelArn, room.ivsStreamKeyArn);
     return {
       roomId,
@@ -566,8 +811,11 @@ export async function endHostWebBroadcastSession(roomId: string): Promise<void> 
  * fallback/overflow/replay surface (optionally mirrored from the Stage via StartComposition).
  */
 
-/** Host token TTL (minutes). Long enough for a full show; the host hook can refresh on reconnect. */
-const HOST_STAGE_TOKEN_MINUTES = 60;
+/**
+ * Host token TTL (minutes). AWS default/max-practical is 720 (12h); keep shows alive without
+ * requiring a mobile client refresh. Existing app builds pick this up on the next Go Live (POST).
+ */
+const HOST_STAGE_TOKEN_MINUTES = 720;
 /** Viewer token TTL (minutes). Short-lived, subscribe-only; clients re-fetch on expiry/reconnect. */
 const VIEWER_STAGE_TOKEN_MINUTES = 20;
 
@@ -699,9 +947,14 @@ export async function createViewerStageToken(roomId: string, userId: string): Pr
   );
 }
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 /**
  * Best-effort: mirror the Stage into the existing IVS channel for HLS fallback/overflow/replay.
  * Gated by `LIVE_STAGE_COMPOSITION_ENABLED`; never throws (the WebRTC path must work regardless).
+ * Guests (unauthenticated web viewers) can never use WebRTC, so they depend entirely on this
+ * mirror — failures here are persisted to `lastIvsError` (and always console-logged, bypassing the
+ * ops-log gate) since a silent failure means every guest link is permanently unwatchable.
  */
 export async function startStageHlsComposition(roomId: string): Promise<string | null> {
   if (!stageCompositionEnabled()) return null;
@@ -713,34 +966,288 @@ export async function startStageHlsComposition(roomId: string): Promise<string |
   if (room.ivsCompositionArn) return room.ivsCompositionArn;
 
   const encoderConfigurationArn = process.env.LIVE_STAGE_ENCODER_CONFIG_ARN?.trim();
-  const client = makeRealTimeClient();
-  try {
-    const out = await client.send(
-      new StartCompositionCommand({
-        stageArn: room.ivsStageArn,
-        destinations: [
-          {
-            channel: {
-              channelArn: room.ivsChannelArn,
-              ...(encoderConfigurationArn ? { encoderConfigurationArn } : {}),
+  // Extra attempts: composition needs the host publisher on the Stage first.
+  const attempts = [0, 2_000, 5_000, 10_000, 15_000];
+  let lastErr: unknown = null;
+  for (const delayMs of attempts) {
+    if (delayMs > 0) await sleep(delayMs);
+    try {
+      const client = makeRealTimeClient();
+      const out = await client.send(
+        new StartCompositionCommand({
+          stageArn: room.ivsStageArn,
+          destinations: [
+            {
+              channel: {
+                channelArn: room.ivsChannelArn,
+                ...(encoderConfigurationArn ? { encoderConfigurationArn } : {}),
+              },
             },
-          },
-        ],
-      }),
-    );
-    const arn = out.composition?.arn ?? null;
-    if (arn) {
-      await prisma.liveRoom.update({ where: { id: roomId }, data: { ivsCompositionArn: arn } });
+          ],
+        }),
+      );
+      const arn = out.composition?.arn ?? null;
+      if (arn) {
+        await prisma.liveRoom.update({
+          where: { id: roomId },
+          data: { ivsCompositionArn: arn, lastIvsError: null },
+        });
+      }
+      logIvsOpsServer("ivs_stage_composition_start", { roomId, started: Boolean(arn) });
+      return arn;
+    } catch (err) {
+      lastErr = err;
     }
-    logIvsOpsServer("ivs_stage_composition_start", { roomId, started: Boolean(arn) });
-    return arn;
-  } catch (err) {
-    logIvsOpsServer("ivs_stage_composition_start_failure", {
-      roomId,
-      errorName: err instanceof Error ? err.name : "unknown",
-    });
+  }
+  const message = lastErr instanceof Error ? lastErr.message : "Unknown composition start failure.";
+  const errorName = lastErr instanceof Error ? lastErr.name : "unknown";
+  // Never gated by IVS_OPS_LOG — this failure means guest HLS is dead for the whole show.
+  console.error("[IVS_OPS] ivs_stage_composition_start_failure", { roomId, errorName, message });
+  await prisma.liveRoom
+    .update({ where: { id: roomId }, data: { lastIvsError: `stage_composition_start_failed: ${message}`.slice(0, 500) } })
+    .catch(() => {});
+  return null;
+}
+
+/**
+ * Read the live AWS state of a composition: its overall state plus the state of its channel
+ * destination. Returns nulls (never throws) when the composition is gone or AWS is unreachable.
+ */
+export async function getCompositionStatus(
+  compositionArn: string,
+): Promise<{ compositionState: string | null; destinationState: string | null }> {
+  try {
+    const client = makeRealTimeClient();
+    const out = await client.send(new GetCompositionCommand({ arn: compositionArn }));
+    const compositionState = out.composition?.state ?? null;
+    const destinationState = out.composition?.destinations?.[0]?.state ?? null;
+    return { compositionState, destinationState };
+  } catch {
+    /** Composition expired/not found or AWS unreachable — treat as unknown. */
+    return { compositionState: null, destinationState: null };
+  }
+}
+
+/**
+ * Count participants currently PUBLISHING (host camera/mic) on a Stage's active session.
+ * Returns `null` when the state can't be determined (no session yet or AWS error) so callers can
+ * treat "unknown" differently from a confirmed zero. Never throws.
+ */
+export async function countStagePublishers(stageArn: string): Promise<number | null> {
+  try {
+    const client = makeRealTimeClient();
+    const sessions = await client.send(new ListStageSessionsCommand({ stageArn }));
+    const active = (sessions.stageSessions ?? []).find((s) => !s.endTime) ?? (sessions.stageSessions ?? [])[0];
+    const sessionId = active?.sessionId;
+    if (!sessionId) return null;
+    const participants = await client.send(
+      new ListParticipantsCommand({ stageArn, sessionId, filterByPublished: true }),
+    );
+    return (participants.participants ?? []).length;
+  } catch {
     return null;
   }
+}
+
+/**
+ * Publisher-derived health for Stage rooms — bypasses the channel-poll ignore path.
+ * Use this when we know whether a host is actually publishing (countStagePublishers).
+ */
+export async function commitStagePublisherDerivedHealth(
+  roomId: string,
+  newHealth: Extract<LiveStreamHealth, "live" | "connecting">,
+): Promise<"updated" | "unchanged" | "missing"> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: { streamHealth: true, streamStartedAt: true, status: true, streamMode: true },
+  });
+  if (!room || room.status !== "live" || room.streamMode !== "stage_webrtc") return "missing";
+  if (room.streamHealth === newHealth) {
+    await prisma.liveRoom
+      .update({ where: { id: roomId }, data: { lastIvsStatusSyncAt: new Date() } })
+      .catch(() => {});
+    return "unchanged";
+  }
+
+  const now = new Date();
+  const data: {
+    streamHealth: LiveStreamHealth;
+    lastIvsStatusSyncAt: Date;
+    lastIvsError: null;
+    roomVersion: { increment: number };
+    streamStartedAt?: Date;
+    streamEndedAt?: Date | null;
+    hostAbsentSince?: Date | null;
+  } = {
+    streamHealth: newHealth,
+    lastIvsStatusSyncAt: now,
+    lastIvsError: null,
+    roomVersion: { increment: 1 },
+  };
+  if (newHealth === "live") {
+    if (!room.streamStartedAt) data.streamStartedAt = now;
+    data.streamEndedAt = null;
+    data.hostAbsentSince = null;
+  }
+
+  const updated = await prisma.liveRoom.update({
+    where: { id: roomId },
+    data,
+    select: { roomVersion: true },
+  });
+
+  emitStreamStatusChanged(roomId, {
+    streamHealth: newHealth,
+    roomVersion: updated.roomVersion,
+    lastStatusSyncAt: now.toISOString(),
+  });
+  logIvsOpsServer("ivs_stage_publisher_health", {
+    roomId,
+    from: room.streamHealth,
+    to: newHealth,
+  });
+  return "updated";
+}
+
+/**
+ * Reconcile `streamHealth` from real Stage publishers.
+ * - Publisher present → `live` (video can flow / HLS mirror can source).
+ * - No publisher after go-live grace → `connecting` (honest “waiting on host”, not fake live).
+ * Never ends the room; never throws.
+ *
+ * @param opts.force When true (host `?sync=1`), skip the go-live grace so a force-quit reopen
+ *   does not stay sticky `live` with zero publishers and trap the host in companion mode.
+ */
+export async function reconcileStagePublisherHealth(
+  roomId: string,
+  opts?: { force?: boolean },
+): Promise<"live" | "connecting" | "unknown" | "skip"> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: {
+      status: true,
+      streamMode: true,
+      ivsStageArn: true,
+      streamStartedAt: true,
+      streamHealth: true,
+      ivsIngestEndpoint: true,
+    },
+  });
+  if (!room || room.streamMode !== "stage_webrtc" || !room.ivsStageArn) {
+    return "skip";
+  }
+  // Live rooms always reconcile. Scheduled OBS WHIP rooms also reconcile so Start Streaming
+  // can flip health + auto-start without waiting for an unrelated channel GetStream.
+  const whipScheduled =
+    room.status === "scheduled" && isIvsWhipIngestEndpoint(room.ivsIngestEndpoint);
+  if (room.status !== "live" && !whipScheduled) {
+    return "skip";
+  }
+
+  const publishers = await countStagePublishers(room.ivsStageArn);
+  if (publishers === null) return "unknown";
+
+  if (publishers > 0) {
+    cancelPausedBroadcastAwsTeardown(roomId);
+    if (whipScheduled) {
+      const { maybeAutoStartObsRoomOnIngestSignal } = await import("@/lib/live-obs-auto-start");
+      await maybeAutoStartObsRoomOnIngestSignal(roomId).catch(() => {});
+    } else {
+      await commitStagePublisherDerivedHealth(roomId, "live");
+    }
+    return "live";
+  }
+
+  if (whipScheduled) {
+    return "skip";
+  }
+
+  const msSinceStart = room.streamStartedAt ? Date.now() - room.streamStartedAt.getTime() : Number.POSITIVE_INFINITY;
+  // Match stuck-recovery grace — don't flap to connecting during the first minute of Go Live.
+  // Host sync forces past grace so crash recovery sees honest “waiting on host”.
+  if (!opts?.force && msSinceStart < 60_000) return "skip";
+
+  await commitStagePublisherDerivedHealth(roomId, "connecting");
+  // No publisher past grace — schedule AWS cut so overnight abandoned shows stop billing.
+  schedulePausedBroadcastAwsTeardown(roomId);
+  return "connecting";
+}
+
+/**
+ * Self-heal Stage→HLS mirror for guests / buyer failover.
+ *
+ * Anti-thrash: a freshly started composition needs ~15–30s before its channel destination reports
+ * LIVE. We therefore consult the composition's *actual* AWS state and only recycle a composition
+ * that is confirmed dead (see `decideCompositionHealAction`). Restarting a still-warming composition
+ * (the old behavior) meant the HLS mirror could never come up. Do not restart while the channel is
+ * live/connecting (that thrash blacked out buyers). Caller is rate-limited (buyer stream poll ~30s).
+ */
+export async function ensureStageHlsCompositionActive(roomId: string): Promise<void> {
+  if (!stageCompositionEnabled()) return;
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: {
+      status: true,
+      streamMode: true,
+      streamHealth: true,
+      streamPaused: true,
+      ivsCompositionArn: true,
+      ivsStageArn: true,
+      ivsChannelArn: true,
+      streamStartedAt: true,
+    },
+  });
+  if (!room || room.status !== "live" || room.streamMode !== "stage_webrtc") return;
+  // Host paused / overnight hold — never restart the mirror (that was burning Input + Encode hours).
+  if (room.streamPaused === true) return;
+  if (!room.ivsStageArn || !room.ivsChannelArn) return;
+  const health = room.streamHealth?.toLowerCase();
+  // After overnight Pause, health can be offline while the room is still live. Still heal so
+  // Play restores HLS for guests; WebRTC buyers recover via host republish + subscribe remount.
+  if (health !== "live" && health !== "connecting" && health !== "offline") return;
+
+  let compositionState: string | null = null;
+  let destinationState: string | null = null;
+  let channelHealth: string | null = null;
+  if (room.ivsCompositionArn) {
+    const channelStatus = await getStreamStatus(room.ivsChannelArn);
+    if (channelStatus.probeFailed) {
+      // Don't assume the channel is offline — fall through to composition state.
+      logIvsOpsServer("ivs_stage_composition_heal_channel_probe_failed", { roomId });
+    } else {
+      channelHealth = channelStatus.health;
+    }
+    // Only probe the composition's AWS state when the channel isn't already flowing — this avoids
+    // an extra GetComposition call on the common healthy path and only inspects state when we might
+    // actually need to recycle a dead mirror.
+    if (channelHealth !== "live" && channelHealth !== "connecting") {
+      ({ compositionState, destinationState } = await getCompositionStatus(room.ivsCompositionArn));
+    }
+  }
+
+  const action = decideCompositionHealAction({
+    hasComposition: Boolean(room.ivsCompositionArn),
+    compositionState,
+    destinationState,
+    channelHealth,
+    msSinceStreamStart: room.streamStartedAt
+      ? Date.now() - room.streamStartedAt.getTime()
+      : Number.POSITIVE_INFINITY,
+  });
+
+  if (action === "skip") return;
+
+  if (action === "replace") {
+    logIvsOpsServer("ivs_stage_composition_replace_dead", {
+      roomId,
+      channelHealth,
+      compositionState,
+      destinationState,
+    });
+    await stopStageComposition(roomId);
+  }
+  cancelDelayedCompositionStop(roomId);
+  await startStageHlsComposition(roomId);
 }
 
 /** Stop the stage->channel composition (if any). Never throws. */
@@ -761,10 +1268,230 @@ export async function stopStageComposition(roomId: string): Promise<void> {
 }
 
 /**
+ * How long after Pause / host-publisher-drop before we stop IVS composition + channel ingest.
+ * Short enough to stop overnight burn; long enough that brief home-button flickers don't thrash.
+ * Set `LIVE_PAUSE_AWS_TEARDOWN_DELAY_MS=0` for immediate cut (tests / ops).
+ */
+export function pauseAwsTeardownDelayMs(): number {
+  const raw = Number(process.env.LIVE_PAUSE_AWS_TEARDOWN_DELAY_MS);
+  if (Number.isFinite(raw) && raw >= 0) return Math.floor(raw);
+  return 45_000;
+}
+
+/** Delayed HLS teardown so a host phone fatal/retry doesn't black out buyers instantly. */
+const delayedCompositionStops = new Map<string, ReturnType<typeof setTimeout>>();
+/** Delayed AWS billing cut on pause / soft disconnect (composition + channel ingest). */
+const pausedBroadcastAwsTeardowns = new Map<string, ReturnType<typeof setTimeout>>();
+
+function cancelDelayedCompositionStop(roomId: string): void {
+  const timer = delayedCompositionStops.get(roomId);
+  if (!timer) return;
+  clearTimeout(timer);
+  delayedCompositionStops.delete(roomId);
+}
+
+export function cancelPausedBroadcastAwsTeardown(roomId: string): void {
+  const timer = pausedBroadcastAwsTeardowns.get(roomId);
+  if (!timer) return;
+  clearTimeout(timer);
+  pausedBroadcastAwsTeardowns.delete(roomId);
+}
+
+/**
+ * Stop Stage→HLS composition and best-effort StopStream on the channel so Input + Encode hours stop.
+ * Does NOT end the show or mark streamHealth=ended (pause / soft hold can still resume).
+ */
+export async function cutLiveBroadcastAwsBilling(roomId: string): Promise<void> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: {
+      status: true,
+      streamPaused: true,
+      streamMode: true,
+      ivsStageArn: true,
+      ivsChannelArn: true,
+    },
+  });
+  if (!room) return;
+
+  if (room.status === "ended") {
+    await stopStageComposition(roomId);
+    await stopChannelIngestBestEffort(roomId, room.ivsChannelArn);
+    return;
+  }
+  if (room.status !== "live") return;
+
+  // OBS owns the RTMP encoder. StopStream while the show is still live forces OBS into a
+  // disconnect/reconnect loop. Pause only hides buyer video — never kill OBS ingest mid-show.
+  if (room.streamMode === "channel_hls") {
+    logIvsOpsServer("ivs_pause_aws_cut_skipped_obs_channel", {
+      roomId,
+      streamPaused: room.streamPaused === true,
+    });
+    return;
+  }
+
+  // Host already back on Play with a publisher — leave AWS alone.
+  if (room.streamPaused !== true && room.streamMode === "stage_webrtc" && room.ivsStageArn) {
+    const publishers = await countStagePublishers(room.ivsStageArn);
+    if (publishers != null && publishers > 0) {
+      logIvsOpsServer("ivs_pause_aws_cut_skipped_publisher_present", { roomId });
+      return;
+    }
+  }
+
+  await stopStageComposition(roomId);
+  await stopChannelIngestBestEffort(roomId, room.ivsChannelArn);
+  logIvsOpsServer("ivs_pause_aws_billing_cut", {
+    roomId,
+    streamPaused: room.streamPaused === true,
+  });
+}
+
+async function stopChannelIngestBestEffort(roomId: string, channelArn: string | null | undefined): Promise<void> {
+  if (!channelArn?.trim()) return;
+  try {
+    const client = makeClient();
+    await client.send(new StopStreamCommand({ channelArn }));
+    logIvsOpsServer("ivs_channel_ingest_stopped", { roomId });
+  } catch {
+    /** Channel may already be offline. */
+  }
+}
+
+/**
+ * Schedule composition + channel ingest teardown after pause / publisher drop.
+ * Idempotent while a timer is pending (won't keep resetting the delay on every health poll).
+ */
+export function schedulePausedBroadcastAwsTeardown(roomId: string): void {
+  if (pausedBroadcastAwsTeardowns.has(roomId)) return;
+  const delayMs = pauseAwsTeardownDelayMs();
+  if (delayMs <= 0) {
+    void cutLiveBroadcastAwsBilling(roomId).catch((e) =>
+      console.error("[IVS_OPS] ivs_pause_aws_billing_cut_failure", roomId, e),
+    );
+    return;
+  }
+  const timer = setTimeout(() => {
+    pausedBroadcastAwsTeardowns.delete(roomId);
+    void cutLiveBroadcastAwsBilling(roomId).catch((e) =>
+      console.error("[IVS_OPS] ivs_pause_aws_billing_cut_failure", roomId, e),
+    );
+  }, delayMs);
+  pausedBroadcastAwsTeardowns.set(roomId, timer);
+  logIvsOpsServer("ivs_pause_aws_teardown_scheduled", { roomId, delayMs });
+}
+
+/**
+ * OBS → Stage via WHIP (Whatnot-style sub-second path for signed-in buyers).
+ * Provisions Stage + channel (HLS mirror for guests), mints a publish token for OBS Bearer Token,
+ * and marks ingest as the global WHIP endpoint so companion clients treat this as desktop OBS.
+ */
+export async function prepareObsWhipSession(
+  roomId: string,
+  userId: string,
+): Promise<{
+  whipServerUrl: string;
+  participantToken: string;
+  expiresInSeconds: number;
+  stageArn: string;
+  participantId: string;
+}> {
+  cancelDelayedCompositionStop(roomId);
+  cancelPausedBroadcastAwsTeardown(roomId);
+
+  const existing = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: { ivsChannelArn: true, ivsPlaybackUrl: true, status: true },
+  });
+  if (!existing) throw new Error("Live room not found.");
+  if (!existing.ivsChannelArn || !existing.ivsPlaybackUrl) {
+    await provisionRoomStream(roomId);
+  }
+
+  const token = await createHostStageToken(roomId, userId);
+  const now = new Date();
+  await prisma.liveRoom.update({
+    where: { id: roomId },
+    data: {
+      streamProvider: "aws_ivs",
+      streamMode: "stage_webrtc",
+      // WHIP marker — phone companion + auto-start treat this as desktop OBS.
+      ivsIngestEndpoint: IVS_WHIP_SERVER_URL,
+      // Wait for OBS Start Streaming (publisher) before claiming live.
+      streamHealth: existing.status === "live" ? "connecting" : "offline",
+      streamStartedAt: existing.status === "live" ? now : null,
+      streamEndedAt: null,
+      lastIvsStatusSyncAt: now,
+      lastIvsError: null,
+      hostAbsentSince: null,
+    },
+  });
+
+  logIvsOpsServer("ivs_obs_whip_provision", { roomId, expiresInSeconds: token.expiresInSeconds });
+
+  // Mirror starts after OBS publishes (reconcile / sync heal). Soft-schedule a first attempt.
+  void (async () => {
+    await sleep(8_000);
+    const room = await prisma.liveRoom.findUnique({
+      where: { id: roomId },
+      select: { status: true, streamPaused: true, ivsStageArn: true },
+    });
+    if (!room || room.status === "ended" || room.streamPaused === true) return;
+    if (!room.ivsStageArn) return;
+    const publishers = await countStagePublishers(room.ivsStageArn);
+    if (publishers == null || publishers <= 0) return;
+    await reconcileStagePublisherHealth(roomId, { force: true });
+    const { maybeAutoStartObsRoomOnIngestSignal } = await import("@/lib/live-obs-auto-start");
+    await maybeAutoStartObsRoomOnIngestSignal(roomId).catch(() => {});
+    await ensureStageHlsCompositionActive(roomId).catch(() => {});
+  })().catch((err) => {
+    console.error("[IVS_OPS] ivs_obs_whip_composition_deferred_failure", {
+      roomId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
+
+  return {
+    whipServerUrl: IVS_WHIP_SERVER_URL,
+    participantToken: token.token,
+    expiresInSeconds: token.expiresInSeconds,
+    stageArn: token.stageArn,
+    participantId: token.participantId,
+  };
+}
+
+/** Mint a fresh OBS WHIP bearer token without flipping stream mode. */
+export async function rotateObsWhipParticipantToken(
+  roomId: string,
+  userId: string,
+): Promise<{ whipServerUrl: string; participantToken: string; expiresInSeconds: number }> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: { streamMode: true, ivsIngestEndpoint: true, ivsStageArn: true },
+  });
+  if (!room?.ivsStageArn) {
+    throw new Error("This room is not set up for OBS WebRTC yet. Connect OBS first.");
+  }
+  if (room.streamMode !== "stage_webrtc" || !isIvsWhipIngestEndpoint(room.ivsIngestEndpoint)) {
+    throw new Error("This room is on RTMPS / HLS OBS. Re-connect OBS for WebRTC (WHIP).");
+  }
+  const token = await createHostStageToken(roomId, userId);
+  logIvsOpsServer("ivs_obs_whip_token_rotated", { roomId, expiresInSeconds: token.expiresInSeconds });
+  return {
+    whipServerUrl: IVS_WHIP_SERVER_URL,
+    participantToken: token.token,
+    expiresInSeconds: token.expiresInSeconds,
+  };
+}
+
+/**
  * Begin a host WebRTC Stage broadcast: provision the stage, mint a publish token, mark the room
  * live (stage mode), and kick off the optional HLS mirror. Returns the host's publish token.
  */
 export async function prepareHostStageSession(roomId: string, userId: string): Promise<StageToken> {
+  cancelDelayedCompositionStop(roomId);
+  cancelPausedBroadcastAwsTeardown(roomId);
   const existing = await prisma.liveRoom.findUnique({
     where: { id: roomId },
     select: { ivsChannelArn: true, ivsPlaybackUrl: true },
@@ -774,32 +1501,104 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
   }
   const token = await createHostStageToken(roomId, userId);
   const now = new Date();
-  // Best-effort: start the HLS mirror before buyers fail over from WebRTC (composition takes ~5–15s).
-  await Promise.race([
-    startStageHlsComposition(roomId),
-    new Promise<void>((resolve) => {
-      setTimeout(resolve, 10_000);
-    }),
-  ]);
+  // Mark stream connecting + return token immediately. Do NOT stamp streamHealth=live until a
+  // publisher is confirmed (buyer polls / stuck recovery) — fake "live" with no camera is what
+  // blacks out viewers and makes Retry look dead. Do NOT await HLS composition here — retries can
+  // take 15–20s+ and the mobile client aborts, leaving Go Live stuck on a spinner.
   await prisma.liveRoom.update({
     where: { id: roomId },
     data: {
       streamProvider: "aws_ivs",
       streamMode: "stage_webrtc",
-      streamHealth: "live",
+      streamHealth: "connecting",
       streamStartedAt: now,
       streamEndedAt: null,
       lastIvsStatusSyncAt: now,
       lastIvsError: null,
+      hostAbsentSince: null,
     },
   });
   logIvsOpsServer("ivs_stage_broadcast_start", { roomId });
+  // Host must publish first; then start (or replace a dead) HLS mirror for guests.
+  void (async () => {
+    await sleep(6_000);
+    cancelDelayedCompositionStop(roomId);
+    const room = await prisma.liveRoom.findUnique({
+      where: { id: roomId },
+      select: {
+        ivsCompositionArn: true,
+        ivsChannelArn: true,
+        streamHealth: true,
+        streamPaused: true,
+        status: true,
+      },
+    });
+    if (!room || room.status === "ended") return;
+    // Room may still be `scheduled` for a beat after Go Live while stream is connecting —
+    // still start the mirror so guests/share-links aren't stuck until a later heal.
+    if (room.status !== "live" && room.status !== "scheduled") return;
+    if (room.streamPaused === true) return;
+    // Promote health if the host already published during the delay.
+    await reconcileStagePublisherHealth(roomId);
+    const refreshed = await prisma.liveRoom.findUnique({
+      where: { id: roomId },
+      select: { streamHealth: true, streamPaused: true, ivsCompositionArn: true, ivsChannelArn: true },
+    });
+    if (!refreshed) return;
+    if (refreshed.streamPaused === true) return;
+    if (refreshed.streamHealth !== "live" && refreshed.streamHealth !== "connecting") return;
+    if (refreshed.ivsCompositionArn && refreshed.ivsChannelArn) {
+      const channelStatus = await getStreamStatus(refreshed.ivsChannelArn);
+      if (channelStatus.probeFailed) return;
+      if (channelStatus.health === "live" || channelStatus.health === "connecting") return;
+      await stopStageComposition(roomId);
+    }
+    await startStageHlsComposition(roomId);
+  })().catch((err) => {
+    console.error("[IVS_OPS] ivs_stage_composition_start_deferred_failure", {
+      roomId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
   return token;
 }
 
-/** End a host WebRTC Stage broadcast: stop the HLS mirror and mark the room stream ended. */
+/**
+ * Tear down Stage broadcast resources.
+ *
+ * Soft disconnect: if the live *room* is still `live`, a host client DROP/DELETE must NOT
+ * mark streamHealth ended — buyers treat that as "stream over" and go black even though the
+ * show is still open. Host taps Go Live again to republish. Hard teardown runs only after
+ * End Show sets room status to `ended` (or cancel/admin).
+ *
+ * Soft disconnect still schedules an AWS billing cut (composition + channel ingest) so overnight
+ * "left open" shows stop burning Input/Encode hours after a short grace.
+ */
 export async function endHostStageSession(roomId: string): Promise<void> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: { status: true },
+  });
+  if (room?.status === "live") {
+    cancelDelayedCompositionStop(roomId);
+    // Soft disconnect: room stays live so host can Go Live again, but stop lying that video is up.
+    await commitStagePublisherDerivedHealth(roomId, "connecting").catch(() => {});
+    schedulePausedBroadcastAwsTeardown(roomId);
+    logIvsOpsServer("ivs_stage_broadcast_soft_disconnect", { roomId });
+    return;
+  }
+
+  cancelPausedBroadcastAwsTeardown(roomId);
   await stopStageComposition(roomId);
+  await stopChannelIngestBestEffort(
+    roomId,
+    (
+      await prisma.liveRoom.findUnique({
+        where: { id: roomId },
+        select: { ivsChannelArn: true },
+      })
+    )?.ivsChannelArn,
+  );
   const now = new Date();
   await prisma.liveRoom.update({
     where: { id: roomId },

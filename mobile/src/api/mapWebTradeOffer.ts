@@ -5,6 +5,7 @@ import type {
   ShippingWeightTier,
   TradeOfferStatus,
   TradeOfferVM,
+  TradePartyFulfillmentVM,
 } from '../types/tradeOffers';
 
 export type WebTradeOfferItem = {
@@ -18,6 +19,25 @@ export type WebTradeOfferItem = {
   listingPriceUsdSnapshot: number;
 };
 
+export type WebTradePartyFulfillmentFields = {
+  proposerPlatformFeePaidAt?: string | null;
+  recipientPlatformFeePaidAt?: string | null;
+  proposerLabelUrl?: string | null;
+  recipientLabelUrl?: string | null;
+  proposerTrackingNumber?: string | null;
+  recipientTrackingNumber?: string | null;
+  proposerTrackingUrl?: string | null;
+  recipientTrackingUrl?: string | null;
+  proposerLabelPurchasedAt?: string | null;
+  recipientLabelPurchasedAt?: string | null;
+  proposerLabelErrorMessage?: string | null;
+  recipientLabelErrorMessage?: string | null;
+  proposerShippedAt?: string | null;
+  recipientShippedAt?: string | null;
+  proposerReceivedAt?: string | null;
+  recipientReceivedAt?: string | null;
+};
+
 export type WebTradeOfferDetail = {
   id: string;
   status: string;
@@ -28,11 +48,16 @@ export type WebTradeOfferDetail = {
   proposerCashUsd: number;
   recipientCashUsd: number;
   messageToRecipient: string | null;
+  conversationId?: string | null;
+  cashPaidAt?: string | null;
+  proposerDepositPaidAt?: string | null;
+  recipientDepositPaidAt?: string | null;
+  securityDepositCents?: number | null;
   expiresAt: string | null;
   createdAt: string;
   updatedAt: string;
   items: WebTradeOfferItem[];
-};
+} & WebTradePartyFulfillmentFields;
 
 function profileLite(id: string, username: string | null): ProfileLite {
   return {
@@ -52,6 +77,23 @@ function listingFromSnapshot(item: WebTradeOfferItem): ListingLite {
     media_urls: item.listingImageUrlSnapshot ?? '',
     condition: item.listingConditionSnapshot,
     authentication_status: 'unknown',
+  };
+}
+
+function mapPartyFulfillment(
+  offer: WebTradePartyFulfillmentFields,
+  side: 'proposer' | 'recipient',
+): TradePartyFulfillmentVM {
+  const isProposer = side === 'proposer';
+  return {
+    platform_fee_paid_at: (isProposer ? offer.proposerPlatformFeePaidAt : offer.recipientPlatformFeePaidAt) ?? null,
+    label_url: (isProposer ? offer.proposerLabelUrl : offer.recipientLabelUrl) ?? null,
+    tracking_number: (isProposer ? offer.proposerTrackingNumber : offer.recipientTrackingNumber) ?? null,
+    tracking_url: (isProposer ? offer.proposerTrackingUrl : offer.recipientTrackingUrl) ?? null,
+    label_purchased_at: (isProposer ? offer.proposerLabelPurchasedAt : offer.recipientLabelPurchasedAt) ?? null,
+    label_error_message: (isProposer ? offer.proposerLabelErrorMessage : offer.recipientLabelErrorMessage) ?? null,
+    shipped_at: (isProposer ? offer.proposerShippedAt : offer.recipientShippedAt) ?? null,
+    received_at: (isProposer ? offer.proposerReceivedAt : offer.recipientReceivedAt) ?? null,
   };
 }
 
@@ -87,6 +129,8 @@ export type WebTradeOfferListItem = {
   proposerCashUsd?: number;
   recipientCashUsd?: number;
   messageToRecipient?: string | null;
+  conversationId?: string | null;
+  cashPaidAt?: string | null;
   createdAt?: string;
   updatedAt: string;
   expiresAt?: string | null;
@@ -108,6 +152,8 @@ export function mapWebTradeOfferListItemToVm(offer: WebTradeOfferListItem): Trad
       proposerCashUsd: offer.proposerCashUsd ?? 0,
       recipientCashUsd: offer.recipientCashUsd ?? 0,
       messageToRecipient: offer.messageToRecipient ?? null,
+      conversationId: offer.conversationId ?? null,
+      cashPaidAt: offer.cashPaidAt ?? null,
       expiresAt: offer.expiresAt ?? null,
       createdAt: offer.createdAt ?? offer.updatedAt,
       updatedAt: offer.updatedAt,
@@ -138,6 +184,11 @@ export function mapWebTradeOfferListItemToVm(offer: WebTradeOfferListItem): Trad
     offered_item_ids: [`${offer.id}:offered`],
     cash_difference: mapWebCashDifference(offer.proposerCashUsd ?? 0, offer.recipientCashUsd ?? 0),
     message: offer.messageToRecipient ?? null,
+    conversation_id: offer.conversationId?.trim() || null,
+    cash_paid_at: offer.cashPaidAt?.trim() || null,
+    proposer_deposit_paid_at: null,
+    recipient_deposit_paid_at: null,
+    security_deposit_cents: null,
     trade_fee: tradeFeeUsdForTier(tier),
     shipping_weight_tier: tier,
     label_error_message: null,
@@ -146,6 +197,8 @@ export function mapWebTradeOfferListItemToVm(offer: WebTradeOfferListItem): Trad
     recipient,
     requested: placeholderListing(`${offer.id}:requested`, 'Requested item'),
     offered: [placeholderListing(`${offer.id}:offered`, `${offer.offeredCount ?? 1} offered item(s)`)],
+    proposer_fulfillment: null,
+    recipient_fulfillment: null,
   };
 }
 
@@ -159,6 +212,11 @@ export function mapWebTradeOfferDetailToVm(
   if (!requested || offeredItems.length === 0) return null;
 
   const tier = options?.shippingWeightTier ?? 'cards_slabs';
+  const proposerFulfillment = mapPartyFulfillment(offer, 'proposer');
+  const recipientFulfillment = mapPartyFulfillment(offer, 'recipient');
+  const labelError =
+    proposerFulfillment.label_error_message || recipientFulfillment.label_error_message || null;
+
   return {
     id: offer.id,
     status: mapWebTradeStatus(offer.status),
@@ -168,13 +226,21 @@ export function mapWebTradeOfferDetailToVm(
     offered_item_ids: offeredItems.map((i) => i.listingId),
     cash_difference: mapWebCashDifference(offer.proposerCashUsd, offer.recipientCashUsd),
     message: offer.messageToRecipient,
+    conversation_id: offer.conversationId?.trim() || null,
+    cash_paid_at: offer.cashPaidAt?.trim() || null,
+    proposer_deposit_paid_at: offer.proposerDepositPaidAt?.trim() || null,
+    recipient_deposit_paid_at: offer.recipientDepositPaidAt?.trim() || null,
+    security_deposit_cents:
+      typeof offer.securityDepositCents === 'number' ? offer.securityDepositCents : null,
     trade_fee: tradeFeeUsdForTier(tier),
     shipping_weight_tier: tier,
-    label_error_message: null,
+    label_error_message: labelError,
     updated_at: offer.updatedAt,
     sender: profileLite(offer.proposerId, offer.proposerUsername),
     recipient: profileLite(offer.recipientId, offer.recipientUsername),
     requested: listingFromSnapshot(requested),
     offered: offeredItems.map(listingFromSnapshot),
+    proposer_fulfillment: proposerFulfillment,
+    recipient_fulfillment: recipientFulfillment,
   };
 }

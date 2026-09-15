@@ -21,6 +21,30 @@ function notificationId(roomId: string): string {
   return `live-reminder-${roomId}`;
 }
 
+// Process-wide reminder cache + subscription so every screen (Home, Live tab, cards) reflects the
+// same set instantly. Without this, each screen's hook loaded its own snapshot once on mount, so a
+// reminder set on the Live tab never propagated to the Home screen until it remounted.
+let reminderCache: Set<string> | null = null;
+const reminderListeners = new Set<(ids: Set<string>) => void>();
+
+function emitReminderChange(): void {
+  const snapshot = new Set(reminderCache ?? []);
+  for (const listener of reminderListeners) listener(snapshot);
+}
+
+/** Current in-memory reminder ids (empty until the first load). Returns a fresh copy. */
+export function getLiveEventReminderIdsCache(): Set<string> {
+  return new Set(reminderCache ?? []);
+}
+
+/** Subscribe to reminder-set changes across the app. Returns an unsubscribe fn. */
+export function subscribeLiveEventReminders(listener: (ids: Set<string>) => void): () => void {
+  reminderListeners.add(listener);
+  return () => {
+    reminderListeners.delete(listener);
+  };
+}
+
 export async function loadLiveEventReminderIds(): Promise<Set<string>> {
   const keys = await AsyncStorage.getAllKeys();
   const ids = new Set<string>();
@@ -29,7 +53,9 @@ export async function loadLiveEventReminderIds(): Promise<Set<string>> {
       ids.add(key.slice(STORAGE_PREFIX.length));
     }
   }
-  return ids;
+  reminderCache = ids;
+  emitReminderChange();
+  return new Set(ids);
 }
 
 export async function isLiveEventReminderSet(roomId: string): Promise<boolean> {
@@ -42,6 +68,12 @@ export async function setLiveEventReminder(args: {
 }): Promise<{ ok: boolean; alreadySet?: boolean; error?: string }> {
   const already = await isLiveEventReminderSet(args.event.id);
   if (already) {
+    // Keep the shared cache authoritative even if this screen never loaded it.
+    if (!reminderCache) reminderCache = new Set();
+    if (!reminderCache.has(args.event.id)) {
+      reminderCache.add(args.event.id);
+      emitReminderChange();
+    }
     Alert.alert('Reminder set', `You're already set to be notified about ${args.event.title}.`);
     return { ok: true, alreadySet: true };
   }
@@ -87,6 +119,9 @@ export async function setLiveEventReminder(args: {
   }
 
   await AsyncStorage.setItem(storageKey(args.event.id), '1');
+  if (!reminderCache) reminderCache = new Set();
+  reminderCache.add(args.event.id);
+  emitReminderChange();
 
   const message = scheduledLocal
     ? `We'll notify you when ${args.event.title} starts. You're also following ${args.event.hostName} for go-live alerts.`

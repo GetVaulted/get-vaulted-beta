@@ -16,12 +16,32 @@ describe("getLiveRoomBroadcastCommerceBlock", () => {
     ).toBeNull();
   });
 
-  it("allows commerce during warm-up before IVS reports live", () => {
+  it("blocks commerce before the host starts broadcasting", () => {
+    const block = getLiveRoomBroadcastCommerceBlock({
+      status: "live",
+      streamHealth: "offline",
+      streamPaused: false,
+    });
+    expect(block?.code).toBe("LIVE_BROADCAST_OFFLINE");
+    expect(
+      getLiveRoomBroadcastCommerceBlock(
+        {
+          status: "live",
+          streamHealth: "offline",
+          streamPaused: false,
+        },
+        "purchase",
+      )?.code,
+    ).toBe("LIVE_BROADCAST_OFFLINE");
+  });
+
+  it("allows commerce during warm-up after broadcast start before IVS reports live", () => {
     expect(
       getLiveRoomBroadcastCommerceBlock({
         status: "live",
         streamHealth: "offline",
         streamPaused: false,
+        streamStartedAt: new Date("2026-07-02T18:00:00.000Z"),
       }),
     ).toBeNull();
   });
@@ -38,7 +58,7 @@ describe("getLiveRoomBroadcastCommerceBlock", () => {
     expect(block?.error).toBe(LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR);
   });
 
-  it("blocks when the host paused the stream", () => {
+  it("blocks auctions when the host paused the stream", () => {
     const block = getLiveRoomBroadcastCommerceBlock({
       status: "live",
       streamHealth: "live",
@@ -46,5 +66,33 @@ describe("getLiveRoomBroadcastCommerceBlock", () => {
     });
     expect(block?.code).toBe("LIVE_STREAM_PAUSED");
     expect(block?.error).toBe(LIVE_STREAM_PAUSED_COMMERCE_ERROR);
+  });
+
+  it("allows Buy Now / shop purchases while the host is paused", () => {
+    expect(
+      getLiveRoomBroadcastCommerceBlock(
+        {
+          status: "live",
+          streamHealth: "live",
+          streamPaused: true,
+        },
+        "purchase",
+      ),
+    ).toBeNull();
+  });
+
+  it("still blocks purchases when the host stream is offline", () => {
+    const block = getLiveRoomBroadcastCommerceBlock(
+      {
+        status: "live",
+        streamHealth: "offline",
+        streamPaused: false,
+        streamStartedAt: new Date("2026-07-02T18:00:00.000Z"),
+        streamEndedAt: new Date("2026-07-02T18:05:00.000Z"),
+      },
+      "purchase",
+    );
+    expect(block?.code).toBe("LIVE_BROADCAST_OFFLINE");
+    expect(block?.error).toBe(LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR);
   });
 });

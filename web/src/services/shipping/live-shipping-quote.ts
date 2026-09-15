@@ -9,7 +9,9 @@ import {
 } from "@/lib/shippo";
 import {
   computePoolTotalsFromGroups,
+  frozenPriorPurchaseProfileRow,
   liveShowShippingConfigFromRoom,
+  resolveLiveRoomItemForSessionOrder,
 } from "@/services/shipping/live-shipping-pool";
 import {
   groupItemsIntoPackages,
@@ -28,9 +30,12 @@ type Db = Pick<
   | "liveShippingSessionItem"
   | "liveRoomItem"
   | "liveRoom"
+  | "liveAuctionInventoryHold"
   | "order"
   | "platformShippingProfile"
+  | "sellerShippingProfile"
   | "shipmentPackage"
+  | "listing"
 >;
 
 function parseEnvFloat(name: string, fallback: number): number {
@@ -89,27 +94,32 @@ export async function buildSessionPackageGroups(
   }> = [];
 
   for (const si of session.items) {
-    const liveItem = await db.liveRoomItem.findFirst({
-      where: { liveRoomId: session.liveShowId, listingId: si.listingId },
-      orderBy: { updatedAt: "desc" },
-      select: {
-        id: true,
-        shippingProfileId: true,
-        customWeightOz: true,
-        customLengthIn: true,
-        customWidthIn: true,
-        customHeightIn: true,
-        requiresSeparatePackage: true,
-        shippingProfile: true,
-        shippingProfileSnapshotJson: true,
-      },
+    const liveItem = await resolveLiveRoomItemForSessionOrder(db, {
+      liveShowId: session.liveShowId,
+      listingId: si.listingId,
+      orderId: si.orderId,
     });
+    const appliedWeightOz =
+      Number.isFinite(si.appliedWeightOz) && si.appliedWeightOz > 0 ? si.appliedWeightOz : null;
+    const itemId = liveItem?.id ?? si.orderId;
 
-    if (liveItem?.shippingProfile) {
+    // Past purchases: freeze charged weight — do not re-apply today's helmet/card profile.
+    if (appliedWeightOz != null) {
+      rows.push(frozenPriorPurchaseProfileRow({ itemId, appliedWeightOz }));
+      continue;
+    }
+
+    // Break/PYT queue rows (liveRoomItem.listingId === null) are host board rows whose platform
+    // profile (e.g. "Full-Size Helmet") should NOT be applied to the ephemeral slot-win listing.
+    // Card buyers in a helmet break room must not be charged as 5-lb separate packages.
+    const isBreakSpotQueueRow = liveItem != null && liveItem.listingId == null;
+    const itemOverrides = !isBreakSpotQueueRow ? (liveItem ?? undefined) : undefined;
+
+    if (liveItem?.shippingProfile && !isBreakSpotQueueRow) {
       rows.push({
         itemId: liveItem.id,
         profile: liveItem.shippingProfile,
-        overrides: liveItem,
+        overrides: itemOverrides,
       });
       continue;
     }
@@ -121,26 +131,27 @@ export async function buildSessionPackageGroups(
     });
     if (fallback) {
       rows.push({
-        itemId: liveItem?.id ?? si.orderId,
+        itemId,
         profile: fallback,
-        overrides: liveItem ?? undefined,
+        overrides: itemOverrides,
       });
       continue;
     }
 
     rows.push({
-      itemId: liveItem?.id ?? si.orderId,
+      itemId,
       profile: {
         id: "legacy",
         slug: "trading_cards",
         name: "Trading Cards",
-        defaultWeightOz: Math.max(1, si.appliedWeightOz),
+        defaultWeightOz: 4,
         defaultLengthIn: 6,
         defaultWidthIn: 4,
         defaultHeightIn: 1,
-        bundleAllowed: true,
-        requiresSeparatePackage: false,
+        bundleAllowed: !(liveItem?.requiresSeparatePackage === true),
+        requiresSeparatePackage: liveItem?.requiresSeparatePackage === true,
       },
+      overrides: itemOverrides,
     });
   }
 
@@ -257,7 +268,7 @@ export async function refreshLiveShippingSessionShippoEstimate(
 
   const showConfig = liveShowShippingConfigFromRoom(session.liveShow);
 
-  let rawEstimateCents = tierFallbackCentsForPackageGroups(built.groups, showConfig.shippingCapCents);
+  let rawEstimateCents = tierFallbackCentsForPackageGroups(built.groups);
   let usedShippo = false;
 
   const buyer = session.orders[0];

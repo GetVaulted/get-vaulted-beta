@@ -19,7 +19,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   });
   if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (room.status !== "live" || (room.roomType !== "auction" && room.roomType !== "break")) {
+  if (room.status !== "live" || (room.roomType !== "auction" && room.roomType !== "break" && room.roomType !== "sale")) {
     return NextResponse.json({ ok: true, finalized: 0, results: [] });
   }
 

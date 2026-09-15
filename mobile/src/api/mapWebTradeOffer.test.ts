@@ -31,6 +31,8 @@ describe('mapWebTradeOffer', () => {
       proposerCashUsd: 5,
       recipientCashUsd: 0,
       messageToRecipient: 'hello',
+      conversationId: 'thread_1',
+      cashPaidAt: '2026-01-03T00:00:00.000Z',
       expiresAt: null,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-02T00:00:00.000Z',
@@ -63,6 +65,8 @@ describe('mapWebTradeOffer', () => {
     expect(vm?.sender_id).toBe('sender');
     expect(vm?.recipient_id).toBe('receiver');
     expect(vm?.cash_difference).toBe(5);
+    expect(vm?.conversation_id).toBe('thread_1');
+    expect(vm?.cash_paid_at).toBe('2026-01-03T00:00:00.000Z');
     expect(vm?.requested.title).toBe('Requested card');
     expect(vm?.offered).toHaveLength(1);
   });

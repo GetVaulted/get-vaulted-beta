@@ -98,6 +98,7 @@ export function DeleteAccountScreen({ navigation }: Props) {
           value={typed}
           onChangeText={setTyped}
           autoCapitalize="characters"
+          autoCorrect={false}
           placeholder={CONFIRM}
           placeholderTextColor={colors.textMuted}
         />

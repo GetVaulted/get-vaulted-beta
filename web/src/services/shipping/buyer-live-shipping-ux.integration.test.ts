@@ -15,7 +15,7 @@ import {
 
 describe("getBuyerBundledLiveShippingSessionUx (integration)", () => {
   beforeAll(async () => {
-    vi.stubEnv("LIVE_SHIPPING_CAP_CENTS", "1199");
+    vi.stubEnv("LIVE_SHIPPING_CAP_CENTS", "999");
     await bootstrapIntegrationPrisma();
   }, 180_000);
 
@@ -155,14 +155,14 @@ describe("getBuyerBundledLiveShippingSessionUx (integration)", () => {
           shippingCategory: "slab",
           baseWeight: 8,
           incrementalWeight: 3,
-          capCents: 1199,
+          capCents: 999,
         }),
       ),
     );
     for (const o of orders) await addOrderToLiveShippingSession(o.id);
     const ux = await getBuyerBundledLiveShippingSessionUx(buyer.id, live.id);
     expect(ux!.capReached).toBe(true);
-    expect(ux!.shippingCostCents).toBe(1199);
+    expect(ux!.shippingCostCents).toBe(999);
     expect(ux!.nextIncrementalCostCents).toBe(0);
   });
 

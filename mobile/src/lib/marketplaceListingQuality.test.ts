@@ -82,4 +82,14 @@ describe('marketplaceListingQuality', () => {
       isBrowsableMarketplaceProduct(baseProduct({ imageUrl: '', imageUrls: [] })),
     ).toBe(false);
   });
+
+  it('allows trade-only listings without a dollar price label', () => {
+    const tradeOnly = baseProduct({
+      listingPrice: 'Trade offers',
+      tradeOnly: true,
+      buyNow: undefined,
+    });
+    expect(isBrowsableMarketplaceProduct(tradeOnly)).toBe(true);
+    expect(isDisplayableMarketplaceProduct(tradeOnly)).toBe(true);
+  });
 });

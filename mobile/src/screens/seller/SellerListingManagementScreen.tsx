@@ -51,7 +51,7 @@ type SellerListingOffer = {
 };
 
 export function SellerListingManagementScreen({ navigation, route }: Props) {
-  const { listingId, offerId } = route.params;
+  const { listingId, offerId: deepLinkOfferId } = route.params;
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -63,47 +63,45 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
   const [shippingUsd, setShippingUsd] = useState('');
   const [handlingTime, setHandlingTime] = useState('1–3 business days');
 
-  // Deep-linked from a "new offer" / "counter declined" push (`/seller/listings/{id}?offerId=...`)
-  // — highlight that specific offer so the seller doesn't have to hunt for it.
-  const [highlightedOffer, setHighlightedOffer] = useState<SellerListingOffer | null>(null);
-  const [offerLoading, setOfferLoading] = useState(Boolean(offerId));
-  const [offerNotFound, setOfferNotFound] = useState(false);
-  const [offerBusy, setOfferBusy] = useState(false);
+  const [offers, setOffers] = useState<SellerListingOffer[]>([]);
+  const [offersLoading, setOffersLoading] = useState(true);
+  const [offersError, setOffersError] = useState<string | null>(null);
+  const [offerBusyId, setOfferBusyId] = useState<string | null>(null);
 
-  const loadHighlightedOffer = useCallback(async () => {
-    if (!offerId) return;
-    setOfferLoading(true);
-    setOfferNotFound(false);
+  const loadOffers = useCallback(async () => {
+    setOffersLoading(true);
+    setOffersError(null);
     try {
       const token = session?.access_token ?? (await getListingsAccessToken());
       const base = getWebApiBaseUrl();
       const res = await fetch(`${base}/api/listings/${encodeURIComponent(listingId)}/offers`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error('Could not load offer');
+      if (!res.ok) throw new Error('Could not load offers');
       const body = (await res.json().catch(() => null)) as { offers?: SellerListingOffer[] } | null;
-      const match = body?.offers?.find((o) => o.id === offerId) ?? null;
-      setHighlightedOffer(match);
-      setOfferNotFound(!match);
+      setOffers(Array.isArray(body?.offers) ? body.offers : []);
     } catch {
-      setHighlightedOffer(null);
-      setOfferNotFound(true);
+      setOffers([]);
+      setOffersError('Could not load offers for this listing.');
     } finally {
-      setOfferLoading(false);
+      setOffersLoading(false);
     }
-  }, [listingId, offerId, session?.access_token]);
+  }, [listingId, session?.access_token]);
 
   useEffect(() => {
-    void loadHighlightedOffer();
-  }, [loadHighlightedOffer]);
+    void loadOffers();
+  }, [loadOffers]);
 
-  const resolveOffer = async (action: 'accept' | 'decline') => {
-    if (!offerId) return;
-    setOfferBusy(true);
+  const pendingOffers = offers.filter((o) => o.status === 'pending');
+  const highlightedOffer =
+    (deepLinkOfferId ? offers.find((o) => o.id === deepLinkOfferId) : null) ?? pendingOffers[0] ?? null;
+
+  const resolveOffer = async (targetOfferId: string, action: 'accept' | 'decline') => {
+    setOfferBusyId(targetOfferId);
     try {
       const token = session?.access_token ?? (await getListingsAccessToken());
       const base = getWebApiBaseUrl();
-      const res = await fetch(`${base}/api/offers/${encodeURIComponent(offerId)}`, {
+      const res = await fetch(`${base}/api/offers/${encodeURIComponent(targetOfferId)}`, {
         method: 'PATCH',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -113,12 +111,12 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
       });
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) throw new Error(body?.error ?? 'Could not update this offer.');
-      await loadHighlightedOffer();
+      await loadOffers();
       if (action === 'accept') await reload();
     } catch (e) {
       Alert.alert('Offer', e instanceof Error ? e.message : 'Could not update this offer.');
     } finally {
-      setOfferBusy(false);
+      setOfferBusyId(null);
     }
   };
 
@@ -271,52 +269,72 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
           </View>
         </View>
 
-        {offerId ? (
-          <StudioSection title="Offer" subtitle="Deep-linked from a notification">
-            {offerLoading ? (
-              <ActivityIndicator color={colors.gold} />
-            ) : offerNotFound || !highlightedOffer ? (
-              <Text style={studioStyles.hint}>
-                This offer could not be found. It may have already been resolved.
-              </Text>
-            ) : (
-              <>
-                <Text style={styles.offerAmount}>
-                  ${highlightedOffer.amountUsd.toLocaleString('en-US')}
-                  {highlightedOffer.buyerUsername ? ` from @${highlightedOffer.buyerUsername}` : ''}
-                </Text>
-                {highlightedOffer.message ? (
-                  <Text style={styles.offerMessage}>&ldquo;{highlightedOffer.message}&rdquo;</Text>
-                ) : null}
-                <Text style={styles.offerStatus}>Status: {highlightedOffer.status.replace(/_/g, ' ')}</Text>
-                {highlightedOffer.status === 'pending' ? (
+        <StudioSection
+          title="Offers"
+          subtitle={
+            pendingOffers.length > 0
+              ? `${pendingOffers.length} pending`
+              : 'Cash offers on this listing'
+          }
+        >
+          {offersLoading ? (
+            <ActivityIndicator color={colors.gold} />
+          ) : offersError ? (
+            <Text style={studioStyles.hint}>{offersError}</Text>
+          ) : pendingOffers.length === 0 ? (
+            <Text style={studioStyles.hint}>
+              {deepLinkOfferId && !highlightedOffer
+                ? 'This offer could not be found. It may have already been resolved.'
+                : 'No pending offers yet. When a buyer makes an offer, Accept and Decline appear here.'}
+            </Text>
+          ) : (
+            pendingOffers.map((offer) => {
+              const busy = offerBusyId === offer.id;
+              const isFocus = highlightedOffer?.id === offer.id;
+              return (
+                <View
+                  key={offer.id}
+                  style={[styles.offerCard, isFocus && styles.offerCardFocus]}
+                >
+                  <Text style={styles.offerAmount}>
+                    ${offer.amountUsd.toLocaleString('en-US')}
+                    {offer.buyerUsername ? ` from @${offer.buyerUsername}` : ''}
+                  </Text>
+                  {offer.message ? (
+                    <Text style={styles.offerMessage}>&ldquo;{offer.message}&rdquo;</Text>
+                  ) : null}
+                  <Text style={styles.offerStatus}>Status: {offer.status.replace(/_/g, ' ')}</Text>
                   <View style={studioStyles.actionRow}>
                     <StudioPrimaryButton
                       label="Accept"
-                      disabled={offerBusy}
+                      disabled={busy || !!offerBusyId}
                       onPress={() =>
                         Alert.alert('Accept this offer?', 'This creates an order at the offer amount.', [
                           { text: 'Cancel', style: 'cancel' },
-                          { text: 'Accept', onPress: () => void resolveOffer('accept') },
+                          { text: 'Accept', onPress: () => void resolveOffer(offer.id, 'accept') },
                         ])
                       }
                     />
                     <StudioSecondaryButton
                       label="Decline"
-                      disabled={offerBusy}
+                      disabled={busy || !!offerBusyId}
                       onPress={() =>
                         Alert.alert('Decline this offer?', undefined, [
                           { text: 'Cancel', style: 'cancel' },
-                          { text: 'Decline', style: 'destructive', onPress: () => void resolveOffer('decline') },
+                          {
+                            text: 'Decline',
+                            style: 'destructive',
+                            onPress: () => void resolveOffer(offer.id, 'decline'),
+                          },
                         ])
                       }
                     />
                   </View>
-                ) : null}
-              </>
-            )}
-          </StudioSection>
-        ) : null}
+                </View>
+              );
+            })
+          )}
+        </StudioSection>
 
         <View style={studioStyles.quickRow}>
           <StudioSecondaryButton
@@ -496,6 +514,19 @@ const styles = StyleSheet.create({
   backBtn: { padding: spacing.md },
   backBtnTxt: { color: colors.gold, fontWeight: '700' },
   thumbEmpty: { backgroundColor: colors.surface },
+  offerCard: {
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  offerCardFocus: {
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderRadius: 12,
+    paddingHorizontal: spacing.sm,
+    marginHorizontal: -spacing.sm,
+    borderBottomWidth: 0,
+  },
   offerAmount: { color: colors.textPrimary, fontSize: 18, fontWeight: '800' },
   offerMessage: { color: colors.textSecondary, fontSize: 13, lineHeight: 18, fontStyle: 'italic' },
   offerStatus: { color: colors.textMuted, fontSize: 12, textTransform: 'capitalize' },

@@ -12,6 +12,16 @@ const endLiveRoomsForSuspendedSeller = vi.hoisted(() =>
 );
 vi.mock("@/lib/seller-suspension-live-guard", () => ({ endLiveRoomsForSuspendedSeller }));
 
+const adminChangeUsername = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
+    ok: true,
+    username: "newname",
+    previousUsername: "oldname",
+    usernameChosenAt: "2026-07-15T00:00:00.000Z",
+  }),
+);
+vi.mock("@/lib/profile-setup", () => ({ adminChangeUsername }));
+
 const prismaMock = vi.hoisted(() => ({
   user: {
     findUnique: vi.fn(),
@@ -78,6 +88,42 @@ describe("PATCH /api/admin/users/[id] — audit logging", () => {
     });
 
     expect(res.status).toBe(400);
+    expect(logTrustModerationAction).not.toHaveBeenCalled();
+  });
+
+  it("changes username and writes an audit log entry", async () => {
+    const res = await PATCH(
+      buildRequest({ action: "set_username", username: "NewName", reason: "user typo" }),
+      { params: Promise.resolve({ id: "user_1" }) },
+    );
+
+    expect(res.status).toBe(200);
+    expect(adminChangeUsername).toHaveBeenCalledWith({
+      targetUserId: "user_1",
+      username: "NewName",
+    });
+    expect(logTrustModerationAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorUserId: "admin_1",
+        action: "admin_username_changed",
+        targetType: "user",
+        targetId: "user_1",
+        detail: expect.objectContaining({
+          reason: "user typo",
+          previousUsername: "oldname",
+          username: "newname",
+        }),
+      }),
+    );
+  });
+
+  it("requires a reason when changing username", async () => {
+    const res = await PATCH(buildRequest({ action: "set_username", username: "newname" }), {
+      params: Promise.resolve({ id: "user_1" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(adminChangeUsername).not.toHaveBeenCalled();
     expect(logTrustModerationAction).not.toHaveBeenCalled();
   });
 });

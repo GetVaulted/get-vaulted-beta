@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 
 type Body = { listingId?: string };
 
 export async function POST(req: Request) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
+  if (auth instanceof NextResponse) return auth;
 
   let body: Body;
   try {
@@ -33,7 +31,7 @@ export async function POST(req: Request) {
   if (listing.moderationRemovedAt) {
     return NextResponse.json({ error: "This listing is not available." }, { status: 410 });
   }
-  if (listing.sellerId === session.user.id) {
+  if (listing.sellerId === auth.userId) {
     return NextResponse.json({ error: "You cannot save your own listing." }, { status: 400 });
   }
 
@@ -41,7 +39,7 @@ export async function POST(req: Request) {
     await prisma.$transaction([
       prisma.watchlistItem.create({
         data: {
-          userId: session.user.id,
+          userId: auth.userId,
           listingId: listing.id,
         },
       }),

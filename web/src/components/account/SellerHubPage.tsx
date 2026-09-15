@@ -4,11 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
+import { SellerShipFromSetupCard } from "@/components/account/SellerShipFromSetupCard";
 import { StripeOnboardingEmbed } from "@/components/seller/StripeOnboardingEmbed";
 import { SellerHubNav } from "@/components/seller/obs/SellerHubNav";
-import { SellerShipFromSetupCard } from "@/components/account/SellerShipFromSetupCard";
 import { useSellerSetupState } from "@/hooks/useSellerSetupState";
+import { SellerPayoutPreferenceCard } from "@/components/account/SellerPayoutPreferenceCard";
 import { SELLER_OBS_PATH } from "@/lib/obs-seller-paths";
+import { hasCompleteSellerShipFrom } from "@/lib/seller-shipping-readiness";
 import { SELLER_SETUP_PATH } from "@/lib/seller-setup-state";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 
@@ -24,6 +27,7 @@ type SellerPayload = {
   shipFromState: string | null;
   shipFromZip: string | null;
   shipFromCountry: string | null;
+  shipFromPhone: string | null;
 };
 
 type SellerHomeStats = {
@@ -44,6 +48,9 @@ type SellerHomeStats = {
 type LiveReadinessChecks = {
   hasStripeAccount: boolean;
   stripeChargesEnabled: boolean;
+  stripePayoutSubmitted?: boolean;
+  paypalPayoutReady?: boolean;
+  preferredSellerPayoutProcessor?: "STRIPE" | "PAYPAL";
   hasShippoConfigured: boolean;
   hasShipFromAddress: boolean;
   alternateCheckoutSellerReady: boolean;
@@ -124,7 +131,7 @@ function StatusPill({ tone, children }: { tone: "ready" | "pending" | "warn"; ch
 export function SellerHubPage() {
   const router = useRouter();
   const { status } = useSession();
-  const { activated, phase: setupPhase } = useSellerSetupState(status === "authenticated");
+  const { activated, phase: setupPhase, resolved: setupResolved } = useSellerSetupState(status === "authenticated");
   const [seller, setSeller] = useState<SellerPayload>({
     username: "",
     stripeAccountId: null,
@@ -137,6 +144,7 @@ export function SellerHubPage() {
     shipFromState: null,
     shipFromZip: null,
     shipFromCountry: null,
+    shipFromPhone: null,
   });
   const [homeStats, setHomeStats] = useState<SellerHomeStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -151,6 +159,9 @@ export function SellerHubPage() {
     checks: {
       hasStripeAccount: false,
       stripeChargesEnabled: false,
+      stripePayoutSubmitted: false,
+      paypalPayoutReady: false,
+      preferredSellerPayoutProcessor: "STRIPE",
       hasShippoConfigured: false,
       hasShipFromAddress: false,
       alternateCheckoutSellerReady: false,
@@ -212,6 +223,7 @@ export function SellerHubPage() {
           shipFromState: null,
           shipFromZip: null,
           shipFromCountry: null,
+          shipFromPhone: null,
         });
         return;
       }
@@ -239,6 +251,7 @@ export function SellerHubPage() {
         shipFromState: null,
         shipFromZip: null,
         shipFromCountry: null,
+        shipFromPhone: null,
       };
       setSeller(s);
       setReadiness(
@@ -248,6 +261,9 @@ export function SellerHubPage() {
           checks: {
             hasStripeAccount: false,
             stripeChargesEnabled: false,
+            stripePayoutSubmitted: false,
+            paypalPayoutReady: false,
+            preferredSellerPayoutProcessor: "STRIPE",
             hasShippoConfigured: false,
             hasShipFromAddress: false,
             alternateCheckoutSellerReady: false,
@@ -272,11 +288,11 @@ export function SellerHubPage() {
   }, [load, status]);
 
   useEffect(() => {
-    if (loading || status !== "authenticated" || setupPhase === "loading") return;
+    if (loading || status !== "authenticated" || setupPhase === "loading" || !setupResolved) return;
     if (!activated) {
       router.replace(SELLER_SETUP_PATH);
     }
-  }, [loading, activated, setupPhase, router, status]);
+  }, [loading, activated, setupPhase, setupResolved, router, status]);
 
   useEffect(() => {
     if (!stripeEmbedOpen) return;
@@ -371,10 +387,12 @@ export function SellerHubPage() {
     );
   }
 
-  if (!activated) {
+  if (!setupResolved || !activated) {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
-        <div className="mx-auto max-w-[1920px] px-4 py-24 text-center text-sm text-zinc-500">Redirecting to seller setup…</div>
+        <div className="mx-auto max-w-[1920px] px-4 py-24 text-center text-sm text-zinc-500">
+          {setupResolved && !activated ? "Redirecting to seller setup…" : "Loading seller HQ…"}
+        </div>
       </main>
     );
   }
@@ -382,7 +400,16 @@ export function SellerHubPage() {
   const ps = payoutStatus(seller);
   const liveRoom = homeStats?.liveRoom;
   const isLiveNow = liveRoom?.status === "live";
-  const shipFromNeedsAttention = !readiness.checks.hasShipFromAddress;
+  const shipFromNeedsAttention = seller
+    ? !hasCompleteSellerShipFrom({
+        shipFromStreet: seller.shipFromStreet,
+        shipFromCity: seller.shipFromCity,
+        shipFromState: seller.shipFromState,
+        shipFromZip: seller.shipFromZip,
+        shipFromCountry: seller.shipFromCountry,
+        shipFromPhone: seller.shipFromPhone,
+      })
+    : !readiness.checks.hasShipFromAddress;
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[#030303]">
@@ -412,6 +439,9 @@ export function SellerHubPage() {
                 New listing
               </Link>
             </div>
+          </div>
+          <div className="mt-4">
+            <AccountOrdersNav active="seller" mode="seller" />
           </div>
         </header>
 
@@ -507,6 +537,10 @@ export function SellerHubPage() {
             </Link>
           </div>
 
+          <div className="mb-4">
+            <SellerPayoutPreferenceCard />
+          </div>
+
           <div className="grid gap-4 lg:grid-cols-2">
             <article className="rounded-xl border border-white/[0.08] bg-zinc-950/50 p-4 sm:p-5">
               <div className="flex items-start justify-between gap-3">
@@ -533,6 +567,12 @@ export function SellerHubPage() {
                 >
                   {busy ? "Opening…" : ps === "ready" ? "Stripe dashboard" : "Connect payouts"}
                 </button>
+                <Link
+                  href="/account/seller/financials"
+                  className="inline-flex h-9 items-center justify-center rounded-lg bg-gold/15 px-4 text-xs font-semibold text-gold-bright ring-1 ring-gold/25 transition hover:bg-gold/25"
+                >
+                  View financials
+                </Link>
                 {ps !== "ready" ? (
                   <Link
                     href={SELLER_SETUP_PATH}

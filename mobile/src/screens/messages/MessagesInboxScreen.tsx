@@ -16,7 +16,7 @@ import { fetchMessageThreads } from '../../api/messagesRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { MessageThreadCard } from '../../components/messages/MessageThreadCard';
 import type { RootStackParamList } from '../../navigation/types';
-import { openMessageThread } from '../../navigation/openMessages';
+import { openMessageThread, openNewMessage } from '../../navigation/openMessages';
 import type { ThreadListItem } from '../../types/messages';
 import { colors, radii, spacing } from '../../theme';
 import { deriveMessagesInboxViewState, describeInboxLoadError } from './messagesInboxViewState';
@@ -82,6 +82,15 @@ export function MessagesInboxScreen({ navigation }: Props) {
           <Text style={styles.title}>Messages</Text>
           <Text style={styles.sub}>Private commerce · collector network</Text>
         </View>
+        <Pressable
+          onPress={() => openNewMessage(navigation)}
+          hitSlop={12}
+          style={styles.composeBtn}
+          accessibilityRole="button"
+          accessibilityLabel="New message"
+        >
+          <Ionicons name="create-outline" size={22} color={colors.gold} />
+        </Pressable>
       </View>
 
       <View style={styles.tabs}>
@@ -131,8 +140,13 @@ export function MessagesInboxScreen({ navigation }: Props) {
                 <Text style={styles.emptySub}>
                   {inbox === 'request'
                     ? 'New collectors will appear here until you accept.'
-                    : 'Message a seller from a listing or live show to start negotiating.'}
+                    : 'Search for a collector, or message a seller from a listing or live show.'}
                 </Text>
+                {inbox === 'primary' ? (
+                  <Pressable style={styles.retryBtn} onPress={() => openNewMessage(navigation)}>
+                    <Text style={styles.retryTxt}>New message</Text>
+                  </Pressable>
+                ) : null}
               </View>
             )
           }
@@ -160,6 +174,13 @@ const styles = StyleSheet.create({
   },
   back: { padding: 4 },
   headerText: { flex: 1 },
+  composeBtn: {
+    padding: 8,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(212,175,55,0.12)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212,175,55,0.35)',
+  },
   title: { fontSize: 24, fontWeight: '900', color: colors.textPrimary, letterSpacing: -0.3 },
   sub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   tabs: {

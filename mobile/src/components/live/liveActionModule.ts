@@ -4,7 +4,7 @@ import { LIVE_AUCTION_BUYER_TIMER_ENDED_COPY } from '../../lib/liveAuctionLotPha
 import { formatAuctionLeaderLine } from '../../lib/liveAuctionWinnerDisplay';
 import {
   availableVariantCount,
-  hostPinnedBuyerVariant,
+  featuredBuyerVariant,
   isActiveVariantBuyerItem,
   isRandomVariantAssignment,
   lowestAvailableVariantPrice,
@@ -13,10 +13,12 @@ import {
   variantSelectSpotLabel,
 } from '../../lib/liveItemVariant';
 import {
+  isVariantSpotAuctionArmed,
   isVariantSpotAuctionLive,
   shopAvailableVariants,
   shopVariantCountDuringSpotAuction,
 } from '../../lib/liveVariantSpotCommerce';
+import { isActiveBuyNowBuyerItem } from '../../lib/liveCommerceRouting';
 import { pickVaultWaitingMessage } from '../../lib/liveAuctionBuyerVaultCopy';
 import type { CategoryId, HybridFocus, LiveCommerceMode, LiveRoomFormat, LiveStream } from '../../types';
 
@@ -103,7 +105,7 @@ function resolveBuyerVariantItemHud(
     };
   }
 
-  const pinned = hostPinnedBuyerVariant(variants, snap.activeItemVariantAssignmentMode);
+  const pinned = featuredBuyerVariant(snap);
   if (pinned && isVariantSpotAuctionLive(snap)) {
     const hasBid = Boolean(snap.lastHighBidderId?.trim() || snap.lastHighBidderUsername?.trim());
     const opening = snap.startingBidUsd ?? pinned.priceUsd ?? 1;
@@ -111,12 +113,14 @@ function resolveBuyerVariantItemHud(
     const next = snap.minNextBidUsd ?? displayAmount;
     const biddingOpen = snap.lotBidPhase === 'bidding_open';
     const shopCount = shopVariantCountDuringSpotAuction(snap);
+    const breakTitle = snap.activeItemTitle?.trim() || itemTitleFallback;
     return {
       ...base,
       format: 'auction',
       hybridFocus: null,
       timerMmSs: biddingOpen && snap.auctionEndsAt ? auctionCountdownMmSs(snap.auctionEndsAt, snap.fetchedAtMs) : '—',
       itemTitle: pinned.label,
+      categoryType: breakTitle,
       currentPrefix: hasBid ? 'Current' : 'Opening',
       currentAmount: formatMoney(displayAmount),
       winningLine: formatAuctionLeaderLine({
@@ -128,8 +132,8 @@ function resolveBuyerVariantItemHud(
       stateLine: biddingOpen
         ? shopCount > 0
           ? `${pinned.label} auction live — ${shopCount} other team${shopCount === 1 ? '' : 's'} still in shop.`
-          : 'Spot auction live — place the next bid.'
-        : 'Spot auction ended — waiting for host.',
+          : `${pinned.label} auction live — place the next bid.`
+        : `${pinned.label} auction ended — waiting for host.`,
       bottomLeftLabel: 'Custom',
       bottomRightLabel: biddingOpen
         ? `Hold to Bid ${formatBidMoney(next)}`
@@ -143,14 +147,45 @@ function resolveBuyerVariantItemHud(
     };
   }
 
+  // Pinned for auction, bidding not open yet — never offer buy-now at the tile price.
+  if (pinned && isVariantSpotAuctionArmed(snap)) {
+    const opening = snap.startingBidUsd ?? pinned.priceUsd ?? 1;
+    const shopCount = shopAvailableVariants(snap).length;
+    const breakTitle = snap.activeItemTitle?.trim() || itemTitleFallback;
+    return {
+      ...base,
+      format: 'auction',
+      hybridFocus: null,
+      timerMmSs: '—',
+      itemTitle: pinned.label,
+      categoryType: breakTitle,
+      currentPrefix: 'Opening',
+      currentAmount: formatMoney(opening),
+      winningLine: '',
+      stateLine: `${pinned.label} pinned for auction — waiting for host to start bidding.`,
+      bottomLeftLabel: shopCount > 0 ? 'All teams' : 'Custom',
+      bottomRightLabel: 'Waiting for host',
+      bottomRightIsSlide: false,
+      showShopButton: shopCount > 0,
+      shopButtonLabel: variantClaimPrimaryLabel(snap.activeItemSalesFormat),
+      buyerPrimaryDisabled: true,
+      buyerSecondaryDisabled: shopCount <= 0,
+      buyerPinnedVariantId: undefined,
+    };
+  }
+
   if (pinned) {
-    const otherAvailable = variants.filter((v) => variantIsAvailable(v) && v.id !== pinned.id).length;
+    const otherAvailable = (snap.activeItemVariants ?? []).filter(
+      (v) => variantIsAvailable(v) && v.id !== pinned.id,
+    ).length;
+    const breakTitle = snap.activeItemTitle?.trim() || itemTitleFallback;
     return {
       ...base,
       format: 'shop',
       hybridFocus: null,
       timerMmSs: '—',
       itemTitle: pinned.label,
+      categoryType: breakTitle,
       currentPrefix: 'Price',
       currentAmount: formatMoney(pinned.priceUsd),
       winningLine: '',
@@ -171,23 +206,58 @@ function resolveBuyerVariantItemHud(
 
   const available = availableVariantCount(variants);
   const fromPrice = lowestAvailableVariantPrice(variants) ?? snap.priceUsd ?? snap.startingBidUsd ?? 0;
+  if (variants.length === 0) {
+    // Snapshot lag — keep Claim CTA (do not show Sold out / fall through to bid).
+    return {
+      ...base,
+      format: 'shop',
+      hybridFocus: null,
+      timerMmSs: '—',
+      itemTitle: itemTitleFallback,
+      currentPrefix: 'From',
+      currentAmount: fromPrice > 0 ? formatMoney(fromPrice) : '—',
+      winningLine: '',
+      stateLine: 'Loading spots — tap Claim to refresh the board.',
+      bottomLeftLabel: 'Custom',
+      bottomRightLabel: variantClaimPrimaryLabel(snap.activeItemSalesFormat),
+      bottomRightIsSlide: false,
+      buyerPrimaryDisabled: false,
+      buyerSecondaryDisabled: true,
+    };
+  }
+  if (available <= 0) {
+    return {
+      ...base,
+      format: 'shop',
+      hybridFocus: null,
+      timerMmSs: '—',
+      itemTitle: itemTitleFallback,
+      currentPrefix: 'Status',
+      currentAmount: 'Sold out',
+      winningLine: '',
+      stateLine: 'All spots sold — open the team roster to see who got each team.',
+      bottomLeftLabel: 'Teams',
+      bottomRightLabel: 'Team roster',
+      bottomRightIsSlide: false,
+      showShopButton: false,
+      buyerPrimaryDisabled: false,
+      buyerSecondaryDisabled: false,
+    };
+  }
   return {
     ...base,
     format: 'shop',
     hybridFocus: null,
     timerMmSs: '—',
     itemTitle: itemTitleFallback,
-    currentPrefix: available > 0 ? 'From' : 'Status',
-    currentAmount: available > 0 ? formatMoney(fromPrice) : 'Sold out',
+    currentPrefix: 'From',
+    currentAmount: formatMoney(fromPrice),
     winningLine: '',
-    stateLine:
-      available > 0
-        ? `${available} spot${available === 1 ? '' : 's'} available — tap to claim yours.`
-        : 'All spots are sold or unavailable.',
+    stateLine: `${available} spot${available === 1 ? '' : 's'} available — tap to claim yours.`,
     bottomLeftLabel: 'Custom',
-    bottomRightLabel: available > 0 ? variantClaimPrimaryLabel(snap.activeItemSalesFormat) : 'Sold out',
+    bottomRightLabel: variantClaimPrimaryLabel(snap.activeItemSalesFormat),
     bottomRightIsSlide: false,
-    buyerPrimaryDisabled: available <= 0,
+    buyerPrimaryDisabled: false,
     buyerSecondaryDisabled: true,
   };
 }
@@ -204,7 +274,6 @@ function resolveBuyerBuyNowItemHud(
     stream.title?.trim() ||
     'Live item';
   const price = snap.priceUsd ?? stream.buyNowPrice ?? 0;
-  const checkoutReady = Boolean(snap.activeItemListingId?.trim());
 
   return {
     ...base,
@@ -215,13 +284,11 @@ function resolveBuyerBuyNowItemHud(
     currentPrefix: 'Price',
     currentAmount: price > 0 ? formatBidMoney(price) : '—',
     winningLine: '',
-    stateLine: checkoutReady
-      ? 'Tap Buy Now to checkout with your saved card.'
-      : 'Checkout is not linked for this item yet — ask the host in chat.',
+    stateLine: 'Tap Buy Now to checkout with your saved card.',
     bottomLeftLabel: 'Custom',
     bottomRightLabel: price > 0 ? `Buy Now ${formatBidMoney(price)}` : 'Buy Now',
     bottomRightIsSlide: false,
-    buyerPrimaryDisabled: !checkoutReady || price <= 0 || snap.status !== 'live',
+    buyerPrimaryDisabled: price <= 0 || snap.status !== 'live',
     buyerSecondaryDisabled: true,
   };
 }
@@ -282,17 +349,19 @@ function resolveBuyerAuctionItemHud(
     });
   }
 
+  // Before bidding opens, show the opening price — not a stale min-next from the prior round.
+  const preStartAmount = hasBid ? next : opening;
   return buildBuyerBidHud(base, {
     itemTitle,
     timerMmSs: '—',
-    currentPrefix: 'Next bid',
-    currentAmount: next > 0 ? formatBidMoney(next) : '—',
+    currentPrefix: hasBid ? 'Next bid' : 'Opening',
+    currentAmount: preStartAmount > 0 ? formatBidMoney(preStartAmount) : '—',
     winningLine: '',
     stateLine:
       snap.lotBidPhase === 'not_started'
         ? pickVaultWaitingMessage(stream.id, 'controls_when_live')
         : pickVaultWaitingMessage(stream.id, 'lot_almost_ready'),
-    nextBidUsd: next > 0 ? next : 1,
+    nextBidUsd: preStartAmount > 0 ? preStartAmount : 1,
     biddingOpen: false,
     useSlide: false,
   });
@@ -594,6 +663,33 @@ export function resolveLiveBuyerCommerceHud(
   }
 
   if (effectiveSnap.status === 'scheduled') {
+    // Pre-sale before Go Live: PYT/PYD spots are buyable from Shop / Claim Team.
+    if (isActiveVariantBuyerItem(effectiveSnap)) {
+      return resolveBuyerVariantItemHud(stream, effectiveSnap, base);
+    }
+    const presaleLot = (effectiveSnap.lineupItems ?? []).find((it) => it.queueAction === 'variant_shop');
+    if (presaleLot) {
+      const claimLabel = variantClaimPrimaryLabel(presaleLot.salesFormat);
+      return {
+        ...base,
+        format: 'shop',
+        hybridFocus: null,
+        timerMmSs: '—',
+        itemTitle: presaleLot.displayTitle || stream.title?.trim() || 'Team board',
+        categoryType: 'Pre-sale',
+        currentPrefix: 'Status',
+        currentAmount: 'Open',
+        winningLine: '',
+        stateLine: 'Pre-sale open — claim your team before the host goes live.',
+        bottomLeftLabel: 'Shop',
+        bottomRightLabel: claimLabel,
+        bottomRightIsSlide: false,
+        showShopButton: true,
+        shopButtonLabel: claimLabel,
+        buyerPrimaryDisabled: false,
+        buyerSecondaryDisabled: false,
+      };
+    }
     return buildBuyerWaitingHud(base, stream.id, {
       itemTitle: stream.pinnedProductLabel || stream.currentItem || 'Vault event',
       stateLine: pickVaultWaitingMessage(stream.id, 'vault_loading'),
@@ -612,11 +708,8 @@ export function resolveLiveBuyerCommerceHud(
     return resolveBuyerVariantItemHud(stream, effectiveSnap, base);
   }
 
-  if (
-    effectiveSnap.roomType === 'sale' &&
-    effectiveSnap.activeItemId &&
-    !isActiveVariantBuyerItem(effectiveSnap)
-  ) {
+  // Sale rooms can host timed auctions — only force Buy Now for true buy_now lots.
+  if (isActiveBuyNowBuyerItem(effectiveSnap)) {
     return resolveBuyerBuyNowItemHud(stream, effectiveSnap, base);
   }
 

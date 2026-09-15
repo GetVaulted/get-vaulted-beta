@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { createLayawayBalanceCheckout } from "@/services/layaway";
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await ctx.params;
   let body: { amountUsd?: number; payRemaining?: boolean } = {};
@@ -23,7 +23,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           : undefined;
     const { url } = await createLayawayBalanceCheckout({
       layawayId: decodeURIComponent(id),
-      buyerId: session.user.id,
+      buyerId: auth.userId,
       amountUsd,
     });
     return NextResponse.json({ url });

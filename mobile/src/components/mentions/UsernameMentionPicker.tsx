@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  Keyboard,
   Pressable,
   StyleSheet,
   Text,
@@ -37,6 +38,8 @@ type Props = Omit<TextInputProps, 'value' | 'onChangeText'> & {
   liveRoomId?: string;
   /** Allow typing a username without a leading @ (moderator assign). */
   plainUsernameSearch?: boolean;
+  /** When true, blur + dismiss keyboard after picking a match (mark-sold sheets). */
+  dismissKeyboardOnSelect?: boolean;
   onSelectUser: (user: MentionSearchUser) => void;
 };
 
@@ -47,6 +50,7 @@ export function UsernameMentionPicker({
   accessToken,
   liveRoomId,
   plainUsernameSearch = false,
+  dismissKeyboardOnSelect = false,
   onSelectUser,
   placeholder = '@username',
   editable = true,
@@ -92,10 +96,15 @@ export function UsernameMentionPicker({
   const pick = (user: MentionSearchUser) => {
     setOpen(false);
     setResults([]);
-    onChangeText('');
-    setCursor(0);
+    onChangeText(user.username);
+    setCursor(user.username.length);
     onSelectUser(user);
-    requestAnimationFrame(() => inputRef.current?.focus());
+    if (dismissKeyboardOnSelect) {
+      inputRef.current?.blur();
+      Keyboard.dismiss();
+    } else {
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
   };
 
   return (
@@ -113,8 +122,9 @@ export function UsernameMentionPicker({
         ref={inputRef}
         value={value}
         onChangeText={(t) => {
-          onChangeText(t);
-          setCursor(t.length);
+          const next = plainUsernameSearch ? t.replace(/\s+/g, '') : t;
+          onChangeText(next);
+          setCursor(next.length);
         }}
         onSelectionChange={(e) => setCursor(e.nativeEvent.selection.end)}
         placeholder={placeholder}

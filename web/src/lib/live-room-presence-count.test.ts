@@ -12,13 +12,34 @@ describe("countRoomPresenceViewers", () => {
     ).toBe(2);
   });
 
-  it("dedupes the same signed-in user across tabs", () => {
+  it("counts the same account on two devices as two viewers (per-connection headcount)", () => {
     expect(
       countRoomPresenceViewers({
-        "slot-a": [{ userId: "user-1", tabKey: "room-1:tab-a" }],
-        "slot-b": [{ userId: "user-1", tabKey: "room-1:tab-b" }],
+        "slot-a": [{ userId: "user-1", tabKey: "room-1:device-a" }],
+        "slot-b": [{ userId: "user-1", tabKey: "room-1:device-b" }],
+      }),
+    ).toBe(2);
+  });
+
+  it("collapses duplicate metas that share one connection slot", () => {
+    expect(
+      countRoomPresenceViewers({
+        "slot-a": [
+          { userId: "user-1", tabKey: "room-1:device-a" },
+          { userId: "user-1", tabKey: "room-1:device-a" },
+        ],
       }),
     ).toBe(1);
+  });
+
+  it("counts multiple anonymous guests separately", () => {
+    expect(
+      countRoomPresenceViewers({
+        "guest-a": [{ tabKey: "room-1:guest-a" }],
+        "guest-b": [{ tabKey: "room-1:guest-b" }],
+        "guest-c": [{ tabKey: "room-1:guest-c" }],
+      }),
+    ).toBe(3);
   });
 
   it("ignores empty presence slots", () => {

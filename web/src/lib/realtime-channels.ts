@@ -19,8 +19,12 @@ export function vaultEcosystemChannel(userId: string): string {
 
 export const RT_EVENT = {
   chatMessage: "chat_message",
+  /** Host/mod staff chat — clients must only handle when `canModerate`. */
+  staffChatMessage: "staff_chat_message",
   viewerJoined: "viewer_joined",
   viewerLeft: "viewer_left",
+  /** Host-observed concurrent viewers — one room-wide number for all clients. */
+  viewerCount: "viewer_count",
   bidPlaced: "bid_placed",
   auctionStarted: "auction_started",
   auctionEnded: "auction_ended",
@@ -68,6 +72,7 @@ export const RT_EVENT = {
  */
 export const RT_EVENT_ALIASES = {
   chatMessage: ["live_room_message"],
+  staffChatMessage: [],
   viewerJoined: [],
   viewerLeft: [],
   bidPlaced: [],

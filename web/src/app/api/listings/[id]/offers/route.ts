@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { prisma } from "@/lib/prisma";
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -15,7 +15,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     where: { id: listingId },
     select: { id: true, sellerId: true, title: true },
   });
-  if (!listing || listing.sellerId !== session.user.id) {
+  if (!listing || listing.sellerId !== auth.userId) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

@@ -49,10 +49,11 @@ const SHEET_BG = '#242424';
 const ACTION_GREY = '#3a3a3a';
 const MESSAGES_GREEN = '#34C759';
 
-function smsShareUrl(url: string, title: string, description: string): string {
-  const text = encodeURIComponent(`${title}\n${description}`);
+function smsShareUrl(url: string): string {
+  // iMessage only unfurls OG tiles when the body is (or starts with) a bare URL.
+  // Burying the link in marketing copy forces a plain text bubble.
   const link = encodeURIComponent(url);
-  return Platform.OS === 'ios' ? `sms:&body=${text}%20${link}` : `sms:?body=${text}%20${link}`;
+  return Platform.OS === 'ios' ? `sms:&body=${link}` : `sms:?body=${link}`;
 }
 
 function xShareUrl(url: string, title: string, description: string): string {
@@ -179,7 +180,7 @@ export function LiveRoomShareSheet({
 
   const openSms = async () => {
     if (!publicUrl) return;
-    const url = smsShareUrl(publicUrl, sharePack.title, sharePack.message.split('\n')[0] ?? showTitle);
+    const url = smsShareUrl(publicUrl);
     try {
       await Linking.openURL(url);
     } catch {

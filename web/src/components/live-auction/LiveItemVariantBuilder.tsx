@@ -8,7 +8,12 @@ import {
   type VariantDraftInput,
 } from "@/lib/live-item-variant-presets";
 
-export type LiveItemSalesFormatDraft = "auction" | "buy_now" | "variant_selection" | "team_break";
+export type LiveItemSalesFormatDraft =
+  | "auction"
+  | "buy_now"
+  | "variant_selection"
+  | "team_break"
+  | "player_selection";
 
 type LiveItemVariantBuilderProps = {
   salesFormat: LiveItemSalesFormatDraft;
@@ -239,7 +244,10 @@ export function LiveItemVariantBuilder({
   const [bulkPriceDraft, setBulkPriceDraft] = useState("");
   const [bulkQtyDraft, setBulkQtyDraft] = useState("");
 
-  const showVariants = salesFormat === "variant_selection" || salesFormat === "team_break";
+  const showVariants =
+    salesFormat === "variant_selection" ||
+    salesFormat === "team_break" ||
+    salesFormat === "player_selection";
   const priceNum = useMemo(() => {
     const n = Number(defaultPriceUsd);
     return Number.isFinite(n) && n >= 0 ? n : 0;

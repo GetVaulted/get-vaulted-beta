@@ -62,7 +62,7 @@ export function ChangePasswordScreen({ navigation }: Props) {
         placeholder="Confirm password"
         visible={confirmVisible}
         onToggleVisible={() => setConfirmVisible((v) => !v)}
-        autoComplete="new-password"
+        autoComplete="off"
         containerStyle={{ marginTop: spacing.sm }}
       />
       <Pressable style={[styles.btn, busy && styles.btnOff]} disabled={busy} onPress={() => void submit()}>

@@ -51,7 +51,7 @@ describe('sellerHasShipFromAddress', () => {
   it('uses readiness checks when true', () => {
     expect(
       sellerHasShipFromAddress(
-        { hasStripeAccount: true, stripeChargesEnabled: true, hasShipFromAddress: true },
+        { hasStripeAccount: true, stripeChargesEnabled: true, stripePayoutSubmitted: true, hasShipFromAddress: true },
         null,
       ),
     ).toBe(true);
@@ -60,7 +60,7 @@ describe('sellerHasShipFromAddress', () => {
   it('falls back to seller profile fields when checks are stale', () => {
     expect(
       sellerHasShipFromAddress(
-        { hasStripeAccount: true, stripeChargesEnabled: true, hasShipFromAddress: false },
+        { hasStripeAccount: true, stripeChargesEnabled: true, stripePayoutSubmitted: true, hasShipFromAddress: false },
         completeSeller,
       ),
     ).toBe(true);

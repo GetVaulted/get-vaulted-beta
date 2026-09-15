@@ -24,10 +24,12 @@ type LiveVideoStageProps = {
   onBack?: () => void;
   /** When set, host row shows a working Follow control for this seller user id. */
   hostSellerId?: string;
-  /** Centered overlay above the video plate (e.g. break team board). Keeps top/bottom chrome usable. */
+  /** Overlay above the video plate (e.g. break team board). Keeps top/bottom chrome usable. */
   centerOverlay?: ReactNode;
   /** When true, render center overlay above all stream chrome (e.g. active team board). */
   centerOverlayOnTop?: boolean;
+  /** `bottom` docks the board under the stream so mid-frame video stays clear (PC minimize chip). */
+  centerOverlayAlign?: "center" | "bottom";
   actionOverlay?: ReactNode;
   mobileActionOverlay?: ReactNode;
   /** `fillHeight`: grow with parent. `host916`: legacy alias — video stays 9:16, overlays use full stage on desktop. `buyerShellPlate`: 9:16 plate centered in parent (buyer desktop shell). */
@@ -58,7 +60,9 @@ type LiveVideoStageProps = {
   topChromeTrailing?: ReactNode;
   /** Buyer-only right-side quick actions. */
   showRightActions?: boolean;
-  /** Seller shop link for the video-stage Shop action. */
+  /** Opens the in-room shop / lineup sheet. */
+  onShop?: () => void;
+  /** Optional fallback when `onShop` is not provided. */
   shopHref?: string | null;
   onShare?: () => void;
   onWallet?: () => void;
@@ -82,6 +86,8 @@ type LiveVideoStageProps = {
   scheduledStartAt?: string | null;
   /** Host-uploaded room thumbnail; rendered behind standby/countdown UI until the live video paints. */
   thumbnailUrl?: string | null;
+  /** Short looping promo for scheduled rooms (with sound after unmute on web). */
+  teaserVideoUrl?: string | null;
   /** When true, video/thumbnail fill the stage edge-to-edge (host 9:16 console frame). */
   fillPortraitFrame?: boolean;
   /** DB room status — bottom playback pill uses this (Live / Upcoming / Ended). */
@@ -112,6 +118,7 @@ export function LiveVideoStage({
   hostSellerId,
   centerOverlay,
   centerOverlayOnTop = false,
+  centerOverlayAlign = "center",
   actionOverlay,
   mobileActionOverlay,
   layout = "aspect",
@@ -128,6 +135,7 @@ export function LiveVideoStage({
   centeredActionOverlay = false,
   topChromeTrailing,
   showRightActions = false,
+  onShop,
   shopHref = null,
   onShare,
   onWallet,
@@ -141,6 +149,7 @@ export function LiveVideoStage({
   viewerAuthenticated = false,
   scheduledStartAt = null,
   thumbnailUrl = null,
+  teaserVideoUrl = null,
   fillPortraitFrame: _fillPortraitFrameProp,
   roomStatus,
   vaultMode = "auction_night",
@@ -178,9 +187,8 @@ export function LiveVideoStage({
     : cinematicActionOverlay
       ? "live-stage-hud-suspended bottom-4 left-1/2 w-[min(920px,calc(100%-3rem))] -translate-x-1/2"
       : centeredActionOverlay
-        ? // Compact HUD overlaid on the bottom-center of the 9:16 video. Capped just under the
-          // plate width (~540px at 1080p) so it floats on the video and never spans the stage.
-          "bottom-4 left-1/2 w-[min(500px,calc(100%-2rem))] -translate-x-1/2"
+        ? // Host auction HUD — wide enough for lot title + winning bidder + timer (phone parity).
+          "bottom-4 left-1/2 w-[min(560px,calc(100%-1.5rem))] -translate-x-1/2"
         : compactActionOverlay
           ? "bottom-2 left-2 right-14"
           : "bottom-4 left-4 right-4";
@@ -245,7 +253,12 @@ export function LiveVideoStage({
       {onTip ? <ActionPill label="Tip" icon={<TipIcon />} onClick={onTip} /> : null}
       <ActionPill label="Share" icon={<ShareIcon />} onClick={onShare} />
       <ActionPill label="Wallet" icon={<WalletIcon />} onClick={onWallet} />
-      <ActionPill label="Shop" icon={<ShopIcon />} href={shopHref ?? "/marketplace"} />
+      <ActionPill
+        label="Shop"
+        icon={<ShopIcon />}
+        onClick={onShop}
+        href={onShop ? undefined : shopHref ?? undefined}
+      />
       {liveRoomId ? (
         <ReportTrigger
           targetType="live_room"
@@ -312,6 +325,7 @@ export function LiveVideoStage({
               streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
               scheduledStartAt={scheduledStartAt}
               thumbnailUrl={thumbnailUrl}
+              teaserVideoUrl={teaserVideoUrl}
               onNotifyMe={onNotifyMe}
               fillPortraitFrame
             />
@@ -336,7 +350,9 @@ export function LiveVideoStage({
 
           {centerOverlay ? (
             <div
-              className={`pointer-events-none absolute inset-0 min-[1400px]:hidden ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} flex items-center justify-center p-2 sm:p-4`}
+              className={`pointer-events-none absolute inset-0 min-[1400px]:hidden ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} flex justify-center p-2 sm:p-4 ${
+                centerOverlayAlign === "bottom" ? "items-end pb-3 sm:pb-4" : "items-center"
+              }`}
             >
               <div className="pointer-events-auto max-h-full min-h-0 w-full max-w-full overflow-y-auto">{centerOverlay}</div>
             </div>
@@ -390,7 +406,9 @@ export function LiveVideoStage({
 
       {centerOverlay && !buyerShellMode ? (
         <div
-          className={`pointer-events-none absolute inset-0 hidden min-[1400px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} items-center justify-center p-4`}
+          className={`pointer-events-none absolute inset-0 hidden min-[1400px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} justify-center p-4 ${
+            centerOverlayAlign === "bottom" ? "items-end" : "items-center"
+          }`}
         >
           <div className="pointer-events-auto max-h-full min-h-0 w-full max-w-[1920px] overflow-y-auto">{centerOverlay}</div>
         </div>
@@ -398,7 +416,9 @@ export function LiveVideoStage({
 
       {centerOverlay && buyerShellMode ? (
         <div
-          className={`pointer-events-none absolute inset-0 hidden min-[1280px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} items-center justify-center p-2`}
+          className={`pointer-events-none absolute inset-0 hidden min-[1280px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} justify-center p-2 ${
+            centerOverlayAlign === "bottom" ? "items-end pb-2" : "items-center"
+          }`}
         >
           <div className="pointer-events-auto max-h-full min-h-0 w-full max-w-md overflow-y-auto">{centerOverlay}</div>
         </div>

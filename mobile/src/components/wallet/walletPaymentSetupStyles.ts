@@ -18,13 +18,17 @@ export const walletPaymentSetupStyles = StyleSheet.create({
   embeddedShell: {
     flex: 1,
     width: '100%',
+    minHeight: 0,
   },
   embeddedPanel: {
     flex: 1,
+    minHeight: 0,
     backgroundColor: VAULT_BG,
+    overflow: 'hidden',
   },
   panelDark: {
     flex: 1,
+    minHeight: 0,
     marginTop: spacing.md,
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
@@ -35,10 +39,12 @@ export const walletPaymentSetupStyles = StyleSheet.create({
   },
   body: {
     flex: 1,
+    minHeight: 0,
     backgroundColor: VAULT_BG,
   },
   keyboardFrame: {
     flex: 1,
+    minHeight: 0,
   },
   headerBlock: {
     paddingBottom: spacing.md,
@@ -81,6 +87,7 @@ export const walletPaymentSetupStyles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
+    minHeight: 0,
   },
   scrollContent: {
     paddingHorizontal: spacing.lg,
@@ -293,6 +300,20 @@ export const walletPaymentSetupStyles = StyleSheet.create({
     fontSize: 15,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  loadingCancelBtn: {
+    marginTop: spacing.sm,
+    paddingVertical: 12,
+    paddingHorizontal: spacing.xl,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  loadingCancelLabel: {
+    color: '#faf8f2',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   errorStateBlock: {
     flex: 1,

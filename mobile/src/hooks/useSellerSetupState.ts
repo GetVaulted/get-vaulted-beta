@@ -30,7 +30,10 @@ import {
 const DEFAULT_CHECKS: SellerReadinessChecks = {
   hasStripeAccount: false,
   stripeChargesEnabled: false,
+  stripePayoutSubmitted: false,
   hasShipFromAddress: false,
+  paypalPayoutReady: false,
+  preferredSellerPayoutProcessor: 'STRIPE',
 };
 
 const GATE_DEBOUNCE_MS = 450;
@@ -408,7 +411,9 @@ export function useSellerSetupState(
   const applyReadinessFromServer = useCallback(
     (readiness: SellerLiveReadiness | undefined, nextSeller?: SellerAccountPayload | null) => {
       if (!readiness?.checks) return;
-      const nextChecks = normalizeSellerReadinessChecks(readiness.checks as Record<string, boolean>);
+      const nextChecks = normalizeSellerReadinessChecks(
+        readiness.checks as Record<string, boolean | string | null | undefined>,
+      );
       const next = assembleStore({
         checks: nextChecks,
         wizardComplete: store.wizardComplete,

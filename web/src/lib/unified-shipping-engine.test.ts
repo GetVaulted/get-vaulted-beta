@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  PLATFORM_SHIPPING_PROFILE_SEEDS,
   computeLiveBuyerShippingCharge,
   computeShowShippingLiability,
   filterShippoRatesUspsUps,
   groupItemsIntoPackages,
   pickCheapestShippoRate,
   resolveShippingProfileDimensions,
+  selectShippoRatesForSellerQuote,
   shipmentProfileEditLocked,
   suggestShippingProfileSlugForCategory,
 } from "@/lib/unified-shipping-engine";
+import { standardLiveShowShippingCapIncrementCents } from "@/lib/live-show-shipping-terms";
 
 const helmetProfile = {
   id: "p1",
@@ -38,6 +41,11 @@ describe("unified-shipping-engine", () => {
   it("suggests profile from category", () => {
     expect(suggestShippingProfileSlugForCategory("NFL Helmets")).toBe("full_size_helmet");
     expect(suggestShippingProfileSlugForCategory("Graded Slabs")).toBe("graded_card");
+    expect(suggestShippingProfileSlugForCategory("Hobby Break")).toBe("trading_cards");
+    expect(suggestShippingProfileSlugForCategory("Team Lot")).toBe("card_lot");
+    expect(suggestShippingProfileSlugForCategory("Letter mail")).toBe("letter_envelope");
+    expect(suggestShippingProfileSlugForCategory("Document envelope")).toBe("letter_envelope");
+    expect(PLATFORM_SHIPPING_PROFILE_SEEDS.some((p) => p.slug === "letter_envelope")).toBe(true);
   });
 
   it("resolves profile dimensions with custom overrides", () => {
@@ -46,20 +54,42 @@ describe("unified-shipping-engine", () => {
     expect(resolved.lengthIn).toBe(6);
   });
 
-  it("bundles card lots and splits helmets into separate packages", () => {
+  it("bundles card lots alone when no host package is present", () => {
+    const groups = groupItemsIntoPackages([
+      { itemId: "a", profile: resolveShippingProfileDimensions(cardProfile) },
+      { itemId: "b", profile: resolveShippingProfileDimensions(cardProfile) },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.items.map((i) => i.itemId)).toEqual(["a", "b"]);
+    expect(groups[0]!.weightOz).toBe(8);
+  });
+
+  it("nests cards into the largest helmet host so one label covers the mix", () => {
     const groups = groupItemsIntoPackages([
       { itemId: "a", profile: resolveShippingProfileDimensions(cardProfile) },
       { itemId: "b", profile: resolveShippingProfileDimensions(cardProfile) },
       { itemId: "h1", profile: resolveShippingProfileDimensions(helmetProfile) },
       { itemId: "h2", profile: resolveShippingProfileDimensions(helmetProfile) },
     ]);
-    expect(groups).toHaveLength(3);
-    expect(groups[0]!.items).toHaveLength(2);
-    expect(groups[1]!.items).toHaveLength(1);
-    expect(groups[2]!.items).toHaveLength(1);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.items.map((i) => i.itemId)).toEqual(["h1", "a", "b"]);
+    expect(groups[1]!.items.map((i) => i.itemId)).toEqual(["h2"]);
+    expect(groups[0]!.weightOz).toBe(88);
+    expect(groups[0]!.lengthIn).toBe(16);
+    expect(groups[0]!.widthIn).toBe(14);
+    expect(groups[0]!.heightIn).toBe(12);
   });
 
-  it("applies buyer shipping cap with seller subsidy", () => {
+  it("keeps two full-size helmets as two packages with no nestables", () => {
+    const groups = groupItemsIntoPackages([
+      { itemId: "h1", profile: resolveShippingProfileDimensions(helmetProfile) },
+      { itemId: "h2", profile: resolveShippingProfileDimensions(helmetProfile) },
+    ]);
+    expect(groups).toHaveLength(2);
+    expect(groups.every((g) => g.items.length === 1)).toBe(true);
+  });
+
+  it("applies buyer shipping cap with seller subsidy (platform max $9.99), split into standard per-item charges", () => {
     const result = computeLiveBuyerShippingCharge({
       rawShippoEstimateCents: 2500,
       show: {
@@ -69,9 +99,27 @@ describe("unified-shipping-engine", () => {
         sellerPaysOverCap: true,
       },
     });
-    expect(result.buyerPaysCents).toBe(1500);
-    expect(result.sellerSubsidyCents).toBe(1000);
-    expect(result.shippingCapApplied).toBe(true);
+    // Host-requested 1500 is clamped to the $9.99 platform ceiling. Since this purchase's real cost
+    // (2500) already meets that ceiling, it's charged the standard per-item split, not the whole cap.
+    const expectedIncrement = standardLiveShowShippingCapIncrementCents(999);
+    expect(result.buyerPaysCents).toBe(expectedIncrement);
+    expect(result.sellerSubsidyCents).toBe(2500 - expectedIncrement);
+    expect(result.shippingCapApplied).toBe(false);
+  });
+
+  it("calculated mode still never charges the buyer more than $9.99", () => {
+    const result = computeLiveBuyerShippingCharge({
+      rawShippoEstimateCents: 2500,
+      show: {
+        shippingMode: "calculated",
+        shippingCapEnabled: false,
+        shippingCapCents: null,
+        freeShippingEnabled: false,
+        sellerPaysOverCap: true,
+      },
+    });
+    expect(result.buyerPaysCents).toBe(999);
+    expect(result.sellerSubsidyCents).toBe(1501);
   });
 
   it("free shipping charges buyer zero and seller absorbs all", () => {
@@ -98,6 +146,21 @@ describe("unified-shipping-engine", () => {
     expect(rates.map((r) => r.object_id)).toEqual(["u1", "u2"]);
   });
 
+  it("surfaces cheapest USPS and UPS before other services", () => {
+    const rates = selectShippoRatesForSellerQuote(
+      [
+        { provider: "USPS", amount: "5.00", object_id: "usps-cheap", servicelevel: { name: "Ground Advantage" } },
+        { provider: "USPS", amount: "8.00", object_id: "usps-pri", servicelevel: { name: "Priority" } },
+        { provider: "USPS", amount: "12.00", object_id: "usps-exp", servicelevel: { name: "Express" } },
+        { provider: "USPS", amount: "15.00", object_id: "usps-over", servicelevel: { name: "Priority Express" } },
+        { provider: "UPS", amount: "9.50", object_id: "ups-ground", servicelevel: { name: "Ground" } },
+        { provider: "FedEx", amount: "7.00", object_id: "fx", servicelevel: { name: "Ground" } },
+      ],
+      4,
+    );
+    expect(rates.map((r) => r.object_id)).toEqual(["usps-cheap", "ups-ground", "usps-pri", "usps-exp"]);
+  });
+
   it("picks cheapest valid rate", () => {
     const cheapest = pickCheapestShippoRate([
       { provider: "USPS", amount: "9.00", object_id: "a" },
@@ -115,18 +178,18 @@ describe("unified-shipping-engine", () => {
     const liability = computeShowShippingLiability({
       show: {
         shippingCapEnabled: true,
-        shippingCapCents: 1500,
+        shippingCapCents: 999,
         freeShippingEnabled: false,
         sellerPaysOverCap: true,
       },
       sessions: [
-        { shippingCostCents: 1500, estimatedLabelCostCents: 1200, sellerShippingSubsidyCents: 0, buyerId: "b1" },
-        { shippingCostCents: 1500, estimatedLabelCostCents: 1800, sellerShippingSubsidyCents: 300, buyerId: "b2" },
+        { shippingCostCents: 999, estimatedLabelCostCents: 1200, sellerShippingSubsidyCents: 201, buyerId: "b1" },
+        { shippingCostCents: 999, estimatedLabelCostCents: 1800, sellerShippingSubsidyCents: 801, buyerId: "b2" },
       ],
     });
-    expect(liability.collectedCents).toBe(3000);
+    expect(liability.collectedCents).toBe(1998);
     expect(liability.estimatedLabelCostCents).toBe(3000);
-    expect(liability.netCents).toBe(0);
+    expect(liability.netCents).toBe(-1002);
     expect(liability.buyersCount).toBe(2);
   });
 });

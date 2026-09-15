@@ -3,7 +3,9 @@ import {
   isLegacyMarketplaceTimedAuction,
   isLiveShowInventoryDraft,
   isMarketplaceTimedAuctionPublishAttempt,
+  PUBLIC_MARKETPLACE_LISTING_WHERE,
 } from "@/lib/marketplace-commerce-policy";
+import { LIVE_SHOW_INVENTORY_MARKER } from "@/lib/listing-inventory-channel";
 
 describe("marketplace-commerce-policy", () => {
   it("blocks marketplace timed auction publish attempts", () => {
@@ -29,5 +31,11 @@ describe("marketplace-commerce-policy", () => {
     expect(isLegacyMarketplaceTimedAuction({ buyingFormat: "auction", status: "draft" })).toBe(
       false,
     );
+  });
+
+  it("excludes live_show checkout listings from the public marketplace browse where", () => {
+    expect(PUBLIC_MARKETPLACE_LISTING_WHERE.description).toEqual({
+      not: { contains: LIVE_SHOW_INVENTORY_MARKER },
+    });
   });
 });

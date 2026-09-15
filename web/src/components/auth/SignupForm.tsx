@@ -510,7 +510,7 @@ export function SignupForm() {
         <PasswordInput
           id="join-password-confirm"
           name="confirmPassword"
-          autoComplete="new-password"
+          autoComplete="off"
           required
           minLength={8}
           value={confirm ?? ""}

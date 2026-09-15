@@ -36,7 +36,8 @@ function socialShareUrl(platform: 'x' | 'facebook' | 'sms', url: string, title: 
   const link = encodeURIComponent(url);
   if (platform === 'x') return `https://twitter.com/intent/tweet?text=${text}&url=${link}`;
   if (platform === 'facebook') return `https://www.facebook.com/sharer/sharer.php?u=${link}`;
-  return Platform.OS === 'ios' ? `sms:&body=${text}%20${link}` : `sms:?body=${text}%20${link}`;
+  // Bare URL so iMessage can fetch OG metadata and show a preview tile.
+  return Platform.OS === 'ios' ? `sms:&body=${link}` : `sms:?body=${link}`;
 }
 
 export function SellerShareSheet({ visible, onClose, publicUrl, showTitle, hostUsername, isLive = true, onToast }: Props) {
@@ -70,11 +71,15 @@ export function SellerShareSheet({ visible, onClose, publicUrl, showTitle, hostU
 
   const nativeShare = async () => {
     try {
-      await Share.share({
-        title: shareTitle,
-        message: shareMessage,
-        url: Platform.OS === 'ios' ? publicUrl : undefined,
-      });
+      if (Platform.OS === 'ios') {
+        // URL-only so iMessage can unfurl the OG tile (message text suppresses previews).
+        await Share.share({ url: publicUrl });
+      } else {
+        await Share.share({
+          title: shareTitle,
+          message: shareMessage,
+        });
+      }
       onClose();
     } catch {
       /* dismissed */

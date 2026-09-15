@@ -1,22 +1,34 @@
 import type { PrismaClient } from "@/generated/prisma/client";
+import {
+  isSellerPayoutRailReady,
+  sellerPayoutRailNotReadyMessage,
+  sellerPayoutRailSelect,
+} from "@/lib/seller-payout-rail";
 import { isStripeConfigured } from "@/lib/stripe";
+import { isPayPalSellerPayoutsEnabled } from "@/lib/paypal";
 
 /**
- * Sellers must finish Stripe Connect onboarding before publishing listings or going live.
- * When Stripe is not configured (local dev), checks are skipped — TODO: tighten for staging.
+ * Sellers must finish their chosen payout rail before publishing listings or going live.
+ * Stripe Connect (default) or verified PayPal payout email when enabled.
+ * When neither Stripe nor PayPal seller payouts are configured (local dev), checks are skipped.
  */
 export async function assertSellerStripeCollectReady(
   prisma: Pick<PrismaClient, "user">,
   sellerId: string,
 ): Promise<void> {
-  if (!isStripeConfigured()) return;
+  if (!isStripeConfigured() && !isPayPalSellerPayoutsEnabled()) return;
   const u = await prisma.user.findUnique({
     where: { id: sellerId },
-    select: { stripeAccountId: true, stripeOnboardingComplete: true },
+    select: sellerPayoutRailSelect,
   });
-  if (!u?.stripeAccountId || !u.stripeOnboardingComplete) {
-    const err = new Error("STRIPE_ONBOARDING_REQUIRED");
+  if (!u || !isSellerPayoutRailReady(u)) {
+    const err = new Error(
+      u ? sellerPayoutRailNotReadyMessage(u) : "STRIPE_ONBOARDING_REQUIRED",
+    );
     (err as Error & { code?: string }).code = "STRIPE_ONBOARDING_REQUIRED";
     throw err;
   }
 }
+
+/** Alias — prefer this name in new call sites. */
+export const assertSellerPayoutCollectReady = assertSellerStripeCollectReady;

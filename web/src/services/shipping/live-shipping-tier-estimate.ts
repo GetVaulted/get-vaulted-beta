@@ -1,4 +1,3 @@
-import { resolveLiveShowShippingCapCents } from "@/lib/live-show-shipping-terms";
 import type { PackageGroup } from "@/lib/unified-shipping-engine";
 
 export type LiveShippingTier = { maxWeightOz: number; costCents: number };
@@ -41,20 +40,25 @@ function effectiveTiers(): LiveShippingTier[] {
   return parseTiersFromEnv() ?? FALLBACK_TIERS;
 }
 
-export function calculateLiveShippingCost(weightOz: number, capCents?: number | null): number {
+/**
+ * Weight-tier estimate in cents (uncapped).
+ * Buyer caps / free shipping / subsidy are applied only by
+ * `computeBuyerLiveShippingTotals` / `computeLiveBuyerShippingCharge`.
+ *
+ * `@param _capCents` retained for call-site compatibility; ignored.
+ */
+export function calculateLiveShippingCost(weightOz: number, _capCents?: number | null): number {
   if (!Number.isFinite(weightOz) || weightOz <= 0) return 0;
   const tiers = effectiveTiers();
   const row = tiers.find((tier) => weightOz <= tier.maxWeightOz) ?? tiers[tiers.length - 1];
-  const computed = row?.costCents ?? 0;
-  const cap = resolveLiveShowShippingCapCents(capCents ?? null);
-  return Math.min(computed, cap);
+  return row?.costCents ?? 0;
 }
 
-/** Tier-table estimate for package groups (no Shippo). */
+/** Tier-table estimate for package groups (no Shippo). Returns uncapped raw cents. */
 export function tierFallbackCentsForPackageGroups(
   groups: PackageGroup[],
-  capCents?: number | null,
+  _capCents?: number | null,
 ): number {
   const totalWeight = groups.reduce((s, g) => s + g.weightOz, 0);
-  return calculateLiveShippingCost(totalWeight, capCents ?? null);
+  return calculateLiveShippingCost(totalWeight);
 }

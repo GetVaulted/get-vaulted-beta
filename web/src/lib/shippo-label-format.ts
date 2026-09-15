@@ -15,8 +15,10 @@ export function parseSellerLabelPrintFormat(raw: string | null | undefined): Sel
 }
 
 export function readStoredLabelPrintFormat(): SellerLabelPrintFormat {
-  if (typeof window === "undefined") return "letter";
-  return parseSellerLabelPrintFormat(localStorage.getItem(LABEL_PRINT_FORMAT_STORAGE_KEY));
+  if (typeof window === "undefined") return "thermal_4x6";
+  const raw = localStorage.getItem(LABEL_PRINT_FORMAT_STORAGE_KEY);
+  if (raw == null) return "thermal_4x6";
+  return parseSellerLabelPrintFormat(raw);
 }
 
 export function storeLabelPrintFormat(format: SellerLabelPrintFormat): void {
@@ -53,11 +55,12 @@ export function labelDownloadFilename(orderId: string, format: SellerLabelPrintF
   return `shipping-label-${orderId.slice(0, 8)}-${suffix}.pdf`;
 }
 
-/** Parse optional `labelFormat` from create-label POST bodies. */
+/** Parse optional `labelFormat` from create-label POST bodies. Defaults to 4×6 thermal. */
 export function parseCreateLabelRequestBody(body: unknown): SellerLabelPrintFormat {
-  if (!body || typeof body !== "object") return "letter";
+  if (!body || typeof body !== "object") return "thermal_4x6";
   const raw = (body as { labelFormat?: unknown }).labelFormat;
-  return parseSellerLabelPrintFormat(typeof raw === "string" ? raw : undefined);
+  if (typeof raw !== "string") return "thermal_4x6";
+  return parseSellerLabelPrintFormat(raw);
 }
 
 export function buildLabelPdfProxyPath(labelUrl: string): string {

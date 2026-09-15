@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { buildBuyerOrderTimeline, buildSellerOrderMilestones } from "@/lib/order-timeline";
 import { OrderRefundRequestPanel } from "@/components/orders/OrderRefundRequestPanel";
+import { BuyerOrderShipToPanel } from "@/components/orders/BuyerOrderShipToPanel";
 import { OrderEscrowBuyerPanel } from "@/components/orders/OrderEscrowBuyerPanel";
 import { OrderPaySection } from "@/components/orders/OrderPaySection";
 import { OrderReportLink } from "@/components/orders/OrderReportLink";
@@ -14,6 +15,7 @@ import { prisma } from "@/lib/prisma";
 import { isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { orderRequiresCheckoutForTax } from "@/lib/stripe-tax";
+import { canBuyerUpdateOrderShipping } from "@/lib/order-shipping-guards";
 import { processAuctionPaymentExpiries, reconcileOrderCheckoutSession } from "@/services/payments";
 
 export const dynamic = "force-dynamic";
@@ -295,18 +297,24 @@ export default async function OrderPage({
         ) : null}
 
         {isBuyer ? (
-          <div className="mt-6 rounded-2xl border border-white/[0.08] bg-[#0a0a0d] p-6">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Ship to</p>
-            <p className="mt-3 text-sm text-zinc-200">
-              {order.shipRecipientName}
-              <br />
-              {order.shipAddress}
-              <br />
-              {order.shipCity}, {order.shipState} {order.shipZip}
-              <br />
-              {order.shipCountry}
-            </p>
-          </div>
+          <BuyerOrderShipToPanel
+            orderId={order.id}
+            initialShipTo={{
+              shipRecipientName: order.shipRecipientName,
+              shipAddress: order.shipAddress,
+              shipCity: order.shipCity,
+              shipState: order.shipState,
+              shipZip: order.shipZip,
+              shipCountry: order.shipCountry,
+            }}
+            canUpdateFromWallet={canBuyerUpdateOrderShipping({
+              status: order.status,
+              labelUrl: order.labelUrl,
+              shippoTransactionId: order.shippoTransactionId,
+              fulfillmentStatus: order.fulfillmentStatus,
+              trackingNumber: order.trackingNumber,
+            }).ok}
+          />
         ) : null}
 
         <OrderPaySection
@@ -328,8 +336,7 @@ export default async function OrderPage({
           />
         ) : null}
 
-        {order.liveShippingSession?.liveShowId &&
-        (order.paymentStatus === "paid" || order.paymentStatus === "refunded") ? (
+        {order.paymentStatus === "paid" || order.paymentStatus === "refunded" ? (
           <OrderRefundRequestPanel orderId={order.id} role={isBuyer ? "buyer" : "seller"} />
         ) : null}
 

@@ -4,6 +4,8 @@ export type LiveVariantCheckoutPreview = {
   shippingDisplay: string;
   taxUsd: number;
   taxDisplay: string;
+  /** True when the buyer's ship-to jurisdiction collects sales tax on this order. */
+  taxApplies?: boolean;
   chargeNowUsd: number;
   estimatedTotalUsd: number;
   taxNote: string | null;

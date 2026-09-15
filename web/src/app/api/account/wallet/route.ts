@@ -5,7 +5,7 @@ import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 
 /** Consolidated Vault Wallet summary for mobile and web account hub. */
 export async function GET(req: Request) {
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
 
   await ensureBuyerShippingFromSellerShipFrom(auth.userId);

@@ -16,14 +16,21 @@ export const LIVE_ROOM_CARD_GAP = spacing.sm;
 export const LIVE_ROOM_CARD_SNAP = LIVE_ROOM_CARD_WIDTH + LIVE_ROOM_CARD_GAP;
 
 const IMAGE_ASPECT = 5 / 4;
+/** glowRing borderWidth + padding — must match styles.glowRing. */
+const GLOW_INSET = 1.5 + 1;
 
 function formatViewers(n: number) {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
 }
 
-function coverHeight(cardWidth: number) {
-  return Math.round(cardWidth * IMAGE_ASPECT);
+function coverHeight(coverWidth: number) {
+  return Math.round(coverWidth * IMAGE_ASPECT);
+}
+
+/** Inner cover width after glow ring + card padding — image must match this or it looks off-center. */
+function coverWidthForCard(cardWidth: number) {
+  return Math.max(1, Math.round(cardWidth - GLOW_INSET * 2 - spacing.sm * 2));
 }
 
 export type LivePromoBadge = 'FEATURED' | 'TRENDING' | 'PROMOTED';
@@ -56,7 +63,8 @@ export function LiveNowPreviewCard({
   const status = liveRoomCardStatusLine(stream);
   const promoted = Boolean(promoBadge);
   const cardWidth = layout === 'grid' && gridWidth ? gridWidth : LIVE_ROOM_CARD_WIDTH;
-  const imageHeight = coverHeight(cardWidth);
+  const coverWidth = coverWidthForCard(cardWidth);
+  const imageHeight = coverHeight(coverWidth);
   const hostLabel = stream.host.name?.trim() || stream.host.handle.replace(/^@/, '');
   const coverUri =
     stream.previewImageUrl?.trim() ||
@@ -138,12 +146,13 @@ export function LiveNowPreviewCard({
           <View style={[styles.cover, { height: imageHeight }]}>
             <VaultImage
               uri={coverUri}
-              width={cardWidth}
+              width={coverWidth}
               height={imageHeight}
               priority="high"
               contentFit="cover"
               contentPosition="center"
               borderRadius={radii.md}
+              style={styles.coverImage}
             />
             <LinearGradient
               colors={['rgba(0,0,0,0.42)', 'rgba(0,0,0,0.08)', 'transparent']}
@@ -247,6 +256,11 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     overflow: 'hidden',
     backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coverImage: {
+    alignSelf: 'center',
   },
   coverTop: {
     ...StyleSheet.absoluteFillObject,

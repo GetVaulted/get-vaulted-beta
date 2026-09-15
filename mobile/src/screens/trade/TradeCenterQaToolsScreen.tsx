@@ -410,6 +410,7 @@ export function TradeCenterQaToolsScreen({ navigation, route }: Props) {
           placeholder="Trade / offer UUID"
           placeholderTextColor={colors.textMuted}
           autoCapitalize="none"
+          autoCorrect={false}
           value={tradeId}
           onChangeText={setTradeId}
         />

@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { fetchBuyerLiveStream } from '../api/liveRoomStreamRepository';
 import {
   clearLiveStreamPrefetchCache,
+  invalidateBuyerLiveStreamCache,
   peekCachedBuyerLiveStream,
   prefetchLiveStreamRooms,
   peekPrefetchedViewerStageToken,
@@ -66,5 +67,16 @@ describe('liveStreamPrefetchCache', () => {
 
     expect(peekCachedBuyerLiveStream('room_c')).toBeNull();
     expect(peekPrefetchedViewerStageToken('room_c')).toBeNull();
+  });
+
+  it('invalidateBuyerLiveStreamCache drops stale pause/resume metadata for hard refresh', async () => {
+    prefetchLiveStreamRooms(['room_pause'], 'token');
+    await vi.waitFor(() => {
+      expect(peekCachedBuyerLiveStream('room_pause')?.streamPaused).toBe(false);
+    });
+
+    invalidateBuyerLiveStreamCache('room_pause');
+
+    expect(peekCachedBuyerLiveStream('room_pause')).toBeNull();
   });
 });

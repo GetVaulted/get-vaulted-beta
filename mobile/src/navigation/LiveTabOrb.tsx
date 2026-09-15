@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect } from 'react';
-import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { LIVE_ORB_LIFT } from '../lib/mainTabBarMetrics';
 import { marketplaceFontSize, MARKETPLACE_TEXT_PROPS } from '../lib/marketplaceUiScale';
 import Animated, {
   Easing,
@@ -30,11 +31,11 @@ export function LiveTabOrb({ isFocused, slotWidth, onPress, accessibilityLabel }
   const stackSize = Math.min(Math.round(92 * scale), Math.floor(slotWidth * 0.92));
   const orbSize = Math.min(Math.round(54 * scale), Math.floor(stackSize * 0.62));
   const ringSize = Math.max(36, Math.floor(orbSize * 0.9));
-  const lift = Math.min(22, Math.round(stackSize * 0.18));
+  const haloSize = orbSize + 22;
   const wave1 = useSharedValue(0);
   const wave2 = useSharedValue(0);
   const breathe = useSharedValue(1);
-  const halo = useSharedValue(0.4);
+  const halo = useSharedValue(0.38);
 
   useEffect(() => {
     const waveCfg = { duration: 2800, easing: Easing.out(Easing.cubic) };
@@ -52,8 +53,8 @@ export function LiveTabOrb({ isFocused, slotWidth, onPress, accessibilityLabel }
     );
     halo.value = withRepeat(
       withSequence(
-        withTiming(0.78, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0.36, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.62, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.3, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
       ),
       -1,
       true,
@@ -86,13 +87,27 @@ export function LiveTabOrb({ isFocused, slotWidth, onPress, accessibilityLabel }
         accessibilityState={isFocused ? { selected: true } : {}}
         accessibilityLabel={accessibilityLabel ?? 'Live'}
         onPress={onPress}
+        android_ripple={{ color: 'transparent', borderless: true }}
         hitSlop={{ top: 8, bottom: 6, left: 2, right: 2 }}
-        style={({ pressed }) => [styles.press, { marginTop: -lift, width: stackSize }, pressed && styles.pressed]}
+        style={({ pressed }) => [
+          styles.press,
+          { marginTop: -LIVE_ORB_LIFT, width: stackSize },
+          pressed && styles.pressed,
+        ]}
       >
         <View style={[styles.orbStack, { width: stackSize, height: stackSize }]}>
+          {/* Soft circular bloom only — no solid plate / elevation (those read as a square). */}
           <Animated.View
             pointerEvents="none"
-            style={[styles.halo, { width: orbSize + 24, height: orbSize + 24, borderRadius: (orbSize + 24) / 2 }, haloStyle]}
+            style={[
+              styles.halo,
+              {
+                width: haloSize,
+                height: haloSize,
+                borderRadius: haloSize / 2,
+              },
+              haloStyle,
+            ]}
           />
           <Animated.View
             pointerEvents="none"
@@ -103,15 +118,16 @@ export function LiveTabOrb({ isFocused, slotWidth, onPress, accessibilityLabel }
             style={[styles.ring, { width: ringSize, height: ringSize, borderRadius: ringSize / 2 }, ring2Style]}
           />
 
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.orbScale, orbScaleStyle, isFocused ? styles.orbGlowOn : styles.orbGlowOff]}
-          >
+          <Animated.View pointerEvents="none" style={[styles.orbScale, orbScaleStyle]}>
             <LinearGradient
               colors={isFocused ? [...GRADIENT_ON] : [...GRADIENT_OFF]}
               start={{ x: 0.12, y: 0 }}
               end={{ x: 0.92, y: 1 }}
-              style={[styles.orbOuter, { width: orbSize, height: orbSize, borderRadius: orbSize / 2 }]}
+              style={[
+                styles.orbOuter,
+                isFocused ? styles.orbOuterOn : styles.orbOuterOff,
+                { width: orbSize, height: orbSize, borderRadius: orbSize / 2 },
+              ]}
             >
               <LinearGradient
                 colors={['#070606', '#121010', '#080707']}
@@ -119,7 +135,11 @@ export function LiveTabOrb({ isFocused, slotWidth, onPress, accessibilityLabel }
                 end={{ x: 0.5, y: 1 }}
                 style={[styles.orbInner, { width: orbSize - 6, height: orbSize - 6, borderRadius: (orbSize - 6) / 2 }]}
               >
-                <Ionicons name="radio" size={Math.round(24 * scale)} color={isFocused ? '#FFF9EC' : 'rgba(255, 236, 200, 0.72)'} />
+                <Ionicons
+                  name="radio"
+                  size={Math.round(24 * scale)}
+                  color={isFocused ? '#FFF9EC' : 'rgba(255, 236, 200, 0.72)'}
+                />
               </LinearGradient>
             </LinearGradient>
           </Animated.View>
@@ -142,17 +162,21 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'flex-end',
-    overflow: 'hidden',
+    overflow: 'visible',
     zIndex: 2,
     paddingBottom: 4,
+    backgroundColor: 'transparent',
   },
   press: {
     alignItems: 'center',
     zIndex: 2,
+    backgroundColor: 'transparent',
   },
   orbStack: {
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
+    backgroundColor: 'transparent',
   },
   ring: {
     position: 'absolute',
@@ -162,36 +186,56 @@ const styles = StyleSheet.create({
   },
   halo: {
     position: 'absolute',
-    backgroundColor: 'rgba(255, 190, 110, 0.16)',
-    shadowColor: '#ffc86a',
-    shadowOpacity: 0.75,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 0 },
+    // Transparent fill — glow comes from soft shadow / ring only so bounds never read as a box.
+    backgroundColor: 'transparent',
+    borderWidth: 14,
+    borderColor: 'rgba(255, 196, 120, 0.16)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#ffc86a',
+        shadowOpacity: 0.9,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 0 },
+      },
+      // No elevation — Android draws a rectangular plate under elevated views.
+      android: {},
+      default: {},
+    }),
   },
   orbScale: {
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
-  orbGlowOn: {
-    shadowColor: '#ffc14a',
-    shadowOpacity: 0.55,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 14,
-  },
-  orbGlowOff: {
-    shadowColor: '#7a5a20',
-    shadowOpacity: 0.28,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 10,
-  },
-  pressed: { opacity: 0.9 },
   orbOuter: {
     padding: 3,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
+  orbOuterOn: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#ffc14a',
+        shadowOpacity: 0.5,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 2 },
+      },
+      default: {},
+    }),
+  },
+  orbOuterOff: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#7a5a20',
+        shadowOpacity: 0.22,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 2 },
+      },
+      default: {},
+    }),
+  },
+  pressed: { opacity: 0.9 },
   orbInner: {
     alignItems: 'center',
     justifyContent: 'center',
