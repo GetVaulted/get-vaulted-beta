@@ -45,19 +45,19 @@ index 7f05628..5075a08 100644
      }
 +
 +    override fun onPiPActivityDestroyedWhileActive() {
-+        // Last-chance synchronous cleanup â€” see the doc comment on the interface method. The JS
++        // Last-chance synchronous cleanup — see the doc comment on the interface method. The JS
 +        // bridge cannot be relied on here: this single-Activity app is closing, so there is no
 +        // guarantee a "stopped" event reaches JS in time (or at all) for it to call
 +        // setStageAudioOutputEnabled(false) itself. Call straight into the native stage manager.
-+        Log.w("ExpoRealtimeIvsBroadcast", "PiP Activity destroyed while active â€” muting Stage audio synchronously")
++        Log.w("ExpoRealtimeIvsBroadcast", "PiP Activity destroyed while active — muting Stage audio synchronously")
 +        IVSStageManager.instance?.setStageAudioOutputEnabled(false)
 +    }
  }
 diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
-index 0000000..0000000 100644
+index b1047d4..fb89e4e 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
 +++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/IVSStageManager.kt
-@@ -1,11 +1,13 @@
+@@ -1,6 +1,7 @@
  package expo.modules.realtimeivsbroadcast
  
  import android.content.Context
@@ -65,13 +65,7 @@ index 0000000..0000000 100644
  import android.os.Build
  import android.os.Handler
  import android.os.Looper
- import com.amazonaws.ivs.broadcast.*
- import android.util.Log
-+import android.app.ActivityManager
- import androidx.annotation.RequiresApi
- import java.lang.ref.WeakReference
- 
-@@ -94,7 +96,40 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+@@ -94,7 +95,28 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
          Log.i("ExpoIVSStageManager", "✅ IVSStageManager: Local streams initialized.")
      }
  
@@ -93,18 +87,6 @@ index 0000000..0000000 100644
 +        }
 +    }
 +
-+    /**
-+     * True for devices where a high-res/high-bitrate real-time publish risks OOM: the OS's own
-+     * "low RAM device" flag, or a small per-app heap ceiling (memoryClass) as a second signal
-+     * since isLowRamDevice() alone is coarse on some OEM builds.
-+     */
-+    private fun isConstrainedMemoryDevice(): Boolean {
-+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
-+        val lowRamFlagged = am.isLowRamDevice
-+        val smallHeap = am.memoryClass <= 192
-+        return lowRamFlagged || smallHeap
-+    }
-+
      fun initializeStage(audioConfig: StageAudioConfiguration? = null, videoConfig: StageVideoConfiguration? = null) {
 +        // Default to studio (media volume) before any DeviceDiscovery/Stage creation.
 +        setAudioPreset("studio")
@@ -112,42 +94,22 @@ index 0000000..0000000 100644
          // Setup audio configuration
          val audioConfiguration = StageAudioConfiguration()
          val finalAudioConfig = audioConfig ?: audioConfiguration
-@@ -103,14 +138,27 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+@@ -103,9 +125,11 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
          // Setup video configuration
          val videoConfiguration = StageVideoConfiguration()
          val finalVideoConfig = videoConfig ?: videoConfiguration
 -        finalVideoConfig.targetFramerate?.let { (it as? Number)?.toInt()?.let { fr -> finalVideoConfig.targetFramerate = fr } }
 -        finalVideoConfig.maxBitrate?.let { (it as? Number)?.toInt()?.let { br -> finalVideoConfig.maxBitrate = br } }
 -        finalVideoConfig.minBitrate?.let { (it as? Number)?.toInt()?.let { br -> finalVideoConfig.minBitrate = br } }
--        finalVideoConfig.setSize(
--            BroadcastConfiguration.Vec2(
--                720F, 1280F
 +        // High-quality real-time publish: raise the ceiling above the IVS SDK default so the feed
 +        // is sharp and smooth on strong networks. WebRTC still adapts down on weak uplinks to keep
 +        // latency sub-second. Real-time is billed per participant-minute, so higher bitrate is free.
-+        val constrainedDevice = isConstrainedMemoryDevice()
 +        finalVideoConfig.targetFramerate = 30
-+        if (constrainedDevice) {
-+            finalVideoConfig.maxBitrate = 1_200_000
-+            finalVideoConfig.setSize(
-+                BroadcastConfiguration.Vec2(
-+                    540F, 960F
-+                )
-+            )
-+            Log.i("ExpoIVSStageManager", "Constrained-memory device detected - using reduced publish config (540x960 @ 1.2Mbps)")
-+        } else {
-+            finalVideoConfig.maxBitrate = 2_500_000
-+            finalVideoConfig.setSize(
-+                BroadcastConfiguration.Vec2(
-+                    720F, 1280F
-+                )
-             )
--        )
-+        }
- 
-         this.stageConfiguration.audioConfiguration = finalAudioConfig
-         this.stageConfiguration.videoConfiguration = finalVideoConfig
-@@ -139,6 +187,41 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
++        finalVideoConfig.maxBitrate = 2_500_000
+         finalVideoConfig.setSize(
+             BroadcastConfiguration.Vec2(
+                 720F, 1280F
+@@ -139,6 +163,41 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
          setStreamsPublished(false)
          stage?.leave()
          stage = null
@@ -189,7 +151,7 @@ index 0000000..0000000 100644
      }
  
      /// Fully releases camera and microphone hardware resources.
-@@ -176,6 +259,15 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
+@@ -176,6 +235,15 @@ class IVSStageManager(private val context: Context) : Stage.Strategy, StageRende
          Log.i("ExpoIVSStageManager", "✅ Microphone muted: $muted")
      }
  
@@ -215,12 +177,12 @@ index 422d078..7fd653c
      fun onPiPError(error: String)
 +    /**
 +     * Fired synchronously from Activity.onDestroy() when the Activity is torn down while still in
-+     * PiP mode â€” e.g. the user tapped the system PiP window's own Close (X) button. Unlike a normal
++     * PiP mode — e.g. the user tapped the system PiP window's own Close (X) button. Unlike a normal
 +     * PiP exit (onPictureInPictureModeChanged -> "stopped"), Android does not route this through the
 +     * regular JS event bridge in time: this app has a single Activity, so destroying it ends the
 +     * whole session, and any teardown that only runs in response to a JS-side "stopped"/"dismissed"
 +     * event can lose the race entirely. Implementers must do any audio/session cleanup here
-+     * synchronously and on the main thread â€” this is the last reliable chance to run it.
++     * synchronously and on the main thread — this is the last reliable chance to run it.
 +     */
 +    fun onPiPActivityDestroyedWhileActive() {}
  }
@@ -232,12 +194,12 @@ index 422d078..7fd653c
          if (activity == currentActivity) {
 +            // The system PiP window's own Close (X) button finishes this Activity directly rather
 +            // than going through onPictureInPictureModeChanged("stopped") first. This app has a
-+            // single Activity, so this destroy IS the app closing â€” there is no later point where a
++            // single Activity, so this destroy IS the app closing — there is no later point where a
 +            // JS-driven "stopped"/"dismissed" event can still reliably run cleanup. Fire the
 +            // synchronous native callback now, while isActive still reflects PiP being live, so the
 +            // delegate gets one last chance to mute/release audio before the process goes away.
 +            if (isActive) {
-+                Log.i(TAG, "Activity destroyed while still in PiP â€” firing synchronous cleanup")
++                Log.i(TAG, "Activity destroyed while still in PiP — firing synchronous cleanup")
 +                delegate?.onPiPActivityDestroyedWhileActive()
 +            }
              currentActivity = null
@@ -382,7 +344,7 @@ index 71d368a..933987a 100644
 +        }
          
          guard let pipVideoCallVC = pipVideoCallViewController else {
-             print("ðŸ–¼ï¸ [PiP] Error: Must call enable() before setupWithSourceView()")
+             print("🖼️ [PiP] Error: Must call enable() before setupWithSourceView()")
 @@ -474,6 +482,68 @@ public class IVSPictureInPictureController: NSObject {
          
          completeSetupWithSourceView(sourceView, pipVideoCallVC: pipVideoCallVC)
@@ -407,7 +369,7 @@ index 71d368a..933987a 100644
 +    /// Official Amazon IVS remote-participant PiP (keeps video alive after home swipe).
 +    private func setupWithOfficialIVSRemotePreview(_ preview: IVSImagePreviewView) {
 +        if preview.window == nil {
-+            print("ðŸ–¼ï¸ [PiP] IVSImagePreviewView not in window yet â€” deferring official remote PiP setup")
++            print("🖼️ [PiP] IVSImagePreviewView not in window yet — deferring official remote PiP setup")
 +            self.pendingSourceView = preview
 +            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak preview] in
 +                guard let self = self, let preview = preview else { return }
@@ -430,7 +392,7 @@ index 71d368a..933987a 100644
 +        pipController?.stopPictureInPicture()
 +
 +        guard let controller = AVPictureInPictureController(ivsImagePreviewView: preview) else {
-+            print("ðŸ–¼ï¸ [PiP] AVPictureInPictureController(ivsImagePreviewView:) returned nil â€” falling back")
++            print("🖼️ [PiP] AVPictureInPictureController(ivsImagePreviewView:) returned nil — falling back")
 +            if let pipVideoCallVC = pipVideoCallViewController {
 +                completeSetupWithSourceView(preview, pipVideoCallVC: pipVideoCallVC)
 +            } else {
@@ -445,9 +407,9 @@ index 71d368a..933987a 100644
 +        self.activeSourceView = preview
 +        self.pipContainerView = preview
 +        self.isEnabled = true
-+        print("ðŸ–¼ï¸ [PiP] Official IVS remote PiP ready (IVSImagePreviewView)")
-+        print("ðŸ–¼ï¸ [PiP] isPictureInPicturePossible: \(controller.isPictureInPicturePossible)")
-+        print("ðŸ–¼ï¸ [PiP] autoEnterOnBackground: \(options.autoEnterOnBackground)")
++        print("🖼️ [PiP] Official IVS remote PiP ready (IVSImagePreviewView)")
++        print("🖼️ [PiP] isPictureInPicturePossible: \(controller.isPictureInPicturePossible)")
++        print("🖼️ [PiP] autoEnterOnBackground: \(options.autoEnterOnBackground)")
 +    }
      
      /// Retry setup with exponential backoff
@@ -483,7 +445,7 @@ index f92f823..5cc4208 100644
 +            position: .unspecified
 +        )
 +        ultraWideCameras = session.devices
-+        print("ðŸ“¸ [CustomCameraCapture] Discovered \(ultraWideCameras.count) ultra-wide cameras")
++        print("📸 [CustomCameraCapture] Discovered \(ultraWideCameras.count) ultra-wide cameras")
      }
      
      private func discoverCameras() {
@@ -493,9 +455,9 @@ index f92f823..5cc4208 100644
                  currentPosition = position
 +                usingUltraWide = false
 +                currentZoomFactor = 1.0
-                 print("ðŸ“¸ [CustomCameraCapture] âœ… Added camera input: \(camera.localizedName)")
+                 print("📸 [CustomCameraCapture] ✅ Added camera input: \(camera.localizedName)")
              } else {
-                 print("ðŸ“¸ [CustomCameraCapture] âŒ Cannot add camera input")
+                 print("📸 [CustomCameraCapture] ❌ Cannot add camera input")
 @@ -229,6 +248,85 @@ class CustomCameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
          
          return success
@@ -528,7 +490,7 @@ index f92f823..5cc4208 100644
 +            ? ultraWideCameras.first(where: { $0.position == currentPosition })
 +            : availableCameras.first(where: { $0.position == currentPosition })
 +        guard let device = targetDevice else {
-+            print("ðŸ“¸ [CustomCameraCapture] âŒ No device for zoom factor \(factor)")
++            print("📸 [CustomCameraCapture] ❌ No device for zoom factor \(factor)")
 +            return false
 +        }
 +
@@ -547,7 +509,7 @@ index f92f823..5cc4208 100644
 +                session.addInput(input)
 +                currentInput = input
 +            } catch {
-+                print("ðŸ“¸ [CustomCameraCapture] âŒ Error swapping lens: \(error)")
++                print("📸 [CustomCameraCapture] ❌ Error swapping lens: \(error)")
 +                session.commitConfiguration()
 +                return false
 +            }
@@ -572,11 +534,11 @@ index f92f823..5cc4208 100644
 +            device.videoZoomFactor = min(max(desired, minZ), maxZ)
 +            device.unlockForConfiguration()
 +        } catch {
-+            print("ðŸ“¸ [CustomCameraCapture] âŒ Error setting zoom: \(error)")
++            print("📸 [CustomCameraCapture] ❌ Error setting zoom: \(error)")
 +            return false
 +        }
 +        currentZoomFactor = factor
-+        print("ðŸ“¸ [CustomCameraCapture] âœ… Zoom set to \(factor) (ultraWide=\(wantUltraWide))")
++        print("📸 [CustomCameraCapture] ✅ Zoom set to \(factor) (ultraWide=\(wantUltraWide))")
 +        return true
 +    }
      
@@ -646,12 +608,12 @@ index f92f823..5cc4208 100644
 +
 +        // Clear stale participant + stream state on leave. The Stage SDK is a process-wide
 +        // singleton and `leave()` only fires `.disconnected` (which clears `participants`)
-+        // asynchronously â€” if ever â€” after we've already nil'd the stage. Without this, when a
++        // asynchronously — if ever — after we've already nil'd the stage. Without this, when a
 +        // buyer backs out of a show and re-enters, the previous session's dead video stream is
 +        // still first in `participants`, so `assignStreamsToAvailableViews()` binds the fresh
 +        // remote view to it: audio returns but video stays black until the app is killed.
 +        //
-+        // `participants` is plain data â€” clear it synchronously so the next join sees an empty
++        // `participants` is plain data — clear it synchronously so the next join sees an empty
 +        // list. `clearStream()` touches UIKit (removeFromSuperview); `leaveStage()` runs off the
 +        // main thread (Expo AsyncFunction queue), so hop to the main thread for the view teardown
 +        // to avoid a UIKit-off-main crash.
@@ -735,10 +697,10 @@ index f92f823..5cc4208 100644
 +            let maxZ = device.maxAvailableVideoZoomFactor
 +            device.videoZoomFactor = min(max(CGFloat(factor), minZ), maxZ)
 +            device.unlockForConfiguration()
-+            print("ðŸ“¸ [IVSStageManager] âœ… Native zoom set to \(factor)")
++            print("📸 [IVSStageManager] ✅ Native zoom set to \(factor)")
 +            return true
 +        } catch {
-+            print("ðŸ“¸ [IVSStageManager] âŒ Native zoom failed: \(error)")
++            print("📸 [IVSStageManager] ❌ Native zoom failed: \(error)")
 +            return false
 +        }
 +    }
@@ -752,13 +714,13 @@ index f92f823..5cc4208 100644
          if let view = sourceView {
 -            pipController.setupWithSourceView(view)
 -            pipTargetView = view
-+            // Prefer the inner IVSImagePreviewView â€” required for official remote PiP video.
++            // Prefer the inner IVSImagePreviewView — required for official remote PiP video.
 +            let pipSource = (view as? ExpoIVSRemoteStreamView)?.previewViewForPiP ?? view
 +            pipController.setupWithSourceView(pipSource)
 +            pipTargetView = pipSource
              pipHasValidSourceView = true
--            print("ðŸ–¼ï¸ [PiP] Set up with provided source view (VALID)")
-+            print("ðŸ–¼ï¸ [PiP] Set up with provided source view (VALID, ivsPreview=\(pipSource is IVSImagePreviewView))")
+-            print("🖼️ [PiP] Set up with provided source view (VALID)")
++            print("🖼️ [PiP] Set up with provided source view (VALID, ivsPreview=\(pipSource is IVSImagePreviewView))")
          } else {
              // For remote streams, device.previewView() returns an internal view that's not visible
              // We should prefer finding a registered remote view first
@@ -769,8 +731,8 @@ index f92f823..5cc4208 100644
 +                pipController.setupWithSourceView(pipSource)
 +                pipTargetView = pipSource
                  pipHasValidSourceView = true
--                print("ðŸ–¼ï¸ [PiP] Set up with matching remote view container (VALID)")
-+                print("ðŸ–¼ï¸ [PiP] Set up with matching remote IVSImagePreviewView (VALID)")
+-                print("🖼️ [PiP] Set up with matching remote view container (VALID)")
++                print("🖼️ [PiP] Set up with matching remote IVSImagePreviewView (VALID)")
              } else if let anyRenderingView = remoteViews.compactMap({ $0.value }).first(where: { $0.isRenderingVideo }) {
 -                pipController.setupWithSourceView(anyRenderingView as UIView)
 -                pipTargetView = anyRenderingView.previewViewForPiP ?? anyRenderingView
@@ -778,8 +740,8 @@ index f92f823..5cc4208 100644
 +                pipController.setupWithSourceView(pipSource)
 +                pipTargetView = pipSource
                  pipHasValidSourceView = true
--                print("ðŸ–¼ï¸ [PiP] Set up with fallback rendering view (VALID)")
-+                print("ðŸ–¼ï¸ [PiP] Set up with fallback remote IVSImagePreviewView (VALID)")
+-                print("🖼️ [PiP] Set up with fallback rendering view (VALID)")
++                print("🖼️ [PiP] Set up with fallback remote IVSImagePreviewView (VALID)")
              } else if let anyView = remoteViews.compactMap({ $0.value }).first {
 -                pipController.setupWithSourceView(anyView as UIView)
 -                pipTargetView = anyView
@@ -787,8 +749,8 @@ index f92f823..5cc4208 100644
 +                pipController.setupWithSourceView(pipSource)
 +                pipTargetView = pipSource
                  pipHasValidSourceView = true
--                print("ðŸ–¼ï¸ [PiP] Set up with any available view (VALID)")
-+                print("ðŸ–¼ï¸ [PiP] Set up with any available remote view (VALID)")
+-                print("🖼️ [PiP] Set up with any available view (VALID)")
++                print("🖼️ [PiP] Set up with any available remote view (VALID)")
              } else {
                  // Last resort: try device.previewView() - but mark as NOT valid for remote streams
                  // This allows frame capture to start, but we'll re-setup when a remote view becomes available
@@ -800,23 +762,23 @@ index f92f823..5cc4208 100644
 +                // Prefer IVSImagePreviewView (official remote PiP), not the Expo wrapper.
                  if let remoteView = remoteViews.compactMap({ $0.value }).first(where: { $0.currentRenderedDeviceUrn == imageDevice.descriptor().urn }) {
 -                    candidateSourceView = remoteView as UIView
--                    print("ðŸ–¼ï¸ [PiP] Found matching remote view for source")
+-                    print("🖼️ [PiP] Found matching remote view for source")
 +                    candidateSourceView = remoteView.previewViewForPiP ?? (remoteView as UIView)
-+                    print("ðŸ–¼ï¸ [PiP] Found matching remote IVSImagePreviewView for source")
++                    print("🖼️ [PiP] Found matching remote IVSImagePreviewView for source")
                  } else {
                      // Fallback: Use ANY remote view that's rendering video
                      if let anyRenderingView = remoteViews.compactMap({ $0.value }).first(where: { $0.isRenderingVideo }) {
 -                        candidateSourceView = anyRenderingView as UIView
--                        print("ðŸ–¼ï¸ [PiP] Using fallback remote view (URN didn't match but view is rendering)")
+-                        print("🖼️ [PiP] Using fallback remote view (URN didn't match but view is rendering)")
 +                        candidateSourceView = anyRenderingView.previewViewForPiP ?? (anyRenderingView as UIView)
-+                        print("ðŸ–¼ï¸ [PiP] Using fallback remote IVSImagePreviewView (URN didn't match but view is rendering)")
++                        print("🖼️ [PiP] Using fallback remote IVSImagePreviewView (URN didn't match but view is rendering)")
                      } else if let anyView = remoteViews.compactMap({ $0.value }).first {
                          // Last resort: use any registered view
 -                        candidateSourceView = anyView as UIView
 +                        candidateSourceView = anyView.previewViewForPiP ?? (anyView as UIView)
-                         print("ðŸ–¼ï¸ [PiP] Using any available remote view as last resort")
+                         print("🖼️ [PiP] Using any available remote view as last resort")
                      } else {
-                         print("ðŸ–¼ï¸ [PiP] No remote views available yet - will retry when view registers")
+                         print("🖼️ [PiP] No remote views available yet - will retry when view registers")
 diff --git a/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts b/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
 index b5f4c71..69dca24 100644
 --- a/node_modules/expo-realtime-ivs-broadcast/src/ExpoRealtimeIvsBroadcastModule.ts
@@ -849,7 +811,7 @@ index a6c36ed..ff9f729 100644
 +/**
 + * Configure IVS StageAudioManager before join/DeviceDiscovery.
 + * Use `studio` for hosts and `subscribeOnly` for viewers (media volume).
-+ * Avoid `videoChat` ï¿½ it uses call volume and sounds quiet with the media volume rocker.
++ * Avoid `videoChat` � it uses call volume and sounds quiet with the media volume rocker.
 + */
 +export async function setStageAudioPreset(preset: 'studio' | 'subscribeOnly' | 'videoChat'): Promise<void> {
 +  return await ExpoRealtimeIvsBroadcastModule.setStageAudioPreset(preset);
@@ -862,7 +824,7 @@ index a6c36ed..ff9f729 100644
    return await ExpoRealtimeIvsBroadcastModule.leaveStage();
  }
  
-+/** Mute/unmute Stage audio without leaveStage â€” used to park a buyer subscribe across back-out. */
++/** Mute/unmute Stage audio without leaveStage — used to park a buyer subscribe across back-out. */
 +export async function setStageAudioOutputEnabled(enabled: boolean): Promise<void> {
 +  return await ExpoRealtimeIvsBroadcastModule.setStageAudioOutputEnabled(enabled);
 +}
