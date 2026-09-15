@@ -52,6 +52,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         { status: 400 },
       );
     }
+    if (code.startsWith("FOLLOWER_NOTIFY_COOLDOWN")) {
+      const minutes = Number(code.split(":")[1]) || 1;
+      return NextResponse.json(
+        {
+          error: `You already notified your followers about this show recently. Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+          code: "FOLLOWER_NOTIFY_COOLDOWN",
+        },
+        { status: 429 },
+      );
+    }
     console.error("[share-in-app]", e);
     return NextResponse.json({ error: "Could not share in app." }, { status: 500 });
   }
