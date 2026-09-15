@@ -1,3 +1,25 @@
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoView.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoView.kt
+index 20a603d..63e6eb8 100644
+--- a/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoView.kt
++++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoView.kt
+@@ -275,8 +275,16 @@ open class VideoView(context: Context, appContext: AppContext, useTextureView: B
+   fun layoutForPiPExit() {
+     playerView.useController = useNativeControls
+     rootView.removeView(playerView)
++    // rootView's children can change while PiP is active (navigation, overlays, etc. can add or
++    // remove views elsewhere in the same root while this video is pinned in PiP) - the recorded
++    // list only covers the children present at layoutForPiPEnter() time. Bounds-check the index
++    // instead of assuming child count is unchanged, so an added child doesn't crash with
++    // IndexOutOfBoundsException; skip restoring visibility for indices we didn't record.
++    val recordedCount = rootViewChildrenOriginalVisibility.size
+     for (i in 0 until rootView.childCount) {
+-      rootView.getChildAt(i).visibility = rootViewChildrenOriginalVisibility[i]
++      if (i < recordedCount) {
++        rootView.getChildAt(i).visibility = rootViewChildrenOriginalVisibility[i]
++      }
+     }
+     rootViewChildrenOriginalVisibility.clear()
+     this.addView(playerView)
 diff --git a/node_modules/expo-video/ios/VideoView.swift b/node_modules/expo-video/ios/VideoView.swift
 index 3f285fb..f80f503 100644
 --- a/node_modules/expo-video/ios/VideoView.swift
