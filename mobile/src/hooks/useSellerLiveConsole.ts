@@ -205,16 +205,18 @@ export function useSellerLiveConsole({
     onBiddingUrgentChange?.(biddingUrgent);
   }, [biddingUrgent, onBiddingUrgentChange]);
 
+  // Poll faster for the whole time an auction is actively running, not just its closing seconds —
+  // bids landing mid-auction should show up on the host console promptly too, not only right before close.
+  const auctionActivelyRunning = roomStatus === 'live' && Boolean(activeItem?.biddingOpen);
   useEffect(() => {
     // Poll while scheduled too — pre-sales can change spot inventory before go-live.
     if (roomStatus !== 'live' && roomStatus !== 'scheduled') return;
-    // Poll faster while an auction is about to end so host-console read_sweep can settle promptly.
-    const ms = roomStatus === 'live' && biddingUrgent ? 3_000 : 25_000;
+    const ms = auctionActivelyRunning ? 3_000 : 25_000;
     const id = setInterval(() => {
       void reload({ soft: true });
     }, ms);
     return () => clearInterval(id);
-  }, [reload, roomStatus, biddingUrgent]);
+  }, [reload, roomStatus, auctionActivelyRunning]);
 
   const autoCloseNudgedItemRef = useRef<string | null>(null);
   useEffect(() => {
@@ -526,11 +528,19 @@ export function useSellerLiveConsole({
     });
   };
 
-  const onPinLiveTeam = (itemId: string, variantId: string, variants: Array<{ id: string }>) => {
+  const onPinLiveTeam = (
+    itemId: string,
+    variantId: string,
+    variants: Array<{ id: string; isHot?: boolean }>,
+  ) => {
     void run(async () => {
       setPinningVariantId(variantId);
       try {
-        const updates = buildExclusiveHostPinUpdates(variants, variantId);
+        // Tapping an already-pinned team unpins it (clears isHot for everyone) instead of
+        // re-sending the same pin — otherwise a host has no way back to the unpinned whole board.
+        const tapped = variants.find((v) => v.id === variantId);
+        const nextPinnedVariantId = tapped?.isHot ? null : variantId;
+        const updates = buildExclusiveHostPinUpdates(variants, nextPinnedVariantId);
         await patchLiveItemVariants(accessToken, roomId, itemId, updates);
         invalidateHostConsoleCache(roomId);
         await reload({ force: true });

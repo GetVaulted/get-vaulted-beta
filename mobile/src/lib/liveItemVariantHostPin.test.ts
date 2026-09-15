@@ -68,6 +68,13 @@ describe('liveItemVariant host pin helpers', () => {
     ]);
   });
 
+  it('clears every pin when unpinning (host taps an already-pinned team)', () => {
+    expect(buildExclusiveHostPinUpdates([{ id: 'a' }, { id: 'b' }], null)).toEqual([
+      { id: 'a', isHot: false },
+      { id: 'b', isHot: false },
+    ]);
+  });
+
   it('formats spot auction bid labels', () => {
     expect(pinnedVariantBuyerPrimaryLabel('variant_selection', 49)).toBe('Place bid $49.00');
     expect(pinnedVariantBuyerPrimaryLabel('team_break', 35)).toBe('Bid $35.00');

@@ -295,11 +295,15 @@ export function featuredBuyerVariant(
   return hostPinnedBuyerVariant(variants, snap.activeItemVariantAssignmentMode);
 }
 
+/**
+ * `pinnedVariantId: null` clears every pin — this is how the host un-pins a team and returns the
+ * board to its unpinned "whole PYT" state, not just a way to swap which team is pinned.
+ */
 export function buildExclusiveHostPinUpdates(
   variants: Array<{ id: string }>,
-  pinnedVariantId: string,
+  pinnedVariantId: string | null,
 ): Array<{ id: string; isHot: boolean }> {
-  return variants.map((v) => ({ id: v.id, isHot: v.id === pinnedVariantId }));
+  return variants.map((v) => ({ id: v.id, isHot: pinnedVariantId != null && v.id === pinnedVariantId }));
 }
 
 /** Buyer CTA on pinned PYT/PYD/PYP break — opens the spot picker sheet. */

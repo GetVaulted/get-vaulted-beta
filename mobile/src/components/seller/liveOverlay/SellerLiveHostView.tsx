@@ -1277,7 +1277,9 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
                 console.onPinLiveTeam(
                   displayItem.id,
                   variantId,
-                  displayItem.variants!.map((v) => ({ id: v.id })),
+                  // isHot included so the hook can tell "pin this" from "unpin this" (tapping an
+                  // already-pinned team) apart — see onPinLiveTeam in useSellerLiveConsole.
+                  displayItem.variants!.map((v) => ({ id: v.id, isHot: v.isHot })),
                 )
             : undefined
         }
