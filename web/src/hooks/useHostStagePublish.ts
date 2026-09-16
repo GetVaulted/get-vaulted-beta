@@ -38,6 +38,9 @@ function friendlyMediaError(err: unknown): string {
     if (err.name === "NotReadableError") {
       return "Your camera or microphone is in use by another app. Close it and try again.";
     }
+    if (err.name === "OverconstrainedError" || err.name === "ConstraintNotSatisfiedError") {
+      return "Your camera or microphone doesn't support the requested settings. Try selecting a different camera below.";
+    }
   }
   if (err instanceof Error && err.message) return err.message;
   return "Could not access camera or microphone.";
@@ -59,9 +62,16 @@ function mediaConstraints(videoDeviceId?: string, audioDeviceId?: string): Media
     audio.deviceId = { exact: audioDeviceId };
   }
   return {
+    // No `facingMode` default: this console is desktop/PC-only, and `facingMode: "user"` is an
+    // EXACT constraint per the getUserMedia spec when passed as a bare string. Most external/USB
+    // webcams don't report any facingMode capability at all (that concept only really applies to
+    // mobile front/back cameras), so requiring it made getUserMedia reject with
+    // OverconstrainedError before the browser ever showed a permission prompt - sellers with an
+    // external webcam got no camera/mic permission dialog at all. Falling back to just a
+    // resolution hint lets the browser use whatever default camera is available.
     video: videoDeviceId
       ? { deviceId: { exact: videoDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-      : { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+      : { width: { ideal: 1280 }, height: { ideal: 720 } },
     audio,
   };
 }

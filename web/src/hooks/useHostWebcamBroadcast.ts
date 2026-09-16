@@ -30,6 +30,9 @@ function friendlyMediaError(err: unknown): string {
     if (err.name === "NotReadableError") {
       return "Your camera or microphone is in use by another app. Close it and try again.";
     }
+    if (err.name === "OverconstrainedError" || err.name === "ConstraintNotSatisfiedError") {
+      return "Your camera or microphone doesn't support the requested settings. Try a different camera.";
+    }
   }
   if (err instanceof Error && err.message) return err.message;
   return "Could not access camera or microphone.";
@@ -135,7 +138,10 @@ export function useHostWebcamBroadcast({
       logIvsWeb("permission requested", { roomId });
 
       const media = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+        // See useHostStagePublish.ts's mediaConstraints() for why there's no `facingMode` here:
+        // it's an exact constraint that external/USB webcams typically can't satisfy, which
+        // blocked getUserMedia (and the permission prompt) entirely on desktop.
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: {
           autoGainControl: true,
           echoCancellation: true,
