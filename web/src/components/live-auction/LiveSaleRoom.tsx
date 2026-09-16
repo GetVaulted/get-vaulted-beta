@@ -374,7 +374,18 @@ export function LiveSaleRoom({
 
   useEffect(() => {
     setUserHighBidUsd(null);
-    setSpotBoardMinimized(false);
+  }, [activeDb?.id]);
+
+  // Re-expand the spot board only when a genuinely different lot goes active — not when
+  // activeDb?.id blips to undefined and back during a transient realtime/poll hiccup
+  // (which was re-opening the board over and over for buyers mid-sale on the same lot).
+  const lastVariantItemIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = activeDb?.id ?? null;
+    if (id && id !== lastVariantItemIdRef.current) {
+      setSpotBoardMinimized(false);
+    }
+    if (id) lastVariantItemIdRef.current = id;
   }, [activeDb?.id]);
 
   const buyerCurrentHighUsd = useMemo(() => {

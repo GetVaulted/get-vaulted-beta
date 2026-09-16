@@ -571,7 +571,18 @@ export function LiveAuctionRoom({
     setUserHighBidUsd(null);
     setCustomBidOpen(false);
     setCustomBidMode(LIVE_CUSTOM_BID_DEFAULT_MODE);
-    setSpotBoardMinimized(false);
+  }, [activeDbItem?.id]);
+
+  // Re-expand the spot board only when a genuinely different lot goes active — not when
+  // activeDbItem?.id blips to undefined and back during a transient realtime/poll hiccup
+  // (which was re-opening the board over and over for buyers mid-sale on the same lot).
+  const lastVariantItemIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = activeDbItem?.id ?? null;
+    if (id && id !== lastVariantItemIdRef.current) {
+      setSpotBoardMinimized(false);
+    }
+    if (id) lastVariantItemIdRef.current = id;
   }, [activeDbItem?.id]);
 
   useEffect(() => {
