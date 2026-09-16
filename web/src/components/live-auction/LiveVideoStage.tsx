@@ -275,7 +275,17 @@ export function LiveVideoStage({
     </div>
   ) : null;
 
-  const mobileChatClass = `absolute left-1.5 z-10 flex w-[min(96vw,34rem)] min-h-0 max-h-[min(54dvh,28rem)] min-w-0 flex-col max-[380px]:left-1 max-[380px]:w-[min(94vw,26rem)] transition-opacity duration-[var(--live-duration-ui)] ease-[var(--live-ease)] ${
+  // Width is a % of this overlay's own containing block (the 9:16 video plate), NOT `vw`.
+  // `vw` is always relative to the browser viewport - fine on an actual phone, where the plate
+  // is letterboxed to (nearly) the full viewport width, but wrong the moment this "mobile"
+  // overlay branch renders in a real desktop/laptop browser window under the 1400px breakpoint:
+  // the plate there is height-constrained by aspect-[9/16] and typically much narrower than the
+  // viewport, so `96vw` massively overshot the plate's actual width, got clipped by its
+  // `overflow-hidden`, and landed directly under sellerHostRail's `right-2` icon column below -
+  // the exact chat/icon-rail overlap seen on a real PC browser window. Capped at 76% (vs. the
+  // old 96%) so it also clears that icon rail with room to spare, since it no longer scales with
+  // an unrelated viewport width.
+  const mobileChatClass = `absolute left-1.5 z-10 flex w-[min(76%,34rem)] min-h-0 max-h-[min(54dvh,28rem)] min-w-0 flex-col max-[380px]:left-1 max-[380px]:w-[min(72%,26rem)] transition-opacity duration-[var(--live-duration-ui)] ease-[var(--live-ease)] ${
     hasMobileItemSheet
       ? "bottom-[max(8.25rem,calc(env(safe-area-inset-bottom)+7.5rem))]"
       : "bottom-[max(6rem,calc(env(safe-area-inset-bottom)+5rem))]"

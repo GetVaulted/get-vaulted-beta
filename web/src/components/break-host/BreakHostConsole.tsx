@@ -16,7 +16,6 @@ import { VaultHostLiveChatPanel } from "@/components/break-host/vault/VaultHostL
 import { ExpandableLiveChatOverlay } from "@/components/live-auction/ExpandableLiveChatOverlay";
 import { VaultHostStageEdgeRail } from "@/components/break-host/vault/VaultHostStageEdgeRail";
 import { VaultHostRightRail } from "@/components/break-host/vault/VaultHostRightRail";
-import { VaultBroadcastControl } from "@/components/break-host/vault/VaultBroadcastControl";
 import { VaultPinnedLot } from "@/components/break-host/vault/VaultPinnedLot";
 import { addModalModeForTab, isGiveawayTab, type SellerQueueAddModalMode, type SellerQueueTab } from "@/lib/seller-queue-tabs";
 import type { LiveGiveawayDTO } from "@/lib/live-giveaway";
@@ -53,7 +52,6 @@ import {
 } from "@/lib/host-team-board-panel-session";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { vaultModeRootClass } from "@/components/break-host/vault/vault-modes";
-import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter";
 import type { LiveStageMotionBurst } from "@/components/live-stage/LiveAuctionHud";
 import {
   LiveLotTransitionBanner,
@@ -2516,18 +2514,16 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     />
   );
 
+  // Deliberately NOT a Pause/Stop/Energy pill anymore. This used to render its own
+  // <VaultBroadcastControl> + <LiveRoomEnergyMeter> as an overlay on top of the video - directly
+  // duplicating the real Pause/Stop/Go-Live controls already in SellerConsoleActionBar (top of
+  // the page, both desktop and mobile layouts) and the energy meter already in
+  // SellerConsoleStatsPanel below the stage. Two live "Stop" buttons controlling the same
+  // broadcast, floating in different places, is a real usability hazard during a live show - one
+  // control surface for those is enough. Kept only the "Vault controls" entry point into the
+  // mobile command-center sheet, which isn't shown anywhere else.
   const vaultControlsPill = (
     <div className="flex items-center gap-1.5">
-      <VaultBroadcastControl
-        phase={webcamBroadcast.phase}
-        roomLive={room.status === "live"}
-        companionMode={hostCompanionMode}
-        onStart={handleGoLive}
-        onStop={handleStopStream}
-        onPause={handlePauseStream}
-        onResume={handleResumeStream}
-      />
-      <LiveRoomEnergyMeter score={roomEnergy.score} level={roomEnergy.level} compact />
       <button
         type="button"
         onClick={() => setVaultCommandOpen(true)}
