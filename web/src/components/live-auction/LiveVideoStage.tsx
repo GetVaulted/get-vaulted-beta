@@ -101,7 +101,7 @@ type LiveVideoStageProps = {
 
 /** Centered 9:16 plate — video only; overlays attach to outer stage on desktop. */
 const PORTRAIT_VIDEO_FRAME =
-  "relative aspect-[9/16] min-h-0 shrink-0 overflow-hidden min-[1400px]:rounded-xl min-[1400px]:border min-[1400px]:border-white/[0.14] min-[1400px]:shadow-[0_24px_80px_-28px_rgba(0,0,0,0.92)]";
+  "relative aspect-[9/16] min-h-0 shrink-0 overflow-hidden min-[1024px]:rounded-xl min-[1024px]:border min-[1024px]:border-white/[0.14] min-[1024px]:shadow-[0_24px_80px_-28px_rgba(0,0,0,0.92)]";
 const PORTRAIT_VIDEO_FRAME_BUYER_SHELL =
   "relative aspect-[9/16] min-h-0 shrink-0 overflow-hidden min-[1280px]:rounded-xl min-[1280px]:border min-[1280px]:border-white/[0.14] min-[1280px]:shadow-[0_24px_80px_-28px_rgba(0,0,0,0.92)]";
 
@@ -178,8 +178,8 @@ export function LiveVideoStage({
       ? "h-full max-h-full w-auto max-w-full"
       : "h-auto max-h-full w-full max-w-full";
 
-  const mobileChromeHiddenClass = buyerShellMode ? "min-[1280px]:hidden" : "min-[1400px]:hidden";
-  const desktopChromeHiddenClass = buyerShellMode ? "hidden min-[1280px]:block" : "hidden min-[1400px]:block";
+  const mobileChromeHiddenClass = buyerShellMode ? "min-[1280px]:hidden" : "min-[1024px]:hidden";
+  const desktopChromeHiddenClass = buyerShellMode ? "hidden min-[1280px]:block" : "hidden min-[1024px]:block";
 
   const desktopActionOverlayClass = buyerShellPlateLayout
     ? // Buyer desktop shell: bottom bar matches centered 9:16 plate width.
@@ -278,7 +278,7 @@ export function LiveVideoStage({
   // Width is a % of this overlay's own containing block (the 9:16 video plate), NOT `vw`.
   // `vw` is always relative to the browser viewport - fine on an actual phone, where the plate
   // is letterboxed to (nearly) the full viewport width, but wrong the moment this "mobile"
-  // overlay branch renders in a real desktop/laptop browser window under the 1400px breakpoint:
+  // overlay branch renders in a real desktop/laptop browser window under the 1024px breakpoint:
   // the plate there is height-constrained by aspect-[9/16] and typically much narrower than the
   // viewport, so `96vw` massively overshot the plate's actual width, got clipped by its
   // `overflow-hidden`, and landed directly under sellerHostRail's `right-2` icon column below -
@@ -315,7 +315,7 @@ export function LiveVideoStage({
       )}
 
       {stageOverlay ? (
-        <div className={buyerShellMode ? "pointer-events-none absolute inset-0 z-[12] hidden min-[1280px]:block" : "pointer-events-none absolute inset-0 z-[12] hidden min-[1400px]:block"}>{stageOverlay}</div>
+        <div className={buyerShellMode ? "pointer-events-none absolute inset-0 z-[12] hidden min-[1280px]:block" : "pointer-events-none absolute inset-0 z-[12] hidden min-[1024px]:block"}>{stageOverlay}</div>
       ) : null}
 
       {/* 9:16 video plate — max area inside parent while preserving aspect ratio. */}
@@ -360,7 +360,7 @@ export function LiveVideoStage({
 
           {centerOverlay ? (
             <div
-              className={`pointer-events-none absolute inset-0 min-[1400px]:hidden ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} flex justify-center p-2 sm:p-4 ${
+              className={`pointer-events-none absolute inset-0 min-[1024px]:hidden ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} flex justify-center p-2 sm:p-4 ${
                 centerOverlayAlign === "bottom" ? "items-end pb-3 sm:pb-4" : "items-center"
               }`}
             >
@@ -416,7 +416,7 @@ export function LiveVideoStage({
 
       {centerOverlay && !buyerShellMode ? (
         <div
-          className={`pointer-events-none absolute inset-0 hidden min-[1400px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} justify-center p-4 ${
+          className={`pointer-events-none absolute inset-0 hidden min-[1024px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} justify-center p-4 ${
             centerOverlayAlign === "bottom" ? "items-end" : "items-center"
           }`}
         >

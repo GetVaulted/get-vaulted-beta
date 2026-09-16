@@ -2527,7 +2527,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       <button
         type="button"
         onClick={() => setVaultCommandOpen(true)}
-        className="inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 px-2 py-[3px] text-[8px] font-black uppercase tracking-[0.12em] text-amber-50 shadow-[0_0_22px_-10px_rgba(245,158,11,0.55)] backdrop-blur-md max-[360px]:max-w-[7.5rem] max-[360px]:gap-0.5 max-[360px]:px-1.5 max-[360px]:text-[7px] max-[360px]:tracking-[0.08em] min-[1400px]:hidden"
+        className="inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 px-2 py-[3px] text-[8px] font-black uppercase tracking-[0.12em] text-amber-50 shadow-[0_0_22px_-10px_rgba(245,158,11,0.55)] backdrop-blur-md max-[360px]:max-w-[7.5rem] max-[360px]:gap-0.5 max-[360px]:px-1.5 max-[360px]:text-[7px] max-[360px]:tracking-[0.08em] min-[1024px]:hidden"
       >
         <span className="inline-flex size-1.5 shrink-0 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,0.9)] motion-safe:animate-pulse" aria-hidden />
         <span className="truncate">Vault controls</span>
@@ -2633,7 +2633,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       </>
     ),
     chatOverlay: hostMobileChatOverlay,
-    chatOverlayClassName: "min-[1400px]:hidden",
+    chatOverlayClassName: "min-[1024px]:hidden",
     stageEdgeRail: (
       <VaultHostStageEdgeRail
         roomId={roomId}
@@ -2655,7 +2655,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         disabled={busy}
       />
     ),
-    hostRailClassName: "min-[1400px]:hidden",
+    hostRailClassName: "min-[1024px]:hidden",
     topChromeTrailing: vaultControlsPill,
   };
 
@@ -2754,9 +2754,9 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       ) : null}
 
       {/* First screen: stage fills the fixed console; root overflow-y-auto scrolls to content below. */}
-      <div className="relative flex h-full min-h-full w-full shrink-0 flex-col p-1 sm:p-1.5 min-[1400px]:p-0">
+      <div className="relative flex h-full min-h-full w-full shrink-0 flex-col p-1 sm:p-1.5 min-[1024px]:p-0">
         {/* Desktop — chat | stage + auction timer | shop queue */}
-        <div className="relative hidden min-h-0 flex-1 flex-col overflow-hidden min-[1400px]:flex">
+        <div className="relative hidden min-h-0 flex-1 flex-col overflow-hidden min-[1024px]:flex">
           <SellerConsoleActionBar
             onShare={() => void handleShareRoom()}
             onAddItem={() => setQueueAddModal("auction")}
@@ -2835,7 +2835,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         </div>
 
         {/* Mobile / tablet — stage + floating controls */}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-950/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1400px]:hidden">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-950/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1024px]:hidden">
           <SellerConsoleActionBar
             onShare={() => void handleShareRoom()}
             onAddItem={() => setQueueAddModal("auction")}
@@ -2882,7 +2882,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       {/* Show sales + quick stats under the stage — fixed tile heights; list scrolls inside. */}
       <section
         data-host-console-below
-        className="relative z-[1] w-full shrink-0 border-t border-white/[0.08] bg-zinc-950 px-3 py-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] min-[1400px]:px-5"
+        className="relative z-[1] w-full shrink-0 border-t border-white/[0.08] bg-zinc-950 px-3 py-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] min-[1024px]:px-5"
       >
         <div className="mx-auto grid max-w-6xl items-start gap-3 min-[800px]:grid-cols-[minmax(11rem,15rem)_minmax(0,1fr)_minmax(12rem,16rem)]">
           <LiveShowSalesTile
@@ -2891,7 +2891,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             refreshError={sellerSummaryRefreshError}
           />
           <HostRecentSalesTile rows={data.recentSales ?? []} maxRows={8} />
-          <div className="hidden min-[1400px]:block">
+          <div className="hidden min-[1024px]:block">
             <SellerConsoleStatsPanel
               viewerCount={viewerCount}
               streamTimerDisplay={streamTimerDisplay}
@@ -2913,7 +2913,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         <div
           role="dialog"
           aria-label="Lineup"
-          className="fixed inset-x-0 bottom-0 z-[67] flex max-h-[min(78dvh,42rem)] flex-col border-t border-violet-400/20 bg-zinc-950/98 shadow-[0_-16px_48px_-16px_rgba(0,0,0,0.9)] min-[1400px]:hidden"
+          className="fixed inset-x-0 bottom-0 z-[67] flex max-h-[min(78dvh,42rem)] flex-col border-t border-violet-400/20 bg-zinc-950/98 shadow-[0_-16px_48px_-16px_rgba(0,0,0,0.9)] min-[1024px]:hidden"
         >
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/[0.08] px-3 py-2.5">
             <div>
@@ -2939,7 +2939,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         <div
           role="dialog"
           aria-label="Team board"
-          className="fixed inset-x-0 bottom-0 z-[66] flex max-h-[50dvh] flex-col border-t border-white/10 bg-zinc-950/98 shadow-[0_-12px_40px_-16px_rgba(0,0,0,0.85)] min-[1400px]:hidden"
+          className="fixed inset-x-0 bottom-0 z-[66] flex max-h-[50dvh] flex-col border-t border-white/10 bg-zinc-950/98 shadow-[0_-12px_40px_-16px_rgba(0,0,0,0.85)] min-[1024px]:hidden"
         >
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/[0.08] px-3 py-2">
             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gold-bright/90">Team board</p>
@@ -2969,7 +2969,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       ) : null}
 
       {vaultCommandOpen ? (
-        <div className="fixed inset-0 z-[65] min-[1400px]:hidden">
+        <div className="fixed inset-0 z-[65] min-[1024px]:hidden">
           <div className="absolute inset-0 bg-black/70" onClick={() => setVaultCommandOpen(false)} aria-hidden />
           <div className="absolute inset-x-0 bottom-0 top-[var(--site-header-offset)] overflow-hidden rounded-t-2xl border border-white/10 shadow-2xl">
             <LiveSellerCommandCenter
