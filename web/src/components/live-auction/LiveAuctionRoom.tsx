@@ -277,6 +277,13 @@ function parseAuctionHttpAckPayload(raw: unknown): {
   return { serverNowMs, roomVersion, auctionSeq, item };
 }
 
+/**
+ * Survives a component remount within the same page load (e.g. a data-fetch hook briefly
+ * unmounting/remounting this tree during a poll), so a buyer's "closed" spot board doesn't
+ * silently pop back open on its own for the same lot. Resets on a real page reload.
+ */
+const closedSpotBoardItemIds = new Set<string>();
+
 export function LiveAuctionRoom({
   breakId: _breakId,
   roomTitle,
@@ -423,7 +430,9 @@ export function LiveAuctionRoom({
   const [variantSheetOpen, setVariantSheetOpen] = useState(false);
   const [variantSheetItemId, setVariantSheetItemId] = useState<string | null>(null);
   const [variantSheetInitialVariantId, setVariantSheetInitialVariantId] = useState<string | null>(null);
-  const [spotBoardMinimized, setSpotBoardMinimized] = useState(false);
+  const [spotBoardMinimized, setSpotBoardMinimized] = useState(() =>
+    closedSpotBoardItemIds.has(activeDbItem?.id ?? ""),
+  );
   /** Blocks double-submit while bid POST is in flight. */
   const [bidFlight, setBidFlight] = useState(false);
   const [customBidOpen, setCustomBidOpen] = useState(false);
@@ -580,7 +589,7 @@ export function LiveAuctionRoom({
   useEffect(() => {
     const id = activeDbItem?.id ?? null;
     if (id && id !== lastVariantItemIdRef.current) {
-      setSpotBoardMinimized(false);
+      setSpotBoardMinimized(closedSpotBoardItemIds.has(id));
     }
     if (id) lastVariantItemIdRef.current = id;
   }, [activeDbItem?.id]);
@@ -1781,7 +1790,11 @@ export function LiveAuctionRoom({
     spotBoardMinimized && activeHasVariants && activeDbItem && !isHost ? (
       <button
         type="button"
-        onClick={() => setSpotBoardMinimized(false)}
+        onClick={() => {
+          const id = activeDbItem?.id;
+          if (id) closedSpotBoardItemIds.delete(id);
+          setSpotBoardMinimized(false);
+        }}
         className="mb-2 w-full rounded-full border border-white/15 bg-zinc-950/90 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-zinc-100 hover:border-white/25 hover:bg-zinc-900"
       >
         Show teams · Expand
@@ -1897,7 +1910,17 @@ export function LiveAuctionRoom({
         hostMode={isHost}
         highlightUsername={!isHost ? session?.user?.username ?? null : null}
         minimized={spotBoardMinimized}
-        onToggleMinimized={() => setSpotBoardMinimized((v) => !v)}
+        onToggleMinimized={() =>
+          setSpotBoardMinimized((v) => {
+            const next = !v;
+            const id = activeDbItem?.id;
+            if (id) {
+              if (next) closedSpotBoardItemIds.add(id);
+              else closedSpotBoardItemIds.delete(id);
+            }
+            return next;
+          })
+        }
         onPinVariant={
           isHost &&
           activeDbItem.status === "active" &&

@@ -233,6 +233,13 @@ export type LiveSaleRoomProps = {
   broadcastCommerceHint?: string | null;
 };
 
+/**
+ * Survives a component remount within the same page load (e.g. a data-fetch hook briefly
+ * unmounting/remounting this tree during a poll), so a buyer's "closed" spot board doesn't
+ * silently pop back open on its own for the same lot. Resets on a real page reload.
+ */
+const closedSpotBoardItemIds = new Set<string>();
+
 export function LiveSaleRoom({
   roomId: _roomId,
   roomTitle,
@@ -307,6 +314,8 @@ export function LiveSaleRoom({
   const [variantSheetOpen, setVariantSheetOpen] = useState(false);
   const [variantSheetItemId, setVariantSheetItemId] = useState<string | null>(null);
   const [variantSheetInitialVariantId, setVariantSheetInitialVariantId] = useState<string | null>(null);
+  // activeDb isn't computed yet at this point in the component — the effect below
+  // (keyed off activeDb?.id) applies the persisted closed-state immediately after mount.
   const [spotBoardMinimized, setSpotBoardMinimized] = useState(false);
   /** Auction bid POST in flight — disables button. */
   const [bidFlight, setBidFlight] = useState(false);
@@ -383,7 +392,7 @@ export function LiveSaleRoom({
   useEffect(() => {
     const id = activeDb?.id ?? null;
     if (id && id !== lastVariantItemIdRef.current) {
-      setSpotBoardMinimized(false);
+      setSpotBoardMinimized(closedSpotBoardItemIds.has(id));
     }
     if (id) lastVariantItemIdRef.current = id;
   }, [activeDb?.id]);
@@ -1714,7 +1723,11 @@ export function LiveSaleRoom({
     spotBoardMinimized && activeHasVariants && activeDb && !isHost ? (
       <button
         type="button"
-        onClick={() => setSpotBoardMinimized(false)}
+        onClick={() => {
+          const id = activeDb?.id;
+          if (id) closedSpotBoardItemIds.delete(id);
+          setSpotBoardMinimized(false);
+        }}
         className="mb-2 w-full rounded-full border border-white/15 bg-zinc-950/90 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-zinc-100 hover:border-white/25 hover:bg-zinc-900"
       >
         Show teams · Expand
@@ -1820,7 +1833,17 @@ export function LiveSaleRoom({
           hostMode={isHost}
           highlightUsername={!isHost ? session?.user?.username ?? null : null}
           minimized={spotBoardMinimized}
-          onToggleMinimized={() => setSpotBoardMinimized((v) => !v)}
+          onToggleMinimized={() =>
+            setSpotBoardMinimized((v) => {
+              const next = !v;
+              const id = activeDb?.id;
+              if (id) {
+                if (next) closedSpotBoardItemIds.add(id);
+                else closedSpotBoardItemIds.delete(id);
+              }
+              return next;
+            })
+          }
           onPinVariant={
             isHost &&
             activeDb.status === "active" &&
