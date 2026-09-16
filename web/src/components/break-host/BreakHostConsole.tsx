@@ -39,7 +39,7 @@ import {
   canHostStartLiveAuction,
   resolveLiveAuctionHostStartLotPhase,
 } from "@/lib/live-auction-host-start";
-import { isLiveRoomBroadcastOnAir } from "@/lib/live-room-broadcast-on-air";
+import { isLiveRoomBroadcastOnAir, isLiveRoomRemotePublisherActive } from "@/lib/live-room-broadcast-on-air";
 import { isObsDesktopBroadcastMode } from "@/lib/live-obs-channel-mode";
 import { canonicalLiveRoomUrl } from "@/lib/live-room-share-metadata";
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
@@ -1814,7 +1814,12 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       webcamBroadcast.releasePreview();
       return;
     }
-    const onAir = isLiveRoomBroadcastOnAir({
+    // Whether to keep this PC's camera preview released: only when another device is actually
+    // publishing video right now (isLiveRoomRemotePublisherActive), not the looser "on air for
+    // commerce" signal. The looser check stays true through soft warm-up/offline states, so a
+    // crashed phone host left this stuck in companion mode forever, blocking camera resume on
+    // this PC until the seller ended and restarted the whole show.
+    const onAir = isLiveRoomRemotePublisherActive({
       status: data.room.status,
       streamHealth: data.room.streamHealth ?? "offline",
       streamPaused: data.room.streamPaused,
@@ -2160,9 +2165,16 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     webcamBroadcast.phase === "starting" ||
     webcamBroadcast.phase === "stopping";
 
-  /** Phone (or another device) owns the camera; this PC is queue/pricing/chat only. */
+  /**
+   * Phone (or another device) owns the camera; this PC is queue/pricing/chat only.
+   * Uses isLiveRoomRemotePublisherActive (strict: streamHealth must actually be "live"), not the
+   * looser isLiveRoomBroadcastOnAir used for commerce warm-up grace. The looser check stays true
+   * through "connecting"/soft-offline states, so after a host's app crashed or force-quit mid
+   * broadcast, reopening the console falsely showed "live on phone" with no way to reclaim the
+   * camera from here - sellers had to end the show and start a brand new one to recover.
+   */
   const hostCompanionMode =
-    isLiveRoomBroadcastOnAir({
+    isLiveRoomRemotePublisherActive({
       status: room.status,
       streamHealth: room.streamHealth ?? "offline",
       streamPaused: room.streamPaused,
