@@ -359,7 +359,17 @@ export function useHostStagePublish({
   }, [phase, reconnectPublish]);
 
   const start = useCallback(async () => {
-    if (startInFlightRef.current || stageRef.current) return;
+    if (startInFlightRef.current) return;
+    if (stageRef.current) {
+      // A Stage object can be left behind here without this hook ever reaching "live" - e.g.
+      // stage.join() hangs or errors outside this function's own try/catch, or a race with
+      // startPreview/releasePreview leaves stageRef set while phase reports idle/preview. Before
+      // this fix that made start() refuse forever with zero feedback: no permission prompt, no
+      // error, the camera simply never turned on and Go Live looked like it did nothing. Clear
+      // the stale Stage and proceed instead of silently bailing.
+      logIvsWeb("startBroadcast", { roomId, note: "clearing stale stage before restart", phase });
+      cleanupStage();
+    }
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("This browser does not support in-browser streaming. Use OBS / RTMP instead.");
       return;
@@ -410,7 +420,7 @@ export function useHostStagePublish({
     } finally {
       startInFlightRef.current = false;
     }
-  }, [acquireMedia, cleanupStage, endServerSession, joinPublishStage, previewStream, roomId]);
+  }, [acquireMedia, cleanupStage, endServerSession, joinPublishStage, phase, previewStream, roomId]);
 
   const stop = useCallback(async () => {
     intentionalStopRef.current = true;
