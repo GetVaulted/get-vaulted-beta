@@ -83,6 +83,7 @@ import {
   finalizeOverdueLiveAuctions,
   appendLiveItemSupplementalVariants,
   importLiveRoomItemsFromRoom,
+  manualAssignLiveItemVariant,
   patchLiveItemVariants,
   patchLiveRoomAction,
   patchLiveRoomItemStatus,
@@ -300,6 +301,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const [supplementalModalOpen, setSupplementalModalOpen] = useState(false);
   const [variantSpotEditOpen, setVariantSpotEditOpen] = useState(false);
   const [pinVariantBusy, setPinVariantBusy] = useState(false);
+  const [markSoldVariantBusy, setMarkSoldVariantBusy] = useState(false);
   const [stageMotionBurst, setStageMotionBurst] = useState<LiveStageMotionBurst>(null);
   const [bidsLastMinute, setBidsLastMinute] = useState(0);
   const [lotTransitionPhase, setLotTransitionPhase] = useState<LiveLotTransitionPhase>("idle");
@@ -2351,6 +2353,38 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     }
   };
 
+  const handleMarkSoldLiveVariant = async (args: {
+    variantId: string;
+    username: string;
+    priceUsd: number;
+    settlementMethod: string;
+    zeroReason?: string;
+    note?: string;
+  }) => {
+    const itemId = activeBoardRow?.item.id;
+    if (!itemId) return;
+    setMarkSoldVariantBusy(true);
+    setToast(null);
+    try {
+      const res = await manualAssignLiveItemVariant(roomId, itemId, args.variantId, {
+        username: args.username,
+        priceUsd: args.priceUsd,
+        settlementMethod: args.settlementMethod,
+        zeroReason: args.zeroReason,
+        note: args.note,
+      });
+      if (!res.ok) {
+        setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
+        return;
+      }
+      await load();
+      router.refresh();
+      setToast(`Marked sold to @${res.data.buyerUsername} for ${res.data.totalUsd.toLocaleString("en-US", { style: "currency", currency: "USD" })}.`);
+    } finally {
+      setMarkSoldVariantBusy(false);
+    }
+  };
+
   const handlePinLiveVariant = async (variantId: string) => {
     const itemId = activeBoardRow?.item.id;
     const variants = activeBoardRow?.item.variants;
@@ -2629,6 +2663,9 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
           onEditSpots={variantSpotEditItem ? handleOpenVariantSpotEditor : undefined}
           onPinVariant={handlePinLiveVariant}
           pinVariantBusy={pinVariantBusy}
+          liveRoomId={roomId}
+          onMarkSold={handleMarkSoldLiveVariant}
+          markSoldBusy={markSoldVariantBusy}
         />
       </>
     ),

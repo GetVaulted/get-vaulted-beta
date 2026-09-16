@@ -7,6 +7,15 @@ import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 
 type QueueRowLite = { item: LiveRoomItemDTO };
 
+type MarkSoldArgs = {
+  variantId: string;
+  username: string;
+  priceUsd: number;
+  settlementMethod: string;
+  zeroReason?: string;
+  note?: string;
+};
+
 type Props = {
   activeBoardRow: QueueRowLite | null;
   busy: boolean;
@@ -16,6 +25,11 @@ type Props = {
   onEditSpots?: () => void;
   onPinVariant?: (variantId: string) => void;
   pinVariantBusy?: boolean;
+  /** Live room id — enables the username autocomplete strip in the Mark Sold form. */
+  liveRoomId?: string;
+  /** Host marks an open spot sold off-platform (cash/Venmo/etc.) to a specific username. */
+  onMarkSold?: (args: MarkSoldArgs) => void | Promise<void>;
+  markSoldBusy?: boolean;
 };
 
 /**
@@ -31,6 +45,9 @@ export function HostVariantCommerceStage({
   onEditSpots,
   onPinVariant,
   pinVariantBusy = false,
+  liveRoomId,
+  onMarkSold,
+  markSoldBusy = false,
 }: Props) {
   const activeVariant =
     activeBoardRow != null && isVariantSalesFormat(activeBoardRow.item.salesFormat);
@@ -55,6 +72,9 @@ export function HostVariantCommerceStage({
               : undefined
           }
           pinBusy={pinVariantBusy}
+          liveRoomId={liveRoomId}
+          onMarkSold={onMarkSold}
+          markSoldBusy={markSoldBusy}
         />
       </div>
     );

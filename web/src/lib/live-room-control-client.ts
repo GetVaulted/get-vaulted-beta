@@ -186,6 +186,67 @@ export async function patchLiveItemVariants(
   }
 }
 
+export type ManualAssignVariantResult = {
+  purchaseId: string;
+  buyerUsername: string;
+  label: string;
+  totalUsd: number;
+  platformFeeCents: number;
+  platformFeePercent: number;
+  platformFeeStatus: string;
+  platformFeeDue: boolean;
+};
+
+/** Mark a team-board / spot-board variant sold off-platform to a specific username (host manual settlement). */
+export async function manualAssignLiveItemVariant(
+  liveRoomId: string,
+  itemId: string,
+  variantId: string,
+  body: {
+    username: string;
+    priceUsd: number;
+    settlementMethod: string;
+    zeroReason?: string;
+    note?: string;
+  },
+): Promise<ApiResult<ManualAssignVariantResult>> {
+  try {
+    const res = await fetch(
+      `/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(itemId)}/variants/${encodeURIComponent(variantId)}/manual-assign`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      },
+    );
+    const payload = await readJsonSafe<Record<string, unknown>>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not mark team sold.");
+      return { ok: false, error, issues };
+    }
+    const p = (payload ?? {}) as Record<string, unknown>;
+    const data: ManualAssignVariantResult = {
+      purchaseId: typeof p.purchaseId === "string" ? p.purchaseId : "",
+      buyerUsername: typeof p.buyerUsername === "string" ? p.buyerUsername : "",
+      label: typeof p.label === "string" ? p.label : "",
+      totalUsd: typeof p.totalUsd === "number" ? p.totalUsd : 0,
+      platformFeeCents: typeof p.platformFeeCents === "number" ? p.platformFeeCents : 0,
+      platformFeePercent: typeof p.platformFeePercent === "number" ? p.platformFeePercent : 0,
+      platformFeeStatus: typeof p.platformFeeStatus === "string" ? p.platformFeeStatus : "",
+      platformFeeDue: Boolean(p.platformFeeDue),
+    };
+    return { ok: true, data };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server.",
+      issues: [],
+    };
+  }
+}
+
 /** Append supplemental spot/division variants to the active variant item (same lot — buyers see immediately). */
 export async function appendLiveItemSupplementalVariants(
   liveRoomId: string,
