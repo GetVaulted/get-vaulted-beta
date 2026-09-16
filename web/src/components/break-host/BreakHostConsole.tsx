@@ -1795,9 +1795,14 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       setToast("Show started — keep Start Streaming on in OBS. Video comes from OBS, not this camera.");
       return;
     }
-    goLivePatchRequestedRef.current = true;
+    // Do NOT mark the room live here. handleWebcamBroadcastStarted (passed below as
+    // onBroadcastStarted) already does that -- but only once the Stage connection actually
+    // reaches CONNECTED. Calling patchRoom("start") eagerly here, in parallel with
+    // webcamBroadcast.start(), defeated that guard: a denied camera/mic permission (or any other
+    // getUserMedia/join failure) still flipped the room to live for buyers with nothing actually
+    // broadcasting, and left this PC's console with no local or remote publisher and no way to
+    // end the show short of grabbing another device.
     void webcamBroadcast.start();
-    void patchRoom("start");
   }, [data?.room?.streamMode, data?.room?.ingestEndpoint, patchRoom, webcamBroadcast]);
 
   // Preview only when this PC will be the camera. If the show is already on air from the phone,
