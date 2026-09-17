@@ -117,7 +117,7 @@ function PrimaryButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex h-11 min-w-[9rem] items-center justify-center rounded-xl px-5 text-sm font-bold transition disabled:opacity-50 ${tones[tone]}`}
+      className={`inline-flex h-9 min-w-[6.5rem] items-center justify-center rounded-lg px-3.5 text-[13px] font-bold transition disabled:opacity-50 ${tones[tone]}`}
     >
       {children}
     </button>
@@ -126,7 +126,7 @@ function PrimaryButton({
 
 function OrderThumb({ url, title }: { url?: string; title: string }) {
   return (
-    <div className="relative size-16 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-[#0b0b0e] sm:size-[4.5rem]">
+    <div className="relative size-11 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-[#0b0b0e] sm:size-12">
       {url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt="" className="h-full w-full object-cover" />
@@ -199,8 +199,8 @@ function ShipOrderCard({
 
   return (
     <>
-    <article className="flex flex-col gap-4 rounded-2xl border border-white/[0.08] bg-[#0a0a0d] p-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 flex-1 gap-3.5">
+    <article className="flex flex-col gap-3 rounded-xl border border-white/[0.08] bg-[#0a0a0d] p-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 flex-1 gap-3">
         <OrderThumb url={thumb} title={order.listing.title} />
         <div className="min-w-0">
           <p className="line-clamp-2 font-semibold leading-snug text-zinc-100">{order.listing.title}</p>
@@ -252,7 +252,7 @@ function ShipOrderCard({
             Pending carrier scan
           </span>
         ) : null}
-        {(phase === "in_transit" || phase === "done") && order.trackingUrl ? (
+        {phase !== "needs_label" && phase !== "wait_payment" && order.trackingUrl ? (
           <a
             href={order.trackingUrl}
             target="_blank"
@@ -490,11 +490,11 @@ function BundleShipCard({
 
   return (
     <>
-    <article className="rounded-2xl border border-sky-500/25 bg-sky-950/15 p-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <article className="rounded-xl border border-sky-500/25 bg-sky-950/15 p-3.5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-wide text-sky-300/80">Live show bundle</p>
-          <p className="mt-0.5 text-lg font-semibold text-zinc-100">{session.liveShowTitle}</p>
+          <p className="mt-0.5 text-base font-semibold text-zinc-100">{session.liveShowTitle}</p>
           <p className="mt-1 text-sm text-zinc-400">
             {buyer} · {session.orderCount} order{session.orderCount === 1 ? "" : "s"} · {session.itemCount} item
             {session.itemCount === 1 ? "" : "s"}
@@ -702,37 +702,69 @@ function BundleShipCard({
   );
 }
 
-function SectionHeading({
-  count,
+type PrimaryTab = "needs_label" | "pending_shipment" | "shipped" | "complete";
+
+const PRIMARY_TABS: PrimaryTab[] = ["needs_label", "pending_shipment", "shipped", "complete"];
+
+const TAB_META: Record<PrimaryTab, { label: string; hint: string; emptyHint: string }> = {
+  needs_label: {
+    label: "Needs label",
+    hint: "Create a shipping label for paid orders.",
+    emptyHint: "Nothing waiting on a label right now.",
+  },
+  pending_shipment: {
+    label: "Pending shipment",
+    hint: "Label is ready. Print it, drop off the package, then wait for the first carrier scan.",
+    emptyHint: "No labels waiting to ship.",
+  },
+  shipped: {
+    label: "Shipped",
+    hint: "Carrier has scanned the package — in transit to the buyer.",
+    emptyHint: "Nothing in transit right now.",
+  },
+  complete: {
+    label: "Complete",
+    hint: "Delivered to the buyer.",
+    emptyHint: "Nothing delivered yet.",
+  },
+};
+
+function TabButton({
   label,
-  hint,
+  count,
+  active,
+  onClick,
 }: {
-  count: number;
   label: string;
-  hint?: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
 }) {
-  if (count === 0) return null;
   return (
-    <div>
-      <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-zinc-500">
-        {label} <span className="text-gold-bright/90">({count})</span>
-      </h2>
-      {hint ? <p className="mt-1 text-xs text-zinc-600">{hint}</p> : null}
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2.5 text-[13px] font-bold transition ${
+        active ? "text-zinc-50" : "text-zinc-500 hover:text-zinc-300"
+      }`}
+    >
+      {label}
+      <span
+        className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] tabular-nums ${
+          active ? "bg-gold/20 text-gold-bright" : "bg-white/[0.06] text-zinc-500"
+        }`}
+      >
+        {count}
+      </span>
+      {active ? <span className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-gold" aria-hidden /> : null}
+    </button>
   );
 }
 
-function StagePill({ label, count, tone }: { label: string; count: number; tone: "gold" | "amber" | "sky" | "emerald" | "zinc" }) {
-  const tones = {
-    gold: "border-gold/30 bg-gold/10 text-gold-bright",
-    amber: "border-amber-400/30 bg-amber-500/10 text-amber-100",
-    sky: "border-sky-400/30 bg-sky-500/10 text-sky-100",
-    emerald: "border-emerald-400/30 bg-emerald-500/10 text-emerald-100",
-    zinc: "border-white/10 bg-white/[0.03] text-zinc-400",
-  };
+function EmptyTab({ message }: { message: string }) {
   return (
-    <div className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide ${tones[tone]}`}>
-      {label} <span className="tabular-nums">{count}</span>
+    <div className="rounded-xl border border-dashed border-white/[0.08] px-6 py-10 text-center text-sm text-zinc-600">
+      {message}
     </div>
   );
 }
@@ -749,8 +781,11 @@ export function AccountSellerShipWorkspace({
   onMarkShipped,
   onMarkBundleShipped,
 }: Props) {
-  const [showComplete, setShowComplete] = useState(false);
   const [showWaitPayment, setShowWaitPayment] = useState(false);
+  const [activeTab, setActiveTab] = useState<PrimaryTab | null>(null);
+  const [toast, setToast] = useState<{ tab: PrimaryTab; message: string } | null>(null);
+  const prevPhaseRef = useRef<Map<string, SellerShipQueuePhase> | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
 
   const awaitingBundleIds = useMemo(
     () => orderIdsAwaitingBundledLabel(liveShipping?.sessions ?? []),
@@ -793,7 +828,16 @@ export function AccountSellerShipWorkspace({
   const printBundles = useMemo(
     () =>
       (liveShipping?.sessions ?? []).filter(
-        (s) => Boolean(s.bundledLabel?.labelUrl) && !s.canCreateBundledLabel,
+        (s) =>
+          Boolean(s.bundledLabel?.labelUrl) &&
+          !s.canCreateBundledLabel &&
+          // Regression guard: a session whose orders have ALL already been marked shipped also
+          // has canCreateBundledLabel: false (nothing left to label) — without this check its
+          // card would sit in Pending shipment forever even after every order in it has shipped,
+          // since the individual orders move on to their own Shipped/Complete ShipOrderCards but
+          // this session-level card never noticed. Keep it here only while at least one order in
+          // the bundle is still pending/paid — i.e. labeled, but not yet marked shipped.
+          s.orders.some((o) => o.orderStatus === "pending" || o.orderStatus === "paid"),
       ),
     [liveShipping],
   );
@@ -802,6 +846,56 @@ export function AccountSellerShipWorkspace({
   const needsLabelCount = buckets.needsLabel.length + createBundles.length;
   const pendingShipmentCount = buckets.pendingShipment.length + printBundles.length;
   const activeCount = needsLabelCount + pendingShipmentCount;
+
+  const tabCounts: Record<PrimaryTab, number> = {
+    needs_label: needsLabelCount,
+    pending_shipment: pendingShipmentCount,
+    shipped: buckets.shipped.length,
+    complete: actionCounts.complete,
+  };
+
+  // Surface a quiet toast — rather than yanking the seller to a new tab — whenever an order's
+  // phase actually settles into a new stage server-side (label created, marked shipped,
+  // delivered). This is diffed off the real data, not the button click, so cancelling a
+  // "mark shipped" confirmation modal never fires a false "moved" notice, and a seller working
+  // through several orders in a row on one tab is never involuntarily switched away mid-task.
+  useEffect(() => {
+    const prev = prevPhaseRef.current;
+    const next = new Map<string, SellerShipQueuePhase>();
+    const moved: Record<Exclude<PrimaryTab, "needs_label">, number> = {
+      pending_shipment: 0,
+      shipped: 0,
+      complete: 0,
+    };
+
+    for (const order of orders) {
+      if (!sellerShipQueueEligible(order)) continue;
+      const phase = sellerShipQueuePhase(order);
+      next.set(order.id, phase);
+      const prevPhase = prev?.get(order.id);
+      if (prev && prevPhase && prevPhase !== phase) {
+        if (phase === "print_and_ship" || phase === "awaiting_carrier") moved.pending_shipment += 1;
+        else if (phase === "in_transit") moved.shipped += 1;
+        else if (phase === "done") moved.complete += 1;
+      }
+    }
+    prevPhaseRef.current = next;
+
+    const destination = (["pending_shipment", "shipped", "complete"] as const).find((t) => moved[t] > 0);
+    if (destination) {
+      const n = moved[destination];
+      if (toastTimerRef.current != null) window.clearTimeout(toastTimerRef.current);
+      setToast({ tab: destination, message: `${n} order${n === 1 ? "" : "s"} moved to ${TAB_META[destination].label}.` });
+      toastTimerRef.current = window.setTimeout(() => setToast(null), 6000);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- diff against previous orders snapshot only
+  }, [orders]);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current != null) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   if (
     activeCount === 0 &&
@@ -828,122 +922,150 @@ export function AccountSellerShipWorkspace({
     );
   }
 
+  const currentTab: PrimaryTab = activeTab ?? PRIMARY_TABS.find((t) => tabCounts[t] > 0) ?? "needs_label";
+
   return (
-    <div className="mt-6 space-y-8">
+    <div className="mt-6 space-y-4">
       <SetupBanner liveShipping={liveShipping} />
 
       {labelError ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 text-sm text-rose-100">{labelError}</p>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
-        <StagePill label="Needs label" count={needsLabelCount} tone="sky" />
-        <StagePill label="Pending shipment" count={pendingShipmentCount} tone="amber" />
-        <StagePill label="Shipped" count={buckets.shipped.length} tone="gold" />
-        <StagePill label="Complete" count={actionCounts.complete} tone="emerald" />
+      <div className="sticky top-0 z-10 -mx-1 border-b border-white/[0.07] bg-[#050506]/95 px-1 backdrop-blur">
+        <div className="flex gap-1 overflow-x-auto">
+          {PRIMARY_TABS.map((tab) => (
+            <TabButton
+              key={tab}
+              label={TAB_META[tab].label}
+              count={tabCounts[tab]}
+              active={currentTab === tab}
+              onClick={() => setActiveTab(tab)}
+            />
+          ))}
+        </div>
       </div>
 
-      {activeCount > 0 ? (
-        <p className="rounded-xl border border-gold/20 bg-gold/[0.06] px-4 py-3 text-sm text-zinc-200">
-          <span className="font-semibold text-gold-bright">{activeCount}</span> package
-          {activeCount === 1 ? "" : "s"} need your attention — create/print labels, then wait for the carrier scan.
-        </p>
+      {toast ? (
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab(toast.tab);
+            setToast(null);
+          }}
+          className="flex w-full items-center justify-between gap-3 rounded-xl border border-gold/25 bg-gold/[0.07] px-4 py-2.5 text-left text-sm text-zinc-200 transition hover:border-gold/40"
+        >
+          <span>{toast.message}</span>
+          <span className="shrink-0 text-xs font-bold uppercase tracking-wide text-gold-bright">View →</span>
+        </button>
       ) : null}
 
-      {needsLabelCount > 0 ? (
-        <section className="space-y-3">
-          <SectionHeading
-            count={needsLabelCount}
-            label="Needs label"
-            hint="Create a shipping label for paid orders."
-          />
-          {createBundles.map((session) => (
-            <BundleShipCard
-              key={session.sessionId}
-              session={session}
-              bundledBusySessionId={bundledBusySessionId}
-              bundledSessionFeedback={bundledSessionFeedback?.[session.sessionId]}
-              onCreateBundledLabel={onCreateBundledLabel}
-              onMarkBundleShipped={onMarkBundleShipped}
-            />
-          ))}
-          {buckets.needsLabel.map((order) => (
+      {buckets.waitPayment.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => setShowWaitPayment((v) => !v)}
+          className="text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-600 hover:text-zinc-400"
+        >
+          {buckets.waitPayment.length} order{buckets.waitPayment.length === 1 ? "" : "s"} waiting on payment{" "}
+          {showWaitPayment ? "▾" : "▸"}
+        </button>
+      ) : null}
+      {showWaitPayment && buckets.waitPayment.length > 0 ? (
+        <div className="space-y-2.5">
+          {buckets.waitPayment.map((order) => (
             <ShipOrderCard
               key={order.id}
               order={order}
               labelBusyId={labelBusyId}
-              phase="needs_label"
+              phase="wait_payment"
               onCreateLabel={onCreateLabel}
               onMarkShipped={onMarkShipped}
             />
           ))}
-        </section>
+        </div>
       ) : null}
 
-      {pendingShipmentCount > 0 ? (
-        <section className="space-y-3">
-          <SectionHeading
-            count={pendingShipmentCount}
-            label="Pending shipment"
-            hint="Label is ready. Print it, drop off the package, then wait for the first carrier scan."
-          />
-          {printBundles.map((session) => (
-            <BundleShipCard
-              key={session.sessionId}
-              session={session}
-              bundledBusySessionId={bundledBusySessionId}
-              bundledSessionFeedback={bundledSessionFeedback?.[session.sessionId]}
-              onCreateBundledLabel={onCreateBundledLabel}
-            />
-          ))}
-          {buckets.pendingShipment.map(({ order, phase }) => (
-            <ShipOrderCard
-              key={order.id}
-              order={order}
-              labelBusyId={labelBusyId}
-              phase={phase}
-              onCreateLabel={onCreateLabel}
-              onMarkShipped={onMarkShipped}
-            />
-          ))}
-        </section>
-      ) : null}
+      <p className="text-xs text-zinc-600">{TAB_META[currentTab].hint}</p>
 
-      {buckets.shipped.length > 0 ? (
-        <section className="space-y-3">
-          <SectionHeading
-            count={buckets.shipped.length}
-            label="Shipped"
-            hint="Carrier has scanned the package — in transit to the buyer."
-          />
-          {buckets.shipped.map((order) => (
-            <ShipOrderCard
-              key={order.id}
-              order={order}
-              labelBusyId={labelBusyId}
-              phase="in_transit"
-              onCreateLabel={onCreateLabel}
-              onMarkShipped={onMarkShipped}
-            />
-          ))}
-        </section>
-      ) : null}
+      <div className="space-y-2.5">
+        {currentTab === "needs_label" ? (
+          tabCounts.needs_label > 0 ? (
+            <>
+              {createBundles.map((session) => (
+                <BundleShipCard
+                  key={session.sessionId}
+                  session={session}
+                  bundledBusySessionId={bundledBusySessionId}
+                  bundledSessionFeedback={bundledSessionFeedback?.[session.sessionId]}
+                  onCreateBundledLabel={onCreateBundledLabel}
+                  onMarkBundleShipped={onMarkBundleShipped}
+                />
+              ))}
+              {buckets.needsLabel.map((order) => (
+                <ShipOrderCard
+                  key={order.id}
+                  order={order}
+                  labelBusyId={labelBusyId}
+                  phase="needs_label"
+                  onCreateLabel={onCreateLabel}
+                  onMarkShipped={onMarkShipped}
+                />
+              ))}
+            </>
+          ) : (
+            <EmptyTab message={TAB_META.needs_label.emptyHint} />
+          )
+        ) : null}
 
-      {buckets.complete.length > 0 ? (
-        <section className="space-y-3">
-          <button
-            type="button"
-            onClick={() => setShowComplete((v) => !v)}
-            className="text-left"
-          >
-            <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300">
-              Complete <span className="text-gold-bright/90">({buckets.complete.length})</span>{" "}
-              {showComplete ? "▾" : "▸"}
-            </h2>
-            <p className="mt-1 text-xs text-zinc-600">Delivered to the buyer.</p>
-          </button>
-          {showComplete
-            ? buckets.complete.map((order) => (
+        {currentTab === "pending_shipment" ? (
+          tabCounts.pending_shipment > 0 ? (
+            <>
+              {printBundles.map((session) => (
+                <BundleShipCard
+                  key={session.sessionId}
+                  session={session}
+                  bundledBusySessionId={bundledBusySessionId}
+                  bundledSessionFeedback={bundledSessionFeedback?.[session.sessionId]}
+                  onCreateBundledLabel={onCreateBundledLabel}
+                />
+              ))}
+              {buckets.pendingShipment.map(({ order, phase }) => (
+                <ShipOrderCard
+                  key={order.id}
+                  order={order}
+                  labelBusyId={labelBusyId}
+                  phase={phase}
+                  onCreateLabel={onCreateLabel}
+                  onMarkShipped={onMarkShipped}
+                />
+              ))}
+            </>
+          ) : (
+            <EmptyTab message={TAB_META.pending_shipment.emptyHint} />
+          )
+        ) : null}
+
+        {currentTab === "shipped" ? (
+          buckets.shipped.length > 0 ? (
+            buckets.shipped.map((order) => (
+              <ShipOrderCard
+                key={order.id}
+                order={order}
+                labelBusyId={labelBusyId}
+                phase="in_transit"
+                onCreateLabel={onCreateLabel}
+                onMarkShipped={onMarkShipped}
+              />
+            ))
+          ) : (
+            <EmptyTab message={TAB_META.shipped.emptyHint} />
+          )
+        ) : null}
+
+        {currentTab === "complete" ? (
+          buckets.complete.length > 0 ? (
+            <>
+              {buckets.complete.map((order) => (
                 <ShipOrderCard
                   key={order.id}
                   order={order}
@@ -952,34 +1074,19 @@ export function AccountSellerShipWorkspace({
                   onCreateLabel={onCreateLabel}
                   onMarkShipped={onMarkShipped}
                 />
-              ))
-            : null}
-        </section>
-      ) : null}
-
-      {buckets.waitPayment.length > 0 ? (
-        <section className="space-y-3">
-          <button
-            type="button"
-            onClick={() => setShowWaitPayment((v) => !v)}
-            className="text-[11px] font-black uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300"
-          >
-            Waiting on payment ({buckets.waitPayment.length}) {showWaitPayment ? "▾" : "▸"}
-          </button>
-          {showWaitPayment
-            ? buckets.waitPayment.map((order) => (
-                <ShipOrderCard
-                  key={order.id}
-                  order={order}
-                  labelBusyId={labelBusyId}
-                  phase="wait_payment"
-                  onCreateLabel={onCreateLabel}
-                  onMarkShipped={onMarkShipped}
-                />
-              ))
-            : null}
-        </section>
-      ) : null}
+              ))}
+              <Link
+                href="/account/sales?view=all"
+                className="inline-flex text-sm font-semibold text-gold-bright hover:underline"
+              >
+                View full sales history →
+              </Link>
+            </>
+          ) : (
+            <EmptyTab message={TAB_META.complete.emptyHint} />
+          )
+        ) : null}
+      </div>
     </div>
   );
 }
