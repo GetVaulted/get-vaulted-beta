@@ -1,8 +1,38 @@
 /** Keep in sync with PAYMENT_PAID in @/services/payments — do not import payments here (client bundle). */
 const PAYMENT_PAID = "paid";
 import { PAYMENT_LAYAWAY_ACTIVE } from "@/lib/layaway/constants";
+import { orderHasUsableShippingLabel, type SellerLabelOrderFields } from "@/lib/seller-shipping-label-state";
+import type { SellerLiveShippingLabelStatus } from "@/lib/seller-live-shipping-dashboard-types";
 
 export const ORDER_MUST_BE_PAID_BEFORE_FULFILLMENT = "Order must be paid before fulfillment.";
+
+/** Order lifecycle statuses that still need a first fulfillment action (label or own-carrier ship). */
+const ORDER_AWAITING_FULFILLMENT = new Set(["pending", "paid"]);
+
+/**
+ * True once an order no longer needs bundled-label attention: either it already has a usable
+ * label, or the seller already shipped it another way (e.g. "Ship it yourself" with their own
+ * carrier — PATCH /api/orders/[id] markShipped sets status: "shipped" but never attaches a
+ * Shippo label). Without the status check, a session shipped entirely via "Ship it yourself"
+ * looked permanently unfinished: the bundle-ship button kept reappearing, and clicking it always
+ * found zero orders still eligible ("No orders in this bundle are ready to be marked shipped.").
+ */
+export function orderIsSettledForBundling(order: SellerLabelOrderFields & { status: string }): boolean {
+  return orderHasUsableShippingLabel(order) || !ORDER_AWAITING_FULFILLMENT.has(order.status);
+}
+
+/** Per-session label/ship status for the seller "Ship it yourself" bundle UI. */
+export function labelStatusForSession(
+  orders: (SellerLabelOrderFields & { status: string; paymentStatus: string })[],
+): SellerLiveShippingLabelStatus {
+  if (orders.length === 0) return "empty";
+  const paid = orders.filter((o) => o.paymentStatus === PAYMENT_PAID);
+  if (paid.length === 0) return "awaiting_payment";
+  const settled = paid.filter(orderIsSettledForBundling);
+  if (settled.length === paid.length) return "complete";
+  if (settled.length > 0) return "partial";
+  return "labels_needed";
+}
 
 /** Layaway orders cannot ship until the plan is fully paid. */
 export function orderBlocksFulfillmentForLayaway(order: { paymentStatus: string }): boolean {

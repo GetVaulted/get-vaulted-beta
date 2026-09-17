@@ -1,11 +1,11 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import type {
   SellerLiveShippingDashboard,
-  SellerLiveShippingLabelStatus,
   SellerLiveShippingSessionRow,
 } from "@/lib/seller-live-shipping-dashboard-types";
 import { resolveSellerShippingBreakdown } from "@/lib/seller-shipping-breakdown";
 import { orderHasUsableShippingLabel } from "@/lib/seller-shipping-label-state";
+import { labelStatusForSession, orderIsSettledForBundling } from "@/lib/order-shipping-guards";
 import { prisma } from "@/lib/prisma";
 import { PAYMENT_PAID } from "@/services/payments";
 
@@ -22,23 +22,6 @@ function orderHasLabel(o: {
   fulfillmentStatus?: string | null;
 }): boolean {
   return orderHasUsableShippingLabel(o);
-}
-
-function labelStatusForSession(
-  orders: {
-    paymentStatus: string;
-    shippoTransactionId: string | null;
-    labelUrl: string | null;
-    fulfillmentStatus?: string | null;
-  }[],
-): SellerLiveShippingLabelStatus {
-  if (orders.length === 0) return "empty";
-  const paid = orders.filter((o) => o.paymentStatus === PAYMENT_PAID);
-  if (paid.length === 0) return "awaiting_payment";
-  const labeled = paid.filter(orderHasLabel);
-  if (labeled.length === paid.length) return "complete";
-  if (labeled.length > 0) return "partial";
-  return "labels_needed";
 }
 
 type Db = Pick<PrismaClient, "liveShippingSession">;
@@ -178,7 +161,7 @@ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db = 
     const marginNegative = marginCents < 0;
     const labelStatus = labelStatusForSession(orders);
     const ordersNeedingLabels = orders
-      .filter((o) => o.paymentStatus === PAYMENT_PAID && !orderHasLabel(o))
+      .filter((o) => o.paymentStatus === PAYMENT_PAID && !orderIsSettledForBundling(o))
       .map((o) => o.id);
 
     totalCharged += shippingChargedCents;
@@ -188,7 +171,7 @@ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db = 
 
     const anyLabelInSession = orders.some(orderHasLabel);
     const hasEligibleBundledTarget = orders.some(
-      (o) => o.paymentStatus === PAYMENT_PAID && !orderHasLabel(o) && !o.listing.shipAlone,
+      (o) => o.paymentStatus === PAYMENT_PAID && !orderIsSettledForBundling(o) && !o.listing.shipAlone,
     );
     const canCreateBundledLabel = bundled && !anyLabelInSession && hasEligibleBundledTarget;
     const firstLabeled = orders.find(orderHasLabel);
