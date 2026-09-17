@@ -3,6 +3,7 @@ import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { computeBreakBuyerPhase } from "@/lib/live-room-break-public";
 import { liveRoomItemsWithVariantsInclude } from "@/lib/live-item-variant-include";
 import { serializeLiveRoomItem, type LiveRoomItemDTO } from "@/lib/live-room-serialize";
+import { effectiveLiveRoomViewerCount } from "@/lib/live-room-viewer-count-freshness";
 import { prisma } from "@/lib/prisma";
 
 /** Overlay-safe fields only — no seller PII, stream keys, or commerce internals. */
@@ -86,7 +87,13 @@ export async function buildObsWidgetSnapshot(liveRoomId: string): Promise<ObsWid
     title: room.title,
     status: room.status,
     roomType: room.roomType,
-    viewerCount: room.viewerCount,
+    // Same freshness gate as discovery/admin/host-console — without it, a stream that ends
+    // (or a widget left open) shows whatever count was last synced, forever, instead of resetting
+    // to 0. This is the overlay sellers put on-screen in OBS, so a stale number is highly visible.
+    viewerCount: effectiveLiveRoomViewerCount({
+      viewerCount: room.viewerCount,
+      viewerCountUpdatedAt: room.viewerCountUpdatedAt,
+    }),
     serverNowMs: Date.now(),
     activeItem: toOverlayItem(activeRow),
     recentTipBodies,
