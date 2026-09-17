@@ -232,7 +232,28 @@ export async function seedSellerShippingProfiles(
   return { count };
 }
 
+/**
+ * Regression (Sept 2026): this used to call `seedSellerShippingProfiles` unconditionally on
+ * every single call. That function loops over all 16 seed rows and `upsert`s each one, so every
+ * live room page load/poll — for every viewer — fired 16 sequential write queries against a
+ * seller who was, in the overwhelming majority of calls, already fully seeded. Sentry flagged
+ * this as an N+1 query pattern on `GET /api/live-rooms/[id]` and it was a major contributor to
+ * the database hitting its connection limit (EMAXCONN) during live shows. Worse, the upsert's
+ * `update` branch re-applies the hardcoded seed defaults every time, silently clobbering any
+ * customization a seller made via PATCH /api/account/seller/shipping-profiles.
+ *
+ * Fix: read first, and only pay the seeding cost when a seed slug is actually missing (a new
+ * seller, or a seed type added to the code after this seller was created).
+ */
 export async function getActiveSellerShippingProfiles(sellerId: string, db: Db = prisma) {
+  const existing = await db.sellerShippingProfile.findMany({
+    where: { sellerId, archivedAt: null },
+    orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+  });
+  const existingSlugs = new Set(existing.map((p) => p.sourceSlug));
+  const hasAllSeeds = SELLER_SHIPPING_PROFILE_SEEDS.every((seed) => existingSlugs.has(seed.sourceSlug));
+  if (hasAllSeeds) return existing;
+
   await seedSellerShippingProfiles(sellerId, db);
   return db.sellerShippingProfile.findMany({
     where: { sellerId, archivedAt: null },
