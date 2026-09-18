@@ -229,79 +229,92 @@ export async function finalizeLiveItemVariantPurchasePaid(
     }
   }
 
-  const item = await prisma.liveRoomItem.findUnique({
-    where: { id: purchase.liveRoomItemId },
-    select: { itemVersion: true },
-  });
-  if (!item) return;
-
-  const paidMeta = await prisma.liveItemVariantPurchase.findUnique({
-    where: { id: purchaseId },
-    select: {
-      fulfillmentOrderId: true,
-      stripePaymentIntentId: true,
-      totalUsd: true,
-    },
-  });
-  const chargeTotalUsd =
-    notificationChargeUsd != null && Number.isFinite(notificationChargeUsd) && notificationChargeUsd > 0
-      ? notificationChargeUsd
-      : await resolveLivePurchaseNotificationChargeUsd({
-          fallbackUsd: paidMeta?.totalUsd ?? purchase.totalUsd,
-          fulfillmentOrderId: paidMeta?.fulfillmentOrderId ?? purchase.fulfillmentOrderId,
-          stripePaymentIntentId:
-            stripePaymentIntentId ??
-            sanitizeStripePaymentIntentId(paidMeta?.stripePaymentIntentId ?? purchase.stripePaymentIntentId),
-        });
-
+  // Regression (Sept 2026, live show incident): this emit used to fire only after several more
+  // sequential DB round trips below (a re-fetch of the item, a purchase re-fetch, and a fee-aware
+  // notification-copy resolution). The purchase is already durably marked paid by the CAS above,
+  // so those later steps are pure bookkeeping — but if any of them threw (e.g. the database
+  // connection pool being saturated during a busy live show), this function threw right along with
+  // them and the board/queue realtime notification below never fired. The sale itself was correct
+  // in the database the whole time; sellers just saw the team board sit stale until they manually
+  // refreshed the page, and worse, the buyer's request could come back as a false "could not
+  // complete purchase" error even though they'd already been charged. Fire the notification the
+  // board actually listens for (`variant_purchased`) as early as everything it needs is known, and
+  // fence the rest of the (non-critical) bookkeeping behind a try/catch that only logs, so it can
+  // never retroactively turn an already-successful, already-notified purchase into an error.
   emitVariantPurchased(purchase.liveRoomId, {
     itemId: purchase.liveRoomItemId,
     variantId: purchase.variantId,
     purchaseId: purchase.id,
     label: displayLabel,
     buyerUsername: purchase.buyer.username,
-    amountUsd: chargeTotalUsd,
-    itemVersion: item.itemVersion,
+    amountUsd: purchase.totalUsd,
+    itemVersion: itemRow?.itemVersion,
     quantity: purchase.quantity,
     randomReveal,
   });
 
-  const room = await prisma.liveRoom.findUnique({
-    where: { id: purchase.liveRoomId },
-    select: { sellerId: true },
-  });
-
-  if (randomReveal && room?.sellerId && displayLabel.trim()) {
-    const username = purchase.buyer.username.replace(/^@+/, "").trim() || "Buyer";
-    const revealMsg = await prisma.liveRoomMessage.create({
-      data: {
-        liveRoomId: purchase.liveRoomId,
-        senderId: room.sellerId,
-        body: `@${username} got ${displayLabel.trim()}`,
-        messageType: "system",
+  try {
+    const paidMeta = await prisma.liveItemVariantPurchase.findUnique({
+      where: { id: purchaseId },
+      select: {
+        fulfillmentOrderId: true,
+        stripePaymentIntentId: true,
+        totalUsd: true,
       },
     });
-    await emitLiveRoomMessageById(revealMsg.id);
-  }
+    const chargeTotalUsd =
+      notificationChargeUsd != null && Number.isFinite(notificationChargeUsd) && notificationChargeUsd > 0
+        ? notificationChargeUsd
+        : await resolveLivePurchaseNotificationChargeUsd({
+            fallbackUsd: paidMeta?.totalUsd ?? purchase.totalUsd,
+            fulfillmentOrderId: paidMeta?.fulfillmentOrderId ?? purchase.fulfillmentOrderId,
+            stripePaymentIntentId:
+              stripePaymentIntentId ??
+              sanitizeStripePaymentIntentId(paidMeta?.stripePaymentIntentId ?? purchase.stripePaymentIntentId),
+          });
 
-  emitLiveRoomMessagesRefetch(purchase.liveRoomId);
-  void recordBuyerGiveawayPurchaseEntries(purchase.liveRoomId, purchase.buyerId, purchase.id).catch((e) => {
-    console.error("[variant purchase] buyers giveaway entry", e);
-  });
-
-  if (room?.sellerId) {
-    await maybeMarkVariantBreakReady(purchase.liveRoomItemId, purchase.liveRoomId, room.sellerId);
-  }
-
-  if (purchase.totalUsd > 0) {
-    const paymentNote = liveRoomBuyerPaymentConfirmedNotification({
-      amountUsd: chargeTotalUsd,
-      href: "/account/orders?view=live",
+    const room = await prisma.liveRoom.findUnique({
+      where: { id: purchase.liveRoomId },
+      select: { sellerId: true },
     });
-    await createNotification(prisma, {
-      userId: purchase.buyerId,
-      ...paymentNote,
+
+    if (randomReveal && room?.sellerId && displayLabel.trim()) {
+      const username = purchase.buyer.username.replace(/^@+/, "").trim() || "Buyer";
+      const revealMsg = await prisma.liveRoomMessage.create({
+        data: {
+          liveRoomId: purchase.liveRoomId,
+          senderId: room.sellerId,
+          body: `@${username} got ${displayLabel.trim()}`,
+          messageType: "system",
+        },
+      });
+      await emitLiveRoomMessageById(revealMsg.id);
+    }
+
+    emitLiveRoomMessagesRefetch(purchase.liveRoomId);
+    void recordBuyerGiveawayPurchaseEntries(purchase.liveRoomId, purchase.buyerId, purchase.id).catch((e) => {
+      console.error("[variant purchase] buyers giveaway entry", e);
     });
+
+    if (room?.sellerId) {
+      await maybeMarkVariantBreakReady(purchase.liveRoomItemId, purchase.liveRoomId, room.sellerId);
+    }
+
+    if (purchase.totalUsd > 0) {
+      const paymentNote = liveRoomBuyerPaymentConfirmedNotification({
+        amountUsd: chargeTotalUsd,
+        href: "/account/orders?view=live",
+      });
+      await createNotification(prisma, {
+        userId: purchase.buyerId,
+        ...paymentNote,
+      });
+    }
+  } catch (e) {
+    console.error(
+      "[variant purchase] post-paid bookkeeping failed (purchase already paid, board already notified)",
+      { purchaseId, error: e },
+    );
   }
 }
 

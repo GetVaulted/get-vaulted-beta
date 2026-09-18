@@ -393,3 +393,38 @@ describe("finalizeLiveItemVariantPurchasePaid — FIX 2: skip success side effec
     expect(maybeMarkVariantBreakReady).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("finalizeLiveItemVariantPurchasePaid — board-update resilience (Sept 2026 live-show incident)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("still fires the realtime board update even when later bookkeeping (e.g. a DB hiccup) throws", async () => {
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(
+      basePurchase({ fulfillmentOrderId: null, totalUsd: 25 }),
+    );
+    // Simulate a transient failure downstream of the payment being confirmed paid — e.g. the
+    // database connection pool being saturated during a busy live show. Before this fix, a throw
+    // here propagated out of finalizeLiveItemVariantPurchasePaid entirely, so the board/queue
+    // realtime notification below it never fired and the caller's request looked like a failed
+    // purchase even though the buyer had already been charged.
+    (createNotification as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("connection pool exhausted"));
+
+    await expect(finalizeLiveItemVariantPurchasePaid("vp_1")).resolves.toBeUndefined();
+
+    expect(emitVariantPurchased).toHaveBeenCalledTimes(1);
+    expect(emitVariantPurchased).toHaveBeenCalledWith(
+      "room_1",
+      expect.objectContaining({ itemId: "item_1", variantId: "variant_1", purchaseId: "vp_1" }),
+    );
+  });
+
+  it("does not let a downstream failure block or duplicate the board update payload", async () => {
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(
+      basePurchase({ fulfillmentOrderId: null, totalUsd: 25 }),
+    );
+    (maybeMarkVariantBreakReady as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("boom"));
+
+    await finalizeLiveItemVariantPurchasePaid("vp_1");
+
+    expect(emitVariantPurchased).toHaveBeenCalledTimes(1);
+  });
+});
