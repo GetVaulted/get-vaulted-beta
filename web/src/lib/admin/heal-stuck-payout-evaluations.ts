@@ -9,6 +9,8 @@ export type HealStuckPayoutsResult = {
   stillStuck: number;
   errored: number;
   errors: { orderId: string; message: string }[];
+  /** True when there are more matching orders than this call had time to process — call again. */
+  hasMore: boolean;
 };
 
 /**
@@ -32,8 +34,22 @@ export type HealStuckPayoutsResult = {
  * money itself — `processShippedPayoutEvaluation` only ever updates `payoutStatus` (and, for the
  * PayPal rail, triggers that rail's own existing release path); an admin still separately chooses
  * to push a Stripe bank payout from the Bank Payouts screen.
+ *
+ * Runs against a wall-clock time budget (`deadlineMs`, default 7s) instead of trying to drain the
+ * whole backlog in one call. Each candidate needs several sequential DB round-trips
+ * (loadOrderEvalContext, sibling checks, seller stats), and a serverless function invocation gets
+ * killed by the platform well before a batch of hundreds finishes — a kill that returns a
+ * non-JSON error page rather than a thrown exception, which is exactly what showed up in the admin
+ * UI as a generic "Recheck failed." even though every order processed before the kill was already
+ * correctly healed (each candidate's payoutStatus update commits immediately, not at the end of
+ * the batch). `hasMore: true` tells the caller there's still backlog left in this fetch so it can
+ * call again right away; the admin buttons loop on this automatically and the cron route loops
+ * internally within its own budget.
  */
-export async function healStuckBankPayoutEvaluations(limit = 500): Promise<HealStuckPayoutsResult> {
+export async function healStuckBankPayoutEvaluations(
+  limit = 500,
+  deadlineMs = 7000,
+): Promise<HealStuckPayoutsResult> {
   const candidates = await prisma.order.findMany({
     where: {
       paymentStatus: "paid",
@@ -50,13 +66,18 @@ export async function healStuckBankPayoutEvaluations(limit = 500): Promise<HealS
     take: Math.min(1000, Math.max(1, limit)),
   });
 
+  const startedAt = Date.now();
   let healed = 0;
   let healedUsd = 0;
   let stillStuck = 0;
   let errored = 0;
+  let processed = 0;
   const errors: { orderId: string; message: string }[] = [];
 
   for (const candidate of candidates) {
+    if (Date.now() - startedAt >= deadlineMs) break;
+    processed += 1;
+
     try {
       await processShippedPayoutEvaluation(candidate.id);
     } catch (e) {
@@ -70,16 +91,23 @@ export async function healStuckBankPayoutEvaluations(limit = 500): Promise<HealS
       continue;
     }
 
-    const after = await prisma.order.findUnique({
-      where: { id: candidate.id },
-      select: { payoutStatus: true },
-    });
-    if (after && after.payoutStatus !== "held") {
-      healed += 1;
-      healedUsd += candidate.totalUsd;
-    } else {
-      // Legitimately still not ready (e.g. a live-shipping-session sibling genuinely hasn't
-      // shipped yet, or label-cost clawback hasn't settled) — not an error, just not due yet.
+    try {
+      const after = await prisma.order.findUnique({
+        where: { id: candidate.id },
+        select: { payoutStatus: true },
+      });
+      if (after && after.payoutStatus !== "held") {
+        healed += 1;
+        healedUsd += candidate.totalUsd;
+      } else {
+        // Legitimately still not ready (e.g. a live-shipping-session sibling genuinely hasn't
+        // shipped yet, or label-cost clawback hasn't settled) — not an error, just not due yet.
+        stillStuck += 1;
+      }
+    } catch {
+      // The evaluation above already ran and already committed whatever it committed — a
+      // hiccup just reading the row back to check the result shouldn't crash the rest of the
+      // batch and lose everyone else's progress, so count it as stuck-for-now and move on.
       stillStuck += 1;
     }
   }
@@ -91,5 +119,6 @@ export async function healStuckBankPayoutEvaluations(limit = 500): Promise<HealS
     stillStuck,
     errored,
     errors: errors.slice(0, 20),
+    hasMore: processed < candidates.length,
   };
 }

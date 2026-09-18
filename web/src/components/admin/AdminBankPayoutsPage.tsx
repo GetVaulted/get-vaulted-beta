@@ -127,31 +127,56 @@ export function AdminBankPayoutsPage() {
     setError(null);
     setNote(null);
     try {
-      const res = await fetch("/api/admin/payouts/heal-stuck", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const j = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        candidates?: number;
-        healed?: number;
-        healedUsd?: number;
-        stillStuck?: number;
-        errored?: number;
-      };
-      if (!res.ok) {
-        setError(typeof j.error === "string" ? j.error : "Recheck failed.");
-        return;
+      // A single call only works a short, time-budgeted batch (see heal-stuck-payout-evaluations.ts)
+      // so it can never be killed mid-flight by the platform's function timeout — loop here,
+      // accumulating totals, until the server says there's nothing left (hasMore: false).
+      let totalCandidates = 0;
+      let totalHealed = 0;
+      let totalHealedUsd = 0;
+      let totalStillStuck = 0;
+      let totalErrored = 0;
+      let hasMore = true;
+      let round = 0;
+      while (hasMore && round < 40) {
+        round += 1;
+        const res = await fetch("/api/admin/payouts/heal-stuck", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const j = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          candidates?: number;
+          healed?: number;
+          healedUsd?: number;
+          stillStuck?: number;
+          errored?: number;
+          hasMore?: boolean;
+        };
+        if (!res.ok) {
+          setError(typeof j.error === "string" ? j.error : "Recheck failed.");
+          return;
+        }
+        totalCandidates += j.candidates ?? 0;
+        totalHealed += j.healed ?? 0;
+        totalHealedUsd += j.healedUsd ?? 0;
+        totalStillStuck += j.stillStuck ?? 0;
+        totalErrored += j.errored ?? 0;
+        hasMore = j.hasMore === true;
+        if ((j.candidates ?? 0) === 0) break;
+        if (hasMore) {
+          setNote(
+            `Unstuck ${totalHealed} order${totalHealed === 1 ? "" : "s"} so far (${money(totalHealedUsd)}) — still working…`,
+          );
+        }
       }
-      const healedCount = j.healed ?? 0;
       setNote(
-        healedCount > 0
-          ? `Unstuck ${healedCount} order${healedCount === 1 ? "" : "s"} (${money(j.healedUsd ?? 0)}) that were already shipped` +
+        totalHealed > 0
+          ? `Unstuck ${totalHealed} order${totalHealed === 1 ? "" : "s"} (${money(totalHealedUsd)}) that were already shipped` +
               ` but never advanced off held` +
-              ((j.stillStuck ?? 0) > 0 ? ` · ${j.stillStuck} still genuinely waiting` : "") +
-              ((j.errored ?? 0) > 0 ? ` · ${j.errored} errored (logged for follow-up)` : "")
-          : `Checked ${j.candidates ?? 0} held order${(j.candidates ?? 0) === 1 ? "" : "s"} — none were ready yet.`,
+              (totalStillStuck > 0 ? ` · ${totalStillStuck} still genuinely waiting` : "") +
+              (totalErrored > 0 ? ` · ${totalErrored} errored (logged for follow-up)` : "")
+          : `Checked ${totalCandidates} held order${totalCandidates === 1 ? "" : "s"} — none were ready yet.`,
       );
       await load();
     } finally {
