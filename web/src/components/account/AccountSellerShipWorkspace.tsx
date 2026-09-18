@@ -66,6 +66,38 @@ function formatDate(iso: string) {
   }
 }
 
+/** Local-calendar-day key (not UTC) so "today" matches what the seller actually sees on their clock. */
+function orderDayKey(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "unknown";
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  } catch {
+    return "unknown";
+  }
+}
+
+/** Section heading for a group of same-day orders: "Today" / "Yesterday" / "Tue, Sep 16". */
+function formatDateHeading(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "Unknown date";
+    const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const diffDays = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86_400_000);
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Yesterday";
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    return d.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      ...(sameYear ? {} : { year: "numeric" }),
+    });
+  } catch {
+    return "Unknown date";
+  }
+}
+
 function SetupBanner({ liveShipping }: { liveShipping: SellerLiveShippingDashboard | null }) {
   const setup = liveShipping?.labelSetup;
   if (!setup || (setup.shippoApiOk && setup.shipFromComplete && setup.shippoTokenPresent)) return null;
@@ -821,6 +853,27 @@ export function AccountSellerShipWorkspace({
     return { needsLabel, pendingShipment, shipped, complete: complete.slice(0, 40), waitPayment };
   }, [orders, awaitingBundleIds]);
 
+  // Seller ask (Sept 2026): the Needs Label tab was one flat pile of tiles - hard to tell what
+  // sold on which day at a glance, even with a date printed inside each tile. Group into
+  // same-day sections (newest day first) with a heading, same pattern a seller already expects
+  // from any order-history list.
+  const needsLabelByDay = useMemo(() => {
+    const sorted = [...buckets.needsLabel].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    const groups: { key: string; heading: string; orders: ShipWorkspaceOrder[] }[] = [];
+    const indexByKey = new Map<string, number>();
+    for (const order of sorted) {
+      const key = orderDayKey(order.createdAt);
+      let idx = indexByKey.get(key);
+      if (idx === undefined) {
+        idx = groups.length;
+        indexByKey.set(key, idx);
+        groups.push({ key, heading: formatDateHeading(order.createdAt), orders: [] });
+      }
+      groups[idx].orders.push(order);
+    }
+    return groups;
+  }, [buckets.needsLabel]);
+
   const createBundles = useMemo(
     () => (liveShipping?.sessions ?? []).filter((s) => s.canCreateBundledLabel),
     [liveShipping],
@@ -1001,15 +1054,28 @@ export function AccountSellerShipWorkspace({
                   onMarkBundleShipped={onMarkBundleShipped}
                 />
               ))}
-              {buckets.needsLabel.map((order) => (
-                <ShipOrderCard
-                  key={order.id}
-                  order={order}
-                  labelBusyId={labelBusyId}
-                  phase="needs_label"
-                  onCreateLabel={onCreateLabel}
-                  onMarkShipped={onMarkShipped}
-                />
+              {needsLabelByDay.map((group) => (
+                <div key={group.key} className="space-y-2.5">
+                  <div className="flex items-center gap-2 pt-1 first:pt-0">
+                    <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                      {group.heading}
+                    </span>
+                    <span className="text-[11px] text-zinc-700">
+                      · {group.orders.length} order{group.orders.length === 1 ? "" : "s"}
+                    </span>
+                    <div className="h-px flex-1 bg-white/[0.06]" />
+                  </div>
+                  {group.orders.map((order) => (
+                    <ShipOrderCard
+                      key={order.id}
+                      order={order}
+                      labelBusyId={labelBusyId}
+                      phase="needs_label"
+                      onCreateLabel={onCreateLabel}
+                      onMarkShipped={onMarkShipped}
+                    />
+                  ))}
+                </div>
               ))}
             </>
           ) : (
