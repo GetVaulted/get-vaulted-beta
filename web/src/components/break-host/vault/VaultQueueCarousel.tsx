@@ -6,6 +6,7 @@ import { isGiveawayTab } from "@/lib/seller-queue-tabs";
 import { VaultGiveawayLane } from "@/components/break-host/vault/VaultGiveawayLane";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { hostAuctionLaneItems, hostBinLaneItems } from "@/lib/live-buyer-queue-projection";
+import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 
 type ClaimLite = { user: { username: string } } | null;
 export type VaultQueueRow = { item: LiveRoomItemDTO; claim: ClaimLite; claims: { user: { username: string } }[] };
@@ -36,6 +37,8 @@ type VaultQueueCarouselProps = {
   postDisabled?: boolean;
   onSkip?: (id: string) => void;
   onDelete: (id: string) => void;
+  /** Edit price/sale-type/quantity for a plain lot, or spot pricing for a variant board. */
+  onEdit?: (id: string) => void;
   onAddAuction: () => void;
   onAddGiveaway?: () => void;
   onGiveawayOpenEntries?: (id: string) => void;
@@ -63,6 +66,7 @@ export function VaultQueueCarousel({
   postDisabled = false,
   onSkip,
   onDelete,
+  onEdit,
   onAddAuction,
   onAddGiveaway,
   onGiveawayOpenEntries,
@@ -274,6 +278,16 @@ export function VaultQueueCarousel({
                       Pin
                     </button>
                   ) : null}
+                  {item.status !== "sold" && onEdit && !isVariantSalesFormat(item.salesFormat) ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onEdit(item.id)}
+                      className="rounded-md px-2 py-1 text-[8px] font-black uppercase tracking-wide text-amber-200/90 hover:bg-amber-500/15"
+                    >
+                      Edit
+                    </button>
+                  ) : null}
                   {item.status !== "sold" ? (
                     <button
                       type="button"
@@ -354,6 +368,16 @@ export function VaultQueueCarousel({
                         className="min-h-8 flex-1 rounded-lg border border-amber-500/25 bg-amber-500/10 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20"
                       >
                         Skip
+                      </button>
+                    ) : null}
+                    {item.status !== "sold" && onEdit && !isVariantSalesFormat(item.salesFormat) ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => onEdit(item.id)}
+                        className="min-h-8 flex-1 rounded-lg border border-amber-400/25 bg-amber-500/10 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                      >
+                        Edit
                       </button>
                     ) : null}
                     {item.status !== "sold" ? (

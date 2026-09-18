@@ -32,6 +32,12 @@ import { LiveShowSalesTile } from "@/components/break-host/LiveShowSalesTile";
 import { ExternalFulfillmentNotice } from "@/components/shipping/ExternalFulfillmentNotice";
 import { HostAddSupplementalModal } from "@/components/break-host/HostAddSupplementalModal";
 import { HostEditBreakSpotsModal, variantItemForSpotEditor } from "@/components/break-host/HostEditBreakSpotsModal";
+import {
+  HostEditLotPricingModal,
+  lotPricingEditableItem,
+  type LotPricingValues,
+  type LotSaleType,
+} from "@/components/break-host/HostEditLotPricingModal";
 import { buildExclusiveHostPinUpdates, hostPinnedBuyerVariant, isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import { HOST_PIN_BLOCKED_AUCTION_LIVE_MSG, hostPinLotBlocked } from "@/lib/host-queue-selection";
 import {
@@ -90,6 +96,7 @@ import {
   sendLiveRoomSystemMessage,
   startLiveRoomItemAuction,
   beginLiveRoomTeamBreak,
+  patchLiveRoomItemLotPricing,
 } from "@/lib/live-room-control-client";
 import { appendLiveRoomMessageDedupe, mergeLiveRoomMessagesById } from "@/lib/realtime-merge-messages";
 import { mergeHostQueueRows } from "@/lib/realtime-merge-queue";
@@ -300,6 +307,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const [hostCommerceMinimized, setHostCommerceMinimized] = useState(false);
   const [supplementalModalOpen, setSupplementalModalOpen] = useState(false);
   const [variantSpotEditOpen, setVariantSpotEditOpen] = useState(false);
+  const [lotPricingEditItemId, setLotPricingEditItemId] = useState<string | null>(null);
   const [pinVariantBusy, setPinVariantBusy] = useState(false);
   const [markSoldVariantBusy, setMarkSoldVariantBusy] = useState(false);
   const [stageMotionBurst, setStageMotionBurst] = useState<LiveStageMotionBurst>(null);
@@ -2282,6 +2290,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       onPost={handleHostPostItem}
       onSkip={(id) => void patchItem(id, "skipped")}
       onDelete={(id) => void deleteQueueItem(id)}
+      onEdit={(id) => handleOpenQueueItemEditor(id)}
       onAddItem={() => setQueueAddModal("auction")}
       onAddGiveaway={() => setQueueAddModal(addModalModeForTab(hostQueueTab))}
       onGiveawayOpenEntries={(id) => void runGiveawayAction(id, "open_entries")}
@@ -2330,6 +2339,61 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const handleOpenVariantSpotEditor = () => {
     if (!variantSpotEditItem) return;
     setVariantSpotEditOpen(true);
+  };
+
+  const lotPricingEditItem = useMemo(() => {
+    if (!lotPricingEditItemId) return null;
+    const row = data?.queueItems.find((q) => q.item.id === lotPricingEditItemId);
+    return row ? lotPricingEditableItem(row.item) ?? row.item : null;
+  }, [data?.queueItems, lotPricingEditItemId]);
+
+  /** Queue "Edit" button: variant/break lots use the spot editor, plain auction/buy_now lots use the pricing modal. */
+  const handleOpenQueueItemEditor = (itemId: string) => {
+    const row = data?.queueItems.find((q) => q.item.id === itemId);
+    if (!row) return;
+    if (isVariantSalesFormat(row.item.salesFormat)) {
+      setSelectedQueueItemId(itemId);
+      setVariantSpotEditOpen(true);
+      return;
+    }
+    setLotPricingEditItemId(itemId);
+  };
+
+  const handleSaveLotPricing = async (
+    itemId: string,
+    values: LotPricingValues,
+    previousSaleType: LotSaleType,
+  ) => {
+    const existingItem = data?.queueItems.find((q) => q.item.id === itemId)?.item;
+    // Switching buy_now -> auction with no explicit starting bid: carry the old buy-it-now price
+    // over as the starting bid so there's never a window where the lot is buyable at a stale $1
+    // default (mirrors the mobile host console's pricing editor).
+    let startingBidUsd = values.startingBidUsd;
+    if (previousSaleType === "buy_now" && values.saleType === "auction" && startingBidUsd == null) {
+      startingBidUsd = existingItem?.priceUsd ?? null;
+    }
+    setBusy(true);
+    setToast(null);
+    try {
+      const res = await patchLiveRoomItemLotPricing(roomId, itemId, {
+        saleType: values.saleType,
+        previousSaleType,
+        quantity: values.quantity,
+        startingBidUsd,
+        reservePriceUsd: values.saleType === "auction" ? existingItem?.reservePriceUsd ?? null : null,
+        priceUsd: values.priceUsd,
+      });
+      if (!res.ok) {
+        setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
+        return;
+      }
+      setLotPricingEditItemId(null);
+      await load();
+      router.refresh();
+      setToast("Pricing updated.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleSaveVariantSpots = async (
@@ -2436,6 +2500,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     onPostItem: handleHostPostItem,
     onSkipItem: (id: string) => void patchItem(id, "skipped"),
     onDeleteItem: (id: string) => void deleteQueueItem(id),
+    onEditItem: (id: string) => handleOpenQueueItemEditor(id),
     onAddAuction: () => {
       setVaultCommandOpen(false);
       setQueueAddModal("auction");
@@ -3087,6 +3152,14 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         busy={busy}
         onClose={() => setVariantSpotEditOpen(false)}
         onSave={(itemId, updates) => void handleSaveVariantSpots(itemId, updates)}
+      />
+
+      <HostEditLotPricingModal
+        open={lotPricingEditItemId != null}
+        item={lotPricingEditItem}
+        busy={busy}
+        onClose={() => setLotPricingEditItemId(null)}
+        onSave={(itemId, values, previousSaleType) => void handleSaveLotPricing(itemId, values, previousSaleType)}
       />
 
       <AddQueueItemModal

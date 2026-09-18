@@ -454,3 +454,65 @@ export async function sendLiveRoomSystemMessage(
   }
   return { ok: true, data: payload ?? {} };
 }
+
+export type LiveLotSaleType = "auction" | "buy_now";
+
+/**
+ * Save plain (non-variant) lot pricing from the host queue editor: starting bid / buy-it-now
+ * price, quantity, and — when the sale type changed — the format switch. Mirrors the mobile app's
+ * `onSaveQueuePricing` (updates pricing first, then flips format, so there's never a window where
+ * a buy-it-now lot is buyable at a stale $1 default while switching to auction).
+ */
+export async function patchLiveRoomItemLotPricing(
+  liveRoomId: string,
+  itemId: string,
+  args: {
+    saleType: LiveLotSaleType;
+    previousSaleType: LiveLotSaleType;
+    quantity: number;
+    startingBidUsd: number | null;
+    reservePriceUsd: number | null;
+    priceUsd: number | null;
+  },
+): Promise<ApiResult<Record<string, unknown>>> {
+  try {
+    const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(itemId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        quantity: args.quantity,
+        startingBidUsd: args.startingBidUsd,
+        reservePriceUsd: args.reservePriceUsd,
+        priceUsd: args.priceUsd,
+      }),
+    });
+    const payload = await readJsonSafe<Record<string, unknown>>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not update pricing.");
+      return { ok: false, error, issues };
+    }
+    if (args.saleType === args.previousSaleType) {
+      return { ok: true, data: payload ?? {} };
+    }
+    const res2 = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(itemId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action: "setCommerceFormat", salesFormat: args.saleType }),
+    });
+    const payload2 = await readJsonSafe<Record<string, unknown>>(res2);
+    if (!res2.ok) {
+      const { error, issues } = normalizeError(payload2, "Pricing saved, but could not switch the sale type.");
+      return { ok: false, error, issues };
+    }
+    return { ok: true, data: payload2 ?? {} };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server.",
+      issues: [],
+    };
+  }
+}

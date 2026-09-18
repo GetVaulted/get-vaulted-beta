@@ -58,6 +58,7 @@ export type LiveSellerCommandCenterProps = {
   onPostItem: (id: string) => void;
   onSkipItem?: (id: string) => void;
   onDeleteItem: (id: string) => void;
+  onEditItem?: (id: string) => void;
   onAddAuction: () => void;
   onAddGiveaway?: () => void;
   onGiveawayOpenEntries?: (id: string) => void;
@@ -201,6 +202,7 @@ export function LiveSellerCommandCenter({
   onPostItem,
   onSkipItem,
   onDeleteItem,
+  onEditItem,
   onAddAuction,
   onAddGiveaway,
   onGiveawayOpenEntries,
@@ -613,6 +615,7 @@ export function LiveSellerCommandCenter({
             postDisabled={!hostPinLotEnabled}
             onSkip={onSkipItem}
             onDelete={onDeleteItem}
+            onEdit={onEditItem}
             onAddAuction={onAddAuction}
             onAddGiveaway={onAddGiveaway}
             onGiveawayOpenEntries={onGiveawayOpenEntries}
