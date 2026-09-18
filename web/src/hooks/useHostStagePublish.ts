@@ -7,6 +7,7 @@ import type {
   StageConnectionState as StageConnectionStateType,
   StageError,
   StageStrategy,
+  StageVideoConfiguration,
 } from "amazon-ivs-web-broadcast";
 import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 
@@ -50,6 +51,51 @@ function friendlyMediaError(err: unknown): string {
 const HOST_MAX_REJOIN_ATTEMPTS = 5;
 /** Proactive host token refresh before the 12-hour server TTL expires. */
 const HOST_TOKEN_REFRESH_MS = 11 * 60 * 60 * 1000;
+
+/** Persists the seller's manual Lite mode choice on this device across rooms/sessions. */
+const LITE_MODE_STORAGE_KEY = "gv:hostLiteMode";
+
+/**
+ * Reduced encoder ceiling for hosts publishing from a hot/low-power device. With no config
+ * passed to LocalStageStream, the SDK defaults to STAGE_MAX_BITRATE (2500 Kbps) at
+ * STAGE_MAX_FRAMERATE (30fps) for every host regardless of device - sustained 720p/30fps
+ * WebRTC encode for a whole show is a well-known source of "my phone gets hot" complaints.
+ * This caps both well below the max. It is an encoder-side cap only, independent of the
+ * getUserMedia capture resolution, so it applies cleanly to the same camera track.
+ */
+const LITE_VIDEO_CONFIG: StageVideoConfiguration = { maxVideoBitrateKbps: 700, maxFramerate: 15 };
+
+/**
+ * Defaults Lite mode on for phones/tablets (the devices actually reporting heat issues),
+ * remembering any explicit choice the seller has already made on this device first.
+ */
+function detectDefaultLiteMode(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const stored = window.localStorage.getItem(LITE_MODE_STORAGE_KEY);
+    if (stored === "1") return true;
+    if (stored === "0") return false;
+  } catch {
+    /** Storage unavailable (private browsing, etc.) - fall through to device detection. */
+  }
+  const uaData = (navigator as unknown as { userAgentData?: { mobile?: boolean } }).userAgentData;
+  if (uaData?.mobile) return true;
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+}
+
+/** Builds the local camera/mic streams for publish, applying the Lite encoder cap to video only. */
+function buildLocalStreams(
+  ivs: Awaited<typeof import("amazon-ivs-web-broadcast")>,
+  media: MediaStream,
+  lite: boolean,
+): LocalStageStream[] {
+  const streams: LocalStageStream[] = [];
+  const videoTrack = media.getVideoTracks()[0];
+  const audioTrack = media.getAudioTracks()[0];
+  if (videoTrack) streams.push(new ivs.LocalStageStream(videoTrack, lite ? LITE_VIDEO_CONFIG : undefined));
+  if (audioTrack) streams.push(new ivs.LocalStageStream(audioTrack));
+  return streams;
+}
 
 function mediaConstraints(videoDeviceId?: string, audioDeviceId?: string): MediaStreamConstraints {
   const audio: MediaTrackConstraints = {
@@ -114,6 +160,9 @@ export function useHostStagePublish({
   const [devices, setDevices] = useState<HostMediaDevices>({ video: [], audio: [] });
   const [selectedVideoDeviceId, setSelectedVideoDeviceId] = useState("");
   const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState("");
+  const [liteMode, setLiteModeState] = useState<boolean>(() => detectDefaultLiteMode());
+  const liteModeRef = useRef(liteMode);
+  liteModeRef.current = liteMode;
 
   const callbacksRef = useRef({ onBroadcastStarted, onStreamRefresh, onLive });
   callbacksRef.current = { onBroadcastStarted, onStreamRefresh, onLive };
@@ -404,12 +453,7 @@ export function useHostStagePublish({
 
       const ivs = await import("amazon-ivs-web-broadcast");
       ivsModuleRef.current = ivs;
-      const videoTrack = media.getVideoTracks()[0];
-      const audioTrack = media.getAudioTracks()[0];
-      const localStreams: LocalStageStream[] = [];
-      if (videoTrack) localStreams.push(new ivs.LocalStageStream(videoTrack));
-      if (audioTrack) localStreams.push(new ivs.LocalStageStream(audioTrack));
-      localStreamsRef.current = localStreams;
+      localStreamsRef.current = buildLocalStreams(ivs, media, liteModeRef.current);
 
       await joinPublishStage(token, ivs);
     } catch (err) {
@@ -459,6 +503,40 @@ export function useHostStagePublish({
     setPhase("live");
   }, [phase]);
 
+  /**
+   * Toggles the publish encoder cap. Before Go Live this only sets the preference the next
+   * `start()` will use. Once live/paused, it swaps in a freshly-configured LocalStageStream for
+   * the same camera track and calls `stage.refreshStrategy()` - the SDK's documented way to
+   * pick up a stageStreamsToPublish() change - so quality drops without leaving/rejoining the
+   * Stage and with no visible interruption for buyers.
+   */
+  const setLiteMode = useCallback(
+    (next: boolean) => {
+      liteModeRef.current = next;
+      setLiteModeState(next);
+      try {
+        window.localStorage.setItem(LITE_MODE_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        /** ignore */
+      }
+      const ivs = ivsModuleRef.current;
+      const media = mediaStreamRef.current;
+      if (!ivs || !media || !stageRef.current || !wentLiveRef.current) return;
+      try {
+        localStreamsRef.current = buildLocalStreams(ivs, media, next);
+        stageRef.current.refreshStrategy();
+        logIvsWeb("lite mode changed", { roomId, lite: next, live: true });
+      } catch (err) {
+        logIvsWeb("lite mode apply failed", {
+          roomId,
+          lite: next,
+          message: err instanceof Error ? err.message : "refresh_failed",
+        });
+      }
+    },
+    [roomId],
+  );
+
   return {
     phase,
     error,
@@ -469,6 +547,8 @@ export function useHostStagePublish({
     selectedAudioDeviceId,
     setSelectedVideoDeviceId,
     setSelectedAudioDeviceId,
+    liteMode,
+    setLiteMode,
     refreshDevices,
     startPreview,
     restartPreviewWithDevices,

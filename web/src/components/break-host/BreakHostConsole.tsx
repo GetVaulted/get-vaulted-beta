@@ -2807,6 +2807,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             onResumeStream={handleResumeStream}
             streamTimerDisplay={streamTimerDisplay}
             viewerCount={viewerCount}
+            liteMode={webcamBroadcast.liteMode}
+            onToggleLiteMode={webcamBroadcast.setLiteMode}
           />
           <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,22vw)_minmax(0,1fr)_minmax(300px,24vw)]">
             <aside className="flex min-h-0 flex-col overflow-hidden border-r border-white/[0.08] bg-zinc-950/95">
@@ -2831,6 +2833,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
                   selectedAudioDeviceId={webcamBroadcast.selectedAudioDeviceId}
                   onVideoDevice={handlePreviewVideoDevice}
                   onAudioDevice={handlePreviewAudioDevice}
+                  liteMode={webcamBroadcast.liteMode}
+                  onToggleLiteMode={webcamBroadcast.setLiteMode}
                   onObs={() => setObsSetupModalOpen(true)}
                   onGoLive={handleGoLive}
                   busy={busy}
@@ -2889,6 +2893,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             onResumeStream={handleResumeStream}
             streamTimerDisplay={streamTimerDisplay}
             viewerCount={viewerCount}
+            liteMode={webcamBroadcast.liteMode}
+            onToggleLiteMode={webcamBroadcast.setLiteMode}
           />
           <VaultHostAnnouncements variant="mobileOverlay" />
           <div className="relative min-h-0 flex-1">
@@ -2908,6 +2914,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
               selectedAudioDeviceId={webcamBroadcast.selectedAudioDeviceId}
               onVideoDevice={handlePreviewVideoDevice}
               onAudioDevice={handlePreviewAudioDevice}
+              liteMode={webcamBroadcast.liteMode}
+              onToggleLiteMode={webcamBroadcast.setLiteMode}
               onObs={() => setObsSetupModalOpen(true)}
               onGoLive={handleGoLive}
               busy={busy}

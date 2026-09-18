@@ -14,6 +14,8 @@ type SellerGoLiveSetupPanelProps = {
   selectedAudioDeviceId: string;
   onVideoDevice: (id: string) => void;
   onAudioDevice: (id: string) => void;
+  liteMode: boolean;
+  onToggleLiteMode: (next: boolean) => void;
   onObs: () => void;
   onGoLive: () => void;
   busy?: boolean;
@@ -29,6 +31,8 @@ export function SellerGoLiveSetupPanel({
   selectedAudioDeviceId,
   onVideoDevice,
   onAudioDevice,
+  liteMode,
+  onToggleLiteMode,
   onObs,
   onGoLive,
   busy,
@@ -91,6 +95,21 @@ export function SellerGoLiveSetupPanel({
             </option>
           ))}
         </select>
+      </label>
+
+      <label className="mt-3 flex items-start gap-2.5 rounded-lg border border-white/10 bg-black/30 px-3 py-2.5">
+        <input
+          type="checkbox"
+          checked={liteMode}
+          onChange={(e) => onToggleLiteMode(e.target.checked)}
+          className="mt-0.5 h-4 w-4 accent-gold"
+        />
+        <span>
+          <span className="block text-xs font-bold text-zinc-100">Lite mode</span>
+          <span className="block text-[11px] leading-relaxed text-zinc-500">
+            Lowers video quality to reduce heat and data use — recommended on phones during long shows.
+          </span>
+        </span>
       </label>
 
       {error ? <p className="mt-2 text-xs text-rose-200">{error}</p> : null}
