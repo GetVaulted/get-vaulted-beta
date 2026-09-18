@@ -28,6 +28,8 @@ type SellerRow = {
   paypalPayoutVerifiedAt: string | null;
   orderCount: number;
   owedUsd: number;
+  outstandingLiabilityUsd: number;
+  netOfLiabilityUsd: number;
   needsAttentionCount: number;
   blockedReason: string | null;
   orders: OrderRow[];
@@ -91,6 +93,7 @@ export function AdminPayPalPayoutsPage() {
   const [reason, setReason] = useState("Admin PayPal payout release");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [healing, setHealing] = useState(false);
+  const [markingPaidSellerId, setMarkingPaidSellerId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -204,6 +207,59 @@ export function AdminPayPalPayoutsPage() {
     }
   };
 
+  /**
+   * Record that a seller's PayPal-rail balance was already paid off-platform (e.g. sent directly
+   * via PayPal or Stripe by hand) — never calls the PayPal API. Also runs the same outstanding
+   * shipping-label-liability recovery a real release would, so that offset isn't silently lost.
+   */
+  const markSellerPaid = async (s: SellerRow) => {
+    if (!reason.trim()) {
+      setError("Reason is required.");
+      return;
+    }
+    const handle = s.username?.trim() || s.sellerId.slice(0, 8);
+    const amountLabel = money(s.netOfLiabilityUsd);
+    const confirmed = window.confirm(
+      `Mark @${handle}'s ${s.orderCount} PayPal order${s.orderCount === 1 ? "" : "s"} as already paid?\n\n` +
+        `This records that you already sent them ${amountLabel} yourself \u2014 it does NOT call PayPal or move any money. ` +
+        `Only confirm if that money has already left your account.`,
+    );
+    if (!confirmed) return;
+
+    setMarkingPaidSellerId(s.sellerId);
+    setError(null);
+    setNote(null);
+    try {
+      const res = await fetch("/api/admin/payouts/paypal/mark-paid", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sellerId: s.sellerId, reason: reason.trim() }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        marked?: number;
+        sentUsd?: number;
+        liabilityRecoveredUsd?: number;
+      };
+      if (!res.ok) {
+        setError(typeof j.error === "string" ? j.error : "Mark paid failed.");
+        return;
+      }
+      const marked = j.marked ?? 0;
+      setNote(
+        marked > 0
+          ? `Marked ${marked} order${marked === 1 ? "" : "s"} paid for @${handle} (${money(j.sentUsd ?? 0)})` +
+              ((j.liabilityRecoveredUsd ?? 0) > 0
+                ? ` \u00b7 recovered ${money(j.liabilityRecoveredUsd)} in outstanding label costs`
+                : "")
+          : `No orders needed marking for @${handle}.`,
+      );
+      await load();
+    } finally {
+      setMarkingPaidSellerId(null);
+    }
+  };
+
   const totalOwed = data?.totalOwedUsd ?? 0;
   const needsAttention = data?.needsAttentionCount ?? 0;
 
@@ -287,7 +343,10 @@ export function AdminPayPalPayoutsPage() {
             "Needs attention" = blocked, sent to manual review, PayPal reported the payout failed / returned, or
             the seller doesn't have a verified PayPal email yet (so this can't be released no matter what).
             Releasing here calls the same PayPal Payouts API as the order detail page — it requires the order to be
-            shipped (or delivered) and the seller's PayPal email to be verified.
+            shipped (or delivered) and the seller's PayPal email to be verified. "Net to send" already subtracts any
+            outstanding Get Vaulted shipping-label cost this seller still owes — that's the real number to pay, not
+            "Owed". Use "Mark paid" only after you've already sent a seller their balance yourself (PayPal, Stripe,
+            or otherwise) — it records the orders as settled and recovers any label liability, but never moves money.
           </p>
 
           {note ? (
@@ -306,13 +365,14 @@ export function AdminPayPalPayoutsPage() {
             <p className="text-sm text-zinc-500">No paid orders are on the PayPal payout rail.</p>
           ) : (
             <div className={`${adminPanelClassName} overflow-x-auto`}>
-              <table className="w-full min-w-[820px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[940px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-white/10 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
                     <th className="px-4 py-3 font-bold">Seller</th>
                     <th className="px-3 py-3 font-bold">PayPal email</th>
                     <th className="px-3 py-3 font-bold">Orders</th>
                     <th className="px-3 py-3 font-bold">Owed</th>
+                    <th className="px-3 py-3 font-bold">Net to send</th>
                     <th className="px-3 py-3 font-bold">Needs attention</th>
                     <th className="px-4 py-3 font-bold">Action</th>
                   </tr>
@@ -347,25 +407,44 @@ export function AdminPayPalPayoutsPage() {
                           <td className="px-3 py-3 font-mono text-zinc-200">{s.orderCount}</td>
                           <td className="px-3 py-3 font-mono text-zinc-100">{money(s.owedUsd)}</td>
                           <td className="px-3 py-3 font-mono">
+                            <p className="text-zinc-100">{money(s.netOfLiabilityUsd)}</p>
+                            {s.outstandingLiabilityUsd > 0 ? (
+                              <p className="text-[10px] text-amber-200/90">
+                                −{money(s.outstandingLiabilityUsd)} label liability
+                              </p>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-3 font-mono">
                             <span className={s.needsAttentionCount > 0 ? "text-rose-300" : "text-zinc-500"}>
                               {s.needsAttentionCount}
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpanded((prev) => ({ ...prev, [s.sellerId]: !prev[s.sellerId] }))
-                              }
-                              className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] font-semibold text-zinc-400 hover:text-zinc-200"
-                            >
-                              {isOpen ? "Hide orders" : "Show orders"}
-                            </button>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpanded((prev) => ({ ...prev, [s.sellerId]: !prev[s.sellerId] }))
+                                }
+                                className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] font-semibold text-zinc-400 hover:text-zinc-200"
+                              >
+                                {isOpen ? "Hide orders" : "Show orders"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={markingPaidSellerId === s.sellerId || s.orderCount === 0}
+                                onClick={() => void markSellerPaid(s)}
+                                title="Record that you already sent this seller their PayPal balance yourself — does not call PayPal"
+                                className="rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-1.5 text-[11px] font-semibold text-sky-100 disabled:opacity-40 hover:bg-sky-500/15"
+                              >
+                                {markingPaidSellerId === s.sellerId ? "Marking\u2026" : "Mark paid"}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                         {isOpen ? (
                           <tr className="border-b border-white/[0.06] bg-black/20">
-                            <td colSpan={6} className="px-4 py-3">
+                            <td colSpan={7} className="px-4 py-3">
                               <ul className="divide-y divide-white/[0.05]">
                                 {s.orders.map((o) => {
                                   const stage = payoutStageLabel(o);

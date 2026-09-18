@@ -86,6 +86,46 @@ export async function planOutstandingLiabilityRecoveryForSeller(
  * ShipmentLabelFinance row and appending an audit-trail ShipmentLabelLiabilityRecovery row.
  * Safe to call more than once with the same `transactionId` — already-recorded items are skipped.
  */
+/**
+ * Batch outstanding-liability totals for several sellers at once (admin summary views — e.g. the
+ * PayPal payout queue showing "safe to send" alongside the raw estimated owed amount). Read-only;
+ * mirrors the per-seller sum `planOutstandingLiabilityRecoveryForSeller` would produce if given an
+ * unlimited budget, without planning a specific recovery.
+ */
+export async function getOutstandingLiabilityCentsBySeller(
+  sellerIds: string[],
+  db: DbClient = prisma,
+): Promise<Map<string, number>> {
+  const ids = [...new Set(sellerIds.map((id) => id.trim()).filter(Boolean))];
+  const result = new Map<string, number>();
+  if (ids.length === 0) return result;
+
+  const rows = await db.shipmentLabelFinance.findMany({
+    where: {
+      order: { sellerId: { in: ids } },
+      status: { in: [...RECOVERABLE_STATUSES] },
+    },
+    select: {
+      labelCostCents: true,
+      status: true,
+      sellerClawbackCents: true,
+      sellerRecoveredCents: true,
+      writtenOffCents: true,
+      sellerCreditCents: true,
+      sellerCreditTransferId: true,
+      order: { select: { sellerId: true } },
+    },
+  });
+
+  for (const row of rows as (LabelLiabilityRow & { order: { sellerId: string } })[]) {
+    const outstanding = outstandingLiabilityCentsForRow(row);
+    if (outstanding <= 0) continue;
+    result.set(row.order.sellerId, (result.get(row.order.sellerId) ?? 0) + outstanding);
+  }
+
+  return result;
+}
+
 export async function applyOutstandingLiabilityRecovery(
   plan: LiabilityRecoveryPlan,
   args: { method: ShipmentLabelLiabilityRecoveryMethod; transactionId: string },

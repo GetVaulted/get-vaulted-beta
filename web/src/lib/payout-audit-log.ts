@@ -37,7 +37,9 @@ export type PayoutAuditAction =
    * action names so these can be found/reviewed/reversed separately from confirmed matches.
    */
   | "order_payout_marked_paid_from_connect_shortfall_heuristic"
-  | "order_payout_marked_paid_from_full_clear_heuristic";
+  | "order_payout_marked_paid_from_full_clear_heuristic"
+  /** Admin recorded a seller's PayPal-rail orders as already paid off-platform — see paypal-mark-paid.ts. */
+  | "seller_paypal_orders_marked_already_paid";
 
 /** Best-effort audit log for payout eligibility decisions and admin overrides. */
 export async function logPayoutEligibilityDecision(args: {

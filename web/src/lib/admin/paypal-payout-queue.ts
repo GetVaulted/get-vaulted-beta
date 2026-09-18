@@ -6,6 +6,7 @@ import {
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
 import { OrderPayoutStatus } from "@/generated/prisma/enums";
+import { getOutstandingLiabilityCentsBySeller } from "@/services/shipping/label-liability-recovery";
 
 /**
  * Order-level payout statuses that mean "something needs an admin's eyes" —
@@ -41,7 +42,17 @@ export type AdminPayPalPayoutSellerRow = {
   paypalPayoutEmail: string | null;
   paypalPayoutVerifiedAt: string | null;
   orderCount: number;
+  /** Gross estimated payout across this seller's not-yet-paid orders (platform fee + shipping + label cost already applied). */
   owedUsd: number;
+  /**
+   * Outstanding Get Vaulted shipping-label liability (unpaid clawbacks) this seller carries.
+   * Not included in `owedUsd` above — it is only ever deducted at the moment a payout actually
+   * goes out (automated release, or an admin "mark paid" settlement). This is what a manual,
+   * off-platform payment should subtract before sending, or that recovery opportunity is lost.
+   */
+  outstandingLiabilityUsd: number;
+  /** `owedUsd` minus `outstandingLiabilityUsd`, floored at 0 — the actual amount safe to send. */
+  netOfLiabilityUsd: number;
   needsAttentionCount: number;
   blockedReason: string | null;
   orders: AdminPayPalPayoutOrderRow[];
@@ -188,11 +199,17 @@ export async function listPayPalPayoutQueue(limit = 300): Promise<AdminPayPalPay
     }
   }
 
+  const outstandingLiabilityBySeller = await getOutstandingLiabilityCentsBySeller([...bySeller.keys()]);
+
   const sellers: AdminPayPalPayoutSellerRow[] = [...bySeller.values()].map((g) => {
     const owedUsd = g.orders
       .filter((o) => o.payoutStatus !== OrderPayoutStatus.paid_out && !o.processorTransferId?.trim())
       .reduce((sum, o) => sum + o.estimatedNetUsd, 0);
     const emailReady = Boolean(g.paypalPayoutEmail?.trim()) && Boolean(g.paypalPayoutVerifiedAt);
+    const owedUsdRounded = Math.round(owedUsd * 100) / 100;
+    const outstandingLiabilityUsd =
+      Math.round((outstandingLiabilityBySeller.get(g.sellerId) ?? 0)) / 100;
+    const netOfLiabilityUsd = Math.max(0, Math.round((owedUsdRounded - outstandingLiabilityUsd) * 100) / 100);
     return {
       sellerId: g.sellerId,
       username: g.username,
@@ -200,7 +217,9 @@ export async function listPayPalPayoutQueue(limit = 300): Promise<AdminPayPalPay
       paypalPayoutEmail: g.paypalPayoutEmail,
       paypalPayoutVerifiedAt: g.paypalPayoutVerifiedAt,
       orderCount: g.orders.length,
-      owedUsd: Math.round(owedUsd * 100) / 100,
+      owedUsd: owedUsdRounded,
+      outstandingLiabilityUsd,
+      netOfLiabilityUsd,
       needsAttentionCount: g.orders.filter((o) => o.needsAttention).length,
       blockedReason: emailReady ? null : "paypal_email_not_verified",
       orders: g.orders,
