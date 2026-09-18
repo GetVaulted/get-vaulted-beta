@@ -52,6 +52,7 @@ export function AdminBankPayoutsPage() {
   const [loading, setLoading] = useState(true);
   const [busySellerId, setBusySellerId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [healing, setHealing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [reason, setReason] = useState("Admin seller bank payout release");
@@ -111,6 +112,50 @@ export function AdminBankPayoutsPage() {
       await load();
     } finally {
       setSyncing(false);
+    }
+  };
+
+  /**
+   * Orders that already look shipped (per their own DB fields) but whose payoutStatus never
+   * advanced off "held" — a stuck evaluation, not a legitimate hold. See
+   * heal-stuck-payout-evaluations.ts for why this class of order exists. Safe to run anytime:
+   * it only corrects a status field so the order shows up here correctly, it never pushes
+   * money anywhere by itself.
+   */
+  const healStuck = async () => {
+    setHealing(true);
+    setError(null);
+    setNote(null);
+    try {
+      const res = await fetch("/api/admin/payouts/heal-stuck", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        candidates?: number;
+        healed?: number;
+        healedUsd?: number;
+        stillStuck?: number;
+        errored?: number;
+      };
+      if (!res.ok) {
+        setError(typeof j.error === "string" ? j.error : "Recheck failed.");
+        return;
+      }
+      const healedCount = j.healed ?? 0;
+      setNote(
+        healedCount > 0
+          ? `Unstuck ${healedCount} order${healedCount === 1 ? "" : "s"} (${money(j.healedUsd ?? 0)}) that were already shipped` +
+              ` but never advanced off held` +
+              ((j.stillStuck ?? 0) > 0 ? ` · ${j.stillStuck} still genuinely waiting` : "") +
+              ((j.errored ?? 0) > 0 ? ` · ${j.errored} errored (logged for follow-up)` : "")
+          : `Checked ${j.candidates ?? 0} held order${(j.candidates ?? 0) === 1 ? "" : "s"} — none were ready yet.`,
+      );
+      await load();
+    } finally {
+      setHealing(false);
     }
   };
 
@@ -216,6 +261,15 @@ export function AdminBankPayoutsPage() {
             className="rounded-lg border border-sky-500/35 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-100 disabled:opacity-50 hover:bg-sky-500/15"
           >
             {syncing ? "Syncing…" : "Sync with Stripe"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void healStuck()}
+            disabled={healing}
+            title="Re-check paid + shipped orders stuck at held that never advanced to ready"
+            className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-100 disabled:opacity-50 hover:bg-amber-500/15"
+          >
+            {healing ? "Rechecking…" : "Recheck stuck orders"}
           </button>
           <button
             type="button"
