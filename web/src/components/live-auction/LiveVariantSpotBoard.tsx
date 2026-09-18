@@ -45,6 +45,9 @@ type LiveVariantSpotBoardProps = {
   minimized?: boolean;
   onToggleMinimized?: () => void;
   onAddSupplemental?: () => void;
+  onRepeatSupplemental?: () => void;
+  /** Short label for the repeat button, e.g. "Extra random · $25". Repeat button hides without it. */
+  repeatSupplementalLabel?: string | null;
   hostBusy?: boolean;
   onEditSpots?: () => void;
   /** Live room id — enables the username autocomplete strip in the Mark Sold form. */
@@ -69,6 +72,8 @@ export function LiveVariantSpotBoard({
   minimized = false,
   onToggleMinimized,
   onAddSupplemental,
+  onRepeatSupplemental,
+  repeatSupplementalLabel,
   hostBusy = false,
   onEditSpots,
   liveRoomId,
@@ -162,6 +167,17 @@ export function LiveVariantSpotBoard({
               : `${available} open · ${rows.length} spots`}
           </p>
         </div>
+        {canHostEdit && onRepeatSupplemental && repeatSupplementalLabel ? (
+          <button
+            type="button"
+            disabled={hostBusy}
+            onClick={onRepeatSupplemental}
+            title={`Add another ${repeatSupplementalLabel}`}
+            className="shrink-0 max-w-[6rem] truncate rounded-full border border-white/15 bg-white/5 px-2 py-1 text-[8px] font-black uppercase tracking-wide text-zinc-200 disabled:opacity-40"
+          >
+            +1 {repeatSupplementalLabel}
+          </button>
+        ) : null}
         {canHostEdit && onAddSupplemental ? (
           <button
             type="button"
@@ -212,6 +228,17 @@ export function LiveVariantSpotBoard({
                 className="rounded-lg border border-amber-300/35 bg-amber-500/15 px-2 py-1 text-[8px] font-black uppercase tracking-wide text-amber-100 disabled:opacity-40"
               >
                 Edit prices
+              </button>
+            ) : null}
+            {canHostEdit && onRepeatSupplemental && repeatSupplementalLabel ? (
+              <button
+                type="button"
+                disabled={hostBusy}
+                onClick={onRepeatSupplemental}
+                title={`Add another ${repeatSupplementalLabel}`}
+                className="max-w-[8rem] truncate rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-[8px] font-black uppercase tracking-wide text-zinc-200 disabled:opacity-40"
+              >
+                +1 {repeatSupplementalLabel}
               </button>
             ) : null}
             {canHostEdit && onAddSupplemental ? (

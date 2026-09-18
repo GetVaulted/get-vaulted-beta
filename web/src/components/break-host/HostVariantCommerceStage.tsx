@@ -22,6 +22,8 @@ type Props = {
   commerceMinimized?: boolean;
   onToggleCommerceMinimized?: () => void;
   onAddSupplemental?: () => void;
+  onRepeatSupplemental?: () => void;
+  repeatSupplementalLabel?: string | null;
   onEditSpots?: () => void;
   onPinVariant?: (variantId: string) => void;
   pinVariantBusy?: boolean;
@@ -42,6 +44,8 @@ export function HostVariantCommerceStage({
   commerceMinimized = false,
   onToggleCommerceMinimized,
   onAddSupplemental,
+  onRepeatSupplemental,
+  repeatSupplementalLabel,
   onEditSpots,
   onPinVariant,
   pinVariantBusy = false,
@@ -64,6 +68,8 @@ export function HostVariantCommerceStage({
           minimized={commerceMinimized}
           onToggleMinimized={onToggleCommerceMinimized}
           onAddSupplemental={onAddSupplemental}
+          onRepeatSupplemental={onRepeatSupplemental}
+          repeatSupplementalLabel={repeatSupplementalLabel}
           hostBusy={busy}
           onEditSpots={onEditSpots}
           onPinVariant={

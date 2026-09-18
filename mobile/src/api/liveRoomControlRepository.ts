@@ -285,6 +285,32 @@ export async function patchLiveItemVariants(
   if (!res.ok) throw new Error(apiErrorMessage(res, j));
 }
 
+/** Add brand-new named spots to a live team/division break board (e.g. "Extra random" fillers). */
+export async function appendLiveItemSupplementalVariants(
+  accessToken: string,
+  roomId: string,
+  itemId: string,
+  supplemental: {
+    name: string;
+    priceUsd: number;
+    spotCount: number;
+    feedsIntoTitle: string;
+  },
+): Promise<void> {
+  const res = await controlFetch(
+    `/api/live-rooms/${encodeURIComponent(roomId)}/items/${encodeURIComponent(itemId)}/variants`,
+    accessToken,
+    { method: 'POST', body: JSON.stringify({ supplemental }) },
+  );
+  let j: unknown;
+  try {
+    j = await res.json();
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+}
+
 /** Host team board: mark a PYT/PYD team sold via off-platform settlement (seller owes platform fee). */
 export async function manualAssignLiveItemVariant(args: {
   accessToken: string;

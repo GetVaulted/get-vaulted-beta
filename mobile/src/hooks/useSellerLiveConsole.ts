@@ -19,6 +19,7 @@ import {
   retireLiveItemVariant,
   patchLiveItemVariants,
   patchLiveRoomItem,
+  appendLiveItemSupplementalVariants,
   type LiveRoomItemRow,
 } from '../api/liveRoomControlRepository';
 import { openStripeCheckoutSession } from '../lib/openStripeCheckoutSession';
@@ -91,6 +92,8 @@ export function useSellerLiveConsole({
   const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(DEFAULT_AUCTION_SEC);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [pricingEditItem, setPricingEditItem] = useState<LiveRoomItemRow | null>(null);
+  const [supplementalModalOpen, setSupplementalModalOpen] = useState(false);
+  const [lastSupplemental, setLastSupplemental] = useState<{ itemId: string; name: string; priceUsd: number } | null>(null);
   const [pinningVariantId, setPinningVariantId] = useState<string | null>(null);
   const [markSoldBusy, setMarkSoldBusy] = useState(false);
   const [consoleError, setConsoleError] = useState<SanitizedLiveError | null>(null);
@@ -752,6 +755,37 @@ export function useSellerLiveConsole({
 
   const pricingEditIsBreak = pricingEditItem != null && isVariantSalesFormat(pricingEditItem.salesFormat);
 
+  const openSupplementalModal = () => {
+    if (!activeItem) return;
+    setSupplementalModalOpen(true);
+  };
+
+  const closeSupplementalModal = () => setSupplementalModalOpen(false);
+
+  /** Add brand-new named spots (e.g. "Extra random") to the active team/division break board. */
+  const appendSupplemental = (payload: { name: string; priceUsd: number; spotCount: number }) => {
+    if (!activeItem) return;
+    const itemId = activeItem.id;
+    const feedsIntoTitle = activeItem.displayTitle?.trim() || activeItem.title;
+    void run(async () => {
+      await appendLiveItemSupplementalVariants(accessToken, roomId, itemId, {
+        name: payload.name,
+        priceUsd: payload.priceUsd,
+        spotCount: payload.spotCount,
+        feedsIntoTitle,
+      });
+      setLastSupplemental({ itemId, name: payload.name, priceUsd: payload.priceUsd });
+      setSupplementalModalOpen(false);
+    });
+  };
+
+  /** One-tap repeat of the last supplemental added to THIS board -- no retyping name/price. */
+  const repeatLastSupplemental = () => {
+    if (!activeItem || !lastSupplemental || lastSupplemental.itemId !== activeItem.id) return;
+    const { name, priceUsd } = lastSupplemental;
+    appendSupplemental({ name, priceUsd, spotCount: 1 });
+  };
+
   const onReorder = (ordered: LiveRoomItemRow[]) => {
     void run(async () => {
       await Promise.all(
@@ -878,6 +912,12 @@ export function useSellerLiveConsole({
     setPricingEditItem,
     pricingEditIsBreak,
     openPricingEditor,
+    supplementalModalOpen,
+    openSupplementalModal,
+    closeSupplementalModal,
+    appendSupplemental,
+    lastSupplemental,
+    repeatLastSupplemental,
     onSaveQueuePricing,
     onSaveBreakSpots,
     onPinLiveTeam,

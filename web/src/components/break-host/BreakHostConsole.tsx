@@ -308,6 +308,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const [supplementalModalOpen, setSupplementalModalOpen] = useState(false);
   const [variantSpotEditOpen, setVariantSpotEditOpen] = useState(false);
   const [lotPricingEditItemId, setLotPricingEditItemId] = useState<string | null>(null);
+  const [lastSupplemental, setLastSupplemental] = useState<{ itemId: string; name: string; priceUsd: number } | null>(null);
   const [pinVariantBusy, setPinVariantBusy] = useState(false);
   const [markSoldVariantBusy, setMarkSoldVariantBusy] = useState(false);
   const [stageMotionBurst, setStageMotionBurst] = useState<LiveStageMotionBurst>(null);
@@ -2327,6 +2328,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
         return false;
       }
+      setLastSupplemental({ itemId, name: payload.name, priceUsd: payload.priceUsd });
       await load();
       router.refresh();
       setToast(`Added ${payload.spotCount} supplemental spot${payload.spotCount === 1 ? "" : "s"}.`);
@@ -2335,6 +2337,22 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       setBusy(false);
     }
   };
+
+  /** One-tap repeat of the last supplemental added to THIS board -- no reopening the modal. */
+  const handleRepeatSupplemental = () => {
+    if (!activeBoardRow || !lastSupplemental || activeBoardRow.item.id !== lastSupplemental.itemId) return;
+    void handleAppendSupplemental({
+      name: lastSupplemental.name,
+      priceUsd: lastSupplemental.priceUsd,
+      spotCount: 1,
+      feedsIntoTitle: activeBoardRow.item.displayTitle?.trim() || activeBoardRow.item.title,
+    });
+  };
+
+  const repeatSupplementalLabel =
+    lastSupplemental && activeBoardRow?.item.id === lastSupplemental.itemId
+      ? `${lastSupplemental.name} \u00b7 $${lastSupplemental.priceUsd}`
+      : null;
 
   const handleOpenVariantSpotEditor = () => {
     if (!variantSpotEditItem) return;
@@ -2725,6 +2743,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
           commerceMinimized={hostCommerceMinimized}
           onToggleCommerceMinimized={toggleHostCommerceMinimized}
           onAddSupplemental={() => setSupplementalModalOpen(true)}
+          onRepeatSupplemental={repeatSupplementalLabel ? handleRepeatSupplemental : undefined}
+          repeatSupplementalLabel={repeatSupplementalLabel}
           onEditSpots={variantSpotEditItem ? handleOpenVariantSpotEditor : undefined}
           onPinVariant={handlePinLiveVariant}
           pinVariantBusy={pinVariantBusy}

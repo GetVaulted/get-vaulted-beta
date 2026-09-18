@@ -23,6 +23,7 @@ import { SellerLiveGestureLayer } from './SellerLiveGestureLayer';
 import { AddInventoryModal } from '../liveConsole/AddInventoryModal';
 import { EditBreakSpotsModal } from '../liveConsole/EditBreakSpotsModal';
 import { EditQueueItemPricingModal } from '../liveConsole/EditQueueItemPricingModal';
+import { AddSupplementalModal } from '../liveConsole/AddSupplementalModal';
 import { LiveConsoleWarningBanner } from '../liveConsole/LiveConsoleWarningBanner';
 import type { SanitizedLiveError } from '../liveConsole/liveConsoleErrors';
 import { SellerLiveStreamBackdrop } from './SellerLiveStreamBackdrop';
@@ -110,6 +111,9 @@ type HostActions = {
   stageWebrtcEnabled: boolean;
   showCameraPreview: boolean;
   cameraFacing: SellerCameraFacing;
+  /** Seller's quick "fix mirrored video" toggle state — null/undefined is the platform default. */
+  cameraMirrorOverride?: boolean | null;
+  onToggleMirrorFix?: () => void;
   cameraZoom: number;
   zoomStops: number[];
   onSetCameraZoom: (factor: number) => void;
@@ -783,6 +787,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         useStageCamera={host.stageWebrtcEnabled}
         showCameraPreview={host.showCameraPreview}
         cameraFacing={host.cameraFacing}
+        mirrorOverride={host.cameraMirrorOverride}
         permissionState={host.cameraPermissionState}
         permissionError={host.cameraPermissionError}
         onRetryCameraPermission={host.onRetryCameraPermission}
@@ -876,6 +881,17 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
             showCameraFlip={host.stageWebrtcEnabled && host.showCameraPreview && !hostCompanionMode}
             cameraFlipDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
             onFlipCamera={host.onFlipCamera}
+            showMirrorFix={
+              Platform.OS === 'ios' &&
+              host.stageWebrtcEnabled &&
+              host.showCameraPreview &&
+              !hostCompanionMode &&
+              host.cameraFacing === 'front' &&
+              !!host.onToggleMirrorFix
+            }
+            mirrorFixActive={host.cameraMirrorOverride === false}
+            mirrorFixDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
+            onToggleMirrorFix={host.onToggleMirrorFix}
             showMicMute={host.stageWebrtcEnabled && host.showCameraPreview && !hostCompanionMode}
             micMuted={host.microphoneMuted}
             micMuteDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
@@ -1326,6 +1342,24 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
                 })
             : undefined
         }
+        onAddSupplemental={console.openSupplementalModal}
+        onRepeatSupplemental={
+          displayItem && console.lastSupplemental?.itemId === displayItem.id
+            ? console.repeatLastSupplemental
+            : undefined
+        }
+        repeatSupplementalLabel={
+          displayItem && console.lastSupplemental?.itemId === displayItem.id
+            ? `${console.lastSupplemental.name} \u00b7 $${console.lastSupplemental.priceUsd}`
+            : null
+        }
+      />
+      <AddSupplementalModal
+        open={console.supplementalModalOpen}
+        parentTitle={displayItem?.displayTitle?.trim() || displayItem?.title || 'this board'}
+        busy={console.busy}
+        onClose={console.closeSupplementalModal}
+        onSubmit={console.appendSupplemental}
       />
       <LiveSpotTakenCelebration
         celebration={spotCelebration}

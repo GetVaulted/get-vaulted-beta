@@ -78,6 +78,12 @@ type Props = {
   onRetireTeam?: (args: { variantId: string; label: string }) => void | Promise<void>;
   /** Bring an unavailable team back so it can sell again (e.g. late supp). */
   onRestoreTeam?: (args: { variantId: string; label: string }) => void | Promise<void>;
+  /** Host: open the "Add supplemental" sheet to add brand-new named spots to this board. */
+  onAddSupplemental?: () => void;
+  /** Host: one-tap repeat of the last supplemental added to this board (same name/price, +1 spot). */
+  onRepeatSupplemental?: () => void;
+  /** Short label for the repeat button, e.g. "Extra random · $25". Repeat button hides without it. */
+  repeatSupplementalLabel?: string | null;
 };
 
 const SETTLEMENT_METHODS: { id: string; label: string }[] = [
@@ -258,6 +264,9 @@ export function SellerBreakSpotBoardSheet({
   onMarkSold,
   onRetireTeam,
   onRestoreTeam,
+  onAddSupplemental,
+  onRepeatSupplemental,
+  repeatSupplementalLabel,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
@@ -394,16 +403,44 @@ export function SellerBreakSpotBoardSheet({
                       : ''}
               </LiveRoomText>
             </View>
-            <Pressable
-              style={styles.closeBtn}
-              onPress={() => {
-                dismissKeyboard();
-                onClose();
-              }}
-              hitSlop={10}
-            >
-              <Ionicons name="close" size={18} color="rgba(255,255,255,0.75)" />
-            </Pressable>
+            <View style={styles.headerActions}>
+              {canMarkSold && onRepeatSupplemental && repeatSupplementalLabel ? (
+                <Pressable
+                  style={styles.repeatSuppBtn}
+                  onPress={() => {
+                    dismissKeyboard();
+                    onRepeatSupplemental();
+                  }}
+                  hitSlop={6}
+                >
+                  <LiveRoomText style={styles.repeatSuppBtnTxt} numberOfLines={1}>
+                    +1 {repeatSupplementalLabel}
+                  </LiveRoomText>
+                </Pressable>
+              ) : null}
+              {canMarkSold && onAddSupplemental ? (
+                <Pressable
+                  style={styles.addSuppBtn}
+                  onPress={() => {
+                    dismissKeyboard();
+                    onAddSupplemental();
+                  }}
+                  hitSlop={6}
+                >
+                  <LiveRoomText style={styles.addSuppBtnTxt}>+ Supp</LiveRoomText>
+                </Pressable>
+              ) : null}
+              <Pressable
+                style={styles.closeBtn}
+                onPress={() => {
+                  dismissKeyboard();
+                  onClose();
+                }}
+                hitSlop={10}
+              >
+                <Ionicons name="close" size={18} color="rgba(255,255,255,0.75)" />
+              </Pressable>
+            </View>
           </View>
 
           <ScrollView
@@ -731,6 +768,40 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.48)',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  addSuppBtn: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(212,175,55,0.14)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  addSuppBtnTxt: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    color: colors.gold,
+  },
+  repeatSuppBtn: {
+    maxWidth: 120,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  repeatSuppBtnTxt: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.75)',
   },
   closeBtn: {
     width: 36,
