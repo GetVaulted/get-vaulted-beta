@@ -2056,6 +2056,13 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     );
   }, [data?.room, webcamBroadcast.phase]);
 
+  /** Moved above the loading/error bail-outs below -- must run on every render (Rules of Hooks). */
+  const lotPricingEditItem = useMemo(() => {
+    if (!lotPricingEditItemId) return null;
+    const row = data?.queueItems.find((q) => q.item.id === lotPricingEditItemId);
+    return row ? lotPricingEditableItem(row.item) ?? row.item : null;
+  }, [data?.queueItems, lotPricingEditItemId]);
+
   if (loadError && !data) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-[#050508] px-4 text-center text-sm text-rose-300">
@@ -2358,12 +2365,6 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     if (!variantSpotEditItem) return;
     setVariantSpotEditOpen(true);
   };
-
-  const lotPricingEditItem = useMemo(() => {
-    if (!lotPricingEditItemId) return null;
-    const row = data?.queueItems.find((q) => q.item.id === lotPricingEditItemId);
-    return row ? lotPricingEditableItem(row.item) ?? row.item : null;
-  }, [data?.queueItems, lotPricingEditItemId]);
 
   /** Queue "Edit" button: variant/break lots use the spot editor, plain auction/buy_now lots use the pricing modal. */
   const handleOpenQueueItemEditor = (itemId: string) => {
