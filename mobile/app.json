@@ -24,7 +24,7 @@
       "usesAppleSignIn": true,
       "bundleIdentifier": "com.getvaulted.app",
       "version": "1.0.12",
-      "buildNumber": "246",
+      "buildNumber": "247",
       "appStoreUrl": "https://apps.apple.com/app/id6780714456",
       "associatedDomains": [
         "applinks:shopgetvaulted.com",
@@ -44,7 +44,7 @@
     "android": {
       "package": "com.getvaulted.app",
       "version": "1.0.12",
-      "versionCode": 246,
+      "versionCode": 247,
       "googleServicesFile": "./google-services.json",
       "playStoreUrl": "https://play.google.com/store/apps/details?id=com.getvaulted.app",
       "adaptiveIcon": {
@@ -114,6 +114,15 @@
     },
     "plugins": [
       "expo-updates",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ],
       [
         "expo-image-picker",
         {
