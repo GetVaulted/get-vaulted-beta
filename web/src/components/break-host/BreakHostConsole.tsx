@@ -29,7 +29,6 @@ import { VaultQueueDrawer } from "@/components/break-host/vault/VaultQueueDrawer
 import { HostVariantCommerceStage } from "@/components/break-host/HostVariantCommerceStage";
 import { HostRecentSalesTile } from "@/components/break-host/HostRecentSalesTile";
 import { LiveShowSalesTile } from "@/components/break-host/LiveShowSalesTile";
-import { ExternalFulfillmentNotice } from "@/components/shipping/ExternalFulfillmentNotice";
 import { HostAddSupplementalModal } from "@/components/break-host/HostAddSupplementalModal";
 import { HostEditBreakSpotsModal, variantItemForSpotEditor } from "@/components/break-host/HostEditBreakSpotsModal";
 import {
@@ -2793,8 +2792,6 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   };
 
   const hostPaymentFailures = data?.sellerUnresolvedPaymentFailures ?? [];
-  const showExternalFulfillmentHostNotice =
-    (data?.externalFulfillmentPaidCount ?? 0) > 0 || (data?.variantExternalFulfillmentCount ?? 0) > 0;
 
   return (
     <div
@@ -2820,13 +2817,6 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
                 </button>
               </div>
             ))}
-          </div>
-        </div>
-      ) : null}
-      {showExternalFulfillmentHostNotice ? (
-        <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[60] w-[min(92vw,28rem)] -translate-x-1/2 px-2">
-          <div className="pointer-events-auto">
-            <ExternalFulfillmentNotice audience="host" compact />
           </div>
         </div>
       ) : null}

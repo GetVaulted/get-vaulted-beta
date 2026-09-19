@@ -1,7 +1,6 @@
 "use client";
 
 import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
-import { ExternalFulfillmentNotice } from "@/components/shipping/ExternalFulfillmentNotice";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 
@@ -59,9 +58,6 @@ export function HostVariantCommerceStage({
   if (activeVariant) {
     return (
       <div className="pointer-events-none absolute inset-x-0 bottom-28 z-[14] flex flex-col items-center gap-2 px-4">
-        <div className="pointer-events-auto w-full max-w-lg">
-          <ExternalFulfillmentNotice audience="host" compact />
-        </div>
         <LiveVariantSpotBoard
           item={activeBoardRow.item}
           hostMode
