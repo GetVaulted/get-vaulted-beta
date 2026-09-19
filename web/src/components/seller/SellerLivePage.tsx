@@ -170,6 +170,37 @@ function formatEndedAgo(iso: string): string {
   return `${hours} hour${hours === 1 ? "" : "s"} ago`;
 }
 
+/**
+ * Visual language for a "Your shows" row, keyed by room status. Live rows get
+ * an urgent red pulse, scheduled rows a gold tint (matches the brand accent
+ * used for the "Selected" state elsewhere), and ended rows are dimmed down
+ * so a long history doesn't compete with what actually needs attention.
+ */
+function roomStatusMeta(status: LiveRoomListApiRow["status"]) {
+  if (status === "live") {
+    return {
+      dotClass: "bg-red-500 animate-pulse",
+      cardClass: "border-red-500/35 bg-red-950/[0.12] hover:border-red-500/50",
+      titleClass: "text-red-100",
+      label: "Live now",
+    };
+  }
+  if (status === "scheduled") {
+    return {
+      dotClass: "bg-gold",
+      cardClass: "border-gold/30 bg-gold/[0.06] hover:border-gold/45",
+      titleClass: "text-zinc-100",
+      label: "Scheduled",
+    };
+  }
+  return {
+    dotClass: "bg-zinc-600",
+    cardClass: "border-white/[0.06] bg-zinc-950/40 opacity-70 hover:border-white/15 hover:opacity-100",
+    titleClass: "text-zinc-400",
+    label: "Ended",
+  };
+}
+
 export function SellerLivePage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -993,13 +1024,18 @@ export function SellerLivePage() {
   });
 
   // Must stay above loading early-returns (Rules of Hooks).
-  const featuredRooms = useMemo(() => {
-    // Always surface live + scheduled first so Console is reachable before go-live.
-    // Then a few recent ended shows — don't let 30+ ended rooms hide the active ones.
-    const active = rooms.filter((r) => r.status === "live" || r.status === "scheduled");
-    const ended = rooms.filter((r) => r.status !== "live" && r.status !== "scheduled");
-    return [...active, ...ended.slice(0, Math.max(0, 8 - active.length))];
+  const [showsFilter, setShowsFilter] = useState<"upcoming" | "ended" | "all">("upcoming");
+  const showsBuckets = useMemo(() => {
+    const live = rooms.filter((r) => r.status === "live");
+    const scheduled = rooms.filter((r) => r.status === "scheduled");
+    const ended = rooms.filter((r) => r.status === "ended");
+    return { live, scheduled, ended, upcoming: [...live, ...scheduled] };
   }, [rooms]);
+  const visibleRooms = useMemo(() => {
+    if (showsFilter === "ended") return showsBuckets.ended;
+    if (showsFilter === "all") return rooms;
+    return showsBuckets.upcoming;
+  }, [showsFilter, showsBuckets, rooms]);
 
   if (status === "loading" || status === "unauthenticated" || sellerGateLoading) {
     return (
@@ -1085,7 +1121,7 @@ export function SellerLivePage() {
             </header>
 
             <section className="rounded-2xl border border-white/[0.06] bg-black/35 p-4 sm:p-5">
-              <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Your shows</h2>
                 <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
                   {loading ? "Loading…" : `${rooms.length} total`}
@@ -1099,53 +1135,90 @@ export function SellerLivePage() {
                 </p>
               ) : (
                 <>
-                  <ul className="space-y-2">
-                    {featuredRooms.map((r) => (
-                      <li
-                        key={`top-${r.id}`}
-                        className={`rounded-xl border px-3 py-2.5 transition ${
-                          selectedId === r.id
-                            ? "border-gold/40 bg-gold/[0.08]"
-                            : "border-white/[0.08] bg-zinc-950/50 hover:border-white/20"
-                        }`}
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedId(r.id)}
-                            className="min-w-0 text-left"
-                          >
-                            <p className="truncate text-sm font-semibold text-zinc-100">{r.title}</p>
-                            <p className="mt-0.5 text-[10px] uppercase tracking-wide text-zinc-500">
-                              {r.roomType} · {r.status}
-                              {r.discoveryVisibility === "private" ? " · private" : ""}
-                              {r.scheduledStartAt ? ` · ${formatScheduledStartFromIso(r.scheduledStartAt)}` : ""}
-                            </p>
-                          </button>
-                          <div className="flex items-center gap-2">
-                            <Link
-                              href={`/live/${encodeURIComponent(r.id)}`}
-                              className="rounded-lg border border-white/12 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-zinc-200 hover:bg-white/[0.06]"
-                            >
-                              Open
-                            </Link>
-                            <Link
-                              href={`/seller/live/${encodeURIComponent(r.id)}/console`}
-                              className="rounded-lg border border-violet-500/35 bg-violet-950/25 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-violet-200 hover:bg-violet-950/40"
-                            >
-                              Console
-                            </Link>
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                  {rooms.length > featuredRooms.length ? (
-                    <p className="mt-2 text-[10px] text-zinc-600">
-                      Showing live &amp; upcoming first · {rooms.length - featuredRooms.length} older ended show
-                      {rooms.length - featuredRooms.length === 1 ? "" : "s"} in Manage below
+                  <div className="mb-3 flex w-fit gap-1 rounded-xl border border-white/[0.07] bg-black/30 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowsFilter("upcoming")}
+                      className={`rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide transition ${
+                        showsFilter === "upcoming" ? "bg-gold/14 text-gold-bright" : "text-zinc-500 hover:text-zinc-300"
+                      }`}
+                    >
+                      Upcoming · {showsBuckets.upcoming.length}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowsFilter("ended")}
+                      className={`rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide transition ${
+                        showsFilter === "ended" ? "bg-gold/14 text-gold-bright" : "text-zinc-500 hover:text-zinc-300"
+                      }`}
+                    >
+                      Ended · {showsBuckets.ended.length}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowsFilter("all")}
+                      className={`rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide transition ${
+                        showsFilter === "all" ? "bg-gold/14 text-gold-bright" : "text-zinc-500 hover:text-zinc-300"
+                      }`}
+                    >
+                      All · {rooms.length}
+                    </button>
+                  </div>
+                  {visibleRooms.length === 0 ? (
+                    <p className="text-sm leading-relaxed text-zinc-500">
+                      {showsFilter === "ended" ? "No ended shows yet." : "Nothing live or scheduled right now."}
                     </p>
-                  ) : null}
+                  ) : (
+                    <ul className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+                      {visibleRooms.map((r) => {
+                        const meta = roomStatusMeta(r.status);
+                        const isSelected = selectedId === r.id;
+                        return (
+                          <li
+                            key={`top-${r.id}`}
+                            className={`rounded-xl border px-3 py-2.5 transition ${
+                              isSelected ? "border-gold/40 bg-gold/[0.08]" : meta.cardClass
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedId(r.id)}
+                                className="flex min-w-0 items-center gap-2.5 text-left"
+                              >
+                                <span className={`size-2 shrink-0 rounded-full ${meta.dotClass}`} aria-hidden />
+                                <span className="min-w-0">
+                                  <p className={`truncate text-sm font-semibold ${isSelected ? "text-zinc-100" : meta.titleClass}`}>
+                                    {r.title}
+                                  </p>
+                                  <p className="mt-0.5 text-[10px] uppercase tracking-wide text-zinc-500">
+                                    {r.roomType} · {meta.label}
+                                    {r.discoveryVisibility === "private" ? " · private" : ""}
+                                    {r.scheduledStartAt ? ` · ${formatScheduledStartFromIso(r.scheduledStartAt)}` : ""}
+                                    {r.status === "ended" && r.endedAt ? ` · ${formatEndedAgo(r.endedAt)}` : ""}
+                                  </p>
+                                </span>
+                              </button>
+                              <div className="flex items-center gap-2">
+                                <Link
+                                  href={`/live/${encodeURIComponent(r.id)}`}
+                                  className="rounded-lg border border-white/12 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-zinc-200 hover:bg-white/[0.06]"
+                                >
+                                  Open
+                                </Link>
+                                <Link
+                                  href={`/seller/live/${encodeURIComponent(r.id)}/console`}
+                                  className="rounded-lg border border-gold/35 bg-gold/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-gold-bright hover:border-gold/55 hover:bg-gold/[0.16]"
+                                >
+                                  Console
+                                </Link>
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </>
               )}
             </section>
@@ -1851,40 +1924,6 @@ export function SellerLivePage() {
               </ul>
             </div>
 
-            <div className="rounded-2xl border border-white/[0.06] bg-black/35 p-4">
-              <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Your shows</h3>
-              {loading ? (
-                <p className="mt-3 text-sm text-zinc-500">Loading…</p>
-              ) : rooms.length === 0 ? (
-                <p className="mt-3 text-sm leading-relaxed text-zinc-500">
-                  Your scheduled and live shows land here. Use <span className="font-semibold text-zinc-400">Schedule</span>{" "}
-                  for a future slot, or <span className="font-semibold text-zinc-400">Start now</span> to jump in
-                  immediately — then queue products from Manage.
-                </p>
-              ) : (
-                <ul className="mt-3 max-h-52 space-y-2 overflow-y-auto pr-1">
-                  {rooms.map((r) => (
-                    <li key={r.id}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedId(r.id)}
-                        className={`w-full rounded-xl border px-3 py-2.5 text-left text-xs transition ${
-                          selectedId === r.id
-                            ? "border-gold/40 bg-gold/[0.08] text-zinc-100"
-                            : "border-white/[0.06] bg-zinc-950/50 text-zinc-400 hover:border-white/15"
-                        }`}
-                      >
-                        <span className="font-semibold text-zinc-100">{r.title}</span>
-                        <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-zinc-500">
-                          {r.roomType} · {r.status}
-                          {r.scheduledStartAt ? ` · ${formatScheduledStartFromIso(r.scheduledStartAt)}` : ""}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
           </aside>
         </div>
 
@@ -1938,7 +1977,7 @@ export function SellerLivePage() {
                 </Link>
                 <Link
                   href={`/seller/live/${encodeURIComponent(selected.id)}/console`}
-                  className="inline-flex min-h-11 w-full items-center justify-center rounded-[var(--live-radius-chrome)] border border-violet-500/35 bg-violet-950/25 px-4 py-2.5 text-xs font-bold text-violet-200 transition-[transform,background-color,opacity] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] hover:bg-violet-950/40 active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40 sm:w-auto sm:min-h-10 sm:py-2"
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-[var(--live-radius-chrome)] border border-gold/35 bg-gold/10 px-4 py-2.5 text-xs font-bold text-gold-bright transition-[transform,background-color,opacity] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] hover:bg-gold/[0.16] active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40 sm:w-auto sm:min-h-10 sm:py-2"
                 >
                   Host console
                 </Link>
@@ -1951,15 +1990,15 @@ export function SellerLivePage() {
               </p>
             ) : null}
 
-            <div className="rounded-xl border border-violet-500/20 bg-violet-950/15 p-4">
+            <div className="rounded-xl border border-gold/20 bg-gold/[0.06] p-4">
               <p className="text-sm leading-relaxed text-zinc-300">
                 Camera and OBS streaming live in the{" "}
-                <span className="font-semibold text-violet-200">Host console</span> — open it when you are ready to go
+                <span className="font-semibold text-gold-bright">Host console</span> — open it when you are ready to go
                 live, then use <span className="font-semibold text-gold-bright">Start Stream</span>.
               </p>
               <Link
                 href={`/seller/live/${encodeURIComponent(selected.id)}/console`}
-                className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl border border-violet-500/35 bg-violet-950/30 px-4 text-xs font-bold text-violet-100 hover:bg-violet-950/45"
+                className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl border border-gold/35 bg-gold/10 px-4 text-xs font-bold text-gold-bright hover:bg-gold/[0.16]"
               >
                 Open host console
               </Link>
