@@ -63,7 +63,7 @@ export function useObsStreamSetup(roomId: string | null, roomStatus: string | nu
     }
   }, [roomId]);
 
-  const connectObs = useCallback(async () => {
+  const connectObs = useCallback(async (protocol?: "whip" | "rtmps") => {
     if (!roomId) return;
     setBusyAction("provision");
     setError(null);
@@ -73,6 +73,7 @@ export function useObsStreamSetup(roomId: string | null, roomStatus: string | nu
       const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/stream/provision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(protocol ? { protocol } : {}),
       });
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;

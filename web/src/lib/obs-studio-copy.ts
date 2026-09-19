@@ -15,6 +15,9 @@ export const OBS_STUDIO = {
   startShow: "Start show",
   streamSettingsBtn: "Stream settings",
   connectObs: "Connect OBS",
+  useRtmpsFallback: "No WHIP option in OBS? Use classic RTMPS",
+  switchToRtmps: "Having trouble with WHIP? Switch to classic RTMPS",
+  switchToWhip: "Switch back to WebRTC (WHIP)",
   refreshStatus: "Refresh status",
   copyServer: "Copy WHIP server",
   copyKey: "Copy bearer token",
@@ -78,7 +81,7 @@ export const OBS_HELP_ARTICLES: {
     id: "troubleshooting",
     title: "Troubleshooting",
     body: [
-      "OBS must be v30+ with Service set to WHIP (not Custom RTMPS).",
+      "OBS must be v30+ with Service set to WHIP (not Custom RTMPS). Running an older OBS, Streamlabs, or another encoder without a WHIP option? Click “No WHIP option in OBS? Use classic RTMPS” under Connect OBS — works on any encoder with a Custom RTMPS service.",
       "Connecting forever: confirm OBS shows “Streaming”, then Refresh status in Stream settings.",
       "Auth failed / disconnected: rotate bearer token, update OBS, and start streaming again (tokens expire ~12 hours).",
       "Stream disconnects immediately: drop below 720p and ≤ 2.5 Mbps, B-frames 0, keyframe 1s. Stage rejects oversize publishes.",
