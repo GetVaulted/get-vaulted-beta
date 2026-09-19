@@ -11,6 +11,9 @@ type SellerConsoleActionBarProps = {
   lineupCount?: number;
   lineupActive?: boolean;
   onObs: () => void;
+  /** True when the go-live camera/mic setup panel has been dismissed and can be reopened. */
+  goLiveSetupHidden?: boolean;
+  onOpenGoLiveSetup?: () => void;
   broadcastPhase: HostBroadcastPhase;
   roomLive: boolean;
   /** Camera already publishing from phone / another device — PC is command center only. */
@@ -33,6 +36,8 @@ export function SellerConsoleActionBar({
   lineupCount = 0,
   lineupActive = false,
   onObs,
+  goLiveSetupHidden = false,
+  onOpenGoLiveSetup,
   broadcastPhase,
   roomLive,
   companionMode = false,
@@ -91,6 +96,15 @@ export function SellerConsoleActionBar({
       >
         {SELLER_CONSOLE.obsSetup}
       </button>
+      {goLiveSetupHidden && onOpenGoLiveSetup ? (
+        <button
+          type="button"
+          onClick={onOpenGoLiveSetup}
+          className="inline-flex min-h-9 items-center rounded-full border border-gold/30 bg-gold/[0.08] px-3 text-xs font-bold text-gold-bright hover:bg-gold/[0.14]"
+        >
+          {SELLER_CONSOLE.goLiveSetupReopen}
+        </button>
+      ) : null}
       <div className="ml-auto flex flex-wrap items-center gap-2">
         {typeof viewerCount === "number" ? (
           <span className="text-xs font-bold tabular-nums text-zinc-400">

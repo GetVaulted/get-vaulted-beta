@@ -11,6 +11,7 @@ export const SELLER_CONSOLE = {
   stopStream: 'Stop stream',
   endShow: 'End show',
   obsSetup: 'OBS / RTMP',
+  goLiveSetupReopen: 'Camera setup',
   camera: 'Camera',
   microphone: 'Microphone',
   previewHint: 'Check your camera and mic, then go live. You stay in the command center.',

@@ -285,6 +285,9 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
 
   const [queueAddModal, setQueueAddModal] = useState<SellerQueueAddModalMode>(null);
   const [obsSetupModalOpen, setObsSetupModalOpen] = useState(false);
+  // Seller can close the go-live camera/mic setup panel to see the stage/queue behind it
+  // before they are ready, then reopen it from the action bar's "Camera setup" button.
+  const [goLiveSetupDismissed, setGoLiveSetupDismissed] = useState(false);
 
   const [teamBoardData, setTeamBoardData] = useState<TeamBoardPublicPayload | null>(null);
   const [teamBoardBusy, setTeamBoardBusy] = useState(false);
@@ -2199,6 +2202,15 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       streamHealth: room.streamHealth ?? "offline",
       streamPaused: room.streamPaused,
     }) && !hostLocalPublishing;
+
+  // Shared eligibility for the go-live camera/mic setup panel (independent of whether the
+  // seller has dismissed it) -- used both to render the panel and to decide whether the
+  // action bar's "Camera setup" reopen button should show.
+  const goLiveSetupEligible =
+    !hostCompanionMode &&
+    room.status !== "live" &&
+    webcamBroadcast.phase !== "live" &&
+    webcamBroadcast.phase !== "starting";
   const hostStartLiveAuctionEnabled = canHostStartLiveAuction(activeBoardRow?.item ?? null, {
     broadcastOnAir: hostBroadcastOnAir,
     lotBidPhase: hostActiveLotBidPhase,
@@ -2874,6 +2886,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             onShare={() => void handleShareRoom()}
             onAddItem={() => setQueueAddModal("auction")}
             onObs={() => setObsSetupModalOpen(true)}
+            goLiveSetupHidden={goLiveSetupEligible && goLiveSetupDismissed}
+            onOpenGoLiveSetup={() => setGoLiveSetupDismissed(false)}
             broadcastPhase={webcamBroadcast.phase}
             roomLive={room.status === "live"}
             companionMode={hostCompanionMode}
@@ -2895,12 +2909,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
               <div className="relative min-h-0 flex-1">
                 <LiveVideoStage {...hostStageProps} />
                 <SellerGoLiveSetupPanel
-                  visible={
-                    !hostCompanionMode &&
-                    room.status !== "live" &&
-                    webcamBroadcast.phase !== "live" &&
-                    webcamBroadcast.phase !== "starting"
-                  }
+                  visible={goLiveSetupEligible && !goLiveSetupDismissed}
                   phase={webcamBroadcast.phase}
                   error={webcamBroadcast.previewError ?? webcamBroadcast.error}
                   previewStream={webcamBroadcast.previewStream}
@@ -2913,6 +2922,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
                   onToggleLiteMode={webcamBroadcast.setLiteMode}
                   onObs={() => setObsSetupModalOpen(true)}
                   onGoLive={handleGoLive}
+                  onClose={() => setGoLiveSetupDismissed(true)}
                   busy={busy}
                 />
               </div>
@@ -2960,6 +2970,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             lineupCount={lineupCount}
             lineupActive={hostLineupOpen}
             onObs={() => setObsSetupModalOpen(true)}
+            goLiveSetupHidden={goLiveSetupEligible && goLiveSetupDismissed}
+            onOpenGoLiveSetup={() => setGoLiveSetupDismissed(false)}
             broadcastPhase={webcamBroadcast.phase}
             roomLive={room.status === "live"}
             companionMode={hostCompanionMode}
@@ -2976,12 +2988,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
           <div className="relative min-h-0 flex-1">
             <LiveVideoStage {...hostStagePropsMobile} />
             <SellerGoLiveSetupPanel
-              visible={
-                !hostCompanionMode &&
-                room.status !== "live" &&
-                webcamBroadcast.phase !== "live" &&
-                webcamBroadcast.phase !== "starting"
-              }
+              visible={goLiveSetupEligible && !goLiveSetupDismissed}
               phase={webcamBroadcast.phase}
               error={webcamBroadcast.previewError ?? webcamBroadcast.error}
               previewStream={webcamBroadcast.previewStream}
@@ -2994,6 +3001,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
               onToggleLiteMode={webcamBroadcast.setLiteMode}
               onObs={() => setObsSetupModalOpen(true)}
               onGoLive={handleGoLive}
+              onClose={() => setGoLiveSetupDismissed(true)}
               busy={busy}
             />
           </div>
