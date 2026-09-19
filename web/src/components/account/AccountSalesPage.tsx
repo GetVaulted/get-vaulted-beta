@@ -7,7 +7,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { AccountSellerLiveSalesSection } from "@/components/account/AccountSellerLiveSalesSection";
 import { AccountSellerShipWorkspace } from "@/components/account/AccountSellerShipWorkspace";
 import { SellerPayoutTierCard } from "@/components/account/SellerPayoutTierCard";
-import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
+import { SellerHubNav } from "@/components/seller/obs/SellerHubNav";
 import { AccountSalesViewTabs } from "@/components/account/AccountSalesViewTabs";
 import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 import { ExpiredAuctionRecoveryPanel } from "@/components/listings/ExpiredAuctionRecoveryPanel";
@@ -556,22 +556,23 @@ export function AccountSalesPage() {
         aria-hidden
       />
       <div className="relative mx-auto w-full max-w-[1920px] px-3 pb-16 pt-5 sm:px-4 lg:px-10">
-        <header className="border-b border-white/[0.07] pb-5">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Account</p>
-          <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">
-            {salesView === "ship" ? "Shipping queue" : salesView === "live" ? "Live sales" : "All sales"}
-          </h1>
-          <p className="mt-1.5 text-sm text-zinc-500">
-            {salesView === "live"
-              ? "Live sales by show — item, buyer, time, and amount as you sell."
-              : salesView === "ship"
-                ? "Needs label → Pending shipment → Shipped → Complete."
-                : "Sales history and payouts. Use the shipping queue to fulfill orders."}
-          </p>
-          <AccountSalesViewTabs active={salesView} />
-          <div className="mt-4">
-            <AccountOrdersNav active="sales" mode="seller" />
+        <SellerHubNav activeHref="/account/sales" />
+
+        <header className="mt-6 flex flex-col gap-4 border-b border-white/[0.07] pb-5 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Account</p>
+            <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">
+              {salesView === "ship" ? "Shipping queue" : salesView === "live" ? "Live sales" : "All sales"}
+            </h1>
+            <p className="mt-1.5 max-w-md text-sm text-zinc-500">
+              {salesView === "live"
+                ? "Live sales by show — item, buyer, time, and amount as you sell."
+                : salesView === "ship"
+                  ? "Print a label, drop it off, and Get Vaulted tracks it to delivery."
+                  : "Sales history and payouts. Use the shipping queue to fulfill orders."}
+            </p>
           </div>
+          <AccountSalesViewTabs active={salesView} />
         </header>
 
         {salesView === "live" ? <AccountSellerLiveSalesSection /> : null}

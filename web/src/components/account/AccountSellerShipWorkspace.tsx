@@ -260,7 +260,7 @@ function ShipOrderCard({
 
       <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
         {phase === "needs_label" ? (
-          <PrimaryButton tone="sky" disabled={busy} onClick={() => setShowParcelModal(true)}>
+          <PrimaryButton tone="gold" disabled={busy} onClick={() => setShowParcelModal(true)}>
             {busy ? "Creating…" : "Create label"}
           </PrimaryButton>
         ) : null}
@@ -283,6 +283,15 @@ function ShipOrderCard({
           <span className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-100/90">
             Pending carrier scan
           </span>
+        ) : null}
+        {phase === "awaiting_carrier" && order.labelUrl ? (
+          <button
+            type="button"
+            onClick={() => openLabelForPrint(order.labelUrl!)}
+            className="inline-flex h-11 items-center justify-center rounded-xl border border-white/12 px-4 text-sm font-medium text-zinc-400 transition hover:text-zinc-200"
+          >
+            Reprint
+          </button>
         ) : null}
         {phase !== "needs_label" && phase !== "wait_payment" && order.trackingUrl ? (
           <a
@@ -522,19 +531,27 @@ function BundleShipCard({
 
   return (
     <>
-    <article className="rounded-xl border border-sky-500/25 bg-sky-950/15 p-3.5">
+    <article className="rounded-xl border border-white/[0.08] bg-[#0a0a0d] p-3.5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wide text-sky-300/80">Live show bundle</p>
-          <p className="mt-0.5 text-base font-semibold text-zinc-100">{session.liveShowTitle}</p>
-          <p className="mt-1 text-sm text-zinc-400">
-            {buyer} · {session.orderCount} order{session.orderCount === 1 ? "" : "s"} · {session.itemCount} item
-            {session.itemCount === 1 ? "" : "s"}
-          </p>
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="#a1a1aa" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="7" width="14" height="12" rx="2" />
+              <rect x="7" y="3" width="14" height="12" rx="2" />
+            </svg>
+          </span>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Live show bundle</p>
+            <p className="mt-0.5 text-base font-semibold text-zinc-100">{session.liveShowTitle}</p>
+            <p className="mt-1 text-sm text-zinc-400">
+              {buyer} · {session.orderCount} order{session.orderCount === 1 ? "" : "s"} · {session.itemCount} item
+              {session.itemCount === 1 ? "" : "s"}
+            </p>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           {session.canCreateBundledLabel ? (
-            <PrimaryButton tone="sky" disabled={busy} onClick={() => setShowParcelModal(true)}>
+            <PrimaryButton tone="gold" disabled={busy} onClick={() => setShowParcelModal(true)}>
               {busy ? "Creating…" : "Create label"}
             </PrimaryButton>
           ) : null}
@@ -738,16 +755,30 @@ type PrimaryTab = "needs_label" | "pending_shipment" | "shipped" | "complete";
 
 const PRIMARY_TABS: PrimaryTab[] = ["needs_label", "pending_shipment", "shipped", "complete"];
 
+/**
+ * Which queue tab a given order phase renders in. "print_and_ship" (label
+ * exists, seller still needs to print + drop off) is grouped with Needs
+ * label -- it's still a to-do -- so this is the single source of truth for
+ * phase -> tab, used both for bucketing and for the "moved to X" toast.
+ */
+function tabForShipQueuePhase(phase: SellerShipQueuePhase): PrimaryTab | null {
+  if (phase === "needs_label" || phase === "print_and_ship") return "needs_label";
+  if (phase === "awaiting_carrier") return "pending_shipment";
+  if (phase === "in_transit") return "shipped";
+  if (phase === "done") return "complete";
+  return null;
+}
+
 const TAB_META: Record<PrimaryTab, { label: string; hint: string; emptyHint: string }> = {
   needs_label: {
     label: "Needs label",
-    hint: "Create a shipping label for paid orders.",
-    emptyHint: "Nothing waiting on a label right now.",
+    hint: "Create a label, then print it and drop off the package.",
+    emptyHint: "Nothing needs a label or drop-off right now.",
   },
   pending_shipment: {
     label: "Pending shipment",
-    hint: "Label is ready. Print it, drop off the package, then wait for the first carrier scan.",
-    emptyHint: "No labels waiting to ship.",
+    hint: "Dropped off — nothing to do here. Moves to Shipped automatically once the carrier scans it in.",
+    emptyHint: "Nothing waiting on a carrier scan.",
   },
   shipped: {
     label: "Shipped",
@@ -825,8 +856,8 @@ export function AccountSellerShipWorkspace({
   );
 
   const buckets = useMemo(() => {
-    const needsLabel: ShipWorkspaceOrder[] = [];
-    const pendingShipment: Array<{ order: ShipWorkspaceOrder; phase: "print_and_ship" | "awaiting_carrier" }> = [];
+    const needsLabel: Array<{ order: ShipWorkspaceOrder; phase: "needs_label" | "print_and_ship" }> = [];
+    const pendingShipment: Array<{ order: ShipWorkspaceOrder; phase: "awaiting_carrier" }> = [];
     const shipped: ShipWorkspaceOrder[] = [];
     const complete: ShipWorkspaceOrder[] = [];
     const waitPayment: ShipWorkspaceOrder[] = [];
@@ -835,8 +866,10 @@ export function AccountSellerShipWorkspace({
       if (!sellerShipQueueEligible(order)) continue;
       const phase = sellerShipQueuePhase(order);
       if (phase === "needs_label") {
-        if (!awaitingBundleIds.has(order.id)) needsLabel.push(order);
-      } else if (phase === "print_and_ship" || phase === "awaiting_carrier") {
+        if (!awaitingBundleIds.has(order.id)) needsLabel.push({ order, phase });
+      } else if (phase === "print_and_ship") {
+        needsLabel.push({ order, phase });
+      } else if (phase === "awaiting_carrier") {
         pendingShipment.push({ order, phase });
       } else if (phase === "in_transit") {
         shipped.push(order);
@@ -858,18 +891,24 @@ export function AccountSellerShipWorkspace({
   // same-day sections (newest day first) with a heading, same pattern a seller already expects
   // from any order-history list.
   const needsLabelByDay = useMemo(() => {
-    const sorted = [...buckets.needsLabel].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-    const groups: { key: string; heading: string; orders: ShipWorkspaceOrder[] }[] = [];
+    const sorted = [...buckets.needsLabel].sort(
+      (a, b) => Date.parse(b.order.createdAt) - Date.parse(a.order.createdAt),
+    );
+    const groups: {
+      key: string;
+      heading: string;
+      entries: { order: ShipWorkspaceOrder; phase: "needs_label" | "print_and_ship" }[];
+    }[] = [];
     const indexByKey = new Map<string, number>();
-    for (const order of sorted) {
-      const key = orderDayKey(order.createdAt);
+    for (const entry of sorted) {
+      const key = orderDayKey(entry.order.createdAt);
       let idx = indexByKey.get(key);
       if (idx === undefined) {
         idx = groups.length;
         indexByKey.set(key, idx);
-        groups.push({ key, heading: formatDateHeading(order.createdAt), orders: [] });
+        groups.push({ key, heading: formatDateHeading(entry.order.createdAt), entries: [] });
       }
-      groups[idx].orders.push(order);
+      groups[idx].entries.push(entry);
     }
     return groups;
   }, [buckets.needsLabel]);
@@ -886,7 +925,7 @@ export function AccountSellerShipWorkspace({
           !s.canCreateBundledLabel &&
           // Regression guard: a session whose orders have ALL already been marked shipped also
           // has canCreateBundledLabel: false (nothing left to label) — without this check its
-          // card would sit in Pending shipment forever even after every order in it has shipped,
+          // card would sit in Needs label forever even after every order in it has shipped,
           // since the individual orders move on to their own Shipped/Complete ShipOrderCards but
           // this session-level card never noticed. Keep it here only while at least one order in
           // the bundle is still pending/paid — i.e. labeled, but not yet marked shipped.
@@ -896,8 +935,8 @@ export function AccountSellerShipWorkspace({
   );
 
   const actionCounts = countShipQueueActions(orders, { skipOrderIds: awaitingBundleIds });
-  const needsLabelCount = buckets.needsLabel.length + createBundles.length;
-  const pendingShipmentCount = buckets.pendingShipment.length + printBundles.length;
+  const needsLabelCount = buckets.needsLabel.length + createBundles.length + printBundles.length;
+  const pendingShipmentCount = buckets.pendingShipment.length;
   const activeCount = needsLabelCount + pendingShipmentCount;
 
   const tabCounts: Record<PrimaryTab, number> = {
@@ -927,9 +966,13 @@ export function AccountSellerShipWorkspace({
       next.set(order.id, phase);
       const prevPhase = prev?.get(order.id);
       if (prev && prevPhase && prevPhase !== phase) {
-        if (phase === "print_and_ship" || phase === "awaiting_carrier") moved.pending_shipment += 1;
-        else if (phase === "in_transit") moved.shipped += 1;
-        else if (phase === "done") moved.complete += 1;
+        const prevTab = tabForShipQueuePhase(prevPhase);
+        const nextTab = tabForShipQueuePhase(phase);
+        if (nextTab && nextTab !== prevTab) {
+          if (nextTab === "pending_shipment") moved.pending_shipment += 1;
+          else if (nextTab === "shipped") moved.shipped += 1;
+          else if (nextTab === "complete") moved.complete += 1;
+        }
       }
     }
     prevPhaseRef.current = next;
@@ -985,8 +1028,8 @@ export function AccountSellerShipWorkspace({
         <p className="rounded-xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 text-sm text-rose-100">{labelError}</p>
       ) : null}
 
-      <div className="sticky top-0 z-10 -mx-1 border-b border-white/[0.07] bg-[#050506]/95 px-1 backdrop-blur">
-        <div className="flex gap-1 overflow-x-auto">
+      <div className="sticky top-0 z-10 -mx-1 bg-[#030303]/95 px-1 pb-3 pt-1 backdrop-blur">
+        <div className="flex gap-1 overflow-x-auto rounded-xl border border-white/[0.08] bg-[#0a0a0d]/70 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {PRIMARY_TABS.map((tab) => (
             <TabButton
               key={tab}
@@ -1054,6 +1097,15 @@ export function AccountSellerShipWorkspace({
                   onMarkBundleShipped={onMarkBundleShipped}
                 />
               ))}
+              {printBundles.map((session) => (
+                <BundleShipCard
+                  key={session.sessionId}
+                  session={session}
+                  bundledBusySessionId={bundledBusySessionId}
+                  bundledSessionFeedback={bundledSessionFeedback?.[session.sessionId]}
+                  onCreateBundledLabel={onCreateBundledLabel}
+                />
+              ))}
               {needsLabelByDay.map((group) => (
                 <div key={group.key} className="space-y-2.5">
                   <div className="flex items-center gap-2 pt-1 first:pt-0">
@@ -1061,16 +1113,16 @@ export function AccountSellerShipWorkspace({
                       {group.heading}
                     </span>
                     <span className="text-[11px] text-zinc-700">
-                      · {group.orders.length} order{group.orders.length === 1 ? "" : "s"}
+                      · {group.entries.length} order{group.entries.length === 1 ? "" : "s"}
                     </span>
                     <div className="h-px flex-1 bg-white/[0.06]" />
                   </div>
-                  {group.orders.map((order) => (
+                  {group.entries.map(({ order, phase }) => (
                     <ShipOrderCard
                       key={order.id}
                       order={order}
                       labelBusyId={labelBusyId}
-                      phase="needs_label"
+                      phase={phase}
                       onCreateLabel={onCreateLabel}
                       onMarkShipped={onMarkShipped}
                     />
@@ -1086,15 +1138,6 @@ export function AccountSellerShipWorkspace({
         {currentTab === "pending_shipment" ? (
           tabCounts.pending_shipment > 0 ? (
             <>
-              {printBundles.map((session) => (
-                <BundleShipCard
-                  key={session.sessionId}
-                  session={session}
-                  bundledBusySessionId={bundledBusySessionId}
-                  bundledSessionFeedback={bundledSessionFeedback?.[session.sessionId]}
-                  onCreateBundledLabel={onCreateBundledLabel}
-                />
-              ))}
               {buckets.pendingShipment.map(({ order, phase }) => (
                 <ShipOrderCard
                   key={order.id}

@@ -9,16 +9,25 @@ type Props = {
 };
 
 const TAB_CLASS = (sel: boolean) =>
-  `rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition ${
+  `rounded-lg px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition ${
     sel
-      ? "border-gold/45 bg-gold/12 text-gold-bright"
-      : "border-white/10 bg-white/[0.02] text-zinc-500 hover:border-white/18 hover:text-zinc-300"
+      ? "bg-gold/14 text-gold-bright"
+      : "text-zinc-500 hover:bg-white/[0.05] hover:text-zinc-300"
   }`;
 
-/** Page-local Sales tools — distinct from the seller account strip. */
+/**
+ * Page-local Sales view switcher. Rendered as a compact segmented control so
+ * it reads as subordinate to the seller nav above it, not a second full-width
+ * tab bar competing with it — the caller places it (e.g. beside the page
+ * title) rather than this component claiming its own row.
+ */
 export function AccountSalesViewTabs({ active }: Props) {
   return (
-    <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Sales views">
+    <div
+      className="flex flex-wrap gap-1 rounded-xl border border-white/[0.07] bg-white/[0.02] p-1"
+      role="tablist"
+      aria-label="Sales views"
+    >
       <Link href="/account/sales" role="tab" aria-selected={active === "ship"} className={TAB_CLASS(active === "ship")}>
         Shipping queue
       </Link>
