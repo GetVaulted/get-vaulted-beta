@@ -253,16 +253,21 @@ export default function TermsPage() {
             checkout, or in seller tools. As of the date above, our standard fees are:
           </p>
           <ul className="mt-2 list-disc space-y-2 pl-5 text-muted">
-            <li>Marketplace (Buy Now) sales: an 8% platform fee on the item price (shipping and tax are excluded);</li>
             <li>
-              Vault Events / live-show sales: a tiered platform fee based on your show’s gross sales — 8% on the first
-              $1,000, 7.25% from $1,000 up to $3,000, and 6.5% above $3,000 in a single show;
+              Marketplace (Buy Now) sales: a 6.75% platform fee on the item price (shipping and tax are excluded);
             </li>
             <li>
-              Trade Center protection fees: a flat fee by item category, shown before you accept a trade (typically
-              $12–$45 depending on category);
+              Vault Events / live-show sales: a tiered platform fee based on your show’s gross sales — 6.75% until
+              $3,000, 5.75% from $3,000 up to $5,500, and 5% above $5,500 in a single show;
             </li>
-            <li>Stripe’s standard card-processing fee (approximately 2.9% + $0.30 per charge) applies in addition to the above.</li>
+            <li>
+              Trade Center: one charge per party of a $2.99 Get Vaulted platform fee plus that party’s outbound shipping
+              label (quoted at checkout); optional cash may be settled off-platform or paid on Get Vaulted;
+            </li>
+            <li>
+              Stripe’s standard card-processing fee (approximately 2.9% + $0.30 per charge) applies in addition when a
+              card is charged on-platform (including on-platform trade cash);
+            </li>
           </ul>
           <p className="mt-2 text-muted">
             We may change these fees, add new fee types (including listing, subscription, or promotional fees), or
@@ -380,11 +385,12 @@ export default function TermsPage() {
         <section>
           <h2 className="font-display text-lg font-semibold text-foreground">8. Trades</h2>
           <p className="mt-3 text-muted">
-            Trade Center allows users to propose vault-to-vault trades, including optional cash adjustments and platform
-            trade fees based on disclosed weight tiers. Trades are agreements between users. You must accurately describe
-            traded items, honor accepted trades, ship within stated windows using platform label flows when provided, and
-            not attempt to complete trades off-platform to evade fees or protections. Active trades may restrict account
-            deletion or certain account changes until resolved.
+            Trade Center allows users to propose vault-to-vault trades, including optional cash adjustments. Each party
+            pays a $2.99 Get Vaulted platform fee plus their own outbound shipping at the actual label rate. Cash may be
+            settled off-platform or paid on Get Vaulted (Stripe card fees apply to on-platform cash). Trades are
+            agreements between users. You must accurately describe traded items, honor accepted trades, ship within
+            stated windows using platform label flows when provided, and not use the platform to evade disclosed fees.
+            Active trades may restrict account deletion or certain account changes until resolved.
           </p>
         </section>
 

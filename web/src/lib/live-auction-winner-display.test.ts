@@ -3,6 +3,7 @@ import {
   formatAuctionLeaderLine,
   formatLiveWinnerAnnouncement,
   parsePurchaseCompletedCelebration,
+  soldCelebrationDismissKey,
 } from "./live-auction-winner-display";
 
 describe("live-auction-winner-display", () => {
@@ -19,6 +20,20 @@ describe("live-auction-winner-display", () => {
 
   it("formats room-wide winner announcement", () => {
     expect(formatLiveWinnerAnnouncement("vaultking", "Prizm Blaster")).toBe("@vaultking won (Prizm Blaster)");
+  });
+
+  it("builds a stable sold celebration dismiss key", () => {
+    expect(
+      soldCelebrationDismissKey({
+        kind: "sold",
+        itemId: "item-1",
+        winnerUsername: "dtdt",
+        winningAmountUsd: 30,
+        winnerId: "u1",
+        viewerIsWinner: false,
+        itemTitle: "Colts",
+      }),
+    ).toBe("sold|item-1|u1|dtdt|30");
   });
 
   it("parses sold and no-bid celebration payloads", () => {

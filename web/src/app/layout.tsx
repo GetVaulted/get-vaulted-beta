@@ -1,8 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Cormorant_Garamond, Geist, Geist_Mono } from "next/font/google";
-import { Navbar } from "@/components/layout/Navbar";
-import { SiteFooter } from "@/components/layout/SiteFooter";
-import { WatchlistToastHost } from "@/components/marketplace/WatchlistToastHost";
+import { AppShell } from "@/components/layout/AppShell";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { KeyboardDismissProvider } from "@/components/providers/KeyboardDismissProvider";
 import { LiveMarketplaceGateProvider } from "@/components/providers/LiveMarketplaceGateProvider";
@@ -78,11 +76,8 @@ export default function RootLayout({
             <VaultEcosystemRealtimeProvider>
               <MarketplaceCatalogSyncProvider>
                 <LiveMarketplaceGateProvider enabled={liveMarketplaceEnabled}>
-                  <Navbar />
-                  <WatchlistToastHost />
-                  <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+                  <AppShell liveMarketplaceEnabled={liveMarketplaceEnabled}>{children}</AppShell>
                 </LiveMarketplaceGateProvider>
-                <SiteFooter liveMarketplaceEnabled={liveMarketplaceEnabled} />
               </MarketplaceCatalogSyncProvider>
             </VaultEcosystemRealtimeProvider>
           </KeyboardDismissProvider>

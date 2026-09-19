@@ -5,39 +5,39 @@ export type ItemTrustMetrics = {
   sellerLevel: string | null;
   completedSales: string;
   accountStanding: string;
-  responseTime: string;
-  shipPerformance: string;
   authenticationStatus: string;
 };
 
-function hashSeed(input: string): number {
-  let h = 0;
-  for (let i = 0; i < input.length; i++) h = (h + input.charCodeAt(i) * 17) % 9000;
-  return h;
-}
-
+/**
+ * Mirrors web `buildItemTrustMetrics` — only real backend signals.
+ * Never invent sales / response / ship-on-time percentages from username hashes.
+ */
 export function buildProductTrustMetrics(product: Product): ItemTrustMetrics {
-  const seed = hashSeed(product.seller.handle);
-  const sales = 52 + (seed % 948);
-  const salesLabel = sales.toLocaleString('en-US');
+  const sales =
+    typeof product.sellerCompletedOrderCount === 'number' &&
+    Number.isFinite(product.sellerCompletedOrderCount) &&
+    product.sellerCompletedOrderCount > 0
+      ? Math.floor(product.sellerCompletedOrderCount)
+      : null;
+  const salesLabel = sales != null ? sales.toLocaleString('en-US') : 'New';
   const levelLabel = resolvePublicSellerLevelLabel(product.sellerLevel, product.sellerLevelLabel);
 
   const accountStanding =
-    levelLabel?.toLowerCase().includes('elite') || levelLabel?.toLowerCase().includes('verified')
+    product.sellerLevel === 'elite_vault_verified' || product.sellerLevel === 'vault_verified'
       ? 'Excellent'
-      : sales >= 250
-        ? 'Excellent'
-        : sales >= 50
-          ? 'Good'
-          : 'Established';
+      : product.sellerLevel === 'trusted_seller'
+        ? 'Very good'
+        : sales != null && sales >= 250
+          ? 'Excellent'
+          : sales != null && sales >= 50
+            ? 'Good'
+            : 'Established';
 
-  const responseHours = 1 + (seed % 4);
-  const responseTime = responseHours <= 2 ? `< ${responseHours} hr` : `< ${responseHours} hrs`;
-  const shipPct = 96 + (seed % 4);
-
+  const isVerifiedSellerLevel =
+    product.sellerLevel === 'vault_verified' || product.sellerLevel === 'elite_vault_verified';
   const authenticationStatus = product.conditionGrade?.match(/^(PSA|BGS|SGC)/i)
     ? 'Graded item'
-    : product.vaultVerified
+    : isVerifiedSellerLevel
       ? 'Vault verified'
       : 'Ask seller';
 
@@ -45,8 +45,6 @@ export function buildProductTrustMetrics(product: Product): ItemTrustMetrics {
     sellerLevel: levelLabel,
     completedSales: salesLabel,
     accountStanding,
-    responseTime,
-    shipPerformance: `${shipPct}% on time`,
     authenticationStatus,
   };
 }

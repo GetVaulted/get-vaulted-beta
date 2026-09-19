@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { getServerSessionSafe } from "@/lib/auth";
+import { resolveOptionalListingsUserId } from "@/lib/resolve-listings-auth";
 import { auctionBidCountsByListingIds } from "@/lib/listing-bid-counts";
 import { dbListingToMarketplace } from "@/lib/listing-mapper";
 import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-include";
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { NEW_SELLER_CREDIBILITY_LABEL } from "@/lib/marketplace-item-extras";
 import { prisma } from "@/lib/prisma";
+import { viewerCanSeeUser } from "@/lib/user-block";
 import {
   parseSellerShopTab,
   SELLER_SHOP_DEFAULT_PAGE_SIZE,
@@ -59,10 +60,16 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Seller not found." }, { status: 404 });
   }
 
-  const session = await getServerSessionSafe();
-  const isOwnShop = session?.user?.id === user.id;
-  const isAdmin = session?.user?.role === "admin";
+  const viewerId = await resolveOptionalListingsUserId(req);
+  const viewer = viewerId
+    ? await prisma.user.findUnique({ where: { id: viewerId }, select: { role: true } })
+    : null;
+  const isOwnShop = viewerId === user.id;
+  const isAdmin = viewer?.role === "admin";
   if (isHiddenFixtureSellerEmail(user.email) && !isOwnShop && !isAdmin) {
+    return NextResponse.json({ error: "Seller not found." }, { status: 404 });
+  }
+  if (!(await viewerCanSeeUser(prisma, viewerId, user.id))) {
     return NextResponse.json({ error: "Seller not found." }, { status: 404 });
   }
 

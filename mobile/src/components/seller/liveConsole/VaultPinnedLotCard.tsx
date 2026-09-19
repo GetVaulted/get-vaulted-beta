@@ -6,14 +6,16 @@ import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { LIVE_AUCTION_HOST_TIMER_ENDED_COPY, resolveLiveAuctionLotBidPhase } from '../../../lib/liveAuctionLotPhase';
 import { canHostStartLiveAuction, isMultiQuantityLiveAuctionItem } from '../../../lib/liveAuctionHostStart';
 import { resolvePinnedLotOverlayPrice } from '../../../lib/liveAuctionOverlayPrice';
+import {
+  AUCTION_DURATION_PRESETS,
+  DEFAULT_AUCTION_SEC,
+} from '../../../lib/liveAuctionStartPayload';
 import { computeLiveLotReserveMet } from '../../../lib/liveLotReserveStatus';
 import { isVariantPurchaseItem, summarizeVariantSpots, hostPinnedBuyerVariant } from '../../../lib/liveItemVariant';
 import { wallTimeMsFromServerAnchor } from '../../../lib/serverClockSync';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii, spacing } from '../../../theme';
 import { lc } from './liveConsoleTheme';
-
-const DEFAULT_AUCTION_SEC = 15;
 
 type HostLotHudPhase =
   | 'empty'
@@ -53,14 +55,18 @@ function fmtMoney(n: number | null | undefined): string {
   return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
-function countdownParts(endsAt: string | null, serverNowMs: number): { label: string; progress: number } | null {
+function countdownParts(
+  endsAt: string | null,
+  serverNowMs: number,
+  durationSec: number = DEFAULT_AUCTION_SEC,
+): { label: string; progress: number } | null {
   if (!endsAt) return null;
   const end = Date.parse(endsAt);
   if (Number.isNaN(end)) return null;
   const diff = end - serverNowMs;
   if (diff <= 0) return { label: '00:00', progress: 0 };
   const s = Math.ceil(diff / 1000);
-  const total = DEFAULT_AUCTION_SEC;
+  const total = Math.max(3, durationSec);
   const progress = Math.min(1, s / total);
   const mm = String(Math.floor(s / 60)).padStart(2, '0');
   const ss = String(s % 60).padStart(2, '0');
@@ -88,6 +94,8 @@ export function VaultPinnedLotCard({
   hudScale = 1,
   clutchTimeEnabled = false,
   onToggleClutchTime,
+  auctionDurationSec = DEFAULT_AUCTION_SEC,
+  onAuctionDurationChange,
 }: {
   item: LiveRoomItemRow | null;
   serverNowMs: number;
@@ -117,6 +125,8 @@ export function VaultPinnedLotCard({
   hudScale?: number;
   clutchTimeEnabled?: boolean;
   onToggleClutchTime?: () => void;
+  auctionDurationSec?: number;
+  onAuctionDurationChange?: (sec: number) => void;
 }) {
   const compact = density === 'broadcast';
   const scale = compact ? (hudScale ?? 1) : 1;
@@ -220,10 +230,10 @@ export function VaultPinnedLotCard({
 
   const countdown = useMemo(() => {
     if (!item?.auctionEndsAt) return null;
-    if (item.biddingOpen) return countdownParts(item.auctionEndsAt, liveNowMs);
+    if (item.biddingOpen) return countdownParts(item.auctionEndsAt, liveNowMs, auctionDurationSec);
     if (lotBidPhase === 'timer_ended_unsettled') return { label: 'Ended', progress: 0 };
     return null;
-  }, [item?.auctionEndsAt, item?.biddingOpen, lotBidPhase, liveNowMs]);
+  }, [item?.auctionEndsAt, item?.biddingOpen, lotBidPhase, liveNowMs, auctionDurationSec]);
 
   useEffect(() => {
     if (!countdown || countdown.progress > 0.28) {
@@ -330,6 +340,8 @@ export function VaultPinnedLotCard({
     });
   const showRunningStrip = !hostOverlayMinimal && hudPhase === 'running';
   const showEndedActions = hudPhase === 'ended';
+  // Live broadcast uses hostOverlayMinimal. Timer end auto-settles; keep Sold/Skip off the
+  // compact HUD so hosts don't double-tap while the server charges. Long-press → Sold remains.
   const showSecondaryActions =
     !hostOverlayMinimal && roomLive && hudPhase !== 'sold' && hudPhase !== 'skipped';
   const canEditSpots = Boolean(isVariantItem && onEditSpots && !busy);
@@ -381,12 +393,24 @@ export function VaultPinnedLotCard({
           style={[
             styles.title,
             compact && styles.titleCompact,
-            compact && scale !== 1 ? { fontSize: fs(12), lineHeight: fs(15) } : null,
+            compact && scale !== 1 ? { fontSize: fs(14), lineHeight: fs(18) } : null,
           ]}
           numberOfLines={2}
         >
-          {item.displayTitle ?? item.title}
+          {pinnedVariant ? pinnedVariant.label : (item.displayTitle ?? item.title)}
         </Text>
+        {pinnedVariant ? (
+          <View style={[styles.pinnedTeamChip, compact && styles.pinnedTeamChipCompact]}>
+            <Text style={[styles.pinnedTeamChipTxt, compact && styles.pinnedTeamChipTxtCompact]} numberOfLines={1}>
+              PINNED · {pinnedVariant.label}
+            </Text>
+          </View>
+        ) : null}
+        {pinnedVariant ? (
+          <Text style={[styles.breakSubtitle, compact && styles.metaCompact]} numberOfLines={1}>
+            {item.displayTitle ?? item.title}
+          </Text>
+        ) : null}
         <Text style={[lc.eyebrow, compact && styles.eyebrowCompact]}>{overlayPrice.label}</Text>
         <Animated.Text
           style={[
@@ -407,10 +431,10 @@ export function VaultPinnedLotCard({
           </View>
         ) : isVariantItem && spotStats ? (
           <Text style={[styles.meta, compact && styles.metaCompact]}>
-            {hostOverlayMinimal && pinnedVariant && !item.biddingOpen
+            {pinnedVariant && !item.biddingOpen
               ? `${pinnedVariant.label} pinned · ${item.activeSpotCommerceMode === 'auction' ? 'ready to auction' : 'buy now — or Start Auction'}`
-              : spotStats.available > 0
-                ? `${spotStats.available} spot${spotStats.available === 1 ? '' : 's'} available`
+                  : spotStats.available > 0
+                ? `${spotStats.available} of ${spotStats.available + spotStats.sold} spots available`
                 : 'All spots sold'}
           </Text>
         ) : hostOverlayMinimal ? null : isBuyNowItem && item.status === 'active' ? (
@@ -437,7 +461,7 @@ export function VaultPinnedLotCard({
                   : showRunningStrip
                     ? 'Auction running'
                     : hudPhase === 'ended'
-                      ? 'Awaiting mark sold'
+                      ? 'Settling winner'
                       : hudPhase === 'sold'
                         ? 'Sold'
                         : hudPhase === 'skipped'
@@ -526,16 +550,44 @@ export function VaultPinnedLotCard({
 
       {showStartAuction ? (
         <>
+          {onAuctionDurationChange ? (
+            <View style={[styles.durationRow, compact && styles.durationRowCompact]}>
+              {AUCTION_DURATION_PRESETS.map((sec) => {
+                const selected = auctionDurationSec === sec;
+                return (
+                  <Pressable
+                    key={sec}
+                    style={[
+                      styles.durationChip,
+                      compact && styles.durationChipCompact,
+                      selected && styles.durationChipSelected,
+                      (busy || startingAuction) && styles.durationChipDisabled,
+                    ]}
+                    disabled={busy || startingAuction}
+                    onPress={() => onAuctionDurationChange(sec)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`${sec} second auction timer`}
+                  >
+                    <Text
+                      style={[
+                        styles.durationChipTxt,
+                        compact && styles.durationChipTxtCompact,
+                        selected && styles.durationChipTxtSelected,
+                      ]}
+                    >
+                      {sec}s
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
           {onToggleClutchTime ? (
             <View style={[styles.clutchRow, compact && styles.clutchRowCompact]}>
-              <View style={styles.clutchCopy}>
-                <Text style={[styles.clutchLabel, compact && styles.clutchLabelCompact]}>
-                  {SELLER_CONSOLE.clutchTime}
-                </Text>
-                {!compact ? (
-                  <Text style={styles.clutchHint}>{SELLER_CONSOLE.clutchTimeHint}</Text>
-                ) : null}
-              </View>
+              <Text style={[styles.clutchLabel, compact && styles.clutchLabelCompact]}>
+                {SELLER_CONSOLE.clutchTime}
+              </Text>
               <Switch
                 value={clutchTimeEnabled}
                 onValueChange={onToggleClutchTime}
@@ -545,6 +597,9 @@ export function VaultPinnedLotCard({
                 accessibilityLabel={SELLER_CONSOLE.clutchTime}
               />
             </View>
+          ) : null}
+          {!compact && onToggleClutchTime ? (
+            <Text style={styles.clutchHint}>{SELLER_CONSOLE.clutchTimeHint}</Text>
           ) : null}
           <Pressable
           style={[
@@ -567,7 +622,7 @@ export function VaultPinnedLotCard({
                 compact && scale !== 1 ? { fontSize: fs(12) } : null,
               ]}
             >
-              Start Auction
+              Start Auction · {auctionDurationSec}s
             </Text>
           )}
         </Pressable>
@@ -600,7 +655,8 @@ export function VaultPinnedLotCard({
   );
 }
 
-export { DEFAULT_AUCTION_SEC };
+/** @deprecated Import from `lib/liveAuctionStartPayload` — re-exported for existing call sites. */
+export { DEFAULT_AUCTION_SEC, AUCTION_DURATION_PRESETS } from '../../../lib/liveAuctionStartPayload';
 
 const styles = StyleSheet.create({
   shell: {
@@ -679,15 +735,82 @@ const styles = StyleSheet.create({
     backgroundColor: colors.gold,
   },
   timerFillUrgent: { backgroundColor: colors.live },
-  eyebrowCompact: { fontSize: 9 },
+  eyebrowCompact: { fontSize: 11 },
   title: { fontSize: 15, fontWeight: '800', color: colors.textPrimary },
-  titleCompact: { fontSize: 12, lineHeight: 15 },
+  titleCompact: { fontSize: 14, lineHeight: 18 },
+  pinnedTeamChip: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(212,175,55,0.18)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212,175,55,0.55)',
+  },
+  pinnedTeamChipCompact: {
+    marginTop: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  pinnedTeamChipTxt: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    color: colors.gold,
+    textTransform: 'uppercase',
+  },
+  pinnedTeamChipTxtCompact: { fontSize: 9 },
+  breakSubtitle: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textMuted,
+  },
+  durationRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: spacing.sm,
+  },
+  durationRowCompact: {
+    marginTop: 6,
+    gap: 4,
+  },
+  durationChip: {
+    minWidth: 44,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    alignItems: 'center',
+  },
+  durationChipCompact: {
+    minWidth: 38,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  durationChipSelected: {
+    borderColor: colors.gold,
+    backgroundColor: 'rgba(212,175,55,0.2)',
+  },
+  durationChipDisabled: { opacity: 0.5 },
+  durationChipTxt: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.72)',
+    fontVariant: ['tabular-nums'],
+  },
+  durationChipTxtCompact: { fontSize: 11 },
+  durationChipTxtSelected: { color: colors.gold },
   bidVal: { fontSize: 24, fontWeight: '900', color: colors.gold, marginTop: 1 },
   bidValCompact: { fontSize: 18, marginTop: 0 },
-  bidderRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
-  bidderDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.live },
-  leader: { fontSize: 11, fontWeight: '700', color: colors.textSecondary, flex: 1 },
-  leaderCompact: { fontSize: 10 },
+  bidderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  bidderDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.live },
+  leader: { fontSize: 14, fontWeight: '800', color: colors.textPrimary, flex: 1 },
+  leaderCompact: { fontSize: 13 },
   metaRow: { flexDirection: 'row', gap: spacing.sm, marginTop: 2 },
   meta: { fontSize: 10, fontWeight: '600', color: colors.textMuted },
   editSpotsHint: {
@@ -698,7 +821,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textTransform: 'uppercase',
   },
-  metaCompact: { fontSize: 9 },
+  metaCompact: { fontSize: 11 },
   metaOk: { color: colors.success },
   hostEndedCopy: {
     fontSize: 10,
@@ -808,17 +931,15 @@ const styles = StyleSheet.create({
   clutchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-    marginBottom: 8,
-    paddingHorizontal: 4,
+    justifyContent: 'flex-start',
+    alignSelf: 'flex-start',
+    gap: 8,
+    marginBottom: 4,
+    paddingHorizontal: 2,
   },
   clutchRowCompact: {
-    marginBottom: 6,
-  },
-  clutchCopy: {
-    flex: 1,
-    minWidth: 0,
+    marginBottom: 4,
+    gap: 6,
   },
   clutchLabel: {
     fontSize: 12,
@@ -829,7 +950,8 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   clutchHint: {
-    marginTop: 2,
+    marginBottom: 8,
+    paddingHorizontal: 2,
     fontSize: 10,
     lineHeight: 13,
     color: colors.textMuted,

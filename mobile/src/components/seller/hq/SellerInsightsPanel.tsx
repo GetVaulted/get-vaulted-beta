@@ -200,7 +200,9 @@ export function SellerInsightsPanel({
           <InsightTile
             label="Awaiting ship"
             value={String(analytics.pendingFulfillment)}
-            hint={analytics.pendingFulfillment > 0 ? 'Paid, not yet shipped' : 'All caught up'}
+            hint={
+              analytics.pendingFulfillment > 0 ? 'Paid, awaiting label / shipment' : 'All caught up'
+            }
             accent={analytics.pendingFulfillment > 0}
           />
           <InsightTile

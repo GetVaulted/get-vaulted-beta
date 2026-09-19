@@ -12,9 +12,12 @@ import { TradeStatusBadge } from '../../components/trade/TradeStatusBadge';
 import { listingToTradeItem } from '../../trade/listingToTradeItem';
 import { tradeFeeUsdForTier } from '../../lib/tradeFeeAmounts';
 import { acceptTradeOfferAsRecipient, cancelTradeOfferAsSender, declineTradeOfferAsRecipient } from '../../api/tradeOffersRepository';
-import { isWebTradeApiConfigured } from '../../api/tradeOffersWebApi';
+import { ensureTradeConversationViaWeb, isWebTradeApiConfigured } from '../../api/tradeOffersWebApi';
 import { isSupabaseConfigured } from '../../lib/supabase';
-import { TRADE_FEE_INCLUDES_BULLETS } from '../../data/tradeFeeCopy';
+import { TRADE_AFTER_ACCEPT_NOTE, TRADE_CASH_SETTLEMENT_NOTE, TRADE_FEE_INCLUDES_BULLETS } from '../../data/tradeTrustCopy';
+import { openMessageThread } from '../../navigation/openMessages';
+import { TradeCashPayButton } from '../../components/trade/TradeCashPayButton';
+import { isTradeCashCheckoutStatus, resolveMobileTradeCashParties } from '../../lib/tradeCashParties';
 
 type Props = NativeStackScreenProps<TradeCenterStackParamList, 'ReviewOffer'>;
 
@@ -66,11 +69,11 @@ export function ReviewOfferScreen({ navigation, route }: Props) {
       if (user && !isStaticMock && (isWebTradeApiConfigured() || isSupabaseConfigured())) {
         const outcome = await acceptTradeOfferAsRecipient(offer.id, user.id);
         await reload();
-        if (outcome === 'fee_due') {
+        if (outcome === 'fee_due' || outcome === 'accepted') {
           navigation.navigate('TradeCheckout', { offerId: offer.id });
           return;
         }
-        Alert.alert('Offer accepted', 'The other party has been notified. Trade checkout will open here when ready.');
+        Alert.alert('Offer accepted', 'The other party has been notified.');
         return;
       }
       navigation.navigate('TradeCheckout', { offerId: offer.id });
@@ -148,13 +151,13 @@ export function ReviewOfferScreen({ navigation, route }: Props) {
           <Text style={styles.feeCardKicker}>Get Vaulted trade fee</Text>
           <Text style={styles.feeAmt}>${feeYou.toFixed(2)}</Text>
           <Text style={styles.feeHint}>
-            Flat bundled fee for your outbound lane (tier: {offer.shipping_weight_tier ?? 'default'}). Partner pays
-            their own outbound fee (~${feeThem.toFixed(2)} at same tier in MVP).
+            ${feeYou.toFixed(2)} Get Vaulted fee + your outbound Shippo label in one Stripe charge. Partner pays the
+            same fee plus their own label (~${feeThem.toFixed(2)} + shipping).
           </Text>
         </View>
 
         <View style={styles.includesBox}>
-          <Text style={styles.includesTitle}>What the Get Vaulted Trade Fee includes</Text>
+          <Text style={styles.includesTitle}>How trade costs work</Text>
           {TRADE_FEE_INCLUDES_BULLETS.map((b) => (
             <View key={b} style={styles.bulletRow}>
               <Ionicons name="checkmark-circle" size={16} color={colors.goldMuted} />
@@ -168,14 +171,67 @@ export function ReviewOfferScreen({ navigation, route }: Props) {
           <Text style={styles.metaVal}>
             {offer.cash_difference >= 0 ? '+' : ''}${offer.cash_difference.toFixed(2)}
           </Text>
+          <Text style={styles.feeHint}>
+            {offer.cash_paid_at ? 'Cash paid on Get Vaulted.' : TRADE_CASH_SETTLEMENT_NOTE}
+          </Text>
         </View>
+
+        {(() => {
+          if (!user?.id) return null;
+          const cashSides = resolveMobileTradeCashParties(offer);
+          if (
+            !cashSides ||
+            !isTradeCashCheckoutStatus(offer.status) ||
+            cashSides.payerUserId !== user.id
+          ) {
+            return null;
+          }
+          const payee =
+            cashSides.payeeUserId === offer.sender_id ? offer.sender : offer.recipient;
+          const payeeHandle = payee.username ? `@${payee.username}` : payee.display_name;
+          return (
+            <TradeCashPayButton
+              offerId={offer.id}
+              amountUsd={cashSides.amountUsd}
+              payeeHandle={payeeHandle}
+              alreadyPaid={Boolean(offer.cash_paid_at)}
+              onPaid={() => void reload()}
+            />
+          );
+        })()}
 
         <View style={styles.protect}>
           <Ionicons name="ribbon-outline" size={18} color={colors.gold} />
-          <Text style={styles.protectTxt}>
-            After you accept, pay the trade fee in Checkout — labels generate server-side and status updates live here.
-          </Text>
+          <Text style={styles.protectTxt}>{TRADE_AFTER_ACCEPT_NOTE}</Text>
         </View>
+
+        <Pressable
+          style={styles.chatBtn}
+          onPress={() => {
+            void (async () => {
+              try {
+                if (offer.conversation_id) {
+                  openMessageThread(undefined, offer.conversation_id);
+                  return;
+                }
+                if (!isWebTradeApiConfigured()) {
+                  Alert.alert('Trade chat', 'Connect to Get Vaulted web API to message about this trade.');
+                  return;
+                }
+                const { threadId } = await ensureTradeConversationViaWeb(offer.id);
+                openMessageThread(undefined, threadId);
+                await reload();
+              } catch (e) {
+                Alert.alert('Trade chat', e instanceof Error ? e.message : 'Could not open chat.');
+              }
+            })();
+          }}
+        >
+          <Ionicons name="chatbubbles-outline" size={18} color={colors.background} />
+          <Text style={styles.chatBtnTxt}>
+            {offer.conversation_id ? 'Open trade chat' : 'Message about this trade'}
+          </Text>
+        </Pressable>
 
         {iAmRecipient && ['sent', 'awaiting_response', 'countered'].includes(offer.status) ? (
           <View style={styles.actions}>
@@ -315,6 +371,17 @@ const styles = StyleSheet.create({
   metaVal: { color: colors.textPrimary, fontSize: 18, fontWeight: '800', marginTop: 4 },
   protect: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' },
   protectTxt: { flex: 1, color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
+  chatBtn: {
+    marginTop: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.gold,
+  },
+  chatBtnTxt: { color: colors.background, fontWeight: '800', fontSize: 15 },
   actions: { gap: spacing.md, marginTop: spacing.md },
   primary: {
     backgroundColor: colors.gold,

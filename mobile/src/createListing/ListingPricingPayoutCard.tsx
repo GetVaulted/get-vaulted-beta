@@ -49,8 +49,8 @@ export function ListingPricingPayoutCard({
     <View style={styles.card}>
       <Text style={styles.title}>Estimated payout</Text>
       <Text style={styles.subtitle}>
-        Based on your item price. Shipping you collect at checkout is pass-through and may change card
-        processing slightly.
+        Based on your item price. Shipping collected at checkout is yours; using a Get Vaulted label deducts the
+        carrier cost from payout. Shipping elsewhere means you pay that carrier yourself.
       </Text>
       <MoneyRow label="Item price" value={formatUsdMoney(estimate.itemPriceUsd)} />
       <MoneyRow

@@ -54,7 +54,11 @@ export function SellerShopScreen({ navigation, route }: Props) {
       if (opts?.refresh) setRefreshing(true);
       else setLoading(true);
 
-      const result = await fetchSellerShop({ sellerId, tab });
+      const result = await fetchSellerShop({
+        sellerId,
+        tab,
+        accessToken: session?.access_token,
+      });
       if (!result) {
         setNotFound(true);
         setShop(null);
@@ -82,7 +86,7 @@ export function SellerShopScreen({ navigation, route }: Props) {
   const gridPad = layout.horizontalPadding;
   const cardGap = spacing.sm;
 
-  const displayName = shop?.seller.name?.trim() || shop?.seller.username || 'Seller';
+  const displayName = shop?.seller.username || shop?.seller.name?.trim() || 'Seller';
   const handle = shop?.seller.username ? `@${shop.seller.username}` : '@seller';
   const isOwnShop = user?.id === sellerId || shop?.seller.isOwnShop;
 
@@ -119,7 +123,6 @@ export function SellerShopScreen({ navigation, route }: Props) {
           <View style={styles.heroText}>
             <Text style={styles.kicker}>Seller shop</Text>
             <Text style={styles.name}>{handle}</Text>
-            {shop.seller.name ? <Text style={styles.subName}>{shop.seller.name}</Text> : null}
             <Text style={styles.credibility}>{shop.seller.credibility}</Text>
             {shop.seller.verified ? (
               <View style={styles.verifiedBadge}>

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireLiveRoomHostAccess } from "@/lib/resolve-live-host-access";
+import { formatIvsObsIngestUrl } from "@/lib/ivs-obs-ingest-url";
+import { isIvsWhipIngestEndpoint } from "@/lib/ivs-whip-ingest";
 
 /** Configured IVS channel latency mode ("LOW" = low-latency HLS), without pulling in the AWS SDK service. */
 function configuredLatencyMode(): "LOW" | "NORMAL" {
@@ -76,9 +78,15 @@ export function toBuyerSafeStreamPayload(row: StreamRow) {
 }
 
 export function toHostStreamPayload(row: StreamRow) {
+  const whip = isIvsWhipIngestEndpoint(row.ivsIngestEndpoint);
   return {
     ...toBuyerSafeStreamPayload(row),
-    ingestEndpoint: row.ivsIngestEndpoint,
+    // OBS Custom / WHIP: RTMPS URL for legacy, WHIP server for WebRTC OBS.
+    ingestEndpoint: whip
+      ? row.ivsIngestEndpoint
+      : formatIvsObsIngestUrl(row.ivsIngestEndpoint),
+    ingestProtocol: whip ? ("whip" as const) : row.streamMode === "channel_hls" ? ("rtmps" as const) : null,
+    whipServerUrl: whip ? row.ivsIngestEndpoint : null,
     channelArn: row.ivsChannelArn,
     channelName: row.ivsChannelName,
     streamKeyArn: row.ivsStreamKeyArn,

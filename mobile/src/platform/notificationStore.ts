@@ -84,6 +84,7 @@ export async function pushNotification(
   };
   store.notifications.unshift(row);
   await save(store);
+  void syncIconBadgeForUser(n.userId);
   const { emitNotificationBadgeChanged } = await import('./notificationEvents');
   emitNotificationBadgeChanged();
   return row;
@@ -116,6 +117,12 @@ export async function unreadNotificationCount(userId: string): Promise<number> {
   return rows.filter((n) => !n.read).length;
 }
 
+async function syncIconBadgeForUser(userId: string): Promise<void> {
+  const count = await unreadNotificationCount(userId);
+  const { syncAppIconBadge } = await import('../push/pushRegistrationService');
+  void syncAppIconBadge(count);
+}
+
 export async function markNotificationRead(id: string, accessToken?: string): Promise<void> {
   const store = await load();
   const row = store.notifications.find((n) => n.id === id);
@@ -125,6 +132,7 @@ export async function markNotificationRead(id: string, accessToken?: string): Pr
     const { markVaultNotificationRead } = await import('../api/pushTokenRepository');
     void markVaultNotificationRead(accessToken, id);
   }
+  if (row?.userId) void syncIconBadgeForUser(row.userId);
   const { emitNotificationBadgeChanged } = await import('./notificationEvents');
   emitNotificationBadgeChanged();
 }
@@ -139,6 +147,37 @@ export async function markAllNotificationsRead(userId: string, accessToken?: str
     const { markAllVaultNotificationsRead } = await import('../api/pushTokenRepository');
     void markAllVaultNotificationsRead(accessToken);
   }
+  void syncIconBadgeForUser(userId);
+  const { emitNotificationBadgeChanged } = await import('./notificationEvents');
+  emitNotificationBadgeChanged();
+}
+
+/** Remove one inbox row. Server-backed ids are deleted remotely so sync cannot revive them. */
+export async function deleteNotification(id: string, accessToken?: string): Promise<void> {
+  const store = await load();
+  const row = store.notifications.find((n) => n.id === id);
+  const userId = row?.userId;
+  store.notifications = store.notifications.filter((n) => n.id !== id);
+  await save(store);
+  if (accessToken && !id.startsWith('nt-')) {
+    const { deleteVaultNotification } = await import('../api/pushTokenRepository');
+    void deleteVaultNotification(accessToken, id);
+  }
+  if (userId) void syncIconBadgeForUser(userId);
+  const { emitNotificationBadgeChanged } = await import('./notificationEvents');
+  emitNotificationBadgeChanged();
+}
+
+/** Clear every notification for this user (local + server). */
+export async function clearUserNotifications(userId: string, accessToken?: string): Promise<void> {
+  if (accessToken) {
+    const { clearVaultNotifications } = await import('../api/pushTokenRepository');
+    await clearVaultNotifications(accessToken);
+  }
+  const store = await load();
+  store.notifications = store.notifications.filter((n) => n.userId !== userId);
+  await save(store);
+  void syncIconBadgeForUser(userId);
   const { emitNotificationBadgeChanged } = await import('./notificationEvents');
   emitNotificationBadgeChanged();
 }
@@ -237,13 +276,20 @@ const LAYAWAY_SERVER_TYPES = new Set([
 function serverTypeToKind(type: string): NotificationKind {
   if (type === 'chat_mention') return 'message';
   if (LAYAWAY_SERVER_TYPES.has(type)) return 'layaway';
-  if (type === 'message_received') return 'message';
+  if (type === 'message_received' || type === 'message_requested') return 'message';
   if (type.includes('counter')) return 'counter';
   if (type.includes('offer')) return 'offer';
   if (type.startsWith('order_') || type === 'item_sold' || type === 'seller_ready_to_ship') return 'order';
   if (type.includes('auction') || type.includes('purchase') || type.includes('break_')) return 'order';
   if (type === 'stripe_dispute') return 'dispute';
-  if (type === 'seller_live') return 'live_event';
+  if (
+    type === 'seller_live' ||
+    type === 'live_host_starting_soon' ||
+    type === 'live_host_go_live_now' ||
+    type === 'live_host_auto_cancelled'
+  ) {
+    return 'live_event';
+  }
   if (type === 'new_follower') return 'follow';
   return 'order';
 }
@@ -277,14 +323,25 @@ export async function syncServerNotifications(
   accessToken: string,
 ): Promise<void> {
   const { fetchVaultNotifications } = await import('../api/notificationsRepository');
-  const { notifications } = await fetchVaultNotifications(accessToken, 60);
-  if (!notifications.length) return;
+  const { notifications, unreadCount } = await fetchVaultNotifications(accessToken, 60);
 
   const store = await load();
-  const existingIds = new Set(store.notifications.map((n) => n.id));
+  const byId = new Map(store.notifications.map((n) => [n.id, n]));
+  let changed = false;
 
   for (const n of notifications) {
-    if (existingIds.has(n.id)) continue;
+    const existing = byId.get(n.id);
+    const nextRead = Boolean(n.readAt);
+    if (existing) {
+      // Re-key to the canonical Prisma user id when auth/supabase id was stored first,
+      // and keep local read state aligned with the server.
+      if (existing.userId !== userId || existing.read !== nextRead) {
+        existing.userId = userId;
+        existing.read = nextRead;
+        changed = true;
+      }
+      continue;
+    }
     const ref = parseReferenceFromHref(n.href);
     store.notifications.unshift({
       id: n.id,
@@ -296,16 +353,24 @@ export async function syncServerNotifications(
       referenceId: ref.referenceId,
       serverType: n.type,
       href: n.href,
-      read: Boolean(n.readAt),
+      read: nextRead,
       createdAt: n.createdAt,
     });
-    existingIds.add(n.id);
+    byId.set(n.id, store.notifications[0]!);
+    changed = true;
   }
 
-  store.notifications.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  await save(store);
-  const { emitNotificationBadgeChanged } = await import('./notificationEvents');
-  emitNotificationBadgeChanged();
+  if (changed) {
+    store.notifications.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    await save(store);
+    const { emitNotificationBadgeChanged } = await import('./notificationEvents');
+    emitNotificationBadgeChanged();
+  }
+
+  // Always sync the iPhone home-screen icon badge to server unread (even when local rows
+  // were already up to date).
+  const { syncAppIconBadge } = await import('../push/pushRegistrationService');
+  void syncAppIconBadge(unreadCount);
 }
 
 export function groupNotifications(rows: AppNotification[]): NotificationGroup[] {

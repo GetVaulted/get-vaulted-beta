@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useChatScrollToBottom } from "@/hooks/useChatScrollToBottom";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { resolvePinnedModeratorUsername } from "@/lib/trust/resolve-pinned-moderator-username";
@@ -18,6 +18,7 @@ import { MentionText } from "@/components/mentions/MentionText";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { LIVE_ROOM_CHAT_HISTORY_MAX } from "@/lib/live-room-chat-policy";
 import { isInlineViewerEventBody } from "@/lib/live-room-viewer-events";
+import { appendLiveRoomMessageDedupe } from "@/lib/realtime-merge-messages";
 
 const PALETTE = ["text-sky-300", "text-emerald-300", "text-violet-300", "text-amber-300", "text-rose-300", "text-cyan-300"] as const;
 
@@ -44,6 +45,7 @@ function chatLabelClassForMessage(
   hostUserId: string,
   moderators: { userId: string }[] = [],
 ) {
+  if (m.messageType === "staff") return "font-bold text-sky-300/95";
   if (m.senderId === hostUserId && m.messageType === "chat") return "font-bold text-amber-300/95";
   if (m.messageType === "chat" && moderators.some((mod) => mod.userId === m.senderId) && m.senderId !== hostUserId) {
     return "font-bold text-violet-300/95";
@@ -55,7 +57,7 @@ function chatLabelClassForMessage(
 }
 
 function shouldShowChatAvatar(m: LiveRoomMessageDTO) {
-  return m.messageType === "chat" || isNamedSystemMessage(m);
+  return m.messageType === "chat" || m.messageType === "staff" || isNamedSystemMessage(m);
 }
 
 function isInlineViewerEventMessage(m: LiveRoomMessageDTO) {
@@ -72,6 +74,7 @@ type VaultHostLiveChatPanelProps = {
   busy: boolean;
   viewerCount?: number;
   onMessagesRefresh?: () => void;
+  onMessagesChange?: (next: LiveRoomMessageDTO[] | ((prev: LiveRoomMessageDTO[]) => LiveRoomMessageDTO[])) => void;
   /** `sidebar` = full-height desktop column; `overlay` = mobile/in-stage panel. */
   variant?: "sidebar" | "overlay";
   uiDimmed?: boolean;
@@ -87,13 +90,65 @@ export function VaultHostLiveChatPanel({
   busy,
   viewerCount = 0,
   onMessagesRefresh,
+  onMessagesChange,
   variant = "overlay",
   uiDimmed = false,
 }: VaultHostLiveChatPanelProps) {
   const router = useRouter();
   const [tab, setTab] = useState<"chat" | "watching">("chat");
   const [userActionTarget, setUserActionTarget] = useState<LiveChatUserActionTarget | null>(null);
+  const [staffOnly, setStaffOnly] = useState(false);
+  const [staffSending, setStaffSending] = useState(false);
   const mod = useLiveRoomModerationState(liveRoomId, Boolean(liveRoomId));
+
+  const sendStaffChat = useCallback(async () => {
+    const text = systemMsg.trim();
+    if (!text || staffSending || busy) return;
+    setStaffSending(true);
+    const pendingId = `pending:staff:${Date.now()}`;
+    const optimistic: LiveRoomMessageDTO = {
+      id: pendingId,
+      liveRoomId,
+      senderId: hostUserId,
+      senderUsername: "You",
+      senderAvatarUrl: null,
+      body: text,
+      messageType: "staff",
+      createdAt: new Date().toISOString(),
+      mentions: [],
+    };
+    onMessagesChange?.((prev) => appendLiveRoomMessageDedupe(prev, optimistic));
+    onSystemMsgChange("");
+    try {
+      const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: text, staffOnly: true }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { message?: LiveRoomMessageDTO; error?: string };
+      if (!res.ok || !j.message) {
+        onMessagesChange?.((prev) => prev.filter((m) => m.id !== pendingId));
+        onSystemMsgChange(text);
+        return;
+      }
+      onMessagesChange?.((prev) => {
+        const stripped = prev.filter((m) => m.id !== pendingId);
+        return appendLiveRoomMessageDedupe(stripped, j.message!);
+      });
+      onMessagesRefresh?.();
+    } finally {
+      setStaffSending(false);
+    }
+  }, [
+    busy,
+    hostUserId,
+    liveRoomId,
+    onMessagesChange,
+    onMessagesRefresh,
+    onSystemMsgChange,
+    staffSending,
+    systemMsg,
+  ]);
   const pinnedModeratorUsername =
     resolvePinnedModeratorUsername({
       pinnedModeratorUsername: mod.pinnedModeratorUsername,
@@ -193,7 +248,7 @@ export function VaultHostLiveChatPanel({
             ref={chatScroll.ref}
             onScroll={chatScroll.onScroll}
             data-testid="host-live-chat-messages"
-            className={`chat-messages min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch] touch-pan-y ${msgListClass}`}
+            className={`chat-messages flex min-h-0 flex-1 flex-col justify-end overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch] touch-pan-y ${msgListClass}`}
           >
             {visibleMessages.length === 0 ? (
               <p className="py-8 text-center text-xs font-medium text-zinc-500">No chat messages yet.</p>
@@ -205,9 +260,11 @@ export function VaultHostLiveChatPanel({
                 const inlineEvent = isInlineViewerEventMessage(m);
                 const isBid = m.messageType === "bid";
                 const isPurchase = m.messageType === "purchase";
-                const isHost = m.senderId === hostUserId && m.messageType === "chat";
+                const isStaff = m.messageType === "staff";
+                const isHost =
+                  m.senderId === hostUserId && (m.messageType === "chat" || m.messageType === "staff");
                 const isMod =
-                  m.messageType === "chat" &&
+                  (m.messageType === "chat" || m.messageType === "staff") &&
                   !isHost &&
                   mod.moderators.some((moderator) => moderator.userId === m.senderId);
                 const rowClass = isBid ? "chat-msg-bid" : isPurchase ? "chat-msg-purchase" : "";
@@ -242,19 +299,24 @@ export function VaultHostLiveChatPanel({
                           MOD
                         </span>
                       ) : null}
+                      {isStaff ? (
+                        <span className="ml-1 text-[9px] font-black uppercase tracking-wide text-sky-300/90">
+                          STAFF
+                        </span>
+                      ) : null}
                       {inlineEvent ? (
-                        <span className={`ml-1 ${isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : "text-zinc-100"}`}>
+                        <span className={`ml-1 ${isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : isStaff ? "text-sky-100" : "text-zinc-100"}`}>
                           <MentionText body={m.body} mentions={m.mentions} />
                         </span>
                       ) : (
                         <>
                           <span className="text-zinc-500">: </span>
-                          <span className={`ml-1 ${isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : "text-zinc-100"}`}>
+                          <span className={`ml-1 ${isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : isStaff ? "text-sky-100" : "text-zinc-100"}`}>
                             <MentionText body={m.body} mentions={m.mentions} />
                           </span>
                         </>
                       )}
-                      {m.messageType === "chat" && m.senderId !== hostUserId ? (
+                      {(m.messageType === "chat" || m.messageType === "staff") && m.senderId !== hostUserId ? (
                         <LiveChatMessageRowActions
                           liveRoomId={liveRoomId}
                           messageId={m.id}
@@ -312,32 +374,60 @@ export function VaultHostLiveChatPanel({
 
           <div className={`shrink-0 ${variant === "sidebar" ? "p-1.5" : "border-t border-white/[0.06] bg-zinc-900/50 p-3"}`}>
             <div className={variant === "sidebar" ? "live-stage-chat-input-tray p-1.5" : ""}>
+            <div className="mb-1.5 flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setStaffOnly(false)}
+                className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wide ${
+                  !staffOnly ? "bg-white/15 text-zinc-50" : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                Everyone
+              </button>
+              <button
+                type="button"
+                onClick={() => setStaffOnly(true)}
+                className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wide ${
+                  staffOnly ? "bg-sky-500/30 text-sky-100" : "text-zinc-500 hover:text-zinc-300"
+                }`}
+                title="Only host and moderators see these"
+              >
+                Staff
+              </button>
+            </div>
             <MentionComposer
               liveRoomId={liveRoomId}
               value={systemMsg}
               onChange={onSystemMsgChange}
-              placeholder="Send to chat…"
+              placeholder={staffOnly ? "Staff only…" : "Send to chat…"}
               rows={variant === "sidebar" ? 1 : 2}
               maxLength={2000}
-              className={`w-full resize-none rounded-lg border border-white/12 bg-black/55 text-zinc-50 placeholder:text-zinc-500 outline-none focus:border-amber-300/35 ${
-                variant === "sidebar" ? "px-2 py-1.5 text-[12px]" : "px-2.5 py-2 text-[12px]"
-              }`}
+              className={`w-full resize-none rounded-lg border bg-black/55 text-zinc-50 placeholder:text-zinc-500 outline-none ${
+                staffOnly ? "border-sky-400/40 focus:border-sky-300/50" : "border-white/12 focus:border-amber-300/35"
+              } ${variant === "sidebar" ? "px-2 py-1.5 text-[12px]" : "px-2.5 py-2 text-[12px]"}`}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  if (!busy && systemMsg.trim()) onSendSystem();
+                  if (!systemMsg.trim()) return;
+                  if (staffOnly) void sendStaffChat();
+                  else if (!busy) onSendSystem();
                 }
               }}
             />
             <button
               type="button"
-              disabled={busy || !systemMsg.trim()}
-              onClick={onSendSystem}
-              className={`mt-1.5 w-full rounded-lg bg-gradient-to-r from-amber-500/85 to-yellow-400/85 font-black uppercase tracking-wide text-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)] disabled:opacity-40 ${
-                variant === "sidebar" ? "py-1.5 text-[9px]" : "py-2 text-[10px]"
-              }`}
+              disabled={busy || staffSending || !systemMsg.trim()}
+              onClick={() => {
+                if (staffOnly) void sendStaffChat();
+                else onSendSystem();
+              }}
+              className={`mt-1.5 w-full rounded-lg font-black uppercase tracking-wide text-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)] disabled:opacity-40 ${
+                staffOnly
+                  ? "bg-gradient-to-r from-sky-500/85 to-cyan-400/85"
+                  : "bg-gradient-to-r from-amber-500/85 to-yellow-400/85"
+              } ${variant === "sidebar" ? "py-1.5 text-[9px]" : "py-2 text-[10px]"}`}
             >
-              Send to chat
+              {staffOnly ? "Send staff" : "Send to chat"}
             </button>
             </div>
           </div>

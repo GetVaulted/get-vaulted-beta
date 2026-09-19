@@ -13,11 +13,20 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
-import type { LiveBreakVariantDraft } from '../../../lib/liveBreakPresets';
+import { liveBreakVariantIsSold, type LiveBreakVariantDraft } from '../../../lib/liveBreakPresets';
 import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
 import { colors, spacing } from '../../../theme';
 import { BreakSpotSetupGrid, breakSpotsFromItemVariants } from './BreakSpotSetupGrid';
+
+function variantsSyncKey(
+  variants: LiveRoomItemRow['variants'] | undefined,
+): string {
+  if (!variants?.length) return '';
+  return variants
+    .map((v) => `${v.id}:${v.quantityRemaining}:${v.status}:${v.priceUsd}:${v.isHot ? 1 : 0}`)
+    .join('|');
+}
 
 export function EditBreakSpotsModal({
   item,
@@ -37,8 +46,11 @@ export function EditBreakSpotsModal({
   const saleType = useMemo(() => {
     if (item?.salesFormat === 'team_break') return 'pyd' as const;
     if (item?.salesFormat === 'variant_selection') return 'pyt' as const;
+    if (item?.salesFormat === 'player_selection') return 'pyp' as const;
     return null;
   }, [item?.salesFormat]);
+
+  const variantKey = variantsSyncKey(item?.variants);
 
   useEffect(() => {
     if (!item) {
@@ -46,24 +58,28 @@ export function EditBreakSpotsModal({
       return;
     }
     setSpots(breakSpotsFromItemVariants(item) ?? []);
-  }, [item?.id]);
+  }, [item?.id, variantKey]);
 
   const locked = item?.status === 'sold';
   const soldSpotIds = useMemo(() => {
     const ids = new Set<string>();
     for (const v of item?.variants ?? []) {
-      if (v.quantityRemaining <= 0 || v.status === 'sold_out') ids.add(v.id);
+      if (liveBreakVariantIsSold(v)) ids.add(v.id);
+    }
+    for (const s of spots) {
+      if (s.soldOut && s.id) ids.add(s.id);
     }
     return ids;
-  }, [item?.variants]);
+  }, [item?.variants, spots]);
 
   const save = () => {
     if (!item || !saleType) return;
-    if (!spots.length) {
-      Alert.alert('Edit break', 'No spots to save.');
+    const openSpots = spots.filter((s) => !s.soldOut && !(s.id && soldSpotIds.has(s.id)));
+    if (!openSpots.length) {
+      Alert.alert('Edit break', 'No open spots to save.');
       return;
     }
-    onSave(item.id, spots);
+    onSave(item.id, openSpots);
   };
 
   if (!item || !saleType || !isVariantSalesFormat(item.salesFormat)) return null;
@@ -85,8 +101,8 @@ export function EditBreakSpotsModal({
               {item.displayTitle ?? item.title}
             </Text>
             <Text style={styles.hint}>
-              Adjust prices per team or division and pin featured spots. Buyers still see the full board — pinned spots
-              appear first.
+              Adjust prices on open teams or divisions and pin featured spots. Sold spots stay listed but cannot be
+              edited.
             </Text>
             {locked ? (
               <Text style={styles.locked}>This break is sold — spot pricing is locked.</Text>
@@ -96,7 +112,6 @@ export function EditBreakSpotsModal({
                 spots={spots}
                 onChange={setSpots}
                 disabled={busy}
-                hideSold
                 soldSpotIds={soldSpotIds}
               />
             )}

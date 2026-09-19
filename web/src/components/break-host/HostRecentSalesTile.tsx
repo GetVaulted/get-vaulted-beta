@@ -4,20 +4,37 @@ function fmtUsd(n: number) {
   return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function HostRecentSalesTile({ rows }: { rows: HostRecentSaleRowDTO[] }) {
+const DEFAULT_MAX_ROWS = 8;
+
+type HostRecentSalesTileProps = {
+  rows: HostRecentSaleRowDTO[];
+  /** Cap how many sales are listed (newest first). Default 8. */
+  maxRows?: number;
+  className?: string;
+};
+
+export function HostRecentSalesTile({
+  rows,
+  maxRows = DEFAULT_MAX_ROWS,
+  className = "",
+}: HostRecentSalesTileProps) {
+  const shown = rows.slice(0, Math.max(1, maxRows));
+
   return (
-    <div className="flex shrink-0 flex-col rounded-xl border border-zinc-800 bg-zinc-950/75 p-3 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
+    <div
+      className={`flex min-h-0 max-h-[22rem] flex-col rounded-xl border border-zinc-800 bg-zinc-950/75 p-3 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ${className}`}
+    >
       <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
         <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Recent sales</p>
         <span className="text-[9px] font-semibold uppercase tracking-wide text-zinc-600">
-          {rows.length ? `${rows.length} shown` : ""}
+          {rows.length ? `Last ${shown.length}` : ""}
         </span>
       </div>
-      {rows.length === 0 ? (
+      {shown.length === 0 ? (
         <p className="shrink-0 py-2 text-center text-[11px] text-zinc-500">No payments on this show yet.</p>
       ) : (
-        <ul className="space-y-1.5 pr-0.5">
-          {rows.map((r) => (
+        <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain pr-0.5 [scrollbar-width:thin]">
+          {shown.map((r) => (
             <li
               key={r.id}
               className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border border-white/[0.06] bg-black/35 px-2.5 py-2 text-[11px]"

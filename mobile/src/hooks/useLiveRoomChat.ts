@@ -10,10 +10,33 @@ import {
   mergeChatMessagesById,
   VIEWER_EVENT_JOIN_BODY,
 } from '../lib/liveRoomChatMessages';
+import { resolveSellerAccessToken } from '../lib/resolveSellerAccessToken';
 import type { LiveRoomChatBroadcastMessage } from './useRealtimeRoomSubscription';
 import type { ChatMessage, ChatMessageKind } from '../types';
 
 const joinCooldownByRoom = new Map<string, number>();
+
+function isTransientChatSendError(message: string): boolean {
+  return /timed out|network request failed|could not reach|fetch failed|aborted|network error/i.test(
+    message,
+  );
+}
+
+function isAuthChatError(message: string): boolean {
+  return /sign in|session expired|invalid session|unauthorized|401/i.test(message);
+}
+
+async function resolveChatAccessToken(fallback?: string): Promise<string> {
+  try {
+    return await resolveSellerAccessToken(fallback);
+  } catch {
+    throw new Error('Sign in to chat.');
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function mapRow(m: LiveRoomChatMessageRow, hostUsername: string, hostUserId?: string): ChatMessage | null {
   const text = m.body?.trim();
@@ -95,7 +118,7 @@ export function useLiveRoomChat(args: {
     if (reloadLockRef.current) return;
     reloadLockRef.current = true;
     try {
-      const rows = await fetchLiveRoomChatMessages(args.roomId);
+      const rows = await fetchLiveRoomChatMessages(args.roomId, args.accessToken);
       const mapped = mapRows(rows, args.hostUsername, args.hostUserId);
       setMessages((prev) => mergeChatMessagesById(prev, mapped));
       setError(null);
@@ -106,7 +129,7 @@ export function useLiveRoomChat(args: {
     } finally {
       reloadLockRef.current = false;
     }
-  }, [args.hostUserId, args.hostUsername, args.roomId]);
+  }, [args.accessToken, args.hostUserId, args.hostUsername, args.roomId]);
 
   const appendBroadcast = useCallback(
     (message: LiveRoomChatBroadcastMessage) => {
@@ -137,7 +160,13 @@ export function useLiveRoomChat(args: {
   }, [args.enabled, args.realtimePrimary, reload]);
 
   const announceJoin = useCallback(async (): Promise<boolean> => {
-    if (!args.accessToken || !args.enabled) return false;
+    if (!args.enabled) return false;
+    let accessToken: string;
+    try {
+      accessToken = await resolveChatAccessToken(args.accessToken);
+    } catch {
+      return false;
+    }
     const last = joinCooldownByRoom.get(args.roomId) ?? 0;
     if (Date.now() - last < JOIN_ANNOUNCE_COOLDOWN_MS) return false;
 
@@ -156,7 +185,7 @@ export function useLiveRoomChat(args: {
 
     try {
       const row = await announceLiveRoomViewerEvent({
-        accessToken: args.accessToken,
+        accessToken,
         roomId: args.roomId,
         kind: 'join',
       });
@@ -205,10 +234,16 @@ export function useLiveRoomChat(args: {
   ]);
 
   const announceLeave = useCallback(async (): Promise<void> => {
-    if (!args.accessToken || !args.enabled) return;
+    if (!args.enabled) return;
+    let accessToken: string;
+    try {
+      accessToken = await resolveChatAccessToken(args.accessToken);
+    } catch {
+      return;
+    }
     try {
       await announceLiveRoomViewerEvent({
-        accessToken: args.accessToken,
+        accessToken,
         roomId: args.roomId,
         kind: 'leave',
       });
@@ -218,10 +253,15 @@ export function useLiveRoomChat(args: {
   }, [args.accessToken, args.enabled, args.roomId]);
 
   const announceShare = useCallback(async (): Promise<boolean> => {
-    if (!args.accessToken) return false;
+    let accessToken: string;
+    try {
+      accessToken = await resolveChatAccessToken(args.accessToken);
+    } catch {
+      return false;
+    }
     try {
       const row = await announceLiveRoomViewerEvent({
-        accessToken: args.accessToken,
+        accessToken,
         roomId: args.roomId,
         kind: 'share',
       });
@@ -236,14 +276,21 @@ export function useLiveRoomChat(args: {
   }, [appendRows, args.accessToken, args.roomId]);
 
   const send = useCallback(
-    async (text: string): Promise<boolean> => {
+    async (text: string, opts?: { staffOnly?: boolean }): Promise<boolean> => {
       const body = text.trim();
       if (!body) return false;
-      if (!args.accessToken) throw new Error('Sign in to chat.');
+      // Resolve a fresh JWT — long-lived live screens often hold an expired React prop token.
+      let accessToken: string;
+      try {
+        accessToken = await resolveChatAccessToken(args.accessToken);
+      } catch {
+        throw new Error('Sign in to chat.');
+      }
       if (sendLockRef.current) return false;
 
       sendLockRef.current = true;
       setSending(true);
+      const staffOnly = opts?.staffOnly === true;
       const clientMessageId = `cm-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
       const pendingId = `pending:${clientMessageId}`;
       const optimistic: ChatMessage = {
@@ -253,18 +300,12 @@ export function useLiveRoomChat(args: {
         senderId: args.senderUserId,
         senderAvatarUrl: args.senderAvatarUrl ?? null,
         isHost: Boolean(args.hostUserId && args.senderUserId && args.senderUserId === args.hostUserId),
-        messageType: 'chat',
+        messageType: staffOnly ? 'staff' : 'chat',
         createdAt: new Date().toISOString(),
       };
       setMessages((prev) => mergeChatMessagesById(prev, [optimistic]));
 
-      try {
-        const row = await sendLiveRoomChatMessage({
-          accessToken: args.accessToken,
-          roomId: args.roomId,
-          body,
-          clientMessageId,
-        });
+      const commitRow = (row: LiveRoomChatMessageRow) => {
         const next = mapRow(row, args.hostUsername, args.hostUserId);
         setMessages((prev) => {
           const stripped = stripMatchingPendingMessages(prev, next ? [next] : []);
@@ -272,11 +313,37 @@ export function useLiveRoomChat(args: {
           return mergeChatMessagesById(stripped, [next]);
         });
         setError(null);
-        return true;
+      };
+
+      try {
+        const post = () =>
+          sendLiveRoomChatMessage({
+            accessToken,
+            roomId: args.roomId,
+            body,
+            clientMessageId,
+            staffOnly,
+          });
+        try {
+          commitRow(await post());
+          return true;
+        } catch (first) {
+          const msg = first instanceof Error ? first.message : String(first);
+          // One quiet retry for flaky live-show networks / timeouts. Server duplicate window
+          // returns the first message if it actually landed.
+          if (!isTransientChatSendError(msg) && !isAuthChatError(msg)) throw first;
+          if (isAuthChatError(msg)) {
+            accessToken = await resolveChatAccessToken(args.accessToken);
+          } else {
+            await sleep(450);
+          }
+          commitRow(await post());
+          return true;
+        }
       } catch (e) {
         setMessages((prev) => prev.filter((m) => m.id !== pendingId));
         const msg = e instanceof Error ? e.message : String(e);
-        setError(msg);
+        setError(isAuthChatError(msg) ? 'Sign in to chat.' : msg);
         throw e;
       } finally {
         sendLockRef.current = false;

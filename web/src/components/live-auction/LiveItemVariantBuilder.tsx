@@ -8,11 +8,22 @@ import {
   type VariantDraftInput,
 } from "@/lib/live-item-variant-presets";
 
-export type LiveItemSalesFormatDraft = "auction" | "buy_now" | "variant_selection" | "team_break";
+export type LiveItemSalesFormatDraft =
+  | "auction"
+  | "buy_now"
+  | "variant_selection"
+  | "team_break"
+  | "player_selection";
 
 type LiveItemVariantBuilderProps = {
   salesFormat: LiveItemSalesFormatDraft;
   onSalesFormatChange: (f: LiveItemSalesFormatDraft) => void;
+  /**
+   * False when the sales format is already locked in by an earlier step in the flow (e.g. the
+   * break/spot type picker above this component) -- renders the row as a fixed read-only
+   * indicator instead of buttons that look clickable but silently do nothing. Defaults to true.
+   */
+  salesFormatEditable?: boolean;
   defaultPriceUsd: string;
   variants: VariantDraftInput[];
   onVariantsChange: (v: VariantDraftInput[]) => void;
@@ -231,6 +242,7 @@ function VariantRow({
 export function LiveItemVariantBuilder({
   salesFormat,
   onSalesFormatChange,
+  salesFormatEditable = true,
   defaultPriceUsd,
   variants,
   onVariantsChange,
@@ -239,7 +251,10 @@ export function LiveItemVariantBuilder({
   const [bulkPriceDraft, setBulkPriceDraft] = useState("");
   const [bulkQtyDraft, setBulkQtyDraft] = useState("");
 
-  const showVariants = salesFormat === "variant_selection" || salesFormat === "team_break";
+  const showVariants =
+    salesFormat === "variant_selection" ||
+    salesFormat === "team_break" ||
+    salesFormat === "player_selection";
   const priceNum = useMemo(() => {
     const n = Number(defaultPriceUsd);
     return Number.isFinite(n) && n >= 0 ? n : 0;
@@ -301,17 +316,22 @@ export function LiveItemVariantBuilder({
             <button
               key={f.id}
               type="button"
-              onClick={() => onSalesFormatChange(f.id)}
+              disabled={!salesFormatEditable}
+              aria-current={salesFormat === f.id ? "true" : undefined}
+              onClick={salesFormatEditable ? () => onSalesFormatChange(f.id) : undefined}
               className={`rounded-lg border px-2 py-2 text-[10px] font-bold transition ${
                 salesFormat === f.id
                   ? "border-amber-400/35 bg-amber-500/12 text-amber-100"
-                  : "border-white/10 bg-black/30 text-zinc-500 hover:border-white/16"
-              }`}
+                  : "border-white/10 bg-black/30 text-zinc-500"
+              } ${salesFormatEditable ? "hover:border-white/16" : "cursor-default opacity-70"}`}
             >
               {f.label}
             </button>
           ))}
         </div>
+        {!salesFormatEditable ? (
+          <p className="mt-1 text-[10px] text-zinc-600">Set by the break/spot type picked above.</p>
+        ) : null}
       </div>
 
       {showVariants ? (

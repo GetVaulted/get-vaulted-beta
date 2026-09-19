@@ -96,6 +96,9 @@ export function mapLivePaymentFailureMessage(
   const lower = text.toLowerCase();
   if (lower.includes('declined')) return 'Your card was declined.';
   if (lower.includes('insufficient')) return 'Insufficient funds.';
+  if (lower.includes('timed out') || lower.includes('timeout') || lower.includes('abort')) {
+    return 'Checkout is taking too long — tap Buy again. You will not be charged twice.';
+  }
   if (lower.includes('expired')) return 'Your card has expired.';
   if (lower.includes('processing')) return 'Payment could not be completed.';
   if (lower.includes('verification') || lower.includes('authentication')) {

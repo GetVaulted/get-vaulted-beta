@@ -78,7 +78,9 @@ export function PushRegistrationEffect() {
         try {
           const regKey = `${realtimeUserId}:${session.access_token.slice(0, 12)}`;
           if (registered.current === regKey) return;
-          const res = await registerForPushNotifications();
+          // Do not trigger the OS permission dialog here — signup/login show
+          // NotificationPermissionScreen first so the ask is intentional.
+          const res = await registerForPushNotifications({ requestPermission: false });
           if (!res.ok) return;
           const persisted = await persistPushToken(user.id, res.token, session.access_token);
           if (persisted.ok) {

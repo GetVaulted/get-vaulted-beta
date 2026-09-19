@@ -24,10 +24,12 @@ type LiveVideoStageProps = {
   onBack?: () => void;
   /** When set, host row shows a working Follow control for this seller user id. */
   hostSellerId?: string;
-  /** Centered overlay above the video plate (e.g. break team board). Keeps top/bottom chrome usable. */
+  /** Overlay above the video plate (e.g. break team board). Keeps top/bottom chrome usable. */
   centerOverlay?: ReactNode;
   /** When true, render center overlay above all stream chrome (e.g. active team board). */
   centerOverlayOnTop?: boolean;
+  /** `bottom` docks the board under the stream so mid-frame video stays clear (PC minimize chip). */
+  centerOverlayAlign?: "center" | "bottom";
   actionOverlay?: ReactNode;
   mobileActionOverlay?: ReactNode;
   /** `fillHeight`: grow with parent. `host916`: legacy alias — video stays 9:16, overlays use full stage on desktop. `buyerShellPlate`: 9:16 plate centered in parent (buyer desktop shell). */
@@ -58,7 +60,9 @@ type LiveVideoStageProps = {
   topChromeTrailing?: ReactNode;
   /** Buyer-only right-side quick actions. */
   showRightActions?: boolean;
-  /** Seller shop link for the video-stage Shop action. */
+  /** Opens the in-room shop / lineup sheet. */
+  onShop?: () => void;
+  /** Optional fallback when `onShop` is not provided. */
   shopHref?: string | null;
   onShare?: () => void;
   onWallet?: () => void;
@@ -82,6 +86,8 @@ type LiveVideoStageProps = {
   scheduledStartAt?: string | null;
   /** Host-uploaded room thumbnail; rendered behind standby/countdown UI until the live video paints. */
   thumbnailUrl?: string | null;
+  /** Short looping promo for scheduled rooms (with sound after unmute on web). */
+  teaserVideoUrl?: string | null;
   /** When true, video/thumbnail fill the stage edge-to-edge (host 9:16 console frame). */
   fillPortraitFrame?: boolean;
   /** DB room status — bottom playback pill uses this (Live / Upcoming / Ended). */
@@ -95,7 +101,7 @@ type LiveVideoStageProps = {
 
 /** Centered 9:16 plate — video only; overlays attach to outer stage on desktop. */
 const PORTRAIT_VIDEO_FRAME =
-  "relative aspect-[9/16] min-h-0 shrink-0 overflow-hidden min-[1400px]:rounded-xl min-[1400px]:border min-[1400px]:border-white/[0.14] min-[1400px]:shadow-[0_24px_80px_-28px_rgba(0,0,0,0.92)]";
+  "relative aspect-[9/16] min-h-0 shrink-0 overflow-hidden min-[1024px]:rounded-xl min-[1024px]:border min-[1024px]:border-white/[0.14] min-[1024px]:shadow-[0_24px_80px_-28px_rgba(0,0,0,0.92)]";
 const PORTRAIT_VIDEO_FRAME_BUYER_SHELL =
   "relative aspect-[9/16] min-h-0 shrink-0 overflow-hidden min-[1280px]:rounded-xl min-[1280px]:border min-[1280px]:border-white/[0.14] min-[1280px]:shadow-[0_24px_80px_-28px_rgba(0,0,0,0.92)]";
 
@@ -112,6 +118,7 @@ export function LiveVideoStage({
   hostSellerId,
   centerOverlay,
   centerOverlayOnTop = false,
+  centerOverlayAlign = "center",
   actionOverlay,
   mobileActionOverlay,
   layout = "aspect",
@@ -128,6 +135,7 @@ export function LiveVideoStage({
   centeredActionOverlay = false,
   topChromeTrailing,
   showRightActions = false,
+  onShop,
   shopHref = null,
   onShare,
   onWallet,
@@ -141,6 +149,7 @@ export function LiveVideoStage({
   viewerAuthenticated = false,
   scheduledStartAt = null,
   thumbnailUrl = null,
+  teaserVideoUrl = null,
   fillPortraitFrame: _fillPortraitFrameProp,
   roomStatus,
   vaultMode = "auction_night",
@@ -169,8 +178,8 @@ export function LiveVideoStage({
       ? "h-full max-h-full w-auto max-w-full"
       : "h-auto max-h-full w-full max-w-full";
 
-  const mobileChromeHiddenClass = buyerShellMode ? "min-[1280px]:hidden" : "min-[1400px]:hidden";
-  const desktopChromeHiddenClass = buyerShellMode ? "hidden min-[1280px]:block" : "hidden min-[1400px]:block";
+  const mobileChromeHiddenClass = buyerShellMode ? "min-[1280px]:hidden" : "min-[1024px]:hidden";
+  const desktopChromeHiddenClass = buyerShellMode ? "hidden min-[1280px]:block" : "hidden min-[1024px]:block";
 
   const desktopActionOverlayClass = buyerShellPlateLayout
     ? // Buyer desktop shell: bottom bar matches centered 9:16 plate width.
@@ -178,9 +187,8 @@ export function LiveVideoStage({
     : cinematicActionOverlay
       ? "live-stage-hud-suspended bottom-4 left-1/2 w-[min(920px,calc(100%-3rem))] -translate-x-1/2"
       : centeredActionOverlay
-        ? // Compact HUD overlaid on the bottom-center of the 9:16 video. Capped just under the
-          // plate width (~540px at 1080p) so it floats on the video and never spans the stage.
-          "bottom-4 left-1/2 w-[min(500px,calc(100%-2rem))] -translate-x-1/2"
+        ? // Host auction HUD — wide enough for lot title + winning bidder + timer (phone parity).
+          "bottom-4 left-1/2 w-[min(560px,calc(100%-1.5rem))] -translate-x-1/2"
         : compactActionOverlay
           ? "bottom-2 left-2 right-14"
           : "bottom-4 left-4 right-4";
@@ -245,7 +253,12 @@ export function LiveVideoStage({
       {onTip ? <ActionPill label="Tip" icon={<TipIcon />} onClick={onTip} /> : null}
       <ActionPill label="Share" icon={<ShareIcon />} onClick={onShare} />
       <ActionPill label="Wallet" icon={<WalletIcon />} onClick={onWallet} />
-      <ActionPill label="Shop" icon={<ShopIcon />} href={shopHref ?? "/marketplace"} />
+      <ActionPill
+        label="Shop"
+        icon={<ShopIcon />}
+        onClick={onShop}
+        href={onShop ? undefined : shopHref ?? undefined}
+      />
       {liveRoomId ? (
         <ReportTrigger
           targetType="live_room"
@@ -262,7 +275,17 @@ export function LiveVideoStage({
     </div>
   ) : null;
 
-  const mobileChatClass = `absolute left-1.5 z-10 flex w-[min(96vw,34rem)] min-h-0 max-h-[min(54dvh,28rem)] min-w-0 flex-col max-[380px]:left-1 max-[380px]:w-[min(94vw,26rem)] transition-opacity duration-[var(--live-duration-ui)] ease-[var(--live-ease)] ${
+  // Width is a % of this overlay's own containing block (the 9:16 video plate), NOT `vw`.
+  // `vw` is always relative to the browser viewport - fine on an actual phone, where the plate
+  // is letterboxed to (nearly) the full viewport width, but wrong the moment this "mobile"
+  // overlay branch renders in a real desktop/laptop browser window under the 1024px breakpoint:
+  // the plate there is height-constrained by aspect-[9/16] and typically much narrower than the
+  // viewport, so `96vw` massively overshot the plate's actual width, got clipped by its
+  // `overflow-hidden`, and landed directly under sellerHostRail's `right-2` icon column below -
+  // the exact chat/icon-rail overlap seen on a real PC browser window. Capped at 76% (vs. the
+  // old 96%) so it also clears that icon rail with room to spare, since it no longer scales with
+  // an unrelated viewport width.
+  const mobileChatClass = `absolute left-1.5 z-10 flex w-[min(76%,34rem)] min-h-0 max-h-[min(54dvh,28rem)] min-w-0 flex-col max-[380px]:left-1 max-[380px]:w-[min(72%,26rem)] transition-opacity duration-[var(--live-duration-ui)] ease-[var(--live-ease)] ${
     hasMobileItemSheet
       ? "bottom-[max(8.25rem,calc(env(safe-area-inset-bottom)+7.5rem))]"
       : "bottom-[max(6rem,calc(env(safe-area-inset-bottom)+5rem))]"
@@ -292,7 +315,7 @@ export function LiveVideoStage({
       )}
 
       {stageOverlay ? (
-        <div className={buyerShellMode ? "pointer-events-none absolute inset-0 z-[12] hidden min-[1280px]:block" : "pointer-events-none absolute inset-0 z-[12] hidden min-[1400px]:block"}>{stageOverlay}</div>
+        <div className={buyerShellMode ? "pointer-events-none absolute inset-0 z-[12] hidden min-[1280px]:block" : "pointer-events-none absolute inset-0 z-[12] hidden min-[1024px]:block"}>{stageOverlay}</div>
       ) : null}
 
       {/* 9:16 video plate — max area inside parent while preserving aspect ratio. */}
@@ -312,6 +335,7 @@ export function LiveVideoStage({
               streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
               scheduledStartAt={scheduledStartAt}
               thumbnailUrl={thumbnailUrl}
+              teaserVideoUrl={teaserVideoUrl}
               onNotifyMe={onNotifyMe}
               fillPortraitFrame
             />
@@ -336,7 +360,9 @@ export function LiveVideoStage({
 
           {centerOverlay ? (
             <div
-              className={`pointer-events-none absolute inset-0 min-[1400px]:hidden ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} flex items-center justify-center p-2 sm:p-4`}
+              className={`pointer-events-none absolute inset-0 min-[1024px]:hidden ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} flex justify-center p-2 sm:p-4 ${
+                centerOverlayAlign === "bottom" ? "items-end pb-3 sm:pb-4" : "items-center"
+              }`}
             >
               <div className="pointer-events-auto max-h-full min-h-0 w-full max-w-full overflow-y-auto">{centerOverlay}</div>
             </div>
@@ -390,7 +416,9 @@ export function LiveVideoStage({
 
       {centerOverlay && !buyerShellMode ? (
         <div
-          className={`pointer-events-none absolute inset-0 hidden min-[1400px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} items-center justify-center p-4`}
+          className={`pointer-events-none absolute inset-0 hidden min-[1024px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} justify-center p-4 ${
+            centerOverlayAlign === "bottom" ? "items-end" : "items-center"
+          }`}
         >
           <div className="pointer-events-auto max-h-full min-h-0 w-full max-w-[1920px] overflow-y-auto">{centerOverlay}</div>
         </div>
@@ -398,7 +426,9 @@ export function LiveVideoStage({
 
       {centerOverlay && buyerShellMode ? (
         <div
-          className={`pointer-events-none absolute inset-0 hidden min-[1280px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} items-center justify-center p-2`}
+          className={`pointer-events-none absolute inset-0 hidden min-[1280px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} justify-center p-2 ${
+            centerOverlayAlign === "bottom" ? "items-end pb-2" : "items-center"
+          }`}
         >
           <div className="pointer-events-auto max-h-full min-h-0 w-full max-w-md overflow-y-auto">{centerOverlay}</div>
         </div>

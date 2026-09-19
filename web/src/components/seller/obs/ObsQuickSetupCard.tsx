@@ -20,7 +20,7 @@ export function ObsQuickSetupCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">{OBS_STUDIO.quickSetup}</p>
-          <p className="mt-1 text-sm text-zinc-400">{OBS_STUDIO.detectObs}: IVS stream signal from your RTMP encode.</p>
+          <p className="mt-1 text-sm text-zinc-400">{OBS_STUDIO.detectObs}: IVS stream signal from your OBS connection (WHIP or RTMPS).</p>
         </div>
         <span
           className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wide ${
@@ -56,18 +56,41 @@ export function ObsQuickSetupCard({
           {setup.busyAction === "refresh" ? "Refreshing…" : OBS_STUDIO.refreshStatus}
         </button>
         {!setup.hasIngest ? (
-          <button
-            type="button"
-            disabled={disabled || busy}
-            onClick={() => void setup.connectObs()}
-            className="min-h-10 rounded-full bg-gradient-to-r from-gold/90 to-amber-300 px-5 text-xs font-black uppercase tracking-wide text-zinc-950 disabled:opacity-50"
-          >
-            {setup.busyAction === "provision" ? "Connecting…" : OBS_STUDIO.connectObs}
-          </button>
+          <>
+            <button
+              type="button"
+              disabled={disabled || busy}
+              onClick={() => void setup.connectObs()}
+              className="min-h-10 rounded-full bg-gradient-to-r from-gold/90 to-amber-300 px-5 text-xs font-black uppercase tracking-wide text-zinc-950 disabled:opacity-50"
+            >
+              {setup.busyAction === "provision" ? "Connecting…" : OBS_STUDIO.connectObs}
+            </button>
+            <button
+              type="button"
+              disabled={disabled || busy}
+              onClick={() => void setup.connectObs("rtmps")}
+              className="min-h-10 rounded-full border border-white/10 px-4 text-xs font-semibold text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+            >
+              {setup.busyAction === "provision" ? "Connecting…" : OBS_STUDIO.useRtmpsFallback}
+            </button>
+          </>
         ) : setup.connectionState !== "live" ? (
-          <p className="flex min-h-10 items-center text-xs text-zinc-400">
-            Paste credentials below, then click <span className="mx-1 font-semibold text-zinc-200">Start Streaming</span> in OBS.
-          </p>
+          <div className="flex min-h-10 flex-col justify-center gap-1">
+            <p className="text-xs text-zinc-400">
+              Paste credentials below, then click <span className="mx-1 font-semibold text-zinc-200">Start Streaming</span> in OBS.
+              Do not tap Go Live on the phone for an OBS show — Start Show here, then stream from OBS.
+            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void setup.connectObs(setup.stream?.ingestProtocol === "whip" ? "rtmps" : "whip")
+              }
+              className="self-start text-[11px] font-semibold text-zinc-500 underline decoration-dotted hover:text-zinc-300"
+            >
+              {setup.stream?.ingestProtocol === "whip" ? OBS_STUDIO.switchToRtmps : OBS_STUDIO.switchToWhip}
+            </button>
+          </div>
         ) : (
           <p className="flex min-h-10 items-center text-xs font-semibold text-emerald-200">OBS signal detected — you are ready to sell.</p>
         )}

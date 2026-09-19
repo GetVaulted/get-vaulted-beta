@@ -11,6 +11,9 @@ type Props = {
   payoutHoldUntil: string | null;
   payoutReserveAmountCents: number;
   payoutMethod: string;
+  sellerPayoutProcessor?: string | null;
+  processorTransferId?: string | null;
+  paypalPayoutStatus?: string | null;
   payoutEvaluation: {
     sellerEligible: boolean;
     instantPayoutAllowed: boolean;
@@ -29,6 +32,9 @@ export function AdminOrderPayoutPanel({
   payoutHoldUntil,
   payoutReserveAmountCents,
   payoutMethod,
+  sellerPayoutProcessor,
+  processorTransferId,
+  paypalPayoutStatus,
   payoutEvaluation,
   onUpdated,
 }: Props) {
@@ -91,6 +97,16 @@ export function AdminOrderPayoutPanel({
           <p className="mt-1 capitalize text-zinc-100">{payoutMethod.replace(/_/g, " ")}</p>
         </div>
         <div>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Payout processor</p>
+          <p className="mt-1 text-zinc-100">{sellerPayoutProcessor ?? "STRIPE"}</p>
+          {processorTransferId ? (
+            <p className="mt-0.5 break-all font-mono text-[10px] text-zinc-500">{processorTransferId}</p>
+          ) : null}
+          {paypalPayoutStatus ? (
+            <p className="mt-0.5 text-[10px] text-zinc-500">PayPal status: {paypalPayoutStatus}</p>
+          ) : null}
+        </div>
+        <div>
           <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Reserve / hold</p>
           <p className="mt-1 text-zinc-100">
             {reserveUsd}
@@ -134,9 +150,15 @@ export function AdminOrderPayoutPanel({
           type="button"
           disabled={busy}
           onClick={() => void act("release_payout")}
-          className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-semibold text-emerald-200 disabled:opacity-50"
+          className={
+            payoutStatus === "fast_payout_ready" ||
+            payoutStatus === "label_payout_ready" ||
+            payoutStatus === "instant_payout_ready"
+              ? "rounded-lg border border-emerald-400/60 bg-emerald-500/20 px-3 py-1.5 text-[10px] font-semibold text-emerald-100 disabled:opacity-50"
+              : "rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-semibold text-emerald-200 disabled:opacity-50"
+          }
         >
-          Release payout
+          {payoutStatus.includes("payout_ready") ? "Push bank payout" : "Release payout"}
         </button>
         <button
           type="button"

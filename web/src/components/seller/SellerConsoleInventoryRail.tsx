@@ -18,6 +18,7 @@ type SellerConsoleInventoryRailProps = {
   onPost: (id: string) => void;
   onSkip?: (id: string) => void;
   onDelete: (id: string) => void;
+  onEdit?: (id: string) => void;
   onAddItem: () => void;
   onAddGiveaway: () => void;
   onGiveawayOpenEntries: (id: string) => void;
@@ -49,6 +50,7 @@ export function SellerConsoleInventoryRail({
   onPost,
   onSkip,
   onDelete,
+  onEdit,
   onAddItem,
   onAddGiveaway,
   onGiveawayOpenEntries,
@@ -132,7 +134,7 @@ export function SellerConsoleInventoryRail({
           </button>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2">
         <VaultQueueCarousel
           tab={tab}
           onTab={onTab}
@@ -146,6 +148,7 @@ export function SellerConsoleInventoryRail({
           postDisabled={Boolean(pinBlockedReason)}
           onSkip={onSkip}
           onDelete={onDelete}
+          onEdit={onEdit}
           onAddAuction={onAddItem}
           onAddGiveaway={onAddGiveaway}
           onGiveawayOpenEntries={onGiveawayOpenEntries}

@@ -32,7 +32,7 @@ vi.mock("@/lib/stripe", async (importOriginal) => {
 
 describe("live buy-now shipping (integration)", () => {
   beforeAll(async () => {
-    vi.stubEnv("LIVE_SHIPPING_CAP_CENTS", "1199");
+    vi.stubEnv("LIVE_SHIPPING_CAP_CENTS", "999");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_live_bn");
     vi.stubEnv("NEXTAUTH_URL", "http://localhost:3000");
     await bootstrapIntegrationPrisma();

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { TeamBoardHostPanel } from "@/components/team-board/TeamBoardHostPanel";
 import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
+import { TeamBoardChromeButton } from "@/components/team-board/TeamBoardChromeButton";
 import { LiveSellerCommandCenter } from "@/components/break-host/LiveSellerCommandCenter";
 import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
 import { LiveSpotTakenCelebration } from "@/components/live-auction/LiveSpotTakenCelebration";
@@ -16,7 +17,6 @@ import { VaultHostLiveChatPanel } from "@/components/break-host/vault/VaultHostL
 import { ExpandableLiveChatOverlay } from "@/components/live-auction/ExpandableLiveChatOverlay";
 import { VaultHostStageEdgeRail } from "@/components/break-host/vault/VaultHostStageEdgeRail";
 import { VaultHostRightRail } from "@/components/break-host/vault/VaultHostRightRail";
-import { VaultBroadcastControl } from "@/components/break-host/vault/VaultBroadcastControl";
 import { VaultPinnedLot } from "@/components/break-host/vault/VaultPinnedLot";
 import { addModalModeForTab, isGiveawayTab, type SellerQueueAddModalMode, type SellerQueueTab } from "@/lib/seller-queue-tabs";
 import type { LiveGiveawayDTO } from "@/lib/live-giveaway";
@@ -28,16 +28,24 @@ import {
 import { AddQueueItemModal, type AddQueueItemAuctionPayload, type AddQueueItemCloseReason, type AddQueueItemGiveawayPayload } from "@/components/break-host/AddQueueItemModal";
 import { VaultQueueDrawer } from "@/components/break-host/vault/VaultQueueDrawer";
 import { HostVariantCommerceStage } from "@/components/break-host/HostVariantCommerceStage";
-import { ExternalFulfillmentNotice } from "@/components/shipping/ExternalFulfillmentNotice";
+import { HostRecentSalesTile } from "@/components/break-host/HostRecentSalesTile";
+import { LiveShowSalesTile } from "@/components/break-host/LiveShowSalesTile";
 import { HostAddSupplementalModal } from "@/components/break-host/HostAddSupplementalModal";
 import { HostEditBreakSpotsModal, variantItemForSpotEditor } from "@/components/break-host/HostEditBreakSpotsModal";
+import {
+  HostEditLotPricingModal,
+  lotPricingEditableItem,
+  type LotPricingValues,
+  type LotSaleType,
+} from "@/components/break-host/HostEditLotPricingModal";
 import { buildExclusiveHostPinUpdates, hostPinnedBuyerVariant, isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import { HOST_PIN_BLOCKED_AUCTION_LIVE_MSG, hostPinLotBlocked } from "@/lib/host-queue-selection";
 import {
   canHostStartLiveAuction,
   resolveLiveAuctionHostStartLotPhase,
 } from "@/lib/live-auction-host-start";
-import { isLiveRoomBroadcastOnAir } from "@/lib/live-room-broadcast-on-air";
+import { isLiveRoomBroadcastOnAir, isLiveRoomRemotePublisherActive } from "@/lib/live-room-broadcast-on-air";
+import { isObsDesktopBroadcastMode } from "@/lib/live-obs-channel-mode";
 import { canonicalLiveRoomUrl } from "@/lib/live-room-share-metadata";
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import {
@@ -50,7 +58,6 @@ import {
 } from "@/lib/host-team-board-panel-session";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { vaultModeRootClass } from "@/components/break-host/vault/vault-modes";
-import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter";
 import type { LiveStageMotionBurst } from "@/components/live-stage/LiveAuctionHud";
 import {
   LiveLotTransitionBanner,
@@ -73,6 +80,7 @@ import { useRealtimeRoomPresence } from "@/hooks/useRealtimeRoomPresence";
 import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
+import { syncLiveRoomViewerCount } from "@/lib/sync-live-room-viewer-count";
 import { logLiveDebugEvent } from "@/lib/live-debug";
 import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from "@/lib/vault-reveal-spin";
 import {
@@ -80,12 +88,15 @@ import {
   deleteLiveRoomItem,
   finalizeOverdueLiveAuctions,
   appendLiveItemSupplementalVariants,
+  importLiveRoomItemsFromRoom,
+  manualAssignLiveItemVariant,
   patchLiveItemVariants,
   patchLiveRoomAction,
   patchLiveRoomItemStatus,
   sendLiveRoomSystemMessage,
   startLiveRoomItemAuction,
   beginLiveRoomTeamBreak,
+  patchLiveRoomItemLotPricing,
 } from "@/lib/live-room-control-client";
 import { appendLiveRoomMessageDedupe, mergeLiveRoomMessagesById } from "@/lib/realtime-merge-messages";
 import { mergeHostQueueRows } from "@/lib/realtime-merge-queue";
@@ -95,9 +106,14 @@ import type { LiveRoomStatus } from "@/generated/prisma/client";
 import type { HostRecentSaleRowDTO } from "@/lib/live-room-recent-sales";
 import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import {
+  logSellerShowSummaryEvent,
+  type LiveShowSellerSummaryDTO,
+} from "@/lib/live-show-seller-summary-shared";
+import {
   mergeLiveRoomItemsForActiveItemEvent,
   mergeLiveRoomItemsForBidPlaced,
 } from "@/lib/live-room-realtime-merge";
+import { mergeVariantPurchasedIntoItems } from "@/lib/live-room-variant-merge";
 import { estimateClockSkewMs, syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { parsePurchaseCompletedCelebration, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
 import {
@@ -113,6 +129,7 @@ type RoomPayload = {
   sellerId: string;
   title: string;
   status: string;
+  discoveryVisibility?: "public" | "private";
   roomVersion: number;
   viewerCount: number;
   breakFormat: string;
@@ -128,12 +145,14 @@ type RoomPayload = {
   randomizationResult: string | null;
   lockPurchases: boolean;
   breakPaused: boolean;
-  teamBoardLeague: "nfl" | "nba" | "mlb";
+  teamBoardLeague: "nfl" | "nba" | "mlb" | "nhl";
   scheduledStartAt: string | null;
   /** When the seller started the live room (host console “Start stream”). */
   startedAt: string | null;
   streamHealth?: string;
   streamPaused?: boolean;
+  streamMode?: string;
+  ingestEndpoint?: string | null;
   thumbnailUrl?: string | null;
 };
 
@@ -176,6 +195,7 @@ type HostPayload = {
   isAdmin: boolean;
   recentSales?: HostRecentSaleRowDTO[];
   feeTier?: LiveShowFeeTierSnapshot | null;
+  sellerSummary?: LiveShowSellerSummaryDTO | null;
   sellerUnresolvedPaymentFailures?: SellerPaymentFailureDTO[];
   externalFulfillmentPaidCount?: number;
   variantExternalFulfillmentCount?: number;
@@ -233,17 +253,25 @@ function formatLiveDurationHms(startedAtIso: string, nowMs: number) {
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-export function BreakHostConsole({ roomId }: { roomId: string }) {
+export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: string; roomType?: string }) {
+  // Break rooms add team-board / team-break tooling. Auction and sale rooms reuse the same host
+  // console for camera streaming, queue, auctions, chat, and go-live, minus the break-only extras.
+  const isBreak = roomType === "break";
   const router = useRouter();
   const { data: session } = useSession();
-  const liveViewerCount = useRealtimeRoomPresence({
-    liveRoomId: roomId,
-    enabled: Boolean(roomId),
-    trackSelf: false,
-  });
   const [data, setData] = useState<HostPayload | null>(null);
   const hostDataRef = useRef<HostPayload | null>(null);
   hostDataRef.current = data;
+  // Presence is for live viewer counts only — saved/scheduled shows must not open a presence session.
+  const liveViewerCount = useRealtimeRoomPresence({
+    liveRoomId: roomId,
+    enabled: Boolean(roomId) && data?.room?.status === "live",
+    trackSelf: false,
+  });
+  useEffect(() => {
+    if (!roomId || liveViewerCount == null) return;
+    void syncLiveRoomViewerCount({ liveRoomId: roomId, viewerCount: liveViewerCount });
+  }, [roomId, liveViewerCount]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -258,6 +286,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
   const [queueAddModal, setQueueAddModal] = useState<SellerQueueAddModalMode>(null);
   const [obsSetupModalOpen, setObsSetupModalOpen] = useState(false);
+  // Seller can close the go-live camera/mic setup panel to see the stage/queue behind it
+  // before they are ready, then reopen it from the action bar's "Camera setup" button.
+  const [goLiveSetupDismissed, setGoLiveSetupDismissed] = useState(false);
 
   const [teamBoardData, setTeamBoardData] = useState<TeamBoardPublicPayload | null>(null);
   const [teamBoardBusy, setTeamBoardBusy] = useState(false);
@@ -279,7 +310,10 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const [hostCommerceMinimized, setHostCommerceMinimized] = useState(false);
   const [supplementalModalOpen, setSupplementalModalOpen] = useState(false);
   const [variantSpotEditOpen, setVariantSpotEditOpen] = useState(false);
+  const [lotPricingEditItemId, setLotPricingEditItemId] = useState<string | null>(null);
+  const [lastSupplemental, setLastSupplemental] = useState<{ itemId: string; name: string; priceUsd: number } | null>(null);
   const [pinVariantBusy, setPinVariantBusy] = useState(false);
+  const [markSoldVariantBusy, setMarkSoldVariantBusy] = useState(false);
   const [stageMotionBurst, setStageMotionBurst] = useState<LiveStageMotionBurst>(null);
   const [bidsLastMinute, setBidsLastMinute] = useState(0);
   const [lotTransitionPhase, setLotTransitionPhase] = useState<LiveLotTransitionPhase>("idle");
@@ -291,6 +325,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const lotTransitionTimerRef = useRef<number | null>(null);
   const lotTransitionTimersRef = useRef<number[]>([]);
   const [realtimeConnectionStatus, setRealtimeConnectionStatus] = useState("Connecting…");
+  const [sellerSummaryRefreshError, setSellerSummaryRefreshError] = useState(false);
+  const prevSellerSummaryRef = useRef<LiveShowSellerSummaryDTO | null>(null);
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
   const [spotCelebration, setSpotCelebration] = useState<LiveSpotTakenCelebrationPayload | null>(null);
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
@@ -315,6 +351,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const loadGenerationRef = useRef(0);
   const queueSnapshotDebounceRef = useRef<number | null>(null);
   const goLivePatchRequestedRef = useRef(false);
+  /** Sticky last known viewer count — avoid flashing 0 while presence/broadcast reconnects. */
+  const stickyViewerCountRef = useRef<number | null>(null);
+  const prevActiveVariantItemRef = useRef<string | null>(null);
 
   const publicUrl = useMemo(() => canonicalLiveRoomUrl(roomId), [roomId]);
 
@@ -380,12 +419,19 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         return;
       }
       if (generation !== loadGenerationRef.current) return;
+      if (j.sellerSummary) {
+        setSellerSummaryRefreshError(false);
+      } else if (hostConsoleHydratedRef.current) {
+        setSellerSummaryRefreshError(true);
+      }
       setData((prev) => {
+        const nextSummary = j.sellerSummary ?? prev?.sellerSummary ?? null;
         if (!prev) {
           return {
             ...j,
             recentSales: j.recentSales ?? [],
-            feeTier: j.feeTier ?? null,
+            feeTier: j.feeTier ?? j.sellerSummary?.feeTier ?? null,
+            sellerSummary: nextSummary,
             sellerUnresolvedPaymentFailures: j.sellerUnresolvedPaymentFailures ?? [],
           };
         }
@@ -395,7 +441,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             j.syncScope === "lite"
               ? (prev.recentSales ?? [])
               : (j.recentSales ?? prev.recentSales ?? []),
-          feeTier: j.feeTier ?? prev.feeTier ?? null,
+          feeTier: j.feeTier ?? j.sellerSummary?.feeTier ?? prev.feeTier ?? null,
+          sellerSummary: nextSummary,
           sellerUnresolvedPaymentFailures:
             j.syncScope === "lite"
               ? (prev.sellerUnresolvedPaymentFailures ?? [])
@@ -445,6 +492,46 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     if (!rows?.length) return null;
     return rows.find((q) => q.item.status.toLowerCase() === "active") ?? null;
   }, [data?.queueItems]);
+
+  const selectedQueueRow = useMemo(() => {
+    const rows = data?.queueItems;
+    if (!rows?.length) return null;
+    return rows.find((q) => q.item.id === selectedQueueItemId) ?? rows[0] ?? null;
+  }, [data?.queueItems, selectedQueueItemId]);
+
+  const previewQueueRow = selectedQueueRow;
+
+  const variantSpotEditItem = useMemo(
+    () => variantItemForSpotEditor({ activeBoardRow, previewQueueRow }),
+    [activeBoardRow, previewQueueRow],
+  );
+
+  useEffect(() => {
+    const item = activeBoardRow?.item;
+    if (
+      item?.id &&
+      item.id !== prevActiveVariantItemRef.current &&
+      isVariantSalesFormat(item.salesFormat) &&
+      (item.variants?.length ?? 0) > 0 &&
+      item.variantAssignmentMode !== "random"
+    ) {
+      setHostCommerceMinimized(false);
+    }
+    prevActiveVariantItemRef.current = item?.id ?? null;
+  }, [activeBoardRow?.item]);
+
+  // Keep the PYT/PYD board expanded as a sold roster while break is ready / in progress.
+  useEffect(() => {
+    const item = activeBoardRow?.item;
+    if (!item || !isVariantSalesFormat(item.salesFormat)) return;
+    if (item.variantBreakReadyAt || item.variantBreakBeganAt) {
+      setHostCommerceMinimized(false);
+    }
+  }, [
+    activeBoardRow?.item?.id,
+    activeBoardRow?.item?.variantBreakReadyAt,
+    activeBoardRow?.item?.variantBreakBeganAt,
+  ]);
 
   useEffect(() => {
     const row = activeBoardRow;
@@ -846,6 +933,41 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     return () => clearInterval(t);
   }, [load, data?.room?.status]);
 
+  // OBS scheduled rooms (legacy RTMPS or WHIP): poll IVS sync so Start Streaming auto-starts commerce.
+  useEffect(() => {
+    if (!roomId) return;
+    if (data?.room?.status !== "scheduled") return;
+    if (
+      !isObsDesktopBroadcastMode({
+        streamMode: data.room.streamMode,
+        ingestEndpoint: data.room.ingestEndpoint,
+      })
+    )
+      return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/stream?sync=1`, {
+          cache: "no-store",
+        });
+        if (!res.ok || cancelled) return;
+        const j = (await res.json().catch(() => ({}))) as { stream?: { streamHealth?: string } };
+        const health = (j.stream?.streamHealth ?? "").toLowerCase();
+        if (health === "live" || health === "connecting") {
+          void load({ lite: true });
+        }
+      } catch {
+        /* next tick */
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 8_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [roomId, data?.room?.status, data?.room?.streamMode, data?.room?.ingestEndpoint, load]);
+
   useEffect(() => {
     void loadTeamBoard();
   }, [loadTeamBoard]);
@@ -887,9 +1009,22 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     });
   }, [data]);
 
+  // While an auction is running, lock PC lineup selection to the DB-active lot so the console
+  // matches phone/buyer view (no “selected but not pinned” confusion mid-bid).
+  // Must stay above loading early-returns (Rules of Hooks).
+  useEffect(() => {
+    const active = data?.queueItems?.find((q) => q.item.status === "active")?.item;
+    if (!active?.biddingOpen || isVariantSalesFormat(active.salesFormat)) return;
+    if (!active.auctionEndsAt) return;
+    const ends = Date.parse(active.auctionEndsAt);
+    if (!Number.isFinite(ends) || ends <= syncedWallTimeMs(hostClockSkewMs)) return;
+    setSelectedQueueItemId((prev) => (prev === active.id ? prev : active.id));
+  }, [data?.queueItems, hostClockSkewMs]);
+
   useRealtimeRoomSubscription({
     liveRoomId: roomId,
     enabled: Boolean(roomId),
+    includeStaffChat: true,
     onLiveRoomMessage: (m) => {
       logLiveDebugEvent({
         event: "event_received",
@@ -952,6 +1087,39 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           : ""
         ).trim() || taken?.label || "a spot";
       flashHostNotice(`@${buyer} took ${label}`);
+      setData((prev) => {
+        if (!prev) return prev;
+        const itemId =
+          typeof payload === "object" && payload && "itemId" in payload
+            ? String((payload as { itemId?: string }).itemId ?? "")
+            : "";
+        const variantId =
+          typeof payload === "object" && payload && "variantId" in payload
+            ? String((payload as { variantId?: string }).variantId ?? "")
+            : "";
+        if (!itemId || !variantId) return prev;
+        const flat = prev.queueItems.map((r) => r.item);
+        const mergedFlat = mergeVariantPurchasedIntoItems(flat, {
+          itemId,
+          variantId,
+          itemVersion:
+            typeof payload === "object" && payload && "itemVersion" in payload
+              ? Number((payload as { itemVersion?: number }).itemVersion)
+              : undefined,
+          quantity:
+            typeof payload === "object" && payload && "quantity" in payload
+              ? Number((payload as { quantity?: number }).quantity)
+              : 1,
+        });
+        const byId = new Map(mergedFlat.map((it) => [it.id, it]));
+        return {
+          ...prev,
+          queueItems: prev.queueItems.map((row) => {
+            const it = byId.get(row.item.id);
+            return it ? { ...row, item: it } : row;
+          }),
+        };
+      });
       void load();
     },
     onBreakSpotsChange: () => {
@@ -1128,6 +1296,19 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         lastRefreshAtMs: lastRefreshAtRef.current,
         extra: { type: "purchase_completed", surface: "host_console" },
       });
+      logSellerShowSummaryEvent("seller_show_paid_order_event", {
+        showId: roomId,
+        orderId:
+          typeof (payload as { orderId?: unknown }).orderId === "string"
+            ? (payload as { orderId?: string }).orderId
+            : null,
+        eventId: typeof payload.eventId === "string" ? payload.eventId : null,
+        event: "purchase_completed",
+        previousSalesCents: prevSellerSummaryRef.current?.grossShowSalesCents ?? null,
+        paidOrderCount: prevSellerSummaryRef.current?.paidOrderCount ?? null,
+        currentTier: prevSellerSummaryRef.current?.currentFeeRatePercent ?? null,
+        nextTier: prevSellerSummaryRef.current?.feeTier.nextTierFeePercent ?? null,
+      });
       if (!shouldProcessRealtimePayload("purchase_completed", payload)) return;
       const celebration = parsePurchaseCompletedCelebration(payload);
       const spotTaken =
@@ -1162,7 +1343,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         flashHostNotice(`Payment failed · @${who.replace(/^@/, "")} — awaiting recovery`);
       } else if (celebration?.kind === "sold") {
         flashHostNotice("Item sold · syncing");
-      } else if (celebration?.kind === "no_bids" && payload.itemSoldOut !== false) {
+      } else if (celebration?.kind === "no_bids" && payload.itemSoldOut === true) {
         flashHostNotice("No bids · lot skipped");
       }
       scheduleFallbackRefresh("purchase_completed", 40);
@@ -1195,9 +1376,17 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         lastRefreshAtMs: lastRefreshAtRef.current,
         extra: { reconnectCount: reconnectCountRef.current, surface: "host_console" },
       });
+      logSellerShowSummaryEvent("seller_show_summary_reconnect_refresh", {
+        showId: roomId,
+        previousSalesCents: prevSellerSummaryRef.current?.grossShowSalesCents ?? null,
+        paidOrderCount: prevSellerSummaryRef.current?.paidOrderCount ?? null,
+        currentTier: prevSellerSummaryRef.current?.currentFeeRatePercent ?? null,
+        nextTier: prevSellerSummaryRef.current?.feeTier.nextTierFeePercent ?? null,
+      });
       setStreamPlaybackRefreshNonce((n) => n + 1);
       setHostStreamCardRefreshNonce((n) => n + 1);
       scheduleFallbackRefresh("reconnect", 40);
+      void load();
     },
     onConnectionStateChange: ({ status, reconnectCount }) => {
       if (status === "SUBSCRIBED") setRealtimeConnectionStatus("Connected");
@@ -1334,12 +1523,17 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const handleSubmitAuctionAdd = useCallback(
     async (payload: AddQueueItemAuctionPayload): Promise<boolean> => {
       const miscPayload =
-        hostDataRef.current?.room.teamBoardLeague === "nfl" ? { teamBoardMisc: payload.teamBoardMisc } : {};
+        hostDataRef.current?.room.teamBoardLeague === "nfl"
+          ? { teamBoardMisc: payload.teamBoardMisc, teamBoardNcaa: payload.teamBoardNcaa }
+          : {};
       const variantPayload = isVariantSalesFormat(payload.salesFormat)
         ? {
             salesFormat: payload.salesFormat,
             variants: payload.variants,
             variantAssignmentMode: payload.variantAssignmentMode ?? "pick",
+            ...(payload.customRandomPoolLabels?.length
+              ? { customRandomPoolLabels: payload.customRandomPoolLabels }
+              : {}),
           }
         : { salesFormat: payload.salesFormat };
       setBusy(true);
@@ -1367,6 +1561,77 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       } catch (err) {
         const msg = err instanceof Error ? err.message.trim() : "";
         setToast(msg ? `Could not add item (${msg}).` : "Could not add item. Check your connection and try again.");
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, roomId, router],
+  );
+
+  const handleSubmitFromShop = useCallback(
+    async (listingIds: string[]): Promise<boolean> => {
+      setBusy(true);
+      setToast(null);
+      try {
+        let added = 0;
+        const errors: string[] = [];
+        for (const listingId of listingIds) {
+          const res = await createLiveRoomItem(roomId, {
+            title: "",
+            listingId,
+          });
+          if (!res.ok) {
+            errors.push(res.error);
+            continue;
+          }
+          added += 1;
+        }
+        await load();
+        router.refresh();
+        if (added === 0) {
+          setToast(errors[0] ?? "Could not add shop items.");
+          return false;
+        }
+        setToast(
+          errors.length
+            ? `Added ${added} from shop (${errors.length} skipped).`
+            : `Added ${added} from shop — pin from the queue when ready.`,
+        );
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.trim() : "";
+        setToast(msg ? `Could not add from shop (${msg}).` : "Could not add from shop.");
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, roomId, router],
+  );
+
+  const handleImportFromPriorRoom = useCallback(
+    async (sourceRoomId: string): Promise<boolean> => {
+      setBusy(true);
+      setToast(null);
+      try {
+        const res = await importLiveRoomItemsFromRoom(roomId, sourceRoomId);
+        if (!res.ok) {
+          setToast(res.error);
+          return false;
+        }
+        await load();
+        router.refresh();
+        const label = res.data.sourceTitle?.trim() || "prior show";
+        setToast(
+          res.data.skipped > 0
+            ? `Copied ${res.data.imported} from ${label} (${res.data.skipped} already in lineup).`
+            : `Copied ${res.data.imported} from ${label}.`,
+        );
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.trim() : "";
+        setToast(msg ? `Could not copy lineup (${msg}).` : "Could not copy lineup.");
         return false;
       } finally {
         setBusy(false);
@@ -1504,34 +1769,100 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   }, []);
 
   const handleWebcamBroadcastStarted = useCallback(() => {
-    if (data?.room.status === "live" || goLivePatchRequestedRef.current) {
+    if (data?.room?.status === "live" || goLivePatchRequestedRef.current) {
       logIvsWeb("room go-live skipped", {
-        reason: data?.room.status === "live" ? "room_already_live" : "patch_already_requested",
+        reason: data?.room?.status === "live" ? "room_already_live" : "patch_already_requested",
       });
       return;
     }
     logIvsWeb("room go-live patch requested");
     goLivePatchRequestedRef.current = true;
     void patchRoom("start");
-  }, [data?.room.status, patchRoom]);
+  }, [data?.room?.status, patchRoom]);
 
+  // Never auto-grab the PC camera — when the seller is already live on phone, preview would
+  // fail or fight the phone publisher and show a false "Stream didn't start" error.
   const webcamBroadcast = useHostStagePublish({
     roomId,
     onBroadcastStarted: handleWebcamBroadcastStarted,
     onStreamRefresh: refreshHostStreamSurfaces,
+    autoPreview: false,
   });
 
   /**
-   * Go Live: the single primary action. Starts the default WebRTC Stage broadcast on this user
-   * gesture (so the camera/mic permission prompt fires) AND patches the room live so buyers
-   * immediately see the stage. No Tools → Start Stream required for normal webcam streaming.
+   * Go Live / Use PC camera: starts WebRTC Stage publish on this browser AND ensures the room
+   * is live. When the phone is already on air, this is an explicit camera take-over.
    */
   const handleGoLive = useCallback(() => {
     setVaultCommandOpen(false);
-    goLivePatchRequestedRef.current = true;
+    // OBS path: open the room only — PC webcam Go Live would steal buyers off OBS.
+    if (
+      isObsDesktopBroadcastMode({
+        streamMode: data?.room?.streamMode,
+        ingestEndpoint: data?.room?.ingestEndpoint,
+      })
+    ) {
+      goLivePatchRequestedRef.current = true;
+      void patchRoom("start");
+      setToast("Show started — keep Start Streaming on in OBS. Video comes from OBS, not this camera.");
+      return;
+    }
+    // Do NOT mark the room live here. handleWebcamBroadcastStarted (passed below as
+    // onBroadcastStarted) already does that -- but only once the Stage connection actually
+    // reaches CONNECTED. Calling patchRoom("start") eagerly here, in parallel with
+    // webcamBroadcast.start(), defeated that guard: a denied camera/mic permission (or any other
+    // getUserMedia/join failure) still flipped the room to live for buyers with nothing actually
+    // broadcasting, and left this PC's console with no local or remote publisher and no way to
+    // end the show short of grabbing another device.
     void webcamBroadcast.start();
-    void patchRoom("start");
-  }, [patchRoom, webcamBroadcast]);
+  }, [data?.room?.streamMode, data?.room?.ingestEndpoint, patchRoom, webcamBroadcast]);
+
+  // Preview only when this PC will be the camera. If the show is already on air from the phone,
+  // stay in companion mode (no getUserMedia) so the console loads without a stream error.
+  // OBS rooms never need a PC webcam preview — video comes from OBS.
+  useEffect(() => {
+    if (!data?.room) return;
+    if (
+      isObsDesktopBroadcastMode({
+        streamMode: data.room.streamMode,
+        ingestEndpoint: data.room.ingestEndpoint,
+      })
+    ) {
+      webcamBroadcast.releasePreview();
+      return;
+    }
+    // Whether to keep this PC's camera preview released: only when another device is actually
+    // publishing video right now (isLiveRoomRemotePublisherActive), not the looser "on air for
+    // commerce" signal. The looser check stays true through soft warm-up/offline states, so a
+    // crashed phone host left this stuck in companion mode forever, blocking camera resume on
+    // this PC until the seller ended and restarted the whole show.
+    const onAir = isLiveRoomRemotePublisherActive({
+      status: data.room.status,
+      streamHealth: data.room.streamHealth ?? "offline",
+      streamPaused: data.room.streamPaused,
+    });
+    const local =
+      webcamBroadcast.phase === "live" ||
+      webcamBroadcast.phase === "paused" ||
+      webcamBroadcast.phase === "starting" ||
+      webcamBroadcast.phase === "stopping";
+    if (onAir && !local) {
+      webcamBroadcast.releasePreview();
+      return;
+    }
+    if (!onAir && webcamBroadcast.phase === "idle") {
+      void webcamBroadcast.startPreview();
+    }
+  }, [
+    data?.room,
+    data?.room?.status,
+    data?.room?.streamHealth,
+    data?.room?.streamPaused,
+    data?.room?.streamMode,
+    webcamBroadcast.phase,
+    webcamBroadcast.releasePreview,
+    webcamBroadcast.startPreview,
+  ]);
 
   const handlePauseStream = useCallback(() => {
     void (async () => {
@@ -1553,19 +1884,46 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const handleResumeStream = useCallback(() => {
     void (async () => {
       try {
+        // Republish first — clearing Host paused before camera is back leaves buyers on Waiting…
+        await webcamBroadcast.resume();
         const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/stream-settings`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ streamPaused: false }),
         });
         if (!res.ok) throw new Error("resume_failed");
-        await webcamBroadcast.resume();
         refreshHostStreamSurfaces();
       } catch {
         setToast("Could not resume stream.");
       }
     })();
   }, [refreshHostStreamSurfaces, roomId, webcamBroadcast]);
+
+  /** Stop stream = End live (OBS + phone). Soft Stage-only stop left shows "live" with nowhere to exit. */
+  const handleStopStream = useCallback(() => {
+    const status = data?.room?.status;
+    if (status === "live" || status === "scheduled") {
+      if (!window.confirm("End this live room for everyone?")) return;
+      void (async () => {
+        setBusy(true);
+        setToast(null);
+        try {
+          await webcamBroadcast.stop().catch(() => undefined);
+          const res = await patchLiveRoomAction(roomId, "end");
+          if (!res.ok) {
+            setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
+            return;
+          }
+          await load();
+          router.refresh();
+        } finally {
+          setBusy(false);
+        }
+      })();
+      return;
+    }
+    void webcamBroadcast.stop();
+  }, [data?.room?.status, load, roomId, router, webcamBroadcast]);
 
   const handlePreviewVideoDevice = useCallback(
     (deviceId: string) => {
@@ -1646,6 +2004,68 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     });
   }, [overlayDiffersFromActive, roomId, data, selectedQueueItemId]);
 
+  useEffect(() => {
+    const next = data?.sellerSummary ?? null;
+    const prev = prevSellerSummaryRef.current;
+    if (!next) return;
+    if (
+      prev &&
+      (prev.grossShowSalesCents !== next.grossShowSalesCents || prev.paidOrderCount !== next.paidOrderCount)
+    ) {
+      logSellerShowSummaryEvent("seller_show_sales_changed", {
+        showId: roomId,
+        previousSalesCents: prev.grossShowSalesCents,
+        newSalesCents: next.grossShowSalesCents,
+        paidOrderCount: next.paidOrderCount,
+        currentTier: next.currentFeeRatePercent,
+        nextTier: next.feeTier.nextTierFeePercent,
+      });
+    }
+    if (prev && prev.currentFeeRatePercent !== next.currentFeeRatePercent) {
+      logSellerShowSummaryEvent("seller_show_fee_tier_changed", {
+        showId: roomId,
+        previousSalesCents: prev.grossShowSalesCents,
+        newSalesCents: next.grossShowSalesCents,
+        paidOrderCount: next.paidOrderCount,
+        currentTier: next.currentFeeRatePercent,
+        nextTier: next.feeTier.nextTierFeePercent,
+      });
+    }
+    prevSellerSummaryRef.current = next;
+  }, [data?.sellerSummary, roomId]);
+
+  const hostPinnedVariant = useMemo(() => {
+    const item = activeBoardRow?.item;
+    if (!item?.variants?.length) return null;
+    return hostPinnedBuyerVariant(item.variants, item.variantAssignmentMode);
+  }, [activeBoardRow?.item]);
+
+  const hostBroadcastOnAir = useMemo(() => {
+    const room = data?.room;
+    if (!room || room.status !== "live") return false;
+    if (
+      isLiveRoomBroadcastOnAir({
+        status: room.status,
+        streamHealth: room.streamHealth ?? "offline",
+        streamPaused: room.streamPaused,
+      })
+    ) {
+      return true;
+    }
+    return (
+      webcamBroadcast.phase === "live" ||
+      webcamBroadcast.phase === "paused" ||
+      webcamBroadcast.phase === "starting"
+    );
+  }, [data?.room, webcamBroadcast.phase]);
+
+  /** Moved above the loading/error bail-outs below -- must run on every render (Rules of Hooks). */
+  const lotPricingEditItem = useMemo(() => {
+    if (!lotPricingEditItemId) return null;
+    const row = data?.queueItems.find((q) => q.item.id === lotPricingEditItemId);
+    return row ? lotPricingEditableItem(row.item) ?? row.item : null;
+  }, [data?.queueItems, lotPricingEditItemId]);
+
   if (loadError && !data) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-[#050508] px-4 text-center text-sm text-rose-300">
@@ -1678,7 +2098,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   }
 
   const { room } = data;
-  const viewerCount = liveViewerCount ?? 0;
+  if (liveViewerCount != null) stickyViewerCountRef.current = liveViewerCount;
+  const viewerCount = liveViewerCount ?? stickyViewerCountRef.current ?? 0;
   const roomStatusKey = room.status.toLowerCase();
 
   const hostUsername =
@@ -1736,32 +2157,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       <p className="px-1 py-2 text-center text-xs text-zinc-500">Team list is loading…</p>
     );
 
-  const selectedQueueRow =
-    data.queueItems.find((q) => q.item.id === selectedQueueItemId) ?? data.queueItems[0] ?? null;
-
   /** Purchasable / on-air commerce — DB-active item only (must match buyer GET). */
   const overlayQueueRow = activeBoardRow;
-  const previewQueueRow = selectedQueueRow;
-
-  const variantSpotEditItem = useMemo(
-    () => variantItemForSpotEditor({ activeBoardRow, previewQueueRow }),
-    [activeBoardRow, previewQueueRow],
-  );
-
-  const prevActiveVariantItemRef = useRef<string | null>(null);
-  useEffect(() => {
-    const item = activeBoardRow?.item;
-    if (
-      item?.id &&
-      item.id !== prevActiveVariantItemRef.current &&
-      isVariantSalesFormat(item.salesFormat) &&
-      (item.variants?.length ?? 0) > 0 &&
-      item.variantAssignmentMode !== "random"
-    ) {
-      setHostCommerceMinimized(false);
-    }
-    prevActiveVariantItemRef.current = item?.id ?? null;
-  }, [activeBoardRow?.item]);
 
   const biddingWindowStillRunningHost = Boolean(
     activeBoardRow?.item.biddingOpen &&
@@ -1785,28 +2182,36 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     activeBoardRow?.item ?? null,
     syncedWallTimeMs(hostClockSkewMs),
   );
-  const hostPinnedVariant = useMemo(() => {
-    const item = activeBoardRow?.item;
-    if (!item?.variants?.length) return null;
-    return hostPinnedBuyerVariant(item.variants, item.variantAssignmentMode);
-  }, [activeBoardRow?.item]);
-  const hostBroadcastOnAir = useMemo(() => {
-    if (room.status !== "live") return false;
-    if (
-      isLiveRoomBroadcastOnAir({
-        status: room.status,
-        streamHealth: room.streamHealth ?? "offline",
-        streamPaused: room.streamPaused,
-      })
-    ) {
-      return true;
-    }
-    return (
-      webcamBroadcast.phase === "live" ||
-      webcamBroadcast.phase === "paused" ||
-      webcamBroadcast.phase === "starting"
-    );
-  }, [room.status, room.streamHealth, room.streamPaused, webcamBroadcast.phase]);
+
+  const hostLocalPublishing =
+    webcamBroadcast.phase === "live" ||
+    webcamBroadcast.phase === "paused" ||
+    webcamBroadcast.phase === "starting" ||
+    webcamBroadcast.phase === "stopping";
+
+  /**
+   * Phone (or another device) owns the camera; this PC is queue/pricing/chat only.
+   * Uses isLiveRoomRemotePublisherActive (strict: streamHealth must actually be "live"), not the
+   * looser isLiveRoomBroadcastOnAir used for commerce warm-up grace. The looser check stays true
+   * through "connecting"/soft-offline states, so after a host's app crashed or force-quit mid
+   * broadcast, reopening the console falsely showed "live on phone" with no way to reclaim the
+   * camera from here - sellers had to end the show and start a brand new one to recover.
+   */
+  const hostCompanionMode =
+    isLiveRoomRemotePublisherActive({
+      status: room.status,
+      streamHealth: room.streamHealth ?? "offline",
+      streamPaused: room.streamPaused,
+    }) && !hostLocalPublishing;
+
+  // Shared eligibility for the go-live camera/mic setup panel (independent of whether the
+  // seller has dismissed it) -- used both to render the panel and to decide whether the
+  // action bar's "Camera setup" reopen button should show.
+  const goLiveSetupEligible =
+    !hostCompanionMode &&
+    room.status !== "live" &&
+    webcamBroadcast.phase !== "live" &&
+    webcamBroadcast.phase !== "starting";
   const hostStartLiveAuctionEnabled = canHostStartLiveAuction(activeBoardRow?.item ?? null, {
     broadcastOnAir: hostBroadcastOnAir,
     lotBidPhase: hostActiveLotBidPhase,
@@ -1905,6 +2310,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       onPost={handleHostPostItem}
       onSkip={(id) => void patchItem(id, "skipped")}
       onDelete={(id) => void deleteQueueItem(id)}
+      onEdit={(id) => handleOpenQueueItemEditor(id)}
       onAddItem={() => setQueueAddModal("auction")}
       onAddGiveaway={() => setQueueAddModal(addModalModeForTab(hostQueueTab))}
       onGiveawayOpenEntries={(id) => void runGiveawayAction(id, "open_entries")}
@@ -1941,6 +2347,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
         return false;
       }
+      setLastSupplemental({ itemId, name: payload.name, priceUsd: payload.priceUsd });
       await load();
       router.refresh();
       setToast(`Added ${payload.spotCount} supplemental spot${payload.spotCount === 1 ? "" : "s"}.`);
@@ -1950,9 +2357,74 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     }
   };
 
+  /** One-tap repeat of the last supplemental added to THIS board -- no reopening the modal. */
+  const handleRepeatSupplemental = () => {
+    if (!activeBoardRow || !lastSupplemental || activeBoardRow.item.id !== lastSupplemental.itemId) return;
+    void handleAppendSupplemental({
+      name: lastSupplemental.name,
+      priceUsd: lastSupplemental.priceUsd,
+      spotCount: 1,
+      feedsIntoTitle: activeBoardRow.item.displayTitle?.trim() || activeBoardRow.item.title,
+    });
+  };
+
+  const repeatSupplementalLabel =
+    lastSupplemental && activeBoardRow?.item.id === lastSupplemental.itemId
+      ? `${lastSupplemental.name} \u00b7 $${lastSupplemental.priceUsd}`
+      : null;
+
   const handleOpenVariantSpotEditor = () => {
     if (!variantSpotEditItem) return;
     setVariantSpotEditOpen(true);
+  };
+
+  /** Queue "Edit" button: variant/break lots use the spot editor, plain auction/buy_now lots use the pricing modal. */
+  const handleOpenQueueItemEditor = (itemId: string) => {
+    const row = data?.queueItems.find((q) => q.item.id === itemId);
+    if (!row) return;
+    if (isVariantSalesFormat(row.item.salesFormat)) {
+      setSelectedQueueItemId(itemId);
+      setVariantSpotEditOpen(true);
+      return;
+    }
+    setLotPricingEditItemId(itemId);
+  };
+
+  const handleSaveLotPricing = async (
+    itemId: string,
+    values: LotPricingValues,
+    previousSaleType: LotSaleType,
+  ) => {
+    const existingItem = data?.queueItems.find((q) => q.item.id === itemId)?.item;
+    // Switching buy_now -> auction with no explicit starting bid: carry the old buy-it-now price
+    // over as the starting bid so there's never a window where the lot is buyable at a stale $1
+    // default (mirrors the mobile host console's pricing editor).
+    let startingBidUsd = values.startingBidUsd;
+    if (previousSaleType === "buy_now" && values.saleType === "auction" && startingBidUsd == null) {
+      startingBidUsd = existingItem?.priceUsd ?? null;
+    }
+    setBusy(true);
+    setToast(null);
+    try {
+      const res = await patchLiveRoomItemLotPricing(roomId, itemId, {
+        saleType: values.saleType,
+        previousSaleType,
+        quantity: values.quantity,
+        startingBidUsd,
+        reservePriceUsd: values.saleType === "auction" ? existingItem?.reservePriceUsd ?? null : null,
+        priceUsd: values.priceUsd,
+      });
+      if (!res.ok) {
+        setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
+        return;
+      }
+      setLotPricingEditItemId(null);
+      await load();
+      router.refresh();
+      setToast("Pricing updated.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleSaveVariantSpots = async (
@@ -1973,6 +2445,38 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       setToast("Spot prices updated.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleMarkSoldLiveVariant = async (args: {
+    variantId: string;
+    username: string;
+    priceUsd: number;
+    settlementMethod: string;
+    zeroReason?: string;
+    note?: string;
+  }) => {
+    const itemId = activeBoardRow?.item.id;
+    if (!itemId) return;
+    setMarkSoldVariantBusy(true);
+    setToast(null);
+    try {
+      const res = await manualAssignLiveItemVariant(roomId, itemId, args.variantId, {
+        username: args.username,
+        priceUsd: args.priceUsd,
+        settlementMethod: args.settlementMethod,
+        zeroReason: args.zeroReason,
+        note: args.note,
+      });
+      if (!res.ok) {
+        setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
+        return;
+      }
+      await load();
+      router.refresh();
+      setToast(`Marked sold to @${res.data.buyerUsername} for ${res.data.totalUsd.toLocaleString("en-US", { style: "currency", currency: "USD" })}.`);
+    } finally {
+      setMarkSoldVariantBusy(false);
     }
   };
 
@@ -2027,6 +2531,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     onPostItem: handleHostPostItem,
     onSkipItem: (id: string) => void patchItem(id, "skipped"),
     onDeleteItem: (id: string) => void deleteQueueItem(id),
+    onEditItem: (id: string) => handleOpenQueueItemEditor(id),
     onAddAuction: () => {
       setVaultCommandOpen(false);
       setQueueAddModal("auction");
@@ -2043,8 +2548,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     onGiveawayDelete: (id: string) => void handleDeleteGiveaway(id),
     onGiveawayTimerExpired: () => void load(),
     onGoLive: handleGoLive,
-    onToggleTeamBoard: toggleHostTeamBoardPanel,
-    teamBoardPanelOpen: hostTeamBoardOpen,
+    onToggleTeamBoard: isBreak ? toggleHostTeamBoardPanel : undefined,
+    teamBoardPanelOpen: isBreak ? hostTeamBoardOpen : false,
     onOpenObs: () => {
       setVaultCommandOpen(false);
       setObsSetupModalOpen(true);
@@ -2052,6 +2557,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     onCopyPublic: () => void copyPublic(),
     recentSales: data.recentSales ?? [],
     feeTier: data.feeTier ?? null,
+    sellerSummary: data.sellerSummary ?? null,
+    sellerSummaryLoading: !data.sellerSummary && !sellerSummaryRefreshError,
+    sellerSummaryRefreshError,
     vaultMode,
     onVaultModeChange: setVaultMode,
     roomEnergyScore: roomEnergy.score,
@@ -2093,7 +2601,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       hostLiveItemAuctionBusy={hostLiveItemAuctionBusy}
       hostPinLotEnabled={hostPinLotEnabled}
       onStartAuction={() => void handleHostStartLiveItemAuction()}
-      onBeginTeamBreak={() => void handleBeginTeamBreak()}
+      onBeginTeamBreak={isBreak ? () => void handleBeginTeamBreak() : undefined}
       teamBreakBusy={teamBreakBusy}
       onEndAuction={handleHostEndAuction}
       onNextItem={handleHostNextItem}
@@ -2136,21 +2644,20 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     />
   );
 
+  // Deliberately NOT a Pause/Stop/Energy pill anymore. This used to render its own
+  // <VaultBroadcastControl> + <LiveRoomEnergyMeter> as an overlay on top of the video - directly
+  // duplicating the real Pause/Stop/Go-Live controls already in SellerConsoleActionBar (top of
+  // the page, both desktop and mobile layouts) and the energy meter already in
+  // SellerConsoleStatsPanel below the stage. Two live "Stop" buttons controlling the same
+  // broadcast, floating in different places, is a real usability hazard during a live show - one
+  // control surface for those is enough. Kept only the "Vault controls" entry point into the
+  // mobile command-center sheet, which isn't shown anywhere else.
   const vaultControlsPill = (
     <div className="flex items-center gap-1.5">
-      <VaultBroadcastControl
-        phase={webcamBroadcast.phase}
-        roomLive={room.status === "live"}
-        onStart={handleGoLive}
-        onStop={() => void webcamBroadcast.stop()}
-        onPause={handlePauseStream}
-        onResume={handleResumeStream}
-      />
-      <LiveRoomEnergyMeter score={roomEnergy.score} level={roomEnergy.level} compact />
       <button
         type="button"
         onClick={() => setVaultCommandOpen(true)}
-        className="inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 px-2 py-[3px] text-[8px] font-black uppercase tracking-[0.12em] text-amber-50 shadow-[0_0_22px_-10px_rgba(245,158,11,0.55)] backdrop-blur-md max-[360px]:max-w-[7.5rem] max-[360px]:gap-0.5 max-[360px]:px-1.5 max-[360px]:text-[7px] max-[360px]:tracking-[0.08em] min-[1400px]:hidden"
+        className="inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 px-2 py-[3px] text-[8px] font-black uppercase tracking-[0.12em] text-amber-50 shadow-[0_0_22px_-10px_rgba(245,158,11,0.55)] backdrop-blur-md max-[360px]:max-w-[7.5rem] max-[360px]:gap-0.5 max-[360px]:px-1.5 max-[360px]:text-[7px] max-[360px]:tracking-[0.08em] min-[1024px]:hidden"
       >
         <span className="inline-flex size-1.5 shrink-0 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,0.9)] motion-safe:animate-pulse" aria-hidden />
         <span className="truncate">Vault controls</span>
@@ -2169,6 +2676,13 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       busy={busy}
       viewerCount={viewerCount}
       onMessagesRefresh={() => void mergeHostMessagesFromApi()}
+      onMessagesChange={(next) => {
+        setData((prev) => {
+          if (!prev) return prev;
+          const messages = typeof next === "function" ? next(prev.messages) : next;
+          return { ...prev, messages };
+        });
+      }}
       variant="sidebar"
       uiDimmed={false}
     />
@@ -2184,6 +2698,13 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       onSendSystem={() => void sendSystem()}
       busy={busy}
       onMessagesRefresh={() => void mergeHostMessagesFromApi()}
+      onMessagesChange={(next) => {
+        setData((prev) => {
+          if (!prev) return prev;
+          const messages = typeof next === "function" ? next(prev.messages) : next;
+          return { ...prev, messages };
+        });
+      }}
       variant="overlay"
     />
   );
@@ -2203,18 +2724,19 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     isLive: roomStatusKey === "live",
     roomStatus: room.status as LiveRoomStatus,
     liveRoomId: roomId,
+    /** Host is always signed in — enable Stage WebRTC so companion PC isn't stuck on laggy HLS. */
+    viewerAuthenticated: true,
     streamPlaybackRefreshNonce,
     scheduledStartAt: room.scheduledStartAt ?? null,
     thumbnailUrl: room.thumbnailUrl ?? null,
     hostSellerId: room.sellerId,
     onBack: () => router.push("/seller/live"),
-    actionOverlay: activeBoardRow ? hostDesktopItemOverlay : null,
+    actionOverlay: null,
     mobileActionOverlay: activeBoardRow ? hostMobileItemOverlay : null,
     compactActionOverlay: false,
     cinematicActionOverlay: false,
-    // Keep the auction control bar a compact card centered under the 9:16 video instead of a
-    // full-width strip across the empty stage.
-    centeredActionOverlay: true,
+    // Desktop auction timer/controls sit under the video (not over the feed).
+    centeredActionOverlay: false,
     ambientBleed: true,
     stageEnergyScore: roomEnergy.score,
     vaultMode,
@@ -2234,14 +2756,19 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           commerceMinimized={hostCommerceMinimized}
           onToggleCommerceMinimized={toggleHostCommerceMinimized}
           onAddSupplemental={() => setSupplementalModalOpen(true)}
+          onRepeatSupplemental={repeatSupplementalLabel ? handleRepeatSupplemental : undefined}
+          repeatSupplementalLabel={repeatSupplementalLabel}
           onEditSpots={variantSpotEditItem ? handleOpenVariantSpotEditor : undefined}
           onPinVariant={handlePinLiveVariant}
           pinVariantBusy={pinVariantBusy}
+          liveRoomId={roomId}
+          onMarkSold={handleMarkSoldLiveVariant}
+          markSoldBusy={markSoldVariantBusy}
         />
       </>
     ),
     chatOverlay: hostMobileChatOverlay,
-    chatOverlayClassName: "min-[1400px]:hidden",
+    chatOverlayClassName: "min-[1024px]:hidden",
     stageEdgeRail: (
       <VaultHostStageEdgeRail
         roomId={roomId}
@@ -2263,8 +2790,22 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         disabled={busy}
       />
     ),
-    hostRailClassName: "min-[1400px]:hidden",
+    hostRailClassName: "min-[1024px]:hidden",
     topChromeTrailing: vaultControlsPill,
+    // Restores the host's way into the team board (Pick Your Team / division breaks) -- the
+    // panel and its open/close state (hostTeamBoardOpen, TeamBoardHostPanel below) were still
+    // fully wired, but nothing rendered the button that reaches them. LiveVideoStage has a
+    // purpose-built slot for exactly this ("Shown below the Live / audience row ... e.g. host
+    // team board control"); it just wasn't being passed.
+    stageBelowAudience: isBreak ? (
+      <TeamBoardChromeButton
+        league={teamBoardData?.state.league ?? "nba"}
+        tileCount={teamBoardData?.teams.length}
+        boardVisible={hostTeamBoardOpen}
+        disabled={!teamBoardData?.teams.length}
+        onPress={toggleHostTeamBoardPanel}
+      />
+    ) : undefined,
   };
 
   const hostStagePropsMobile = {
@@ -2272,18 +2813,20 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     layout: "fillHeight" as const,
     stageEdgeRail: undefined,
     compactActionOverlay: false,
+    centeredActionOverlay: true,
+    actionOverlay: activeBoardRow ? hostDesktopItemOverlay : null,
+    mobileActionOverlay: activeBoardRow ? hostMobileItemOverlay : null,
   };
 
   const hostPaymentFailures = data?.sellerUnresolvedPaymentFailures ?? [];
-  const showExternalFulfillmentHostNotice =
-    (data?.externalFulfillmentPaidCount ?? 0) > 0 || (data?.variantExternalFulfillmentCount ?? 0) > 0;
 
   return (
     <div
-      className={`fixed inset-x-0 bottom-0 top-[var(--site-header-offset)] z-40 flex min-h-0 flex-col overflow-hidden bg-black text-sm leading-normal text-zinc-100 ${vaultModeRootClass(vaultMode)}`}
+      className={`fixed inset-x-0 bottom-0 top-[var(--site-header-offset)] z-40 flex min-h-0 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain bg-black text-sm leading-normal text-zinc-100 ${vaultModeRootClass(vaultMode)}`}
+      data-seller-host-console
     >
       {hostPaymentFailures.length > 0 ? (
-        <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[61] w-[min(92vw,28rem)] -translate-x-1/2 px-2">
+        <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[70] w-[min(92vw,28rem)] -translate-x-1/2 px-2">
           <div className="pointer-events-auto rounded-2xl border border-rose-500/35 bg-rose-950/70 px-3 py-2 text-[11px] leading-snug text-rose-50 shadow-lg backdrop-blur-xl ring-1 ring-rose-400/25">
             <p className="font-bold uppercase tracking-wide text-rose-200">Payment failed — commerce blocked</p>
             {hostPaymentFailures.slice(0, 3).map((f) => (
@@ -2301,13 +2844,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
                 </button>
               </div>
             ))}
-          </div>
-        </div>
-      ) : null}
-      {showExternalFulfillmentHostNotice ? (
-        <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[60] w-[min(92vw,28rem)] -translate-x-1/2 px-2">
-          <div className="pointer-events-auto">
-            <ExternalFulfillmentNotice audience="host" compact />
           </div>
         </div>
       ) : null}
@@ -2341,7 +2877,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         </div>
       ) : null}
 
-      {webcamBroadcast.error && webcamBroadcast.phase === "idle" ? (
+      {webcamBroadcast.error && !hostCompanionMode && webcamBroadcast.phase === "idle" ? (
         <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[63] w-[min(92vw,30rem)] -translate-x-1/2 px-2">
           <div className="pointer-events-auto rounded-2xl border border-rose-500/35 bg-rose-950/75 px-3 py-2.5 text-[12px] leading-snug text-rose-50 shadow-[0_16px_50px_-24px_rgba(0,0,0,0.9)] backdrop-blur-xl ring-1 ring-rose-400/25">
             <p className="font-bold uppercase tracking-wide text-rose-200">Stream didn’t start</p>
@@ -2357,78 +2893,91 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         </div>
       ) : null}
 
-      <div className="relative flex min-h-0 flex-1 flex-col p-1 sm:p-1.5 min-[1400px]:p-0">
-        {/* Desktop — 3-column command center (lineup | 9:16 stage | stats + chat) */}
-        <div className="relative hidden min-h-0 flex-1 flex-col overflow-hidden min-[1400px]:flex">
+      {/* First screen: stage fills the fixed console; root overflow-y-auto scrolls to content below. */}
+      <div className="relative flex h-full min-h-full w-full shrink-0 flex-col p-1 sm:p-1.5 min-[1024px]:p-0">
+        {/* Desktop — chat | stage + auction timer | shop queue */}
+        <div className="relative hidden min-h-0 flex-1 flex-col overflow-hidden min-[1024px]:flex">
           <SellerConsoleActionBar
             onShare={() => void handleShareRoom()}
             onAddItem={() => setQueueAddModal("auction")}
             onObs={() => setObsSetupModalOpen(true)}
+            goLiveSetupHidden={goLiveSetupEligible && goLiveSetupDismissed}
+            onOpenGoLiveSetup={() => setGoLiveSetupDismissed(false)}
             broadcastPhase={webcamBroadcast.phase}
             roomLive={room.status === "live"}
+            companionMode={hostCompanionMode}
             onGoLive={handleGoLive}
-            onStopStream={() => void webcamBroadcast.stop()}
+            onStopStream={handleStopStream}
             onPauseStream={handlePauseStream}
             onResumeStream={handleResumeStream}
             streamTimerDisplay={streamTimerDisplay}
             viewerCount={viewerCount}
+            liteMode={webcamBroadcast.liteMode}
+            onToggleLiteMode={webcamBroadcast.setLiteMode}
           />
-          <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,22vw)_minmax(0,1fr)_minmax(280px,20vw)]">
-            <aside className="flex min-h-0 flex-col border-r border-white/[0.08] bg-zinc-950/95">
-              {hostInventoryRail}
-              {hostTeamBoardOpen ? (
-                <div className="shrink-0 border-t border-white/[0.08] p-2">
-                  <TeamBoardHostPanel
-                    league={teamBoardData?.state.league ?? "nba"}
-                    tileCount={teamBoardData?.teams.length}
-                    collapsed={hostTeamBoardCollapsed}
-                    disabled={teamBoardBusy || room.status === "ended"}
-                    onToggleCollapsed={minimizeHostTeamBoardPanel}
-                    onExpandCollapsed={expandHostTeamBoardPanel}
-                    onClose={closeHostTeamBoardPanel}
-                  >
-                    {hostTeamBoardPanelBody}
-                  </TeamBoardHostPanel>
-                </div>
-              ) : null}
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,22vw)_minmax(0,1fr)_minmax(300px,24vw)]">
+            <aside className="flex min-h-0 flex-col overflow-hidden border-r border-white/[0.08] bg-zinc-950/95">
+              {hostLiveChatPanel}
             </aside>
 
-            <div className="relative flex min-h-0 min-w-0 flex-col bg-black">
-              <LiveVideoStage {...hostStageProps} />
-              <SellerGoLiveSetupPanel
-                visible={room.status !== "live" && webcamBroadcast.phase !== "live" && webcamBroadcast.phase !== "starting"}
-                phase={webcamBroadcast.phase}
-                error={webcamBroadcast.error}
-                previewStream={webcamBroadcast.previewStream}
-                devices={webcamBroadcast.devices}
-                selectedVideoDeviceId={webcamBroadcast.selectedVideoDeviceId}
-                selectedAudioDeviceId={webcamBroadcast.selectedAudioDeviceId}
-                onVideoDevice={handlePreviewVideoDevice}
-                onAudioDevice={handlePreviewAudioDevice}
-                onObs={() => setObsSetupModalOpen(true)}
-                onGoLive={handleGoLive}
-                busy={busy}
-              />
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-black">
+              <div className="relative min-h-0 flex-1">
+                <LiveVideoStage {...hostStageProps} />
+                <SellerGoLiveSetupPanel
+                  visible={goLiveSetupEligible && !goLiveSetupDismissed}
+                  phase={webcamBroadcast.phase}
+                  error={webcamBroadcast.previewError ?? webcamBroadcast.error}
+                  previewStream={webcamBroadcast.previewStream}
+                  devices={webcamBroadcast.devices}
+                  selectedVideoDeviceId={webcamBroadcast.selectedVideoDeviceId}
+                  selectedAudioDeviceId={webcamBroadcast.selectedAudioDeviceId}
+                  onVideoDevice={handlePreviewVideoDevice}
+                  onAudioDevice={handlePreviewAudioDevice}
+                  liteMode={webcamBroadcast.liteMode}
+                  onToggleLiteMode={webcamBroadcast.setLiteMode}
+                  onObs={() => setObsSetupModalOpen(true)}
+                  onGoLive={handleGoLive}
+                  onClose={() => setGoLiveSetupDismissed(true)}
+                  busy={busy}
+                />
+              </div>
+              <div className="shrink-0 border-t border-amber-400/15 bg-zinc-950/95 px-2 py-2">
+                {hostDesktopItemOverlay}
+              </div>
             </div>
 
-            <aside className="flex min-h-0 flex-col border-l border-white/[0.08] bg-zinc-950/95">
-              <SellerConsoleStatsPanel
-                viewerCount={viewerCount}
-                streamTimerDisplay={streamTimerDisplay}
-                connectionLabel={realtimeConnectionStatus}
-                connectionOk={realtimeConnectionStatus === "Connected"}
-                roomEnergyScore={roomEnergy.score}
-                roomEnergyLevel={roomEnergy.level}
-                recentSales={data.recentSales ?? []}
-                feeTier={data.feeTier ?? null}
-              />
-              <div className="min-h-0 flex-1 overflow-hidden">{hostLiveChatPanel}</div>
+            <aside className="flex min-h-0 flex-col overflow-hidden border-l border-white/[0.08] bg-zinc-950/95">
+              {/* Fill only to the bottom of the video (spacer mirrors the timer strip under the stage). */}
+              <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+                {hostInventoryRail}
+                {hostTeamBoardOpen ? (
+                  <div className="shrink-0 border-t border-white/[0.08] p-2">
+                    <TeamBoardHostPanel
+                      league={teamBoardData?.state.league ?? "nba"}
+                      tileCount={teamBoardData?.teams.length}
+                      collapsed={hostTeamBoardCollapsed}
+                      disabled={teamBoardBusy || room.status === "ended"}
+                      onToggleCollapsed={minimizeHostTeamBoardPanel}
+                      onExpandCollapsed={expandHostTeamBoardPanel}
+                      onClose={closeHostTeamBoardPanel}
+                    >
+                      {hostTeamBoardPanelBody}
+                    </TeamBoardHostPanel>
+                  </div>
+                ) : null}
+              </div>
+              <div
+                className="pointer-events-none invisible shrink-0 select-none border-t border-transparent px-2 py-2"
+                aria-hidden
+              >
+                {hostDesktopItemOverlay}
+              </div>
             </aside>
           </div>
         </div>
 
         {/* Mobile / tablet — stage + floating controls */}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-950/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1400px]:hidden">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-950/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1024px]:hidden">
           <SellerConsoleActionBar
             onShare={() => void handleShareRoom()}
             onAddItem={() => setQueueAddModal("auction")}
@@ -2436,41 +2985,79 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             lineupCount={lineupCount}
             lineupActive={hostLineupOpen}
             onObs={() => setObsSetupModalOpen(true)}
+            goLiveSetupHidden={goLiveSetupEligible && goLiveSetupDismissed}
+            onOpenGoLiveSetup={() => setGoLiveSetupDismissed(false)}
             broadcastPhase={webcamBroadcast.phase}
             roomLive={room.status === "live"}
+            companionMode={hostCompanionMode}
             onGoLive={handleGoLive}
-            onStopStream={() => void webcamBroadcast.stop()}
+            onStopStream={handleStopStream}
             onPauseStream={handlePauseStream}
             onResumeStream={handleResumeStream}
             streamTimerDisplay={streamTimerDisplay}
             viewerCount={viewerCount}
+            liteMode={webcamBroadcast.liteMode}
+            onToggleLiteMode={webcamBroadcast.setLiteMode}
           />
           <VaultHostAnnouncements variant="mobileOverlay" />
           <div className="relative min-h-0 flex-1">
             <LiveVideoStage {...hostStagePropsMobile} />
             <SellerGoLiveSetupPanel
-              visible={room.status !== "live" && webcamBroadcast.phase !== "live" && webcamBroadcast.phase !== "starting"}
+              visible={goLiveSetupEligible && !goLiveSetupDismissed}
               phase={webcamBroadcast.phase}
-              error={webcamBroadcast.error}
+              error={webcamBroadcast.previewError ?? webcamBroadcast.error}
               previewStream={webcamBroadcast.previewStream}
               devices={webcamBroadcast.devices}
               selectedVideoDeviceId={webcamBroadcast.selectedVideoDeviceId}
               selectedAudioDeviceId={webcamBroadcast.selectedAudioDeviceId}
               onVideoDevice={handlePreviewVideoDevice}
               onAudioDevice={handlePreviewAudioDevice}
+              liteMode={webcamBroadcast.liteMode}
+              onToggleLiteMode={webcamBroadcast.setLiteMode}
               onObs={() => setObsSetupModalOpen(true)}
               onGoLive={handleGoLive}
+              onClose={() => setGoLiveSetupDismissed(true)}
               busy={busy}
             />
           </div>
         </div>
       </div>
 
+      {/* Show sales + quick stats under the stage — fixed tile heights; list scrolls inside. */}
+      <section
+        data-host-console-below
+        className="relative z-[1] w-full shrink-0 border-t border-white/[0.08] bg-zinc-950 px-3 py-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] min-[1024px]:px-5"
+      >
+        <div className="mx-auto grid max-w-6xl items-start gap-3 min-[800px]:grid-cols-[minmax(11rem,15rem)_minmax(0,1fr)_minmax(12rem,16rem)]">
+          <LiveShowSalesTile
+            summary={data.sellerSummary ?? null}
+            loading={!data.sellerSummary && !sellerSummaryRefreshError}
+            refreshError={sellerSummaryRefreshError}
+          />
+          <HostRecentSalesTile rows={data.recentSales ?? []} maxRows={8} />
+          <div className="hidden min-[1024px]:block">
+            <SellerConsoleStatsPanel
+              viewerCount={viewerCount}
+              streamTimerDisplay={streamTimerDisplay}
+              connectionLabel={realtimeConnectionStatus}
+              connectionOk={realtimeConnectionStatus === "Connected"}
+              roomEnergyScore={roomEnergy.score}
+              roomEnergyLevel={roomEnergy.level}
+              recentSales={data.recentSales ?? []}
+              feeTier={data.feeTier ?? null}
+              sellerSummary={data.sellerSummary ?? null}
+              sellerSummaryLoading={!data.sellerSummary && !sellerSummaryRefreshError}
+              sellerSummaryRefreshError={sellerSummaryRefreshError}
+            />
+          </div>
+        </div>
+      </section>
+
       {hostLineupOpen ? (
         <div
           role="dialog"
           aria-label="Lineup"
-          className="fixed inset-x-0 bottom-0 z-[67] flex max-h-[min(78dvh,42rem)] flex-col border-t border-violet-400/20 bg-zinc-950/98 shadow-[0_-16px_48px_-16px_rgba(0,0,0,0.9)] min-[1400px]:hidden"
+          className="fixed inset-x-0 bottom-0 z-[67] flex max-h-[min(78dvh,42rem)] flex-col border-t border-violet-400/20 bg-zinc-950/98 shadow-[0_-16px_48px_-16px_rgba(0,0,0,0.9)] min-[1024px]:hidden"
         >
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/[0.08] px-3 py-2.5">
             <div>
@@ -2496,7 +3083,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         <div
           role="dialog"
           aria-label="Team board"
-          className="fixed inset-x-0 bottom-0 z-[66] flex max-h-[50dvh] flex-col border-t border-white/10 bg-zinc-950/98 shadow-[0_-12px_40px_-16px_rgba(0,0,0,0.85)] min-[1400px]:hidden"
+          className="fixed inset-x-0 bottom-0 z-[66] flex max-h-[50dvh] flex-col border-t border-white/10 bg-zinc-950/98 shadow-[0_-12px_40px_-16px_rgba(0,0,0,0.85)] min-[1024px]:hidden"
         >
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/[0.08] px-3 py-2">
             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gold-bright/90">Team board</p>
@@ -2526,7 +3113,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       ) : null}
 
       {vaultCommandOpen ? (
-        <div className="fixed inset-0 z-[65] min-[1400px]:hidden">
+        <div className="fixed inset-0 z-[65] min-[1024px]:hidden">
           <div className="absolute inset-0 bg-black/70" onClick={() => setVaultCommandOpen(false)} aria-hidden />
           <div className="absolute inset-x-0 bottom-0 top-[var(--site-header-offset)] overflow-hidden rounded-t-2xl border border-white/10 shadow-2xl">
             <LiveSellerCommandCenter
@@ -2601,6 +3188,14 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         onSave={(itemId, updates) => void handleSaveVariantSpots(itemId, updates)}
       />
 
+      <HostEditLotPricingModal
+        open={lotPricingEditItemId != null}
+        item={lotPricingEditItem}
+        busy={busy}
+        onClose={() => setLotPricingEditItemId(null)}
+        onSave={(itemId, values, previousSaleType) => void handleSaveLotPricing(itemId, values, previousSaleType)}
+      />
+
       <AddQueueItemModal
         open={queueAddModal != null}
         mode={queueAddModal}
@@ -2610,6 +3205,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         onRequestClose={handleQueueAddModalClose}
         onSubmitAuction={handleSubmitAuctionAdd}
         onSubmitGiveaway={handleSubmitGiveawayAdd}
+        onSubmitFromShop={handleSubmitFromShop}
+        onImportFromPriorRoom={handleImportFromPriorRoom}
       />
 
       <LiveRoomShareSheet
@@ -2624,7 +3221,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           "Host"
         }
         isLive={data?.room?.status === "live"}
-        canNotifyFollowers
+        canNotifyFollowers={data?.room?.discoveryVisibility !== "private"}
         onToast={(msg) => setToast(msg)}
       />
     </div>

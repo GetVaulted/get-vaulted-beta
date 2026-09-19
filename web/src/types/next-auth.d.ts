@@ -18,5 +18,9 @@ declare module "next-auth/jwt" {
   interface JWT {
     username?: string;
     role?: "user" | "admin";
+    /** Profile photo URL from Prisma `User.image` (synced from mobile Supabase avatars). */
+    image?: string | null;
+    /** True after we attempted a one-time Supabase→Prisma avatar pull for this JWT. */
+    avatarHydrated?: boolean;
   }
 }

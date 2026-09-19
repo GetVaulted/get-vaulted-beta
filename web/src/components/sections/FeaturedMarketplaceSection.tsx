@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { MarketplaceProductCard } from "@/components/cards/MarketplaceProductCard";
+import { MarketplaceBrowseCard } from "@/components/marketplace/MarketplaceBrowseCard";
 import { MarketRowHeader } from "@/components/layout/MarketRowHeader";
 import type { MarketplaceListing } from "@/content/marketplace-listings";
 
@@ -58,15 +58,12 @@ export function FeaturedMarketplaceSection() {
         ) : hasRows ? (
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6 lg:gap-3">
             {listings.map((item) => (
-              <MarketplaceProductCard
+              <MarketplaceBrowseCard
                 key={item.id}
+                listing={item}
                 compact
-                title={item.title}
-                condition={item.condition}
-                seller={item.sellerUsername}
-                price={item.price}
-                seed={item.imageSeed}
-                href={item.href}
+                vaultPick={Boolean(item.vaultPick)}
+                emphasizeHover
               />
             ))}
           </div>

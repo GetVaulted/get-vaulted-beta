@@ -4,7 +4,7 @@ import { checkoutInfrastructureGate } from "@/lib/checkout-infrastructure";
 import { chargeMarketplaceOrderWithSavedPaymentMethod, syncMarketplaceOrderPaymentIntent } from "@/lib/stripe-charge-order-saved-pm";
 import { getStripePublishableKey } from "@/lib/stripe";
 
-type Body = { sync?: boolean };
+type Body = { sync?: boolean; applyReferralCredit?: boolean };
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const session = await getServerSessionSafe();
@@ -16,9 +16,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const orderId = decodeURIComponent(raw);
 
   let sync = false;
+  let applyReferralCredit = false;
   try {
     const body = (await req.json()) as Body;
     if (body?.sync === true) sync = true;
+    if (body?.applyReferralCredit === true) applyReferralCredit = true;
   } catch {
     // empty body
   }
@@ -29,7 +31,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
     const result = sync
       ? await syncMarketplaceOrderPaymentIntent({ buyerId: session.user.id, orderId })
-      : await chargeMarketplaceOrderWithSavedPaymentMethod({ buyerId: session.user.id, orderId });
+      : await chargeMarketplaceOrderWithSavedPaymentMethod({
+          buyerId: session.user.id,
+          orderId,
+          applyReferralCredit,
+        });
 
     const publishableKey = getStripePublishableKey();
 

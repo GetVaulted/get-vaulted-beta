@@ -21,11 +21,23 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchSellerShippingProfiles, type LiveHostShippingProfileOption } from '../../../api/liveHostShippingRepository';
 import { resolveSellerShippingProfileIdForCategory } from '../../../lib/liveShowCategoryShippingProfile';
-import { createLiveRoom, streamFormatToRoomType } from '../../../api/liveRoomsRepository';
+import {
+  createLiveRoom,
+  fetchLiveRoomContinuationCandidate,
+  streamFormatToRoomType,
+  type LiveRoomContinuationCandidate,
+} from '../../../api/liveRoomsRepository';
 import { fetchSellerLiveReadiness, type SellerLiveReadiness } from '../../../api/liveHostRepository';
 import { logVaultCommandCenter, supabaseJwtSub } from '../../../lib/logVaultCommandCenterFlow';
 import { resolveSellerAccessToken } from '../../../lib/resolveSellerAccessToken';
+import { navigateAuthLogin } from '../../../navigation/rootNavigationRef';
 import { uploadListingImageViaWeb } from '../../../api/webListingsRepository';
+import { uploadLiveTeaserToSupabase } from '../../../api/liveTeaserRepository';
+import {
+  LIVE_TEASER_MAX_BYTES,
+  LIVE_TEASER_MAX_DURATION_MS,
+  LIVE_TEASER_MIN_DURATION_MS,
+} from '../../../lib/liveTeaserLimits';
 import {
   alignScheduleToQuarterHour,
   isQuarterHourSchedule,
@@ -61,6 +73,15 @@ const BREAK_PRICING_MODES: { id: BreakPricingMode; label: string }[] = [
   { id: 'auction', label: 'Auction spots' },
   { id: 'hybrid', label: 'Hybrid' },
 ];
+
+/** "ended 45 minutes ago" / "ended 3 hours ago" for the continuation-candidate toggle. */
+function formatEndedAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.round(minutes / 60);
+  return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+}
 
 const FORMATS: { id: 'auction' | 'break' | 'hybrid'; label: string }[] = [
   { id: 'break', label: 'Break' },
@@ -117,9 +138,15 @@ export function ScheduleVaultEventModal({
   const [scheduleMode, setScheduleMode] = useState<CreateScheduleMode>('now');
   const [scheduledDate, setScheduledDate] = useState(defaultScheduledDate);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  /** Android cannot use mode="datetime" — open time after date. */
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [thumbUrl, setThumbUrl] = useState('');
+  const [teaserUrl, setTeaserUrl] = useState('');
+  const [teaserDurationMs, setTeaserDurationMs] = useState<number | null>(null);
+  const [teaserUploading, setTeaserUploading] = useState(false);
+  const [teaserError, setTeaserError] = useState<string | null>(null);
   const [thumbUploading, setThumbUploading] = useState(false);
   const [thumbError, setThumbError] = useState<string | null>(null);
   const [breakPricingMode, setBreakPricingMode] = useState<BreakPricingMode>('auction');
@@ -130,6 +157,8 @@ export function ScheduleVaultEventModal({
   const [tipsToModerator, setTipsToModerator] = useState(false);
   const [recurringWeekly, setRecurringWeekly] = useState(false);
   const [discoveryVisibility, setDiscoveryVisibility] = useState<'public' | 'private'>('public');
+  const [continuationCandidate, setContinuationCandidate] = useState<LiveRoomContinuationCandidate | null>(null);
+  const [continueFromPreviousShow, setContinueFromPreviousShow] = useState(false);
   const [shippingProfiles, setShippingProfiles] = useState<LiveHostShippingProfileOption[]>([]);
   const [defaultSellerShippingProfileId, setDefaultSellerShippingProfileId] = useState('');
   const [profilesLoading, setProfilesLoading] = useState(false);
@@ -175,6 +204,28 @@ export function ScheduleVaultEventModal({
     void onRefreshReadinessRef.current?.();
     void loadShippingProfiles();
   }, [visible, loadShippingProfiles]);
+
+  // Ask whether this new show continues one the seller ended recently (same roomType, within 24h)
+  // — if confirmed, the buyer's live-show shipping cap carries forward instead of resetting to $0.
+  // Never trusted client-side; the server re-validates before applying it.
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    setContinuationCandidate(null);
+    setContinueFromPreviousShow(false);
+    (async () => {
+      try {
+        const token = await resolveSellerAccessToken(accessToken);
+        const candidate = await fetchLiveRoomContinuationCandidate(token, streamFormatToRoomType(streamFormat));
+        if (!cancelled) setContinuationCandidate(candidate);
+      } catch {
+        /* best-effort — no continuation offered if the check fails */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, streamFormat, accessToken]);
 
   useEffect(() => {
     if (!visible || shippingProfiles.length === 0) return;
@@ -228,14 +279,69 @@ export function ScheduleVaultEventModal({
     }
   }, [accessToken]);
 
+  const pickTeaser = useCallback(async () => {
+    if (!accessToken) {
+      Alert.alert('Sign in required', 'Sign in to upload a preview video.');
+      return;
+    }
+    setTeaserError(null);
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Photos access needed', 'Allow photo library access to upload a preview video.');
+      return;
+    }
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['videos'],
+      allowsEditing: false,
+      videoMaxDuration: Math.ceil(LIVE_TEASER_MAX_DURATION_MS / 1000),
+      quality: 1,
+    });
+    if (picked.canceled || !picked.assets[0]?.uri) return;
+    const asset = picked.assets[0];
+    const rawDuration = typeof asset.duration === 'number' && Number.isFinite(asset.duration) ? asset.duration : null;
+    if (rawDuration == null || rawDuration <= 0) {
+      setTeaserError('Could not read video length. Try another clip.');
+      return;
+    }
+    // expo-image-picker usually reports seconds; treat values ≤120 as seconds, otherwise ms.
+    const normalizedMs = Math.round(rawDuration <= 120 ? rawDuration * 1000 : rawDuration);
+    if (normalizedMs < LIVE_TEASER_MIN_DURATION_MS || normalizedMs > LIVE_TEASER_MAX_DURATION_MS) {
+      setTeaserError('Preview video must be between 1 and 15 seconds.');
+      return;
+    }
+    if (asset.fileSize && asset.fileSize > LIVE_TEASER_MAX_BYTES) {
+      setTeaserError('Preview video must be 40MB or smaller.');
+      return;
+    }
+    const sellerId = supabaseJwtSub(accessToken);
+    if (!sellerId) {
+      setTeaserError('Sign in again to upload a preview video.');
+      return;
+    }
+    setTeaserUploading(true);
+    try {
+      const uploaded = await uploadLiveTeaserToSupabase(sellerId, asset.uri, normalizedMs);
+      setTeaserUrl(uploaded.url);
+      setTeaserDurationMs(uploaded.durationMs);
+    } catch (e) {
+      setTeaserError(e instanceof Error ? e.message : 'Could not upload preview video.');
+    } finally {
+      setTeaserUploading(false);
+    }
+  }, [accessToken]);
+
   const resetForm = useCallback(() => {
     setScheduleTitle('');
     setTagline('');
     setScheduleMode('now');
     setScheduledDate(defaultScheduledDate());
     setShowDatePicker(false);
+    setShowTimePicker(false);
     setThumbUrl('');
     setThumbError(null);
+    setTeaserUrl('');
+    setTeaserDurationMs(null);
+    setTeaserError(null);
     setBreakPricingMode('auction');
     setBreakSpotPrice('');
     setTeamBoardEnabled(true);
@@ -246,6 +352,8 @@ export function ScheduleVaultEventModal({
     setDiscoveryVisibility('public');
     setStreamFormat('hybrid');
     setScheduleCategory('Cards');
+    setContinuationCandidate(null);
+    setContinueFromPreviousShow(false);
   }, [setScheduleCategory, setScheduleTitle, setStreamFormat]);
 
   const submit = useCallback(async () => {
@@ -336,6 +444,9 @@ export function ScheduleVaultEventModal({
           scheduleMode,
           scheduledStartAt,
           thumbnailUrl: thumbUrl.trim() || undefined,
+          ...(teaserUrl.trim() && teaserDurationMs != null
+            ? { teaserVideoUrl: teaserUrl.trim(), teaserVideoDurationMs: teaserDurationMs }
+            : {}),
           teamBoardLeague: isBreak ? 'nfl' : undefined,
           breakPricingMode: isBreak ? breakPricingMode : undefined,
           breakSpotPrice: isBreak ? breakSpotPrice : undefined,
@@ -350,6 +461,8 @@ export function ScheduleVaultEventModal({
           defaultShippingProfileId: defaultSellerShippingProfileId || undefined,
           recurringEnabled: scheduleMode === 'later' && recurringWeekly,
           discoveryVisibility,
+          continuationOfLiveRoomId:
+            continueFromPreviousShow && continuationCandidate ? continuationCandidate.id : undefined,
         },
         { sellerUserId: freshReadiness.sellerUserId ?? null },
       );
@@ -384,6 +497,11 @@ export function ScheduleVaultEventModal({
         sellerId: freshReadiness.sellerUserId ?? sessionSub,
         userId: freshReadiness.sellerUserId ?? sessionSub,
       });
+      const sessionExpired =
+        msg.includes('Invalid or expired session') ||
+        msg.includes('Unauthorized') ||
+        msg.includes('Sign in to continue') ||
+        msg.includes('session expired');
       const title =
         msg.includes('suspended') || msg.includes('ACCOUNT_SUSPENDED')
           ? 'Account suspended'
@@ -391,10 +509,17 @@ export function ScheduleVaultEventModal({
             ? 'Account unavailable'
             : msg.includes('LIVE_NOT_READY') || msg.includes('Complete seller setup')
               ? 'Setup required'
-              : msg.includes('Invalid or expired session') || msg.includes('Unauthorized')
+              : sessionExpired
                 ? 'Session expired'
                 : 'Could not create event';
-      Alert.alert(title, msg);
+      if (sessionExpired) {
+        Alert.alert(title, 'Your login expired. Sign in again to continue.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign in', onPress: () => navigateAuthLogin() },
+        ]);
+      } else {
+        Alert.alert(title, msg);
+      }
     } finally {
       submittingRef.current = false;
       setBusy(false);
@@ -404,6 +529,8 @@ export function ScheduleVaultEventModal({
     breakPricingMode,
     breakSpotPrice,
     busy,
+    continuationCandidate,
+    continueFromPreviousShow,
     isBreak,
     liveGate.alertBody,
     liveGate.alertTitle,
@@ -422,6 +549,8 @@ export function ScheduleVaultEventModal({
     tagline,
     teamBoardEnabled,
     thumbUploading,
+    teaserDurationMs,
+    teaserUrl,
     thumbUrl,
     tipModeratorId,
     tipsToModerator,
@@ -539,6 +668,41 @@ export function ScheduleVaultEventModal({
             {thumbError ? <Text style={styles.fieldError}>{thumbError}</Text> : null}
           </View>
 
+          <Text style={styles.label}>Preview video (optional)</Text>
+          <Text style={styles.thumbHint}>
+            Short clip with sound · max 15 seconds. Loops in the room before you go live.
+          </Text>
+          <View style={styles.thumbActions}>
+            <Pressable
+              style={[styles.thumbBtn, teaserUploading && styles.thumbBtnOff]}
+              onPress={() => void pickTeaser()}
+              disabled={teaserUploading || busy}
+            >
+              {teaserUploading ? (
+                <ActivityIndicator color={colors.gold} size="small" />
+              ) : (
+                <Text style={styles.thumbBtnTxt}>{teaserUrl ? 'Replace video' : 'Upload video'}</Text>
+              )}
+            </Pressable>
+            {teaserUrl ? (
+              <Pressable
+                style={styles.thumbBtnGhost}
+                onPress={() => {
+                  setTeaserUrl('');
+                  setTeaserDurationMs(null);
+                  setTeaserError(null);
+                }}
+                disabled={teaserUploading || busy}
+              >
+                <Text style={styles.thumbBtnGhostTxt}>Remove</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          {teaserUrl && teaserDurationMs != null ? (
+            <Text style={styles.thumbHint}>Uploaded · {(teaserDurationMs / 1000).toFixed(1)}s</Text>
+          ) : null}
+          {teaserError ? <Text style={styles.fieldError}>{teaserError}</Text> : null}
+
           <Text style={styles.label}>Format</Text>
           <View style={styles.chips}>
             {FORMATS.map((f) => {
@@ -550,6 +714,25 @@ export function ScheduleVaultEventModal({
               );
             })}
           </View>
+
+          {continuationCandidate ? (
+            <View style={styles.toggleRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.toggleTitle}>Continue from &ldquo;{continuationCandidate.title}&rdquo;?</Text>
+                <Text style={styles.helperTxt}>
+                  That show ended {formatEndedAgo(continuationCandidate.endedAt)}. If this is the same break/sale
+                  picking back up, buyers who already paid toward the shipping cap there won&apos;t be charged
+                  shipping again here. Shows past 24 hours can&apos;t be used.
+                </Text>
+              </View>
+              <Switch
+                value={continueFromPreviousShow}
+                onValueChange={setContinueFromPreviousShow}
+                trackColor={{ false: 'rgba(255,255,255,0.12)', true: 'rgba(212,175,55,0.45)' }}
+                thumbColor={continueFromPreviousShow ? colors.gold : '#f4f3f4'}
+              />
+            </View>
+          ) : null}
 
           {isBreak ? (
             <View style={styles.breakCard}>
@@ -682,7 +865,7 @@ export function ScheduleVaultEventModal({
           <Text style={styles.helperTxt}>
             {discoveryVisibility === 'public'
               ? 'Public shows appear on the Live Shows tab for all buyers.'
-              : 'Private shows are hidden from Live Shows. Share your link so invited viewers can join.'}
+              : 'Private shows are hidden from Live Shows and do not notify your followers when you go live. Share your link to invite viewers.'}
           </Text>
 
           <Text style={styles.label}>When to go live</Text>
@@ -705,27 +888,68 @@ export function ScheduleVaultEventModal({
           </View>
           {scheduleMode === 'later' ? (
             <>
-              <Pressable style={styles.dateBtn} onPress={() => setShowDatePicker(true)}>
+              <Pressable
+                style={styles.dateBtn}
+                onPress={() => {
+                  setShowTimePicker(false);
+                  setShowDatePicker(true);
+                }}
+              >
                 <Ionicons name="time-outline" size={18} color={colors.gold} />
                 <Text style={styles.dateTxt}>{formatScheduledDate(scheduledDate)}</Text>
               </Pressable>
-              {showDatePicker ? (
+              {Platform.OS === 'ios' && showDatePicker ? (
+                <>
+                  <DateTimePicker
+                    value={scheduledDate}
+                    mode="datetime"
+                    display="spinner"
+                    minimumDate={new Date()}
+                    minuteInterval={15}
+                    onChange={(_, d) => {
+                      if (d) setScheduledDate(alignScheduleToQuarterHour(d));
+                    }}
+                  />
+                  <Pressable
+                    style={styles.donePicker}
+                    onPress={() => {
+                      setShowDatePicker(false);
+                      setShowTimePicker(false);
+                    }}
+                  >
+                    <Text style={styles.donePickerTxt}>Done</Text>
+                  </Pressable>
+                </>
+              ) : null}
+              {Platform.OS === 'android' && showDatePicker ? (
                 <DateTimePicker
                   value={scheduledDate}
-                  mode="datetime"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  mode="date"
+                  display="default"
                   minimumDate={new Date()}
-                  minuteInterval={15}
-                  onChange={(_, d) => {
-                    if (Platform.OS === 'android') setShowDatePicker(false);
-                    if (d) setScheduledDate(alignScheduleToQuarterHour(d));
+                  onChange={(event, d) => {
+                    setShowDatePicker(false);
+                    if (event.type === 'dismissed' || !d) return;
+                    const next = new Date(scheduledDate);
+                    next.setFullYear(d.getFullYear(), d.getMonth(), d.getDate());
+                    setScheduledDate(alignScheduleToQuarterHour(next));
+                    setShowTimePicker(true);
                   }}
                 />
               ) : null}
-              {Platform.OS === 'ios' && showDatePicker ? (
-                <Pressable style={styles.donePicker} onPress={() => setShowDatePicker(false)}>
-                  <Text style={styles.donePickerTxt}>Done</Text>
-                </Pressable>
+              {Platform.OS === 'android' && showTimePicker ? (
+                <DateTimePicker
+                  value={scheduledDate}
+                  mode="time"
+                  display="default"
+                  onChange={(event, d) => {
+                    setShowTimePicker(false);
+                    if (event.type === 'dismissed' || !d) return;
+                    const next = new Date(scheduledDate);
+                    next.setHours(d.getHours(), d.getMinutes(), 0, 0);
+                    setScheduledDate(alignScheduleToQuarterHour(next));
+                  }}
+                />
               ) : null}
               <Text style={styles.helperTxt}>Start times snap to 15-minute increments.</Text>
               <View style={styles.toggleRow}>

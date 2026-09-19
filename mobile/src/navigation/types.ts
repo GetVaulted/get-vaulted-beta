@@ -47,6 +47,11 @@ export type RootStackParamList = {
   AuthSignUp: { ref?: string } | undefined;
   /** OAuth / first-time members must confirm username (+ optional referral) before MainTabs. */
   CompleteProfileSetup: { ref?: string } | undefined;
+  /**
+   * Post-auth push permission gate. Shown after signup and again on login when
+   * notifications are not yet granted on this device.
+   */
+  NotificationPermission: { source?: 'signup' | 'login' } | undefined;
   ProfileEdit: undefined;
   ProductDetail: { productId: string };
   MarketplaceCheckout: { listingId: string; mode: 'buy_now' | 'layaway'; walletSetupFirst?: boolean };
@@ -54,6 +59,8 @@ export type RootStackParamList = {
   SellerHostRoom: { roomId: string };
   MessagesInbox: undefined;
   MessageThread: { threadId: string };
+  /** Pick a recipient by username, then opens MessageCompose. */
+  MessageNew: undefined;
   MessageCompose: {
     listingId?: string;
     liveRoomId?: string;
@@ -72,6 +79,7 @@ export type RootStackParamList = {
   DeleteAccount: undefined;
   CommunityGuidelines: undefined;
   ReportingSafety: undefined;
+  BlockedUsers: undefined;
   HelpCenter: { focusSearch?: boolean } | undefined;
   HelpArticle: { articleId: string };
   ContactSupport:
@@ -109,4 +117,18 @@ export type RootStackParamList = {
   SellerOrderDetail: { orderId: string };
   PromoEntry: { slug: string };
   VaultSearch: { initialQuery?: string } | undefined;
+  /** Platform admin Ops — gated by User.role === admin */
+  AdminOpsHome: undefined;
+  AdminLiveShows: undefined;
+  AdminSupportTickets: undefined;
+  AdminSupportTicketDetail: { ticketId: string };
+  AdminTrust: undefined;
+  AdminReportDetail: { reportId: string };
+  AdminFulfillment: undefined;
+  AdminOrderDetail: { orderId: string };
+  AdminModeration: undefined;
+  AdminUsers: undefined;
+  AdminNotifications: undefined;
+  AdminSellerRisk: undefined;
+  AdminHealth: undefined;
 };

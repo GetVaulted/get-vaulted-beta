@@ -83,7 +83,7 @@ export function obsReadyLabel(status: ObsReadyStatus): string {
     case "connecting":
       return "Connecting…";
     case "ready":
-      return "Ready to sell";
+      return "OBS live — show auto-started";
     case "ended":
       return "Show ended";
   }

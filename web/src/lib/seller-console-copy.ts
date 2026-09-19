@@ -11,6 +11,7 @@ export const SELLER_CONSOLE = {
   stopStream: 'Stop stream',
   endShow: 'End show',
   obsSetup: 'OBS / RTMP',
+  goLiveSetupReopen: 'Camera setup',
   camera: 'Camera',
   microphone: 'Microphone',
   previewHint: 'Check your camera and mic, then go live. You stay in the command center.',
@@ -29,4 +30,10 @@ export const SELLER_CONSOLE = {
   saleCategoryTeamsDivisions: 'Teams/Divisions',
   saleCategoryAuction: 'Auction',
   saleCategoryBuyNow: 'Buy Now',
+  /** Add-item modal — inventory source tabs */
+  addSourceNew: 'New item',
+  addSourceShop: 'From my shop',
+  addSourceCopyShow: 'Copy last show',
+  addSourceShopHint: 'Pull Live show or Marketplace inventory into this lineup.',
+  addSourceCopyHint: 'Bring unsold lots from a previous show — finish a break you did not complete.',
 } as const;

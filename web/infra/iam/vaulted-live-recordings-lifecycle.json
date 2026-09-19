@@ -1,0 +1,17 @@
+{
+  "Rules": [
+    {
+      "ID": "ExpireLiveRecordingsAfter30Days",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": ""
+      },
+      "Expiration": {
+        "Days": 30
+      },
+      "AbortIncompleteMultipartUpload": {
+        "DaysAfterInitiation": 7
+      }
+    }
+  ]
+}

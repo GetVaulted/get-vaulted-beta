@@ -111,6 +111,11 @@ if (dryRun) {
 expo.version = next.version;
 expo.ios.buildNumber = String(next.buildNumber);
 expo.android.versionCode = next.versionCode;
+// expo.ios.version / expo.android.version are per-platform overrides that win over the
+// top-level expo.version when EAS embeds CFBundleShortVersionString / versionName.
+// Keep them in lockstep so a version bump can't silently leave the shipped bundle stale.
+if (expo.ios.version != null) expo.ios.version = next.version;
+if (expo.android.version != null) expo.android.version = next.version;
 
 writeFileSync(appJsonPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 console.log(`Updated ${appJsonPath}`);

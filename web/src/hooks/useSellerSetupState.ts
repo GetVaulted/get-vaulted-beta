@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   isRequiredSellerSetupComplete,
   isSellerActivated,
@@ -20,7 +20,10 @@ import {
 const DEFAULT_CHECKS: SellerReadinessChecks = {
   hasStripeAccount: false,
   stripeChargesEnabled: false,
+  stripePayoutSubmitted: false,
   hasShipFromAddress: false,
+  paypalPayoutReady: false,
+  preferredSellerPayoutProcessor: "STRIPE",
 };
 
 export type NavSellerStatus = "idle" | "loading" | "onboarded" | "not_onboarded";
@@ -32,6 +35,11 @@ export function useSellerSetupState(enabled: boolean) {
   const [checks, setChecks] = useState<SellerReadinessChecks | null>(null);
   const [wizardComplete, setWizardComplete] = useState(false);
   const [canGoLive, setCanGoLive] = useState(false);
+  /** False until a successful /api/account/seller response — avoids redirecting on transient failures. */
+  const [resolved, setResolved] = useState(false);
+  const checksRef = useRef<SellerReadinessChecks | null>(null);
+  const wizardRef = useRef(false);
+  const canGoLiveRef = useRef(false);
 
   const syncWizardComplete = useCallback(() => {
     setWizardComplete(readSellerWizardComplete());
@@ -39,6 +47,9 @@ export function useSellerSetupState(enabled: boolean) {
 
   const applyPhase = useCallback(
     (nextChecks: SellerReadinessChecks, wizardDone: boolean, liveReady: boolean) => {
+      checksRef.current = nextChecks;
+      wizardRef.current = wizardDone;
+      canGoLiveRef.current = liveReady;
       setChecks(nextChecks);
       setCanGoLive(liveReady);
       setPhase(resolveSellerSetupPhase(nextChecks, false, wizardDone));
@@ -50,6 +61,7 @@ export function useSellerSetupState(enabled: boolean) {
           loading: false,
         }),
       );
+      setResolved(true);
     },
     [],
   );
@@ -59,16 +71,30 @@ export function useSellerSetupState(enabled: boolean) {
       setPhase("not_started");
       setLifecycle("NOT_STARTED");
       setChecks(null);
+      checksRef.current = null;
       setWizardComplete(false);
       setCanGoLive(false);
+      setResolved(false);
       return;
     }
-    setPhase("loading");
+    // Soft refresh: keep the last known phase so the Account menu / seller tiles do not flash
+    // "Start Seller Setup" every time the dropdown opens while /api/account/seller reloads.
+    const hasCached = Boolean(checksRef.current);
+    if (!hasCached) {
+      setPhase("loading");
+      setResolved(false);
+    }
     const localWizard = readSellerWizardComplete();
     try {
       let res = await fetch("/api/account/seller", { credentials: "same-origin", cache: "no-store" });
       if (!res.ok) {
-        applyPhase(DEFAULT_CHECKS, localWizard, false);
+        // Keep last known good state so a 503/timeout does not kick activated sellers into setup.
+        if (checksRef.current) {
+          applyPhase(checksRef.current, wizardRef.current || localWizard, canGoLiveRef.current);
+        } else {
+          setPhase("loading");
+          setResolved(false);
+        }
         return;
       }
       let payload = (await res.json()) as {
@@ -94,7 +120,12 @@ export function useSellerSetupState(enabled: boolean) {
       setWizardComplete(wizardDone);
       applyPhase(nextChecks, wizardDone, Boolean(payload.readiness?.canGoLive));
     } catch {
-      applyPhase(DEFAULT_CHECKS, localWizard, false);
+      if (checksRef.current) {
+        applyPhase(checksRef.current, wizardRef.current || localWizard, canGoLiveRef.current);
+      } else {
+        setPhase("loading");
+        setResolved(false);
+      }
     }
   }, [enabled, applyPhase]);
 
@@ -138,6 +169,8 @@ export function useSellerSetupState(enabled: boolean) {
     canGoLive,
     requiredComplete: isRequiredSellerSetupComplete(checks),
     activated: isSellerActivated(checks, wizardComplete),
+    /** True only after a successful seller payload load (or restored prior success). */
+    resolved,
     refetch: load,
   };
 }

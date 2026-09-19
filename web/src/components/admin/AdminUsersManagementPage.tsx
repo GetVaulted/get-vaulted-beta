@@ -31,7 +31,7 @@ type UserRow = {
 };
 
 type Payload = {
-  counts: { admins: number; suspended: number; sellers: number; buyers: number };
+  counts: { total: number; admins: number; suspended: number; sellers: number; buyers: number };
   users: UserRow[];
 };
 
@@ -71,10 +71,11 @@ export function AdminUsersManagementPage() {
     >
       <AdminMetricStrip
         metrics={[
-          { label: "Buyers", value: data?.counts.buyers ?? 0 },
-          { label: "Sellers", value: data?.counts.sellers ?? 0, tone: "gold" },
-          { label: "Admins", value: data?.counts.admins ?? 0 },
-          { label: "Suspended", value: data?.counts.suspended ?? 0, tone: "warn" },
+          { label: "Total users", value: data?.counts?.total ?? 0, tone: "gold" },
+          { label: "Buyers", value: data?.counts?.buyers ?? 0 },
+          { label: "Sellers", value: data?.counts?.sellers ?? 0 },
+          { label: "Admins", value: data?.counts?.admins ?? 0 },
+          { label: "Suspended", value: data?.counts?.suspended ?? 0, tone: "warn" },
         ]}
       />
 

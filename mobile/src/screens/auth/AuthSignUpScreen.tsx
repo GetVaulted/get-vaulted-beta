@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { checkUsernameAvailable, validateUsernameFormat } from '../../api/profilesRepository';
 import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
+import { friendlyErrorText } from '../../lib/friendlyErrorText';
 import { SocialAuthButtons, socialAuthErrorMessage } from '../../components/auth/SocialAuthButtons';
 import { GetVaultedBrandMark } from '../../components/branding/GetVaultedBrandMark';
 import { LegalConsentNote } from '../../components/legal/LegalConsentNote';
@@ -25,6 +26,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
 import { isValidEmailFormat } from '../../lib/email-validation';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
+import { navigateAfterAccountReady, navigateAfterSignIn } from '../../navigation/navigateAfterSignIn';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
 
@@ -91,8 +93,8 @@ export function AuthSignUpScreen({ navigation, route }: Props) {
     else navigation.replace('LaunchIntro', { instantAuth: true });
   };
 
-  const finishBuyerHome = () => {
-    navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+  const finishBuyerHome = async () => {
+    await navigateAfterAccountReady(navigation, 'signup');
   };
 
   const onSocial = async (provider: 'google' | 'apple') => {
@@ -104,7 +106,7 @@ export function AuthSignUpScreen({ navigation, route }: Props) {
         provider === 'google'
           ? await signInWithGoogle({ persistSession: true })
           : await signInWithApple({ persistSession: true });
-      if (result === 'success') finishBuyerHome();
+      if (result === 'success') await navigateAfterSignIn(navigation, { notificationSource: 'signup' });
       else if (result === 'error') setSocialErr(AUTH_USER_MESSAGES.socialSignInFailed);
     } catch (e) {
       setSocialErr(socialAuthErrorMessage(e));
@@ -165,15 +167,10 @@ export function AuthSignUpScreen({ navigation, route }: Props) {
         );
         return;
       }
-      if (__DEV__) console.log('[auth:signup] success → Home');
-      finishBuyerHome();
+      if (__DEV__) console.log('[auth:signup] success → notification gate / Home');
+      await finishBuyerHome();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Sign-up failed';
-      setErr(
-        msg === 'Invalid API key'
-          ? 'Account setup could not reach Supabase. Update the app to the latest build, check your connection, and try again.'
-          : msg,
-      );
+      setErr(friendlyErrorText(e, 'Sign-up failed. Please try again.'));
     } finally {
       setBusy(false);
     }
@@ -228,6 +225,7 @@ export function AuthSignUpScreen({ navigation, route }: Props) {
           placeholder="Email"
           placeholderTextColor={colors.textMuted}
           autoCapitalize="none"
+          autoCorrect={false}
           keyboardType="email-address"
           autoComplete="email"
           value={email}
@@ -296,7 +294,7 @@ export function AuthSignUpScreen({ navigation, route }: Props) {
           placeholder="Confirm password"
           visible={confirmVisible}
           onToggleVisible={() => setConfirmVisible((v) => !v)}
-          autoComplete="new-password"
+          autoComplete="off"
         />
 
         {err ? <Text style={styles.err}>{err}</Text> : null}

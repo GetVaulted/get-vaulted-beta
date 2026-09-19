@@ -29,7 +29,17 @@ export type PayoutAuditAction =
   | "order_payout_released"
   | "order_payout_blocked"
   | "order_manual_review"
-  | "order_payout_evaluated";
+  | "order_payout_evaluated"
+  /**
+   * Heuristic (not Stripe-object-confirmed) bulk bank-payout detection — see
+   * reconcile-stripe-bank-payouts.ts. These mark `paid_out` from an ESTIMATED seller net
+   * compared against Stripe's Connect balance, not a specific matched payout id. Distinct
+   * action names so these can be found/reviewed/reversed separately from confirmed matches.
+   */
+  | "order_payout_marked_paid_from_connect_shortfall_heuristic"
+  | "order_payout_marked_paid_from_full_clear_heuristic"
+  /** Admin recorded a seller's PayPal-rail orders as already paid off-platform — see paypal-mark-paid.ts. */
+  | "seller_paypal_orders_marked_already_paid";
 
 /** Best-effort audit log for payout eligibility decisions and admin overrides. */
 export async function logPayoutEligibilityDecision(args: {

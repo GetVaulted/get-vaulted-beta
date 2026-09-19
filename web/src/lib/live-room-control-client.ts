@@ -186,6 +186,67 @@ export async function patchLiveItemVariants(
   }
 }
 
+export type ManualAssignVariantResult = {
+  purchaseId: string;
+  buyerUsername: string;
+  label: string;
+  totalUsd: number;
+  platformFeeCents: number;
+  platformFeePercent: number;
+  platformFeeStatus: string;
+  platformFeeDue: boolean;
+};
+
+/** Mark a team-board / spot-board variant sold off-platform to a specific username (host manual settlement). */
+export async function manualAssignLiveItemVariant(
+  liveRoomId: string,
+  itemId: string,
+  variantId: string,
+  body: {
+    username: string;
+    priceUsd: number;
+    settlementMethod: string;
+    zeroReason?: string;
+    note?: string;
+  },
+): Promise<ApiResult<ManualAssignVariantResult>> {
+  try {
+    const res = await fetch(
+      `/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(itemId)}/variants/${encodeURIComponent(variantId)}/manual-assign`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      },
+    );
+    const payload = await readJsonSafe<Record<string, unknown>>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not mark team sold.");
+      return { ok: false, error, issues };
+    }
+    const p = (payload ?? {}) as Record<string, unknown>;
+    const data: ManualAssignVariantResult = {
+      purchaseId: typeof p.purchaseId === "string" ? p.purchaseId : "",
+      buyerUsername: typeof p.buyerUsername === "string" ? p.buyerUsername : "",
+      label: typeof p.label === "string" ? p.label : "",
+      totalUsd: typeof p.totalUsd === "number" ? p.totalUsd : 0,
+      platformFeeCents: typeof p.platformFeeCents === "number" ? p.platformFeeCents : 0,
+      platformFeePercent: typeof p.platformFeePercent === "number" ? p.platformFeePercent : 0,
+      platformFeeStatus: typeof p.platformFeeStatus === "string" ? p.platformFeeStatus : "",
+      platformFeeDue: Boolean(p.platformFeeDue),
+    };
+    return { ok: true, data };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server.",
+      issues: [],
+    };
+  }
+}
+
 /** Append supplemental spot/division variants to the active variant item (same lot — buyers see immediately). */
 export async function appendLiveItemSupplementalVariants(
   liveRoomId: string,
@@ -232,6 +293,8 @@ export async function createLiveRoomItem(
     priceUsd?: number | null;
     startingBidUsd?: number | null;
     teamBoardMisc?: boolean;
+    teamBoardNcaa?: boolean;
+    customRandomPoolLabels?: string[] | null;
     /** Units on this queue row (one tile). */
     quantity?: number;
     salesFormat?: string;
@@ -264,6 +327,117 @@ export async function createLiveRoomItem(
   }
 }
 
+export type LiveShopInventoryListing = {
+  id: string;
+  title: string;
+  imageUrl: string;
+  priceUsd: number | null;
+  startingBidUsd: number | null;
+  buyingFormat: string;
+  status: string;
+  inventoryChannel: "marketplace" | "live_show";
+  alreadyInQueue: boolean;
+  inventoryHeld: boolean;
+  available: boolean;
+};
+
+export async function fetchLiveRoomShopInventory(
+  liveRoomId: string,
+): Promise<ApiResult<{ listings: LiveShopInventoryListing[] }>> {
+  try {
+    const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/shop-inventory`, {
+      cache: "no-store",
+      credentials: "include",
+    });
+    const payload = await readJsonSafe<{ listings?: LiveShopInventoryListing[]; error?: string }>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not load shop inventory.");
+      return { ok: false, error, issues };
+    }
+    return { ok: true, data: { listings: Array.isArray(payload?.listings) ? payload.listings : [] } };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server.",
+      issues: [],
+    };
+  }
+}
+
+export type PriorLiveRoomOption = {
+  id: string;
+  title: string;
+  status: string;
+  updatedAt?: string | null;
+};
+
+export async function fetchPriorLiveRoomsForCopy(
+  currentRoomId: string,
+): Promise<ApiResult<{ rooms: PriorLiveRoomOption[] }>> {
+  try {
+    const res = await fetch(`/api/live-rooms?mine=1&includeEnded=1&limit=40`, {
+      cache: "no-store",
+      credentials: "include",
+    });
+    const payload = await readJsonSafe<{ rooms?: PriorLiveRoomOption[]; error?: string }>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not load prior shows.");
+      return { ok: false, error, issues };
+    }
+    const rooms = (Array.isArray(payload?.rooms) ? payload.rooms : []).filter(
+      (r) => r.id && r.id !== currentRoomId,
+    );
+    return { ok: true, data: { rooms } };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server.",
+      issues: [],
+    };
+  }
+}
+
+export async function importLiveRoomItemsFromRoom(
+  liveRoomId: string,
+  sourceRoomId: string,
+): Promise<ApiResult<{ imported: number; skipped: number; sourceTitle?: string }>> {
+  try {
+    const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/import-from-room`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ sourceRoomId }),
+    });
+    const payload = await readJsonSafe<{
+      imported?: number;
+      skipped?: number;
+      sourceTitle?: string;
+      error?: string;
+    }>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not copy lineup.");
+      return { ok: false, error, issues };
+    }
+    return {
+      ok: true,
+      data: {
+        imported: typeof payload?.imported === "number" ? payload.imported : 0,
+        skipped: typeof payload?.skipped === "number" ? payload.skipped : 0,
+        sourceTitle: payload?.sourceTitle,
+      },
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server.",
+      issues: [],
+    };
+  }
+}
+
 export async function sendLiveRoomSystemMessage(
   liveRoomId: string,
   body: string,
@@ -279,4 +453,66 @@ export async function sendLiveRoomSystemMessage(
     return { ok: false, error, issues };
   }
   return { ok: true, data: payload ?? {} };
+}
+
+export type LiveLotSaleType = "auction" | "buy_now";
+
+/**
+ * Save plain (non-variant) lot pricing from the host queue editor: starting bid / buy-it-now
+ * price, quantity, and — when the sale type changed — the format switch. Mirrors the mobile app's
+ * `onSaveQueuePricing` (updates pricing first, then flips format, so there's never a window where
+ * a buy-it-now lot is buyable at a stale $1 default while switching to auction).
+ */
+export async function patchLiveRoomItemLotPricing(
+  liveRoomId: string,
+  itemId: string,
+  args: {
+    saleType: LiveLotSaleType;
+    previousSaleType: LiveLotSaleType;
+    quantity: number;
+    startingBidUsd: number | null;
+    reservePriceUsd: number | null;
+    priceUsd: number | null;
+  },
+): Promise<ApiResult<Record<string, unknown>>> {
+  try {
+    const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(itemId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        quantity: args.quantity,
+        startingBidUsd: args.startingBidUsd,
+        reservePriceUsd: args.reservePriceUsd,
+        priceUsd: args.priceUsd,
+      }),
+    });
+    const payload = await readJsonSafe<Record<string, unknown>>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not update pricing.");
+      return { ok: false, error, issues };
+    }
+    if (args.saleType === args.previousSaleType) {
+      return { ok: true, data: payload ?? {} };
+    }
+    const res2 = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(itemId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action: "setCommerceFormat", salesFormat: args.saleType }),
+    });
+    const payload2 = await readJsonSafe<Record<string, unknown>>(res2);
+    if (!res2.ok) {
+      const { error, issues } = normalizeError(payload2, "Pricing saved, but could not switch the sale type.");
+      return { ok: false, error, issues };
+    }
+    return { ok: true, data: payload2 ?? {} };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server.",
+      issues: [],
+    };
+  }
 }

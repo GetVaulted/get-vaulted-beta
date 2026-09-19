@@ -233,12 +233,34 @@ describe('resolveLiveBuyerCommerceHud', () => {
       status: 'live',
       activeItemId: 'item-1',
       activeItemListingId: 'listing-1',
+      activeItemSalesFormat: 'buy_now',
       priceUsd: 125,
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
     expect(hud.bottomRightLabel).toBe('Buy Now $125.00');
     expect(hud.currentPrefix).toBe('Price');
+    expect(hud.buyerPrimaryDisabled).toBe(false);
+  });
+
+  it('shows auction bid CTA for sale-room auction lot (not Buy Now)', () => {
+    const snap = {
+      roomType: 'sale',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemTitle: 'Raw Lot',
+      activeItemSalesFormat: 'auction',
+      biddingOpen: true,
+      lotBidPhase: 'bidding_open',
+      auctionEndsAt: new Date(Date.now() + 30_000).toISOString(),
+      startingBidUsd: 5,
+      currentBidUsd: 5,
+      minNextBidUsd: 6,
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toMatch(/bid/i);
+    expect(hud.bottomRightLabel).not.toMatch(/buy now/i);
     expect(hud.buyerPrimaryDisabled).toBe(false);
   });
 
@@ -300,8 +322,44 @@ describe('resolveLiveBuyerCommerceHud', () => {
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
     expect(hud.bottomRightLabel).toBe('Hold to Bid $40.00');
     expect(hud.itemTitle).toBe('Chiefs');
+    expect(hud.categoryType).toBe('PYT 1 Box Break');
     expect(hud.buyerPrimaryDisabled).toBe(false);
     expect(hud.buyerPinnedVariantId).toBe('v1');
+  });
+
+  it('shows auctioned team title even when isHot was cleared mid-auction', () => {
+    const snap = {
+      roomType: 'sale',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemTitle: 'PYT 1 Box Break',
+      activeItemSalesFormat: 'variant_selection',
+      activeItemVariantAssignmentMode: 'pick',
+      activeSpotCommerceMode: 'auction',
+      auctionVariantId: 'v1',
+      biddingOpen: true,
+      lotBidPhase: 'bidding_open',
+      minNextBidUsd: 40,
+      activeItemVariants: [
+        {
+          id: 'v1',
+          label: 'Chiefs',
+          priceUsd: 35,
+          quantityRemaining: 1,
+          soldCount: 0,
+          isHot: false,
+          status: 'available',
+          buyerUsername: null,
+        },
+      ],
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.itemTitle).toBe('Chiefs');
+    expect(hud.categoryType).toBe('PYT 1 Box Break');
+    expect(hud.stateLine).toContain('Chiefs auction live');
+    expect(hud.buyerPinnedVariantId).toBe('v1');
+    expect(hud.bottomRightLabel).toBe('Hold to Bid $40.00');
   });
 
   it('shows hybrid auction + shop when one team auctions and others remain buyable', () => {
@@ -357,6 +415,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
       activeItemTitle: 'PYT 1 Box Break',
       activeItemSalesFormat: 'variant_selection',
       activeItemVariantAssignmentMode: 'pick',
+      activeSpotCommerceMode: 'fixed',
       activeItemVariants: [
         {
           id: 'v1',
@@ -389,6 +448,79 @@ describe('resolveLiveBuyerCommerceHud', () => {
     expect(hud.stateLine).toContain('shipping & tax');
   });
 
+  it('does not offer buy-now when a PYT team is pinned for auction before Start', () => {
+    const snap = {
+      roomType: 'break',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemTitle: 'PYT 1 Box Break',
+      activeItemSalesFormat: 'variant_selection',
+      activeItemVariantAssignmentMode: 'pick',
+      activeSpotCommerceMode: 'auction',
+      biddingOpen: false,
+      activeItemVariants: [
+        {
+          id: 'v1',
+          label: 'Chiefs',
+          priceUsd: 1,
+          quantityRemaining: 1,
+          soldCount: 0,
+          isHot: true,
+          status: 'available',
+          buyerUsername: null,
+        },
+      ],
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toBe('Waiting for host');
+    expect(hud.buyerPrimaryDisabled).toBe(true);
+    expect(hud.buyerPinnedVariantId).toBeUndefined();
+    expect(hud.stateLine).toContain('pinned for auction');
+  });
+
+  it('shows Claim Team for scheduled pre-sale when lineup has open PYT spots', () => {
+    const snap = {
+      roomType: 'auction',
+      status: 'scheduled',
+      activeItemId: null,
+      lineupItems: [
+        {
+          id: 'item-1',
+          displayTitle: 'NFL PYT',
+          metaLine: 'From $25 · 32 spots open · Open now',
+          imageUrl: null,
+          salesFormat: 'variant_selection',
+          sortOrder: 0,
+          status: 'queued',
+          isPinned: false,
+          isLiveBidding: false,
+          listingId: null,
+          queueAction: 'variant_shop',
+          startingBidUsd: null,
+          currentBidUsd: null,
+          lastHighBidderId: null,
+          biddingOpen: false,
+        },
+      ],
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toBe('Claim Team');
+    expect(hud.showShopButton).toBe(true);
+    expect(hud.stateLine).toContain('Pre-sale');
+  });
+
+  it('keeps Starting soon when scheduled with no team spots', () => {
+    const snap = {
+      roomType: 'auction',
+      status: 'scheduled',
+      activeItemId: null,
+      lineupItems: [],
+    } as unknown as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toBe('Starting soon');
+  });
+
   it('shows Claim Team when PYT break is pinned without host spot pin', () => {
     const snap = {
       roomType: 'auction',
@@ -412,6 +544,46 @@ describe('resolveLiveBuyerCommerceHud', () => {
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
     expect(hud.bottomRightLabel).toBe('Claim Team');
     expect(hud.buyerPrimaryDisabled).toBe(false);
+  });
+
+  it('opens Team roster when all PYT spots are sold', () => {
+    const snap = {
+      roomType: 'auction',
+      status: 'live',
+      activeItemId: 'item-3',
+      activeItemSalesFormat: 'variant_selection',
+      activeItemTitle: 'NFL PYT',
+      activeItemVariants: [
+        {
+          id: 'v1',
+          label: 'Ravens',
+          priceUsd: 24.99,
+          quantityRemaining: 0,
+          soldCount: 1,
+          isHot: false,
+          status: 'sold_out',
+          buyerUsername: 'buyer1',
+        },
+        {
+          id: 'v2',
+          label: 'Chiefs',
+          priceUsd: 24.99,
+          quantityRemaining: 0,
+          soldCount: 1,
+          isHot: false,
+          status: 'sold_out',
+          buyerUsername: 'buyer2',
+        },
+      ],
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.currentAmount).toBe('Sold out');
+    expect(hud.bottomRightLabel).toBe('Team roster');
+    expect(hud.bottomLeftLabel).toBe('Teams');
+    expect(hud.buyerPrimaryDisabled).toBe(false);
+    expect(hud.buyerSecondaryDisabled).toBe(false);
+    expect(hud.stateLine).toMatch(/team roster/i);
   });
 });
 

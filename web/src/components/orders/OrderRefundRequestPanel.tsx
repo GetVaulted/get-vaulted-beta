@@ -20,7 +20,9 @@ type Props = {
 function blockedMessage(code: string | null): string {
   switch (code) {
     case "NOT_LIVE_ORDER":
-      return "Refund requests are only available for live show orders.";
+      return "This refund option is only available for live show orders.";
+    case "LABEL_EXISTS":
+      return "Cancel is unavailable after a Get Vaulted shipping label is created.";
     case "IN_TRANSIT":
       return "Cancel and return requests are unavailable while the package is in transit. Wait until delivery.";
     case "RETURN_WINDOW_EXPIRED":
@@ -126,7 +128,6 @@ export function OrderRefundRequestPanel({ orderId, role }: Props) {
   }
 
   if (!eligibility?.kind && !request) {
-    if (eligibility?.blockedReason === "NOT_LIVE_ORDER") return null;
     return (
       <section className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
         <h2 className="text-sm font-semibold text-foreground">Cancel & refund</h2>
@@ -141,7 +142,9 @@ export function OrderRefundRequestPanel({ orderId, role }: Props) {
     <section className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
       <h2 className="text-sm font-semibold text-foreground">Cancel & refund</h2>
       <p className="mt-1 text-xs text-zinc-500">
-        Live show orders: cancel before ship, or return within 2 days of delivery (shipping defect only).
+        {eligibility?.kind === "return"
+          ? "Live show orders: return within 2 days of delivery for a shipping defect (photos required)."
+          : "Request a cancel before the seller ships or creates a Get Vaulted label. The seller must approve before a full refund is issued."}
       </p>
 
       {request ? (
@@ -239,11 +242,21 @@ export function OrderRefundRequestPanel({ orderId, role }: Props) {
       ) : null}
 
       {!request && role === "seller" && eligibility?.kind === "cancel" ? (
-        <div className="mt-4">
+        <div className="mt-4 space-y-3">
+          <label className="block text-xs font-medium text-zinc-400">
+            Cancellation reason
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={3}
+              className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-foreground"
+              placeholder="Explain why you are cancelling this order…"
+            />
+          </label>
           <button
             type="button"
-            disabled={busy}
-            onClick={() => void patchAction({ action: "seller_direct_cancel", reason: "Seller cancelled order." })}
+            disabled={busy || reason.trim().length < 3}
+            onClick={() => void patchAction({ action: "seller_direct_cancel", reason })}
             className="rounded-full border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-500/20 disabled:opacity-50"
           >
             Cancel & refund buyer directly

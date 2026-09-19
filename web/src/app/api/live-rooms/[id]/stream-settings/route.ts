@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { emitStreamStatusChanged } from "@/lib/realtime-emit-server";
+import {
+  cancelPausedBroadcastAwsTeardown,
+  ensureStageHlsCompositionActive,
+  schedulePausedBroadcastAwsTeardown,
+} from "@/services/ivs";
 import { requireHostAccess } from "../stream/_shared";
 
 type PatchBody = {
@@ -28,7 +33,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: liveRoomId },
-    select: { status: true, streamHealth: true, streamPaused: true, roomVersion: true },
+    select: { status: true, streamHealth: true, streamPaused: true, roomVersion: true, streamMode: true },
   });
   if (!room) {
     return NextResponse.json({ error: "Live room not found." }, { status: 404 });
@@ -38,14 +43,36 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   const streamPaused = body.streamPaused;
+  // Overnight Pause often leaves streamHealth=offline after AWS teardown. Promote to connecting
+  // on Play so buyers' live signal / HLS heal run again (new feed is fine).
+  const resumeHealth =
+    !streamPaused &&
+    room.streamHealth !== "live" &&
+    room.streamHealth !== "connecting"
+      ? "connecting"
+      : undefined;
+
   const updated = await prisma.liveRoom.update({
     where: { id: liveRoomId },
     data: {
       streamPaused,
+      ...(resumeHealth ? { streamHealth: resumeHealth, streamEndedAt: null, hostAbsentSince: null } : {}),
       roomVersion: { increment: 1 },
     },
     select: { streamHealth: true, streamPaused: true, roomVersion: true },
   });
+
+  if (streamPaused) {
+    // Stage rooms: after a short grace, stop composition + channel ingest so overnight pause
+    // doesn't burn IVS. OBS (`channel_hls`) keeps ingest — StopStream would force reconnect loops.
+    if (room.streamMode !== "channel_hls") {
+      schedulePausedBroadcastAwsTeardown(liveRoomId);
+    }
+  } else {
+    // Host Play: cancel any pending cut and heal Stage→HLS so share-link buyers get video again.
+    cancelPausedBroadcastAwsTeardown(liveRoomId);
+    void ensureStageHlsCompositionActive(liveRoomId).catch(() => {});
+  }
 
   emitStreamStatusChanged(liveRoomId, {
     streamHealth: updated.streamHealth,

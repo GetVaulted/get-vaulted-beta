@@ -15,42 +15,61 @@ import {
   releaseVariantPurchaseOnCheckoutExpired,
 } from "@/lib/live-item-variant-purchase";
 import {
+  finalizeLiveItemVariantPurchaseBatchPaid,
+  formatVariantBatchOrderTitle,
+  releaseVariantPurchaseBatchOnCheckoutExpired,
+} from "@/lib/live-item-variant-batch-purchase";
+import {
   recordLiveRoomPaymentFailure,
   recordPaymentFailureFromCharge,
 } from "@/lib/live-room-payment-failure";
 import {
   createLiveBuyNowOrder,
   finalizeBreakSpotPaid,
+  refreshBuyerShippingOnOrderIfIncomplete,
   releaseBreakSpotOnDefiniteFailure,
 } from "@/lib/live-buy-now-purchase";
 import { resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
 import {
   ensureBreakSpotFulfillmentOrder,
+  ensureVariantPurchaseBatchFulfillmentOrder,
   ensureVariantPurchaseFulfillmentOrder,
 } from "@/services/shipping/live-commerce-fulfillment-order";
 import { syncOrderShippingFromLiveSessionTx } from "@/services/shipping/live-commerce-shipping-settlement";
 import { prisma } from "@/lib/prisma";
+import { isLiveRoomOpenForSpotPurchase } from "@/lib/live-room-commerce-guards";
 import {
   liveSavedCardSellerReady,
+  resolveLiveSellerDestinationAccount,
+  resolveLiveSellerPayoutProcessor,
   sellerStripeCollectSelect,
 } from "@/lib/seller-stripe-collect-ready";
-import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
+import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId, getBuyerPreferredWalletPaymentMethodId } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
+import {
+  chargeOrderWithPayPalRailWallet,
+  isPayPalRailWalletPaymentMethodId,
+  stampOrderPaidViaPayPalRail,
+} from "@/lib/paypal-buyer-rail";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 import {
+  applyStoreCreditsForSavedCardOrder,
   buildStripeChargeErrorDebug,
   chargeLiveBuyNowOrderWithSavedCard,
   isDefiniteStripeCardDecline,
 } from "@/lib/stripe-charge-order-saved-pm";
 import {
-  connectPaymentIntentTransferData,
+  connectOrPlatformHeldPaymentIntentTransferData,
   resolveConnectPaymentTaxPlan,
 } from "@/lib/sales-tax-charge";
+import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
 import { orderTaxUpdateData } from "@/lib/sales-tax-order";
 import { stripeOffSessionPaymentIntentOptions } from "@/lib/stripe-payment-method-config";
+import { orderItemSaleBasisUsd, referralCreditAppliedCents } from "@/lib/referral-credit-payout";
 
 export const LIVE_VARIANT_PURCHASE_PI_KIND = "variant_purchase_saved_pm" as const;
+export const LIVE_VARIANT_BATCH_PURCHASE_PI_KIND = "variant_batch_purchase_saved_pm" as const;
 export const LIVE_BREAK_SPOT_PI_KIND = "break_spot_saved_pm" as const;
 
 export type LivePreauthorizationStatus = "none" | "wallet_ready" | "authorized";
@@ -91,6 +110,36 @@ export type LiveSavedCardChargeOutcome =
       definiteFailure?: boolean;
     };
 
+/**
+ * Pre-Stripe / wallet-setup failures must NOT sticky-lock the buyer out of the show
+ * (`LIVE_PAYMENT_BLOCKED`). Only card declines and post-charge recovery states should.
+ */
+export function isNonStickyLiveChargeErrorCode(code: string | null | undefined): boolean {
+  const c = (code ?? "").trim().toUpperCase();
+  return (
+    c === "FULFILLMENT_ORDER_FAILED" ||
+    c === "NO_SAVED_CARD" ||
+    c === "NO_SHIPPING_ADDRESS" ||
+    c === "NO_SHIPPING" ||
+    c === "BUYER_STRIPE_CUSTOMER_MISSING" ||
+    c === "SELLER_NOT_READY" ||
+    c === "ROOM_NOT_LIVE" ||
+    c === "STRIPE_NOT_CONFIGURED" ||
+    c === "PURCHASE_NOT_FOUND" ||
+    c === "PURCHASE_NOT_PAYABLE" ||
+    c === "INVALID_AMOUNT" ||
+    c === "PM_VALIDATION_FAILED" ||
+    c === "SPOT_NOT_FOUND" ||
+    c === "STRIPE_ONBOARDING_REQUIRED"
+  );
+}
+
+function shouldRecordStickyLiveChargeFailure(charge: LiveSavedCardChargeOutcome): boolean {
+  if (charge.outcome === "requires_action" || charge.outcome === "processing") return true;
+  if (charge.outcome !== "error") return false;
+  return !isNonStickyLiveChargeErrorCode(charge.code);
+}
+
 export async function getLiveBuyerPaymentSessionState(args: {
   buyerId: string;
   liveRoomId?: string;
@@ -107,9 +156,11 @@ export async function getLiveBuyerPaymentSessionState(args: {
     } catch {
       activePaymentMethodId = null;
     }
+  } else if (isPayPalRailWalletPaymentMethodId(preferred)) {
+    activePaymentMethodId = preferred;
   }
   if (!activePaymentMethodId && wallet.paymentReady) {
-    activePaymentMethodId = await getBuyerDefaultCardPaymentMethodId(args.buyerId);
+    activePaymentMethodId = await getBuyerPreferredWalletPaymentMethodId(args.buyerId);
   }
 
   const liveRoomPaymentReady = wallet.paymentReady && wallet.shippingReady;
@@ -141,7 +192,10 @@ async function resolveBuyerPaymentMethodId(
     await assertPaymentMethodOwnedByUser(buyerId, explicit);
     return explicit;
   }
-  return getBuyerDefaultCardPaymentMethodId(buyerId);
+  if (isPayPalRailWalletPaymentMethodId(explicit)) {
+    return explicit;
+  }
+  return getBuyerPreferredWalletPaymentMethodId(buyerId);
 }
 
 function mapPaymentIntentOutcome(
@@ -220,7 +274,11 @@ async function applyOrderTaxPlanForLiveCharge(args: {
   itemPriceUsd: number;
   shippingPriceUsd: number;
   applicationFeeCents: number;
+  /** Store credit already subtracted from itemPriceUsd — seller transfer still uses the full basis. */
+  referralCreditAppliedUsd?: number | null;
+  platformCreditAppliedUsd?: number | null;
 }) {
+  await refreshBuyerShippingOnOrderIfIncomplete(args.orderId);
   const order = await prisma.order.findUnique({
     where: { id: args.orderId },
     select: {
@@ -240,26 +298,43 @@ async function applyOrderTaxPlanForLiveCharge(args: {
       metadata: {} as Record<string, string>,
     };
   }
-  const taxPlan = await resolveConnectPaymentTaxPlan({
-    shipTo: order,
-    itemPriceUsd: args.itemPriceUsd,
-    shippingPriceUsd: args.shippingPriceUsd,
-    applicationFeeCents: args.applicationFeeCents,
-    sellerId: args.sellerId,
-  });
-  await prisma.order.update({ where: { id: args.orderId }, data: orderTaxUpdateData(taxPlan.orderTax) });
-  return {
-    amountCents: taxPlan.amountCents,
-    feeCents: taxPlan.applicationFeeCents,
-    sellerTransferCents: taxPlan.sellerTransferCents,
-    metadata: taxPlan.metadata,
-  };
+  try {
+    const taxPlan = await resolveConnectPaymentTaxPlan({
+      shipTo: order,
+      itemPriceUsd: args.itemPriceUsd,
+      shippingPriceUsd: args.shippingPriceUsd,
+      applicationFeeCents: args.applicationFeeCents,
+      referralCreditAppliedUsd: args.referralCreditAppliedUsd,
+      platformCreditAppliedUsd: args.platformCreditAppliedUsd,
+      sellerId: args.sellerId,
+    });
+    await prisma.order.update({ where: { id: args.orderId }, data: orderTaxUpdateData(taxPlan.orderTax) });
+    return {
+      amountCents: taxPlan.amountCents,
+      feeCents: taxPlan.applicationFeeCents,
+      sellerTransferCents: taxPlan.sellerTransferCents,
+      metadata: taxPlan.metadata,
+    };
+  } catch (e) {
+    // Defense in depth: estimateSalesTaxCents soft-fails, but jurisdiction / ship-from lookups
+    // must never abort a live spot charge mid-show.
+    console.warn("[live charge] sales tax plan failed; proceeding without tax", {
+      orderId: args.orderId,
+      err: e instanceof Error ? e.message : String(e ?? ""),
+    });
+    return {
+      amountCents: Math.round((args.itemPriceUsd + args.shippingPriceUsd) * 100),
+      feeCents: args.applicationFeeCents,
+      sellerTransferCents: null as number | null,
+      metadata: {},
+    };
+  }
 }
 
 function mapLiveSavedCardStripeError(
   e: unknown,
   ctx: {
-    kind: "variant_purchase" | "break_spot";
+    kind: "variant_purchase" | "variant_batch_purchase" | "break_spot";
     referenceId: string;
     amountCents: number;
     customerId: string;
@@ -384,6 +459,8 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
   buyerId: string;
   purchaseId: string;
   paymentMethodId?: string | null;
+  /** Auto-applied for this instant one-tap purchase, same as Live Buy Now. */
+  applyReferralCredit?: boolean;
 }): Promise<LiveSavedCardChargeOutcome> {
   if (!isStripeConfigured()) {
     return { outcome: "error", code: "STRIPE_NOT_CONFIGURED", message: "Payments are not configured." };
@@ -406,8 +483,8 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
   if (purchase.totalUsd <= 0) {
     return { outcome: "paid", paymentIntentId: purchase.stripePaymentIntentId ?? purchase.id };
   }
-  if (purchase.liveRoom.status !== "live") {
-    return { outcome: "error", code: "ROOM_NOT_LIVE", message: "This room is not live." };
+  if (!isLiveRoomOpenForSpotPurchase(purchase.liveRoom.status)) {
+    return { outcome: "error", code: "ROOM_NOT_LIVE", message: "Team sales are only open before and during the live show." };
   }
 
   const seller = await prisma.user.findUnique({
@@ -417,7 +494,8 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
   if (!liveSavedCardSellerReady(seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY", message: "Seller payouts are not ready." };
   }
-  const destinationAccount = seller!.stripeAccountId!.trim();
+  const sellerPayoutProcessor = resolveLiveSellerPayoutProcessor(seller);
+  const destinationAccount = resolveLiveSellerDestinationAccount(seller);
 
   let pmId: string | null;
   try {
@@ -428,6 +506,85 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
   }
   if (!pmId) {
     return { outcome: "error", code: "NO_SAVED_CARD", message: "Add a saved payment method to your Wallet." };
+  }
+
+  if (isPayPalRailWalletPaymentMethodId(pmId)) {
+    let fulfillmentRail: { orderId: string; chargeTotalUsd: number };
+    try {
+      fulfillmentRail = await ensureVariantPurchaseFulfillmentOrder(purchase.id);
+      await prisma.$transaction(async (tx) => {
+        await syncOrderShippingFromLiveSessionTx(tx, fulfillmentRail.orderId);
+      });
+    } catch (err) {
+      return {
+        outcome: "error",
+        code: "FULFILLMENT_ORDER_FAILED",
+        message: mapLiveFulfillmentOrderError(err),
+        fulfillmentDetail: err instanceof Error ? err.message : String(err ?? ""),
+      };
+    }
+    const orderRowRailPre = await prisma.order.findUnique({
+      where: { id: fulfillmentRail.orderId },
+      select: {
+        itemPriceUsd: true,
+        shippingPriceUsd: true,
+        referralCreditAppliedUsd: true,
+        platformCreditAppliedUsd: true,
+      },
+    });
+    const creditRail = await applyStoreCreditsForSavedCardOrder(
+      fulfillmentRail.orderId,
+      args.buyerId,
+      orderRowRailPre?.itemPriceUsd ?? purchase.totalUsd,
+      orderRowRailPre?.referralCreditAppliedUsd ?? 0,
+      orderRowRailPre?.platformCreditAppliedUsd ?? 0,
+      args.applyReferralCredit === true,
+    );
+    const feeCentsRawRail = await resolveCheckoutApplicationFeeCents({
+      saleAmountUsd: orderItemSaleBasisUsd(creditRail),
+      isCompanyListing: false,
+      liveRoomId: purchase.liveRoomId,
+      sellerId: purchase.liveRoom.sellerId,
+      orderId: fulfillmentRail.orderId,
+    });
+    const taxChargeRail = await applyOrderTaxPlanForLiveCharge({
+      orderId: fulfillmentRail.orderId,
+      sellerId: purchase.liveRoom.sellerId,
+      itemPriceUsd: creditRail.itemPriceUsd,
+      shippingPriceUsd: orderRowRailPre?.shippingPriceUsd ?? 0,
+      applicationFeeCents: feeCentsRawRail,
+      referralCreditAppliedUsd: creditRail.referralCreditAppliedUsd,
+      platformCreditAppliedUsd: creditRail.platformCreditAppliedUsd,
+    });
+    const amountCentsRail = taxChargeRail.amountCents;
+    if (amountCentsRail < 50) {
+      return { outcome: "error", code: "INVALID_AMOUNT", message: "Purchase amount is too small to charge." };
+    }
+    const charged = await chargeOrderWithPayPalRailWallet({
+      buyerId: args.buyerId,
+      orderId: fulfillmentRail.orderId,
+      amountUsd: amountCentsRail / 100,
+      description: `Live spot: ${purchase.variant.label}`,
+      walletPaymentMethodId: pmId,
+    });
+    if (charged.outcome !== "paid") {
+      return {
+        outcome: "error",
+        code: charged.code,
+        message: charged.message ?? "PayPal/Venmo charge failed.",
+      };
+    }
+    await stampOrderPaidViaPayPalRail({
+      orderId: fulfillmentRail.orderId,
+      buyerId: args.buyerId,
+      walletPaymentMethodId: pmId,
+      processorPaymentId: charged.processorPaymentId,
+    });
+    return {
+      outcome: "paid",
+      paymentIntentId: charged.processorPaymentId,
+      chargeUsd: amountCentsRail / 100,
+    };
   }
 
   const buyer = await prisma.user.findUnique({
@@ -461,26 +618,41 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
       fulfillmentDetail,
     };
   }
+  const orderRowPre = await prisma.order.findUnique({
+    where: { id: fulfillment.orderId },
+    select: {
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
+      referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
+    },
+  });
+  const credit = await applyStoreCreditsForSavedCardOrder(
+    fulfillment.orderId,
+    args.buyerId,
+    orderRowPre?.itemPriceUsd ?? purchase.totalUsd,
+    orderRowPre?.referralCreditAppliedUsd ?? 0,
+    orderRowPre?.platformCreditAppliedUsd ?? 0,
+    args.applyReferralCredit === true,
+  );
+  const shipUsd = orderRowPre?.shippingPriceUsd ?? 0;
+
   const feeCentsRaw = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: purchase.totalUsd,
+    saleAmountUsd: orderItemSaleBasisUsd(credit),
     isCompanyListing: false,
     liveRoomId: purchase.liveRoomId,
     sellerId: purchase.liveRoom.sellerId,
+    orderId: fulfillment.orderId,
   });
-
-  const orderRow = await prisma.order.findUnique({
-    where: { id: fulfillment.orderId },
-    select: { itemPriceUsd: true, shippingPriceUsd: true },
-  });
-  const itemUsd = orderRow?.itemPriceUsd ?? purchase.totalUsd;
-  const shipUsd = orderRow?.shippingPriceUsd ?? 0;
 
   const taxCharge = await applyOrderTaxPlanForLiveCharge({
     orderId: fulfillment.orderId,
     sellerId: purchase.liveRoom.sellerId,
-    itemPriceUsd: itemUsd,
+    itemPriceUsd: credit.itemPriceUsd,
     shippingPriceUsd: shipUsd,
     applicationFeeCents: feeCentsRaw,
+    referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: credit.platformCreditAppliedUsd,
   });
   const amountCents = taxCharge.amountCents;
   if (amountCents < 50) {
@@ -523,10 +695,14 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
           ...taxCharge.metadata,
         },
         description: `Live spot: ${purchase.variant.label}`,
-        ...connectPaymentIntentTransferData({
+        ...connectOrPlatformHeldPaymentIntentTransferData({
+          sellerPayoutProcessor,
           destinationAccountId: destinationAccount,
           applicationFeeCents: feeCents,
           sellerTransferCents: taxCharge.sellerTransferCents,
+          processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
+          referralCreditAppliedCents: referralCreditAppliedCents(credit),
+          maxSellerTransferCents: Math.round(credit.itemPriceUsd * 100) + Math.round(shipUsd * 100),
         }),
       },
       {
@@ -544,6 +720,10 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
       where: { id: purchase.id },
       data: { stripePaymentIntentId: intent.id },
     });
+    await prisma.order.update({
+      where: { id: fulfillment.orderId },
+      data: { sellerPayoutProcessor, paymentProcessor: "STRIPE" },
+    });
 
     const mapped = mapPaymentIntentOutcome(intent);
     if (mapped?.outcome === "paid") {
@@ -559,7 +739,7 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
       amountCents,
       customerId,
       paymentMethodId: pmId,
-      destinationAccount: destinationAccount,
+      destinationAccount: destinationAccount ?? "platform",
     });
   }
 }
@@ -610,6 +790,89 @@ export async function syncLiveItemVariantPurchasePaymentIntent(args: {
   return mapped;
 }
 
+/**
+ * Heal a set of pending `liveItemVariantPurchase` rows against Stripe.
+ *
+ * BUG FIX (multi-spot batch checkout): rows that share a `batchId` come from ONE combined
+ * checkout covering ONE shared Stripe PaymentIntent for their total. They must be healed
+ * TOGETHER through the batch-aware sync (`syncLiveItemVariantPurchaseBatchPaymentIntent`), never
+ * one row at a time through the single-item sync — the single-item path's failure branch
+ * (`releaseVariantPurchaseOnCheckoutExpired`) knows nothing about sibling rows and will happily
+ * mark just ONE spot of a paid multi-spot batch "failed" and put it back up for sale, even though
+ * the buyer's single charge already covers it. That is exactly how a buyer could be charged in
+ * full for e.g. 3 spots while the host console showed only 1 as sold and the other 2 as
+ * "declined" — this reconciler (run on every host-console poll, see
+ * `live-room-recent-sales.ts`) was racing the checkout's own finalize and tearing the batch apart.
+ */
+async function healPendingVariantPurchaseRows(
+  rows: { id: string; buyerId: string; batchId: string | null }[],
+): Promise<number> {
+  let healed = 0;
+  const settledBatchIds = new Set<string>();
+  for (const row of rows) {
+    try {
+      if (row.batchId) {
+        if (settledBatchIds.has(row.batchId)) continue;
+        settledBatchIds.add(row.batchId);
+        const result = await syncLiveItemVariantPurchaseBatchPaymentIntent({
+          buyerId: row.buyerId,
+          batchId: row.batchId,
+        });
+        if (result.outcome === "paid") healed += 1;
+        continue;
+      }
+      const result = await syncLiveItemVariantPurchasePaymentIntent({
+        buyerId: row.buyerId,
+        purchaseId: row.id,
+      });
+      if (result.outcome === "paid") healed += 1;
+    } catch (e) {
+      console.warn("[live] healPendingVariantPurchaseRows", row.id, row.batchId ?? null, e);
+    }
+  }
+  return healed;
+}
+
+/**
+ * Heal PYT/variant purchases stuck in `pending_payment` after Stripe already succeeded
+ * (missed webhook / client never synced). Safe to call from buyer order lists.
+ */
+export async function reconcileBuyerPendingVariantPurchases(buyerId: string, limit = 10): Promise<number> {
+  if (!isStripeConfigured()) return 0;
+  const pending = await prisma.liveItemVariantPurchase.findMany({
+    where: {
+      buyerId,
+      paymentStatus: "pending_payment",
+      stripePaymentIntentId: { not: null },
+    },
+    select: { id: true, batchId: true },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+  return healPendingVariantPurchaseRows(pending.map((row) => ({ ...row, buyerId })));
+}
+
+/**
+ * Same heal path scoped to a live room (seller sales / host console).
+ */
+export async function reconcileLiveRoomPendingVariantPurchases(
+  liveRoomId: string,
+  limit = 25,
+): Promise<number> {
+  if (!isStripeConfigured()) return 0;
+  const pending = await prisma.liveItemVariantPurchase.findMany({
+    where: {
+      liveRoomId,
+      paymentStatus: "pending_payment",
+      stripePaymentIntentId: { not: null },
+    },
+    select: { id: true, buyerId: true, batchId: true },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+  return healPendingVariantPurchaseRows(pending);
+}
+
 export async function settleLiveItemVariantPurchase(args: {
   buyerId: string;
   purchaseId: string;
@@ -630,7 +893,11 @@ export async function settleLiveItemVariantPurchase(args: {
     },
   });
 
-  const charge = await chargeLiveItemVariantPurchaseWithSavedCard(args);
+  const charge = await chargeLiveItemVariantPurchaseWithSavedCard({
+    ...args,
+    // Instant one-tap purchase, same category as Live Buy Now — auto-apply available credit.
+    applyReferralCredit: true,
+  });
 
   if (charge.outcome === "paid") {
     await finalizeLiveItemVariantPurchasePaid(args.purchaseId, charge.paymentIntentId, charge.chargeUsd);
@@ -647,17 +914,20 @@ export async function settleLiveItemVariantPurchase(args: {
           : "Payment is still processing.";
     const status =
       charge.outcome === "error" ? ("payment_failed" as const) : ("recovery_pending" as const);
-    const failure = await recordLiveRoomPaymentFailure({
-      liveRoomId: purchaseMeta.liveRoomId,
-      buyerId: args.buyerId,
-      kind: "variant_purchase",
-      liveRoomItemId: purchaseMeta.liveRoomItemId,
-      variantPurchaseId: args.purchaseId,
-      amountUsd: purchaseMeta.totalUsd,
-      status,
-      failureReason,
-      itemTitle: purchaseMeta.variant.label,
-    });
+    const sticky = shouldRecordStickyLiveChargeFailure(charge);
+    const failure = sticky
+      ? await recordLiveRoomPaymentFailure({
+          liveRoomId: purchaseMeta.liveRoomId,
+          buyerId: args.buyerId,
+          kind: "variant_purchase",
+          liveRoomItemId: purchaseMeta.liveRoomItemId,
+          variantPurchaseId: args.purchaseId,
+          amountUsd: purchaseMeta.totalUsd,
+          status,
+          failureReason,
+          itemTitle: purchaseMeta.variant.label,
+        })
+      : null;
     if (charge.outcome === "requires_action") {
       return {
         ok: true,
@@ -685,9 +955,9 @@ export async function settleLiveItemVariantPurchase(args: {
       ok: false,
       purchaseId: args.purchaseId,
       code: charge.code,
-      message: failure.failureReason ?? "Payment failed.",
+      message: failure?.failureReason ?? failureReason,
       paymentFailed: true,
-      paymentFailureId: failure.id,
+      paymentFailureId: failure?.id,
       fulfillmentDetail: charge.outcome === "error" ? charge.fulfillmentDetail : undefined,
     };
   }
@@ -726,10 +996,494 @@ export async function settleLiveItemVariantPurchase(args: {
   };
 }
 
+export async function chargeLiveItemVariantPurchaseBatchWithSavedCard(args: {
+  buyerId: string;
+  batchId: string;
+  paymentMethodId?: string | null;
+  /** Auto-applied for this instant one-tap purchase, same as Live Buy Now. */
+  applyReferralCredit?: boolean;
+}): Promise<LiveSavedCardChargeOutcome> {
+  if (!isStripeConfigured()) {
+    return { outcome: "error", code: "STRIPE_NOT_CONFIGURED", message: "Payments are not configured." };
+  }
+
+  const purchases = await prisma.liveItemVariantPurchase.findMany({
+    where: { batchId: args.batchId, buyerId: args.buyerId },
+    include: {
+      variant: { select: { label: true } },
+      liveRoom: { select: { id: true, sellerId: true, status: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  if (purchases.length === 0) {
+    return { outcome: "error", code: "PURCHASE_NOT_FOUND", message: "Purchase not found." };
+  }
+  if (purchases.every((p) => p.paymentStatus === "paid")) {
+    return { outcome: "paid", paymentIntentId: purchases[0]!.stripePaymentIntentId ?? args.batchId };
+  }
+  if (!purchases.every((p) => p.paymentStatus === "pending_payment" || p.paymentStatus === "paid")) {
+    return { outcome: "error", code: "PURCHASE_NOT_PAYABLE", message: "This purchase is not payable." };
+  }
+  const pending = purchases.filter((p) => p.paymentStatus === "pending_payment");
+  if (pending.length === 0) {
+    return { outcome: "paid", paymentIntentId: purchases[0]!.stripePaymentIntentId ?? args.batchId };
+  }
+
+  const primary = pending[0]!;
+  const itemSumUsd = Math.round(pending.reduce((s, p) => s + p.totalUsd, 0) * 100) / 100;
+  if (itemSumUsd <= 0) {
+    return { outcome: "paid", paymentIntentId: primary.stripePaymentIntentId ?? args.batchId };
+  }
+  if (!isLiveRoomOpenForSpotPurchase(primary.liveRoom.status)) {
+    return { outcome: "error", code: "ROOM_NOT_LIVE", message: "Team sales are only open before and during the live show." };
+  }
+
+  const seller = await prisma.user.findUnique({
+    where: { id: primary.liveRoom.sellerId },
+    select: sellerStripeCollectSelect,
+  });
+  if (!liveSavedCardSellerReady(seller)) {
+    return { outcome: "error", code: "SELLER_NOT_READY", message: "Seller payouts are not ready." };
+  }
+  const sellerPayoutProcessor = resolveLiveSellerPayoutProcessor(seller);
+  const destinationAccount = resolveLiveSellerDestinationAccount(seller);
+
+  let pmId: string | null;
+  try {
+    pmId = await resolveBuyerPaymentMethodId(args.buyerId, args.paymentMethodId);
+  } catch (e) {
+    const code = e instanceof Error ? e.message : "PM_VALIDATION_FAILED";
+    return { outcome: "error", code, message: "Could not use that payment method." };
+  }
+  if (!pmId) {
+    return { outcome: "error", code: "NO_SAVED_CARD", message: "Add a saved payment method to your Wallet." };
+  }
+
+  if (isPayPalRailWalletPaymentMethodId(pmId)) {
+    let fulfillmentRail: { orderId: string; chargeTotalUsd: number; itemPriceUsd: number };
+    try {
+      fulfillmentRail = await ensureVariantPurchaseBatchFulfillmentOrder(args.batchId);
+      await prisma.$transaction(async (tx) => {
+        await syncOrderShippingFromLiveSessionTx(tx, fulfillmentRail.orderId);
+      });
+    } catch (err) {
+      const fulfillmentDetail = err instanceof Error ? err.message : String(err ?? "");
+      console.error("[variant batch purchase] fulfillment order failed (paypal rail)", {
+        batchId: args.batchId,
+        message: fulfillmentDetail,
+        err,
+      });
+      return {
+        outcome: "error",
+        code: "FULFILLMENT_ORDER_FAILED",
+        message: mapLiveFulfillmentOrderError(err),
+        fulfillmentDetail,
+      };
+    }
+    const orderRowRailPre = await prisma.order.findUnique({
+      where: { id: fulfillmentRail.orderId },
+      select: {
+        itemPriceUsd: true,
+        shippingPriceUsd: true,
+        referralCreditAppliedUsd: true,
+        platformCreditAppliedUsd: true,
+      },
+    });
+    const creditRail = await applyStoreCreditsForSavedCardOrder(
+      fulfillmentRail.orderId,
+      args.buyerId,
+      orderRowRailPre?.itemPriceUsd ?? fulfillmentRail.itemPriceUsd,
+      orderRowRailPre?.referralCreditAppliedUsd ?? 0,
+      orderRowRailPre?.platformCreditAppliedUsd ?? 0,
+      args.applyReferralCredit === true,
+    );
+    const feeCentsRawRail = await resolveCheckoutApplicationFeeCents({
+      saleAmountUsd: orderItemSaleBasisUsd(creditRail),
+      isCompanyListing: false,
+      liveRoomId: primary.liveRoomId,
+      sellerId: primary.liveRoom.sellerId,
+      orderId: fulfillmentRail.orderId,
+    });
+    const taxChargeRail = await applyOrderTaxPlanForLiveCharge({
+      orderId: fulfillmentRail.orderId,
+      sellerId: primary.liveRoom.sellerId,
+      itemPriceUsd: creditRail.itemPriceUsd,
+      shippingPriceUsd: orderRowRailPre?.shippingPriceUsd ?? 0,
+      applicationFeeCents: feeCentsRawRail,
+      referralCreditAppliedUsd: creditRail.referralCreditAppliedUsd,
+      platformCreditAppliedUsd: creditRail.platformCreditAppliedUsd,
+    });
+    const amountCentsRail = taxChargeRail.amountCents;
+    if (amountCentsRail < 50) {
+      return { outcome: "error", code: "INVALID_AMOUNT", message: "Purchase amount is too small to charge." };
+    }
+    const charged = await chargeOrderWithPayPalRailWallet({
+      buyerId: args.buyerId,
+      orderId: fulfillmentRail.orderId,
+      amountUsd: amountCentsRail / 100,
+      description: formatVariantBatchOrderTitle(pending.map((p) => p.variant.label)),
+      walletPaymentMethodId: pmId,
+    });
+    if (charged.outcome !== "paid") {
+      return {
+        outcome: "error",
+        code: charged.code,
+        message: charged.message ?? "PayPal/Venmo charge failed.",
+      };
+    }
+    await stampOrderPaidViaPayPalRail({
+      orderId: fulfillmentRail.orderId,
+      buyerId: args.buyerId,
+      walletPaymentMethodId: pmId,
+      processorPaymentId: charged.processorPaymentId,
+    });
+    return {
+      outcome: "paid",
+      paymentIntentId: charged.processorPaymentId,
+      chargeUsd: amountCentsRail / 100,
+    };
+  }
+
+  const buyer = await prisma.user.findUnique({
+    where: { id: args.buyerId },
+    select: { stripeCustomerId: true },
+  });
+  const customerId = buyer?.stripeCustomerId?.trim();
+  if (!customerId) {
+    return { outcome: "error", code: "BUYER_STRIPE_CUSTOMER_MISSING", message: "Wallet is not linked to Stripe." };
+  }
+
+  let fulfillment: { orderId: string; chargeTotalUsd: number; itemPriceUsd: number };
+  try {
+    fulfillment = await ensureVariantPurchaseBatchFulfillmentOrder(args.batchId);
+    await prisma.$transaction(async (tx) => {
+      await syncOrderShippingFromLiveSessionTx(tx, fulfillment.orderId);
+    });
+  } catch (err) {
+    const fulfillmentDetail = err instanceof Error ? err.message : String(err ?? "");
+    console.error("[variant batch purchase] fulfillment order failed", {
+      batchId: args.batchId,
+      message: fulfillmentDetail,
+      err,
+    });
+    return {
+      outcome: "error",
+      code: "FULFILLMENT_ORDER_FAILED",
+      message: mapLiveFulfillmentOrderError(err),
+      fulfillmentDetail,
+    };
+  }
+
+  const orderRowPre = await prisma.order.findUnique({
+    where: { id: fulfillment.orderId },
+    select: {
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
+      referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
+    },
+  });
+  const credit = await applyStoreCreditsForSavedCardOrder(
+    fulfillment.orderId,
+    args.buyerId,
+    orderRowPre?.itemPriceUsd ?? fulfillment.itemPriceUsd,
+    orderRowPre?.referralCreditAppliedUsd ?? 0,
+    orderRowPre?.platformCreditAppliedUsd ?? 0,
+    args.applyReferralCredit === true,
+  );
+  const shipUsd = orderRowPre?.shippingPriceUsd ?? 0;
+
+  const feeCentsRaw = await resolveCheckoutApplicationFeeCents({
+    saleAmountUsd: orderItemSaleBasisUsd(credit),
+    isCompanyListing: false,
+    liveRoomId: primary.liveRoomId,
+    sellerId: primary.liveRoom.sellerId,
+    orderId: fulfillment.orderId,
+  });
+
+  const taxCharge = await applyOrderTaxPlanForLiveCharge({
+    orderId: fulfillment.orderId,
+    sellerId: primary.liveRoom.sellerId,
+    itemPriceUsd: credit.itemPriceUsd,
+    shippingPriceUsd: shipUsd,
+    applicationFeeCents: feeCentsRaw,
+    referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: credit.platformCreditAppliedUsd,
+  });
+  const amountCents = taxCharge.amountCents;
+  if (amountCents < 50) {
+    return { outcome: "error", code: "INVALID_AMOUNT", message: "Purchase amount is too small to charge." };
+  }
+  const feeCents = capLiveApplicationFeeCents(taxCharge.feeCents, amountCents);
+
+  const stripe = getStripe();
+  const existingPiId = pending.find((p) => p.stripePaymentIntentId)?.stripePaymentIntentId ?? null;
+
+  let clearedDeadIntentId: string | null = null;
+  if (existingPiId) {
+    const existing = await stripe.paymentIntents.retrieve(existingPiId);
+    const handled = await handleExistingLiveSavedCardPaymentIntent(stripe, existing, async () => {
+      await prisma.liveItemVariantPurchase.updateMany({
+        where: { batchId: args.batchId },
+        data: { stripePaymentIntentId: null },
+      });
+    });
+    clearedDeadIntentId = handled.clearedDeadIntentId;
+    if (handled.outcome) return handled.outcome;
+  }
+
+  try {
+    const intent = await stripe.paymentIntents.create(
+      {
+        amount: amountCents,
+        currency: "usd",
+        customer: customerId,
+        payment_method: pmId,
+        confirm: true,
+        off_session: true,
+        ...stripeOffSessionPaymentIntentOptions("live"),
+        metadata: {
+          kind: LIVE_VARIANT_BATCH_PURCHASE_PI_KIND,
+          batchId: args.batchId,
+          purchaseId: primary.id,
+          liveRoomId: primary.liveRoomId,
+          userId: args.buyerId,
+          orderId: fulfillment.orderId,
+          ...taxCharge.metadata,
+        },
+        description: formatVariantBatchOrderTitle(pending.map((p) => p.variant.label)),
+        ...connectOrPlatformHeldPaymentIntentTransferData({
+          sellerPayoutProcessor,
+          destinationAccountId: destinationAccount,
+          applicationFeeCents: feeCents,
+          sellerTransferCents: taxCharge.sellerTransferCents,
+          processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
+          referralCreditAppliedCents: referralCreditAppliedCents(credit),
+          maxSellerTransferCents: Math.round(credit.itemPriceUsd * 100) + Math.round(shipUsd * 100),
+        }),
+      },
+      {
+        idempotencyKey: liveSavedCardStripeIdempotencyKey({
+          prefix: "variant_batch_saved_pm",
+          referenceId: args.batchId,
+          amountCents,
+          paymentMethodId: pmId,
+          clearedDeadIntentId,
+        }),
+      },
+    );
+
+    await prisma.liveItemVariantPurchase.updateMany({
+      where: { batchId: args.batchId },
+      data: { stripePaymentIntentId: intent.id },
+    });
+    await prisma.order.update({
+      where: { id: fulfillment.orderId },
+      data: { sellerPayoutProcessor, paymentProcessor: "STRIPE" },
+    });
+
+    const mapped = mapPaymentIntentOutcome(intent);
+    if (mapped?.outcome === "paid") {
+      return { ...mapped, chargeUsd: amountCents / 100 };
+    }
+    if (mapped) return mapped;
+
+    return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED", message: "Payment did not complete." };
+  } catch (e) {
+    return mapLiveSavedCardStripeError(e, {
+      kind: "variant_batch_purchase",
+      referenceId: args.batchId,
+      amountCents,
+      customerId,
+      paymentMethodId: pmId,
+      destinationAccount: destinationAccount ?? "platform",
+    });
+  }
+}
+
+export async function syncLiveItemVariantPurchaseBatchPaymentIntent(args: {
+  buyerId: string;
+  batchId: string;
+}): Promise<LiveSavedCardChargeOutcome> {
+  if (!isStripeConfigured()) {
+    return { outcome: "error", code: "STRIPE_NOT_CONFIGURED" };
+  }
+
+  const purchases = await prisma.liveItemVariantPurchase.findMany({
+    where: { batchId: args.batchId, buyerId: args.buyerId },
+    select: { id: true, paymentStatus: true, stripePaymentIntentId: true, liveRoomId: true },
+  });
+  if (purchases.length === 0) return { outcome: "error", code: "PURCHASE_NOT_FOUND" };
+  if (purchases.every((p) => p.paymentStatus === "paid")) {
+    return { outcome: "paid", paymentIntentId: purchases[0]!.stripePaymentIntentId ?? args.batchId };
+  }
+  const piId = purchases.find((p) => p.stripePaymentIntentId)?.stripePaymentIntentId;
+  if (!piId) return { outcome: "error", code: "NO_PAYMENT_INTENT" };
+
+  const stripe = getStripe();
+  const pi = await stripe.paymentIntents.retrieve(piId);
+  const mapped = mapPaymentIntentOutcome(pi);
+  if (!mapped || mapped.outcome === "error") {
+    if (!mapped || mapped.definiteFailure !== false) {
+      await releaseVariantPurchaseBatchOnCheckoutExpired(args.batchId);
+    }
+    return {
+      outcome: "error",
+      code: mapped?.code ?? "PAYMENT_INTENT_NOT_COMPLETED",
+      message: mapped?.message ?? "Payment did not complete.",
+    };
+  }
+
+  if (mapped.outcome === "paid") {
+    const chargeUsd = typeof pi.amount === "number" && pi.amount >= 50 ? pi.amount / 100 : undefined;
+    await finalizeLiveItemVariantPurchaseBatchPaid(args.batchId, mapped.paymentIntentId, chargeUsd);
+    emitLiveRoomQueueItemsChanged(purchases[0]!.liveRoomId);
+  }
+  return mapped;
+}
+
+export async function settleLiveItemVariantPurchaseBatch(args: {
+  buyerId: string;
+  batchId: string;
+  paymentMethodId?: string | null;
+}): Promise<
+  | { ok: true; paid: true; batchId: string; purchaseIds: string[] }
+  | { ok: true; requiresAction: true; batchId: string; purchaseIds: string[]; clientSecret: string; paymentIntentId: string }
+  | { ok: true; processing: true; batchId: string; purchaseIds: string[]; paymentIntentId: string }
+  | {
+      ok: false;
+      batchId: string;
+      purchaseIds: string[];
+      code: string;
+      message: string;
+      paymentFailed: true;
+      paymentFailureId?: string;
+      fulfillmentDetail?: string;
+    }
+> {
+  const purchases = await prisma.liveItemVariantPurchase.findMany({
+    where: { batchId: args.batchId, buyerId: args.buyerId },
+    select: {
+      id: true,
+      liveRoomId: true,
+      liveRoomItemId: true,
+      totalUsd: true,
+      variant: { select: { label: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  const purchaseIds = purchases.map((p) => p.id);
+  const itemSumUsd = Math.round(purchases.reduce((s, p) => s + p.totalUsd, 0) * 100) / 100;
+  const itemTitle = formatVariantBatchOrderTitle(purchases.map((p) => p.variant.label));
+
+  const charge = await chargeLiveItemVariantPurchaseBatchWithSavedCard({
+    ...args,
+    // Instant one-tap purchase, same category as Live Buy Now — auto-apply available credit.
+    applyReferralCredit: true,
+  });
+
+  if (charge.outcome === "paid") {
+    await finalizeLiveItemVariantPurchaseBatchPaid(args.batchId, charge.paymentIntentId, charge.chargeUsd);
+    if (purchases[0]) emitLiveRoomQueueItemsChanged(purchases[0].liveRoomId);
+    return { ok: true, paid: true, batchId: args.batchId, purchaseIds };
+  }
+
+  if (purchases[0]) {
+    const failureReason =
+      charge.outcome === "error"
+        ? charge.message ?? "Payment failed."
+        : charge.outcome === "requires_action"
+          ? "Your bank requires additional verification."
+          : "Payment is still processing.";
+    const status =
+      charge.outcome === "error" ? ("payment_failed" as const) : ("recovery_pending" as const);
+    const sticky = shouldRecordStickyLiveChargeFailure(charge);
+    const failure = sticky
+      ? await recordLiveRoomPaymentFailure({
+          liveRoomId: purchases[0].liveRoomId,
+          buyerId: args.buyerId,
+          kind: "variant_purchase",
+          liveRoomItemId: purchases[0].liveRoomItemId,
+          variantPurchaseId: purchases[0].id,
+          amountUsd: itemSumUsd,
+          status,
+          failureReason,
+          itemTitle,
+        })
+      : null;
+    if (charge.outcome === "requires_action") {
+      return {
+        ok: true,
+        requiresAction: true,
+        batchId: args.batchId,
+        purchaseIds,
+        clientSecret: charge.clientSecret,
+        paymentIntentId: charge.paymentIntentId,
+      };
+    }
+    if (charge.outcome === "processing") {
+      return {
+        ok: true,
+        processing: true,
+        batchId: args.batchId,
+        purchaseIds,
+        paymentIntentId: charge.paymentIntentId,
+      };
+    }
+    if (charge.outcome === "error" && charge.definiteFailure !== false) {
+      await releaseVariantPurchaseBatchOnCheckoutExpired(args.batchId);
+    }
+    return {
+      ok: false,
+      batchId: args.batchId,
+      purchaseIds,
+      code: charge.code,
+      message: failure?.failureReason ?? failureReason,
+      paymentFailed: true,
+      paymentFailureId: failure?.id,
+      fulfillmentDetail: charge.outcome === "error" ? charge.fulfillmentDetail : undefined,
+    };
+  }
+
+  if (charge.outcome === "requires_action") {
+    return {
+      ok: true,
+      requiresAction: true,
+      batchId: args.batchId,
+      purchaseIds,
+      clientSecret: charge.clientSecret,
+      paymentIntentId: charge.paymentIntentId,
+    };
+  }
+  if (charge.outcome === "processing") {
+    return {
+      ok: true,
+      processing: true,
+      batchId: args.batchId,
+      purchaseIds,
+      paymentIntentId: charge.paymentIntentId,
+    };
+  }
+  if (charge.outcome === "error" && charge.definiteFailure !== false) {
+    await releaseVariantPurchaseBatchOnCheckoutExpired(args.batchId);
+  }
+  return {
+    ok: false,
+    batchId: args.batchId,
+    purchaseIds,
+    code: charge.outcome === "error" ? charge.code : "PAYMENT_FAILED",
+    message: charge.outcome === "error" ? charge.message ?? "Payment failed." : "Payment failed.",
+    paymentFailed: true,
+    fulfillmentDetail: charge.outcome === "error" ? charge.fulfillmentDetail : undefined,
+  };
+}
+
 export async function chargeBreakSpotWithSavedCard(args: {
   buyerId: string;
   breakSpotId: string;
   paymentMethodId?: string | null;
+  /** Auto-applied for this instant one-tap purchase, same as Live Buy Now. */
+  applyReferralCredit?: boolean;
 }): Promise<LiveSavedCardChargeOutcome> {
   if (!isStripeConfigured()) {
     return { outcome: "error", code: "STRIPE_NOT_CONFIGURED", message: "Payments are not configured." };
@@ -748,8 +1502,8 @@ export async function chargeBreakSpotWithSavedCard(args: {
   if (!Number.isFinite(spot.priceUsd) || spot.priceUsd <= 0) {
     return { outcome: "paid", paymentIntentId: spot.id };
   }
-  if (spot.liveRoom.status !== "live") {
-    return { outcome: "error", code: "ROOM_NOT_LIVE", message: "This room is not live." };
+  if (!isLiveRoomOpenForSpotPurchase(spot.liveRoom.status)) {
+    return { outcome: "error", code: "ROOM_NOT_LIVE", message: "Team sales are only open before and during the live show." };
   }
 
   const seller = await prisma.user.findUnique({
@@ -759,7 +1513,8 @@ export async function chargeBreakSpotWithSavedCard(args: {
   if (!liveSavedCardSellerReady(seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY", message: "Seller payouts are not ready." };
   }
-  const breakDestinationAccount = seller!.stripeAccountId!.trim();
+  const sellerPayoutProcessor = resolveLiveSellerPayoutProcessor(seller);
+  const breakDestinationAccount = resolveLiveSellerDestinationAccount(seller);
 
   let pmId: string | null;
   try {
@@ -770,6 +1525,79 @@ export async function chargeBreakSpotWithSavedCard(args: {
   }
   if (!pmId) {
     return { outcome: "error", code: "NO_SAVED_CARD", message: "Add a saved payment method to your Wallet." };
+  }
+
+  if (isPayPalRailWalletPaymentMethodId(pmId)) {
+    let fulfillmentRail: { orderId: string; chargeTotalUsd: number };
+    try {
+      fulfillmentRail = await ensureBreakSpotFulfillmentOrder(spot.id);
+    } catch (err) {
+      return {
+        outcome: "error",
+        code: "FULFILLMENT_ORDER_FAILED",
+        message: mapLiveFulfillmentOrderError(err),
+        fulfillmentDetail: err instanceof Error ? err.message : String(err ?? ""),
+      };
+    }
+    const orderRowRailPre = await prisma.order.findUnique({
+      where: { id: fulfillmentRail.orderId },
+      select: {
+        itemPriceUsd: true,
+        shippingPriceUsd: true,
+        referralCreditAppliedUsd: true,
+        platformCreditAppliedUsd: true,
+      },
+    });
+    const creditRail = await applyStoreCreditsForSavedCardOrder(
+      fulfillmentRail.orderId,
+      args.buyerId,
+      orderRowRailPre?.itemPriceUsd ?? spot.priceUsd,
+      orderRowRailPre?.referralCreditAppliedUsd ?? 0,
+      orderRowRailPre?.platformCreditAppliedUsd ?? 0,
+      args.applyReferralCredit === true,
+    );
+    const feeCentsRawRail = await resolveCheckoutApplicationFeeCents({
+      saleAmountUsd: orderItemSaleBasisUsd(creditRail),
+      isCompanyListing: false,
+      liveRoomId: spot.liveRoomId,
+      sellerId: spot.liveRoom.sellerId,
+      orderId: fulfillmentRail.orderId,
+    });
+    const taxChargeRail = await applyOrderTaxPlanForLiveCharge({
+      orderId: fulfillmentRail.orderId,
+      sellerId: spot.liveRoom.sellerId,
+      itemPriceUsd: creditRail.itemPriceUsd,
+      shippingPriceUsd: orderRowRailPre?.shippingPriceUsd ?? 0,
+      applicationFeeCents: feeCentsRawRail,
+      referralCreditAppliedUsd: creditRail.referralCreditAppliedUsd,
+      platformCreditAppliedUsd: creditRail.platformCreditAppliedUsd,
+    });
+    const amountCentsRail = taxChargeRail.amountCents;
+    if (amountCentsRail < 50) {
+      return { outcome: "error", code: "INVALID_AMOUNT", message: "Purchase amount is too small to charge." };
+    }
+    const charged = await chargeOrderWithPayPalRailWallet({
+      buyerId: args.buyerId,
+      orderId: fulfillmentRail.orderId,
+      amountUsd: amountCentsRail / 100,
+      description: `Break spot ${spot.id}`,
+      walletPaymentMethodId: pmId,
+    });
+    if (charged.outcome !== "paid") {
+      return {
+        outcome: "error",
+        code: charged.code,
+        message: charged.message ?? "PayPal/Venmo charge failed.",
+      };
+    }
+    await stampOrderPaidViaPayPalRail({
+      orderId: fulfillmentRail.orderId,
+      buyerId: args.buyerId,
+      walletPaymentMethodId: pmId,
+      processorPaymentId: charged.processorPaymentId,
+    });
+    await finalizeBreakSpotPaid({ breakSpotId: spot.id, paymentIntentId: charged.processorPaymentId });
+    return { outcome: "paid", paymentIntentId: charged.processorPaymentId, chargeUsd: amountCentsRail / 100 };
   }
 
   const buyer = await prisma.user.findUnique({
@@ -799,24 +1627,41 @@ export async function chargeBreakSpotWithSavedCard(args: {
       fulfillmentDetail,
     };
   }
+  const orderRowPre = await prisma.order.findUnique({
+    where: { id: fulfillment.orderId },
+    select: {
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
+      referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
+    },
+  });
+  const credit = await applyStoreCreditsForSavedCardOrder(
+    fulfillment.orderId,
+    args.buyerId,
+    orderRowPre?.itemPriceUsd ?? spot.priceUsd,
+    orderRowPre?.referralCreditAppliedUsd ?? 0,
+    orderRowPre?.platformCreditAppliedUsd ?? 0,
+    args.applyReferralCredit === true,
+  );
+  const shipUsd = orderRowPre?.shippingPriceUsd ?? 0;
+
   const feeCentsRaw = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: spot.priceUsd,
+    saleAmountUsd: orderItemSaleBasisUsd(credit),
     isCompanyListing: false,
     liveRoomId: spot.liveRoomId,
     sellerId: spot.liveRoom.sellerId,
-  });
-
-  const orderRow = await prisma.order.findUnique({
-    where: { id: fulfillment.orderId },
-    select: { itemPriceUsd: true, shippingPriceUsd: true },
+    orderId: fulfillment.orderId,
   });
 
   const taxCharge = await applyOrderTaxPlanForLiveCharge({
     orderId: fulfillment.orderId,
     sellerId: spot.liveRoom.sellerId,
-    itemPriceUsd: orderRow?.itemPriceUsd ?? spot.priceUsd,
-    shippingPriceUsd: orderRow?.shippingPriceUsd ?? 0,
+    itemPriceUsd: credit.itemPriceUsd,
+    shippingPriceUsd: shipUsd,
     applicationFeeCents: feeCentsRaw,
+    referralCreditAppliedUsd: credit.referralCreditAppliedUsd,
+    platformCreditAppliedUsd: credit.platformCreditAppliedUsd,
   });
   const amountCents = taxCharge.amountCents;
   if (amountCents < 50) {
@@ -860,10 +1705,14 @@ export async function chargeBreakSpotWithSavedCard(args: {
           ...taxCharge.metadata,
         },
         description: `Break spot: ${spot.spotLabel}`,
-        ...connectPaymentIntentTransferData({
+        ...connectOrPlatformHeldPaymentIntentTransferData({
+          sellerPayoutProcessor,
           destinationAccountId: breakDestinationAccount,
           applicationFeeCents: feeCents,
           sellerTransferCents: taxCharge.sellerTransferCents,
+          processingFeeCents: feeCents > 0 ? estimateStripeProcessingFeeCents(amountCents) : 0,
+          referralCreditAppliedCents: referralCreditAppliedCents(credit),
+          maxSellerTransferCents: Math.round(credit.itemPriceUsd * 100) + Math.round(shipUsd * 100),
         }),
       },
       {
@@ -881,6 +1730,10 @@ export async function chargeBreakSpotWithSavedCard(args: {
       where: { id: spot.id },
       data: { stripePaymentIntentId: intent.id, breakPaymentStatus: "pending_payment" },
     });
+    await prisma.order.update({
+      where: { id: fulfillment.orderId },
+      data: { sellerPayoutProcessor, paymentProcessor: "STRIPE" },
+    });
 
     const mapped = mapPaymentIntentOutcome(intent);
     if (mapped?.outcome === "paid") {
@@ -895,7 +1748,7 @@ export async function chargeBreakSpotWithSavedCard(args: {
       amountCents,
       customerId,
       paymentMethodId: pmId,
-      destinationAccount: breakDestinationAccount,
+      destinationAccount: breakDestinationAccount ?? "platform",
     });
   }
 }
@@ -952,6 +1805,12 @@ export async function settleLiveBuyNowPurchase(args: {
     liveRoomId: args.liveRoomId,
     liveRoomItemId: args.liveRoomItemId,
     paymentMethodId: args.paymentMethodId,
+    // Live Buy Now is a one-tap instant purchase, so available referral + Get Vaulted Credit is
+    // applied automatically (no confirmation step). Re-enabled after the 2026-08-08 incident —
+    // that outage traced to the separate shortfall-funding feature (see services/payments.ts),
+    // not this flag; this reuses the same credit-reservation code marketplace checkout already
+    // relies on, unmodified.
+    applyReferralCredit: true,
   });
 
   if (charge.outcome === "paid") {
@@ -1021,6 +1880,8 @@ export async function settleLiveBreakSpotPayment(args: {
     buyerId: args.buyerId,
     breakSpotId: args.breakSpotId,
     paymentMethodId: args.paymentMethodId,
+    // Instant one-tap purchase, same category as Live Buy Now — auto-apply available credit.
+    applyReferralCredit: true,
   });
 
   if (charge.outcome === "paid") {
@@ -1034,17 +1895,20 @@ export async function settleLiveBreakSpotPayment(args: {
         ? "Your bank requires additional verification."
         : "Payment is still processing.";
   const status = charge.outcome === "error" ? ("payment_failed" as const) : ("recovery_pending" as const);
-  const failure = await recordLiveRoomPaymentFailure({
-    liveRoomId: spot.liveRoomId,
-    buyerId: args.buyerId,
-    kind: "break_spot",
-    liveRoomItemId: spot.liveRoomItemId,
-    breakSpotId: spot.id,
-    amountUsd: spot.priceUsd,
-    status,
-    failureReason,
-    itemTitle: spot.spotLabel,
-  });
+  const sticky = shouldRecordStickyLiveChargeFailure(charge);
+  const failure = sticky
+    ? await recordLiveRoomPaymentFailure({
+        liveRoomId: spot.liveRoomId,
+        buyerId: args.buyerId,
+        kind: "break_spot",
+        liveRoomItemId: spot.liveRoomItemId,
+        breakSpotId: spot.id,
+        amountUsd: spot.priceUsd,
+        status,
+        failureReason,
+        itemTitle: spot.spotLabel,
+      })
+    : null;
 
   if (charge.outcome === "requires_action") {
     return {
@@ -1058,19 +1922,17 @@ export async function settleLiveBreakSpotPayment(args: {
     return { ok: true, processing: true, paymentIntentId: charge.paymentIntentId };
   }
 
-  // FIX 6: unlike variant purchases (`releaseVariantPurchaseOnCheckoutExpired`), a break spot claim
-  // was never released on a failed charge, permanently holding the spot after a dead card. Only
-  // release on a CONFIRMED-definite failure — an ambiguous/network error must not release a spot
-  // whose charge might still have gone through.
-  if (charge.outcome === "error" && charge.definiteFailure !== false) {
+  // Keep the BreakSpot claimed while an unresolved payment failure exists so the buyer can
+  // update their card and retry. Host "Cancel retry" releases via releaseBreakSpotOnDefiniteFailure.
+  // Pre-Stripe prep failures (fulfillment/shipping) are non-sticky — release so they can re-claim.
+  if (charge.outcome === "error" && !sticky && charge.definiteFailure !== false) {
     await releaseBreakSpotOnDefiniteFailure(spot.id);
   }
-
   return {
     ok: false,
     code: charge.code,
-    message: failure.failureReason ?? "Payment failed. Update your card and try again.",
+    message: failure?.failureReason ?? failureReason,
     paymentFailed: true,
-    paymentFailureId: failure.id,
+    paymentFailureId: failure?.id,
   };
 }

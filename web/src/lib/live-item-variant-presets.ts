@@ -1,13 +1,27 @@
 /** Preset labels for fast variant / spot setup in live queue items. */
 
-import { TEAM_BOARD_SETS, TEAM_BOARD_DISPLAY_NAMES } from "@/lib/team-board-sets";
+import {
+  TEAM_BOARD_DISPLAY_NAMES,
+  TEAM_BOARD_LEAGUE_LABELS,
+  TEAM_BOARD_SETS,
+  teamBoardSpotCount,
+  type TeamBoardLeagueKey,
+} from "@/lib/team-board-sets";
 
-export type LiveItemVariantPresetId = "nfl_divisions" | "nfl_teams" | "custom";
+export type LiveBoardPackId = TeamBoardLeagueKey;
+
+export type LiveItemVariantPresetId =
+  | "nfl_divisions"
+  | "nfl_teams"
+  | "nba_teams"
+  | "mlb_teams"
+  | "nhl_teams"
+  | "custom";
 
 export type LiveItemVariantPresetOption = {
   label: string;
   sortOrder: number;
-  /** NFL team abbreviation when preset is nfl_teams. */
+  /** Team abbreviation when preset is a teams pack. */
   abbr?: string;
 };
 
@@ -22,11 +36,38 @@ export const NFL_DIVISIONS_PRESET: LiveItemVariantPresetOption[] = [
   { label: "NFC West", sortOrder: 7 },
 ];
 
-export const NFL_TEAMS_PRESET: LiveItemVariantPresetOption[] = TEAM_BOARD_SETS.nfl.map((abbr, sortOrder) => ({
-  label: TEAM_BOARD_DISPLAY_NAMES.nfl[abbr] ?? abbr,
-  sortOrder,
-  abbr,
-}));
+function teamsPresetForLeague(league: LiveBoardPackId): LiveItemVariantPresetOption[] {
+  return TEAM_BOARD_SETS[league].map((abbr, sortOrder) => ({
+    label: TEAM_BOARD_DISPLAY_NAMES[league][abbr] ?? abbr,
+    sortOrder,
+    abbr,
+  }));
+}
+
+export const NFL_TEAMS_PRESET: LiveItemVariantPresetOption[] = teamsPresetForLeague("nfl");
+export const NBA_TEAMS_PRESET: LiveItemVariantPresetOption[] = teamsPresetForLeague("nba");
+export const MLB_TEAMS_PRESET: LiveItemVariantPresetOption[] = teamsPresetForLeague("mlb");
+export const NHL_TEAMS_PRESET: LiveItemVariantPresetOption[] = teamsPresetForLeague("nhl");
+
+export const LIVE_BOARD_PACKS: { id: LiveBoardPackId; label: string }[] = (
+  ["nfl", "nba", "mlb", "nhl"] as const
+).map((id) => ({ id, label: TEAM_BOARD_LEAGUE_LABELS[id] }));
+
+export const DEFAULT_LIVE_BOARD_PACK: LiveBoardPackId = "nfl";
+
+/** Divisions (PYD) are NFL-only. */
+export function boardPackSupportsDivisions(pack: LiveBoardPackId): boolean {
+  return pack === "nfl";
+}
+
+export function teamsPresetIdForBoardPack(pack: LiveBoardPackId): Exclude<LiveItemVariantPresetId, "custom" | "nfl_divisions"> {
+  return `${pack}_teams` as Exclude<LiveItemVariantPresetId, "custom" | "nfl_divisions">;
+}
+
+export function parseLiveBoardPack(v: string | null | undefined): LiveBoardPackId {
+  if (v === "nba" || v === "mlb" || v === "nhl" || v === "nfl") return v;
+  return DEFAULT_LIVE_BOARD_PACK;
+}
 
 export const LIVE_ITEM_VARIANT_PRESETS: Record<
   Exclude<LiveItemVariantPresetId, "custom">,
@@ -39,6 +80,18 @@ export const LIVE_ITEM_VARIANT_PRESETS: Record<
   nfl_teams: {
     label: "NFL Teams (PYT)",
     options: NFL_TEAMS_PRESET,
+  },
+  nba_teams: {
+    label: "NBA Teams (PYT)",
+    options: NBA_TEAMS_PRESET,
+  },
+  mlb_teams: {
+    label: "MLB Teams (PYT)",
+    options: MLB_TEAMS_PRESET,
+  },
+  nhl_teams: {
+    label: "NHL Teams (PYT)",
+    options: NHL_TEAMS_PRESET,
   },
 };
 
@@ -53,14 +106,26 @@ export type VariantDraftInput = {
 };
 
 export function buildRandomVariantsFromPreset(
-  presetId: "nfl_teams" | "nfl_divisions",
+  presetId: Exclude<LiveItemVariantPresetId, "custom">,
   defaultPriceUsd: number,
 ): VariantDraftInput[] {
-  const count = presetId === "nfl_teams" ? 32 : 8;
-  const label = presetId === "nfl_teams" ? "Random NFL Team" : "Random NFL Division";
+  if (presetId === "nfl_divisions") {
+    return [
+      {
+        label: "Random NFL Division",
+        priceUsd: defaultPriceUsd,
+        quantityInitial: 8,
+        sortOrder: 0,
+        color: presetId,
+      },
+    ];
+  }
+  const pack = presetId.replace(/_teams$/, "") as LiveBoardPackId;
+  const count = teamBoardSpotCount(pack);
+  const leagueLabel = TEAM_BOARD_LEAGUE_LABELS[pack] ?? "NFL";
   return [
     {
-      label,
+      label: `Random ${leagueLabel} Team`,
       priceUsd: defaultPriceUsd,
       quantityInitial: count,
       sortOrder: 0,
@@ -123,7 +188,7 @@ export function normalizeVariantDrafts(raw: unknown): VariantDraftInput[] {
 }
 
 export function isVariantSalesFormat(format: string | null | undefined): boolean {
-  return format === "variant_selection" || format === "team_break";
+  return format === "variant_selection" || format === "team_break" || format === "player_selection";
 }
 
 export type VariantSpotSummary = {
@@ -146,8 +211,11 @@ export function summarizeVariantSpots(variants: VariantSpotRow[] | undefined | n
   }
   let available = 0;
   let sold = 0;
+  let activeSpotCount = 0;
   const prices: number[] = [];
   for (const v of variants) {
+    if (v.status === "removed") continue;
+    activeSpotCount += 1;
     sold += Math.max(0, v.soldCount ?? 0);
     const soldOut = v.quantityRemaining <= 0 || v.status === "sold_out";
     if (!soldOut) {
@@ -158,7 +226,7 @@ export function summarizeVariantSpots(variants: VariantSpotRow[] | undefined | n
   return {
     available,
     sold,
-    spotCount: variants.length,
+    spotCount: activeSpotCount,
     fromPriceUsd: prices.length ? Math.min(...prices) : null,
   };
 }
@@ -169,10 +237,12 @@ export function isVariantPurchaseItem(
   return Boolean(item && isVariantSalesFormat(item.salesFormat) && (item.variants?.length ?? 0) > 0);
 }
 
-/** True when every variant row is sold out (team break ready). */
+/** True when every non-removed variant row is sold out (team break ready). */
 export function allVariantSpotsSold(variants: VariantSpotRow[] | undefined | null): boolean {
   if (!variants?.length) return false;
-  return variants.every((v) => v.quantityRemaining <= 0 || v.status === "sold_out");
+  const active = variants.filter((v) => v.status !== "removed");
+  if (!active.length) return false;
+  return active.every((v) => v.quantityRemaining <= 0 || v.status === "sold_out");
 }
 
 export type VariantPinRow = {
@@ -186,7 +256,7 @@ export type VariantPinRow = {
 };
 
 export function variantIsAvailable(v: { quantityRemaining: number; status: string }): boolean {
-  return v.quantityRemaining > 0 && v.status !== "sold_out";
+  return v.quantityRemaining > 0 && v.status !== "sold_out" && v.status !== "removed";
 }
 
 export function hostSpotBoardPinEnabled(args: {
@@ -197,7 +267,6 @@ export function hostSpotBoardPinEnabled(args: {
 }): boolean {
   return Boolean(args.hostMode && args.hasPinHandler && args.variantId && !args.sold);
 }
-
 
 /** Host-pinned spot shown to buyers (exclusive `isHot` on an available variant). */
 export function hostPinnedBuyerVariant(
@@ -216,10 +285,11 @@ export function buildExclusiveHostPinUpdates(
   return variants.map((v) => ({ id: v.id, isHot: v.id === pinnedVariantId }));
 }
 
-/** Buyer CTA on pinned PYT/PYD break — opens the team/division picker sheet. */
+/** Buyer CTA on pinned PYT/PYD/PYP break — opens the spot picker sheet. */
 export function variantClaimPrimaryLabel(format: string | null | undefined): string {
   if (format === "team_break") return "Claim Division";
   if (format === "variant_selection") return "Claim Team";
+  if (format === "player_selection") return "Claim Player";
   return "Claim Spot";
 }
 
@@ -233,9 +303,11 @@ export function variantBuyerSelectLabel(format: string | null | undefined, rando
   if (random) {
     if (format === "team_break") return "Random Division";
     if (format === "variant_selection") return "Random Team";
+    if (format === "player_selection") return "Random Player";
   }
   if (format === "team_break") return "Pick Your Division";
   if (format === "variant_selection") return "Pick Your Team";
+  if (format === "player_selection") return "Pick Your Player";
   return "Select Spot";
 }
 

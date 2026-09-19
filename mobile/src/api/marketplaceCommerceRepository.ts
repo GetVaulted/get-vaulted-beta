@@ -83,6 +83,7 @@ export async function startMarketplaceBuyNowCheckout(
     paymentMethodId?: string;
     successPath?: string;
     cancelPath?: string;
+    applyReferralCredit?: boolean;
   },
 ): Promise<MarketplaceEmbeddedBuyNowResult> {
   const res = await fetchWebApi('/api/checkout', {
@@ -93,6 +94,7 @@ export async function startMarketplaceBuyNowCheckout(
       embedded: true,
       listingId: args.listingId,
       paymentMethodId: args.paymentMethodId,
+      applyReferralCredit: args.applyReferralCredit === true,
       shipping: args.shipping,
       selectedShippingRateId: args.shipping.selectedShippingRateId,
       successPath: args.successPath ?? '/account/orders',

@@ -26,6 +26,8 @@ export function SellerProfileActions({
   const pathname = usePathname();
   const [askOpen, setAskOpen] = useState(false);
   const [messageError, setMessageError] = useState<string | null>(null);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [blockError, setBlockError] = useState<string | null>(null);
 
   const returnTo = pathname || `/seller/${encodeURIComponent(sellerUsername)}`;
 
@@ -58,6 +60,36 @@ export function SellerProfileActions({
     setAskOpen(true);
   };
 
+  const blockSeller = async () => {
+    setBlockError(null);
+    if (status === "unauthenticated" || !session?.user?.id) {
+      router.push(`/signin?returnTo=${encodeURIComponent(returnTo)}`);
+      return;
+    }
+    const ok = window.confirm(
+      `Block @${sellerUsername}? They won’t be able to find you or see your content, and you won’t see theirs.`,
+    );
+    if (!ok) return;
+    setBlockBusy(true);
+    try {
+      const res = await fetch("/api/account/blocks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: sellerId, blocked: true }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Could not block user.");
+      }
+      router.push("/marketplace");
+      router.refresh();
+    } catch (e) {
+      setBlockError(e instanceof Error ? e.message : "Could not block user.");
+    } finally {
+      setBlockBusy(false);
+    }
+  };
+
   if (isOwnShop) {
     return (
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
@@ -84,7 +116,7 @@ export function SellerProfileActions({
   }
 
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
       <SellerFollowButton sellerUserId={sellerId} variant="profile" />
       <button
         type="button"
@@ -103,6 +135,17 @@ export function SellerProfileActions({
         Browse marketplace
       </Link>
       <UserReportLink userId={sellerId} className="inline-flex h-10 items-center px-2" />
+      <button
+        type="button"
+        disabled={blockBusy}
+        onClick={() => void blockSeller()}
+        className="inline-flex h-10 items-center justify-center rounded-full border border-rose-500/35 px-4 text-xs font-semibold text-rose-200/90 transition hover:border-rose-400/50 hover:bg-rose-500/10 disabled:opacity-60"
+      >
+        {blockBusy ? "Blocking…" : "Block"}
+      </button>
+      {blockError ? (
+        <p className="text-[11px] leading-snug text-rose-200/90 sm:max-w-xs">{blockError}</p>
+      ) : null}
       <AskSellerModal
         open={askOpen}
         onClose={() => setAskOpen(false)}

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { MarketplacePeopleSearchResults } from "@/components/marketplace/MarketplacePeopleSearchResults";
 import { MarketplaceBrowseCard } from "@/components/marketplace/MarketplaceBrowseCard";
 import { MarketplaceHero } from "@/components/marketplace/MarketplaceHero";
 import {
@@ -312,6 +313,8 @@ export function MarketplaceBrowse() {
             </div>
           ) : null}
         </div>
+
+        {query ? <MarketplacePeopleSearchResults query={query} /> : null}
 
         {!empty && vaultPicks.length > 0 ? (
           <section className="mt-5 sm:mt-6" aria-labelledby="vault-picks-title">

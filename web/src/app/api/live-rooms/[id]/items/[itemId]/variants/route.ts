@@ -6,6 +6,7 @@ import {
   defaultActiveSpotModeForPin,
   idleVariantSpotCommerceReset,
 } from "@/lib/live-variant-spot-commerce";
+import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
 import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server";
 import { emitActiveItemChangedAwait, emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 
@@ -236,6 +237,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
           itemVersion: { increment: 1 },
         },
       });
+      // Pinning a new spot must not inherit standing/proxy bids left over from the previous
+      // spot auctioned on this same lot — those bids are keyed by liveRoomItemId, not by which
+      // variant they were for, so without this an uninvolved bidder from the prior spot could be
+      // auto-applied as the leader (and auto-win) the next spot the host opens.
+      await clearLiveAuctionProxyBidsForItem(tx, { liveRoomId, itemId });
     }
     for (const row of updates) {
       const id = typeof row.id === "string" ? row.id.trim() : "";

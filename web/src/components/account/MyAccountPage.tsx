@@ -112,43 +112,60 @@ export function MyAccountPage() {
       title: "Followers & Following",
       description: "See who follows you and sellers you follow.",
     },
+    {
+      href: "/account/blocked",
+      title: "Blocked users",
+      description: "People you’ve blocked can’t find or see you.",
+    },
   ];
 
   const sellerTiles: HubTile[] =
-    setupPhase === "ready"
+    setupPhase === "ready" || setupPhase === "loading"
       ? [
           {
             href: SELLER_HQ_PATH,
             title: "Seller HQ",
-            description: "Listings, sales, live shows, and seller overview.",
+            description:
+              setupPhase === "loading"
+                ? "Loading seller status…"
+                : "Listings, sales, live shows, and seller overview.",
             accent: true,
           },
-          {
-            href: "/account/listings",
-            title: "My Listings",
-            description: "Draft, active, and sold inventory.",
-          },
-          {
-            href: "/account/sales",
-            title: "Sales",
-            description: "Orders to fulfill and recent sales.",
-          },
-          {
-            href: "/account/offers",
-            title: "Offers",
-            description: "Incoming and outgoing offers.",
-          },
-          {
-            href: "/seller/live",
-            title: "Go Live",
-            description: "Schedule or start a live show.",
-            accent: true,
-          },
+          ...(setupPhase === "ready"
+            ? [
+                {
+                  href: "/account/listings",
+                  title: "My Listings",
+                  description: "Draft, active, and sold inventory.",
+                },
+                {
+                  href: "/account/sales",
+                  title: "Sales",
+                  description: "Orders to fulfill and recent sales.",
+                },
+                {
+                  href: "/account/seller/financials",
+                  title: "Financials",
+                  description: "Earnings, fees, payout status, and Stripe balance.",
+                },
+                {
+                  href: "/account/offers",
+                  title: "Offers",
+                  description: "Incoming and outgoing offers.",
+                },
+                {
+                  href: "/seller/live",
+                  title: "Go Live",
+                  description: "Schedule or start a live show.",
+                  accent: true,
+                },
+              ]
+            : []),
         ]
       : [
           {
             href: SELLER_SETUP_PATH,
-            title: setupPhase === "loading" ? "Start Seller Setup" : sellerSetupMenuLabel(setupPhase),
+            title: sellerSetupMenuLabel(setupPhase),
             description: "Connect payouts, add shipping, and unlock Seller HQ.",
             accent: true,
           },
@@ -158,7 +175,7 @@ export function MyAccountPage() {
     {
       href: "/account/profile",
       title: "Edit profile",
-      description: "Display name and profile photo on your public storefront.",
+      description: "Username and profile photo on your public storefront.",
     },
     {
       href: "/account/payment-methods",
@@ -167,6 +184,11 @@ export function MyAccountPage() {
         ? buyerWalletStatusLabel(walletSnapshot)
         : "Saved cards and shipping for live + checkout.",
       accent: walletSnapshot ? !walletSnapshot.paymentReady || !walletSnapshot.shippingReady : false,
+    },
+    {
+      href: "/account/financials",
+      title: "Financials",
+      description: "Lifetime spend, this month, open balances, and recent charges.",
     },
     {
       href: "/account/referrals",

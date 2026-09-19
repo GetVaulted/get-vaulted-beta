@@ -47,6 +47,7 @@ const fetchCheckoutSessionTax = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ taxAmountCents: 0, taxUsd: 0, stripeTaxCalculationId: null, totalAmountCents: null }),
 );
 const recordStripeTaxTransaction = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const reverseStripeTaxTransaction = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 vi.mock("@/lib/stripe-tax", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/stripe-tax")>();
   return {
@@ -56,10 +57,14 @@ vi.mock("@/lib/stripe-tax", async (importOriginal) => {
     loadSellerShipFromForTax,
     fetchCheckoutSessionTax,
     recordStripeTaxTransaction,
+    reverseStripeTaxTransaction,
     STRIPE_TAX_CODE_TANGIBLE: "tangible",
     TAX_PROVIDER_STRIPE: "stripe",
   };
 });
+vi.mock("@/lib/stripe-charge-ledger", () => ({
+  persistOrderStripeChargeLedger: vi.fn().mockResolvedValue(null),
+}));
 vi.mock("@/services/payments", () => ({
   PAYMENT_PAID: "paid",
   PAYMENT_PENDING: "pending_payment",
@@ -74,6 +79,7 @@ vi.mock("@/lib/stripe", () => ({
     refunds: { create: stripeRefundsCreate },
     checkout: { sessions: { create: stripeCheckoutSessionsCreate } },
   }),
+  isStripeConfigured: () => true,
 }));
 
 const prismaMock = vi.hoisted(() => ({
@@ -542,9 +548,11 @@ describe("createLayawayDepositCheckout — sales tax collected once with the dep
 
     const call = stripeCheckoutSessionsCreate.mock.calls[0][0];
     expect(call.payment_intent_data.application_fee_amount).toBeUndefined();
+    // Seller transfer = deposit − platform fee − Stripe processing (2.9% + $0.30 on deposit + tax).
+    // Buyer charge = 25000 + 8415 = 33415¢ → processing = round(33415*0.029 + 30) = 999¢.
     expect(call.payment_intent_data.transfer_data).toEqual({
       destination: "acct_seller",
-      amount: 25_000 - 2000, // deposit − fee; tax stays with the platform
+      amount: 25_000 - 2000 - 999,
     });
   });
 
@@ -580,7 +588,9 @@ describe("createLayawayDepositCheckout — sales tax collected once with the dep
 
     const call = stripeCheckoutSessionsCreate.mock.calls[0][0];
     expect(call.line_items).toHaveLength(1);
-    expect(call.payment_intent_data.application_fee_amount).toBe(2000);
+    // No tax: application fee = platform fee + Stripe processing on the deposit.
+    // processing = round(25000*0.029 + 30) = 755¢ → 2000 + 755 = 2755.
+    expect(call.payment_intent_data.application_fee_amount).toBe(2755);
     expect(call.payment_intent_data.transfer_data).toEqual({ destination: "acct_seller" });
     expect(call.metadata.salesTaxCents).toBeUndefined();
   });
@@ -743,6 +753,7 @@ describe("finalizeLayawayDepositPaid persists tax onto the Order", () => {
     expect(recordStripeTaxTransaction).toHaveBeenCalledWith({
       taxCalculationId: "taxcalc_1",
       reference: "ord_1",
+      persistToOrderId: "ord_1",
     });
   });
 

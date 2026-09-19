@@ -1,4 +1,5 @@
 import type { LiveNowFilter, LiveNowRoom, LiveRoomFormatBadge, LiveRoomKind, LiveShowStatus, VaultBreakCategory } from "@/content/live-rooms";
+import { resolveLiveRoomMediaUrl, resolveLiveRoomPreviewImage } from "@/lib/live-room-preview-image";
 
 const CATEGORIES: Exclude<LiveNowFilter, "All">[] = [
   "Breaks",
@@ -30,6 +31,10 @@ export type LiveRoomListApiRow = {
   roomType: "auction" | "sale" | "break";
   status: "scheduled" | "live" | "ended";
   thumbnailUrl: string;
+  /** Server-resolved cover: thumbnail → first queue/listing image → category art. */
+  previewImageUrl?: string | null;
+  firstItemImageUrl?: string | null;
+  sellerAvatarUrl?: string | null;
   viewerCount: number;
   scheduledStartAt: string | null;
   startedAt: string | null;
@@ -37,13 +42,30 @@ export type LiveRoomListApiRow = {
   sellerUsername: string;
   itemCount: number;
   activeItemTitle: string | null;
-  teamBoardLeague: "nfl" | "nba" | "mlb";
+  teamBoardLeague: "nfl" | "nba" | "mlb" | "nhl";
   tipRecipientMode?: "host" | "moderator";
   tipModeratorId?: string | null;
   tipModeratorUsername?: string | null;
   tipsToModerator?: boolean;
   discoveryVisibility?: "public" | "private";
 };
+
+/**
+ * Card cover parity with mobile: use server `previewImageUrl` (thumbnail → queue item →
+ * host avatar → category art). Local recompute only if the API field is absent.
+ */
+export function resolveLiveNowCardImageUrl(row: LiveRoomListApiRow): string | undefined {
+  const fromApi = resolveLiveRoomMediaUrl(row.previewImageUrl);
+  if (fromApi) return fromApi;
+  return (
+    resolveLiveRoomPreviewImage({
+      thumbnailUrl: row.thumbnailUrl,
+      firstItemImageUrl: row.firstItemImageUrl,
+      sellerAvatarUrl: row.sellerAvatarUrl,
+      category: row.category,
+    }).trim() || undefined
+  );
+}
 
 function roomKindAndBadge(roomType: LiveRoomListApiRow["roomType"]): { roomKind: LiveRoomKind; formatBadge: LiveRoomFormatBadge } {
   if (roomType === "break") return { roomKind: "break_room", formatBadge: "PYT Break" };
@@ -71,7 +93,9 @@ export function mapApiRowToLiveNowRoom(row: LiveRoomListApiRow): LiveNowRoom {
     row.status === "scheduled" && row.scheduledStartAt
       ? formatSchedule(row.scheduledStartAt) ?? "Upcoming"
       : undefined;
-  const imageSeed = row.thumbnailUrl?.trim() ? `live-thumb-${row.id}` : `live-db-${row.id}`;
+  const scheduledStartAtIso = row.scheduledStartAt?.trim() || null;
+  const cardImageUrl = resolveLiveNowCardImageUrl(row);
+  const imageSeed = cardImageUrl ? `live-thumb-${row.id}` : `live-db-${row.id}`;
 
   if (roomKind === "break_room") {
     return {
@@ -83,9 +107,10 @@ export function mapApiRowToLiveNowRoom(row: LiveRoomListApiRow): LiveNowRoom {
       breakVaultCategory,
       status: showStatus,
       scheduledFor,
+      scheduledStartAtIso,
       viewers: row.viewerCount,
       imageSeed,
-      thumbnailUrl: row.thumbnailUrl?.trim() || undefined,
+      thumbnailUrl: cardImageUrl,
       urgencyLine:
         showStatus === "scheduled"
           ? `Starts ${scheduledFor ?? "soon"}`
@@ -112,9 +137,10 @@ export function mapApiRowToLiveNowRoom(row: LiveRoomListApiRow): LiveNowRoom {
     category,
     status: showStatus,
     scheduledFor,
+    scheduledStartAtIso,
     viewers: row.viewerCount,
     imageSeed,
-    thumbnailUrl: row.thumbnailUrl?.trim() || undefined,
+    thumbnailUrl: cardImageUrl,
     urgencyLine: showStatus === "scheduled" ? `Starts ${scheduledFor ?? "soon"}` : "Live sale in progress",
     currentItem,
     priceLine: formatBadge === "Auction" ? "Top bids live in room" : "Buy now from seller",

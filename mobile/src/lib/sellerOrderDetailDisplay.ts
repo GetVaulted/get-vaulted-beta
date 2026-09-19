@@ -46,7 +46,7 @@ export function resolveSellerOrderHeadline(order: SellerOrderDisplayFields): {
   if (!hasLabel) {
     return {
       headline: 'Ready to ship',
-      subheadline: order.sellerNextAction?.trim() || 'Create a label in Seller Studio on desktop.',
+      subheadline: order.sellerNextAction?.trim() || 'Create a shipping label to print and ship.',
     };
   }
   return {
@@ -56,12 +56,14 @@ export function resolveSellerOrderHeadline(order: SellerOrderDisplayFields): {
 }
 
 export type SellerQuickActionKind =
+  | 'create_label'
   | 'print_label'
   | 'download_label'
   | 'copy_tracking'
   | 'open_tracking'
   | 'retrieve_label'
-  | 'regenerate_label';
+  | 'regenerate_label'
+  | 'mark_dropped_off';
 
 export type SellerQuickAction = {
   kind: SellerQuickActionKind;
@@ -74,9 +76,20 @@ export function resolveSellerQuickActions(order: SellerOrderDisplayFields): Sell
   const hasFile = orderHasLabelFile(order.labelUrl);
   const actions: SellerQuickAction[] = [];
 
+  if (order.paymentStatus === 'paid' && !hasLabel) {
+    actions.push({ kind: 'create_label', label: 'Create label', primary: true });
+  }
   if (hasFile && order.labelUrl?.trim()) {
-    actions.push({ kind: 'print_label', label: 'Print label', primary: true });
+    actions.push({ kind: 'print_label', label: 'Print label', primary: !actions.some((a) => a.primary) });
     actions.push({ kind: 'download_label', label: 'Download' });
+  }
+  if (
+    order.paymentStatus === 'paid' &&
+    hasLabel &&
+    order.fulfillmentStatus === 'label_created' &&
+    order.status !== 'shipped'
+  ) {
+    actions.push({ kind: 'mark_dropped_off', label: 'Dropped off', primary: !actions.some((a) => a.primary) });
   }
   if (order.trackingNumber?.trim()) {
     actions.push({ kind: 'copy_tracking', label: 'Copy tracking' });

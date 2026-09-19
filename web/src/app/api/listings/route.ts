@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSessionSafe } from "@/lib/auth";
-import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
+import { resolveListingsUserId, resolveOptionalListingsUserId } from "@/lib/resolve-listings-auth";
 import { computeAuctionEndsAt } from "@/lib/auction";
 import { auctionBidCountsByListingIds } from "@/lib/listing-bid-counts";
 import { hasCompleteParcel } from "@/lib/listing-publish";
@@ -38,6 +38,8 @@ import {
   parseMarketplaceBrowseQueryParams,
 } from "@/lib/marketplace-listing-query";
 import { maybeEmitMarketplaceCatalogChanged } from "@/lib/listing-catalog-emit";
+import { listHiddenPeerIdsForViewer } from "@/lib/user-block";
+import { resolveLiveShowShippingCapCents } from "@/lib/live-show-shipping-terms";
 
 const listingInclude = listingWithSellerFulfillmentInclude;
 
@@ -259,12 +261,18 @@ export async function GET(req: Request) {
       console.error("[GET /api/listings] processAuctionPaymentExpiries", e);
     }
     try {
+      const viewerId = await resolveOptionalListingsUserId(req);
+      const hiddenSellerIds = viewerId ? await listHiddenPeerIdsForViewer(prisma, viewerId) : [];
       const baseWhere: Prisma.ListingWhereInput = {
         ...PUBLIC_MARKETPLACE_LISTING_WHERE,
         seller: prismaSellerVisibleOnPublicMarketplace(),
+        ...(hiddenSellerIds.length > 0 ? { sellerId: { notIn: hiddenSellerIds } } : {}),
       };
       const query = parseMarketplaceBrowseQueryParams(searchParams);
-      const filteredWhere = buildMarketplaceBrowseWhere(query);
+      const filteredWhere: Prisma.ListingWhereInput = {
+        ...buildMarketplaceBrowseWhere(query),
+        ...(hiddenSellerIds.length > 0 ? { sellerId: { notIn: hiddenSellerIds } } : {}),
+      };
       const orderBy = buildMarketplaceBrowseOrderBy(query.sort);
 
       const [rows, filteredListingCount, totalListingCount] = await Promise.all([
@@ -560,7 +568,7 @@ export async function POST(req: Request) {
     Number.isFinite(body.shippingPriceCapCents) &&
     body.shippingPriceCapCents >= 0
       ? Math.floor(body.shippingPriceCapCents)
-      : Math.floor(Number(process.env.LIVE_SHIPPING_CAP_CENTS ?? 1199));
+      : resolveLiveShowShippingCapCents();
   const shipAlone = Boolean(body.shipAlone);
   const shipFromAddressId =
     typeof body.shipFromAddressId === "string" && body.shipFromAddressId.trim().length > 0

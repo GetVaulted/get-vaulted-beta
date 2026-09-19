@@ -1,4 +1,5 @@
 import type { Prisma } from "@/generated/prisma/client";
+import { LIVE_SHOW_INVENTORY_MARKER } from "@/lib/listing-inventory-channel";
 
 export type SellerShopTab = "all" | "buy_now" | "auctions" | "sold";
 
@@ -12,6 +13,11 @@ export const SELLER_SHOP_TABS: { key: SellerShopTab; label: string }[] = [
 export const SELLER_SHOP_DEFAULT_PAGE_SIZE = 60;
 export const SELLER_SHOP_MAX_PAGE_SIZE = 60;
 
+/** Live Buy Now checkout rows stay off public seller shops (same as marketplace browse). */
+const notLiveShowCheckout: Prisma.ListingWhereInput = {
+  description: { not: { contains: LIVE_SHOW_INVENTORY_MARKER } },
+};
+
 export function parseSellerShopTab(v: string | null | undefined): SellerShopTab {
   if (v === "buy_now" || v === "auctions" || v === "sold") return v;
   return "all";
@@ -21,7 +27,7 @@ export function sellerShopListingWhere(sellerId: string, tab: SellerShopTab): Pr
   if (tab === "sold") {
     return { sellerId, status: "sold" };
   }
-  const visible = { moderationRemovedAt: null };
+  const visible = { moderationRemovedAt: null, ...notLiveShowCheckout };
   if (tab === "buy_now") {
     return { sellerId, status: "active", buyingFormat: "buy_now", ...visible };
   }

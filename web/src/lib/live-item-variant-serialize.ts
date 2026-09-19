@@ -51,7 +51,13 @@ export function serializeLiveItemVariants(rows: VariantRow[] | undefined | null)
 }
 
 export function parseLiveItemSalesFormat(raw: unknown): LiveItemSalesFormat {
-  if (raw === "buy_now" || raw === "variant_selection" || raw === "team_break" || raw === "auction") {
+  if (
+    raw === "buy_now" ||
+    raw === "variant_selection" ||
+    raw === "team_break" ||
+    raw === "player_selection" ||
+    raw === "auction"
+  ) {
     return raw;
   }
   return "auction";

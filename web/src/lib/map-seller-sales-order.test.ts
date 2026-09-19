@@ -106,7 +106,7 @@ describe("mapSellerSalesOrderForApi — live-show fee-tier stability after a sho
       },
     });
     const mapped = mapSellerSalesOrderForApi(baseUser, order);
-    expect(mapped.platformFeePercent).toBe(8);
+    expect(mapped.platformFeePercent).toBe(6.75);
   });
 
   it("uses seller platform fee override when set on the user context", () => {
@@ -117,5 +117,45 @@ describe("mapSellerSalesOrderForApi — live-show fee-tier stability after a sho
     );
     expect(mapped.platformFeePercent).toBe(4);
     expect(mapped.platformFeeEstimateUsd).toBe(4);
+  });
+
+  it("prefers persisted platform fee over reconstruction / override", () => {
+    const order = baseOrder({
+      itemPriceUsd: 100,
+      platformFeeCents: 675,
+      platformFeePercentApplied: 6.75,
+      platformFeeBasisCents: 10000,
+      liveShippingSession: {
+        liveShowId: "room_1",
+        liveShow: { completedSalesGmvUsd: 0, finalSalesGmvUsd: 0, status: "ended" },
+      },
+    });
+    const mapped = mapSellerSalesOrderForApi(
+      { ...baseUser, sellerPlatformFeePercentOverride: 8 },
+      order,
+    );
+    expect(mapped.platformFeePercent).toBe(6.75);
+    expect(mapped.platformFeeEstimateUsd).toBe(6.75);
+    expect(mapped.platformFeeSource).toBe("persisted");
+    expect(mapped.platformFeeEffectivePercent).toBe(6.75);
+  });
+
+  it("exposes separate buyer shipping vs actual label cost", () => {
+    const order = baseOrder({
+      shippingPriceUsd: 3.99,
+      shippingChargedCents: 399,
+      shippingLabelCostCents: 725,
+      labelUrl: "https://label.example/x",
+      shippoTransactionId: "tx_ok",
+      trackingNumber: "9400",
+      labelCreatedAt: new Date("2026-07-19T12:00:00Z"),
+      carrier: "USPS",
+      service: "Priority",
+    });
+    const mapped = mapSellerSalesOrderForApi(baseUser, order);
+    expect(mapped.shippingBreakdown.buyerShippingCollectedCents).toBe(399);
+    expect(mapped.shippingBreakdown.actualLabelCostCents).toBe(725);
+    expect(mapped.shippingBreakdown.netShippingImpactCents).toBe(399 - 725);
+    expect(mapped.shippingBreakdown.labelStatus).toBe("purchased");
   });
 });

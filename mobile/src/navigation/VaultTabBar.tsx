@@ -3,6 +3,7 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TAB_BAR_GLOW_PAD } from '../lib/mainTabBarMetrics';
 import { resolvedBottomInset } from '../lib/screenSafeInsets';
 import { isCompactMarketplaceLayout, marketplaceFontSize, MARKETPLACE_TEXT_PROPS } from '../lib/marketplaceUiScale';
 import { colors, spacing, typography } from '../theme';
@@ -49,6 +50,7 @@ export function VaultTabBar({ state, descriptors, navigation }: BottomTabBarProp
   const labelSize = marketplaceFontSize(shortLabels ? 9 : 10, Math.min(1, width / 430));
   const bottomPad = resolvedBottomInset(insets.bottom) + spacing.sm;
   const tabSlotWidth = width / TAB_COUNT;
+  const rowPadTop = compact ? 10 : 12;
   const currentRoute = state.routes[state.index];
   const nestedLiveName =
     currentRoute?.name === 'Live'
@@ -67,111 +69,121 @@ export function VaultTabBar({ state, descriptors, navigation }: BottomTabBarProp
   }
 
   return (
-    <View style={[styles.bar, { paddingBottom: bottomPad, paddingTop: compact ? 12 : 18 }]}>
-      {ORDER.map((name) => {
-        const route = state.routes.find((r) => r.name === name);
-        if (!route) return null;
-        const isFocused = state.index === state.routes.indexOf(route);
-        const { options } = descriptors[route.key];
+    <View style={[styles.chrome, { paddingBottom: bottomPad }]}>
+      {/* Dark bar starts below the glow pad so the bloom can sit in transparent space. */}
+      <View style={[styles.barFill, { top: TAB_BAR_GLOW_PAD }]} pointerEvents="none" />
+      <View style={[styles.row, { paddingTop: TAB_BAR_GLOW_PAD + rowPadTop }]}>
+        {ORDER.map((name) => {
+          const route = state.routes.find((r) => r.name === name);
+          if (!route) return null;
+          const isFocused = state.index === state.routes.indexOf(route);
+          const { options } = descriptors[route.key];
 
-        if (name === 'Live') {
-          return (
-            <LiveTabOrb
-              key={route.key}
-              isFocused={isFocused}
-              slotWidth={tabSlotWidth}
-              accessibilityLabel={options.tabBarAccessibilityLabel}
-              onPress={() => {
-                const event = navigation.emit({
-                  type: 'tabPress',
-                  target: route.key,
-                  canPreventDefault: true,
-                });
-                if (event.defaultPrevented) return;
-                navigation.navigate('Live', { screen: 'LiveDiscovery' });
-              }}
-            />
-          );
-        }
+          if (name === 'Live') {
+            return (
+              <LiveTabOrb
+                key={route.key}
+                isFocused={isFocused}
+                slotWidth={tabSlotWidth}
+                accessibilityLabel={options.tabBarAccessibilityLabel}
+                onPress={() => {
+                  const event = navigation.emit({
+                    type: 'tabPress',
+                    target: route.key,
+                    canPreventDefault: true,
+                  });
+                  if (event.defaultPrevented) return;
+                  navigation.navigate('Live', { screen: 'LiveDiscovery' });
+                }}
+              />
+            );
+          }
 
-        const onPress = () => {
-          const event = navigation.emit({
-            type: 'tabPress',
-            target: route.key,
-            canPreventDefault: true,
-          });
-          if (event.defaultPrevented) return;
-          if (isFocused) {
+          const onPress = () => {
+            const event = navigation.emit({
+              type: 'tabPress',
+              target: route.key,
+              canPreventDefault: true,
+            });
+            if (event.defaultPrevented) return;
+            if (isFocused) {
+              if (route.name === 'TradeCenter') {
+                navigation.navigate('TradeCenter', { screen: 'TradeCenterHome' });
+              }
+              return;
+            }
             if (route.name === 'TradeCenter') {
               navigation.navigate('TradeCenter', { screen: 'TradeCenterHome' });
+            } else {
+              navigation.navigate(route.name, route.params);
             }
-            return;
-          }
-          if (route.name === 'TradeCenter') {
-            navigation.navigate('TradeCenter', { screen: 'TradeCenterHome' });
-          } else {
-            navigation.navigate(route.name, route.params);
-          }
-        };
+          };
 
-        const lblColor = isFocused ? colors.gold : colors.textMuted;
-        const labelNode =
-          name === 'TradeCenter' && !shortLabels ? (
-            <View style={styles.tabLabelStack}>
-              <Text style={[styles.label, styles.labelStackLine, { color: lblColor, fontSize: labelSize - 1.5 }]} {...MARKETPLACE_TEXT_PROPS}>
-                Trade
+          const lblColor = isFocused ? colors.gold : colors.textMuted;
+          const labelNode =
+            name === 'TradeCenter' && !shortLabels ? (
+              <View style={styles.tabLabelStack}>
+                <Text style={[styles.label, styles.labelStackLine, { color: lblColor, fontSize: labelSize - 1.5 }]} {...MARKETPLACE_TEXT_PROPS}>
+                  Trade
+                </Text>
+                <Text style={[styles.label, styles.labelStackLine, { color: lblColor, fontSize: labelSize - 1.5 }]} {...MARKETPLACE_TEXT_PROPS}>
+                  Center
+                </Text>
+              </View>
+            ) : (
+              <Text
+                style={[styles.label, { color: lblColor, fontSize: labelSize }]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                {...MARKETPLACE_TEXT_PROPS}
+              >
+                {tabLabelFor(name, shortLabels)}
               </Text>
-              <Text style={[styles.label, styles.labelStackLine, { color: lblColor, fontSize: labelSize - 1.5 }]} {...MARKETPLACE_TEXT_PROPS}>
-                Center
-              </Text>
-            </View>
-          ) : (
-            <Text
-              style={[styles.label, { color: lblColor, fontSize: labelSize }]}
-              numberOfLines={1}
-              ellipsizeMode="tail"
-              {...MARKETPLACE_TEXT_PROPS}
+            );
+
+          return (
+            <Pressable
+              key={route.key}
+              accessibilityRole="button"
+              accessibilityState={isFocused ? { selected: true } : {}}
+              accessibilityLabel={options.tabBarAccessibilityLabel}
+              onPress={onPress}
+              hitSlop={{ top: 8, bottom: 6, left: 4, right: 4 }}
+              style={({ pressed }) => [styles.tabSlot, pressed && styles.pressed]}
             >
-              {tabLabelFor(name, shortLabels)}
-            </Text>
+              <Ionicons
+                name={iconFor(name, isFocused)}
+                size={compact ? 20 : 22}
+                color={isFocused ? colors.gold : colors.textMuted}
+              />
+              {labelNode}
+            </Pressable>
           );
-
-        return (
-          <Pressable
-            key={route.key}
-            accessibilityRole="button"
-            accessibilityState={isFocused ? { selected: true } : {}}
-            accessibilityLabel={options.tabBarAccessibilityLabel}
-            onPress={onPress}
-            hitSlop={{ top: 8, bottom: 6, left: 4, right: 4 }}
-            style={({ pressed }) => [styles.tabSlot, pressed && styles.pressed]}
-          >
-            <Ionicons
-              name={iconFor(name, isFocused)}
-              size={compact ? 20 : 22}
-              color={isFocused ? colors.gold : colors.textMuted}
-            />
-            {labelNode}
-          </Pressable>
-        );
-      })}
+        })}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    paddingTop: spacing.sm,
-    paddingHorizontal: 4,
+  chrome: {
+    backgroundColor: 'transparent',
+    overflow: 'visible',
+    zIndex: 100,
+  },
+  barFill: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(5,5,5,0.96)',
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
     overflow: 'visible',
-    zIndex: 100,
-    elevation: 24,
+    zIndex: 1,
   },
   tabSlot: {
     flex: 1,
@@ -182,7 +194,7 @@ const styles = StyleSheet.create({
     minHeight: 48,
     minWidth: 0,
     paddingHorizontal: 1,
-    overflow: 'hidden',
+    backgroundColor: 'transparent',
   },
   label: {
     ...typography.micro,

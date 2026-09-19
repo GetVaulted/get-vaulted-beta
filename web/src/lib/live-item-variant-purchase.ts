@@ -1,8 +1,12 @@
 import { prisma } from "@/lib/prisma";
+import { isLiveRoomOpenForSpotPurchase } from "@/lib/live-room-commerce-guards";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { sanitizeStripePaymentIntentId } from "@/lib/stripe-payment-intent-id";
 import { stripeCheckoutSessionPaymentOptions } from "@/lib/stripe-payment-method-config";
 import { buildCheckoutTaxSessionFields, STRIPE_TAX_CODE_TANGIBLE, stripeLineItemProductData } from "@/lib/stripe-tax";
+import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
 import { recordLiveShowCompletedSaleTx, resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
+import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
 import { assertSellerStripeCollectReadyFromUser, sellerStripeCollectSelect } from "@/lib/seller-stripe-collect-ready";
 
 import {
@@ -26,7 +30,7 @@ import { executeOrderRefund } from "@/services/order-refund-request";
 import { ACTIVE_REFUND_REQUEST_STATUSES } from "@/lib/order-refund-eligibility";
 import { reportUrgentPaymentAnomaly } from "@/lib/cron-anomaly-alert";
 import { OrderRefundRequestKind, OrderRefundRequestStatus } from "@/generated/prisma/enums";
-import { releaseReferralCreditReservation } from "@/lib/referral-credit";
+import { releaseStoreCreditAndRestoreOrder } from "@/lib/store-credit-release";
 
 function siteUrl(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
@@ -105,9 +109,13 @@ async function refundOrAlertOnFailedRandomReveal(purchase: {
 
 export async function finalizeLiveItemVariantPurchasePaid(
   purchaseId: string,
-  stripePaymentIntentId?: string | null,
+  rawStripePaymentIntentId?: string | null,
   notificationChargeUsd?: number | null,
 ) {
+  // Guard (bug #18): the PayPal/Venmo buyer rail (see live-payment-pipeline.ts) returns a PayPal
+  // capture id through the same "paymentIntentId" slot used by the real Stripe rail. Only a
+  // Stripe-shaped id (`pi_…`) is ever allowed past this point.
+  const stripePaymentIntentId = sanitizeStripePaymentIntentId(rawStripePaymentIntentId);
   const purchase = await prisma.liveItemVariantPurchase.findUnique({
     where: { id: purchaseId },
     include: {
@@ -121,7 +129,7 @@ export async function finalizeLiveItemVariantPurchasePaid(
     try {
       await finalizeStripeMarketplaceOrderPaid(
         purchase.fulfillmentOrderId,
-        stripePaymentIntentId ?? purchase.stripePaymentIntentId ?? null,
+        stripePaymentIntentId ?? sanitizeStripePaymentIntentId(purchase.stripePaymentIntentId),
         null,
       );
     } catch (e) {
@@ -221,12 +229,18 @@ export async function finalizeLiveItemVariantPurchasePaid(
     }
   }
 
-  const item = await prisma.liveRoomItem.findUnique({
-    where: { id: purchase.liveRoomItemId },
-    select: { itemVersion: true },
-  });
-  if (!item) return;
-
+  // Regression (Sept 2026, live show incident): this emit used to fire only after several more
+  // sequential DB round trips below (a re-fetch of the item, a purchase re-fetch, and a fee-aware
+  // notification-copy resolution). The purchase is already durably marked paid by the CAS above,
+  // so those later steps are pure bookkeeping — but if any of them threw (e.g. the database
+  // connection pool being saturated during a busy live show), this function threw right along with
+  // them and the board/queue realtime notification below never fired. The sale itself was correct
+  // in the database the whole time; sellers just saw the team board sit stale until they manually
+  // refreshed the page, and worse, the buyer's request could come back as a false "could not
+  // complete purchase" error even though they'd already been charged. Fire the notification the
+  // board actually listens for (`variant_purchased`) as early as everything it needs is known, and
+  // fence the rest of the (non-critical) bookkeeping behind a try/catch that only logs, so it can
+  // never retroactively turn an already-successful, already-notified purchase into an error.
   emitVariantPurchased(purchase.liveRoomId, {
     itemId: purchase.liveRoomItemId,
     variantId: purchase.variantId,
@@ -234,39 +248,12 @@ export async function finalizeLiveItemVariantPurchasePaid(
     label: displayLabel,
     buyerUsername: purchase.buyer.username,
     amountUsd: purchase.totalUsd,
-    itemVersion: item.itemVersion,
+    itemVersion: itemRow?.itemVersion,
     quantity: purchase.quantity,
     randomReveal,
   });
 
-  const room = await prisma.liveRoom.findUnique({
-    where: { id: purchase.liveRoomId },
-    select: { sellerId: true },
-  });
-
-  if (randomReveal && room?.sellerId && displayLabel.trim()) {
-    const username = purchase.buyer.username.replace(/^@+/, "").trim() || "Buyer";
-    const revealMsg = await prisma.liveRoomMessage.create({
-      data: {
-        liveRoomId: purchase.liveRoomId,
-        senderId: room.sellerId,
-        body: `@${username} got ${displayLabel.trim()}`,
-        messageType: "system",
-      },
-    });
-    await emitLiveRoomMessageById(revealMsg.id);
-  }
-
-  emitLiveRoomMessagesRefetch(purchase.liveRoomId);
-  void recordBuyerGiveawayPurchaseEntries(purchase.liveRoomId, purchase.buyerId, purchase.id).catch((e) => {
-    console.error("[variant purchase] buyers giveaway entry", e);
-  });
-
-  if (room?.sellerId) {
-    await maybeMarkVariantBreakReady(purchase.liveRoomItemId, purchase.liveRoomId, room.sellerId);
-  }
-
-  if (purchase.totalUsd > 0) {
+  try {
     const paidMeta = await prisma.liveItemVariantPurchase.findUnique({
       where: { id: purchaseId },
       select: {
@@ -282,16 +269,52 @@ export async function finalizeLiveItemVariantPurchasePaid(
             fallbackUsd: paidMeta?.totalUsd ?? purchase.totalUsd,
             fulfillmentOrderId: paidMeta?.fulfillmentOrderId ?? purchase.fulfillmentOrderId,
             stripePaymentIntentId:
-              stripePaymentIntentId ?? paidMeta?.stripePaymentIntentId ?? purchase.stripePaymentIntentId,
+              stripePaymentIntentId ??
+              sanitizeStripePaymentIntentId(paidMeta?.stripePaymentIntentId ?? purchase.stripePaymentIntentId),
           });
-    const paymentNote = liveRoomBuyerPaymentConfirmedNotification({
-      amountUsd: chargeTotalUsd,
-      href: "/account/orders?view=live",
+
+    const room = await prisma.liveRoom.findUnique({
+      where: { id: purchase.liveRoomId },
+      select: { sellerId: true },
     });
-    await createNotification(prisma, {
-      userId: purchase.buyerId,
-      ...paymentNote,
+
+    if (randomReveal && room?.sellerId && displayLabel.trim()) {
+      const username = purchase.buyer.username.replace(/^@+/, "").trim() || "Buyer";
+      const revealMsg = await prisma.liveRoomMessage.create({
+        data: {
+          liveRoomId: purchase.liveRoomId,
+          senderId: room.sellerId,
+          body: `@${username} got ${displayLabel.trim()}`,
+          messageType: "system",
+        },
+      });
+      await emitLiveRoomMessageById(revealMsg.id);
+    }
+
+    emitLiveRoomMessagesRefetch(purchase.liveRoomId);
+    void recordBuyerGiveawayPurchaseEntries(purchase.liveRoomId, purchase.buyerId, purchase.id).catch((e) => {
+      console.error("[variant purchase] buyers giveaway entry", e);
     });
+
+    if (room?.sellerId) {
+      await maybeMarkVariantBreakReady(purchase.liveRoomItemId, purchase.liveRoomId, room.sellerId);
+    }
+
+    if (purchase.totalUsd > 0) {
+      const paymentNote = liveRoomBuyerPaymentConfirmedNotification({
+        amountUsd: chargeTotalUsd,
+        href: "/account/orders?view=live",
+      });
+      await createNotification(prisma, {
+        userId: purchase.buyerId,
+        ...paymentNote,
+      });
+    }
+  } catch (e) {
+    console.error(
+      "[variant purchase] post-paid bookkeeping failed (purchase already paid, board already notified)",
+      { purchaseId, error: e },
+    );
   }
 }
 
@@ -311,8 +334,8 @@ export async function releaseVariantPurchaseOnCheckoutExpired(purchaseId: string
   if (!purchase || purchase.paymentStatus !== "pending_payment") return;
 
   if (purchase.fulfillmentOrderId) {
-    releaseReferralCreditReservation(purchase.fulfillmentOrderId).catch((e) =>
-      console.error("[referral-credit] release failed (variant purchase checkout expired)", {
+    releaseStoreCreditAndRestoreOrder(purchase.fulfillmentOrderId).catch((e) =>
+      console.error("[store-credit] release failed (variant purchase checkout expired)", {
         purchaseId,
         orderId: purchase.fulfillmentOrderId,
         error: e,
@@ -380,7 +403,7 @@ export async function reopenVariantPurchaseForRecovery(args: {
   if (purchase.paymentStatus !== "failed") {
     return { reopened: false, reason: "PURCHASE_NOT_PAYABLE" };
   }
-  if (purchase.liveRoom.status !== "live") {
+  if (!isLiveRoomOpenForSpotPurchase(purchase.liveRoom.status)) {
     return { reopened: false, reason: "ROOM_NOT_LIVE" };
   }
   if (purchase.liveRoom.lockPurchases) {
@@ -456,7 +479,7 @@ export async function createLiveItemVariantCheckoutSession(args: {
     },
   });
   if (!purchase || purchase.totalUsd <= 0) throw new Error("PURCHASE_INVALID");
-  if (purchase.liveRoom.status !== "live") throw new Error("ROOM_NOT_LIVE");
+  if (!isLiveRoomOpenForSpotPurchase(purchase.liveRoom.status)) throw new Error("ROOM_NOT_LIVE");
   if (purchase.paymentStatus === "paid") throw new Error("ALREADY_PAID");
 
   const seller = await prisma.user.findUnique({
@@ -474,10 +497,16 @@ export async function createLiveItemVariantCheckoutSession(args: {
     sellerId: purchase.liveRoom.sellerId,
   });
 
-  const taxFields = await buildCheckoutTaxSessionFields({
-    buyerId: args.userId,
-    collectShippingAddress: true,
-  });
+  // Buyer must already have a saved shipping address to reach checkout (Vault Wallet gate),
+  // so use it directly for the nexus check instead of handing tax entirely to Stripe's
+  // automatic_tax — which only knows Stripe's own tax registrations, not our per-state
+  // TaxNexusState settings, and can misclassify buyers in states we haven't registered in.
+  const buyerShipping = await resolveBuyerDefaultShippingForOrder(args.userId);
+  const taxFields = await buildCheckoutTaxSessionFields(
+    buyerShipping
+      ? { buyerId: args.userId, shipTo: buyerShipping }
+      : { buyerId: args.userId, collectShippingAddress: true },
+  );
 
   const session = await stripe.checkout.sessions.create(
     {
@@ -494,7 +523,11 @@ export async function createLiveItemVariantCheckoutSession(args: {
         userId: args.userId,
       },
       payment_intent_data: {
-        application_fee_amount: feeCents,
+        // Seller absorbs Stripe processing (2.9% + $0.30). Tax is added by Stripe at checkout
+        // (automatic_tax) so it isn't known here — estimate processing on the spot subtotal.
+        application_fee_amount:
+          feeCents +
+          (feeCents > 0 ? estimateStripeProcessingFeeCents(Math.round(purchase.totalUsd * 100)) : 0),
         transfer_data: { destination: stripeAccountId },
         metadata: { purchaseId: purchase.id, kind: "variant_purchase" },
       },

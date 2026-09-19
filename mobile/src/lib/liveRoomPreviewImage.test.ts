@@ -30,7 +30,17 @@ describe('liveRoomPreviewImage', () => {
     expect(url).toBe('https://cdn.example/item.jpg');
   });
 
-  it('uses category art when no images exist', () => {
+  it('uses host avatar before category art when no images exist', () => {
+    const url = resolveLiveRoomPreviewImage({
+      thumbnailUrl: '',
+      firstItemImageUrl: '',
+      sellerAvatarUrl: 'https://cdn.example/avatar.jpg',
+      category: 'sneakers',
+    });
+    expect(url).toBe('https://cdn.example/avatar.jpg');
+  });
+
+  it('uses category art when no images or avatar exist', () => {
     const url = resolveLiveRoomPreviewImage({
       thumbnailUrl: '',
       firstItemImageUrl: '',
