@@ -115,15 +115,6 @@
     "plugins": [
       "expo-updates",
       [
-        "expo-build-properties",
-        {
-          "android": {
-            "enableProguardInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true
-          }
-        }
-      ],
-      [
         "expo-image-picker",
         {
           "photosPermission": "Get Vaulted uses your photos for profile and listing uploads.",
