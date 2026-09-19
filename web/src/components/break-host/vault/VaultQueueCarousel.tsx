@@ -6,7 +6,6 @@ import { isGiveawayTab } from "@/lib/seller-queue-tabs";
 import { VaultGiveawayLane } from "@/components/break-host/vault/VaultGiveawayLane";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { hostAuctionLaneItems, hostBinLaneItems } from "@/lib/live-buyer-queue-projection";
-import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 
 type ClaimLite = { user: { username: string } } | null;
 export type VaultQueueRow = { item: LiveRoomItemDTO; claim: ClaimLite; claims: { user: { username: string } }[] };
@@ -278,7 +277,7 @@ export function VaultQueueCarousel({
                       Pin
                     </button>
                   ) : null}
-                  {item.status !== "sold" && onEdit && !isVariantSalesFormat(item.salesFormat) ? (
+                  {item.status !== "sold" && onEdit ? (
                     <button
                       type="button"
                       disabled={busy}
@@ -370,7 +369,7 @@ export function VaultQueueCarousel({
                         Skip
                       </button>
                     ) : null}
-                    {item.status !== "sold" && onEdit && !isVariantSalesFormat(item.salesFormat) ? (
+                    {item.status !== "sold" && onEdit ? (
                       <button
                         type="button"
                         disabled={busy}
