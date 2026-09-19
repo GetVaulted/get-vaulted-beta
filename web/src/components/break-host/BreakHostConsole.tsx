@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { TeamBoardHostPanel } from "@/components/team-board/TeamBoardHostPanel";
 import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
+import { TeamBoardChromeButton } from "@/components/team-board/TeamBoardChromeButton";
 import { LiveSellerCommandCenter } from "@/components/break-host/LiveSellerCommandCenter";
 import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
 import { LiveSpotTakenCelebration } from "@/components/live-auction/LiveSpotTakenCelebration";
@@ -2791,6 +2792,20 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     ),
     hostRailClassName: "min-[1024px]:hidden",
     topChromeTrailing: vaultControlsPill,
+    // Restores the host's way into the team board (Pick Your Team / division breaks) -- the
+    // panel and its open/close state (hostTeamBoardOpen, TeamBoardHostPanel below) were still
+    // fully wired, but nothing rendered the button that reaches them. LiveVideoStage has a
+    // purpose-built slot for exactly this ("Shown below the Live / audience row ... e.g. host
+    // team board control"); it just wasn't being passed.
+    stageBelowAudience: isBreak ? (
+      <TeamBoardChromeButton
+        league={teamBoardData?.state.league ?? "nba"}
+        tileCount={teamBoardData?.teams.length}
+        boardVisible={hostTeamBoardOpen}
+        disabled={!teamBoardData?.teams.length}
+        onPress={toggleHostTeamBoardPanel}
+      />
+    ) : undefined,
   };
 
   const hostStagePropsMobile = {

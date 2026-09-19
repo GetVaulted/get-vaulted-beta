@@ -1214,6 +1214,7 @@ export function AddQueueItemModal({
                       : "variant_selection"
                 }
                 onSalesFormatChange={() => {}}
+                salesFormatEditable={false}
                 defaultPriceUsd={price}
                 variants={spotVariants}
                 onVariantsChange={handleSpotVariantsChange}
