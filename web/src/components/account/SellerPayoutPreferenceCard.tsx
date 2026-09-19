@@ -74,12 +74,12 @@ export function SellerPayoutPreferenceCard() {
         transfers at sale; PayPal pays out after your payout tier releases the order.
       </p>
 
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+      <div className="mt-4 flex flex-wrap gap-2">
         <button
           type="button"
           disabled={busy}
           onClick={() => void patch({ preferredSellerPayoutProcessor: "STRIPE" })}
-          className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${
+          className={`min-w-[160px] flex-1 rounded-lg border px-3 py-2 text-left text-xs font-semibold ${
             data.preferredSellerPayoutProcessor === "STRIPE"
               ? "border-gold-bright/50 bg-gold-bright/10 text-gold-bright"
               : "border-white/10 text-zinc-300 hover:border-white/25"
@@ -94,7 +94,7 @@ export function SellerPayoutPreferenceCard() {
           type="button"
           disabled={busy || !data.paypalSellerPayoutsEnabled}
           onClick={() => void patch({ preferredSellerPayoutProcessor: "PAYPAL" })}
-          className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${
+          className={`min-w-[160px] flex-1 rounded-lg border px-3 py-2 text-left text-xs font-semibold ${
             data.preferredSellerPayoutProcessor === "PAYPAL"
               ? "border-gold-bright/50 bg-gold-bright/10 text-gold-bright"
               : "border-white/10 text-zinc-300 hover:border-white/25"
@@ -116,20 +116,20 @@ export function SellerPayoutPreferenceCard() {
           <label className="block text-xs font-semibold text-zinc-400" htmlFor="paypal-payout-email">
             PayPal payout email
           </label>
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex flex-wrap gap-2">
             <input
               id="paypal-payout-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100"
+              className="h-10 min-w-[200px] flex-1 rounded-lg border border-white/10 bg-black/40 px-3 text-sm text-zinc-100"
               placeholder="you@paypal.com"
             />
             <button
               type="button"
               disabled={busy}
               onClick={() => void patch({ paypalPayoutEmail: email })}
-              className="rounded-lg border border-white/15 px-3 py-2 text-xs font-bold text-zinc-200 hover:border-white/30"
+              className="h-10 shrink-0 rounded-lg border border-white/15 px-3 text-xs font-bold text-zinc-200 hover:border-white/30"
             >
               Save email
             </button>
@@ -137,7 +137,7 @@ export function SellerPayoutPreferenceCard() {
               type="button"
               disabled={busy || !email.trim()}
               onClick={() => void patch({ paypalPayoutEmail: email, verifyPayPalEmail: true })}
-              className="rounded-lg border border-emerald-500/30 bg-emerald-950/30 px-3 py-2 text-xs font-bold text-emerald-200"
+              className="h-10 shrink-0 rounded-lg border border-emerald-500/30 bg-emerald-950/30 px-3 text-xs font-bold text-emerald-200"
             >
               Verify
             </button>

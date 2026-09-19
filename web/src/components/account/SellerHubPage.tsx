@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
 import { SellerShipFromSetupCard } from "@/components/account/SellerShipFromSetupCard";
 import { StripeOnboardingEmbed } from "@/components/seller/StripeOnboardingEmbed";
 import { SellerHubNav } from "@/components/seller/obs/SellerHubNav";
@@ -75,34 +74,89 @@ function HubSectionLabel({ children }: { children: ReactNode }) {
   );
 }
 
+const STAT_ICON_PROPS = {
+  viewBox: "0 0 24 24",
+  width: 15,
+  height: 15,
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.7,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+
+function LiveStatIcon() {
+  return (
+    <svg {...STAT_ICON_PROPS}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M7.5 8.2a6.5 6.5 0 0 0 0 7.6" />
+      <path d="M16.5 8.2a6.5 6.5 0 0 1 0 7.6" />
+    </svg>
+  );
+}
+function ListingsStatIcon() {
+  return (
+    <svg {...STAT_ICON_PROPS}>
+      <path d="M11 3H4v7l10 10 7-7L11 3Z" />
+      <circle cx="7.7" cy="7.7" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+function OrdersStatIcon() {
+  return (
+    <svg {...STAT_ICON_PROPS}>
+      <path d="M3 8 12 4l9 4-9 4-9-4Z" />
+      <path d="M3 8v9l9 4 9-4V8" />
+    </svg>
+  );
+}
+function MessagesStatIcon() {
+  return (
+    <svg {...STAT_ICON_PROPS}>
+      <path d="M4 5h16v11H8l-4 3.2V5Z" />
+    </svg>
+  );
+}
+
 function HubStatCard({
   label,
   lines,
   href,
   cta,
   highlight,
+  icon,
+  size = "default",
 }: {
   label: string;
   lines: { text: string; emphasis?: boolean }[];
   href: string;
   cta: string;
   highlight?: boolean;
+  icon?: ReactNode;
+  size?: "default" | "lg";
 }) {
   return (
     <Link
       href={href}
       className={`group block rounded-xl border p-4 transition hover:border-gold/25 hover:bg-white/[0.02] ${
         highlight
-          ? "border-gold/20 bg-gold/[0.04]"
+          ? "border-gold/25 bg-gold/[0.05]"
           : "border-white/[0.08] bg-zinc-950/40"
       }`}
     >
-      <HubSectionLabel>{label}</HubSectionLabel>
+      <div className="flex items-center justify-between gap-3">
+        <HubSectionLabel>{label}</HubSectionLabel>
+        {icon ? <span className={highlight ? "text-gold-bright/80" : "text-zinc-600"}>{icon}</span> : null}
+      </div>
       <div className="mt-2 space-y-0.5">
-        {lines.map((line) => (
+        {lines.map((line, i) => (
           <p
             key={line.text}
-            className={`text-sm ${line.emphasis ? "font-semibold text-zinc-100" : "text-zinc-400"}`}
+            className={
+              size === "lg" && i === 0
+                ? "text-xl font-extrabold tabular-nums text-zinc-100"
+                : `text-sm ${line.emphasis ? "font-semibold text-zinc-100" : "text-zinc-400"}`
+            }
           >
             {line.text}
           </p>
@@ -440,12 +494,12 @@ export function SellerHubPage() {
               </Link>
             </div>
           </div>
-          <div className="mt-4">
-            <AccountOrdersNav active="seller" mode="seller" />
-          </div>
         </header>
 
-        <SellerHubNav activeHref="/account/seller" />
+        <SellerHubNav
+          activeHref="/account/seller"
+          unreadMessagesCount={homeStats?.unreadBuyerMessagesCount ?? 0}
+        />
 
         {loadError ? (
           <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-sm text-amber-100">
@@ -475,27 +529,32 @@ export function SellerHubPage() {
         ) : null}
 
         <section className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <HubStatCard
-            label="Live"
-            highlight={isLiveNow}
-            href="/seller/live"
-            cta={isLiveNow ? "Go to console" : "Open live hub"}
-            lines={[
-              {
-                text: liveRoom?.title ?? "No scheduled show",
-                emphasis: true,
-              },
-              {
-                text: isLiveNow
-                  ? "You are live"
-                  : liveRoom?.scheduledStartAt
-                    ? `Scheduled ${new Date(liveRoom.scheduledStartAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}`
-                    : "Schedule when you are ready",
-              },
-            ]}
-          />
+          <div className="sm:col-span-2">
+            <HubStatCard
+              label="Live"
+              size="lg"
+              icon={<LiveStatIcon />}
+              highlight={isLiveNow}
+              href="/seller/live"
+              cta={isLiveNow ? "Go to console" : "Open live hub"}
+              lines={[
+                {
+                  text: liveRoom?.title ?? "No scheduled show",
+                  emphasis: true,
+                },
+                {
+                  text: isLiveNow
+                    ? "You are live"
+                    : liveRoom?.scheduledStartAt
+                      ? `Scheduled ${new Date(liveRoom.scheduledStartAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}`
+                      : "Schedule when you are ready",
+                },
+              ]}
+            />
+          </div>
           <HubStatCard
             label="Listings"
+            icon={<ListingsStatIcon />}
             href="/seller/listings"
             cta="View listings"
             lines={[
@@ -505,6 +564,7 @@ export function SellerHubPage() {
           />
           <HubStatCard
             label="Orders"
+            icon={<OrdersStatIcon />}
             href="/account/sales"
             cta="Open orders"
             lines={[
@@ -514,6 +574,7 @@ export function SellerHubPage() {
           />
           <HubStatCard
             label="Messages"
+            icon={<MessagesStatIcon />}
             href="/account/messages"
             cta="Open inbox"
             lines={[

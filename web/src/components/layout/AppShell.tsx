@@ -7,9 +7,22 @@ import { SiteFooter } from "@/components/layout/SiteFooter";
 
 const BARE_PATH_PREFIXES = ["/account/sales/print-label"] as const;
 
-function isBarePath(pathname: string | null): boolean {
+// Authenticated account/seller dashboards: keep the top nav, but the full
+// marketing footer (wordmark, tagline, Shop/Discover/Legal columns) does not
+// belong bolted onto a signed-in workspace page.
+const NO_FOOTER_PATH_PREFIXES = ["/account"] as const;
+
+function matchesPrefix(pathname: string | null, prefixes: readonly string[]): boolean {
   if (!pathname) return false;
-  return BARE_PATH_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+function isBarePath(pathname: string | null): boolean {
+  return matchesPrefix(pathname, BARE_PATH_PREFIXES);
+}
+
+function isNoFooterPath(pathname: string | null): boolean {
+  return matchesPrefix(pathname, NO_FOOTER_PATH_PREFIXES);
 }
 
 type AppShellProps = {
@@ -26,12 +39,14 @@ export function AppShell({ children, liveMarketplaceEnabled }: AppShellProps) {
     return <div className="min-h-dvh w-full">{children}</div>;
   }
 
+  const noFooter = isNoFooterPath(pathname);
+
   return (
     <>
       <Navbar />
       <WatchlistToastHost />
       <div className="flex min-h-0 flex-1 flex-col">{children}</div>
-      <SiteFooter liveMarketplaceEnabled={liveMarketplaceEnabled} />
+      {noFooter ? null : <SiteFooter liveMarketplaceEnabled={liveMarketplaceEnabled} />}
     </>
   );
 }
