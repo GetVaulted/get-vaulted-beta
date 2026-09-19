@@ -115,7 +115,7 @@ export function HostEditLotPricingModal({ open, item, busy = false, onClose, onS
       role="dialog"
       aria-modal
       aria-label="Edit lot pricing"
-      className="fixed inset-0 z-[72] flex items-end justify-center bg-black/75 p-0 sm:items-center sm:p-4"
+      className="fixed inset-x-0 bottom-0 top-[var(--site-header-offset)] z-[72] flex items-end justify-center bg-black/75 p-0 sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div
