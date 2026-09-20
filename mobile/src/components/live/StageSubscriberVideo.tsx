@@ -10,6 +10,9 @@ type Props = {
   active: boolean;
   /** Host Pause / leave-app — keep Stage joined; do not rejoin on missing remote video. */
   hostPaused?: boolean;
+  /** True while genuinely backgrounded (including Stage remote PiP) — see the matching doc on
+   * `useMobileStageSubscribe`'s arg of the same name for why this pauses the rejoin watchdog. */
+  viewerBackgrounded?: boolean;
   /**
    * When true, leaving this subscribe latches process-wide “prefer HLS / no WebRTC rejoin”.
    * Only for committed AppState background — never for feed swipe.
@@ -31,6 +34,7 @@ export function StageSubscriberVideo({
   accessToken,
   active,
   hostPaused = false,
+  viewerBackgrounded = false,
   latchRejoinOnLeave = false,
   refreshNonce,
   subscribeEpoch,
@@ -45,6 +49,7 @@ export function StageSubscriberVideo({
     accessToken,
     active,
     hostPaused,
+    viewerBackgrounded,
     latchRejoinOnLeave,
     refreshNonce,
     subscribeEpoch,

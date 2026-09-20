@@ -1185,6 +1185,7 @@ export function LiveStagePlayback({
             accessToken={accessToken}
             active={useWebrtc && !stageMediaSuspended && !blockStageAfterBackgroundLeave}
             hostPaused={streamPaused}
+            viewerBackgrounded={appBackgrounded || pipSurfaceActive}
             latchRejoinOnLeave={stageMediaSuspended || blockStageAfterBackgroundLeave}
             refreshNonce={refreshNonce}
             subscribeEpoch={playback.webrtcSubscribeEpoch}
@@ -1203,6 +1204,7 @@ export function LiveStagePlayback({
               accessToken={accessToken}
               active={useWebrtc && !stageMediaSuspended && !blockStageAfterBackgroundLeave}
               hostPaused={streamPaused}
+              viewerBackgrounded={appBackgrounded || pipSurfaceActive}
               latchRejoinOnLeave={stageMediaSuspended || blockStageAfterBackgroundLeave}
               refreshNonce={refreshNonce}
               subscribeEpoch={playback.webrtcSubscribeEpoch}

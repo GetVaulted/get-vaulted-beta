@@ -68,6 +68,19 @@ export function useMobileStageSubscribe(args: {
    */
   hostPaused?: boolean;
   /**
+   * True while the app is genuinely backgrounded (including Stage remote PiP) — see
+   * `appBackgrounded || pipSurfaceActive` in LiveStagePlayback. Pauses the remote-video-lost
+   * watchdog below: iOS can stop delivering JS-visible participant/video-stream updates for a
+   * backgrounded RN surface well before 12s even though the native Stage session (and PiP's own
+   * video/audio) is still fine, and firing `leaveStage()` + rejoin from this watchdog while
+   * backgrounded raced the native Stage session in production (EXC_BAD_ACCESS inside
+   * IVSStageManager.leaveStage, Sentry GET-VAULTED-MOBILE-5) and, short of a crash, left Stage
+   * audio choppy and never recovering in the PiP window. The `active` prop deliberately stays
+   * true through backgrounding so PiP keeps working — this flag is what actually pauses the
+   * watchdog for that whole window instead.
+   */
+  viewerBackgrounded?: boolean;
+  /**
    * When true, tearing down this subscribe marks the process-wide WebRTC rejoin latch.
    * Use only for committed AppState background suspend — not show→show pager leaves.
    */
@@ -136,10 +149,15 @@ export function useMobileStageSubscribe(args: {
   useEffect(() => {
     if (!args.active || !connectedRef.current) return undefined;
     if (args.hostPaused) return undefined;
+    if (args.viewerBackgrounded) return undefined;
     let lostSince: number | null = remoteVideo ? null : Date.now();
     const id = setInterval(() => {
       if (!connectedRef.current) return;
       if (cbRef.current.hostPaused) {
+        lostSince = null;
+        return;
+      }
+      if (cbRef.current.viewerBackgrounded) {
         lostSince = null;
         return;
       }
@@ -154,7 +172,7 @@ export function useMobileStageSubscribe(args: {
       }
     }, REMOTE_VIDEO_CHECK_MS);
     return () => clearInterval(id);
-  }, [remoteVideo, args.active, args.hostPaused]);
+  }, [remoteVideo, args.active, args.hostPaused, args.viewerBackgrounded]);
 
   useEffect(() => {
     if (!args.active) {
