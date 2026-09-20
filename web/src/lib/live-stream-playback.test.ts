@@ -23,6 +23,28 @@ describe("live-stream-playback", () => {
     expect(liveStageObjectFitForPlayback({ streamMode: "channel_hls", transport: "hls" })).toBe("contain");
   });
 
+  // Regression: a PC seller broadcasting OBS 30+ straight into the Stage over WHIP reports
+  // transport "webrtc" and streamMode "stage_webrtc" — indistinguishable from a phone's portrait
+  // camera by those two fields alone — but the capture is OBS's landscape canvas, so buyers saw
+  // it cropped/zoomed under `cover`. `isObsDesktopSource` (server-derived from the WHIP ingest
+  // endpoint, never the endpoint itself) must force `contain` regardless of streamMode/transport.
+  it("liveStageObjectFitForPlayback contains desktop OBS over WHIP into the Stage", () => {
+    expect(
+      liveStageObjectFitForPlayback({
+        streamMode: "stage_webrtc",
+        transport: "webrtc",
+        isObsDesktopSource: true,
+      }),
+    ).toBe("contain");
+    expect(
+      liveStageObjectFitForPlayback({
+        streamMode: "stage_webrtc",
+        transport: "webrtc",
+        isObsDesktopSource: false,
+      }),
+    ).toBe("cover");
+  });
+
   it("parseBuyerSafeStreamPayload reads only nested stream fields", () => {
     const parsed = parseBuyerSafeStreamPayload({
       stream: {
@@ -48,6 +70,7 @@ describe("live-stream-playback", () => {
       streamMode: "stage_webrtc",
       stageAvailable: true,
       streamPaused: false,
+      isObsDesktopSource: false,
     });
   });
 

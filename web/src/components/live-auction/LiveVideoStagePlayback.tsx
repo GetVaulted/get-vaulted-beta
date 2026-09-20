@@ -243,6 +243,7 @@ export function LiveVideoStagePlayback({
   const [liveDebug, setLiveDebug] = useState<{ drift: number | null; liveEdge: number | null; currentTime: number } | null>(null);
   const [streamMode, setStreamMode] = useState<string>("channel_hls");
   const [stageAvailable, setStageAvailable] = useState(false);
+  const [isObsDesktopSource, setIsObsDesktopSource] = useState(false);
   const [inStreamWarmupGrace, setInStreamWarmupGrace] = useState(true);
   const [transport, setTransport] = useState<"none" | "webrtc" | "hls">("none");
   /** Forces useStageSubscribe to leave + rejoin (visibility resume, recoverable disconnect). */
@@ -513,6 +514,7 @@ export function LiveVideoStagePlayback({
       setLatencyMode(safe.latencyMode ?? null);
       setStreamMode(safe.streamMode);
       setStageAvailable(safe.stageAvailable);
+      setIsObsDesktopSource(safe.isObsDesktopSource);
       if (!loggedLatencyModeRef.current) {
         loggedLatencyModeRef.current = true;
         logIvsWeb("channel latency mode", {
@@ -899,7 +901,7 @@ export function LiveVideoStagePlayback({
     return resolveScheduledPrereleasePhase(Date.now(), scheduledStartMs, roomLifecycleLive);
   }, [roomLifecycleLive, hydrated, scheduledStartMs, tick]);
 
-  const liveVideoObjectFit = liveStageObjectFitForPlayback({ streamMode, transport });
+  const liveVideoObjectFit = liveStageObjectFitForPlayback({ streamMode, transport, isObsDesktopSource });
   const liveVideoFitClass =
     liveVideoObjectFit === "contain"
       ? "absolute inset-0 h-full w-full object-contain object-center opacity-[0.97]"
@@ -1180,6 +1182,7 @@ export function LiveVideoStagePlayback({
           <div className="mb-1 font-bold text-amber-300">Low Latency Debug</div>
           <div>transport: {transport}</div>
           <div>streamMode: {streamMode}</div>
+          <div>isObsDesktopSource: {String(isObsDesktopSource)}</div>
           <div>stageAvail: {stageAvailable ? "y" : "n"}</div>
           <div>latencyMode: {latencyMode ?? "—"}</div>
           <div>hls lowLatency: {debugEngine === "hls" ? (HLS_LOW_LATENCY_CONFIG.lowLatencyMode ? "y" : "n") : "n/a"}</div>

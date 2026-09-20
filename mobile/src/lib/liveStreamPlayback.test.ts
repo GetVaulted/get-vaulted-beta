@@ -51,6 +51,7 @@ describe('liveStreamPlayback', () => {
       streamMode: 'stage_webrtc',
       stageAvailable: true,
       streamPaused: false,
+      isObsDesktopSource: false,
     });
   });
 
@@ -405,6 +406,7 @@ describe('liveStreamPlayback', () => {
       lastStatusSyncAt: null,
       streamMode: 'stage_webrtc',
       stageAvailable: true,
+      isObsDesktopSource: false,
     };
     expect(mergeRealtimeStreamPaused(base, true)?.streamPaused).toBe(true);
     expect(mergeRealtimeStreamPaused(null, true)).toBeNull();

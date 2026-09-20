@@ -36,7 +36,7 @@ import {
 } from '../../lib/livePlaybackAppState';
 import { isLivePlaybackCommerceHoldActive } from '../../lib/livePlaybackCommerceHold';
 import { setLiveStagePipKeepAlive } from '../../lib/liveStagePipKeepAlive';
-import { liveStageContentFitForStreamMode, liveStageContentFitForPlayback } from '../../lib/liveRoomViewport';
+import { liveStageContentFitForPlayback } from '../../lib/liveRoomViewport';
 import { viewerLifecycleLog } from '../../lib/viewerLifecycleLog';
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
@@ -295,14 +295,22 @@ export function LiveStagePlayback({
     playback.stream?.streamPaused === true || realtimeStreamPaused === true;
   const transport = playback.transport;
   // HLS (OBS + Stage composition mirrors) is almost always landscape — contain avoids crop-zoom.
-  // WebRTC Stage from a phone stays cover. Override wins for both layers.
+  // WebRTC Stage from a phone stays cover; desktop OBS publishing over WHIP straight into the
+  // Stage reports as WebRTC too but is landscape, so isObsDesktopSource forces contain there as
+  // well. Override wins for both layers.
   const webrtcContentFit =
-    contentFitOverride ?? liveStageContentFitForStreamMode(playback.stream?.streamMode);
+    contentFitOverride ??
+    liveStageContentFitForPlayback({
+      streamMode: playback.stream?.streamMode,
+      transport: 'webrtc',
+      isObsDesktopSource: playback.stream?.isObsDesktopSource,
+    });
   const hlsContentFit =
     contentFitOverride ??
     liveStageContentFitForPlayback({
       streamMode: playback.stream?.streamMode,
       transport: 'hls',
+      isObsDesktopSource: playback.stream?.isObsDesktopSource,
     });
   const contentFit = transport === 'hls' ? hlsContentFit : webrtcContentFit;
   const viewerTransport = playback.viewerTransport;

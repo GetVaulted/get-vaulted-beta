@@ -15,6 +15,12 @@ export type BuyerSafeStreamFields = {
   streamMode: string;
   /** Whether a Real-Time Stage exists (gates the WebRTC subscribe attempt). */
   stageAvailable: boolean;
+  /**
+   * True when the source is desktop OBS — legacy RTMP→HLS *or* OBS 30+ WHIP→Stage. Stage rooms
+   * fed by OBS over WHIP still report `streamMode: "stage_webrtc"` (it really is WebRTC), but the
+   * capture is OBS's landscape canvas, not a phone's portrait camera.
+   */
+  isObsDesktopSource: boolean;
 };
 
 /** UI states surfaced on the live video stage (not IVS SDK states). */
@@ -41,6 +47,7 @@ export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamField
   const latencyMode = typeof s.latencyMode === "string" && s.latencyMode.trim() ? s.latencyMode.trim() : null;
   const streamMode = typeof s.streamMode === "string" && s.streamMode.trim() ? s.streamMode.trim() : "channel_hls";
   const stageAvailable = s.stageAvailable === true;
+  const isObsDesktopSource = s.isObsDesktopSource === true;
   return {
     playbackUrl,
     streamHealth,
@@ -51,6 +58,7 @@ export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamField
     latencyMode,
     streamMode,
     stageAvailable,
+    isObsDesktopSource,
   };
 }
 
@@ -121,12 +129,16 @@ export function liveStageObjectFitForStreamMode(
 /**
  * Fit for the layer the buyer is actually watching.
  * - HLS (OBS channel or Stage composition mirror) → contain
- * - WebRTC Stage → cover for phone portrait fill
+ * - Desktop OBS publishing straight into the Stage over WHIP (`isObsDesktopSource`) → contain,
+ *   even though the transport reports as WebRTC — OBS's canvas is landscape, not a phone camera.
+ * - WebRTC Stage from a phone → cover for phone portrait fill
  */
 export function liveStageObjectFitForPlayback(input: {
   streamMode: string | null | undefined;
   transport: string | null | undefined;
+  isObsDesktopSource?: boolean | null;
 }): "cover" | "contain" {
+  if (input.isObsDesktopSource) return "contain";
   const transport = typeof input.transport === "string" ? input.transport.trim().toLowerCase() : "";
   if (transport === "hls") return "contain";
   return liveStageObjectFitForStreamMode(input.streamMode);

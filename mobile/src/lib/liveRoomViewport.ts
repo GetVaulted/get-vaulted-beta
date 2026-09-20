@@ -26,13 +26,18 @@ export function liveStageContentFitForStreamMode(
 /**
  * Fit for the layer the buyer is actually watching.
  * - HLS (OBS channel or Stage composition mirror) → contain (landscape, avoid crop-zoom)
- * - WebRTC Stage → cover for phone portrait fill
+ * - Desktop OBS publishing straight into the Stage over WHIP (`isObsDesktopSource`) → contain,
+ *   even though the transport reports as WebRTC — OBS's canvas is landscape, not a phone camera.
+ * - WebRTC Stage from a phone → cover for phone portrait fill
  */
 export function liveStageContentFitForPlayback(input: {
   streamMode: string | null | undefined;
   /** Active delivery: webrtc | hls | waiting | none */
   transport: string | null | undefined;
+  /** True for legacy OBS/RTMP→HLS *or* OBS 30+ WHIP→Stage (desktop landscape capture either way). */
+  isObsDesktopSource?: boolean | null;
 }): 'cover' | 'contain' {
+  if (input.isObsDesktopSource) return 'contain';
   const transport = typeof input.transport === 'string' ? input.transport.trim().toLowerCase() : '';
   if (transport === 'hls') return 'contain';
   return liveStageContentFitForStreamMode(input.streamMode);

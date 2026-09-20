@@ -301,6 +301,7 @@ describe("live room stream routes", () => {
     const stream = body.stream as Record<string, unknown>;
     expect(Object.keys(stream).sort()).toEqual(
       [
+        "isObsDesktopSource",
         "lastStatusSyncAt",
         "latencyMode",
         "playbackUrl",

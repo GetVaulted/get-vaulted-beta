@@ -11,6 +11,12 @@ export type BuyerSafeStreamFields = {
   streamMode: string;
   /** Whether a Real-Time Stage exists for this room (gates WebRTC subscribe). */
   stageAvailable: boolean;
+  /**
+   * True when the source is desktop OBS — legacy RTMP→HLS *or* OBS 30+ WHIP→Stage. Stage rooms
+   * fed by OBS over WHIP still report `streamMode: "stage_webrtc"` (it really is WebRTC), but the
+   * capture is OBS's landscape canvas, not a phone's portrait camera.
+   */
+  isObsDesktopSource: boolean;
 };
 
 export type LivePlaybackSurfaceState =
@@ -124,6 +130,7 @@ export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamField
   const lastStatusSyncAt = typeof s.lastStatusSyncAt === 'string' ? s.lastStatusSyncAt : null;
   const streamMode = typeof s.streamMode === 'string' && s.streamMode.trim() ? s.streamMode.trim() : 'channel_hls';
   const stageAvailable = s.stageAvailable === true;
+  const isObsDesktopSource = s.isObsDesktopSource === true;
   return {
     playbackUrl,
     streamHealth,
@@ -133,6 +140,7 @@ export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamField
     lastStatusSyncAt,
     streamMode,
     stageAvailable,
+    isObsDesktopSource,
   };
 }
 
