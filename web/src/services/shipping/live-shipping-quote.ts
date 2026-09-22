@@ -81,6 +81,7 @@ export async function buildSessionPackageGroups(
         select: {
           defaultShippingProfileId: true,
           category: true,
+          bundleEligiblePurchases: true,
         },
       },
     },
@@ -160,6 +161,7 @@ export async function buildSessionPackageGroups(
       itemId: r.itemId,
       profile: resolveShippingProfileDimensions(r.profile, r.overrides),
     })),
+    { bundleEligiblePurchases: session.liveShow.bundleEligiblePurchases },
   );
 
   return { groups, liveShowId: session.liveShowId };
