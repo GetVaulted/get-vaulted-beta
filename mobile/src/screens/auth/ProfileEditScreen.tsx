@@ -245,6 +245,14 @@ export function ProfileEditScreen({ navigation }: Props) {
             <Text style={styles.avatarHint}>Circle crop · JPG up to 5 MB · optimized for fast loading</Text>
           </View>
 
+          <Pressable style={styles.pullsRow} onPress={() => navigation.navigate('PullMediaManage')}>
+            <View>
+              <Text style={styles.pullsRowTitle}>Manage pull photos & videos</Text>
+              <Text style={styles.pullsRowHint}>Show off your best pulls on your profile</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </Pressable>
+
           <Text style={styles.label}>Username</Text>
           <TextInput
             style={[styles.input, usernameLocked && styles.inputDisabled]}
@@ -313,6 +321,18 @@ const styles = StyleSheet.create({
   },
   changePhotoTxt: { color: colors.gold, fontWeight: '700', fontSize: 15 },
   avatarHint: { color: colors.textMuted, fontSize: 12, marginTop: spacing.xs, textAlign: 'center' },
+  pullsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  pullsRowTitle: { color: colors.textPrimary, fontWeight: '700', fontSize: 14 },
+  pullsRowHint: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   label: { ...typography.micro, color: colors.textMuted, letterSpacing: 1 },
   input: {
     borderRadius: radii.md,

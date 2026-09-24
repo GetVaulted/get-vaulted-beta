@@ -53,6 +53,7 @@ export type RootStackParamList = {
    */
   NotificationPermission: { source?: 'signup' | 'login' } | undefined;
   ProfileEdit: undefined;
+  PullMediaManage: undefined;
   ProductDetail: { productId: string };
   MarketplaceCheckout: { listingId: string; mode: 'buy_now' | 'layaway'; walletSetupFirst?: boolean };
   SellerListingManagement: { listingId: string; offerId?: string };

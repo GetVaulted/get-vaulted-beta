@@ -73,6 +73,10 @@ const UserProfileScreen = lazyScreen(
   () => import('../screens/profile/UserProfileScreen'),
   (m) => m.UserProfileScreen,
 );
+const PullMediaManageScreen = lazyScreen(
+  () => import('../screens/profile/PullMediaManageScreen'),
+  (m) => m.PullMediaManageScreen,
+);
 const SellerShopScreen = lazyScreen(
   () => import('../screens/profile/SellerShopScreen'),
   (m) => m.SellerShopScreen,
@@ -260,6 +264,7 @@ export function RootNavigator() {
             options={{ animation: 'fade', gestureEnabled: false }}
           />
           <Stack.Screen name="ProfileEdit" component={ProfileEditScreen} />
+          <Stack.Screen name="PullMediaManage" component={PullMediaManageScreen} />
           <Stack.Screen
             name="SellerHostRoom"
             component={SellerHostRoomScreen}

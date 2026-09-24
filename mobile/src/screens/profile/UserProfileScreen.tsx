@@ -19,6 +19,7 @@ import { setUserBlockedRemote } from '../../api/userBlockRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { ProfileSellerShopPanel } from '../../components/profile/ProfileSellerShopPanel';
+import { ProfilePullsGallery } from '../../components/profile/ProfilePullsGallery';
 import { ReportSheet } from '../../components/trust/ReportSheet';
 import { UserAvatar } from '../../components/ui/UserAvatar';
 import { openDispute, openFollowersFollowing } from '../../navigation/openPlatform';
@@ -36,13 +37,14 @@ import type { TradeOfferVM } from '../../types/tradeOffers';
 import type { LiveStream, ScheduledStream } from '../../types';
 import { colors, radii, spacing } from '../../theme';
 
-type Tab = 'shop' | 'live' | 'trades' | 'reviews' | 'about';
+type Tab = 'shop' | 'live' | 'trades' | 'reviews' | 'about' | 'pulls';
 
-const TABS: Tab[] = ['shop', 'live', 'trades', 'reviews', 'about'];
+const TABS: Tab[] = ['shop', 'live', 'trades', 'reviews', 'about', 'pulls'];
 
 function tabLabel(t: Tab): string {
   if (t === 'live') return 'Live shows';
   if (t === 'shop') return 'Shop';
+  if (t === 'pulls') return 'Pulls';
   return t;
 }
 
@@ -321,6 +323,10 @@ export function UserProfileScreen({ navigation, route }: Props) {
             sellerId={userId}
             onPressProduct={(productId) => navigation.navigate('ProductDetail', { productId })}
           />
+        ) : null}
+
+        {tab === 'pulls' ? (
+          <ProfilePullsGallery sellerId={userId} viewerAccessToken={session?.access_token} />
         ) : null}
 
         {tab === 'live' ? (
