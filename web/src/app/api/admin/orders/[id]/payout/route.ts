@@ -61,6 +61,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       deliveryConfirmedAt: true,
       seller: {
         select: {
+          suspendedAt: true,
           stripeAccountId: true,
           stripeOnboardingComplete: true,
           stripePayoutsEnabled: true,
@@ -77,6 +78,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (action === "release_payout") {
     if (order.paymentStatus !== "paid") {
       return NextResponse.json({ error: "Order is not paid." }, { status: 400 });
+    }
+
+    // Same risk gate the automated instant-payout pipeline enforces (see
+    // evaluateSellerInstantPayoutEligibility's "seller_account_flagged" disqualifier) — a manual
+    // admin release must not be able to pay out a suspended seller just because the automated
+    // path never got the chance to check.
+    if (order.seller.suspendedAt) {
+      return NextResponse.json(
+        { error: "Cannot release payout — seller account is suspended." },
+        { status: 409 },
+      );
     }
 
     const isPaypalRail = order.sellerPayoutProcessor === "PAYPAL";
@@ -129,11 +141,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       if (!order.escrowTransactionId) {
         return NextResponse.json({ error: "No escrow transaction on order." }, { status: 400 });
       }
+      // Escrow release can be paused by risk/fraud review (admin escrow controls' `pause_release`
+      // action — see api/admin/orders/[id]/escrow/route.ts, which itself refuses to release funds
+      // while paused). That pause is a deliberate hold someone has to lift on purpose; this action
+      // must not clear it as a side effect of an unrelated "release payout" click, or a risk hold
+      // gets silently defeated by whoever next tries to pay the seller out.
       if (order.escrowReleasePaused) {
-        await prisma.order.update({
-          where: { id: orderId },
-          data: { escrowReleasePaused: false },
-        });
+        return NextResponse.json(
+          {
+            error:
+              "Escrow release is paused for this order. Lift the pause via admin escrow controls before releasing payout.",
+          },
+          { status: 409 },
+        );
       }
       let escrowStatus = order.escrowStatus;
       if (escrowStatus !== EscrowStatus.approved && escrowStatus !== EscrowStatus.funds_released) {
@@ -166,6 +186,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
             },
             auditSource: "admin",
           });
+          escrowStatus = EscrowStatus.funds_released;
         } catch (e) {
           if (e instanceof EscrowReleaseAlreadyInFlightError) {
             return NextResponse.json(
@@ -178,6 +199,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           }
           throw e;
         }
+      }
+
+      // Previously this fell through silently: an escrow order stuck in `disputed` or `cancelled`
+      // (neither transitionable to `approved` above, nor already `funds_released`) hit none of the
+      // branches above, so nothing was ever actually released — yet execution continued straight
+      // to the unconditional `payoutStatus: paid_out` update below, recording money as paid out
+      // that never moved. Require confirmed release before that update runs.
+      if (escrowStatus !== EscrowStatus.funds_released) {
+        return NextResponse.json(
+          { error: `Cannot release payout — escrow status is '${escrowStatus}', not resolvable to a release.` },
+          { status: 409 },
+        );
       }
     } else if (isPaypalRail) {
       const { releaseSellerPayPalPayout } = await import("@/services/payout/paypal-seller-payout");
