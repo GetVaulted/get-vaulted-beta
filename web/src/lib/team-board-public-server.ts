@@ -6,13 +6,32 @@ import type { TeamBoardPickDTO, TeamBoardPublicPayload, TeamBoardStateDTO } from
 export type { TeamBoardPickDTO, TeamBoardPublicPayload, TeamBoardStateDTO } from "@/lib/team-board-public-dto";
 
 async function latestSpotClaimPicker(liveRoomId: string): Promise<{ userId: string; username: string } | null> {
-  const row = await prisma.breakSpot.findFirst({
-    where: { liveRoomId },
-    orderBy: { createdAt: "desc" },
-    select: { userId: true, user: { select: { username: true } } },
-  });
-  if (!row) return null;
-  return { userId: row.userId, username: row.user.username };
+  // Rooms selling via LiveItemVariantPurchase (variant/team spot sales) never write to the older
+  // BreakSpot claim table, so relying on BreakSpot alone leaves this permanently blank for them.
+  // Check both tables and take whichever recorded the more recent claim.
+  const [spotRow, variantRow] = await Promise.all([
+    prisma.breakSpot.findFirst({
+      where: { liveRoomId },
+      orderBy: { createdAt: "desc" },
+      select: { userId: true, createdAt: true, user: { select: { username: true } } },
+    }),
+    prisma.liveItemVariantPurchase.findFirst({
+      where: { liveRoomId, paymentStatus: "paid" },
+      orderBy: { createdAt: "desc" },
+      select: { buyerId: true, createdAt: true, buyer: { select: { username: true } } },
+    }),
+  ]);
+
+  const candidates = [
+    spotRow ? { userId: spotRow.userId, username: spotRow.user.username, createdAt: spotRow.createdAt } : null,
+    variantRow
+      ? { userId: variantRow.buyerId, username: variantRow.buyer.username, createdAt: variantRow.createdAt }
+      : null,
+  ].filter((c): c is { userId: string; username: string; createdAt: Date } => c !== null);
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  return { userId: candidates[0].userId, username: candidates[0].username };
 }
 
 export async function getTeamBoardPublicPayload(liveRoomId: string): Promise<TeamBoardPublicPayload | null> {

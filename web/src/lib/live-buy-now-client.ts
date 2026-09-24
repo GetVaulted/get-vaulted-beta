@@ -20,65 +20,77 @@ export async function purchaseLiveBuyNow(args: {
   itemId: string;
   paymentMethodId?: string;
 }): Promise<LiveBuyNowClientResult> {
-  const res = await fetch(
-    `/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/items/${encodeURIComponent(args.itemId)}/buy`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ paymentMethodId: args.paymentMethodId }),
-    },
-  );
-  const payload = (await res.json()) as {
-    error?: string;
-    paid?: boolean;
-    ok?: boolean;
-    orderId?: string;
-    signInUrl?: string;
-    code?: string;
-    paymentFailed?: boolean;
-    requiresAction?: boolean;
-    clientSecret?: string;
-    paymentIntentId?: string;
-    publishableKey?: string;
-    processing?: boolean;
-  };
-  if (res.status === 402 && payload.code === "LIVE_BUYER_WALLET_INCOMPLETE") {
-    return { ok: false, error: payload.error ?? "Wallet incomplete.", status: 402, walletIncomplete: true };
-  }
-  if (res.status === 402) {
+  try {
+    const res = await fetch(
+      `/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/items/${encodeURIComponent(args.itemId)}/buy`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ paymentMethodId: args.paymentMethodId }),
+      },
+    );
+    const payload = (await res.json()) as {
+      error?: string;
+      paid?: boolean;
+      ok?: boolean;
+      orderId?: string;
+      signInUrl?: string;
+      code?: string;
+      paymentFailed?: boolean;
+      requiresAction?: boolean;
+      clientSecret?: string;
+      paymentIntentId?: string;
+      publishableKey?: string;
+      processing?: boolean;
+    };
+    if (res.status === 402 && payload.code === "LIVE_BUYER_WALLET_INCOMPLETE") {
+      return { ok: false, error: payload.error ?? "Wallet incomplete.", status: 402, walletIncomplete: true };
+    }
+    if (res.status === 402) {
+      return {
+        ok: false,
+        error: typeof payload.error === "string" ? payload.error : "Payment failed.",
+        status: 402,
+        paymentFailed: payload.paymentFailed === true,
+        code: payload.code,
+        orderId: payload.orderId,
+      };
+    }
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: typeof payload.error === "string" ? payload.error : "Purchase failed.",
+        status: res.status,
+        signInUrl: payload.signInUrl,
+      };
+    }
+    if (payload.paid || payload.ok) return { ok: true, paid: true, orderId: payload.orderId };
+    if (payload.requiresAction && payload.clientSecret && payload.orderId && payload.paymentIntentId) {
+      return {
+        ok: true,
+        requiresAction: true,
+        orderId: payload.orderId,
+        clientSecret: payload.clientSecret,
+        paymentIntentId: payload.paymentIntentId,
+        publishableKey: payload.publishableKey,
+      };
+    }
+    if (payload.processing && payload.orderId) {
+      return { ok: true, processing: true, orderId: payload.orderId };
+    }
+    return { ok: false, error: "Purchase could not complete.", status: res.status };
+  } catch (e) {
+    // Network failure / bad response body — without this, the throw propagated past the caller's
+    // `finally { setLoading(false) }` with no `catch`, so the buy button reset with zero feedback
+    // and the buyer had no idea whether the purchase had actually gone through.
+    const msg = e instanceof Error ? e.message.trim() : "";
     return {
       ok: false,
-      error: typeof payload.error === "string" ? payload.error : "Payment failed.",
-      status: 402,
-      paymentFailed: payload.paymentFailed === true,
-      code: payload.code,
-      orderId: payload.orderId,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server. Check your connection and try again.",
+      status: 0,
     };
   }
-  if (!res.ok) {
-    return {
-      ok: false,
-      error: typeof payload.error === "string" ? payload.error : "Purchase failed.",
-      status: res.status,
-      signInUrl: payload.signInUrl,
-    };
-  }
-  if (payload.paid || payload.ok) return { ok: true, paid: true, orderId: payload.orderId };
-  if (payload.requiresAction && payload.clientSecret && payload.orderId && payload.paymentIntentId) {
-    return {
-      ok: true,
-      requiresAction: true,
-      orderId: payload.orderId,
-      clientSecret: payload.clientSecret,
-      paymentIntentId: payload.paymentIntentId,
-      publishableKey: payload.publishableKey,
-    };
-  }
-  if (payload.processing && payload.orderId) {
-    return { ok: true, processing: true, orderId: payload.orderId };
-  }
-  return { ok: false, error: "Purchase could not complete.", status: res.status };
 }
 
 export async function syncLiveBuyNowPurchase(args: {
@@ -86,24 +98,34 @@ export async function syncLiveBuyNowPurchase(args: {
   itemId: string;
   orderId: string;
 }): Promise<LiveBuyNowClientResult> {
-  const res = await fetch(
-    `/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/items/${encodeURIComponent(args.itemId)}/buy`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ action: "sync", orderId: args.orderId }),
-    },
-  );
-  const payload = (await res.json()) as { error?: string; paid?: boolean; ok?: boolean; orderId?: string; paymentFailed?: boolean };
-  if (res.ok && (payload.paid || payload.ok)) return { ok: true, paid: true, orderId: payload.orderId };
-  return {
-    ok: false,
-    error: typeof payload.error === "string" ? payload.error : "Payment not completed.",
-    status: res.status,
-    paymentFailed: payload.paymentFailed === true,
-    orderId: payload.orderId,
-  };
+  try {
+    const res = await fetch(
+      `/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/items/${encodeURIComponent(args.itemId)}/buy`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action: "sync", orderId: args.orderId }),
+      },
+    );
+    const payload = (await res.json()) as { error?: string; paid?: boolean; ok?: boolean; orderId?: string; paymentFailed?: boolean };
+    if (res.ok && (payload.paid || payload.ok)) return { ok: true, paid: true, orderId: payload.orderId };
+    return {
+      ok: false,
+      error: typeof payload.error === "string" ? payload.error : "Payment not completed.",
+      status: res.status,
+      paymentFailed: payload.paymentFailed === true,
+      orderId: payload.orderId,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server. Check your connection and try again.",
+      status: 0,
+      orderId: args.orderId,
+    };
+  }
 }
 
 export async function purchaseLiveBuyNowWithSca(args: {
@@ -152,79 +174,97 @@ export async function payLiveBreakSpot(args: {
   breakSpotId: string;
   paymentMethodId?: string;
 }): Promise<LiveBreakSpotPayClientResult> {
-  const res = await fetch(
-    `/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/break-spots/${encodeURIComponent(args.breakSpotId)}/pay`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ paymentMethodId: args.paymentMethodId }),
-    },
-  );
-  const payload = (await res.json()) as {
-    error?: string;
-    paid?: boolean;
-    ok?: boolean;
-    code?: string;
-    paymentFailed?: boolean;
-    requiresAction?: boolean;
-    clientSecret?: string;
-    paymentIntentId?: string;
-    publishableKey?: string;
-    processing?: boolean;
-  };
-  if (res.status === 402 && payload.code === "LIVE_BUYER_WALLET_INCOMPLETE") {
-    return { ok: false, error: payload.error ?? "Wallet incomplete.", status: 402, walletIncomplete: true };
-  }
-  if (res.status === 402) {
+  try {
+    const res = await fetch(
+      `/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/break-spots/${encodeURIComponent(args.breakSpotId)}/pay`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ paymentMethodId: args.paymentMethodId }),
+      },
+    );
+    const payload = (await res.json()) as {
+      error?: string;
+      paid?: boolean;
+      ok?: boolean;
+      code?: string;
+      paymentFailed?: boolean;
+      requiresAction?: boolean;
+      clientSecret?: string;
+      paymentIntentId?: string;
+      publishableKey?: string;
+      processing?: boolean;
+    };
+    if (res.status === 402 && payload.code === "LIVE_BUYER_WALLET_INCOMPLETE") {
+      return { ok: false, error: payload.error ?? "Wallet incomplete.", status: 402, walletIncomplete: true };
+    }
+    if (res.status === 402) {
+      return {
+        ok: false,
+        error: typeof payload.error === "string" ? payload.error : "Payment failed.",
+        status: 402,
+        paymentFailed: payload.paymentFailed === true,
+        code: payload.code,
+      };
+    }
+    if (!res.ok) {
+      return { ok: false, error: typeof payload.error === "string" ? payload.error : "Payment failed.", status: res.status };
+    }
+    if (payload.paid || payload.ok) return { ok: true, paid: true };
+    if (payload.requiresAction && payload.clientSecret && payload.paymentIntentId) {
+      return {
+        ok: true,
+        requiresAction: true,
+        clientSecret: payload.clientSecret,
+        paymentIntentId: payload.paymentIntentId,
+        publishableKey: payload.publishableKey,
+      };
+    }
+    if (payload.processing && payload.paymentIntentId) {
+      return { ok: true, processing: true, paymentIntentId: payload.paymentIntentId };
+    }
+    return { ok: false, error: "Payment could not complete.", status: res.status };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
     return {
       ok: false,
-      error: typeof payload.error === "string" ? payload.error : "Payment failed.",
-      status: 402,
-      paymentFailed: payload.paymentFailed === true,
-      code: payload.code,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server. Check your connection and try again.",
+      status: 0,
     };
   }
-  if (!res.ok) {
-    return { ok: false, error: typeof payload.error === "string" ? payload.error : "Payment failed.", status: res.status };
-  }
-  if (payload.paid || payload.ok) return { ok: true, paid: true };
-  if (payload.requiresAction && payload.clientSecret && payload.paymentIntentId) {
-    return {
-      ok: true,
-      requiresAction: true,
-      clientSecret: payload.clientSecret,
-      paymentIntentId: payload.paymentIntentId,
-      publishableKey: payload.publishableKey,
-    };
-  }
-  if (payload.processing && payload.paymentIntentId) {
-    return { ok: true, processing: true, paymentIntentId: payload.paymentIntentId };
-  }
-  return { ok: false, error: "Payment could not complete.", status: res.status };
 }
 
 export async function syncLiveBreakSpotPay(args: {
   liveRoomId: string;
   breakSpotId: string;
 }): Promise<LiveBreakSpotPayClientResult> {
-  const res = await fetch(
-    `/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/break-spots/${encodeURIComponent(args.breakSpotId)}/pay`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ action: "sync" }),
-    },
-  );
-  const payload = (await res.json()) as { error?: string; paid?: boolean; ok?: boolean; paymentFailed?: boolean };
-  if (res.ok && (payload.paid || payload.ok)) return { ok: true, paid: true };
-  return {
-    ok: false,
-    error: typeof payload.error === "string" ? payload.error : "Payment not completed.",
-    status: res.status,
-    paymentFailed: payload.paymentFailed === true,
-  };
+  try {
+    const res = await fetch(
+      `/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/break-spots/${encodeURIComponent(args.breakSpotId)}/pay`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action: "sync" }),
+      },
+    );
+    const payload = (await res.json()) as { error?: string; paid?: boolean; ok?: boolean; paymentFailed?: boolean };
+    if (res.ok && (payload.paid || payload.ok)) return { ok: true, paid: true };
+    return {
+      ok: false,
+      error: typeof payload.error === "string" ? payload.error : "Payment not completed.",
+      status: res.status,
+      paymentFailed: payload.paymentFailed === true,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server. Check your connection and try again.",
+      status: 0,
+    };
+  }
 }
 
 export async function payLiveBreakSpotWithSca(args: {

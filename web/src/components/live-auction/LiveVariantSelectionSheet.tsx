@@ -61,8 +61,8 @@ function summarizeSpots(variants: LiveItemVariantDTO[]) {
   };
 }
 
-function variantIsAvailable(v: LiveItemVariantDTO) {
-  return v.quantityRemaining > 0 && v.status !== "sold_out";
+function variantIsAvailable(v: LiveItemVariantDTO, staleIds?: Set<string>) {
+  return v.quantityRemaining > 0 && v.status !== "sold_out" && !staleIds?.has(v.id);
 }
 
 export function LiveVariantSelectionSheet({
@@ -82,6 +82,10 @@ export function LiveVariantSelectionSheet({
   const [checkoutPreview, setCheckoutPreview] = useState<LiveVariantCheckoutPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [spotSearch, setSpotSearch] = useState("");
+  // Variant ids a lost purchase race just told us are gone. `item` only refreshes on the next
+  // background poll, so without this the tile kept showing "available" and a retry just failed
+  // the same way — this makes the loss visible immediately instead of waiting for that poll.
+  const [staleVariantIds, setStaleVariantIds] = useState<Set<string>>(new Set());
 
   const isRandom = isRandomVariantAssignment(item.variantAssignmentMode);
   const isDivisionBreak = item.salesFormat === "team_break";
@@ -131,26 +135,27 @@ export function LiveVariantSelectionSheet({
       setCheckoutPreview(null);
       setPreviewLoading(false);
       setSpotSearch("");
+      setStaleVariantIds(new Set());
       return;
     }
     if (isRandom) {
-      const available = variants.find((v) => variantIsAvailable(v));
+      const available = variants.find((v) => variantIsAvailable(v, staleVariantIds));
       if (available) setSelectedIds([available.id]);
       return;
     }
     if (
       initialVariantId &&
       selectedIds.length === 0 &&
-      variants.some((v) => v.id === initialVariantId && variantIsAvailable(v))
+      variants.some((v) => v.id === initialVariantId && variantIsAvailable(v, staleVariantIds))
     ) {
       setSelectedIds([initialVariantId]);
       return;
     }
     setSelectedIds((prev) => {
-      const next = prev.filter((id) => variants.some((v) => v.id === id && variantIsAvailable(v)));
+      const next = prev.filter((id) => variants.some((v) => v.id === id && variantIsAvailable(v, staleVariantIds)));
       return next.length === prev.length ? prev : next;
     });
-  }, [open, isRandom, variants, initialVariantId]);
+  }, [open, isRandom, variants, initialVariantId, staleVariantIds]);
 
   const toggleSpot = (variantId: string) => {
     if (isRandom) return;
@@ -203,7 +208,7 @@ export function LiveVariantSelectionSheet({
       setError(`Select ${isDivisionBreak ? "a division" : "a team"} first.`);
       return;
     }
-    if (selectedVariants.some((v) => !variantIsAvailable(v))) {
+    if (selectedVariants.some((v) => !variantIsAvailable(v, staleVariantIds))) {
       setError("One or more spots were just taken. Update your selection.");
       return;
     }
@@ -249,6 +254,20 @@ export function LiveVariantSelectionSheet({
         if (res.walletIncomplete) {
           onWalletRequired();
           return;
+        }
+        if (res.status === 409) {
+          // Lost the race: the server's 409s here (sold out, item no longer available, pinned/live
+          // for auction, pool exhausted) all mean the spot(s) we tried to buy are gone. Mark them
+          // stale locally and drop them from the selection right away — `item` won't refresh until
+          // the next background poll, and without this the tile kept reading "available" and a
+          // retry just failed the exact same way.
+          const lostIds = selectedVariants.map((v) => v.id);
+          setStaleVariantIds((prev) => {
+            const next = new Set(prev);
+            for (const id of lostIds) next.add(id);
+            return next;
+          });
+          setSelectedIds((prev) => prev.filter((id) => !lostIds.includes(id)));
         }
         setError(res.error);
         return;
@@ -399,9 +418,10 @@ export function LiveVariantSelectionSheet({
                     <VariantPill
                       key={v.id}
                       variant={v}
+                      locallyStale={staleVariantIds.has(v.id)}
                       selected={selectedIds.includes(v.id)}
                       onSelect={() => {
-                        if (!variantIsAvailable(v)) return;
+                        if (!variantIsAvailable(v, staleVariantIds)) return;
                         toggleSpot(v.id);
                       }}
                     />
@@ -514,12 +534,16 @@ function VariantPill({
   variant,
   selected,
   onSelect,
+  locallyStale = false,
 }: {
   variant: LiveItemVariantDTO;
   selected: boolean;
   onSelect: () => void;
+  /** This spot just lost a purchase race — treat as sold out even though `variant` (from the last
+   * poll) doesn't know that yet. */
+  locallyStale?: boolean;
 }) {
-  const soldOut = variant.quantityRemaining <= 0 || variant.status === "sold_out";
+  const soldOut = variant.quantityRemaining <= 0 || variant.status === "sold_out" || locallyStale;
   return (
     <button
       type="button"

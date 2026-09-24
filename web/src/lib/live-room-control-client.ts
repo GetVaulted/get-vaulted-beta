@@ -19,44 +19,71 @@ export async function patchLiveRoomAction(
   liveRoomId: string,
   action: "start" | "end",
 ): Promise<ApiResult<Record<string, unknown>>> {
-  const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action }),
-  });
-  const payload = await readJsonSafe<Record<string, unknown>>(res);
-  if (!res.ok) {
-    const { error, issues } = normalizeError(payload, "Could not update room.");
-    return { ok: false, error, issues };
+  try {
+    const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    const payload = await readJsonSafe<Record<string, unknown>>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not update room.");
+      return { ok: false, error, issues };
+    }
+    return { ok: true, data: payload ?? {} };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server. Check your connection and that you are signed in.",
+      issues: [],
+    };
   }
-  return { ok: true, data: payload ?? {} };
 }
 
 export async function deleteLiveRoomItem(liveRoomId: string, itemId: string): Promise<ApiResult<Record<string, unknown>>> {
-  const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(itemId)}`, {
-    method: "DELETE",
-  });
-  const payload = await readJsonSafe<Record<string, unknown>>(res);
-  if (!res.ok) {
-    const { error, issues } = normalizeError(payload, "Could not remove item.");
-    return { ok: false, error, issues };
+  try {
+    const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(itemId)}`, {
+      method: "DELETE",
+    });
+    const payload = await readJsonSafe<Record<string, unknown>>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not remove item.");
+      return { ok: false, error, issues };
+    }
+    return { ok: true, data: payload ?? {} };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server. Check your connection and that you are signed in.",
+      issues: [],
+    };
   }
-  return { ok: true, data: payload ?? {} };
 }
 
 /** Deletes every queued row in the room (confirm in UI first). */
 export async function bulkDeleteQueuedLiveRoomItems(liveRoomId: string): Promise<ApiResult<{ deleted?: number }>> {
-  const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/bulk-delete-queued`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ confirm: true }),
-  });
-  const payload = await readJsonSafe<{ deleted?: number; error?: string; issues?: string[] }>(res);
-  if (!res.ok) {
-    const { error, issues } = normalizeError(payload, "Could not clear queued items.");
-    return { ok: false, error, issues };
+  try {
+    const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/bulk-delete-queued`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: true }),
+    });
+    const payload = await readJsonSafe<{ deleted?: number; error?: string; issues?: string[] }>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not clear queued items.");
+      return { ok: false, error, issues };
+    }
+    return { ok: true, data: payload ?? {} };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server. Check your connection and that you are signed in.",
+      issues: [],
+    };
   }
-  return { ok: true, data: payload ?? {} };
 }
 
 /**
@@ -81,17 +108,26 @@ export async function patchLiveRoomItemStatus(
   itemId: string,
   status: "queued" | "active" | "sold" | "skipped",
 ): Promise<ApiResult<Record<string, unknown>>> {
-  const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(itemId)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
-  });
-  const payload = await readJsonSafe<Record<string, unknown>>(res);
-  if (!res.ok) {
-    const { error, issues } = normalizeError(payload, "Could not update item.");
-    return { ok: false, error, issues };
+  try {
+    const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(itemId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    const payload = await readJsonSafe<Record<string, unknown>>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not update item.");
+      return { ok: false, error, issues };
+    }
+    return { ok: true, data: payload ?? {} };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server. Check your connection and that you are signed in.",
+      issues: [],
+    };
   }
-  return { ok: true, data: payload ?? {} };
 }
 
 /** Opens timed bidding on the active lot (host only; room must be live). */
@@ -442,17 +478,26 @@ export async function sendLiveRoomSystemMessage(
   liveRoomId: string,
   body: string,
 ): Promise<ApiResult<Record<string, unknown>>> {
-  const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/host-system-message`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ body }),
-  });
-  const payload = await readJsonSafe<Record<string, unknown>>(res);
-  if (!res.ok) {
-    const { error, issues } = normalizeError(payload, "Could not send system message.");
-    return { ok: false, error, issues };
+  try {
+    const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/host-system-message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    });
+    const payload = await readJsonSafe<Record<string, unknown>>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not send system message.");
+      return { ok: false, error, issues };
+    }
+    return { ok: true, data: payload ?? {} };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server. Check your connection and that you are signed in.",
+      issues: [],
+    };
   }
-  return { ok: true, data: payload ?? {} };
 }
 
 export type LiveLotSaleType = "auction" | "buy_now";
