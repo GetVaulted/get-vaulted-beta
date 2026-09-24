@@ -108,6 +108,8 @@ export function notificationTypeChip(type: string): string {
     layaway_payment_seller: "Layaway payment",
     admin_announcement: "Announcement",
     new_follower: "New follower",
+    pull_liked: "Liked your pull",
+    pull_commented: "New comment",
   };
   return map[type] ?? type.replace(/_/g, " ");
 }

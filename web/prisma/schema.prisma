@@ -725,6 +725,10 @@ model User {
   breakHitsBuyer                     BreakHit[]                  @relation("BreakHitBuyer")
   hitClipsAsSeller                   HitClip[]                   @relation("HitClipSeller")
   hitClipsAsBuyer                    HitClip[]                   @relation("HitClipBuyer")
+  pullMedia                           ProfilePullMedia[]          @relation("SellerPullMedia")
+  pullLikes                           PullLike[]                  @relation("PullLikeUser")
+  pullComments                        PullComment[]               @relation("PullCommentAuthor")
+  pullCommentsDeleted                 PullComment[]               @relation("PullCommentDeletedBy")
   sellerFollowsAsFollower            SellerFollow[]              @relation("SellerFollowFollower")
   sellerFollowsAsSeller              SellerFollow[]              @relation("SellerFollowSeller")
   teamBoardPicks                     LiveRoomTeamBoardPick[]
@@ -1750,6 +1754,62 @@ model ListingImage {
   listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
   url       String
   sortOrder Int     @default(0)
+}
+
+enum ProfilePullMediaType {
+  PHOTO
+  VIDEO
+}
+
+/// Seller-uploaded "pulls" (photos/short clips of card pulls) shown on their profile —
+/// not tied to any specific listing. See docs/PULLS.md style comment in the API routes.
+model ProfilePullMedia {
+  id         String               @id @default(cuid())
+  sellerId   String
+  seller     User                 @relation("SellerPullMedia", fields: [sellerId], references: [id], onDelete: Cascade)
+  type       ProfilePullMediaType
+  url        String
+  /// Populated for VIDEO rows only; null for PHOTO rows.
+  durationMs Int?
+  byteSize   Int?
+  sortOrder  Int                  @default(0)
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+  likes      PullLike[]
+  comments   PullComment[]
+
+  @@index([sellerId, type, sortOrder])
+}
+
+/// A buyer "loving" a seller's pull photo/video. One row per (pullMedia, user) — the unique
+/// constraint is what makes liking idempotent from the client (retry-safe double-tap).
+model PullLike {
+  id          String           @id @default(cuid())
+  pullMediaId String
+  pullMedia   ProfilePullMedia @relation(fields: [pullMediaId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User             @relation("PullLikeUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime         @default(now())
+
+  @@unique([pullMediaId, userId])
+  @@index([pullMediaId])
+}
+
+/// A comment on a seller's pull photo/video. Soft-deleted (mirrors `LiveRoomMessage`) so a
+/// removed comment can show moderation provenance instead of leaving a dangling reference.
+model PullComment {
+  id              String           @id @default(cuid())
+  pullMediaId     String
+  pullMedia       ProfilePullMedia @relation(fields: [pullMediaId], references: [id], onDelete: Cascade)
+  authorId        String
+  author          User             @relation("PullCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  body            String
+  deletedAt       DateTime?
+  deletedByUserId String?
+  deletedBy       User?            @relation("PullCommentDeletedBy", fields: [deletedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime         @default(now())
+
+  @@index([pullMediaId, createdAt])
 }
 
 model Offer {
