@@ -490,8 +490,23 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const activeBoardRow = useMemo(() => {
     const rows = data?.queueItems;
     if (!rows?.length) return null;
-    return rows.find((q) => q.item.status.toLowerCase() === "active") ?? null;
-  }, [data?.queueItems]);
+    const active = rows.find((q) => q.item.status.toLowerCase() === "active");
+    if (active) return active;
+    // Pre-sale: mirror the buyer-side fallback in LiveAuctionRoom (no item is "active" yet
+    // pre-Go-Live) so the host's mark-sold board is reachable before the show starts, matching
+    // isRoomOpenForHostOffPlatformMarkSold's intent of allowing "scheduled" | "live" | "ended".
+    if (data?.room?.status === "scheduled") {
+      return (
+        rows.find(
+          (q) =>
+            q.item.status.toLowerCase() === "queued" &&
+            isVariantSalesFormat(q.item.salesFormat) &&
+            (q.item.variants?.length ?? 0) > 0,
+        ) ?? null
+      );
+    }
+    return null;
+  }, [data?.queueItems, data?.room?.status]);
 
   const selectedQueueRow = useMemo(() => {
     const rows = data?.queueItems;

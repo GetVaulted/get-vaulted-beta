@@ -831,9 +831,14 @@ export function LiveAuctionRoom({
         : null
     : null;
 
-  /** PYT/PYD — claim sheet for pick/random; spot auction uses bid flow. */
+  /**
+   * PYT/PYD — claim sheet for pick/random; spot auction uses bid flow. Uses `!pytCommerceLive`
+   * (not the raw `!isLive`) so pre-sale purchases while `roomStatus === "scheduled"` aren't
+   * blocked by this button — `pytCommerceLive`, `activeDbItem`'s pre-sale fallback above, and
+   * the backend's `isLiveRoomOpenForSpotPurchase` guard all already intend to allow this.
+   */
   const variantShopDisabled =
-    !isLive ||
+    !pytCommerceLive ||
     purchaseBlocked ||
     staffCommerceBlocked ||
     busy ||
