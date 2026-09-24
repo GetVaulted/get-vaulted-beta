@@ -248,7 +248,7 @@ export async function finalizeLiveItemVariantPurchasePaid(
     label: displayLabel,
     buyerUsername: purchase.buyer.username,
     amountUsd: purchase.totalUsd,
-    itemVersion: itemRow?.itemVersion,
+    itemVersion: itemRow?.itemVersion ?? 0,
     quantity: purchase.quantity,
     randomReveal,
   });
