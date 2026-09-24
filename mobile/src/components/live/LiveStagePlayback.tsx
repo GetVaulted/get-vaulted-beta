@@ -244,6 +244,21 @@ export function LiveStagePlayback({
   // fixed separately in `muteForWebrtcAudio`. Route every call through this wrapper so only a
   // genuine change in the target value ever reaches the native layer.
   const stageAudioOutputEnabledRef = useRef<boolean | null>(null);
+  // Only THIS instance may turn Stage audio output back off. `setStageAudioOutputEnabled` is a
+  // single GLOBAL flag — Android literally mutes/unmutes the device's whole STREAM_MUSIC stream
+  // (see the comment above) — shared across every mounted `LiveStagePlayback` (the active page
+  // AND every warm neighbor the pager keeps mounted). The effect below used to call `disable`
+  // for ANY instance that simply wasn't foreground, with no check for whether that instance ever
+  // actually turned output on. A warm neighbor mounts in the very same commit as the active page
+  // (e.g. opening the feed at all, or the warm window shifting on a swipe); if that neighbor's
+  // effect happens to run after the active page's own "enable" call, its unconditional "disable"
+  // wins and mutes the whole device's media volume out from under the room the buyer is actually
+  // watching. Reported on Android as "have to turn the volume up to hear a room" — pressing the
+  // hardware volume button also clears Android's ADJUST_MUTE, which is exactly why that
+  // "fixes" it. Track ownership so only the instance that actually enabled output can disable it
+  // again; an instance that never enabled it has nothing to release and must leave the shared
+  // flag alone.
+  const stageAudioOwnedByThisInstanceRef = useRef(false);
   const setStageAudioOutputEnabledDeduped = useCallback(
     (enabled: boolean, reason: string) => {
       if (stageAudioOutputEnabledRef.current === enabled) return;
@@ -650,7 +665,12 @@ export function LiveStagePlayback({
   useEffect(() => {
     const usingStagePip = stagePipReady || stagePipActive;
     if (!usingStagePip && (appBackgrounded || pipActive || pipSurfaceActive)) {
-      setStageAudioOutputEnabledDeduped(false, 'backgrounded_no_stage_pip');
+      // Never touch the shared flag on behalf of an instance that didn't enable it itself — see
+      // `stageAudioOwnedByThisInstanceRef`'s comment.
+      if (stageAudioOwnedByThisInstanceRef.current) {
+        stageAudioOwnedByThisInstanceRef.current = false;
+        setStageAudioOutputEnabledDeduped(false, 'backgrounded_no_stage_pip');
+      }
       return;
     }
     // Buyer backed out to a different in-app screen/tab (not an OS background — `appBackgrounded`
@@ -661,18 +681,27 @@ export function LiveStagePlayback({
     // `isForeground`; it never explicitly disables it for "not foreground, but also not
     // backgrounded/PiP" — so a Stage session already playing when the buyer navigated away kept
     // outputting audio with nothing to stop it (reported as "backed out and it kept playing until
-    // I closed the app"). Explicitly silence it here for that gap.
+    // I closed the app"). Explicitly silence it here for that gap — but only if THIS instance is
+    // the one that turned it on; every warm neighbor also hits `!isForeground` on every render and
+    // must not disable a flag some other, actually-active instance just enabled.
     if (!usingStagePip && !isForeground) {
-      setStageAudioOutputEnabledDeduped(false, 'screen_not_focused');
+      if (stageAudioOwnedByThisInstanceRef.current) {
+        stageAudioOwnedByThisInstanceRef.current = false;
+        setStageAudioOutputEnabledDeduped(false, 'screen_not_focused');
+      }
       return;
     }
     const stageLive = useWebrtc && !stageMediaSuspended;
     if (!stageLive) {
       if (isForeground) {
+        stageAudioOwnedByThisInstanceRef.current = true;
         setStageAudioOutputEnabledDeduped(true, 'foreground_stage_not_live');
       }
       return;
     }
+    // Foreground and Stage live: this instance is unambiguously the current owner of the shared
+    // flag, whichever way the buyer's own mute toggle points it.
+    stageAudioOwnedByThisInstanceRef.current = true;
     setStageAudioOutputEnabledDeduped(!muted, 'stage_live');
   }, [
     useWebrtc,
@@ -692,7 +721,14 @@ export function LiveStagePlayback({
   // it so we don't leave the shared audio session/stream muted behind us.
   useEffect(() => {
     return () => {
-      setStageAudioOutputEnabledDeduped(true, 'unmount_restore');
+      // Same ownership guard as above: only restore the shared flag if this specific instance is
+      // the one still holding it disabled. An unconditional restore here means any warm neighbor
+      // unmounting (routine — happens on every ordinary swipe as the warm window shifts) could
+      // force the shared flag back on over whatever the actually-active instance had it set to.
+      if (stageAudioOwnedByThisInstanceRef.current) {
+        stageAudioOwnedByThisInstanceRef.current = false;
+        setStageAudioOutputEnabledDeduped(true, 'unmount_restore');
+      }
     };
   }, [setStageAudioOutputEnabledDeduped]);
 
