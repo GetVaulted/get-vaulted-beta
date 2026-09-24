@@ -342,23 +342,24 @@ export function SignupForm() {
           data.verificationMethod === "immediate" || data.needsEmailConfirmation === false;
 
         if (isImmediate) {
-          router.replace(dest);
-          void signIn("credentials", {
+          // Must await sign-in before navigating: `dest` is often a page that requires an active
+          // session (e.g. account/checkout continuation). Firing `router.replace(dest)` before
+          // `signIn` resolves raced the new session cookie against the navigation — the
+          // destination page could render signed-out (or bounce back to signin) even though
+          // sign-in was about to succeed a moment later.
+          const signInRes = await signIn("credentials", {
             email: normalizedEmail,
             password,
             redirect: false,
-          }).then((signInRes) => {
-            if (!signInRes?.ok) {
-              router.push(
-                `/signin?email=${encodeURIComponent(normalizedEmail)}&registered=1${returnTo !== "/marketplace" ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`,
-              );
-            }
-            router.refresh();
           });
-          return;
-          router.push(
-            `/signin?email=${encodeURIComponent(normalizedEmail)}&registered=1${returnTo !== "/marketplace" ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`,
-          );
+          if (!signInRes?.ok) {
+            router.push(
+              `/signin?email=${encodeURIComponent(normalizedEmail)}&registered=1${returnTo !== "/marketplace" ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`,
+            );
+            router.refresh();
+            return;
+          }
+          router.replace(dest);
           router.refresh();
           return;
         }
