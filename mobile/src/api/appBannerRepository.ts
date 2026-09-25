@@ -4,6 +4,7 @@ import { fetchWebApi } from './webListingsRepository';
 export type PublicAppBanner = {
   title: string;
   body: string;
+  imageUrl: string;
   ctaLabel: string;
   href: string;
   dismissKey: string;
@@ -23,12 +24,14 @@ function normalizeBanner(raw: unknown): PublicAppBanner | null {
   const o = raw as Record<string, unknown>;
   const title = typeof o.title === 'string' ? o.title.trim() : '';
   const body = typeof o.body === 'string' ? o.body.trim() : '';
-  if (!title && !body) return null;
+  const imageUrl = typeof o.imageUrl === 'string' ? o.imageUrl.trim() : '';
+  if (!title && !body && !imageUrl) return null;
   const dismissKey =
     typeof o.dismissKey === 'string' && o.dismissKey.trim() ? o.dismissKey.trim() : 'default';
   return {
     title,
     body,
+    imageUrl,
     ctaLabel: typeof o.ctaLabel === 'string' ? o.ctaLabel.trim() : '',
     href: typeof o.href === 'string' ? o.href.trim() : '',
     dismissKey,

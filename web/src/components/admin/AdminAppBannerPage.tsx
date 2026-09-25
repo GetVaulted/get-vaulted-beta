@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ChangeEvent } from "react";
 import {
   AdminCommandShell,
   adminButtonPrimaryClassName,
@@ -14,6 +14,7 @@ import {
   APP_BANNER_TITLE_MAX,
   type PlatformAppBannerDTO,
 } from "@/lib/platform-app-banner-shared";
+import { uploadAppBannerImageBlob } from "@/lib/upload-app-banner-image-client";
 
 const inputClassName =
   "mt-1.5 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2.5 text-sm text-zinc-100 outline-none ring-gold/30 focus:border-gold/40 focus:ring-2";
@@ -28,15 +29,18 @@ export function AdminAppBannerPage() {
   const [enabled, setEnabled] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
   const [ctaLabel, setCtaLabel] = useState("");
   const [href, setHref] = useState("");
   const [dismissKey, setDismissKey] = useState("referral-v1");
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const applyBanner = useCallback((b: PlatformAppBannerDTO) => {
     setBanner(b);
     setEnabled(b.enabled);
     setTitle(b.title);
     setBody(b.body);
+    setImageUrl(b.imageUrl);
     setCtaLabel(b.ctaLabel);
     setHref(b.href);
     setDismissKey(b.dismissKey);
@@ -77,6 +81,7 @@ export function AdminAppBannerPage() {
           enabled,
           title: title.trim(),
           body: body.trim(),
+          imageUrl: imageUrl.trim(),
           ctaLabel: ctaLabel.trim(),
           href: href.trim(),
           dismissKey: dismissKey.trim() || "default",
@@ -94,6 +99,22 @@ export function AdminAppBannerPage() {
       setSuccess(enabled ? "Banner is live on the app home screen." : "Banner saved (currently off).");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const onPickImage = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setError(null);
+    setUploadingImage(true);
+    try {
+      const url = await uploadAppBannerImageBlob(file, file.name);
+      setImageUrl(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Image upload failed.");
+    } finally {
+      setUploadingImage(false);
     }
   };
 
@@ -153,6 +174,44 @@ export function AdminAppBannerPage() {
                   onChange={(e) => setBody(e.target.value)}
                   placeholder="Share your referral link…"
                 />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  Promo image (optional)
+                </label>
+                <div className="mt-1.5 flex items-center gap-3">
+                  {imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={imageUrl}
+                      alt=""
+                      className="h-16 w-16 rounded-lg border border-white/10 object-cover"
+                    />
+                  ) : null}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="cursor-pointer rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-300 hover:border-gold/30 hover:text-gold-bright">
+                      {uploadingImage ? "Uploading…" : imageUrl ? "Replace image" : "Upload image"}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        disabled={uploadingImage}
+                        onChange={(e) => void onPickImage(e)}
+                      />
+                    </label>
+                    {imageUrl ? (
+                      <button
+                        type="button"
+                        className="text-left text-xs font-semibold text-zinc-500 hover:text-rose-400"
+                        onClick={() => setImageUrl("")}
+                      >
+                        Remove image
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <p className="mt-1 text-xs text-zinc-600">JPG, PNG, or WebP, up to 8MB. Leave empty for the text-only look.</p>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
@@ -229,8 +288,16 @@ export function AdminAppBannerPage() {
         <aside className={adminPanelClassName}>
           <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Preview</p>
           <div className="mt-3 rounded-xl border border-gold/25 bg-gradient-to-br from-gold/15 via-[#14110a] to-[#0c0c10] p-4">
-            {(title.trim() || body.trim()) && enabled ? (
+            {(title.trim() || body.trim() || imageUrl) && enabled ? (
               <>
+                {imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={imageUrl}
+                    alt=""
+                    className="mb-3 aspect-[16/9] w-full rounded-lg border border-white/10 object-cover"
+                  />
+                ) : null}
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gold">Promo</p>
                 {title.trim() ? (
                   <p className="mt-2 text-base font-bold text-zinc-50">{title.trim()}</p>
@@ -244,7 +311,7 @@ export function AdminAppBannerPage() {
               </>
             ) : (
               <p className="text-sm text-zinc-500">
-                {enabled ? "Add a title or body to preview." : "Banner is off — nothing shows on home."}
+                {enabled ? "Add a title, body, or image to preview." : "Banner is off — nothing shows on home."}
               </p>
             )}
           </div>

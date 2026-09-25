@@ -4,6 +4,7 @@ import {
   APP_BANNER_CTA_MAX,
   APP_BANNER_DISMISS_KEY_MAX,
   APP_BANNER_HREF_MAX,
+  APP_BANNER_IMAGE_URL_MAX,
   APP_BANNER_TITLE_MAX,
   type AppBannerUpdateInput,
   type PlatformAppBannerDTO,
@@ -15,6 +16,7 @@ export {
   APP_BANNER_CTA_MAX,
   APP_BANNER_DISMISS_KEY_MAX,
   APP_BANNER_HREF_MAX,
+  APP_BANNER_IMAGE_URL_MAX,
   APP_BANNER_TITLE_MAX,
   type AppBannerUpdateInput,
   type PlatformAppBannerDTO,
@@ -28,6 +30,7 @@ const DEFAULT_SEED = {
   enabled: false,
   title: "Invite friends. Earn credit.",
   body: "Share your referral link — when friends join and buy, you earn store credit.",
+  imageUrl: "",
   ctaLabel: "Get my link",
   href: "/account/referrals",
   dismissKey: "referral-v1",
@@ -50,10 +53,20 @@ function normalizeHref(raw: string): string {
   return "";
 }
 
+/** Image URLs come from our own upload endpoint: either a Supabase Storage https URL or a local `/uploads/...` path. */
+function normalizeImageUrl(raw: string): string {
+  const t = raw.trim();
+  if (!t) return "";
+  if (t.startsWith("/")) return t.slice(0, APP_BANNER_IMAGE_URL_MAX);
+  if (/^https:\/\//i.test(t)) return t.slice(0, APP_BANNER_IMAGE_URL_MAX);
+  return "";
+}
+
 function rowToDto(row: {
   enabled: boolean;
   title: string;
   body: string;
+  imageUrl: string;
   ctaLabel: string;
   href: string;
   dismissKey: string;
@@ -65,6 +78,7 @@ function rowToDto(row: {
     enabled: row.enabled,
     title: row.title,
     body: row.body,
+    imageUrl: row.imageUrl,
     ctaLabel: row.ctaLabel,
     href: row.href,
     dismissKey: row.dismissKey || "default",
@@ -115,7 +129,7 @@ export function resolvePublicAppBanner(
   if (!row.enabled) return null;
   const title = row.title.trim();
   const body = row.body.trim();
-  if (!title && !body) return null;
+  if (!title && !body && !row.imageUrl.trim()) return null;
   if (row.startsAt) {
     const start = Date.parse(row.startsAt);
     if (Number.isFinite(start) && nowMs < start) return null;
@@ -127,6 +141,7 @@ export function resolvePublicAppBanner(
   return {
     title,
     body,
+    imageUrl: row.imageUrl.trim(),
     ctaLabel: row.ctaLabel.trim(),
     href: row.href.trim(),
     dismissKey: row.dismissKey.trim() || "default",
@@ -153,6 +168,13 @@ export function parseAppBannerUpdate(body: unknown):
   }
   if ("title" in o) data.title = clampText(o.title, APP_BANNER_TITLE_MAX);
   if ("body" in o) data.body = clampText(o.body, APP_BANNER_BODY_MAX);
+  if ("imageUrl" in o) {
+    const imageUrl = normalizeImageUrl(typeof o.imageUrl === "string" ? o.imageUrl : "");
+    if (typeof o.imageUrl === "string" && o.imageUrl.trim() && !imageUrl) {
+      return { ok: false, error: "imageUrl must be an https URL or an uploaded /uploads path." };
+    }
+    data.imageUrl = imageUrl;
+  }
   if ("ctaLabel" in o) data.ctaLabel = clampText(o.ctaLabel, APP_BANNER_CTA_MAX);
   if ("href" in o) {
     const href = normalizeHref(typeof o.href === "string" ? o.href : "");
@@ -199,6 +221,7 @@ export async function updatePlatformAppBanner(
       ...(input.enabled != null ? { enabled: input.enabled } : {}),
       ...(input.title != null ? { title: input.title } : {}),
       ...(input.body != null ? { body: input.body } : {}),
+      ...(input.imageUrl != null ? { imageUrl: input.imageUrl } : {}),
       ...(input.ctaLabel != null ? { ctaLabel: input.ctaLabel } : {}),
       ...(input.href != null ? { href: input.href } : {}),
       ...(input.dismissKey != null ? { dismissKey: input.dismissKey } : {}),

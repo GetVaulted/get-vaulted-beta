@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { PublicAppBanner } from '../../api/appBannerRepository';
@@ -12,14 +13,25 @@ type Props = {
 
 export function HomeRemoteBanner({ banner, onPress, onDismiss }: Props) {
   const tappable = Boolean(banner.href.trim());
+  const hasImage = Boolean(banner.imageUrl.trim());
   const content = (
     <>
-      <LinearGradient
-        colors={['rgba(212,175,55,0.22)', 'rgba(20,17,10,0.95)', 'rgba(12,12,16,0.98)']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
+      {hasImage ? (
+        <Image
+          source={{ uri: banner.imageUrl }}
+          style={styles.image}
+          contentFit="cover"
+          transition={150}
+        />
+      ) : (
+        <LinearGradient
+          colors={['rgba(212,175,55,0.22)', 'rgba(20,17,10,0.95)', 'rgba(12,12,16,0.98)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
+      {hasImage ? <View style={styles.imageScrim} /> : null}
       <View style={styles.row}>
         <View style={styles.copy}>
           <Text style={styles.eyebrow}>Promo</Text>
@@ -74,6 +86,13 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.92,
+  },
+  image: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  imageScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(5,5,5,0.45)',
   },
   row: {
     flexDirection: 'row',
