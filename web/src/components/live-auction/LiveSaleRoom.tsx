@@ -686,13 +686,21 @@ export function LiveSaleRoom({
         ? LIVE_MODERATOR_COMMERCE_ERROR
         : null
     : null;
+  /**
+   * PYT/PYD — instant-purchase shop button. Uses `!pytCommerceLive` (not the raw
+   * `!isLive`) so pre-sale purchases while `roomStatus === "scheduled"` aren't
+   * blocked here — `pytCommerceLive` already requires `activeDb.status` to be
+   * "active" or "queued", and `handleOpenVariantShop`/`handleBuyerVariantCommerce`
+   * already gate on `pytCommerceLive` themselves, so this disabled flag was the
+   * only thing still blocking the pre-live purchase button (mirrors the
+   * LiveAuctionRoom.tsx `variantShopDisabled` fix).
+   */
   const variantShopDisabled =
-    !isLive ||
+    !pytCommerceLive ||
     purchaseBlocked ||
     staffCommerceBlocked ||
     busy ||
     sessionBlocksBuyer ||
-    activeDb?.status !== "active" ||
     shoppableSpotCount <= 0;
 
   const variantSpotBidDisabled =
