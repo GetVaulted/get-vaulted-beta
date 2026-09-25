@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Linking,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -22,6 +23,14 @@ import {
 import { colors, radii, spacing, typography } from '../../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'NotificationPermission'>;
+
+// Fixed props for every Text node on this screen. `Text.defaultProps` (set globally in
+// configureGlobalTextScaling) does NOT apply here: RN's <Text> is a function component under
+// React 19, and React 19 removed defaultProps resolution for function components, so that
+// global assignment is a silent no-op. Without this, a large system font size can inflate
+// "Enable notifications" enough to push the action buttons below, and this screen has no
+// scroll fallback of its own (see ScrollView below, added for the same reason, belt-and-suspenders).
+const FIXED_TEXT_PROPS = { allowFontScaling: false, maxFontSizeMultiplier: 1 } as const;
 
 const BENEFITS = [
   'Orders, offers, and payment updates',
@@ -76,74 +85,90 @@ export function NotificationPermissionScreen({ navigation, route }: Props) {
   };
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.lg }]}>
-      <View style={styles.brandBlock}>
-        <GetVaultedBrandMark size="compact" />
-      </View>
-
-      <LinearGradient
-        colors={['rgba(212,175,55,0.16)', 'rgba(10,10,12,0.96)']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.heroCard}
+    <View style={styles.screen}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.lg },
+        ]}
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.iconWrap}>
-          <Ionicons name="notifications" size={36} color={colors.gold} />
+        <View style={styles.brandBlock}>
+          <GetVaultedBrandMark size="compact" />
         </View>
-        <Text style={styles.heroEyebrow}>{isSignup ? 'ONE MORE STEP' : 'STAY IN THE LOOP'}</Text>
-        <Text style={styles.title}>
-          {isSignup ? 'Turn on notifications' : 'Enable notifications'}
-        </Text>
-        <Text style={styles.sub}>
-          {isSignup
-            ? 'Get Vaulted needs notifications so you never miss a bid win, order update, or live show alert.'
-            : 'Notifications are still off on this device. Turn them on so you don’t miss orders, offers, and live alerts.'}
-        </Text>
-        {BENEFITS.map((line) => (
-          <View key={line} style={styles.valueRow}>
-            <Ionicons name="checkmark-circle" size={16} color={colors.gold} />
-            <Text style={styles.valueTxt}>{line}</Text>
+
+        <LinearGradient
+          colors={['rgba(212,175,55,0.16)', 'rgba(10,10,12,0.96)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroCard}
+        >
+          <View style={styles.iconWrap}>
+            <Ionicons name="notifications" size={36} color={colors.gold} />
           </View>
-        ))}
-      </LinearGradient>
-
-      <View style={styles.actions}>
-        <Pressable
-          style={[styles.primaryBtn, busy && styles.primaryBtnDisabled]}
-          onPress={() => void onEnable()}
-          disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel="Enable notifications"
-        >
-          {busy ? (
-            <ActivityIndicator color="#0a0a0c" />
-          ) : (
-            <Text style={styles.primaryTxt}>Enable notifications</Text>
-          )}
-        </Pressable>
-
-        <Pressable
-          style={styles.secondaryBtn}
-          onPress={onOpenSettings}
-          disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel="Open device settings"
-        >
-          <Text style={styles.secondaryTxt}>Open device settings</Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.laterBtn}
-          onPress={finishHome}
-          disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel="Continue without notifications"
-        >
-          <Text style={styles.laterTxt}>
-            {isSignup ? 'Continue without for now' : 'Not now'}
+          <Text {...FIXED_TEXT_PROPS} style={styles.heroEyebrow}>
+            {isSignup ? 'ONE MORE STEP' : 'STAY IN THE LOOP'}
           </Text>
-        </Pressable>
-      </View>
+          <Text {...FIXED_TEXT_PROPS} style={styles.title}>
+            {isSignup ? 'Turn on notifications' : 'Enable notifications'}
+          </Text>
+          <Text {...FIXED_TEXT_PROPS} style={styles.sub}>
+            {isSignup
+              ? 'Get Vaulted needs notifications so you never miss a bid win, order update, or live show alert.'
+              : 'Notifications are still off on this device. Turn them on so you don’t miss orders, offers, and live alerts.'}
+          </Text>
+          {BENEFITS.map((line) => (
+            <View key={line} style={styles.valueRow}>
+              <Ionicons name="checkmark-circle" size={16} color={colors.gold} />
+              <Text {...FIXED_TEXT_PROPS} style={styles.valueTxt}>
+                {line}
+              </Text>
+            </View>
+          ))}
+        </LinearGradient>
+
+        <View style={styles.actions}>
+          <Pressable
+            style={[styles.primaryBtn, busy && styles.primaryBtnDisabled]}
+            onPress={() => void onEnable()}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel="Enable notifications"
+          >
+            {busy ? (
+              <ActivityIndicator color="#0a0a0c" />
+            ) : (
+              <Text {...FIXED_TEXT_PROPS} style={styles.primaryTxt}>
+                Enable notifications
+              </Text>
+            )}
+          </Pressable>
+
+          <Pressable
+            style={styles.secondaryBtn}
+            onPress={onOpenSettings}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel="Open device settings"
+          >
+            <Text {...FIXED_TEXT_PROPS} style={styles.secondaryTxt}>
+              Open device settings
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.laterBtn}
+            onPress={finishHome}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel="Continue without notifications"
+          >
+            <Text {...FIXED_TEXT_PROPS} style={styles.laterTxt}>
+              {isSignup ? 'Continue without for now' : 'Not now'}
+            </Text>
+          </Pressable>
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -152,6 +177,9 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: spacing.lg,
   },
   brandBlock: {
