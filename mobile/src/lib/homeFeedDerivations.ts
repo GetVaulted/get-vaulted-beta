@@ -1,4 +1,5 @@
 import type { FeaturedCreator, LiveStream, Product, SaleActivity, ScheduledStream } from '../types';
+import { orderScheduledStreamsByStartTime } from './liveDiscoveryOrder';
 import {
   filterDisplayableMarketplaceProducts,
   parseListingPriceUsd,
@@ -76,9 +77,10 @@ export function deriveLiveHeroStreams(liveRows: LiveStream[]): LiveStream[] {
 }
 
 export function deriveUpcomingHeroEvents(scheduledRows: ScheduledStream[]): ScheduledStream[] {
-  return [...scheduledRows].sort(
-    (a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
-  );
+  // `startsAt` is a human display string ("Tomorrow · 3 PM"), so sorting on it via `new Date(...)`
+  // yields NaN and leaves the list unordered. Sort on the real ISO start (`scheduledStartAtIso`)
+  // so today's drops sit on top and later shows descend chronologically.
+  return orderScheduledStreamsByStartTime(scheduledRows);
 }
 
 export function deriveHotVaultListings(listings: Product[]): Product[] {

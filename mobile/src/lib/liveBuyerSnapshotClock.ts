@@ -26,7 +26,7 @@ export function recomputeBuyerSnapshotPhase(
   };
 }
 
-/** Server purchase_completed — stop timer; reset bid state for next unit or clear lot when sold out. */
+/** Server purchase_completed — stop timer; only clear the pinned lot when sold out is explicit. */
 export function applyBuyerSnapshotPurchaseCompleted(
   snap: LiveRoomBuyerSnapshot,
   itemId: string | undefined,
@@ -52,14 +52,8 @@ export function applyBuyerSnapshotPurchaseCompleted(
     fetchedAtMs: nowMs,
   };
 
-  if (opts?.noBids === true) {
-    if (opts?.itemSoldOut === false) {
-      return {
-        ...snap,
-        ...resetBids,
-        lotBidPhase: 'not_started',
-      };
-    }
+  // Require explicit sold-out — never default-clear the lot (wiped auctions that still needed host action).
+  if (opts?.itemSoldOut === true) {
     return {
       ...snap,
       ...resetBids,
@@ -68,7 +62,7 @@ export function applyBuyerSnapshotPurchaseCompleted(
     };
   }
 
-  if (opts?.itemSoldOut === false) {
+  if (opts?.noBids === true) {
     return {
       ...snap,
       ...resetBids,
@@ -79,7 +73,6 @@ export function applyBuyerSnapshotPurchaseCompleted(
   return {
     ...snap,
     ...resetBids,
-    activeItemId: null,
     lotBidPhase: 'settled',
   };
 }

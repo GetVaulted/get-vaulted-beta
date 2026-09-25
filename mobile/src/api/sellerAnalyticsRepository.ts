@@ -1,8 +1,10 @@
 import { fetchMyLiveRooms } from './liveRoomsRepository';
 import { isOrderCompleteForReview } from './ordersRepository';
+import { fetchSellerAccount } from './sellerAccountRepository';
 import { fetchSellerSalesOrders } from './sellerSalesRepository';
 import { fetchListingsBySeller } from './listingsFeedRepository';
 import { fetchCompletedTradesForUser } from './tradeOffersRepository';
+import { countAwaitingShipmentSales } from '../lib/sellerAwaitingShipment';
 import { followerCount } from '../platform/platformStore';
 import { reviewStatsForUser } from '../platform/platformStore';
 
@@ -24,19 +26,23 @@ export async function fetchSellerAnalytics(
   accessToken?: string,
   walletAvailable?: string | null,
 ): Promise<SellerAnalyticsSnapshot> {
-  const [orders, myListings, trades, stats, followers, rooms] = await Promise.all([
+  const [orders, myListings, trades, stats, followers, rooms, sellerAccount] = await Promise.all([
     accessToken ? fetchSellerSalesOrders(accessToken) : Promise.resolve([]),
     fetchListingsBySeller({ sellerId: userId, limit: 100 }),
     fetchCompletedTradesForUser(userId),
     reviewStatsForUser(userId),
     followerCount(userId),
     accessToken ? fetchMyLiveRooms(accessToken) : Promise.resolve([]),
+    accessToken
+      ? fetchSellerAccount(accessToken).catch(() => null)
+      : Promise.resolve(null),
   ]);
-  const pendingFulfillment = orders.filter(
-    (o) =>
-      (o.paymentStatus === 'paid' || o.status === 'paid' || o.status === 'shipped') &&
-      o.paymentStatus !== 'layaway_active',
-  ).length;
+  // Prefer server hub count (same Prisma filter as web). Fall back to sales-list filter.
+  const serverAwaiting = sellerAccount?.sellerHomeStats?.awaitingShipmentCount;
+  const pendingFulfillment =
+    typeof serverAwaiting === 'number' && Number.isFinite(serverAwaiting)
+      ? Math.max(0, Math.floor(serverAwaiting))
+      : countAwaitingShipmentSales(orders);
   const completedSales = orders.filter((o) => isOrderCompleteForReview(o.status)).length;
   const liveRooms = rooms.filter((r) => r.status === 'live');
   const liveViewerTotal = liveRooms.reduce((s, r) => s + (r.viewerCount ?? 0), 0);

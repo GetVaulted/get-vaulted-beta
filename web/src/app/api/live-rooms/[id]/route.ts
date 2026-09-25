@@ -26,13 +26,22 @@ import { emitAuctionEnded, emitAuctionStarted, emitLiveDiscoveryChanged, emitTea
 import { postHostEndingLiveChatMessage } from "@/lib/live-room-show-events";
 import { computeBreakBuyerPhase } from "@/lib/live-room-break-public";
 import { buildLiveTipRoomData } from "@/lib/live-tip-moderator";
-import { resolveLiveVariantCheckoutPreviewForActiveItem } from "@/lib/live-variant-checkout-preview-for-room";
+import {
+  resolveLivePinnedShippingTaxPreview,
+  resolveLiveVariantCheckoutPreviewForActiveItem,
+} from "@/lib/live-variant-checkout-preview-for-room";
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
 import { finalizeLiveStreamReplay } from "@/lib/trust/live-replay-service";
-import { endHostStageSession } from "@/services/ivs";
+import { endHostStageSession, syncLiveRoomStreamFromIvs } from "@/services/ivs";
 import { logSellerRoomStateSnapshot } from "@/lib/log-room-state-snapshot";
 import { liveShowEndGmvFields } from "@/lib/live-show-gmv";
 import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
+import { parseLiveTeaserFieldsFromBody } from "@/lib/live-room-teaser";
+import { ensureLiveBuyNowItemCheckoutListingTx } from "@/lib/live-buy-now-checkout-listing";
+import {
+  filterStaffMessagesForViewer,
+  viewerCanAccessStaffChat,
+} from "@/lib/live-room-staff-chat";
 
 const includeDetail = {
   seller: { select: { id: true, username: true } as const },
@@ -85,7 +94,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   // Server-authoritative auto-close: if any active lot's timer has elapsed, finalize it (settle +
   // charge winner, or close unsold) before serializing — so the auction does not depend on the
   // host pressing Close or on any client countdown. Idempotent; only fires when a lot is overdue.
-  if (room.status === "live" && (room.roomType === "auction" || room.roomType === "break")) {
+  if (room.status === "live" && (room.roomType === "auction" || room.roomType === "break" || room.roomType === "sale")) {
     const nowMs = Date.now();
     const hasOverdue = room.items.some(
       (it) => it.status === "active" && it.biddingOpen && it.auctionEndsAt != null
@@ -103,6 +112,42 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         if (reloaded) room = reloaded;
       } catch (e) {
         console.error("[api/live-rooms/[id]] finalizeOverdueLiveAuctionLots", e);
+      }
+    }
+  }
+
+  // Host "New lot → Buy Now" rows often have no marketplace listingId. Heal them on read so
+  // existing buyers (shop / Buy Now CTAs that check listingId) can checkout without a rebuild.
+  if (room.status === "live") {
+    const needsCheckoutLink = room.items
+      .filter(
+        (it) =>
+          (it.status === "active" || it.status === "queued") &&
+          it.salesFormat === "buy_now" &&
+          !it.listingId &&
+          typeof it.priceUsd === "number" &&
+          Number.isFinite(it.priceUsd) &&
+          it.priceUsd > 0,
+      )
+      .slice(0, 20);
+    if (needsCheckoutLink.length > 0) {
+      let healed = false;
+      for (const it of needsCheckoutLink) {
+        try {
+          const result = await prisma.$transaction(async (tx) =>
+            ensureLiveBuyNowItemCheckoutListingTx(tx, {
+              liveRoomId: id,
+              liveRoomItemId: it.id,
+            }),
+          );
+          if (result.ok) healed = true;
+        } catch (e) {
+          console.error("[api/live-rooms/[id]] ensureLiveBuyNowCheckoutListing", { itemId: it.id, e });
+        }
+      }
+      if (healed) {
+        const reloaded = await prisma.liveRoom.findUnique({ where: { id }, include: includeDetail });
+        if (reloaded) room = reloaded;
       }
     }
   }
@@ -198,6 +243,26 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       enriched.variantCheckoutPreview = null;
     }
   }
+  // Shipping + tax for the active auction / buy-now pinned lot (PYT/PYD spots use the variant
+  // preview above). Only needs a saved address (for tax); payment method isn't required to show it.
+  if (
+    viewerId &&
+    !isHost &&
+    enriched.buyerLiveShippingReady &&
+    enriched.activeItem &&
+    !enriched.variantCheckoutPreview
+  ) {
+    try {
+      enriched.activeItemShippingTax = await resolveLivePinnedShippingTaxPreview({
+        buyerId: viewerId,
+        liveRoomId: id,
+        activeItem: enriched.activeItem,
+      });
+    } catch (e) {
+      console.error("[api/live-rooms/[id]] activeItemShippingTax failed", { liveRoomId: id, viewerId, e });
+      enriched.activeItemShippingTax = null;
+    }
+  }
   logSellerRoomStateSnapshot({
     source: "buyer-room-get",
     roomId: id,
@@ -216,6 +281,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     serverNowMs,
     extra: { viewerId: viewerId ?? null, isHost },
   });
+  const canSeeStaffChat = await viewerCanAccessStaffChat({ liveRoomId: id, userId: viewerId });
+  enriched.messages = filterStaffMessagesForViewer(enriched.messages, canSeeStaffChat);
+
   return NextResponse.json({ room: enriched, serverNowMs });
   } catch (e) {
     console.error("[api GET /api/live-rooms/[id]] failed", { liveRoomId: id, viewerId, e });
@@ -229,8 +297,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 type PatchBody = {
   title?: string;
   description?: string;
+  showNotes?: string;
   scheduledStartAt?: string | null;
   thumbnailUrl?: string;
+  teaserVideoUrl?: string | null;
+  teaserVideoDurationMs?: number | null;
   action?: string;
   tipModeratorId?: string | null;
   tipRecipientMode?: string;
@@ -253,6 +324,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       roomType: true,
       teamBoardLeague: true,
       completedSalesGmvUsd: true,
+      discoveryVisibility: true,
+      streamMode: true,
+      ivsChannelArn: true,
     },
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -334,16 +408,26 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       void emitTeamBoardChanged(id);
     }
     emitAuctionStarted(id, roomNow?.roomVersion);
-    const seller = await prisma.user.findUnique({
-      where: { id: existing.sellerId },
-      select: { username: true },
-    });
-    if (seller) {
-      // Fire-and-forget: a seller with a large follower list previously blocked the "Go Live"
-      // response on a bulk notification insert (performance audit 2026-07). Going live should
-      // feel instant to the host regardless of follower count.
-      void notifyFollowersSellerWentLive(existing.sellerId, seller.username, id).catch((e) =>
-        console.error("[live-rooms] notifyFollowersSellerWentLive failed", existing.sellerId, e),
+    // Private shows must not auto-blast followers — only intentional share invites.
+    if (existing.discoveryVisibility !== "private") {
+      const seller = await prisma.user.findUnique({
+        where: { id: existing.sellerId },
+        select: { username: true },
+      });
+      if (seller) {
+        // Fire-and-forget: a seller with a large follower list previously blocked the "Go Live"
+        // response on a bulk notification insert (performance audit 2026-07). Going live should
+        // feel instant to the host regardless of follower count.
+        void notifyFollowersSellerWentLive(existing.sellerId, seller.username, id).catch((e) =>
+          console.error("[live-rooms] notifyFollowersSellerWentLive failed", existing.sellerId, e),
+        );
+      }
+    }
+    // OBS path: pull IVS GetStream ASAP so buyers flip from offline → live without waiting
+    // for the host to keep the OBS Studio tab open.
+    if (existing.streamMode === "channel_hls" && existing.ivsChannelArn) {
+      void syncLiveRoomStreamFromIvs(id).catch((e) =>
+        console.error("[live-rooms] syncLiveRoomStreamFromIvs after start failed", id, e),
       );
     }
     emitLiveDiscoveryChanged({ roomId: id, status: "live", reason: "started" });
@@ -359,6 +443,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       data: {
         status: "ended",
         endedAt: new Date(),
+        viewerCount: 0,
+        viewerCountUpdatedAt: new Date(),
         ...liveShowEndGmvFields(existing.completedSalesGmvUsd),
         roomVersion: { increment: 1 },
       },
@@ -388,6 +474,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       data: {
         status: "ended",
         endedAt: new Date(),
+        viewerCount: 0,
+        viewerCountUpdatedAt: new Date(),
         ...liveShowEndGmvFields(existing.completedSalesGmvUsd),
         roomVersion: { increment: 1 },
       },
@@ -411,15 +499,33 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const data: {
     title?: string;
     description?: string;
+    showNotes?: string;
     thumbnailUrl?: string;
+    teaserVideoUrl?: string | null;
+    teaserVideoDurationMs?: number | null;
     scheduledStartAt?: Date | null;
+    hostPreStartNotifiedAt?: Date | null;
+    hostT30NotifiedAt?: Date | null;
+    hostT5NotifiedAt?: Date | null;
+    hostGoLiveNotifiedAt?: Date | null;
     tipModeratorId?: string | null;
     tipRecipientMode?: "host" | "moderator";
   } = {};
 
   if (typeof body.title === "string") data.title = body.title.trim().slice(0, 200);
   if (typeof body.description === "string") data.description = body.description.trim().slice(0, 4000);
+  if (typeof body.showNotes === "string") data.showNotes = body.showNotes.trim().slice(0, 4000);
   if (typeof body.thumbnailUrl === "string") data.thumbnailUrl = body.thumbnailUrl.trim().slice(0, 2000);
+  if ("teaserVideoUrl" in body) {
+    const teaserParsed = parseLiveTeaserFieldsFromBody(body);
+    if (!teaserParsed.ok) {
+      return NextResponse.json({ error: teaserParsed.error }, { status: 400 });
+    }
+    if ("teaserVideoUrl" in teaserParsed.data) data.teaserVideoUrl = teaserParsed.data.teaserVideoUrl;
+    if ("teaserVideoDurationMs" in teaserParsed.data) {
+      data.teaserVideoDurationMs = teaserParsed.data.teaserVideoDurationMs;
+    }
+  }
   if ("scheduledStartAt" in body) {
     if (body.scheduledStartAt == null || body.scheduledStartAt === "") {
       data.scheduledStartAt = null;
@@ -427,6 +533,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       const d = new Date(body.scheduledStartAt);
       if (!Number.isNaN(d.getTime())) data.scheduledStartAt = d;
     }
+    // Reschedule must allow fresh host reminders at every threshold.
+    data.hostPreStartNotifiedAt = null;
+    data.hostT30NotifiedAt = null;
+    data.hostT5NotifiedAt = null;
+    data.hostGoLiveNotifiedAt = null;
   }
 
   if ("tipModeratorId" in body || "tipRecipientMode" in body || "tipsToModerator" in body) {

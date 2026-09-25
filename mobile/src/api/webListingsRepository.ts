@@ -16,6 +16,13 @@ function readApiErrorBody(body: unknown): ApiErrorBody {
 }
 
 function formatApiErrorMessage(res: Response, body: unknown, context: string): string {
+  // A 413 means the server/hosting platform rejected the request before it ever reached our own
+  // route logic, so `body` is almost never our own JSON error shape (it's usually an empty or
+  // platform-generated response). Special-case it so the user sees a plain "file too large"
+  // message instead of a raw "Request failed (413)".
+  if (res.status === 413) {
+    return `${context}: That file is too large. Please choose a smaller file and try again.`;
+  }
   const o = readApiErrorBody(body);
   const detail = typeof o.detail === 'string' ? o.detail.trim() : '';
   const hint = typeof o.hint === 'string' ? o.hint.trim() : '';
@@ -65,7 +72,14 @@ export async function getListingsAccessToken(): Promise<string> {
 
 export async function fetchPublishedListingsFromWeb(opts?: { force?: boolean }): Promise<WebMarketplaceListing[]> {
   return readThroughPublishedListingsCache(async () => {
-    const res = await fetchWebApi('/api/listings?scope=published');
+    let headers: HeadersInit | undefined;
+    try {
+      const token = await resolveSellerAccessToken();
+      if (token) headers = { Authorization: `Bearer ${token}` };
+    } catch {
+      // Guest browse — no block filter.
+    }
+    const res = await fetchWebApi('/api/listings?scope=published', { headers });
     const body = (await res.json().catch(() => null)) as { listings?: WebMarketplaceListing[] } | null;
     if (!res.ok) {
       console.warn('[fetchPublishedListingsFromWeb]', fetchApiErrorMessage(res, body));
@@ -73,6 +87,60 @@ export async function fetchPublishedListingsFromWeb(opts?: { force?: boolean }):
     }
     return Array.isArray(body?.listings) ? body!.listings! : [];
   }, opts);
+}
+
+export type WebPublishedListingsPage = {
+  listings: WebMarketplaceListing[];
+  hasMore: boolean;
+  page: number;
+  pageSize: number;
+  totalListingCount: number;
+};
+
+/**
+ * Paginated variant of `fetchPublishedListingsFromWeb` — hits the same `scope=published` endpoint
+ * the web marketplace's own "Load more" already uses, but actually sends `page`/`pageSize` so the
+ * server's real pagination (it returns `hasMore`/`totalListingCount`) is used instead of silently
+ * always getting page 1. Bypasses the single-snapshot cache above since that cache only ever holds
+ * one page's worth of rows — each page here is fetched fresh.
+ */
+export async function fetchPublishedListingsPageFromWeb(opts: {
+  page: number;
+  pageSize: number;
+  category?: string;
+}): Promise<WebPublishedListingsPage> {
+  let headers: HeadersInit | undefined;
+  try {
+    const token = await resolveSellerAccessToken();
+    if (token) headers = { Authorization: `Bearer ${token}` };
+  } catch {
+    // Guest browse — no block filter.
+  }
+  const params = new URLSearchParams({
+    scope: 'published',
+    page: String(Math.max(1, Math.trunc(opts.page))),
+    pageSize: String(Math.min(Math.max(1, Math.trunc(opts.pageSize)), 120)),
+  });
+  if (opts.category) params.set('category', opts.category);
+  const res = await fetchWebApi(`/api/listings?${params.toString()}`, { headers });
+  const body = (await res.json().catch(() => null)) as {
+    listings?: WebMarketplaceListing[];
+    hasMore?: boolean;
+    page?: number;
+    pageSize?: number;
+    totalListingCount?: number;
+  } | null;
+  if (!res.ok) {
+    console.warn('[fetchPublishedListingsPageFromWeb]', fetchApiErrorMessage(res, body));
+    return { listings: [], hasMore: false, page: opts.page, pageSize: opts.pageSize, totalListingCount: 0 };
+  }
+  return {
+    listings: Array.isArray(body?.listings) ? body!.listings! : [],
+    hasMore: Boolean(body?.hasMore),
+    page: body?.page ?? opts.page,
+    pageSize: body?.pageSize ?? opts.pageSize,
+    totalListingCount: body?.totalListingCount ?? 0,
+  };
 }
 
 export async function fetchListingsByIdsFromWeb(ids: string[]): Promise<WebMarketplaceListing[]> {
@@ -128,6 +196,7 @@ function mimeFromUri(uri: string): string {
   return 'image/jpeg';
 }
 
+/** Upload a listing image. Refreshes the seller JWT before POST (and once on 401). */
 export async function uploadListingImageViaWeb(accessToken: string, localUri: string): Promise<string> {
   const mime = mimeFromUri(localUri);
   const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
@@ -138,16 +207,73 @@ export async function uploadListingImageViaWeb(accessToken: string, localUri: st
     type: mime,
   } as unknown as Blob);
 
-  const res = await fetchWebApi('/api/uploads/listing-image', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
-    body: form,
-  });
+  const post = async (bearer: string) =>
+    fetchWebApi('/api/uploads/listing-image', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bearer}` },
+      body: form,
+    });
+
+  let token = await resolveSellerAccessToken(accessToken);
+  let res = await post(token);
+  if (res.status === 401) {
+    token = await resolveSellerAccessToken(accessToken);
+    res = await post(token);
+  }
   const body = (await res.json().catch(() => null)) as { url?: string; error?: string } | null;
   if (!res.ok) throw new Error(publishApiErrorMessage(res, body));
   const url = body?.url?.trim();
   if (!url) throw new Error('Image upload did not return a URL.');
   return url;
+}
+
+function teaserMimeFromUri(uri: string): string {
+  const lower = uri.toLowerCase();
+  if (lower.endsWith('.mov')) return 'video/quicktime';
+  return 'video/mp4';
+}
+
+/** Upload a short scheduled-room teaser (MP4/MOV ≤15s). `durationMs` required for server validation. */
+export async function uploadLiveTeaserViaWeb(
+  accessToken: string,
+  localUri: string,
+  durationMs: number,
+): Promise<{ url: string; durationMs: number }> {
+  const mime = teaserMimeFromUri(localUri);
+  const ext = mime.includes('quicktime') ? 'mov' : 'mp4';
+  const form = new FormData();
+  form.append('file', {
+    uri: localUri,
+    name: `live-teaser-${Date.now()}.${ext}`,
+    type: mime,
+  } as unknown as Blob);
+  form.append('durationMs', String(Math.round(durationMs)));
+
+  const post = async (bearer: string) =>
+    fetchWebApi('/api/uploads/live-teaser', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bearer}` },
+      body: form,
+    });
+
+  let token = await resolveSellerAccessToken(accessToken);
+  let res = await post(token);
+  if (res.status === 401) {
+    token = await resolveSellerAccessToken(accessToken);
+    res = await post(token);
+  }
+  const body = (await res.json().catch(() => null)) as {
+    url?: string;
+    durationMs?: number;
+    error?: string;
+  } | null;
+  if (!res.ok) throw new Error(publishApiErrorMessage(res, body));
+  const url = body?.url?.trim();
+  if (!url) throw new Error('Teaser upload did not return a URL.');
+  return {
+    url,
+    durationMs: typeof body?.durationMs === 'number' ? body.durationMs : Math.round(durationMs),
+  };
 }
 
 export type CreateListingViaWebBody = Record<string, unknown>;

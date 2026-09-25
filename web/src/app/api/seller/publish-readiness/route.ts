@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { getSellerPublishListingIssues } from "@/lib/seller-publish-readiness";
 import { prisma } from "@/lib/prisma";
 
-export async function GET() {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function GET(req: Request) {
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
-  const issues = await getSellerPublishListingIssues(prisma, session.user.id, {
+  const issues = await getSellerPublishListingIssues(prisma, auth.userId, {
     shippingBaseWeightOz: 4,
     shippingIncrementalWeightOz: 1,
     shippingCategory: "raw_card",

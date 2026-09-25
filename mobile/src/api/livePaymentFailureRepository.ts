@@ -1,5 +1,5 @@
-import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { mapLivePaymentFailureMessage } from '../lib/livePaymentFailureCopy';
+import { fetchWebApiMobileWithSellerAuth } from '../lib/resolveSellerAccessToken';
 import type { LiveBuyerPaymentFailureSnapshot } from './liveRoomBuyerRepository';
 
 export type LivePaymentRetryResult =
@@ -8,14 +8,6 @@ export type LivePaymentRetryResult =
   | { ok: true; processing: true }
   | { ok: false; error: string; code?: string; status?: number; paymentFailure?: LiveBuyerPaymentFailureSnapshot | null };
 
-function authHeaders(accessToken: string): Record<string, string> {
-  return {
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${accessToken}`,
-  };
-}
-
 export async function retryLivePaymentFailure(args: {
   accessToken: string;
   roomId: string;
@@ -23,17 +15,18 @@ export async function retryLivePaymentFailure(args: {
   action?: 'sync';
   paymentMethodId?: string;
 }): Promise<LivePaymentRetryResult> {
-  const base = getWebApiBaseUrl();
-  if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
-  const res = await fetch(`${base}/api/live-rooms/${encodeURIComponent(args.roomId)}/payment-failure/retry`, {
-    method: 'POST',
-    headers: authHeaders(args.accessToken),
-    body: JSON.stringify({
-      failureId: args.failureId,
-      action: args.action,
-      paymentMethodId: args.paymentMethodId,
-    }),
-  });
+  const res = await fetchWebApiMobileWithSellerAuth(
+    `/api/live-rooms/${encodeURIComponent(args.roomId)}/payment-failure/retry`,
+    args.accessToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        failureId: args.failureId,
+        action: args.action,
+        paymentMethodId: args.paymentMethodId,
+      }),
+    },
+  );
   let payload: {
     error?: string;
     code?: string;
@@ -93,24 +86,32 @@ export async function cancelHostPaymentFailure(args: {
   roomId: string;
   failureId: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const base = getWebApiBaseUrl();
-  if (!base) return { ok: false, error: 'API host not configured.' };
-  const res = await fetch(`${base}/api/live-rooms/${encodeURIComponent(args.roomId)}/payment-failure/cancel`, {
-    method: 'POST',
-    headers: authHeaders(args.accessToken),
-    body: JSON.stringify({ failureId: args.failureId }),
-  });
-  let payload: { error?: string } = {};
   try {
-    payload = (await res.json()) as typeof payload;
-  } catch {
-    /* ignore */
+    const res = await fetchWebApiMobileWithSellerAuth(
+      `/api/live-rooms/${encodeURIComponent(args.roomId)}/payment-failure/cancel`,
+      args.accessToken,
+      {
+        method: 'POST',
+        body: JSON.stringify({ failureId: args.failureId }),
+      },
+    );
+    let payload: { error?: string } = {};
+    try {
+      payload = (await res.json()) as typeof payload;
+    } catch {
+      /* ignore */
+    }
+    if (res.ok) return { ok: true };
+    return {
+      ok: false,
+      error: typeof payload.error === 'string' ? payload.error : 'Could not cancel payment retry.',
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : 'Could not cancel payment retry.',
+    };
   }
-  if (res.ok) return { ok: true };
-  return {
-    ok: false,
-    error: typeof payload.error === 'string' ? payload.error : 'Could not cancel payment retry.',
-  };
 }
 
 function parseFailure(raw: unknown): LiveBuyerPaymentFailureSnapshot | null {

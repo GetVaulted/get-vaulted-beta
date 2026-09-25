@@ -6,6 +6,8 @@ import {
   computeLiveTopReserve,
   LIVE_STAGE_ASPECT,
   LIVE_STAGE_CONTENT_FIT,
+  liveStageContentFitForStreamMode,
+  liveStageContentFitForPlayback,
 } from './liveRoomViewport';
 
 describe('computeLiveStageContainer', () => {
@@ -22,6 +24,46 @@ describe('computeLiveStageContainer', () => {
     expect(stage.layoutHeight).toBe(stage.designHeight);
     expect(stage.offsetTop).toBeGreaterThan(0);
     expect(stage.offsetLeft).toBe(0);
+  });
+
+  it('uses contain for OBS/HLS and cover for phone Stage', () => {
+    expect(liveStageContentFitForStreamMode('channel_hls')).toBe('contain');
+    expect(liveStageContentFitForStreamMode('stage_webrtc')).toBe('cover');
+    expect(liveStageContentFitForStreamMode(null)).toBe('cover');
+  });
+
+  it('uses contain for Stage→HLS mirrors even when streamMode is still stage_webrtc', () => {
+    expect(
+      liveStageContentFitForPlayback({ streamMode: 'stage_webrtc', transport: 'hls' }),
+    ).toBe('contain');
+    expect(
+      liveStageContentFitForPlayback({ streamMode: 'stage_webrtc', transport: 'webrtc' }),
+    ).toBe('cover');
+    expect(
+      liveStageContentFitForPlayback({ streamMode: 'channel_hls', transport: 'hls' }),
+    ).toBe('contain');
+  });
+
+  // Regression: a PC seller broadcasting OBS 30+ straight into the Stage over WHIP reports
+  // transport "webrtc" and streamMode "stage_webrtc" — indistinguishable from a phone's portrait
+  // camera by those two fields alone — but the capture is OBS's landscape canvas, so buyers saw
+  // it cropped/zoomed under `cover`. `isObsDesktopSource` (server-derived from the WHIP ingest
+  // endpoint) must force `contain` regardless of streamMode/transport.
+  it('uses contain for desktop OBS over WHIP into the Stage even though transport is webrtc', () => {
+    expect(
+      liveStageContentFitForPlayback({
+        streamMode: 'stage_webrtc',
+        transport: 'webrtc',
+        isObsDesktopSource: true,
+      }),
+    ).toBe('contain');
+    expect(
+      liveStageContentFitForPlayback({
+        streamMode: 'stage_webrtc',
+        transport: 'webrtc',
+        isObsDesktopSource: false,
+      }),
+    ).toBe('cover');
   });
 
   it('scales uniformly and centers horizontally when the frame exceeds viewport height', () => {

@@ -94,7 +94,7 @@ export function AccountWatchlistPage() {
           <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">Watchlist</h1>
           <p className="mt-1.5 text-sm text-zinc-500">Listings you have saved for later.</p>
           <div className="mt-4">
-            <AccountOrdersNav active="watchlist" />
+            <AccountOrdersNav active="watchlist" mode="buyer" />
           </div>
         </header>
 

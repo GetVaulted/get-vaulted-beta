@@ -4,6 +4,7 @@ import { buildWebOAuthCallbackOrigin } from "@/lib/supabase-oauth-redirect";
 import {
   attachOAuthReturnToCookie,
   createSupabaseRouteHandlerAuthClient,
+  publicRequestOrigin,
   signInRedirect,
 } from "@/lib/supabase-server-auth-client";
 
@@ -11,9 +12,9 @@ const ALLOWED_PROVIDERS = new Set(["google", "apple"]);
 
 /** Starts OAuth on the server so the PKCE verifier is stored in cookies before Google/Apple redirect. */
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
-  const returnTo = safeReturnTo(searchParams.get("returnTo"));
-  const provider = searchParams.get("provider")?.trim().toLowerCase() ?? "";
+  const origin = publicRequestOrigin(request);
+  const returnTo = safeReturnTo(request.nextUrl.searchParams.get("returnTo"));
+  const provider = request.nextUrl.searchParams.get("provider")?.trim().toLowerCase() ?? "";
 
   if (!ALLOWED_PROVIDERS.has(provider)) {
     return signInRedirect(origin, returnTo, "unsupported_provider");

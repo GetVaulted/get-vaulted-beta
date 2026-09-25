@@ -7,6 +7,7 @@ import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useState } from "react";
 import { useRealtimeListingBidsSubscription } from "@/hooks/useRealtimeListingBidsSubscription";
 import { MarketplacePlaceBidModal } from "@/components/marketplace/MarketplacePlaceBidModal";
+import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 
 type BidRow = {
   id: string;
@@ -44,7 +45,7 @@ export type MarketplaceItemAuctionBlockProps = {
 };
 
 function formatMoney(n: number) {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  return formatMarketplaceUsd(n);
 }
 
 function formatCountdown(ms: number) {

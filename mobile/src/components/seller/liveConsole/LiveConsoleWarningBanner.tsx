@@ -7,10 +7,13 @@ export function LiveConsoleWarningBanner({
   error,
   onRetry,
   retrying,
+  actionLabel = 'Retry',
 }: {
   error: SanitizedLiveError;
   onRetry?: () => void;
   retrying?: boolean;
+  /** Button label — use "Resume" while the room is live (Whatnot minimize recovery). */
+  actionLabel?: string;
 }) {
   return (
     <View style={styles.wrap}>
@@ -25,7 +28,7 @@ export function LiveConsoleWarningBanner({
       </View>
       {onRetry ? (
         <Pressable style={[styles.retry, retrying && styles.retryBusy]} onPress={onRetry} disabled={retrying}>
-          <Text style={styles.retryTxt}>{retrying ? '…' : 'Retry'}</Text>
+          <Text style={styles.retryTxt}>{retrying ? '…' : actionLabel}</Text>
         </Pressable>
       ) : null}
     </View>

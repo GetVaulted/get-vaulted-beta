@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { MarketplaceBrowseCard } from "@/components/marketplace/MarketplaceBrowseCard";
 import { marketplaceBrowseGridClass } from "@/components/marketplace/MarketplaceSectionHeader";
 import { SellerProfileActions } from "@/components/seller/SellerProfileActions";
+import { SellerPullsSection } from "@/components/seller/SellerPullsSection";
 import { SellerProfileStatsBar } from "@/components/seller/SellerProfileStatsBar";
 import { getServerSessionSafe } from "@/lib/auth";
 import { auctionBidCountsByListingIds } from "@/lib/listing-bid-counts";
@@ -15,6 +16,7 @@ import { prisma } from "@/lib/prisma";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { buildSellerPageMetadata, buildSellerProfileJsonLd } from "@/lib/site-seo";
 import { JsonLdScript } from "@/components/seo/JsonLdScript";
+import { viewerCanSeeUser } from "@/lib/user-block";
 import {
   parseSellerShopTab,
   SELLER_SHOP_TABS,
@@ -52,7 +54,7 @@ export async function generateMetadata({
   if (!canIndexShop) return { title: "Seller | Get Vaulted" };
   return buildSellerPageMetadata({
     username: user.username,
-    displayName: user.name,
+    displayName: user.username,
     imageUrl: user.image,
   });
 }
@@ -88,11 +90,20 @@ export default async function SellerShopPage({
   const isOwnShop = session?.user?.id === user.id;
   const isAdmin = session?.user?.role === "admin";
   if (isHiddenFixtureSellerEmail(user.email) && !isOwnShop && !isAdmin) notFound();
+  if (!(await viewerCanSeeUser(prisma, session?.user?.id, user.id))) notFound();
 
   const basePath = sellerProfilePath(user.username);
 
-  const [activeListingsCount, soldListingsCount, auctionsLiveCount, salesOrderCount, followerCount, followingCount, rows] =
-    await Promise.all([
+  const [
+    activeListingsCount,
+    soldListingsCount,
+    auctionsLiveCount,
+    salesOrderCount,
+    followerCount,
+    followingCount,
+    rows,
+    pullMedia,
+  ] = await Promise.all([
     prisma.listing.count({
       where: { sellerId: user.id, status: { in: ["active", "auction_live"] }, moderationRemovedAt: null },
     }),
@@ -107,7 +118,28 @@ export default async function SellerShopPage({
       orderBy: { updatedAt: "desc" },
       take: 60,
     }),
+    prisma.profilePullMedia.findMany({
+      where: { sellerId: user.id },
+      orderBy: { sortOrder: "asc" },
+      take: 25,
+      include: {
+        _count: { select: { likes: true, comments: true } },
+        ...(session?.user?.id
+          ? { likes: { where: { userId: session.user.id }, select: { id: true } } }
+          : {}),
+      },
+    }),
   ]);
+
+  const pullMediaWithEngagement = pullMedia.map((m) => {
+    const { _count, likes, ...rest } = m as typeof m & { likes?: { id: string }[] };
+    return {
+      ...rest,
+      likeCount: _count.likes,
+      commentCount: _count.comments,
+      viewerHasLiked: Boolean(likes && likes.length),
+    };
+  });
 
   const auctionIds = rows.filter((r) => r.buyingFormat === "auction").map((r) => r.id);
   const bidCounts = await auctionBidCountsByListingIds(auctionIds);
@@ -134,7 +166,7 @@ export default async function SellerShopPage({
       <JsonLdScript
         data={buildSellerProfileJsonLd({
           username: user.username,
-          displayName: user.name,
+          displayName: user.username,
           imageUrl: user.image,
         })}
       />
@@ -168,7 +200,6 @@ export default async function SellerShopPage({
               <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">
                 @{user.username}
               </h1>
-              {user.name ? <p className="mt-1 text-sm text-zinc-400">{user.name}</p> : null}
               <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm">
                 <span className="text-[11px] font-medium text-zinc-500">{credibility}</span>
                 {verified ? (
@@ -216,6 +247,8 @@ export default async function SellerShopPage({
             <p className="mt-1 font-mono text-xl font-black tabular-nums text-rose-100/95">{auctionsLiveCount}</p>
           </div>
         </section>
+
+        <SellerPullsSection media={pullMediaWithEngagement} />
 
         <nav className="mt-8 flex flex-wrap gap-2 border-b border-white/[0.06] pb-3" aria-label="Listing filters">
           {SELLER_SHOP_TABS.map((t) => {

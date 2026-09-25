@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import type { TeamBoardPickDTO, TeamBoardStateDTO } from "@/lib/team-board-public";
 import { teamBoardDisplayName, teamBoardLeagueKey, teamBoardTableColumnCount } from "@/lib/team-board-sets";
 import { teamBoardTileColors } from "@/lib/team-board-team-colors";
@@ -15,9 +16,11 @@ type TeamBoardOverlayProps = {
   onPick: (teamAbbr: string) => void | Promise<void>;
   /** Buyer stage overlay (default) vs host seller panel (embedded). */
   presentation?: "stage" | "embedded";
+  /** Stage overlay dismiss (PC buyers/hosts). Embedded host panel uses its own chrome. */
+  onClose?: () => void;
 };
 
-const LEAGUE_LABEL: Record<string, string> = { nfl: "NFL", nba: "NBA", mlb: "MLB" };
+const LEAGUE_LABEL: Record<string, string> = { nfl: "NFL", nba: "NBA", mlb: "MLB", nhl: "NHL" };
 
 function chunkTeams<T>(items: readonly T[], chunkSize: number): T[][] {
   const rows: T[][] = [];
@@ -37,11 +40,25 @@ export function TeamBoardOverlay({
   busy = false,
   onPick,
   presentation = "stage",
+  onClose,
 }: TeamBoardOverlayProps) {
   const embedded = presentation === "embedded";
-  if (!state.visible && !embedded) return null;
-
   const teamList = teams ?? [];
+  const stageOpen = Boolean(state.visible) || embedded;
+
+  useEffect(() => {
+    if (embedded || !onClose || !state.visible) return undefined;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [embedded, onClose, state.visible]);
+
+  if (!stageOpen) return null;
+
   if (teamList.length === 0) {
     return (
       <div className="rounded-2xl border border-amber-500/35 bg-zinc-950/90 p-4 text-center text-sm text-amber-100/95">
@@ -52,7 +69,7 @@ export function TeamBoardOverlay({
 
   const pickByAbbr = new Map(picks.map((p) => [p.teamAbbr, p]));
   const leagueKey = teamBoardLeagueKey(state.league);
-  const colCount = teamBoardTableColumnCount(leagueKey);
+  const colCount = Math.min(teamBoardTableColumnCount(leagueKey), Math.max(teamList.length, 1));
   const teamRows = chunkTeams(teamList, colCount);
 
   return (
@@ -75,11 +92,26 @@ export function TeamBoardOverlay({
             </span>
           </p>
         </div>
-        {state.locked ? (
-          <span className="rounded-full border border-rose-500/40 bg-rose-950/50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-rose-100">
-            Locked
-          </span>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {state.locked ? (
+            <span className="rounded-full border border-rose-500/40 bg-rose-950/50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-rose-100">
+              Locked
+            </span>
+          ) : null}
+          {onClose ? (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close team board"
+              className="flex h-8 items-center gap-1.5 rounded-full border border-white/12 bg-white/[0.06] px-3 text-[10px] font-bold uppercase tracking-wide text-zinc-200 hover:bg-white/[0.1] hover:text-white"
+            >
+              <span aria-hidden className="text-sm leading-none">
+                ×
+              </span>
+              Close
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {state.currentPickerUsername ? (

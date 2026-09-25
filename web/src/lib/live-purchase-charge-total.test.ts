@@ -1,12 +1,29 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-const { orderFindUnique, paymentIntentsRetrieve } = vi.hoisted(() => ({
+const {
+  orderFindUnique,
+  orderFindMany,
+  variantFindMany,
+  variantFindUnique,
+  spotFindMany,
+  spotFindUnique,
+  paymentIntentsRetrieve,
+} = vi.hoisted(() => ({
   orderFindUnique: vi.fn(),
+  orderFindMany: vi.fn(),
+  variantFindMany: vi.fn(),
+  variantFindUnique: vi.fn(),
+  spotFindMany: vi.fn(),
+  spotFindUnique: vi.fn(),
   paymentIntentsRetrieve: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
-  prisma: { order: { findUnique: orderFindUnique } },
+  prisma: {
+    order: { findUnique: orderFindUnique, findMany: orderFindMany },
+    liveItemVariantPurchase: { findMany: variantFindMany, findUnique: variantFindUnique },
+    breakSpot: { findMany: spotFindMany, findUnique: spotFindUnique },
+  },
 }));
 
 vi.mock("@/lib/stripe", () => ({
@@ -15,8 +32,10 @@ vi.mock("@/lib/stripe", () => ({
 }));
 
 import {
+  enrichPaymentFailureChargeAmounts,
   orderChargeUsdFromFields,
   resolveChargeUsdFromFulfillmentOrderMap,
+  resolveLivePaymentFailureChargeUsd,
   resolveLivePurchaseNotificationChargeUsd,
 } from "./live-purchase-charge-total";
 
@@ -116,5 +135,69 @@ describe("resolveLivePurchaseNotificationChargeUsd", () => {
       stripePaymentIntentId: null,
     });
     expect(total).toBe(90);
+  });
+});
+
+describe("resolveLivePaymentFailureChargeUsd", () => {
+  beforeEach(() => {
+    orderFindMany.mockReset();
+    variantFindUnique.mockReset();
+    spotFindUnique.mockReset();
+  });
+
+  it("uses full order charge over item-only fallback", async () => {
+    orderFindMany.mockResolvedValue([
+      {
+        id: "ord_1",
+        totalUsd: 7.57,
+        itemPriceUsd: 3,
+        shippingPriceUsd: 3.99,
+        taxUsd: 0.58,
+      },
+    ]);
+    const total = await resolveLivePaymentFailureChargeUsd({
+      fallbackUsd: 3,
+      orderId: "ord_1",
+    });
+    expect(total).toBe(7.57);
+  });
+
+  it("falls back when no linked commerce ids", async () => {
+    const total = await resolveLivePaymentFailureChargeUsd({
+      fallbackUsd: 3,
+    });
+    expect(total).toBe(3);
+  });
+});
+
+describe("enrichPaymentFailureChargeAmounts", () => {
+  beforeEach(() => {
+    orderFindMany.mockReset();
+    variantFindMany.mockReset();
+    spotFindMany.mockReset();
+  });
+
+  it("aligns failure amount with recent-sales order charge", async () => {
+    orderFindMany.mockResolvedValue([
+      {
+        id: "ord_1",
+        totalUsd: 7.57,
+        itemPriceUsd: 3,
+        shippingPriceUsd: 3.99,
+        taxUsd: 0.58,
+      },
+    ]);
+    variantFindMany.mockResolvedValue([]);
+    spotFindMany.mockResolvedValue([]);
+    const [row] = await enrichPaymentFailureChargeAmounts([
+      {
+        id: "fail_1",
+        amountUsd: 3,
+        orderId: "ord_1",
+        variantPurchaseId: null,
+        breakSpotId: null,
+      },
+    ]);
+    expect(row?.amountUsd).toBe(7.57);
   });
 });

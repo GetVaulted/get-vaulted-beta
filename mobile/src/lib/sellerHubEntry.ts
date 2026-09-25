@@ -1,5 +1,4 @@
 import type { SellerConnectStatusResponse } from '../api/stripeConnectRepository';
-import { isSellerPayoutSetupComplete } from '../api/stripeConnectRepository';
 
 export type SellerHQEntryPhase = 'guest' | 'become_seller' | 'finish_setup' | 'ready';
 
@@ -10,19 +9,53 @@ export function hasStartedSellerSetup(status: SellerConnectStatusResponse | null
   return status.onboarding_ui_status !== 'not_started';
 }
 
-/** @deprecated Stripe-only readiness; prefer useSellerSetupState().activated for HQ gating. */
+/** Stripe cleared to sell/publish — not the same as wizard/HQ unlock. */
 export function isSellerHQApproved(status: SellerConnectStatusResponse | null | undefined): boolean {
   if (!status) return false;
-  if (isSellerPayoutSetupComplete(status)) return true;
+  if (status.can_publish_active_listings && status.payouts_ready) return true;
   return Boolean(status.can_host_live_sales || status.can_publish_active_listings);
+}
+
+/** Hosted Connect submitted (pending Stripe review OK) — seller setup payout step done. */
+export function isSellerPayoutSetupSubmitted(
+  status: SellerConnectStatusResponse | null | undefined,
+): boolean {
+  if (!status?.stripe_account_id?.trim()) return false;
+  if (isSellerHQApproved(status)) return true;
+  return Boolean(
+    status.payout_setup_submitted ||
+      status.payout_setup_complete ||
+      status.stripe_onboarding_complete ||
+      status.onboarding_ui_status === 'pending_review' ||
+      status.onboarding_ui_status === 'verified',
+  );
+}
+
+/**
+ * Studio readiness bar. Once setup is finished (activated / submitted), show 100% —
+ * do not stick at 65% just because Stripe verification is still pending.
+ */
+export function computeSellerStudioReadinessProgress(
+  connect: SellerConnectStatusResponse | null | undefined,
+  opts?: { sellerActivated?: boolean; wizardComplete?: boolean },
+): number {
+  if (opts?.sellerActivated || opts?.wizardComplete) return 1;
+  if (isSellerHQApproved(connect)) return 1;
+  if (isSellerPayoutSetupSubmitted(connect)) return 1;
+  if (!connect) return 0.15;
+  if (connect.stripe_account_id?.trim()) return 0.65;
+  if (connect.stripeConfigured) return 0.45;
+  return 0.25;
 }
 
 export function resolveSellerHQEntryPhase(args: {
   hasUser: boolean;
   connect: SellerConnectStatusResponse | null;
+  sellerActivated?: boolean;
+  wizardComplete?: boolean;
 }): SellerHQEntryPhase {
   if (!args.hasUser) return 'guest';
-  if (isSellerHQApproved(args.connect)) return 'ready';
+  if (args.sellerActivated || args.wizardComplete || isSellerHQApproved(args.connect)) return 'ready';
   if (hasStartedSellerSetup(args.connect)) return 'finish_setup';
   return 'become_seller';
 }

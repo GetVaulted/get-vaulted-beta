@@ -3,9 +3,15 @@ export type SellerCameraFacing = 'front' | 'back';
 
 export const SELLER_DEFAULT_CAMERA_FACING: SellerCameraFacing = 'back';
 
-/** Front camera preview is mirrored; rear camera is not. */
-export function sellerPreviewMirror(facing: SellerCameraFacing): boolean {
-  return facing === 'front';
+/**
+ * Front camera preview is mirrored by default; rear camera is never mirrored.
+ * `mirrorOverride` comes from the seller's quick "fix mirrored video" toggle (see
+ * useMobileStagePublish) and forces the front-camera mirror on/off; it's ignored on the rear
+ * camera, which should never be force-mirrored. Pass `null`/`undefined` for default behavior.
+ */
+export function sellerPreviewMirror(facing: SellerCameraFacing, mirrorOverride?: boolean | null): boolean {
+  if (facing !== 'front') return false;
+  return mirrorOverride ?? true;
 }
 
 export function cameraPermissionDeniedMessage(): string {

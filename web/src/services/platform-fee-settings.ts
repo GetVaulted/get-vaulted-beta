@@ -1,9 +1,14 @@
 import { prisma } from "@/lib/prisma";
+import {
+  MARKETPLACE_PLATFORM_FEE_PERCENT,
+  clampPlatformFeePercent,
+} from "@/lib/platform-fee-defaults";
 
 const CONFIG_ID = "default";
-const CACHE_TTL_MS = 30_000;
+/** Short TTL so marketplace fee edits from /admin/fees apply quickly across serverless instances. */
+const CACHE_TTL_MS = 5_000;
 /** Code fallback when DB is unavailable — keep aligned with platform-fee-policy.ts. */
-const FALLBACK_MARKETPLACE_FEE_PERCENT = 8;
+const FALLBACK_MARKETPLACE_FEE_PERCENT = MARKETPLACE_PLATFORM_FEE_PERCENT;
 
 let cachedPercent: number | null = null;
 let cachedAt = 0;
@@ -15,13 +20,12 @@ export function formatMarketplaceFeeRateLabel(percent: number): string {
 }
 
 export function clampMarketplacePlatformFeePercent(raw: number): number {
-  if (!Number.isFinite(raw)) return FALLBACK_MARKETPLACE_FEE_PERCENT;
-  return Math.min(25, Math.max(0, Math.round(raw * 100) / 100));
+  return clampPlatformFeePercent(raw, FALLBACK_MARKETPLACE_FEE_PERCENT);
 }
 
-/** Sync read — returns cached value or code default until cache is warmed. */
+/** Sync read — prefers warmed cache (even if TTL expired); only falls back to code default when never loaded. */
 export function getCachedMarketplacePlatformFeePercent(): number {
-  if (cachedPercent != null && Date.now() - cachedAt < CACHE_TTL_MS) {
+  if (cachedPercent != null) {
     return cachedPercent;
   }
   return FALLBACK_MARKETPLACE_FEE_PERCENT;
@@ -46,7 +50,9 @@ export async function ensureMarketplacePlatformFeeCache(force = false): Promise<
       row?.platformFeePercent ?? FALLBACK_MARKETPLACE_FEE_PERCENT,
     );
   } catch {
-    cachedPercent = FALLBACK_MARKETPLACE_FEE_PERCENT;
+    if (cachedPercent == null) {
+      cachedPercent = FALLBACK_MARKETPLACE_FEE_PERCENT;
+    }
   }
 
   cachedAt = Date.now();

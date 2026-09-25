@@ -35,6 +35,16 @@ export function formatLiveQueueItemUnitTitle(title: string, unitNumber: number):
 }
 
 /**
+ * Host-console only: BreakSpot claim counts may override remaining-quantity unit numbers
+ * for classic break claim rows. Multi-qty auctions normally have zero BreakSpot rows — return
+ * null so `#N` follows `quantityInitial - quantity` like buyer/sales paths.
+ */
+export function resolveHostConsoleUnitsClaimedOverride(breakSpotCount: number): number | null {
+  if (!Number.isFinite(breakSpotCount) || breakSpotCount <= 0) return null;
+  return Math.floor(breakSpotCount);
+}
+
+/**
  * Derive numbered-unit display for a queue row.
  * `quantity` is remaining units after timed-auction sales; `quantityInitial` is the original total.
  * Pass `unitsClaimed` for break PYT rows where quantity may not decrement until all spots are taken.
@@ -103,6 +113,23 @@ export function resolveLiveRoomItemQuantityState(input: {
     displayTitle,
     progressLabel,
   };
+}
+
+/** Unit title for a sale that just completed (`unitsSoldAfter` is 1-based sold count after the sale). */
+export function resolveSoldUnitDisplayTitle(args: {
+  title: string;
+  quantityInitial?: number | null;
+  quantity?: number;
+  unitsSoldAfter: number;
+}): string {
+  const title = args.title.trim() || "Item";
+  const total = normalizeQuantityInitial({
+    quantity: args.quantity ?? args.unitsSoldAfter,
+    quantityInitial: args.quantityInitial,
+  });
+  if (total <= 1) return title;
+  const unit = Math.min(total, Math.max(1, Math.floor(args.unitsSoldAfter)));
+  return formatLiveQueueItemUnitTitle(title, unit);
 }
 
 /** Unit index for the sale that is about to close (1-based). */

@@ -34,8 +34,10 @@ export function isBrowsableMarketplaceProduct(product: Product): boolean {
   const title = product.title?.trim() ?? '';
   if (!id || !title) return false;
 
-  const price = parseListingPriceUsd(product.listingPrice);
-  if (price == null || price <= 0) return false;
+  if (!product.tradeOnly) {
+    const price = parseListingPriceUsd(product.listingPrice);
+    if (price == null || price <= 0) return false;
+  }
   if (!hasListingImage(product)) return false;
   if (!hasListingSeller(product)) return false;
 

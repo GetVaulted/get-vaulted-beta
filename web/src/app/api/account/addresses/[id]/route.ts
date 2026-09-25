@@ -3,10 +3,11 @@ import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 import { validateAddressPatchInput, shippingAddressLabelPhoneError, type AddressInput } from "@/lib/address-book";
 import { verifyAddressPatchData } from "@/lib/apply-address-verification";
+import { syncBuyerWalletShippingToOpenOrders } from "@/lib/live-buy-now-purchase";
 import type { AddressType } from "@/generated/prisma/enums";
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
   const { id } = await ctx.params;
   const existing = await prisma.address.findFirst({
@@ -60,15 +61,25 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       data: patch,
     });
   });
+  let syncedOpenOrders = 0;
+  if (nextType === "shipping") {
+    try {
+      const sync = await syncBuyerWalletShippingToOpenOrders(auth.userId);
+      syncedOpenOrders = sync.updatedOrderIds.length;
+    } catch (e) {
+      console.error("[api/account/addresses PATCH] sync open order shipping", e);
+    }
+  }
   return NextResponse.json({
     address,
     verified: typeof patch.isVerified === "boolean" ? patch.isVerified : existing.isVerified,
     corrected: verified.corrected,
+    syncedOpenOrders,
   });
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await resolveAccountUserId(_req);
+  const auth = await resolveAccountUserId(_req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
   const { id } = await ctx.params;
   const existing = await prisma.address.findFirst({

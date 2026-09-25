@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 
 export type OfferAskingLine = { label: string; value: string };
 
@@ -89,7 +90,7 @@ export function MarketplaceMakeOfferModal({
       return;
     }
     if (minimumOfferUsd != null && Number.isFinite(minimumOfferUsd) && n < minimumOfferUsd) {
-      setError(`Offers must be at least ${minimumOfferUsd.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}.`);
+      setError(`Offers must be at least ${formatMarketplaceUsd(minimumOfferUsd)}.`);
       return;
     }
     setSubmitting(true);

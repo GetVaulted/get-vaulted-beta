@@ -42,7 +42,10 @@ async function canNotifyMention(args: {
         where: { threadId_userId: { threadId: args.threadId, userId: args.mentionedUserId } },
         select: { blocked: true },
       });
-      if (participant?.blocked) return false;
+      // Previously only checked `blocked` — a mentioned user with NO participant row (i.e. not
+      // actually in this private thread at all) fell through as "not blocked" and got notified
+      // with a preview of the thread's message body. Require an actual participant row too.
+      if (!participant || participant.blocked) return false;
     }
 
     if (args.liveRoomId) {
@@ -79,9 +82,13 @@ export async function processMessageMentions(args: ProcessArgs): Promise<Message
 
     const byUsername = new Map(users.map((u) => [u.username.toLowerCase(), u]));
     const uniqueById = new Map<string, { id: string; username: string }>();
+    const senderUsernameLower = args.senderUsername.trim().toLowerCase();
     for (const name of usernames) {
+      // Never tag yourself — skip before persist / notify / return.
+      if (name === senderUsernameLower) continue;
       const user = byUsername.get(name);
-      if (user) uniqueById.set(user.id, user);
+      if (!user || user.id === args.senderId) continue;
+      uniqueById.set(user.id, user);
     }
 
     let liveRoomTitle: string | null = null;

@@ -15,7 +15,7 @@ Opening a timed window **does not** append `LiveAuctionEvent` rows and **does no
 
 ## Fan-out (`flushPendingLiveAuctionFanout`)
 
-The bid `POST` handler **awaits** `flushPendingLiveAuctionFanout({ liveRoomId })` before returning JSON so **compat realtime** (`emitBidPlaced`) reaches Supabase subscribers before the HTTP ACK completes. A follow-up `after(() => flush…)` drains anything left if a partial failure occurred.
+The bid `POST` handler returns the HTTP ACK **without awaiting** fan-out. It kicks off `flushPendingLiveAuctionFanout` immediately (fire-and-forget) and schedules a follow-up `after(() => flush…)` so serverless runtimes still drain unpublished `LiveAuctionEvent` rows. Compat realtime (`emitBidPlaced`) therefore does not block the bidder’s round-trip; clients that miss a broadcast reconcile via ACK merge, refetch, or event replay.
 
 Processing order for each pending row:
 

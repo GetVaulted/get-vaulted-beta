@@ -40,17 +40,33 @@ function variantItem(overrides: Partial<LiveRoomItemDTO> = {}): LiveRoomItemDTO 
 
 describe("live-room-variant-merge", () => {
   it("decrements quantity on first purchase", () => {
-    const next = mergeVariantPurchasedIntoItems([variantItem()], {
-      itemId: "item_1",
-      variantId: "var_a",
-      itemVersion: 1,
-      quantity: 1,
-    });
+    const next = mergeVariantPurchasedIntoItems(
+      [
+        variantItem({
+          quantity: 32,
+          quantityInitial: 32,
+          soldQuantity: 0,
+          remainingQuantity: 32,
+          currentUnitNumber: 1,
+          displayTitle: "PYT Break #1",
+          progressLabel: "0 / 32 sold",
+        }),
+      ],
+      {
+        itemId: "item_1",
+        variantId: "var_a",
+        itemVersion: 1,
+        quantity: 1,
+      },
+    );
     expect(next[0]?.variants?.[0]?.quantityRemaining).toBe(0);
     expect(next[0]?.variants?.[0]?.soldCount).toBe(1);
     expect(next[0]?.variants?.[0]?.status).toBe("sold_out");
     expect(next[0]?.variants?.[0]?.isHot).toBe(false);
     expect(next[0]?.itemVersion).toBe(1);
+    expect(next[0]?.displayTitle).toBe("PYT Break #2");
+    expect(next[0]?.soldQuantity).toBe(1);
+    expect(next[0]?.progressLabel).toBe("1 / 32 sold");
   });
 
   it("prefers incoming row when sold count advanced at same itemVersion", () => {

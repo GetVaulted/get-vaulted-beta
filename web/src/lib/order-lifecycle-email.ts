@@ -10,6 +10,7 @@ export type OrderLifecycleEmailKind =
   | "seller_ready_to_ship"
   | "order_label_created"
   | "order_shipped"
+  | "order_in_transit"
   | "order_out_for_delivery"
   | "order_delivered"
   | "seller_order_delivered";
@@ -103,18 +104,33 @@ function buildOrderEmailCopy(input: OrderLifecycleEmailInput): OrderEmailCopy {
       };
     case "order_shipped":
       return {
-        subject: `On the way — ${title}`,
+        subject: `Shipped — ${title}`,
         text: [
-          `${title} is on the way.`,
+          `Carrier scanned ${title} — your package is on its way.`,
           tracking ? `Tracking: ${tracking}` : "",
           "",
           `View order: ${link}`,
         ]
           .filter(Boolean)
           .join("\n"),
-        headline: "Your order shipped",
-        bodyHtml: `<strong style="color:${brandText};">${safeTitle}</strong> is on the way.${tracking ? ` Tracking: <strong style="color:${brandText};">${escapeResendHtml(tracking)}</strong>.` : ""}`,
-        ctaLabel: "View order",
+        headline: "Shipped",
+        bodyHtml: `Carrier scanned <strong style="color:${brandText};">${safeTitle}</strong> — your package is on its way.${tracking ? ` Tracking: <strong style="color:${brandText};">${escapeResendHtml(tracking)}</strong>.` : ""}`,
+        ctaLabel: "Track order",
+      };
+    case "order_in_transit":
+      return {
+        subject: `In transit — ${title}`,
+        text: [
+          `${title} is in transit with the carrier.`,
+          tracking ? `Tracking: ${tracking}` : "",
+          "",
+          `View order: ${link}`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        headline: "In transit",
+        bodyHtml: `<strong style="color:${brandText};">${safeTitle}</strong> is in transit.${tracking ? ` Tracking: <strong style="color:${brandText};">${escapeResendHtml(tracking)}</strong>.` : ""}`,
+        ctaLabel: "Track order",
       };
     case "order_out_for_delivery":
       return {

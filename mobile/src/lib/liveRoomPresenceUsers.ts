@@ -1,3 +1,5 @@
+import { isFreshPresenceEntry, PRESENCE_STALE_MS } from './liveRoomPresenceCount';
+
 export type RoomPresenceUser = {
   userId: string | null;
   username: string;
@@ -12,8 +14,18 @@ function normalizePresenceUsername(username: unknown, userId: string | null): st
   return 'Guest';
 }
 
-/** Parse Supabase Realtime presence state into deduped viewer rows. */
-export function parseRoomPresenceUsers(state: Record<string, unknown> | null | undefined): RoomPresenceUser[] {
+/**
+ * Parse Supabase Realtime presence into one row PER PERSON (deduped by account) for roster / moderator
+ * displays. This is intentionally different from the live viewer *count*, which is per-connection —
+ * see `countRoomPresenceViewers`. A roster wants each human once; the counter wants raw headcount.
+ * Same staleness gate as the counter, so the moderator roster never shows a ghost the count has
+ * already dropped.
+ */
+export function parseRoomPresenceUsers(
+  state: Record<string, unknown> | null | undefined,
+  nowMs: number = Date.now(),
+  staleMs: number = PRESENCE_STALE_MS,
+): RoomPresenceUser[] {
   if (!state || typeof state !== 'object') return [];
 
   const byKey = new Map<string, RoomPresenceUser>();
@@ -23,6 +35,7 @@ export function parseRoomPresenceUsers(state: Record<string, unknown> | null | u
     for (const raw of list) {
       if (!raw || typeof raw !== 'object') continue;
       const p = raw as Record<string, unknown>;
+      if (!isFreshPresenceEntry(p, nowMs, staleMs)) continue;
       const userId = typeof p.userId === 'string' && p.userId.trim() ? p.userId.trim() : null;
       const tabKey = typeof p.tabKey === 'string' && p.tabKey.trim() ? p.tabKey.trim() : undefined;
       const username = normalizePresenceUsername(p.username, userId);

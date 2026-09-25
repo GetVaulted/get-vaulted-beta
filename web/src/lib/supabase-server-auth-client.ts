@@ -99,11 +99,15 @@ export function clearOAuthReturnToCookie(response: NextResponse): NextResponse {
 }
 
 export function redirectWithForwardedHost(request: NextRequest, path: string): NextResponse {
-  const { origin } = new URL(request.url);
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const forwardedProto = request.headers.get("x-forwarded-proto") ?? "https";
-  if (forwardedHost && process.env.NODE_ENV === "production") {
-    return NextResponse.redirect(`${forwardedProto}://${forwardedHost}${path}`);
+  return NextResponse.redirect(`${publicRequestOrigin(request)}${path}`);
+}
+
+/** Browser-facing origin (prefers x-forwarded-* behind Netlify so OAuth cookies match the callback host). */
+export function publicRequestOrigin(request: NextRequest): string {
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() ?? "https";
+  if (forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
   }
-  return NextResponse.redirect(`${origin}${path}`);
+  return new URL(request.url).origin;
 }

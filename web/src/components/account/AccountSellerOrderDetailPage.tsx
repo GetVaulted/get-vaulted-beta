@@ -50,7 +50,21 @@ type OrderDetail = {
   payoutStatus: string;
   payoutEstimateUsd: number;
   platformFeeEstimateUsd: number;
+  platformFeePercent?: number;
   stripeProcessingFeeEstimateUsd: number;
+  shippingLabelCostCents?: number | null;
+  shippingLabelCostReversedCents?: number | null;
+  shippingBreakdown?: {
+    buyerShippingCollectedCents: number;
+    actualLabelCostCents: number | null;
+    labelRefundOrCreditCents: number;
+    netShippingImpactCents: number;
+    labelStatus: string;
+    carrier: string | null;
+    service: string | null;
+    trackingNumber: string | null;
+    purchasedAt: string | null;
+  } | null;
   liveShowId?: string | null;
   listing: { id: string; title: string; status?: string; images: { url: string }[] };
   buyer: { username: string | null };
@@ -94,6 +108,7 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
   const [regenerateBusy, setRegenerateBusy] = useState(false);
   const [labelError, setLabelError] = useState<string | null>(null);
   const [markShippedBusy, setMarkShippedBusy] = useState(false);
+  const [shipOwnCarrierBusy, setShipOwnCarrierBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -156,6 +171,27 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
       setLabelError("Something went wrong.");
     } finally {
       setMarkShippedBusy(false);
+    }
+  };
+
+  const shipOwnCarrier = async (trackingNumber: string | null) => {
+    setShipOwnCarrierBusy(true);
+    try {
+      const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markShipped: true, ...(trackingNumber ? { trackingNumber } : {}) }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setLabelError(data.error ?? "Could not mark shipped.");
+        return;
+      }
+      await load();
+    } catch {
+      setLabelError("Something went wrong.");
+    } finally {
+      setShipOwnCarrierBusy(false);
     }
   };
 
@@ -258,7 +294,7 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
       <div className="relative mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-        <AccountOrdersNav active="sales" />
+        <AccountOrdersNav active="sales" mode="seller" />
         <Link
           href="/account/sales"
           className="mt-6 inline-flex text-[11px] font-semibold uppercase tracking-wider text-gold-bright/90 hover:text-gold-bright"
@@ -315,7 +351,7 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
           <div className="space-y-6">
             <SellerFulfillmentTimelineCompact steps={timeline} />
-            {order.liveShowId && (order.paymentStatus === "paid" || order.paymentStatus === "refunded") ? (
+            {order.paymentStatus === "paid" || order.paymentStatus === "refunded" ? (
               <OrderRefundRequestPanel orderId={order.id} role="seller" />
             ) : null}
             <SellerOrderActivityFeed events={activityLog} />
@@ -350,6 +386,12 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
                     ? () => void markShipped()
                     : undefined
                 }
+                onShipOwnCarrier={
+                  order.status === "paid" || order.status === "pending"
+                    ? (trackingNumber) => void shipOwnCarrier(trackingNumber)
+                    : undefined
+                }
+                shipOwnCarrierBusy={shipOwnCarrierBusy}
               />
             ) : null}
             <SellerOrderSidebarSections
@@ -365,10 +407,14 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
               taxUsd={order.taxUsd}
               totalUsd={order.totalUsd}
               platformFeeEstimateUsd={order.platformFeeEstimateUsd}
+              platformFeePercent={order.platformFeePercent}
               stripeProcessingFeeEstimateUsd={order.stripeProcessingFeeEstimateUsd}
               payoutEstimateUsd={order.payoutEstimateUsd}
               payoutStatus={order.payoutStatus}
               shippingAddressIncomplete={shippingAddressIncomplete}
+              shippingBreakdown={order.shippingBreakdown ?? null}
+              shippingLabelCostCents={order.shippingLabelCostCents}
+              shippingLabelCostReversedCents={order.shippingLabelCostReversedCents}
             />
           </aside>
         </div>

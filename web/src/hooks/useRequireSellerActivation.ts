@@ -10,17 +10,19 @@ import { SELLER_SETUP_PATH } from "@/lib/seller-setup-state";
 export function useRequireSellerActivation() {
   const router = useRouter();
   const { status } = useSession();
-  const { phase, activated } = useSellerSetupState(status === "authenticated");
+  const { phase, activated, resolved } = useSellerSetupState(status === "authenticated");
 
   useEffect(() => {
-    if (status !== "authenticated" || phase === "loading") return;
+    if (status !== "authenticated" || phase === "loading" || !resolved) return;
     if (!activated) {
       router.replace(SELLER_SETUP_PATH);
     }
-  }, [status, phase, activated, router]);
+  }, [status, phase, activated, resolved, router]);
 
   return {
     ready: status === "authenticated" && activated,
-    loading: status === "loading" || (status === "authenticated" && phase === "loading"),
+    loading:
+      status === "loading" ||
+      (status === "authenticated" && (phase === "loading" || !resolved)),
   };
 }

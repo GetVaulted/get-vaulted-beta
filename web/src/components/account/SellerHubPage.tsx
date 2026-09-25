@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { SellerShipFromSetupCard } from "@/components/account/SellerShipFromSetupCard";
 import { StripeOnboardingEmbed } from "@/components/seller/StripeOnboardingEmbed";
 import { SellerHubNav } from "@/components/seller/obs/SellerHubNav";
-import { SellerShipFromSetupCard } from "@/components/account/SellerShipFromSetupCard";
 import { useSellerSetupState } from "@/hooks/useSellerSetupState";
+import { SellerPayoutPreferenceCard } from "@/components/account/SellerPayoutPreferenceCard";
 import { SELLER_OBS_PATH } from "@/lib/obs-seller-paths";
+import { hasCompleteSellerShipFrom } from "@/lib/seller-shipping-readiness";
 import { SELLER_SETUP_PATH } from "@/lib/seller-setup-state";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 
@@ -24,6 +26,7 @@ type SellerPayload = {
   shipFromState: string | null;
   shipFromZip: string | null;
   shipFromCountry: string | null;
+  shipFromPhone: string | null;
 };
 
 type SellerHomeStats = {
@@ -44,6 +47,9 @@ type SellerHomeStats = {
 type LiveReadinessChecks = {
   hasStripeAccount: boolean;
   stripeChargesEnabled: boolean;
+  stripePayoutSubmitted?: boolean;
+  paypalPayoutReady?: boolean;
+  preferredSellerPayoutProcessor?: "STRIPE" | "PAYPAL";
   hasShippoConfigured: boolean;
   hasShipFromAddress: boolean;
   alternateCheckoutSellerReady: boolean;
@@ -68,34 +74,99 @@ function HubSectionLabel({ children }: { children: ReactNode }) {
   );
 }
 
+const STAT_ICON_PROPS = {
+  viewBox: "0 0 24 24",
+  width: 15,
+  height: 15,
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.7,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+
+function LiveStatIcon() {
+  return (
+    <svg {...STAT_ICON_PROPS}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M7.5 8.2a6.5 6.5 0 0 0 0 7.6" />
+      <path d="M16.5 8.2a6.5 6.5 0 0 1 0 7.6" />
+    </svg>
+  );
+}
+function ListingsStatIcon() {
+  return (
+    <svg {...STAT_ICON_PROPS}>
+      <path d="M11 3H4v7l10 10 7-7L11 3Z" />
+      <circle cx="7.7" cy="7.7" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+function OrdersStatIcon() {
+  return (
+    <svg {...STAT_ICON_PROPS}>
+      <path d="M3 8 12 4l9 4-9 4-9-4Z" />
+      <path d="M3 8v9l9 4 9-4V8" />
+    </svg>
+  );
+}
+function MessagesStatIcon() {
+  return (
+    <svg {...STAT_ICON_PROPS}>
+      <path d="M4 5h16v11H8l-4 3.2V5Z" />
+    </svg>
+  );
+}
+
+function PullsStatIcon() {
+  return (
+    <svg {...STAT_ICON_PROPS}>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <circle cx="9" cy="10" r="1.6" fill="currentColor" stroke="none" />
+      <path d="m5 17 4.5-5 3.5 4 2.5-3 4.5 4" />
+    </svg>
+  );
+}
+
 function HubStatCard({
   label,
   lines,
   href,
   cta,
   highlight,
+  icon,
+  size = "default",
 }: {
   label: string;
   lines: { text: string; emphasis?: boolean }[];
   href: string;
   cta: string;
   highlight?: boolean;
+  icon?: ReactNode;
+  size?: "default" | "lg";
 }) {
   return (
     <Link
       href={href}
       className={`group block rounded-xl border p-4 transition hover:border-gold/25 hover:bg-white/[0.02] ${
         highlight
-          ? "border-gold/20 bg-gold/[0.04]"
+          ? "border-gold/25 bg-gold/[0.05]"
           : "border-white/[0.08] bg-zinc-950/40"
       }`}
     >
-      <HubSectionLabel>{label}</HubSectionLabel>
+      <div className="flex items-center justify-between gap-3">
+        <HubSectionLabel>{label}</HubSectionLabel>
+        {icon ? <span className={highlight ? "text-gold-bright/80" : "text-zinc-600"}>{icon}</span> : null}
+      </div>
       <div className="mt-2 space-y-0.5">
-        {lines.map((line) => (
+        {lines.map((line, i) => (
           <p
             key={line.text}
-            className={`text-sm ${line.emphasis ? "font-semibold text-zinc-100" : "text-zinc-400"}`}
+            className={
+              size === "lg" && i === 0
+                ? "text-xl font-extrabold tabular-nums text-zinc-100"
+                : `text-sm ${line.emphasis ? "font-semibold text-zinc-100" : "text-zinc-400"}`
+            }
           >
             {line.text}
           </p>
@@ -124,7 +195,7 @@ function StatusPill({ tone, children }: { tone: "ready" | "pending" | "warn"; ch
 export function SellerHubPage() {
   const router = useRouter();
   const { status } = useSession();
-  const { activated, phase: setupPhase } = useSellerSetupState(status === "authenticated");
+  const { activated, phase: setupPhase, resolved: setupResolved } = useSellerSetupState(status === "authenticated");
   const [seller, setSeller] = useState<SellerPayload>({
     username: "",
     stripeAccountId: null,
@@ -137,6 +208,7 @@ export function SellerHubPage() {
     shipFromState: null,
     shipFromZip: null,
     shipFromCountry: null,
+    shipFromPhone: null,
   });
   const [homeStats, setHomeStats] = useState<SellerHomeStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -151,6 +223,9 @@ export function SellerHubPage() {
     checks: {
       hasStripeAccount: false,
       stripeChargesEnabled: false,
+      stripePayoutSubmitted: false,
+      paypalPayoutReady: false,
+      preferredSellerPayoutProcessor: "STRIPE",
       hasShippoConfigured: false,
       hasShipFromAddress: false,
       alternateCheckoutSellerReady: false,
@@ -212,6 +287,7 @@ export function SellerHubPage() {
           shipFromState: null,
           shipFromZip: null,
           shipFromCountry: null,
+          shipFromPhone: null,
         });
         return;
       }
@@ -239,6 +315,7 @@ export function SellerHubPage() {
         shipFromState: null,
         shipFromZip: null,
         shipFromCountry: null,
+        shipFromPhone: null,
       };
       setSeller(s);
       setReadiness(
@@ -248,6 +325,9 @@ export function SellerHubPage() {
           checks: {
             hasStripeAccount: false,
             stripeChargesEnabled: false,
+            stripePayoutSubmitted: false,
+            paypalPayoutReady: false,
+            preferredSellerPayoutProcessor: "STRIPE",
             hasShippoConfigured: false,
             hasShipFromAddress: false,
             alternateCheckoutSellerReady: false,
@@ -272,11 +352,11 @@ export function SellerHubPage() {
   }, [load, status]);
 
   useEffect(() => {
-    if (loading || status !== "authenticated" || setupPhase === "loading") return;
+    if (loading || status !== "authenticated" || setupPhase === "loading" || !setupResolved) return;
     if (!activated) {
       router.replace(SELLER_SETUP_PATH);
     }
-  }, [loading, activated, setupPhase, router, status]);
+  }, [loading, activated, setupPhase, setupResolved, router, status]);
 
   useEffect(() => {
     if (!stripeEmbedOpen) return;
@@ -371,10 +451,12 @@ export function SellerHubPage() {
     );
   }
 
-  if (!activated) {
+  if (!setupResolved || !activated) {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
-        <div className="mx-auto max-w-[1920px] px-4 py-24 text-center text-sm text-zinc-500">Redirecting to seller setup…</div>
+        <div className="mx-auto max-w-[1920px] px-4 py-24 text-center text-sm text-zinc-500">
+          {setupResolved && !activated ? "Redirecting to seller setup…" : "Loading seller HQ…"}
+        </div>
       </main>
     );
   }
@@ -382,7 +464,16 @@ export function SellerHubPage() {
   const ps = payoutStatus(seller);
   const liveRoom = homeStats?.liveRoom;
   const isLiveNow = liveRoom?.status === "live";
-  const shipFromNeedsAttention = !readiness.checks.hasShipFromAddress;
+  const shipFromNeedsAttention = seller
+    ? !hasCompleteSellerShipFrom({
+        shipFromStreet: seller.shipFromStreet,
+        shipFromCity: seller.shipFromCity,
+        shipFromState: seller.shipFromState,
+        shipFromZip: seller.shipFromZip,
+        shipFromCountry: seller.shipFromCountry,
+        shipFromPhone: seller.shipFromPhone,
+      })
+    : !readiness.checks.hasShipFromAddress;
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[#030303]">
@@ -415,7 +506,10 @@ export function SellerHubPage() {
           </div>
         </header>
 
-        <SellerHubNav activeHref="/account/seller" />
+        <SellerHubNav
+          activeHref="/account/seller"
+          unreadMessagesCount={homeStats?.unreadBuyerMessagesCount ?? 0}
+        />
 
         {loadError ? (
           <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-sm text-amber-100">
@@ -445,27 +539,32 @@ export function SellerHubPage() {
         ) : null}
 
         <section className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <HubStatCard
-            label="Live"
-            highlight={isLiveNow}
-            href="/seller/live"
-            cta={isLiveNow ? "Go to console" : "Open live hub"}
-            lines={[
-              {
-                text: liveRoom?.title ?? "No scheduled show",
-                emphasis: true,
-              },
-              {
-                text: isLiveNow
-                  ? "You are live"
-                  : liveRoom?.scheduledStartAt
-                    ? `Scheduled ${new Date(liveRoom.scheduledStartAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}`
-                    : "Schedule when you are ready",
-              },
-            ]}
-          />
+          <div className="sm:col-span-2">
+            <HubStatCard
+              label="Live"
+              size="lg"
+              icon={<LiveStatIcon />}
+              highlight={isLiveNow}
+              href="/seller/live"
+              cta={isLiveNow ? "Go to console" : "Open live hub"}
+              lines={[
+                {
+                  text: liveRoom?.title ?? "No scheduled show",
+                  emphasis: true,
+                },
+                {
+                  text: isLiveNow
+                    ? "You are live"
+                    : liveRoom?.scheduledStartAt
+                      ? `Scheduled ${new Date(liveRoom.scheduledStartAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}`
+                      : "Schedule when you are ready",
+                },
+              ]}
+            />
+          </div>
           <HubStatCard
             label="Listings"
+            icon={<ListingsStatIcon />}
             href="/seller/listings"
             cta="View listings"
             lines={[
@@ -475,6 +574,7 @@ export function SellerHubPage() {
           />
           <HubStatCard
             label="Orders"
+            icon={<OrdersStatIcon />}
             href="/account/sales"
             cta="Open orders"
             lines={[
@@ -484,6 +584,7 @@ export function SellerHubPage() {
           />
           <HubStatCard
             label="Messages"
+            icon={<MessagesStatIcon />}
             href="/account/messages"
             cta="Open inbox"
             lines={[
@@ -492,6 +593,16 @@ export function SellerHubPage() {
                 emphasis: (homeStats?.unreadBuyerMessagesCount ?? 0) > 0,
               },
               { text: "Buyer conversations" },
+            ]}
+          />
+          <HubStatCard
+            label="Pulls"
+            icon={<PullsStatIcon />}
+            href="/account/seller/pulls"
+            cta="Manage pulls"
+            lines={[
+              { text: "Photos & clips" },
+              { text: "Show off your best hits" },
             ]}
           />
         </section>
@@ -505,6 +616,10 @@ export function SellerHubPage() {
             >
               All settings
             </Link>
+          </div>
+
+          <div className="mb-4">
+            <SellerPayoutPreferenceCard />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
@@ -533,6 +648,12 @@ export function SellerHubPage() {
                 >
                   {busy ? "Opening…" : ps === "ready" ? "Stripe dashboard" : "Connect payouts"}
                 </button>
+                <Link
+                  href="/account/seller/financials"
+                  className="inline-flex h-9 items-center justify-center rounded-lg bg-gold/15 px-4 text-xs font-semibold text-gold-bright ring-1 ring-gold/25 transition hover:bg-gold/25"
+                >
+                  View financials
+                </Link>
                 {ps !== "ready" ? (
                   <Link
                     href={SELLER_SETUP_PATH}

@@ -42,6 +42,8 @@ async function main() {
   const channelType = process.env.AWS_IVS_CHANNEL_TYPE?.trim() ?? "STANDARD";
   const latencyMode = process.env.AWS_IVS_LATENCY_MODE?.trim() ?? "LOW";
   const webhookSecret = process.env.IVS_EVENTS_WEBHOOK_SECRET?.trim() ?? "";
+  const recordingArn = process.env.AWS_IVS_RECORDING_CONFIGURATION_ARN?.trim() ?? "";
+  const recordingsBucket = process.env.AWS_IVS_RECORDINGS_BUCKET?.trim() ?? "";
 
   console.log("");
   console.log("=== Beta AWS IVS config check ===");
@@ -51,6 +53,12 @@ async function main() {
   console.log(`AWS_IVS_CHANNEL_TYPE:    ${channelType}`);
   console.log(`AWS_IVS_LATENCY_MODE:    ${latencyMode}`);
   console.log(`IVS_EVENTS_WEBHOOK_SECRET: ${webhookSecret ? "(set)" : "(missing — health polling only)"}`);
+  console.log(
+    `AWS_IVS_RECORDING_CONFIGURATION_ARN: ${recordingArn ? mask(recordingArn) : "(missing — live VOD off)"}`,
+  );
+  console.log(
+    `AWS_IVS_RECORDINGS_BUCKET: ${recordingsBucket || "(missing — admin ZIP download needs this)"}`,
+  );
   console.log("");
 
   const missing: string[] = [];
@@ -107,14 +115,23 @@ async function main() {
     }
   }
 
+  if (!recordingArn) {
+    console.warn("Warning: AWS_IVS_RECORDING_CONFIGURATION_ARN unset — new channels will not auto-record.");
+    console.warn("See web/infra/iam/LIVE_RECORDINGS.md");
+  }
+  if (recordingArn && !recordingsBucket) {
+    console.warn("Warning: AWS_IVS_RECORDINGS_BUCKET unset — admin archive download will fail.");
+  }
+
   console.log("");
   console.log("IVS test flow:");
   console.log("  1. Seller: POST /api/live-rooms/{id}/stream/stage-token (host WebRTC Go Live)");
   console.log("  2. Buyer: GET /api/live-rooms/{id}/stream/stage-token (subscribe-only token)");
   console.log("  3. Legacy OBS path: POST /api/live-rooms/{id}/stream/provision → RTMPS + stream key");
   console.log("  4. Buyer: GET /api/live-rooms/{id}/stream → playbackUrl + streamHealth only");
+  console.log("  5. After end show: Recording State Change webhook → LiveStreamReplay ready → admin ZIP");
   console.log("");
-  console.log("See web/docs/aws-ivs-live-qa-checklist.md for full E2E steps.");
+  console.log("See web/docs/aws-ivs-live-qa-checklist.md and web/infra/iam/LIVE_RECORDINGS.md.");
 }
 
 main().catch((e) => {

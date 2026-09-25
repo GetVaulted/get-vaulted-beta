@@ -14,15 +14,15 @@ export type LiveAuctionLotPhaseInput = {
 };
 
 export const LIVE_AUCTION_HOST_TIMER_ENDED_COPY =
-  "Auction ended — mark sold to settle winner.";
+  "Auction ended — settling winner…";
 
 export const LIVE_AUCTION_BUYER_TIMER_ENDED_COPY =
-  "Bidding closed. The host will confirm the winner — payment opens after they mark sold.";
+  "Bidding closed. Settling the winner and charging their saved card…";
 
 export const LIVE_AUCTION_BUYER_NOT_STARTED_COPY =
   "Waiting for the host to open bidding — then the button shows the next required bid.";
 
-/** Host must mark sold; timer expiry alone does not create an order or charge anyone. */
+/** Timer end auto-settles (order + charge). This phase is only the brief window before the server finishes. */
 export function resolveLiveAuctionLotBidPhase(
   item: LiveAuctionLotPhaseInput | null | undefined,
   nowMs: number,

@@ -49,6 +49,7 @@ export function ChangeEmailScreen({ navigation }: Props) {
         value={email}
         onChangeText={setEmail}
         autoCapitalize="none"
+        autoCorrect={false}
         keyboardType="email-address"
         placeholder="you@example.com"
         placeholderTextColor={colors.textMuted}

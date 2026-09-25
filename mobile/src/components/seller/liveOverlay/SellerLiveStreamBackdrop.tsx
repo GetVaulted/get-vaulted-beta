@@ -14,6 +14,7 @@ export function SellerLiveStreamBackdrop({
   useStageCamera,
   showCameraPreview,
   cameraFacing,
+  mirrorOverride,
   permissionState,
   permissionError,
   onRetryCameraPermission,
@@ -27,6 +28,8 @@ export function SellerLiveStreamBackdrop({
   useStageCamera: boolean;
   showCameraPreview: boolean;
   cameraFacing: SellerCameraFacing;
+  /** Seller's quick "fix mirrored video" toggle — kept in sync with the actual broadcast mirror. */
+  mirrorOverride?: boolean | null;
   permissionState: SellerCameraPermissionState;
   permissionError: string | null;
   onRetryCameraPermission: () => void;
@@ -70,6 +73,7 @@ export function SellerLiveStreamBackdrop({
       <StageHostPreviewVideo
         active={mountPreviewSurface && showLiveFeed}
         cameraFacing={cameraFacing}
+        mirrorOverride={mirrorOverride}
         contentFit="cover"
       />
       {permissionBlocked && permissionError ? (
@@ -91,10 +95,15 @@ export function SellerLiveStreamBackdrop({
           />
         </Animated.View>
       ) : null}
-      {!roomLive && useStageCamera && permissionState === 'requesting' ? (
-        <View style={styles.previewLane} pointerEvents="none">
+      {!roomLive && useStageCamera && (permissionState === 'requesting' || permissionState === 'idle') ? (
+        <View style={styles.previewLane} pointerEvents="box-none">
           <ActivityIndicator color={colors.gold} size="small" />
           <Text style={styles.previewTxt}>Starting camera…</Text>
+          {permissionState === 'idle' ? (
+            <Pressable style={styles.previewRetry} onPress={onRetryCameraPermission} disabled={permissionRetrying}>
+              <Text style={styles.previewRetryTxt}>{permissionRetrying ? 'Retrying…' : 'Retry camera'}</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : useStageCamera && permissionState === 'granted' && !showLiveFeed ? (
         <View style={styles.previewLane} pointerEvents="box-none">

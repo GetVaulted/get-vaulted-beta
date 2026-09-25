@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { createOrderFromAcceptedOffer, declineOtherOpenOffersOnListing, loadBuyerShipToForOffer } from "@/lib/offer-fulfillment";
 import { createNotification } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
+import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
+import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 
 type PatchBody = {
   action?: string;
@@ -10,8 +11,8 @@ type PatchBody = {
 };
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -48,7 +49,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   const listing = offer.listing;
-  const uid = session.user.id;
+  const uid = auth.userId;
 
   try {
     if (action === "accept" && uid === offer.sellerId) {
@@ -144,7 +145,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       }
       const lt =
         listing.title.length > 90 ? `${listing.title.slice(0, 87)}…` : listing.title;
-      const fmt = c.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+      const fmt = formatMarketplaceUsd(c);
       await createNotification(prisma, {
         userId: offer.buyerId,
         type: "counteroffer_received",

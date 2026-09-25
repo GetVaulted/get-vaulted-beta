@@ -3,23 +3,19 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
 import { adminDeleteReplay, serializeReplay } from "@/lib/trust/live-replay-service";
 
-export async function GET(req: Request) {
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
 
-  const url = new URL(req.url);
-  const liveRoomId = url.searchParams.get("liveRoomId")?.trim();
-
-  const rows = await prisma.liveStreamReplay.findMany({
-    where: {
-      deletedAt: null,
-      ...(liveRoomId ? { liveRoomId } : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    take: 100,
+  const { id } = await ctx.params;
+  const row = await prisma.liveStreamReplay.findFirst({
+    where: { id: decodeURIComponent(id), deletedAt: null },
   });
+  if (!row) {
+    return NextResponse.json({ error: "Replay not found." }, { status: 404 });
+  }
 
-  return NextResponse.json({ replays: rows.map(serializeReplay) });
+  return NextResponse.json({ replay: serializeReplay(row) });
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {

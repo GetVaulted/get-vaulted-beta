@@ -11,14 +11,22 @@ type SellerConsoleActionBarProps = {
   lineupCount?: number;
   lineupActive?: boolean;
   onObs: () => void;
+  /** True when the go-live camera/mic setup panel has been dismissed and can be reopened. */
+  goLiveSetupHidden?: boolean;
+  onOpenGoLiveSetup?: () => void;
   broadcastPhase: HostBroadcastPhase;
   roomLive: boolean;
+  /** Camera already publishing from phone / another device — PC is command center only. */
+  companionMode?: boolean;
   onGoLive: () => void;
   onStopStream: () => void;
   onPauseStream?: () => void;
   onResumeStream?: () => void;
   streamTimerDisplay?: string;
   viewerCount?: number;
+  /** Current in-browser publish Lite mode state (undefined when not applicable, e.g. OBS/companion). */
+  liteMode?: boolean;
+  onToggleLiteMode?: (next: boolean) => void;
 };
 
 export function SellerConsoleActionBar({
@@ -28,17 +36,26 @@ export function SellerConsoleActionBar({
   lineupCount = 0,
   lineupActive = false,
   onObs,
+  goLiveSetupHidden = false,
+  onOpenGoLiveSetup,
   broadcastPhase,
   roomLive,
+  companionMode = false,
   onGoLive,
   onStopStream,
   onPauseStream,
   onResumeStream,
   streamTimerDisplay,
   viewerCount,
+  liteMode = false,
+  onToggleLiteMode,
 }: SellerConsoleActionBarProps) {
   const phaseForControl =
     broadcastPhase === "preview" ? "idle" : broadcastPhase === "starting" || broadcastPhase === "stopping" ? broadcastPhase : broadcastPhase;
+  // Only meaningful while this device is the one actually publishing via in-browser WebRTC -
+  // irrelevant for OBS ingest, and toggling it on a companion/command-center device wouldn't
+  // touch the phone that's actually encoding.
+  const showLiteToggle = Boolean(onToggleLiteMode) && !companionMode && (broadcastPhase === "live" || broadcastPhase === "paused");
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/[0.08] bg-zinc-950/95 px-3 py-2 backdrop-blur-md">
@@ -79,6 +96,15 @@ export function SellerConsoleActionBar({
       >
         {SELLER_CONSOLE.obsSetup}
       </button>
+      {goLiveSetupHidden && onOpenGoLiveSetup ? (
+        <button
+          type="button"
+          onClick={onOpenGoLiveSetup}
+          className="inline-flex min-h-9 items-center rounded-full border border-gold/30 bg-gold/[0.08] px-3 text-xs font-bold text-gold-bright hover:bg-gold/[0.14]"
+        >
+          {SELLER_CONSOLE.goLiveSetupReopen}
+        </button>
+      ) : null}
       <div className="ml-auto flex flex-wrap items-center gap-2">
         {typeof viewerCount === "number" ? (
           <span className="text-xs font-bold tabular-nums text-zinc-400">
@@ -90,9 +116,24 @@ export function SellerConsoleActionBar({
             {streamTimerDisplay}
           </span>
         ) : null}
+        {showLiteToggle ? (
+          <button
+            type="button"
+            onClick={() => onToggleLiteMode?.(!liteMode)}
+            title="Lower video quality to reduce heat and data use"
+            className={`inline-flex min-h-9 items-center gap-1 rounded-full border px-3 text-xs font-bold ${
+              liteMode
+                ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-100"
+                : "border-white/12 text-zinc-300 hover:bg-white/[0.06]"
+            }`}
+          >
+            {liteMode ? "Lite: On" : "Lite mode"}
+          </button>
+        ) : null}
         <VaultBroadcastControl
           phase={phaseForControl as "idle" | "starting" | "live" | "paused" | "stopping"}
           roomLive={roomLive}
+          companionMode={companionMode}
           onStart={onGoLive}
           onStop={onStopStream}
           onPause={onPauseStream}

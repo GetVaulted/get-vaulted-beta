@@ -10,10 +10,16 @@ type Props = {
   inline?: boolean;
   /** Override label (default LIVE). */
   label?: string;
-  variant?: 'live' | 'scheduled';
+  variant?: 'live' | 'scheduled' | 'warning' | 'elsewhere' | 'offline';
 };
 
-export function LiveBadge({ compact, pulse, inline, label = 'LIVE', variant = 'live' }: Props) {
+export function LiveBadge({
+  compact,
+  pulse,
+  inline,
+  label = 'LIVE',
+  variant = 'live',
+}: Props) {
   const dotOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -37,7 +43,7 @@ export function LiveBadge({ compact, pulse, inline, label = 'LIVE', variant = 'l
     );
     loop.start();
     return () => loop.stop();
-  }, [pulse, dotOpacity]);
+  }, [pulse, variant, dotOpacity]);
 
   return (
     <View
@@ -46,16 +52,31 @@ export function LiveBadge({ compact, pulse, inline, label = 'LIVE', variant = 'l
         compact && styles.compact,
         inline && styles.inline,
         variant === 'scheduled' && styles.scheduledWrap,
+        variant === 'warning' && styles.warningWrap,
+        variant === 'elsewhere' && styles.elsewhereWrap,
+        variant === 'offline' && styles.offlineWrap,
       ]}
     >
       <Animated.View
         style={[
           styles.dot,
           variant === 'scheduled' && styles.scheduledDot,
+          variant === 'warning' && styles.warningDot,
+          variant === 'elsewhere' && styles.elsewhereDot,
+          variant === 'offline' && styles.offlineDot,
           { opacity: dotOpacity },
         ]}
       />
-      <Text style={[styles.text, compact && styles.textCompact, variant === 'scheduled' && styles.scheduledText]}>
+      <Text
+        style={[
+          styles.text,
+          compact && styles.textCompact,
+          variant === 'scheduled' && styles.scheduledText,
+          variant === 'warning' && styles.warningText,
+          variant === 'elsewhere' && styles.elsewhereText,
+          variant === 'offline' && styles.offlineText,
+        ]}
+      >
         {label}
       </Text>
     </View>
@@ -109,5 +130,35 @@ const styles = StyleSheet.create({
   },
   scheduledText: {
     color: colors.gold,
+  },
+  warningWrap: {
+    backgroundColor: 'rgba(251, 191, 36, 0.14)',
+    borderColor: 'rgba(251, 191, 36, 0.45)',
+  },
+  warningDot: {
+    backgroundColor: '#fbbf24',
+  },
+  warningText: {
+    color: '#fde68a',
+  },
+  elsewhereWrap: {
+    backgroundColor: 'rgba(52, 211, 153, 0.12)',
+    borderColor: 'rgba(52, 211, 153, 0.4)',
+  },
+  elsewhereDot: {
+    backgroundColor: '#34d399',
+  },
+  elsewhereText: {
+    color: '#a7f3d0',
+  },
+  offlineWrap: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  offlineDot: {
+    backgroundColor: 'rgba(255,255,255,0.45)',
+  },
+  offlineText: {
+    color: 'rgba(255,255,255,0.7)',
   },
 });

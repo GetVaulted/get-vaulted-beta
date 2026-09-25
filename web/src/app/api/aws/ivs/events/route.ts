@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/request-rate-limit";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
+import {
+  isIvsRecordingStateChangePayload,
+  parseIvsRecordingStateChange,
+} from "@/lib/trust/ivs-recording-events";
+import { markReplayRecordingFailed, markReplayRecordingReady } from "@/lib/trust/live-replay-service";
 import { applyRecordedIvsStreamState, findLiveRoomIdByIvsChannelArn } from "@/services/ivs";
 
 function clientKey(req: Request): string {
@@ -49,12 +54,74 @@ function extractChannelAndState(body: unknown): { channelArn: string | null; sta
   };
 }
 
+async function handleRecordingEvent(body: unknown) {
+  const parsed = parseIvsRecordingStateChange(body);
+  if (!parsed.channelArn) {
+    return NextResponse.json({ error: "Missing channel ARN in recording payload." }, { status: 400 });
+  }
+
+  if (parsed.kind === "start") {
+    logIvsOpsServer("ivs_recording_started", { channelArnLen: parsed.channelArn.length });
+    return NextResponse.json({ ok: true, kind: "start" });
+  }
+
+  if (parsed.kind === "end_success") {
+    const bucket = parsed.s3Bucket || process.env.AWS_IVS_RECORDINGS_BUCKET?.trim() || "";
+    const prefix = parsed.s3KeyPrefix || "";
+    if (!bucket || !prefix) {
+      logIvsOpsServer("ivs_recording_end_missing_s3", { channelArnLen: parsed.channelArn.length });
+      return NextResponse.json({ error: "Recording end missing S3 bucket/prefix." }, { status: 400 });
+    }
+    const result = await markReplayRecordingReady({
+      channelArn: parsed.channelArn,
+      s3Bucket: bucket,
+      s3KeyPrefix: prefix,
+    });
+    logIvsOpsServer("ivs_recording_ready", {
+      channelArnLen: parsed.channelArn.length,
+      replayId: result?.replayId ?? null,
+      liveRoomId: result?.liveRoomId ?? null,
+    });
+    return NextResponse.json({
+      ok: true,
+      kind: "end_success",
+      replayId: result?.replayId ?? null,
+      liveRoomId: result?.liveRoomId ?? null,
+      matched: Boolean(result),
+    });
+  }
+
+  if (parsed.kind === "end_failure" || parsed.kind === "start_failure") {
+    const result = await markReplayRecordingFailed({
+      channelArn: parsed.channelArn,
+      errorMessage: parsed.recordingStatusReason || parsed.recordingStatus || "IVS recording failed",
+    });
+    logIvsOpsServer("ivs_recording_failed", {
+      channelArnLen: parsed.channelArn.length,
+      replayId: result?.replayId ?? null,
+      reasonLen: (parsed.recordingStatusReason || "").length,
+    });
+    return NextResponse.json({
+      ok: true,
+      kind: parsed.kind,
+      replayId: result?.replayId ?? null,
+      matched: Boolean(result),
+    });
+  }
+
+  logIvsOpsServer("ivs_recording_event_ignored", {
+    kind: parsed.kind,
+    status: parsed.recordingStatus,
+  });
+  return NextResponse.json({ ok: true, ignored: true, kind: parsed.kind });
+}
+
 /**
- * First-pass IVS / EventBridge-style stream status ingestion (no AWS SigV4 verification yet).
+ * IVS / EventBridge stream status + recording state ingestion.
  *
  * **Security:** requires `IVS_EVENTS_WEBHOOK_SECRET` and `Authorization: Bearer <secret>` or `X-IVS-Events-Secret: <secret>`.
  * Intended for EventBridge → API Gateway / Lambda / HTTPS forwarder in production; treat the URL as internal-only.
- * Payload: supports EventBridge `detail.channelArn` + `detail.state`, or flat `channelArn` + `streamState` / `state`.
+ * Payload: supports EventBridge `detail.channelArn` + `detail.state`, Recording State Change, or flat stream fields.
  * Rate-limited per client IP; does not log stream keys or raw secrets.
  */
 export async function POST(req: Request) {
@@ -76,6 +143,10 @@ export async function POST(req: Request) {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (isIvsRecordingStateChangePayload(body)) {
+    return handleRecordingEvent(body);
   }
 
   const { channelArn, state } = extractChannelAndState(body);

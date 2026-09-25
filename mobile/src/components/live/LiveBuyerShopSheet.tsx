@@ -16,7 +16,8 @@ type Props = {
 function actionLabel(item: LiveRoomLineupItemSnapshot): string | null {
   if (item.queueAction === 'pre_bid') return 'Pre-bid';
   if (item.queueAction === 'variant_shop') return item.salesFormat === 'team_break' ? 'Pick division' : 'Pick team';
-  if (item.queueAction === 'buy_now') return item.isPinned ? 'Buy now' : 'On screen soon';
+  // Buy Now is purchasable from the shop whether pinned or still queued.
+  if (item.queueAction === 'buy_now') return 'Buy now';
   return null;
 }
 
@@ -38,7 +39,7 @@ export function LiveBuyerShopSheet({
             <View style={styles.headerCopy}>
               <Text style={styles.title}>Shop this room</Text>
               <Text style={styles.subtitle}>
-                Pre-bid auctions or buy fixed-price lots when they are on screen
+                Pre-bid auctions or buy fixed-price lots anytime — pin only spotlights the stage
               </Text>
             </View>
             <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">

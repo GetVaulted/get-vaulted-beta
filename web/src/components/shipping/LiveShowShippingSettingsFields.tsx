@@ -145,6 +145,10 @@ export function LiveShowShippingSettingsFields({
             onChange={(e) => patch({ shippingCapCents: centsFromDollarsInput(e.target.value) })}
             className="mt-1 w-full rounded-lg border border-white/10 bg-zinc-950 px-2.5 py-2 text-sm text-white"
           />
+          <p className="mt-1 text-[11px] text-zinc-500">
+            The cap is always split into per-item charges instead of billing it all on the first item — see the
+            summary above.
+          </p>
         </div>
       ) : null}
 

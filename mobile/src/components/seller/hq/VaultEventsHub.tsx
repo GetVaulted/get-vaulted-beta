@@ -21,6 +21,7 @@ import type { LiveSalesGate } from '../../../lib/sellerLiveReadiness';
 import {
   bucketRooms,
   canCancelVaultEvent,
+  canEditVaultEvent,
   primaryCta,
   type VaultEventBucket,
   type VaultEventDisplayStatus,
@@ -34,6 +35,7 @@ import { subscribeHomeFeedInvalidation } from '../../../lib/homeFeedCache';
 import type { SellerReloadOptions } from '../../../hooks/sellerReloadOptions';
 import { colors, radii, spacing } from '../../../theme';
 import { VaultEventCard } from './VaultEventCard';
+import { EditVaultEventModal } from './EditVaultEventModal';
 
 const SEGMENTS: { id: VaultEventSection; label: string }[] = [
   { id: 'live_now', label: 'Live now' },
@@ -57,7 +59,7 @@ const EMPTY_COPY: Record<VaultEventSection, { title: string; body: string }> = {
   },
   past: {
     title: 'No past events',
-    body: 'Ended shows and recaps will collect here for analytics and collector replay.',
+    body: 'Ended shows collect here. Open Finish team sales to mark leftover teams or supps sold.',
   },
 };
 
@@ -90,6 +92,7 @@ export function VaultEventsHub({
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [contentAreaHeight, setContentAreaHeight] = useState(0);
   const [cancellingRoomId, setCancellingRoomId] = useState<string | null>(null);
+  const [editingRoom, setEditingRoom] = useState<LiveRoomApiRow | null>(null);
   const requestRef = useRef(0);
   const loadedOnceRef = useRef(false);
 
@@ -293,6 +296,7 @@ export function VaultEventsHub({
             ? () => onCancelRoom(room, displayStatus)
             : undefined
         }
+        onEdit={canEditVaultEvent(room) ? () => setEditingRoom(room) : undefined}
         cancelBusy={cancellingRoomId === room.id}
       />
     ),
@@ -437,6 +441,17 @@ export function VaultEventsHub({
           <Ionicons name="add" size={28} color="#0a0a0a" />
         </Pressable>
       </View>
+
+      <EditVaultEventModal
+        visible={editingRoom !== null}
+        room={editingRoom}
+        accessToken={accessToken}
+        onClose={() => setEditingRoom(null)}
+        onSaved={() => {
+          setEditingRoom(null);
+          void load({ silent: true, force: true });
+        }}
+      />
     </View>
   );
 }

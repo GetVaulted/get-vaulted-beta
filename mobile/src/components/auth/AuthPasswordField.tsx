@@ -1,5 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, TextInput, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
+import {
+  Pressable,
+  StyleSheet,
+  TextInput,
+  View,
+  type StyleProp,
+  type TextStyle,
+  type ViewStyle,
+} from 'react-native';
 import { colors, radii, spacing } from '../../theme';
 
 export type AuthPasswordFieldProps = {
@@ -8,7 +16,13 @@ export type AuthPasswordFieldProps = {
   placeholder: string;
   visible: boolean;
   onToggleVisible: () => void;
-  autoComplete?: 'password' | 'new-password';
+  /**
+   * `new-password` — create-account primary field (may show iOS Strong Password).
+   * `password` — sign-in.
+   * `off` — confirm-password / fields that must not join the Strong Password pair
+   * (iOS clears the first field when both are `newPassword` and the sheet is dismissed).
+   */
+  autoComplete?: 'password' | 'new-password' | 'off';
   containerStyle?: StyleProp<ViewStyle>;
   inputStyle?: StyleProp<TextStyle>;
 };
@@ -24,6 +38,13 @@ export function AuthPasswordField({
   containerStyle,
   inputStyle,
 }: AuthPasswordFieldProps) {
+  const textContentType =
+    autoComplete === 'new-password'
+      ? 'newPassword'
+      : autoComplete === 'off'
+        ? 'none'
+        : 'password';
+
   return (
     <View style={[styles.row, containerStyle]}>
       <TextInput
@@ -32,8 +53,12 @@ export function AuthPasswordField({
         placeholderTextColor={colors.textMuted}
         secureTextEntry={!visible}
         autoCapitalize="none"
-        autoComplete={autoComplete}
-        textContentType={autoComplete === 'new-password' ? 'newPassword' : 'password'}
+        autoCorrect={false}
+        spellCheck={false}
+        autoComplete={autoComplete === 'off' ? 'off' : autoComplete}
+        textContentType={textContentType}
+        // Android: keep confirm / opted-out fields out of autofill grouping.
+        importantForAutofill={autoComplete === 'off' ? 'no' : 'yes'}
         value={value}
         onChangeText={onChangeText}
       />

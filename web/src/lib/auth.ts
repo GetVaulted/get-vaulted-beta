@@ -7,6 +7,7 @@ import { authorizeCredentialsViaSupabase } from "@/lib/authenticate-supabase-cre
 import { authorizeSupabaseAccessToken } from "@/lib/authorize-supabase-access-token";
 import { expiredJwtToken, resolveAuthUserForToken } from "@/lib/auth-resolve-user";
 import { prisma } from "@/lib/prisma";
+import { ensurePrismaAvatarFromSupabase } from "@/lib/sync-profile-avatar";
 import { usesUnifiedSupabaseAuth } from "@/lib/unified-auth";
 
 export const authOptions: NextAuthOptions = {
@@ -77,13 +78,23 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user, trigger }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.sub = user.id;
         token.email = user.email;
         token.username = String(user.name ?? user.email ?? "");
         const r = (user as { role?: string }).role;
         token.role = r === "admin" ? "admin" : "user";
+        token.avatarHydrated = false;
+      }
+      if (trigger === "update" && session && typeof session === "object") {
+        const patch = session as { image?: string | null; user?: { image?: string | null } };
+        const nextImage = patch.image ?? patch.user?.image;
+        if (typeof nextImage === "string") {
+          token.image = nextImage.trim() || null;
+        } else if (nextImage === null) {
+          token.image = null;
+        }
       }
       if (token.sub || token.email) {
         try {
@@ -114,6 +125,19 @@ export const authOptions: NextAuthOptions = {
           token.email = resolved.user.email;
           token.username = resolved.user.username;
           token.role = resolved.user.role;
+
+          let image = resolved.user.image;
+          const shouldHydrateAvatar =
+            !image && (trigger === "signIn" || trigger === "update" || !token.avatarHydrated);
+          if (shouldHydrateAvatar) {
+            try {
+              image = await ensurePrismaAvatarFromSupabase(resolved.user.id);
+            } catch (e) {
+              console.error("[next-auth jwt] avatar hydrate failed", e);
+            }
+            token.avatarHydrated = true;
+          }
+          token.image = image;
         } catch (e) {
           console.error("[next-auth jwt] user lookup failed", e);
           /* keep token on transient DB errors */
@@ -127,6 +151,7 @@ export const authOptions: NextAuthOptions = {
         session.user.email = (token.email as string) ?? session.user.email ?? "";
         session.user.username = (token.username as string) ?? session.user.name ?? "";
         session.user.role = token.role === "admin" ? "admin" : "user";
+        session.user.image = typeof token.image === "string" && token.image.trim() ? token.image : null;
       }
       return session;
     },
@@ -168,6 +193,7 @@ export async function getServerSessionSafe() {
       session.user.email = resolved.user.email;
       session.user.username = resolved.user.username;
       session.user.role = resolved.user.role;
+      session.user.image = resolved.user.image;
     } catch (e) {
       console.error("[auth] getServerSessionSafe: user reconcile failed", e);
       return null;

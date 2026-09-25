@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 
-export async function DELETE(_req: Request, ctx: { params: Promise<{ listingId: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function DELETE(req: Request, ctx: { params: Promise<{ listingId: string }> }) {
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
+  if (auth instanceof NextResponse) return auth;
 
   const { listingId: raw } = await ctx.params;
   const listingId = decodeURIComponent(raw);
@@ -14,7 +12,7 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ listingId: 
   await prisma.$transaction(async (tx) => {
     const { count } = await tx.watchlistItem.deleteMany({
       where: {
-        userId: session.user.id,
+        userId: auth.userId,
         listingId,
       },
     });

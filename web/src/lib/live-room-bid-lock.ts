@@ -9,6 +9,7 @@ export type LockedLiveRoomItemForBid = {
   currentBidUsd: number | null;
   startingBidUsd: number | null;
   priceUsd: number | null;
+  bidIncrementUsd: number | null;
   biddingOpen: boolean;
   auctionEndsAt: Date | null;
   clutchTimeEnabled: boolean;
@@ -25,6 +26,7 @@ type LockedRow = {
   currentBidUsd: number | null;
   startingBidUsd: number | null;
   priceUsd: number | null;
+  bidIncrementUsd: number | null;
   biddingOpen: boolean;
   auctionEndsAt: Date | null;
   clutchTimeEnabled: boolean;
@@ -32,13 +34,21 @@ type LockedRow = {
   itemVersion: number;
 };
 
+/** True when the lot's timed window is closed at `clockForEnd` (usually request receipt time). */
+export function isAuctionWindowEndedAt(auctionEndsAt: Date | null, clockForEnd: Date): boolean {
+  return Boolean(auctionEndsAt && auctionEndsAt <= clockForEnd);
+}
+
 /**
- * Row-level lock on the active lot (`FOR UPDATE`) and server-time auction window validation.
+ * Row-level lock on the active lot (`FOR UPDATE`) and auction window validation.
  * Must run inside the same transaction as bid acceptance.
+ *
+ * Window close uses `receivedAt` (request arrival) when provided so preflight / lock latency
+ * cannot kill a fair snipe that hit the API while the lot was still open.
  */
 export async function lockActiveLiveRoomItemForBid(
   tx: Prisma.TransactionClient,
-  args: { liveRoomId: string; itemId: string; now: Date },
+  args: { liveRoomId: string; itemId: string; now: Date; receivedAt?: Date },
 ): Promise<LockedLiveRoomItemForBid> {
   const rows = await tx.$queryRaw<LockedRow[]>`
     SELECT
@@ -50,6 +60,7 @@ export async function lockActiveLiveRoomItemForBid(
       "currentBidUsd",
       "startingBidUsd",
       "priceUsd",
+      "bidIncrementUsd",
       "biddingOpen",
       "auctionEndsAt",
       "clutchTimeEnabled",
@@ -63,7 +74,8 @@ export async function lockActiveLiveRoomItemForBid(
   if (!row) throw new Error("ITEM_NOT_FOUND");
   if (row.status !== "active") throw new Error("ITEM_NOT_ACTIVE");
   if (!row.biddingOpen) throw new Error("BIDDING_NOT_OPEN");
-  if (row.auctionEndsAt && row.auctionEndsAt <= args.now) throw new Error("ENDED");
+  const clockForEnd = args.receivedAt ?? args.now;
+  if (isAuctionWindowEndedAt(row.auctionEndsAt, clockForEnd)) throw new Error("ENDED");
   return row;
 }
 

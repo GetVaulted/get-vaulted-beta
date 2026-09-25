@@ -7,7 +7,12 @@ import {
   resolveShippingProfileDimensions,
   shipmentProfileEditLocked,
 } from "@/lib/unified-shipping-engine";
-import { liveRoomShippingPatchFromMode, shippingModeFromRoomFlags } from "@/lib/live-show-shipping-terms";
+import {
+  liveRoomShippingPatchFromMode,
+  resolveLiveShowShippingCapCents,
+  shippingModeFromRoomFlags,
+  standardLiveShowShippingCapIncrementCents,
+} from "@/lib/live-show-shipping-terms";
 import { liveShowShippingConfigFromRoom } from "@/services/shipping/live-shipping-pool";
 import { getActivePlatformShippingProfiles } from "@/services/shipping/platform-shipping-profiles";
 import { getActiveSellerShippingProfiles, sellerProfileToProfileInput } from "@/services/shipping/seller-shipping-profiles";
@@ -133,6 +138,10 @@ export async function getLiveShowShippingDashboard(liveRoomId: string, db: Db = 
       shippingTermsVersion: room.shippingTermsVersion,
       shippingCapEnabled: room.shippingCapEnabled,
       shippingCapCents: room.shippingCapCents,
+      shippingCapIncrementCents:
+        room.shippingCapEnabled && room.shippingCapCents != null
+          ? standardLiveShowShippingCapIncrementCents(resolveLiveShowShippingCapCents(room.shippingCapCents))
+          : null,
       freeShippingEnabled: room.freeShippingEnabled,
       sellerPaysOverCap: room.sellerPaysOverCap,
     },
@@ -164,7 +173,11 @@ export async function updateLiveShowShippingSettings(
 ) {
   const existing = await db.liveRoom.findUnique({
     where: { id: liveRoomId },
-    select: { shippingTermsVersion: true, shippingMode: true, shippingCapCents: true },
+    select: {
+      shippingTermsVersion: true,
+      shippingMode: true,
+      shippingCapCents: true,
+    },
   });
   if (!existing) throw new Error("ROOM_NOT_FOUND");
 
@@ -187,7 +200,7 @@ export async function updateLiveShowShippingSettings(
   if (patch.shippingCapCents !== undefined && !patch.shippingMode) {
     data.shippingCapCents =
       patch.shippingCapCents != null && Number.isFinite(patch.shippingCapCents)
-        ? Math.max(0, Math.floor(patch.shippingCapCents))
+        ? resolveLiveShowShippingCapCents(patch.shippingCapCents)
         : null;
   }
   if (typeof patch.freeShippingEnabled === "boolean" && !patch.shippingMode) {

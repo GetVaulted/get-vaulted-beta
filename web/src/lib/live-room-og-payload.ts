@@ -7,6 +7,7 @@ import {
   ogImageSiteUrl,
   publicSiteBaseUrl,
   resolveLiveRoomShareBackgroundUrl,
+  resolveLiveRoomShareMediaUrl,
 } from "@/lib/live-room-share-metadata";
 import { prisma } from "@/lib/prisma";
 
@@ -56,7 +57,7 @@ export async function fetchLiveRoomOgPayload(rawShowId: string): Promise<LiveRoo
   if (!row) return null;
 
   const hostUsername = row.seller.username?.trim().replace(/^@+/, "") || "host";
-  const hostAvatarUrl = resolveLiveRoomShareBackgroundUrl(row.seller.image, assetBase) || null;
+  const hostAvatarUrl = resolveLiveRoomShareMediaUrl(row.seller.image, assetBase) || null;
   const firstItemImage = row.items[0]?.imageUrl ?? null;
   const previewFallback = resolveLiveRoomPreviewImage(
     {
@@ -67,12 +68,9 @@ export async function fetchLiveRoomOgPayload(rawShowId: string): Promise<LiveRoo
     assetBase,
   );
 
-  const backgroundImageUrl = resolveLiveRoomShareBackgroundUrl(
-    row.thumbnailUrl,
-    assetBase,
-    hostAvatarUrl,
-    previewFallback,
-  );
+  // Background is the show's own art (uploaded tile → first lot photo → category banner).
+  // The host's round avatar is rendered separately as a badge — never stretch it as the full-bleed background.
+  const backgroundImageUrl = resolveLiveRoomShareBackgroundUrl(row.thumbnailUrl, assetBase, null, previewFallback);
 
   const metaInput = {
     id: row.id,

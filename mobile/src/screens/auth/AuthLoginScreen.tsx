@@ -28,6 +28,7 @@ import {
 } from '../../lib/rememberMeCredentials';
 import { getKeepMeLoggedInPreference } from '../../lib/authSessionStorage';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
+import { navigateAfterSignIn } from '../../navigation/navigateAfterSignIn';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
 
@@ -66,14 +67,6 @@ export function AuthLoginScreen({ navigation }: Props) {
     else navigation.replace('LaunchIntro', { instantAuth: true });
   };
 
-  const finishAuth = () => {
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-      return;
-    }
-    navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
-  };
-
   const onSocial = async (provider: 'google' | 'apple') => {
     setErr(null);
     setSocialBusy(provider);
@@ -82,7 +75,7 @@ export function AuthLoginScreen({ navigation }: Props) {
         provider === 'google'
           ? await signInWithGoogle({ persistSession: rememberMe })
           : await signInWithApple({ persistSession: rememberMe });
-      if (result === 'success') finishAuth();
+      if (result === 'success') await navigateAfterSignIn(navigation);
       else if (result === 'error') setErr(AUTH_USER_MESSAGES.socialSignInFailed);
     } catch (e) {
       setErr(socialAuthErrorMessage(e));
@@ -97,7 +90,7 @@ export function AuthLoginScreen({ navigation }: Props) {
     try {
       await signInWithPassword(email, password, { persistSession: rememberMe });
       await persistRememberMeCredentials(rememberMe, email);
-      finishAuth();
+      await navigateAfterSignIn(navigation, { preferGoBack: true });
     } catch (e) {
       setErr(e instanceof Error ? e.message : AUTH_USER_MESSAGES.signInInvalidCredentials);
     } finally {
@@ -149,6 +142,7 @@ export function AuthLoginScreen({ navigation }: Props) {
           placeholder="Email"
           placeholderTextColor={colors.textMuted}
           autoCapitalize="none"
+          autoCorrect={false}
           keyboardType="email-address"
           autoComplete="email"
           value={email}
@@ -224,6 +218,7 @@ export function AuthLoginScreen({ navigation }: Props) {
               placeholder="Your account email"
               placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
+              autoCorrect={false}
               keyboardType="email-address"
               value={forgotEmail}
               onChangeText={setForgotEmail}

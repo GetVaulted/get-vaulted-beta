@@ -65,6 +65,8 @@ export function SellerLiveConsolePanel({
           onExtend={c.onExtend}
           clutchTimeEnabled={c.hostClutchTimeEnabled}
           onToggleClutchTime={c.toggleHostClutchTime}
+          auctionDurationSec={c.hostAuctionDurationSec}
+          onAuctionDurationChange={c.setHostAuctionDurationSec}
         />
       )}
     </View>
@@ -114,6 +116,8 @@ export function SellerLiveConsolePanel({
         roomId={roomId}
         onClose={() => c.setInventoryOpen(false)}
         onSubmit={c.onQuickAddLot}
+        onSubmitFromShop={c.onSubmitFromShop}
+        onImportFromPriorRoom={c.onImportFromPriorRoom}
         busy={c.busy}
       />
       <EditQueueItemPricingModal

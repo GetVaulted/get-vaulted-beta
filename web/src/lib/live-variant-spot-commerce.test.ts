@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   defaultActiveSpotModeForPin,
+  endVariantSpotAuctionNoBidsReset,
   idleVariantSpotCommerceReset,
+  isVariantSpotAuctionArmed,
   isVariantSpotAuctionLive,
   isVariantSpotFixedCheckoutLive,
   shopAvailableSpotCount,
@@ -10,9 +12,42 @@ import {
 } from "@/lib/live-variant-spot-commerce";
 
 describe("live-variant-spot-commerce", () => {
-  it("defaults hybrid pins to fixed checkout", () => {
-    expect(defaultActiveSpotModeForPin("hybrid")).toBe("fixed");
+  it("defaults hybrid/auction pins to auction-armed (not instant buy-now)", () => {
+    expect(defaultActiveSpotModeForPin("hybrid")).toBe("auction");
     expect(defaultActiveSpotModeForPin("auction")).toBe("auction");
+    expect(defaultActiveSpotModeForPin("fixed")).toBe("fixed");
+  });
+
+  it("excludes an auction-armed pinned team from fixed shop checkout", () => {
+    const item = {
+      salesFormat: "variant_selection",
+      variantAssignmentMode: "pick",
+      biddingOpen: false,
+      activeSpotCommerceMode: "auction" as const,
+      auctionVariantId: null,
+      variants: [
+        {
+          id: "v1",
+          label: "Chiefs",
+          priceUsd: 1,
+          quantityRemaining: 1,
+          soldCount: 0,
+          isHot: true,
+          status: "available",
+        },
+        {
+          id: "v2",
+          label: "Bills",
+          priceUsd: 1,
+          quantityRemaining: 1,
+          soldCount: 0,
+          isHot: false,
+          status: "available",
+        },
+      ],
+    };
+    expect(isVariantSpotAuctionArmed(item)).toBe(true);
+    expect(shopAvailableVariants(item).map((v) => v.id)).toEqual(["v2"]);
   });
 
   it("detects live spot auction vs fixed checkout", () => {
@@ -132,5 +167,15 @@ describe("live-variant-spot-commerce", () => {
       auctionVariantId: null,
       activeSpotCommerceMode: "fixed",
     });
+  });
+
+  it("empty spot auction reset keeps pin armed (not buy-now)", () => {
+    expect(endVariantSpotAuctionNoBidsReset()).toMatchObject({
+      biddingOpen: false,
+      activeSpotCommerceMode: "auction",
+      currentBidUsd: null,
+      lastHighBidderId: null,
+    });
+    expect(endVariantSpotAuctionNoBidsReset()).not.toHaveProperty("auctionVariantId");
   });
 });

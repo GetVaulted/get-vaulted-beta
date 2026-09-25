@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireLiveRoomHostAccess } from "@/lib/resolve-live-host-access";
+import { formatIvsObsIngestUrl } from "@/lib/ivs-obs-ingest-url";
+import { isIvsWhipIngestEndpoint } from "@/lib/ivs-whip-ingest";
+import { isObsDesktopBroadcastMode } from "@/lib/live-obs-channel-mode";
 
 /** Configured IVS channel latency mode ("LOW" = low-latency HLS), without pulling in the AWS SDK service. */
 function configuredLatencyMode(): "LOW" | "NORMAL" {
@@ -72,13 +75,26 @@ export function toBuyerSafeStreamPayload(row: StreamRow) {
     lastStatusSyncAt: toIso(row.lastIvsStatusSyncAt),
     // Configured channel latency mode (LOW = low-latency HLS). Surfaced for client diagnostics.
     latencyMode: configuredLatencyMode(),
+    // True for legacy OBS/RTMP→HLS *or* OBS 30+ WHIP→Stage — both are a landscape desktop capture,
+    // not a phone's portrait camera, so buyer players must letterbox (contain) it either way.
+    // No ingest endpoint/URL is exposed here, only this derived boolean.
+    isObsDesktopSource: isObsDesktopBroadcastMode({
+      streamMode: row.streamMode,
+      ingestEndpoint: row.ivsIngestEndpoint,
+    }),
   };
 }
 
 export function toHostStreamPayload(row: StreamRow) {
+  const whip = isIvsWhipIngestEndpoint(row.ivsIngestEndpoint);
   return {
     ...toBuyerSafeStreamPayload(row),
-    ingestEndpoint: row.ivsIngestEndpoint,
+    // OBS Custom / WHIP: RTMPS URL for legacy, WHIP server for WebRTC OBS.
+    ingestEndpoint: whip
+      ? row.ivsIngestEndpoint
+      : formatIvsObsIngestUrl(row.ivsIngestEndpoint),
+    ingestProtocol: whip ? ("whip" as const) : row.streamMode === "channel_hls" ? ("rtmps" as const) : null,
+    whipServerUrl: whip ? row.ivsIngestEndpoint : null,
     channelArn: row.ivsChannelArn,
     channelName: row.ivsChannelName,
     streamKeyArn: row.ivsStreamKeyArn,

@@ -8,6 +8,7 @@ import { REVIEW_QUICK_TAGS } from '../../data/reviewQuickTags';
 import { addReview, hasReviewedReference } from '../../platform/platformStore';
 import { emitNotificationBadgeChanged } from '../../platform/notificationEvents';
 import { notifyReviewReceived } from '../../platform/notificationStore';
+import { maybeRequestStoreReview } from '../../lib/storeReview';
 import type { ReviewType } from '../../platform/types';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
@@ -56,7 +57,16 @@ export function WriteReviewScreen({ navigation, route }: Props) {
       await notifyReviewReceived(subjectUserId, user.email ?? 'A collector', rating, referenceId);
       emitNotificationBadgeChanged();
       Alert.alert('Review submitted', 'Your review is on their vault profile.', [
-        { text: 'OK', onPress: () => navigation.goBack() },
+        {
+          text: 'OK',
+          onPress: () => {
+            navigation.goBack();
+            // After a positive vault review — good moment for App Store / Play rating.
+            if (rating >= 4) {
+              void maybeRequestStoreReview('vault_review_submitted');
+            }
+          },
+        },
       ]);
     } finally {
       setBusy(false);

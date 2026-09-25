@@ -3,6 +3,7 @@ import {
   countShipQueueActions,
   orderIdsAwaitingBundledLabel,
   sellerShipQueuePhase,
+  sellerShipQueueStage,
 } from "@/lib/seller-ship-queue";
 
 describe("sellerShipQueuePhase", () => {
@@ -61,6 +62,74 @@ describe("sellerShipQueuePhase", () => {
       }),
     ).toBe("in_transit");
   });
+
+  it("returns done when delivered", () => {
+    expect(
+      sellerShipQueuePhase({
+        id: "o1",
+        status: "delivered",
+        paymentStatus: "paid",
+        fulfillmentStatus: "delivered",
+        shippoTransactionId: "tx_1",
+        labelUrl: "https://example.com/label.pdf",
+        trackingNumber: "1Z999",
+      }),
+    ).toBe("done");
+  });
+});
+
+describe("sellerShipQueueStage", () => {
+  it("maps label-created and awaiting-carrier into pending shipment", () => {
+    expect(
+      sellerShipQueueStage({
+        id: "o1",
+        status: "paid",
+        paymentStatus: "paid",
+        fulfillmentStatus: "label_created",
+        shippoTransactionId: "tx_1",
+        labelUrl: "https://example.com/label.pdf",
+        trackingNumber: "1Z999",
+      }),
+    ).toBe("pending_shipment");
+
+    expect(
+      sellerShipQueueStage({
+        id: "o1",
+        status: "shipped",
+        paymentStatus: "paid",
+        fulfillmentStatus: "shipped",
+        shippoTransactionId: "tx_1",
+        labelUrl: "https://example.com/label.pdf",
+        trackingNumber: "1Z999",
+      }),
+    ).toBe("pending_shipment");
+  });
+
+  it("maps carrier scan to shipped and delivery to complete", () => {
+    expect(
+      sellerShipQueueStage({
+        id: "o1",
+        status: "shipped",
+        paymentStatus: "paid",
+        fulfillmentStatus: "in_transit",
+        shippoTransactionId: "tx_1",
+        labelUrl: "https://example.com/label.pdf",
+        trackingNumber: "1Z999",
+      }),
+    ).toBe("shipped");
+
+    expect(
+      sellerShipQueueStage({
+        id: "o1",
+        status: "delivered",
+        paymentStatus: "paid",
+        fulfillmentStatus: "delivered",
+        shippoTransactionId: "tx_1",
+        labelUrl: "https://example.com/label.pdf",
+        trackingNumber: "1Z999",
+      }),
+    ).toBe("complete");
+  });
 });
 
 describe("orderIdsAwaitingBundledLabel", () => {
@@ -80,7 +149,7 @@ describe("orderIdsAwaitingBundledLabel", () => {
 });
 
 describe("countShipQueueActions", () => {
-  it("skips orders covered by pending bundle labels", () => {
+  it("skips orders covered by pending bundle labels and counts stages", () => {
     const counts = countShipQueueActions(
       [
         {
@@ -101,9 +170,20 @@ describe("countShipQueueActions", () => {
           labelUrl: null,
           trackingNumber: null,
         },
+        {
+          id: "c",
+          status: "shipped",
+          paymentStatus: "paid",
+          fulfillmentStatus: "in_transit",
+          shippoTransactionId: "tx",
+          labelUrl: "https://example.com/l.pdf",
+          trackingNumber: "1Z",
+        },
       ],
       { skipOrderIds: new Set(["a"]) },
     );
     expect(counts.needsLabel).toBe(1);
+    expect(counts.shipped).toBe(1);
+    expect(counts.pendingShipment).toBe(0);
   });
 });

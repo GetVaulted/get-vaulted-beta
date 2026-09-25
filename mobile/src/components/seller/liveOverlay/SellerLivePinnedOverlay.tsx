@@ -5,9 +5,15 @@ import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { liveRoomHudScale } from '../../../lib/liveRoomUiScale';
 import { VaultPinnedLotCard } from '../liveConsole/VaultPinnedLotCard';
 
-/** Active lot HUD — single seller commerce box (initial estimate before onLayout). */
-export const SELLER_PINNED_OVERLAY_HEIGHT = 96;
+/**
+ * Active lot HUD — initial estimate before onLayout.
+ * Must clear Start Auction + duration chips + Clutch (~220–260pt); underestimating
+ * stacks Next Up / composer on top of On Screen.
+ */
+export const SELLER_PINNED_OVERLAY_HEIGHT = 248;
 export const SELLER_PINNED_EMPTY_HEIGHT = 64;
+/** Shorter estimate once bidding is open (no Start Auction block). */
+export const SELLER_PINNED_RUNNING_HEIGHT = 108;
 
 export function SellerLivePinnedOverlay({
   bottom,
@@ -30,6 +36,8 @@ export function SellerLivePinnedOverlay({
   onLayoutHeight,
   clutchTimeEnabled,
   onToggleClutchTime,
+  auctionDurationSec,
+  onAuctionDurationChange,
 }: {
   bottom: number;
   left: number;
@@ -51,6 +59,8 @@ export function SellerLivePinnedOverlay({
   onLayoutHeight?: (height: number) => void;
   clutchTimeEnabled?: boolean;
   onToggleClutchTime?: () => void;
+  auctionDurationSec?: number;
+  onAuctionDurationChange?: (sec: number) => void;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const hudScale = liveRoomHudScale(windowWidth);
@@ -64,7 +74,15 @@ export function SellerLivePinnedOverlay({
         if (h > 0) onLayoutHeight?.(h);
       }}
     >
-      <View style={styles.glass} pointerEvents="auto">
+      <View
+        style={styles.glass}
+        pointerEvents="auto"
+        onLayout={(e) => {
+          // Prefer glass content height — more reliable once Start Auction controls mount.
+          const h = e.nativeEvent.layout.height;
+          if (h > 0) onLayoutHeight?.(h);
+        }}
+      >
         {Platform.OS === 'ios' ? (
           <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
         ) : (
@@ -94,6 +112,8 @@ export function SellerLivePinnedOverlay({
             onEditLot={onEditLot}
             clutchTimeEnabled={clutchTimeEnabled}
             onToggleClutchTime={onToggleClutchTime}
+            auctionDurationSec={auctionDurationSec}
+            onAuctionDurationChange={onAuctionDurationChange}
           />
         </View>
       </View>
