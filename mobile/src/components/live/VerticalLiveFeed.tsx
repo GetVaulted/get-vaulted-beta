@@ -116,6 +116,8 @@ import { liveAuctionMinBidUsd } from '../../lib/liveAuctionPricing';
 import { placeLiveRoomPreBid } from '../../api/liveRoomBuyerRepository';
 import { purchaseLiveBuyNow, syncLiveBuyNowPurchase } from '../../api/liveBuyNowRepository';
 import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
+import { useLiveConfirmPayment } from './LiveStripeProvider';
+import { withLivePlaybackCommerceHold } from '../../lib/livePlaybackCommerceHold';
 import { LiveBidNoticeToast } from './LiveBidNoticeToast';
 import type { LiveBidFailureDisplay } from '../../lib/liveBidUserErrors';
 import {
@@ -1061,6 +1063,8 @@ function LiveSlide({
     setShareSheetOpen(true);
   };
 
+  const shopConfirmPayment = useLiveConfirmPayment();
+
   const shopWalletReady = useMemo(() => {
     const fromSnap = walletReadinessFromSnapshot(liveSession.roomSnap);
     const r = walletReadiness ?? fromSnap;
@@ -1090,6 +1094,21 @@ function LiveSlide({
           return;
         }
         if ('requiresAction' in res && res.requiresAction && res.clientSecret && res.orderId) {
+          // SCA/3D-Secure step-up is required — the PaymentIntent is not actually paid until the
+          // client confirms it with Stripe. Previously this jumped straight to `syncLiveBuyNowPurchase`
+          // without ever calling `confirmPayment`, so a card requiring 3DS never completed
+          // authentication (mirrors the LivePinnedActionBar.tsx / LiveBreakSpotGridSheet.tsx flow).
+          if (!shopConfirmPayment) {
+            Alert.alert('Payment loading', 'Payments are still starting up — try again in a moment.');
+            return;
+          }
+          const conf = await withLivePlaybackCommerceHold(() =>
+            shopConfirmPayment(res.clientSecret, { paymentMethodType: 'Card' }),
+          );
+          if (conf.error) {
+            Alert.alert('Payment verification failed', mapLivePaymentFailureMessage(conf.error.message, conf.error.code));
+            return;
+          }
           const synced = await syncLiveBuyNowPurchase({
             accessToken,
             liveRoomId: stream.id,
@@ -1107,7 +1126,7 @@ function LiveSlide({
         Alert.alert('Could not buy', e instanceof Error ? e.message : 'Try again.');
       }
     },
-    [accessToken, liveSession, onRequireAuth, stream.id],
+    [accessToken, liveSession, onRequireAuth, shopConfirmPayment, stream.id],
   );
 
   const handleShopItemPress = useCallback(
