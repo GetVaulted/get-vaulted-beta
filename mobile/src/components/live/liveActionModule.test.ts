@@ -185,8 +185,8 @@ describe('resolveLiveBuyerCommerceHud', () => {
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
     expect(hud.bottomLeftLabel).toBe('Custom');
-    expect(hud.bottomRightLabel).toBe('Hold to Bid $52.00');
-    expect(hud.bottomRightIsSlide).toBe(false);
+    expect(hud.bottomRightLabel).toBe('Slide to Bid $52.00');
+    expect(hud.bottomRightIsSlide).toBe(true);
     expect(hud.buyerPrimaryDisabled).toBe(false);
   });
 
@@ -201,7 +201,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
-    expect(hud.bottomRightLabel).toBe('Hold to Bid $1.00');
+    expect(hud.bottomRightLabel).toBe('Slide to Bid $1.00');
     expect(hud.buyerPrimaryDisabled).toBe(true);
   });
 
@@ -218,7 +218,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream({ liveRoomFormat: 'break' }), snap);
-    expect(hud.bottomRightLabel).toBe('Hold to Bid $11.00');
+    expect(hud.bottomRightLabel).toBe('Slide to Bid $11.00');
     expect(hud.bottomRightLabel).not.toBe('Claim Team');
   });
 
@@ -320,7 +320,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
-    expect(hud.bottomRightLabel).toBe('Hold to Bid $40.00');
+    expect(hud.bottomRightLabel).toBe('Slide to Bid $40.00');
     expect(hud.itemTitle).toBe('Chiefs');
     expect(hud.categoryType).toBe('PYT 1 Box Break');
     expect(hud.buyerPrimaryDisabled).toBe(false);
@@ -359,7 +359,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
     expect(hud.categoryType).toBe('PYT 1 Box Break');
     expect(hud.stateLine).toContain('Chiefs auction live');
     expect(hud.buyerPinnedVariantId).toBe('v1');
-    expect(hud.bottomRightLabel).toBe('Hold to Bid $40.00');
+    expect(hud.bottomRightLabel).toBe('Slide to Bid $40.00');
   });
 
   it('shows hybrid auction + shop when one team auctions and others remain buyable', () => {
@@ -400,7 +400,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
-    expect(hud.bottomRightLabel).toBe('Hold to Bid $40.00');
+    expect(hud.bottomRightLabel).toBe('Slide to Bid $40.00');
     expect(hud.showShopButton).toBe(true);
     expect(hud.shopButtonLabel).toBe('Claim Team');
     expect(hud.itemTitle).toBe('Chiefs');

@@ -48,7 +48,7 @@ import { WalletSheet } from '../wallet/WalletSheet';
 import type { LiveStackParamList, MainTabParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
-import { HoldToBidButton } from './HoldToBidButton';
+import { SlideToBidButton } from './SlideToBidButton';
 import { LIVE_CLAIM_CTA_GRADIENT } from './liveClaimCtaStyle';
 import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud, formatMoney } from './liveActionModule';
 import { fetchLiveVariantCheckoutPreview, type LiveVariantCheckoutPreview } from '../../api/liveVariantCheckoutPreviewRepository';
@@ -1560,7 +1560,7 @@ export function LivePinnedActionBar({
 
           <View style={[styles.ctaPrimaryWrap, { minHeight: hudPad(44) }]}>
             {useLiveAuctionBidFlow && (!variantItemActive || isVariantSpotAuctionLive(roomSnap)) ? (
-              <HoldToBidButton
+              <SlideToBidButton
                 label={m.bottomRightLabel}
                 disabled={primaryDisabled}
                 busy={bidBusy}

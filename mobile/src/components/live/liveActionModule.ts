@@ -36,8 +36,13 @@ export function resolveBuyerRoomKind(
   snap: LiveRoomBuyerSnapshot | null | undefined,
   stream: LiveStream,
 ): 'break' | 'auction' {
+  // `isActiveVariantBuyerItem` already covers the pre-sale case (`status === 'scheduled'`,
+  // host pinned a PYT/PYD board before Go Live). Check it before the live-only branch below —
+  // otherwise a pre-sale variant board pinned inside a `roomType: 'sale'` room falls through to
+  // the `roomType === 'sale'` check and is misclassified as 'auction', hiding the team/spot
+  // claim controls until the host goes live (mirrors the LiveSaleRoom.tsx web fix).
+  if (snap?.activeItemId && isActiveVariantBuyerItem(snap)) return 'break';
   if (snap?.activeItemId && snap.status === 'live') {
-    if (isActiveVariantBuyerItem(snap)) return 'break';
     return 'auction';
   }
 
@@ -136,9 +141,9 @@ function resolveBuyerVariantItemHud(
         : `${pinned.label} auction ended — waiting for host.`,
       bottomLeftLabel: 'Custom',
       bottomRightLabel: biddingOpen
-        ? `Hold to Bid ${formatBidMoney(next)}`
+        ? `Slide to Bid ${formatBidMoney(next)}`
         : 'Waiting for host',
-      bottomRightIsSlide: false,
+      bottomRightIsSlide: biddingOpen,
       showShopButton: shopCount > 0 && biddingOpen,
       shopButtonLabel: variantClaimPrimaryLabel(snap.activeItemSalesFormat),
       buyerPrimaryDisabled: !biddingOpen,
@@ -363,7 +368,6 @@ function resolveBuyerAuctionItemHud(
         : pickVaultWaitingMessage(stream.id, 'lot_almost_ready'),
     nextBidUsd: preStartAmount > 0 ? preStartAmount : 1,
     biddingOpen: false,
-    useSlide: false,
   });
 }
 
@@ -415,8 +419,8 @@ function buildBuyerBidHud(
     winningLine: opts.winningLine,
     stateLine: opts.stateLine,
     bottomLeftLabel: 'Custom',
-    bottomRightLabel: `Hold to Bid ${formatBidMoney(opts.nextBidUsd)}`,
-    bottomRightIsSlide: false,
+    bottomRightLabel: `Slide to Bid ${formatBidMoney(opts.nextBidUsd)}`,
+    bottomRightIsSlide: opts.useSlide ?? true,
     buyerPrimaryDisabled: !opts.biddingOpen,
     buyerSecondaryDisabled: false,
   };
@@ -436,7 +440,7 @@ export function formatMoney(n: number): string {
   return `$${n.toLocaleString('en-US')}`;
 }
 
-/** Bid CTA — always two decimal places (e.g. Hold to Bid $1.00). */
+/** Bid CTA — always two decimal places (e.g. Slide to Bid $1.00). */
 export function formatBidMoney(n: number): string {
   return `$${n.toFixed(2)}`;
 }

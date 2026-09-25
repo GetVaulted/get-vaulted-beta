@@ -50,7 +50,7 @@ import {
   formatBatchSpotCelebrationLabel,
   type LiveSpotTakenCelebration,
 } from '../../lib/liveSpotCelebration';
-import { HoldToBidButton } from './HoldToBidButton';
+import { SlideToBidButton } from './SlideToBidButton';
 import { LiveRoomText } from './LiveRoomText';
 
 /**
@@ -604,13 +604,13 @@ export function LiveBreakSpotGridSheet({
                 {rosterMode
                   ? `Sold roster — stays available while the host runs the break`
                   : isRandom
-                    ? 'Hold to buy — Vault Reveal assigns your spot from what’s left'
+                    ? 'Slide to buy — Vault Reveal assigns your spot from what’s left'
                     : selectionCount > 0
                       ? walletReady
                         ? selectionCount > 1
-                          ? `Hold to buy to pay ${fmtMoney(chargeNow)} for ${selectionCount} spots — shipping and tax below`
-                          : `Hold to buy to pay ${fmtMoney(chargeNow)} now — spot, shipping, and tax below`
-                        : `Confirm ${spotNounSingular}, then hold to buy to checkout`
+                          ? `Slide to buy to pay ${fmtMoney(chargeNow)} for ${selectionCount} spots — shipping and tax below`
+                          : `Slide to buy to pay ${fmtMoney(chargeNow)} now — spot, shipping, and tax below`
+                        : `Confirm ${spotNounSingular}, then slide to buy to checkout`
                       : `Tap ${spotNoun} to multi-select, then checkout`}
               </LiveRoomText>
               {isRandom && !rosterMode ? (
@@ -693,16 +693,16 @@ export function LiveBreakSpotGridSheet({
               </LiveRoomText>
             </View>
             <View style={styles.payCol}>
-              <HoldToBidButton
+              <SlideToBidButton
                 label={
                   selectionCount > 0
                     ? isRandom
-                      ? `Hold to buy · vault reveal · ${fmtMoney(chargeNow)}`
+                      ? `Slide to buy · vault reveal · ${fmtMoney(chargeNow)}`
                       : selectionCount > 1
-                        ? `Hold to buy · ${selectionCount} spots · ${fmtMoney(chargeNow)}`
-                        : `Hold to buy · ${fmtMoney(chargeNow)}`
+                        ? `Slide to buy · ${selectionCount} spots · ${fmtMoney(chargeNow)}`
+                        : `Slide to buy · ${fmtMoney(chargeNow)}`
                     : isRandom
-                      ? 'Hold to buy'
+                      ? 'Slide to buy'
                       : 'Select spots'
                 }
                 disabled={selectionCount === 0 || allSold}

@@ -25,7 +25,7 @@ export function isCompactLiveRoomLayout(layoutWidth: number): boolean {
   return layoutWidth < 400;
 }
 
-/** Uniform HUD scale vs 430pt Pro Max baseline; clamped so Hold to Bid stays ≥44pt. */
+/** Uniform HUD scale vs 430pt Pro Max baseline; clamped so Slide to Bid stays ≥44pt. */
 export function liveRoomCompactScale(layoutWidth: number): number {
   return appUniformScale(layoutWidth);
 }
