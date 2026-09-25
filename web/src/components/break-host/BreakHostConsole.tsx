@@ -2470,9 +2470,9 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     settlementMethod: string;
     zeroReason?: string;
     note?: string;
-  }): Promise<{ ok: boolean; error?: string }> => {
+  }) => {
     const itemId = activeBoardRow?.item.id;
-    if (!itemId) return { ok: false, error: "No active item to mark sold." };
+    if (!itemId) return;
     setMarkSoldVariantBusy(true);
     setToast(null);
     try {
@@ -2484,15 +2484,12 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         note: args.note,
       });
       if (!res.ok) {
-        // Report the failure back to the form (via the return value) instead of only toasting it,
-        // so the caller can keep the form open with what the host typed rather than discarding it.
-        const error = res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error;
-        return { ok: false, error };
+        setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
+        return;
       }
       await load();
       router.refresh();
       setToast(`Marked sold to @${res.data.buyerUsername} for ${res.data.totalUsd.toLocaleString("en-US", { style: "currency", currency: "USD" })}.`);
-      return { ok: true };
     } finally {
       setMarkSoldVariantBusy(false);
     }

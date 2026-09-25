@@ -29,7 +29,7 @@ type Props = {
   /** Live room id — enables the username autocomplete strip in the Mark Sold form. */
   liveRoomId?: string;
   /** Host marks an open spot sold off-platform (cash/Venmo/etc.) to a specific username. */
-  onMarkSold?: (args: MarkSoldArgs) => Promise<{ ok: boolean; error?: string }>;
+  onMarkSold?: (args: MarkSoldArgs) => void | Promise<void>;
   markSoldBusy?: boolean;
 };
 

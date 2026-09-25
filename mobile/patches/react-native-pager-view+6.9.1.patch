@@ -1,0 +1,295 @@
+diff --git a/node_modules/react-native-pager-view/LICENSE b/node_modules/react-native-pager-view/LICENSE
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/README.md b/node_modules/react-native-pager-view/README.md
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/Android.mk b/node_modules/react-native-pager-view/android/Android.mk
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/build.gradle b/node_modules/react-native-pager-view/android/build.gradle
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/debug.keystore b/node_modules/react-native-pager-view/android/debug.keystore
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/gradle.properties b/node_modules/react-native-pager-view/android/gradle.properties
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/registration.cpp b/node_modules/react-native-pager-view/android/registration.cpp
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/src/fabric/java/com/reactnativepagerview/PagerViewViewManager.kt b/node_modules/react-native-pager-view/android/src/fabric/java/com/reactnativepagerview/PagerViewViewManager.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/src/main/AndroidManifest.xml b/node_modules/react-native-pager-view/android/src/main/AndroidManifest.xml
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/Helper.kt b/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/Helper.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/NestedScrollableHost.kt b/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/NestedScrollableHost.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/PagerViewViewManagerImpl.kt b/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/PagerViewViewManagerImpl.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/PagerViewViewPackage.kt b/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/PagerViewViewPackage.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/ViewPagerAdapter.kt b/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/ViewPagerAdapter.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/ViewPagerViewHolder.kt b/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/ViewPagerViewHolder.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/event/PageScrollEvent.kt b/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/event/PageScrollEvent.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/event/PageScrollStateChangedEvent.kt b/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/event/PageScrollStateChangedEvent.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/event/PageSelectedEvent.kt b/node_modules/react-native-pager-view/android/src/main/java/com/reactnativepagerview/event/PageSelectedEvent.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/android/src/paper/java/com/reactnativepagerview/PagerViewViewManager.kt b/node_modules/react-native-pager-view/android/src/paper/java/com/reactnativepagerview/PagerViewViewManager.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/Fabric/RNCPagerViewComponentView.h b/node_modules/react-native-pager-view/ios/Fabric/RNCPagerViewComponentView.h
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/Fabric/RNCPagerViewComponentView.mm b/node_modules/react-native-pager-view/ios/Fabric/RNCPagerViewComponentView.mm
+old mode 100644
+new mode 100755
+index 067f92e..224040f
+--- a/node_modules/react-native-pager-view/ios/Fabric/RNCPagerViewComponentView.mm
++++ b/node_modules/react-native-pager-view/ios/Fabric/RNCPagerViewComponentView.mm
+@@ -23,6 +23,12 @@ using namespace facebook::react;
+     LayoutMetrics _oldLayoutMetrics;
+     UIScrollView *scrollView;
+     BOOL transitioning;
++    // GET-VAULTED-MOBILE-P / GET-VAULTED-MOBILE-12: a goTo: requested while a transition is
++    // already in flight (see goTo: below) is queued here instead of firing a second, overlapping
++    // call into UIPageViewController, and replayed from setPagerViewControllers:'s completion
++    // block once the in-flight transition actually finishes. NSNotFound means "nothing queued".
++    NSInteger _pendingGoToIndex;
++    BOOL _pendingGoToAnimated;
+ }
+ 
+ // Needed because of this: https://github.com/facebook/react-native/pull/37274
+@@ -71,6 +77,7 @@ using namespace facebook::react;
+         _destinationIndex = -1;
+         _layoutDirection = @"ltr";
+         _overdrag = NO;
++        _pendingGoToIndex = NSNotFound;
+     }
+     
+     return self;
+@@ -121,6 +128,7 @@ using namespace facebook::react;
+     [super prepareForRecycle];
+     _nativePageViewController = nil;
+     _currentIndex = -1;
++    _pendingGoToIndex = NSNotFound;
+ }
+ 
+ - (void)shouldDismissKeyboard:(RNCViewPagerKeyboardDismissMode)dismissKeyboard {
+@@ -205,6 +213,23 @@ using namespace facebook::react;
+         return;
+     }
+ 
++    if (transitioning) {
++        // UIPageViewController asserts ("No view controller managing visible view", crashing at
++        // UIPageViewController.m:2064) if setViewControllers:direction:animated:completion: is
++        // invoked again before the previous call's own completion handler has fired - Apple's
++        // docs call overlapping calls undefined. unmountChildComponentView: used to call goTo:
++        // unconditionally whenever removing a page pushed currentIndex past the end of the
++        // array, including while a swipe or programmatic transition was still animating - exactly
++        // what happens when the live-feed pager's windowed mount/unmount drops a page the user
++        // has already swiped past but that page's own dismiss transition hasn't finished (GET-
++        // VAULTED-MOBILE-P / GET-VAULTED-MOBILE-12). Queue the request instead of racing
++        // UIPageViewController's internal transition bookkeeping; setPagerViewControllers:'s
++        // completion block below replays it once the current transition is actually done.
++        _pendingGoToIndex = index;
++        _pendingGoToAnimated = animated;
++        return;
++    }
++    
+     BOOL isForward = (index > self.currentIndex && [self isLtrLayout]) || (index < self.currentIndex && ![self isLtrLayout]);
+     UIPageViewControllerNavigationDirection direction = isForward ? UIPageViewControllerNavigationDirectionForward : UIPageViewControllerNavigationDirectionReverse;
+     
+@@ -241,6 +266,13 @@ using namespace facebook::react;
+             strongSelf->_currentIndex = index;
+         }
+         [strongSelf updateLayoutMetrics:strongSelf->_layoutMetrics oldLayoutMetrics:strongSelf->_oldLayoutMetrics];
++
++        if (strongSelf != nil && strongSelf->_pendingGoToIndex != NSNotFound) {
++            NSInteger pendingIndex = strongSelf->_pendingGoToIndex;
++            BOOL pendingAnimated = strongSelf->_pendingGoToAnimated;
++            strongSelf->_pendingGoToIndex = NSNotFound;
++            [strongSelf goTo:pendingIndex animated:pendingAnimated];
++        }
+     }];
+ }
+ 
+diff --git a/node_modules/react-native-pager-view/ios/PagerView.xcodeproj/project.pbxproj b/node_modules/react-native-pager-view/ios/PagerView.xcodeproj/project.pbxproj
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/RCTConvert+UIPageViewControllerNavigationOrientation.h b/node_modules/react-native-pager-view/ios/RCTConvert+UIPageViewControllerNavigationOrientation.h
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/RCTConvert+UIPageViewControllerNavigationOrientation.m b/node_modules/react-native-pager-view/ios/RCTConvert+UIPageViewControllerNavigationOrientation.m
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/RCTOnPageScrollEvent.h b/node_modules/react-native-pager-view/ios/RCTOnPageScrollEvent.h
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/RCTOnPageScrollEvent.m b/node_modules/react-native-pager-view/ios/RCTOnPageScrollEvent.m
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/RCTOnPageScrollStateChanged.h b/node_modules/react-native-pager-view/ios/RCTOnPageScrollStateChanged.h
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/RCTOnPageScrollStateChanged.m b/node_modules/react-native-pager-view/ios/RCTOnPageScrollStateChanged.m
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/RCTOnPageSelected.h b/node_modules/react-native-pager-view/ios/RCTOnPageSelected.h
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/RCTOnPageSelected.m b/node_modules/react-native-pager-view/ios/RCTOnPageSelected.m
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/RNCPagerView.h b/node_modules/react-native-pager-view/ios/RNCPagerView.h
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/RNCPagerView.m b/node_modules/react-native-pager-view/ios/RNCPagerView.m
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/RNCPagerViewManager.h b/node_modules/react-native-pager-view/ios/RNCPagerViewManager.h
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/RNCPagerViewManager.m b/node_modules/react-native-pager-view/ios/RNCPagerViewManager.m
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/RNCPagerViewShadowView.h b/node_modules/react-native-pager-view/ios/RNCPagerViewShadowView.h
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/RNCPagerViewShadowView.m b/node_modules/react-native-pager-view/ios/RNCPagerViewShadowView.m
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/UIView+isHorizontalRtlLayout.h b/node_modules/react-native-pager-view/ios/UIView+isHorizontalRtlLayout.h
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/UIView+isHorizontalRtlLayout.m b/node_modules/react-native-pager-view/ios/UIView+isHorizontalRtlLayout.m
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/UIViewController+CreateExtension.h b/node_modules/react-native-pager-view/ios/UIViewController+CreateExtension.h
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/ios/UIViewController+CreateExtension.m b/node_modules/react-native-pager-view/ios/UIViewController+CreateExtension.m
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/commonjs/PagerView.js b/node_modules/react-native-pager-view/lib/commonjs/PagerView.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/commonjs/PagerView.js.map b/node_modules/react-native-pager-view/lib/commonjs/PagerView.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/commonjs/PagerViewNativeComponent.ts b/node_modules/react-native-pager-view/lib/commonjs/PagerViewNativeComponent.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/commonjs/index.js b/node_modules/react-native-pager-view/lib/commonjs/index.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/commonjs/index.js.map b/node_modules/react-native-pager-view/lib/commonjs/index.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/commonjs/package.json b/node_modules/react-native-pager-view/lib/commonjs/package.json
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/commonjs/usePagerView.js b/node_modules/react-native-pager-view/lib/commonjs/usePagerView.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/commonjs/usePagerView.js.map b/node_modules/react-native-pager-view/lib/commonjs/usePagerView.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/commonjs/utils.js b/node_modules/react-native-pager-view/lib/commonjs/utils.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/commonjs/utils.js.map b/node_modules/react-native-pager-view/lib/commonjs/utils.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/module/PagerView.js b/node_modules/react-native-pager-view/lib/module/PagerView.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/module/PagerView.js.map b/node_modules/react-native-pager-view/lib/module/PagerView.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/module/PagerViewNativeComponent.ts b/node_modules/react-native-pager-view/lib/module/PagerViewNativeComponent.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/module/index.js b/node_modules/react-native-pager-view/lib/module/index.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/module/index.js.map b/node_modules/react-native-pager-view/lib/module/index.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/module/usePagerView.js b/node_modules/react-native-pager-view/lib/module/usePagerView.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/module/usePagerView.js.map b/node_modules/react-native-pager-view/lib/module/usePagerView.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/module/utils.js b/node_modules/react-native-pager-view/lib/module/utils.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/module/utils.js.map b/node_modules/react-native-pager-view/lib/module/utils.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/typescript/PagerView.d.ts b/node_modules/react-native-pager-view/lib/typescript/PagerView.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/typescript/PagerView.d.ts.map b/node_modules/react-native-pager-view/lib/typescript/PagerView.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/typescript/PagerViewNativeComponent.d.ts b/node_modules/react-native-pager-view/lib/typescript/PagerViewNativeComponent.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/typescript/PagerViewNativeComponent.d.ts.map b/node_modules/react-native-pager-view/lib/typescript/PagerViewNativeComponent.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/typescript/index.d.ts b/node_modules/react-native-pager-view/lib/typescript/index.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/typescript/index.d.ts.map b/node_modules/react-native-pager-view/lib/typescript/index.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/typescript/usePagerView.d.ts b/node_modules/react-native-pager-view/lib/typescript/usePagerView.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/typescript/usePagerView.d.ts.map b/node_modules/react-native-pager-view/lib/typescript/usePagerView.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/typescript/utils.d.ts b/node_modules/react-native-pager-view/lib/typescript/utils.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/lib/typescript/utils.d.ts.map b/node_modules/react-native-pager-view/lib/typescript/utils.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/react-native-pager-view.podspec b/node_modules/react-native-pager-view/react-native-pager-view.podspec
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/src/PagerView.tsx b/node_modules/react-native-pager-view/src/PagerView.tsx
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/src/PagerViewNativeComponent.ts b/node_modules/react-native-pager-view/src/PagerViewNativeComponent.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/src/index.tsx b/node_modules/react-native-pager-view/src/index.tsx
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/src/usePagerView.ts b/node_modules/react-native-pager-view/src/usePagerView.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/react-native-pager-view/src/utils.tsx b/node_modules/react-native-pager-view/src/utils.tsx
+old mode 100644
+new mode 100755

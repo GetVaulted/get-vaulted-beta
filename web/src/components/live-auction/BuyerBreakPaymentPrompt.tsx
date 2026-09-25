@@ -142,12 +142,7 @@ function Inner({
             Not now
           </button>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <BreakSpotPayButton
-              liveRoomId={liveRoomId}
-              breakSpotId={attention.claimId}
-              disabled={!isLive}
-              disabledReason={!isLive ? "You can pay once the show goes live." : undefined}
-            />
+            <BreakSpotPayButton liveRoomId={liveRoomId} breakSpotId={attention.claimId} disabled={!isLive} />
           </div>
         </div>
         <p className="mt-3 text-[10px] text-zinc-600">

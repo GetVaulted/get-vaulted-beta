@@ -118,16 +118,6 @@ function MessagesStatIcon() {
   );
 }
 
-function PullsStatIcon() {
-  return (
-    <svg {...STAT_ICON_PROPS}>
-      <rect x="4" y="4" width="16" height="16" rx="2" />
-      <circle cx="9" cy="10" r="1.6" fill="currentColor" stroke="none" />
-      <path d="m5 17 4.5-5 3.5 4 2.5-3 4.5 4" />
-    </svg>
-  );
-}
-
 function HubStatCard({
   label,
   lines,
@@ -593,16 +583,6 @@ export function SellerHubPage() {
                 emphasis: (homeStats?.unreadBuyerMessagesCount ?? 0) > 0,
               },
               { text: "Buyer conversations" },
-            ]}
-          />
-          <HubStatCard
-            label="Pulls"
-            icon={<PullsStatIcon />}
-            href="/account/seller/pulls"
-            cta="Manage pulls"
-            lines={[
-              { text: "Photos & clips" },
-              { text: "Show off your best hits" },
             ]}
           />
         </section>

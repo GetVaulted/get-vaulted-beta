@@ -7,15 +7,12 @@ export function BreakSpotPayButton({
   liveRoomId,
   breakSpotId,
   disabled,
-  disabledReason,
   onPaid,
   onPaymentFailed,
 }: {
   liveRoomId: string;
   breakSpotId: string;
   disabled?: boolean;
-  /** Shown under the button when `disabled` is true, so buyers know why they can't retry yet. */
-  disabledReason?: string;
   onPaid?: () => void;
   onPaymentFailed?: () => void;
 }) {
@@ -50,11 +47,7 @@ export function BreakSpotPayButton({
       >
         {busy ? "…" : "Pay spot"}
       </button>
-      {error ? (
-        <p className="text-[9px] text-rose-300">{error}</p>
-      ) : disabled && disabledReason ? (
-        <p className="text-[9px] text-zinc-500">{disabledReason}</p>
-      ) : null}
+      {error ? <p className="text-[9px] text-rose-300">{error}</p> : null}
     </div>
   );
 }

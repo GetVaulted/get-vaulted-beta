@@ -39,11 +39,7 @@ export function HoldToBuyButton({
     }
     holdingRef.current = false;
     if (!committedRef.current) setProgress(0);
-    // Do NOT clear `committedRef` here. This runs synchronously on mouseup/touchend, which is
-    // immediately followed — same synchronous event dispatch, same gesture — by the browser's
-    // native "click" event. `committedRef` has to still read true when `onFinePointerClick` checks
-    // it below, or the guard added there does nothing. It's cleared on a deferred timer instead
-    // (see the hold-commit timeout), once that trailing click has had its chance to fire.
+    committedRef.current = false;
   }, []);
 
   useEffect(() => () => clearHold(), [clearHold]);
@@ -76,18 +72,12 @@ export function HoldToBuyButton({
       holdingRef.current = false;
       onCommit();
       setProgress(0);
-      // Holding the button past HOLD_MS still ends in a mouseup, and the browser fires its native
-      // "click" event right after — reaching `onFinePointerClick` with the parent's `busy` prop
-      // still stale (pre-render) at that point. `committedRef` guards that click, and must survive
-      // through it, so its reset is deferred a tick instead of happening immediately here.
-      setTimeout(() => {
-        committedRef.current = false;
-      }, 0);
+      committedRef.current = false;
     }, HOLD_MS);
   }, [busy, disabled, onCommit, onHoldStart, tick]);
 
   const onFinePointerClick = useCallback(() => {
-    if (disabled || busy || committedRef.current) return;
+    if (disabled || busy) return;
     if (typeof window !== "undefined" && window.matchMedia("(pointer: fine)").matches) {
       const allowed = onHoldStart?.();
       if (allowed === false) return;

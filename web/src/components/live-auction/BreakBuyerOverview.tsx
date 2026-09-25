@@ -146,7 +146,6 @@ export function BreakBuyerOverview({ break: b, isLive, liveRoomId, currentUserId
                         liveRoomId={liveRoomId}
                         breakSpotId={c.claimId}
                         disabled={!isLive}
-                        disabledReason={!isLive ? "You can pay once the show goes live." : undefined}
                       />
                     ))
                 : null}
@@ -165,12 +164,7 @@ export function BreakBuyerOverview({ break: b, isLive, liveRoomId, currentUserId
                     {STATUS_LABEL[o.displayStatus]}
                   </span>
                   {o.needsPayment && currentUserId && o.buyerUserId === currentUserId ? (
-                    <BreakSpotPayButton
-                      liveRoomId={liveRoomId}
-                      breakSpotId={o.id}
-                      disabled={!isLive}
-                      disabledReason={!isLive ? "You can pay once the show goes live." : undefined}
-                    />
+                    <BreakSpotPayButton liveRoomId={liveRoomId} breakSpotId={o.id} disabled={!isLive} />
                   ) : null}
                 </li>
               ))}
