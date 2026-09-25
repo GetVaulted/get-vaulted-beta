@@ -42,7 +42,10 @@ async function canNotifyMention(args: {
         where: { threadId_userId: { threadId: args.threadId, userId: args.mentionedUserId } },
         select: { blocked: true },
       });
-      if (participant?.blocked) return false;
+      // Previously only checked `blocked` — a mentioned user with NO participant row (i.e. not
+      // actually in this private thread at all) fell through as "not blocked" and got notified
+      // with a preview of the thread's message body. Require an actual participant row too.
+      if (!participant || participant.blocked) return false;
     }
 
     if (args.liveRoomId) {

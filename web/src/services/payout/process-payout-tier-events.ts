@@ -27,6 +27,7 @@ import { recalculateSellerPayoutTier } from "@/services/payout/recalculate-selle
 import { estimateSellerOrderPayoutUsd, resolvePlatformFeePercentForSellerOrder } from "@/lib/seller-payout-estimate";
 import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import { loadSellerPlatformFeePercentOverride } from "@/services/seller-platform-fee-override";
 
 const orderSelect = {
   id: true,
@@ -62,6 +63,7 @@ const orderSelect = {
   processorTransferId: true,
   shippedAt: true,
   liveShippingSessionId: true,
+  platformFeePercentApplied: true,
   listing: { select: { isCompanyListing: true } },
   liveShippingSession: {
     select: {
@@ -77,29 +79,42 @@ const orderSelect = {
  * deductions, not raw `itemPriceUsd`. `payoutReserveAmountCents` is intentionally NOT subtracted
  * here: it's bookkeeping only today (computed after the Stripe transfer already happened).
  */
-function resolveOrderSellerNetUsd(order: {
+async function resolveOrderSellerNetUsd(order: {
+  sellerId: string;
   itemPriceUsd: number;
   shippingPriceUsd: number;
   referralCreditAppliedUsd?: number | null;
   shippingLabelCostCents?: number | null;
   shippingLabelCostReversedCents?: number | null;
   paymentStatus: string;
+  platformFeePercentApplied?: number | null;
   listing: { isCompanyListing: boolean };
   liveShippingSession: {
     liveShowId: string | null;
     liveShow: { completedSalesGmvUsd: number; finalSalesGmvUsd: number | null; status: string } | null;
   } | null;
-}): number {
+}): Promise<number> {
   const liveShowId = order.liveShippingSession?.liveShowId ?? null;
   const liveShow = order.liveShippingSession?.liveShow ?? null;
   const saleBasisUsd = orderItemSaleBasisUsd(order);
-  const feePct = resolvePlatformFeePercentForSellerOrder({
-    isCompanyListing: order.listing.isCompanyListing,
-    liveShowId,
-    liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
-    orderItemPriceUsd: saleBasisUsd,
-    orderPaymentStatus: order.paymentStatus,
-  });
+  // Prefer the immutable charge-time snapshot (mirrors `order-financial-ledger.ts`'s
+  // `resolveOrderPlatformFeePercent`) — recomputing from scratch here previously dropped an
+  // active seller platform-fee-override entirely (it's tied to the seller's CURRENT override
+  // row, not what was actually promised/charged at checkout) and could also land on the wrong
+  // live-show GMV tier for orders evaluated well after the show's GMV had moved on.
+  const feePct =
+    order.platformFeePercentApplied != null && Number.isFinite(order.platformFeePercentApplied)
+      ? order.platformFeePercentApplied
+      : resolvePlatformFeePercentForSellerOrder({
+          isCompanyListing: order.listing.isCompanyListing,
+          liveShowId,
+          liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
+          orderItemPriceUsd: saleBasisUsd,
+          orderPaymentStatus: order.paymentStatus,
+          sellerPlatformFeePercentOverride: order.listing.isCompanyListing
+            ? null
+            : await loadSellerPlatformFeePercentOverride(order.sellerId),
+        });
   return estimateSellerOrderPayoutUsd({
     itemPriceUsd: saleBasisUsd,
     shippingPriceUsd: order.shippingPriceUsd,
@@ -363,7 +378,7 @@ export async function processLabelCreatedPayoutEvaluation(orderId: string): Prom
   const ctx = await loadOrderEvalContext(orderId, order.sellerId);
   if (!ctx || ctx.orderBlocked) return;
 
-  const sellerNetUsd = resolveOrderSellerNetUsd(order);
+  const sellerNetUsd = await resolveOrderSellerNetUsd(order);
   const limitCheck = await checkInstantPayoutLimits(order.sellerId, sellerNetUsd);
   if (!limitCheck.allowed) {
     await logInstantPayoutLimitFallback({
@@ -417,7 +432,7 @@ export async function processShippedPayoutEvaluation(orderId: string): Promise<v
 
   const now = new Date();
   const prev = order.payoutStatus;
-  const sellerNetUsd = resolveOrderSellerNetUsd(order);
+  const sellerNetUsd = await resolveOrderSellerNetUsd(order);
 
   // PayPal: platform-held — release on ship/label path as before.
   if (order.sellerPayoutProcessor === "PAYPAL") {
@@ -556,7 +571,7 @@ export async function processStandardDeliveryPayoutEvaluation(orderId: string): 
       where: { id: orderId },
       data: { deliveryConfirmedAt: new Date() },
     });
-    await reduceOutstandingInstantExposure(order.sellerId, resolveOrderSellerNetUsd(order));
+    await reduceOutstandingInstantExposure(order.sellerId, await resolveOrderSellerNetUsd(order));
     return;
   }
 
@@ -599,7 +614,7 @@ export async function processStandardDeliveryPayoutEvaluation(orderId: string): 
   const prev = order.payoutStatus;
 
   if (evaluation.instantPayoutAllowed) {
-    const sellerNetUsd = resolveOrderSellerNetUsd(order);
+    const sellerNetUsd = await resolveOrderSellerNetUsd(order);
     const limitCheck = await checkInstantPayoutLimits(order.sellerId, sellerNetUsd);
     if (!limitCheck.allowed) {
       await logInstantPayoutLimitFallback({

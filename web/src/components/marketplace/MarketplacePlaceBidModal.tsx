@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 import { AddressAutocompleteFields } from "@/components/address/AddressAutocompleteFields";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
+import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 
 function combineAddressLine(line1: string, line2: string): string {
   return [line1, line2].filter(Boolean).join(" ");
@@ -11,8 +12,11 @@ function combineAddressLine(line1: string, line2: string): string {
 
 type ApiPaymentMethod = { id: string; brand: string; last4: string; expMonth: number; expYear: number };
 
+// Was rounding to whole dollars (`maximumFractionDigits: 0`), so a bid of $45.50 displayed as
+// "$46" or "$45" — misleading next to the actual cents-precise charge. `formatMarketplaceUsd`
+// only shows cents when the amount actually has them.
 function formatMoney(n: number) {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  return formatMarketplaceUsd(n);
 }
 
 function formatCountdown(ms: number) {

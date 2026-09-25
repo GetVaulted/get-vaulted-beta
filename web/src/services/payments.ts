@@ -520,9 +520,15 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
 
   const shippingChargedCents = Math.round(Math.max(0, order.shippingPriceUsd) * 100);
 
-  const { closedLayaways } = await prisma.$transaction(async (tx) => {
-    await tx.order.update({
-      where: { id: orderId },
+  const { claimed, closedLayaways } = await prisma.$transaction(async (tx) => {
+    // Compare-and-swap, same reason and pattern as `finalizeStripeMarketplaceOrderPaid`: escrow
+    // providers redeliver webhooks, and this can also be invoked from more than one trigger for
+    // the same order. The `if (order.paymentStatus === ...) return;` check above reads a stale
+    // snapshot — two concurrent calls can both pass it before either commits. Claiming the row
+    // here (status still in the where clause) means only the winner runs the listing/inventory/
+    // notification side effects below; a loser's write becomes a no-op instead of double-processing.
+    const claim = await tx.order.updateMany({
+      where: { id: orderId, paymentStatus: { notIn: [PAYMENT_PAID, PAYMENT_EXPIRED] } },
       data: {
         paymentStatus: PAYMENT_PAID,
         status: "paid",
@@ -533,6 +539,7 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
         paidAt: new Date(),
       },
     });
+    if (claim.count === 0) return { claimed: false as const, closedLayaways: [] };
 
     await tx.listing.updateMany({
       where: {
@@ -561,8 +568,13 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
       await recordLiveShowCompletedSaleTx(tx, liveRoomId, order.itemPriceUsd);
     }
 
-    return { closedLayaways };
+    return { claimed: true as const, closedLayaways };
   });
+
+  // Mirrors `finalizeStripeMarketplaceOrderPaid`: a loser of the CAS above must skip every
+  // side effect below (escrow transition logging, payout initialization, buyer/seller
+  // notifications, lifecycle emails) — otherwise a redelivered escrow webhook double-fires them.
+  if (!claimed) return;
 
   if (prevEscrow !== EscrowStatus.buyer_paid) {
     await logEscrowStatusTransition({

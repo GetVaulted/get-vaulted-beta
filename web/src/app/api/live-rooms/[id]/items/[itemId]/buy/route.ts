@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
 import { getLiveBuyerCommerceBlock, getLiveRoomBroadcastCommerceBlock } from "@/lib/live-room-commerce-guards";
+import { getLiveRoomUserRestrictions } from "@/lib/trust/live-room-moderation";
 import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { settleLiveBuyNowPurchase } from "@/lib/live-payment-pipeline";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
@@ -63,6 +64,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   const commerceBlock = await getLiveBuyerCommerceBlock({ liveRoomId, userId: buyerId });
   if (commerceBlock) {
     return NextResponse.json({ error: commerceBlock.error, code: commerceBlock.code }, { status: commerceBlock.status });
+  }
+
+  // `getLiveBuyerCommerceBlock` only blocks the host/moderators — it never checked whether the
+  // buyer themselves was room-banned or kicked, so a banned/kicked buyer could still complete a
+  // Buy Now purchase (mirrors the check already in bid/route.ts and pre-bid/route.ts).
+  const modRestrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId: buyerId });
+  if (modRestrictions.roomBanned || modRestrictions.kickedUntil) {
+    return NextResponse.json({ error: "You cannot participate in this room." }, { status: 403 });
   }
 
   let body: Body = {};

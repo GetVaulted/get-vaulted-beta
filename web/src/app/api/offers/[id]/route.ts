@@ -3,6 +3,7 @@ import { createOrderFromAcceptedOffer, declineOtherOpenOffersOnListing, loadBuye
 import { createNotification } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
+import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 
 type PatchBody = {
   action?: string;
@@ -144,7 +145,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       }
       const lt =
         listing.title.length > 90 ? `${listing.title.slice(0, 87)}…` : listing.title;
-      const fmt = c.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+      const fmt = formatMarketplaceUsd(c);
       await createNotification(prisma, {
         userId: offer.buyerId,
         type: "counteroffer_received",

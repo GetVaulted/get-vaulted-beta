@@ -1,6 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { roundUsd } from "@/lib/round-usd";
+import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 import {
   consumeListingInventoryHoldTx,
   reserveListingInventoryHoldTx,
@@ -407,11 +408,7 @@ export async function createOrderFromAuctionWin(
   }
 
   const titleShort = params.listingTitle.length > 80 ? `${params.listingTitle.slice(0, 77)}…` : params.listingTitle;
-  const priceStr = params.itemPriceUsd.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  });
+  const priceStr = formatMarketplaceUsd(params.itemPriceUsd);
   const buyerTitle = params.notify?.buyerTitle ?? "You won the auction";
   const buyerBody =
     params.notify?.buyerBody ??

@@ -7,6 +7,7 @@ import {
   resolvePlatformFeePercentForSellerOrder,
   resolveSellerAbsorbedProcessingFeeUsd,
 } from "@/lib/seller-payout-estimate";
+import { loadSellerPlatformFeePercentOverride } from "@/services/seller-platform-fee-override";
 import { ensureSellerStripeManualPayouts } from "@/lib/seller-stripe-connect";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import {
@@ -85,6 +86,7 @@ export async function releaseSellerStripePayout(
       totalUsd: true,
       referralCreditAppliedUsd: true,
       platformCreditAppliedUsd: true,
+      platformFeePercentApplied: true,
       stripeProcessingFeeCents: true,
       shippingLabelCostCents: true,
       shippingLabelCostReversedCents: true,
@@ -198,13 +200,25 @@ export async function releaseSellerStripePayout(
   const liveShowId = order.liveShippingSession?.liveShowId ?? null;
   const liveShow = order.liveShippingSession?.liveShow ?? null;
   const saleBasisUsd = orderItemSaleBasisUsd(order);
-  const feePct = resolvePlatformFeePercentForSellerOrder({
-    isCompanyListing: order.listing.isCompanyListing,
-    liveShowId,
-    liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
-    orderItemPriceUsd: saleBasisUsd,
-    orderPaymentStatus: order.paymentStatus,
-  });
+  // Prefer the immutable charge-time snapshot (mirrors `order-financial-ledger.ts`'s
+  // `resolveOrderPlatformFeePercent`) — recomputing from scratch here previously dropped an
+  // active seller platform-fee-override entirely, since it never threaded
+  // `sellerPlatformFeePercentOverride` through to `resolvePlatformFeePercentForSellerOrder`.
+  // Falling back to a fresh lookup (for legacy orders that predate the snapshot column) still
+  // includes the override rather than silently reverting to the default/tiered fee.
+  const feePct =
+    order.platformFeePercentApplied != null && Number.isFinite(order.platformFeePercentApplied)
+      ? order.platformFeePercentApplied
+      : resolvePlatformFeePercentForSellerOrder({
+          isCompanyListing: order.listing.isCompanyListing,
+          liveShowId,
+          liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
+          orderItemPriceUsd: saleBasisUsd,
+          orderPaymentStatus: order.paymentStatus,
+          sellerPlatformFeePercentOverride: order.listing.isCompanyListing
+            ? null
+            : await loadSellerPlatformFeePercentOverride(order.sellerId),
+        });
   const netUsd = estimateSellerOrderPayoutUsd({
     itemPriceUsd: saleBasisUsd,
     shippingPriceUsd: order.shippingPriceUsd,

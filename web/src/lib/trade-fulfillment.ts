@@ -163,19 +163,34 @@ export async function confirmTradePartyReceived(input: {
   }
 
   const now = new Date();
-  const nextProposerReceived = isProposer ? now : offer.proposerReceivedAt;
-  const nextRecipientReceived = isProposer ? offer.recipientReceivedAt : now;
-  const bothReceived = Boolean(nextProposerReceived && nextRecipientReceived);
-  const shouldComplete = bothReceived && offer.status === "accepted";
 
-  await prisma.$transaction(async (tx) => {
+  // `shouldComplete` must NOT be computed from the `offer` snapshot read at the top of this
+  // function: when both parties confirm receipt in two concurrent requests, each one reads the
+  // *other* party's `receivedAt` as still null (neither has committed yet), so each computes
+  // `bothReceived = false` and neither ever flips status to "completed" — the trade is stuck in
+  // "accepted" forever even though both confirmations did land. Fix: write this party's own
+  // confirmation first (which takes Postgres's row lock and serializes with a concurrent
+  // confirmation from the other party), then re-read the row's current state *inside the same
+  // transaction* before deciding whether both sides are now in. Re-checking `status === "accepted"`
+  // on that fresh read (rather than trusting `bothReceived` alone) also keeps a redundant/racing
+  // duplicate call from re-firing the completion event and its escrow/deposit side effects below.
+  const shouldComplete = await prisma.$transaction(async (tx) => {
     await tx.tradeOffer.update({
       where: { id: offer.id },
-      data: {
-        ...(isProposer ? { proposerReceivedAt: now } : { recipientReceivedAt: now }),
-        ...(shouldComplete ? { status: "completed" } : {}),
-      },
+      data: isProposer ? { proposerReceivedAt: now } : { recipientReceivedAt: now },
     });
+
+    const fresh = await tx.tradeOffer.findUnique({
+      where: { id: offer.id },
+      select: { status: true, proposerReceivedAt: true, recipientReceivedAt: true },
+    });
+    const bothReceived = Boolean(fresh?.proposerReceivedAt && fresh?.recipientReceivedAt);
+    const willComplete = bothReceived && fresh?.status === "accepted";
+
+    if (willComplete) {
+      await tx.tradeOffer.update({ where: { id: offer.id }, data: { status: "completed" } });
+    }
+
     await tx.tradeOfferEvent.create({
       data: {
         tradeOfferId: offer.id,
@@ -184,7 +199,7 @@ export async function confirmTradePartyReceived(input: {
         note: JSON.stringify({ party: isProposer ? "proposer" : "recipient" }),
       },
     });
-    if (shouldComplete) {
+    if (willComplete) {
       await tx.tradeOfferEvent.create({
         data: {
           tradeOfferId: offer.id,
@@ -194,6 +209,7 @@ export async function confirmTradePartyReceived(input: {
         },
       });
     }
+    return willComplete;
   });
 
   if (shouldComplete) {

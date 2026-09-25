@@ -15,6 +15,7 @@ import {
   getLiveRoomBroadcastCommerceBlock,
   isLiveRoomOpenForSpotPurchase,
 } from "@/lib/live-room-commerce-guards";
+import { getLiveRoomUserRestrictions } from "@/lib/trust/live-room-moderation";
 import { getUnresolvedPaymentFailureForBuyer, liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { isStripeConfigured } from "@/lib/stripe";
@@ -125,6 +126,14 @@ export async function POST(
   const commerceBlock = await getLiveBuyerCommerceBlock({ liveRoomId, userId });
   if (commerceBlock) {
     return NextResponse.json({ error: commerceBlock.error, code: commerceBlock.code }, { status: commerceBlock.status });
+  }
+
+  // `getLiveBuyerCommerceBlock` only blocks the host/moderators — it never checked whether the
+  // buyer themselves was room-banned or kicked, so a banned/kicked buyer could still claim a
+  // PYT/PYD spot (mirrors the check already in bid/route.ts and pre-bid/route.ts).
+  const modRestrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId });
+  if (modRestrictions.roomBanned || modRestrictions.kickedUntil) {
+    return NextResponse.json({ error: "You cannot participate in this room." }, { status: 403 });
   }
 
   if (isStripeConfigured()) {

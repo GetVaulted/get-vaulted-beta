@@ -4,6 +4,7 @@ import {
   estimateSellerOrderPayoutUsd,
   resolvePlatformFeePercentForSellerOrder,
 } from "@/lib/seller-payout-estimate";
+import { loadSellerPlatformFeePercentOverride } from "@/services/seller-platform-fee-override";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
 import {
@@ -45,6 +46,7 @@ export async function releaseSellerPayPalPayout(orderId: string): Promise<{
       shippoTransactionId: true,
       labelUrl: true,
       platformFeeCents: true,
+      platformFeePercentApplied: true,
       listing: { select: { isCompanyListing: true } },
       liveShippingSession: {
         select: {
@@ -114,13 +116,23 @@ export async function releaseSellerPayPalPayout(orderId: string): Promise<{
   const liveShowId = order.liveShippingSession?.liveShowId ?? null;
   const liveShow = order.liveShippingSession?.liveShow ?? null;
   const saleBasisUsd = orderItemSaleBasisUsd(order);
-  const feePct = resolvePlatformFeePercentForSellerOrder({
-    isCompanyListing: order.listing.isCompanyListing,
-    liveShowId,
-    liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
-    orderItemPriceUsd: saleBasisUsd,
-    orderPaymentStatus: order.paymentStatus,
-  });
+  // Prefer the immutable charge-time snapshot (mirrors `order-financial-ledger.ts`'s
+  // `resolveOrderPlatformFeePercent` and the fix applied to the Stripe bank-payout rail in
+  // `stripe-seller-payout.ts`) — recomputing from scratch here previously dropped an active
+  // seller platform-fee-override entirely on the PayPal payout rail.
+  const feePct =
+    order.platformFeePercentApplied != null && Number.isFinite(order.platformFeePercentApplied)
+      ? order.platformFeePercentApplied
+      : resolvePlatformFeePercentForSellerOrder({
+          isCompanyListing: order.listing.isCompanyListing,
+          liveShowId,
+          liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
+          orderItemPriceUsd: saleBasisUsd,
+          orderPaymentStatus: order.paymentStatus,
+          sellerPlatformFeePercentOverride: order.listing.isCompanyListing
+            ? null
+            : await loadSellerPlatformFeePercentOverride(order.sellerId),
+        });
   const netUsd = estimateSellerOrderPayoutUsd({
     itemPriceUsd: saleBasisUsd,
     shippingPriceUsd: order.shippingPriceUsd,
