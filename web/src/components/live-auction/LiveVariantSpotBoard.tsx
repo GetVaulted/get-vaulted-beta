@@ -52,8 +52,14 @@ type LiveVariantSpotBoardProps = {
   onEditSpots?: () => void;
   /** Live room id — enables the username autocomplete strip in the Mark Sold form. */
   liveRoomId?: string;
-  /** Host marks an open spot sold off-platform (cash/Venmo/etc.) to a specific username. */
-  onMarkSold?: (args: MarkSoldArgs) => void | Promise<void>;
+  /**
+   * Host marks an open spot sold off-platform (cash/Venmo/etc.) to a specific username. Must
+   * resolve with `{ ok: false, error }` on failure (wrong username, missing payment method, a
+   * network blip, etc.) rather than throwing or resolving void — the form only clears on `ok:
+   * true`, otherwise the host's already-typed username/price/method/note stay in place and
+   * `error` is shown so they can fix the one thing that was wrong and resubmit.
+   */
+  onMarkSold?: (args: MarkSoldArgs) => Promise<{ ok: boolean; error?: string }>;
   markSoldBusy?: boolean;
 };
 
@@ -145,7 +151,7 @@ export function LiveVariantSpotBoard({
       return;
     }
     setMarkSoldError(null);
-    await onMarkSold({
+    const result = await onMarkSold({
       variantId: markSoldVariantId,
       username,
       priceUsd,
@@ -153,6 +159,13 @@ export function LiveVariantSpotBoard({
       zeroReason: priceUsd < 0.01 ? (markSoldZeroReason ?? undefined) : undefined,
       note: markSoldNote.trim() ? markSoldNote.trim().slice(0, 280) : undefined,
     });
+    // Only clear the form on success. Closing it unconditionally threw away everything the host
+    // typed (username, price, method, note) whenever the save failed — wrong username, missing
+    // payment method, a network blip — forcing them to re-enter it all from scratch.
+    if (!result.ok) {
+      setMarkSoldError(result.error ?? "Could not mark this spot sold. Try again.");
+      return;
+    }
     closeMarkSoldForm();
   };
 

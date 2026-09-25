@@ -6,6 +6,7 @@ import {
 } from "@/lib/calendar-day-bounds";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 import { prisma } from "@/lib/prisma";
+import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
 import {
   sellerPlatformFeeOverrideSelect,
   sellerUserWithEffectivePlatformFeeOverride,
@@ -200,6 +201,8 @@ export async function buildSellerFinancialsSummary(
       id: true,
       totalUsd: true,
       itemPriceUsd: true,
+      referralCreditAppliedUsd: true,
+      platformCreditAppliedUsd: true,
       shippingPriceUsd: true,
       taxUsd: true,
       taxAmountCents: true,
@@ -265,13 +268,20 @@ export async function buildSellerFinancialsSummary(
     const liveShowId = o.liveShippingSession?.liveShowId ?? null;
     const liveShow = o.liveShippingSession?.liveShow ?? null;
     const channel: "marketplace" | "live" = liveShowId ? "live" : "marketplace";
-    const gmvUsd = money(o.itemPriceUsd);
+    // Referral/platform store credit is platform-funded — the buyer's card is charged less, but
+    // the seller's fee and payout are still computed on the full, undiscounted sale amount (same
+    // sale-basis pattern as `orderItemSaleBasisUsd` callers elsewhere: stripe-seller-payout.ts,
+    // paypal-seller-payout.ts, order-financial-ledger.ts). Using the bare, credit-reduced
+    // `itemPriceUsd` here understated both GMV and earnings for any order where a buyer applied
+    // referral or platform credit.
+    const saleBasisUsd = orderItemSaleBasisUsd(o);
+    const gmvUsd = money(saleBasisUsd);
     const shippingUsd = money(o.shippingPriceUsd);
     const taxUsd = money(Math.max(o.taxUsd ?? 0, (o.taxAmountCents ?? 0) / 100));
 
     // Get Vaulted fee = persisted platform fee only. Never stripeApplicationFeeCents (may include processing).
     const fee = resolveSellerPlatformFeeDisplay({
-      itemPriceUsd: o.itemPriceUsd,
+      itemPriceUsd: saleBasisUsd,
       isCompanyListing: Boolean(o.listing.isCompanyListing),
       platformFeeCents: o.platformFeeCents,
       platformFeePercentApplied: o.platformFeePercentApplied,
@@ -313,7 +323,7 @@ export async function buildSellerFinancialsSummary(
 
     const netUsd = money(
       estimateSellerOrderPayoutUsd({
-        itemPriceUsd: o.itemPriceUsd,
+        itemPriceUsd: saleBasisUsd,
         shippingPriceUsd: o.shippingPriceUsd,
         payoutReserveAmountCents: o.payoutReserveAmountCents,
         platformFeePercent,
