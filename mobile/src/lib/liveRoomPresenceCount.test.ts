@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countRoomPresenceViewers } from './liveRoomPresenceCount';
+import { countRoomPresenceViewers, PRESENCE_STALE_MS } from './liveRoomPresenceCount';
 
 describe('countRoomPresenceViewers (per-connection headcount)', () => {
   it('returns 0 for an empty room', () => {
@@ -51,6 +51,27 @@ describe('countRoomPresenceViewers (per-connection headcount)', () => {
       countRoomPresenceViewers({
         'slot-a': [{ userId: 'user-1', tabKey: 'room-1:device-a' }],
         stale: [],
+      }),
+    ).toBe(1);
+  });
+
+  it('drops a ghost entry whose last heartbeat is past the staleness window', () => {
+    const now = Date.parse('2026-09-17T02:00:00.000Z');
+    expect(
+      countRoomPresenceViewers(
+        {
+          fresh: [{ tabKey: 'room-1:live', at: new Date(now - 5_000).toISOString() }],
+          ghost: [{ tabKey: 'room-1:ghost', at: new Date(now - PRESENCE_STALE_MS - 1_000).toISOString() }],
+        },
+        now,
+      ),
+    ).toBe(1);
+  });
+
+  it('does not penalize an entry with no `at` timestamp at all', () => {
+    expect(
+      countRoomPresenceViewers({
+        'slot-a': [{ tabKey: 'room-1:no-timestamp' }],
       }),
     ).toBe(1);
   });

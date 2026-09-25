@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countRoomPresenceViewers, parseRoomPresenceUsers } from "./live-room-presence-count";
+import { countRoomPresenceViewers, parseRoomPresenceUsers, PRESENCE_STALE_MS } from "./live-room-presence-count";
 
 describe("countRoomPresenceViewers", () => {
   it("counts unique viewers", () => {
@@ -50,6 +50,39 @@ describe("countRoomPresenceViewers", () => {
       }),
     ).toBe(1);
   });
+
+  it("drops a ghost entry whose last heartbeat is past the staleness window", () => {
+    const now = Date.parse("2026-09-17T02:00:00.000Z");
+    expect(
+      countRoomPresenceViewers(
+        {
+          fresh: [{ tabKey: "room-1:live", at: new Date(now - 5_000).toISOString() }],
+          ghost: [{ tabKey: "room-1:ghost", at: new Date(now - PRESENCE_STALE_MS - 1_000).toISOString() }],
+        },
+        now,
+      ),
+    ).toBe(1);
+  });
+
+  it("still counts an entry exactly at the staleness boundary", () => {
+    const now = Date.parse("2026-09-17T02:00:00.000Z");
+    expect(
+      countRoomPresenceViewers(
+        {
+          edge: [{ tabKey: "room-1:edge", at: new Date(now - PRESENCE_STALE_MS).toISOString() }],
+        },
+        now,
+      ),
+    ).toBe(1);
+  });
+
+  it("does not penalize an entry with no `at` timestamp at all", () => {
+    expect(
+      countRoomPresenceViewers({
+        "slot-a": [{ tabKey: "room-1:no-timestamp" }],
+      }),
+    ).toBe(1);
+  });
 });
 
 describe("parseRoomPresenceUsers", () => {
@@ -58,6 +91,21 @@ describe("parseRoomPresenceUsers", () => {
       parseRoomPresenceUsers({
         guest: [{ username: "@viewer", tabKey: "g1" }],
       }),
+    ).toEqual([{ userId: null, username: "viewer", tabKey: "g1" }]);
+  });
+
+  it("drops a ghost from the roster once it's past the staleness window", () => {
+    const now = Date.parse("2026-09-17T02:00:00.000Z");
+    expect(
+      parseRoomPresenceUsers(
+        {
+          guest: [{ username: "@viewer", tabKey: "g1", at: new Date(now - 5_000).toISOString() }],
+          ghost: [
+            { username: "@gone", tabKey: "g2", at: new Date(now - PRESENCE_STALE_MS - 1_000).toISOString() },
+          ],
+        },
+        now,
+      ),
     ).toEqual([{ userId: null, username: "viewer", tabKey: "g1" }]);
   });
 });
