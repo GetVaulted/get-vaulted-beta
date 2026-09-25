@@ -18,6 +18,7 @@ vi.mock('../api/liveRoomStreamRepository', () => ({
     lastStatusSyncAt: null,
     streamMode: 'stage_webrtc',
     stageAvailable: true,
+    isObsDesktopSource: false,
   })),
   fetchViewerStageToken: vi.fn(async () => ({
     token: 'viewer-token',
@@ -49,6 +50,7 @@ describe('liveStreamPrefetchCache', () => {
       lastStatusSyncAt: null,
       streamMode: 'channel_hls',
       stageAvailable: false,
+      isObsDesktopSource: true,
     });
     prefetchLiveStreamRooms(['room_b'], 'token');
     await vi.waitFor(() => {
