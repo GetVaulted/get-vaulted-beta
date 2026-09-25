@@ -530,6 +530,10 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     void stagePublish.flipCamera();
   };
 
+  const onToggleMirrorFix = () => {
+    void stagePublish.toggleMirrorFix();
+  };
+
   const onToggleMicMute = () => {
     void stagePublish.toggleMicrophoneMute();
   };
@@ -611,6 +615,8 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
           stageWebrtcEnabled,
           showCameraPreview,
           cameraFacing: stagePublish.cameraFacing,
+          cameraMirrorOverride: stagePublish.cameraMirrorOverride,
+          onToggleMirrorFix,
           cameraZoom: stagePublish.cameraZoom,
           zoomStops: stagePublish.zoomStops,
           onSetCameraZoom: (factor: number) => void stagePublish.setCameraZoom(factor),

@@ -14,6 +14,7 @@ export function SellerLiveStreamBackdrop({
   useStageCamera,
   showCameraPreview,
   cameraFacing,
+  mirrorOverride,
   permissionState,
   permissionError,
   onRetryCameraPermission,
@@ -27,6 +28,8 @@ export function SellerLiveStreamBackdrop({
   useStageCamera: boolean;
   showCameraPreview: boolean;
   cameraFacing: SellerCameraFacing;
+  /** Seller's quick "fix mirrored video" toggle — kept in sync with the actual broadcast mirror. */
+  mirrorOverride?: boolean | null;
   permissionState: SellerCameraPermissionState;
   permissionError: string | null;
   onRetryCameraPermission: () => void;
@@ -70,6 +73,7 @@ export function SellerLiveStreamBackdrop({
       <StageHostPreviewVideo
         active={mountPreviewSurface && showLiveFeed}
         cameraFacing={cameraFacing}
+        mirrorOverride={mirrorOverride}
         contentFit="cover"
       />
       {permissionBlocked && permissionError ? (

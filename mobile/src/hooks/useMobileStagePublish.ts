@@ -10,6 +10,7 @@ import {
   leaveStage,
   getSupportedCameraZoomStops,
   requestPermissions,
+  setCameraMirrored as nativeSetCameraMirrored,
   setCameraZoom as nativeSetCameraZoom,
   setMicrophoneMuted,
   setStreamsPublished,
@@ -150,6 +151,10 @@ export function useMobileStagePublish(args: {
   const [permissionState, setPermissionState] = useState<SellerCameraPermissionState>('idle');
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [cameraFacing, setCameraFacing] = useState<SellerCameraFacing>(SELLER_DEFAULT_CAMERA_FACING);
+  // Seller's quick "fix mirrored video" toggle. null = platform default (front camera mirrored on
+  // iOS's custom capture path; Android's stock camera pipeline is never mirrored). Resets to null
+  // whenever local streams are torn down, i.e. every new show — see releaseLocalDevices below.
+  const [cameraMirrorOverride, setCameraMirrorOverrideState] = useState<boolean | null>(null);
   const [cameraZoom, setCameraZoomState] = useState<number>(1);
   const [zoomStops, setZoomStops] = useState<number[]>([1]);
   const [microphoneMuted, setMicrophoneMutedState] = useState(false);
@@ -374,11 +379,17 @@ export function useMobileStagePublish(args: {
       if (mountedRef.current) {
         setLocalPreviewReady(false);
         setCameraFacing(SELLER_DEFAULT_CAMERA_FACING);
+        setCameraMirrorOverrideState(null);
         setMicrophoneMutedState(false);
         setPermissionState('idle');
       }
       try {
         await setMicrophoneMuted(false);
+      } catch {
+        /* ignore */
+      }
+      try {
+        await nativeSetCameraMirrored(null);
       } catch {
         /* ignore */
       }
@@ -529,6 +540,23 @@ export function useMobileStagePublish(args: {
       setError(friendlyPublishError(err));
     }
   }, [refreshZoomStops]);
+
+  /**
+   * Seller quick toggle: fixes a mirrored front-camera broadcast so buyers see background
+   * text/logos the right way round. Applies the same value to the actual outgoing video and the
+   * seller's own preview so what the seller sees always matches what buyers see. Resets to the
+   * platform default at the start of every new show (see releaseLocalDevices).
+   */
+  const toggleMirrorFix = useCallback(async () => {
+    setCameraMirrorOverrideState((prev) => {
+      const next = prev === false ? null : false;
+      void nativeSetCameraMirrored(next).catch(() => {
+        // Non-fatal — the local preview still reflects the toggle even if the native call fails,
+        // though the actual broadcast may then be out of sync until the seller retries.
+      });
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (localPreviewReady) void refreshZoomStops();
@@ -1246,6 +1274,8 @@ export function useMobileStagePublish(args: {
     permissionState,
     permissionError,
     cameraFacing,
+    cameraMirrorOverride,
+    toggleMirrorFix,
     cameraZoom,
     zoomStops,
     setCameraZoom,

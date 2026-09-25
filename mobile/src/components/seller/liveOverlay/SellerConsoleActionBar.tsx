@@ -9,6 +9,7 @@ import { sellerConsoleToolbarScale } from '../../../lib/liveRoomUiScale';
 import { colors, radii, spacing } from '../../../theme';
 import { SellerBroadcastControl } from './SellerBroadcastControl';
 import { SellerCameraFlipButton } from './SellerCameraFlipButton';
+import { SellerMirrorFixButton } from './SellerMirrorFixButton';
 import { SellerMicMuteButton } from './SellerMicMuteButton';
 
 /** Identity row + toolbar row under safe area (matches SellerLiveOverlayHeader). */
@@ -60,6 +61,10 @@ type Props = {
   showCameraFlip?: boolean;
   cameraFlipDisabled?: boolean;
   onFlipCamera?: () => void;
+  showMirrorFix?: boolean;
+  mirrorFixActive?: boolean;
+  mirrorFixDisabled?: boolean;
+  onToggleMirrorFix?: () => void;
   showMicMute?: boolean;
   micMuted?: boolean;
   micMuteDisabled?: boolean;
@@ -92,6 +97,10 @@ export function SellerConsoleActionBar({
   showCameraFlip,
   cameraFlipDisabled,
   onFlipCamera,
+  showMirrorFix,
+  mirrorFixActive,
+  mirrorFixDisabled,
+  onToggleMirrorFix,
   showMicMute,
   micMuted = false,
   micMuteDisabled,
@@ -244,6 +253,15 @@ export function SellerConsoleActionBar({
               compact
               disabled={cameraFlipDisabled}
               onPress={onFlipCamera}
+            />
+          ) : null}
+          {showMirrorFix && onToggleMirrorFix ? (
+            <SellerMirrorFixButton
+              visible
+              compact
+              active={mirrorFixActive}
+              disabled={mirrorFixDisabled}
+              onPress={onToggleMirrorFix}
             />
           ) : null}
           {stageEnabled && (cameraReady || broadcastOnAir || roomStatus === 'live') ? (

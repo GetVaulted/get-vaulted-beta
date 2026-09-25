@@ -10,4 +10,15 @@ describe('sellerHostCamera', () => {
     expect(sellerPreviewMirror('front')).toBe(true);
     expect(sellerPreviewMirror('back')).toBe(false);
   });
+
+  it('lets a seller override the front-camera mirror', () => {
+    expect(sellerPreviewMirror('front', false)).toBe(false);
+    expect(sellerPreviewMirror('front', true)).toBe(true);
+    expect(sellerPreviewMirror('front', null)).toBe(true);
+  });
+
+  it('never force-mirrors the rear camera, even with an override set', () => {
+    expect(sellerPreviewMirror('back', false)).toBe(false);
+    expect(sellerPreviewMirror('back', true)).toBe(false);
+  });
 });
