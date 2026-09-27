@@ -348,6 +348,7 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
       endedAt?: string | null;
       sellerId?: string;
       sellerUsername?: string;
+      sellerAvatarUrl?: string;
       itemCount?: number;
       activeItem?: { title?: string; displayTitle?: string } | null;
     };
@@ -375,6 +376,7 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
     endedAt: r.endedAt ?? null,
     sellerId: r.sellerId?.trim() || undefined,
     sellerUsername: r.sellerUsername ?? 'host',
+    sellerAvatarUrl: r.sellerAvatarUrl,
     itemCount: r.itemCount ?? 0,
     activeItemTitle: (r.activeItem?.displayTitle?.trim() || r.activeItem?.title) ?? null,
   };

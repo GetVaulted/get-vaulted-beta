@@ -22,6 +22,7 @@ import {
 } from "@/lib/live-item-variant-serialize";
 import { normalizeCustomRandomPoolLabels } from "../../../shared/live-player-spot-list";
 import { effectiveLiveRoomViewerCount } from "@/lib/live-room-viewer-count-freshness";
+import { resolveLiveRoomMediaUrl } from "@/lib/live-room-preview-image";
 
 export type { LiveItemVariantDTO };
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
@@ -33,7 +34,7 @@ import type {
 
 /** Result of `liveRoom.findUnique` with seller, items, messages+sender, and optional break relations. */
 export type LiveRoomDetailPayload = LiveRoom & {
-  seller: Pick<User, "id" | "username">;
+  seller: Pick<User, "id" | "username" | "image">;
   tipModerator?: Pick<User, "id" | "username"> | null;
   items: (LiveRoomItem & { variants?: LiveRoomItemVariantRow[] })[];
   messages: (LiveRoomMessage & { sender: Pick<User, "username" | "image"> })[];
@@ -120,6 +121,8 @@ export type LiveRoomDetailDTO = {
   id: string;
   sellerId: string;
   sellerUsername: string;
+  /** Host profile photo — empty/omitted when the host has none set. */
+  sellerAvatarUrl?: string;
   title: string;
   description: string;
   /** In-room show notes for people who enter (not discovery). */
@@ -358,6 +361,7 @@ export function buildLiveRoomDetail(room: LiveRoomDetailPayload): LiveRoomDetail
     id: room.id,
     sellerId: room.sellerId,
     sellerUsername: room.seller.username,
+    sellerAvatarUrl: resolveLiveRoomMediaUrl(room.seller.image ?? ""),
     title: room.title,
     description: room.description,
     showNotes: room.showNotes ?? "",

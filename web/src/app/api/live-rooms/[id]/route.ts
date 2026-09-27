@@ -44,7 +44,7 @@ import {
 } from "@/lib/live-room-staff-chat";
 
 const includeDetail = {
-  seller: { select: { id: true, username: true } as const },
+  seller: { select: { id: true, username: true, image: true } as const },
   tipModerator: { select: { id: true, username: true } as const },
   items: liveRoomItemsWithVariantsInclude,
   messages: {
