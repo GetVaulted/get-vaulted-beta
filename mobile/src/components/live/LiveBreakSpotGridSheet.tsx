@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveConfirmPayment } from './LiveStripeProvider';
 import {
@@ -44,12 +45,15 @@ import {
   type LiveItemSalesFormat,
   type RefreshVariantsResult,
 } from '../../lib/liveItemVariant';
-import { colors, radii, spacing } from '../../theme';
+import { radii, spacing } from '../../theme';
+import { vaultColors } from '../../theme/vaultColors';
+import { vaultFonts } from '../../theme/vaultTypography';
 import {
   buildLocalVariantPurchaseCelebration,
   formatBatchSpotCelebrationLabel,
   type LiveSpotTakenCelebration,
 } from '../../lib/liveSpotCelebration';
+import { LIVE_CLAIM_CTA_GRADIENT } from './liveClaimCtaStyle';
 import { SlideToBidButton } from './SlideToBidButton';
 import { LiveRoomText } from './LiveRoomText';
 
@@ -582,11 +586,13 @@ export function LiveBreakSpotGridSheet({
                 {!rosterMode ? (
                   <LiveRoomText style={styles.productPrice}>{fmtMoney(unitPrice)}</LiveRoomText>
                 ) : null}
-                <LiveRoomText style={styles.remainingMeta}>
-                  {rosterMode
-                    ? `Break in progress · ${pickerVariants.length} ${isDivisionBreak ? 'divisions' : 'teams'}`
-                    : `${spotSummary.available} spot${spotSummary.available === 1 ? '' : 's'} remaining`}
-                </LiveRoomText>
+                <View style={styles.remainingPillWrap}>
+                  <LiveRoomText style={styles.remainingMeta}>
+                    {rosterMode
+                      ? `Break in progress · ${pickerVariants.length} ${isDivisionBreak ? 'divisions' : 'teams'}`
+                      : `${spotSummary.available} spot${spotSummary.available === 1 ? '' : 's'} remaining`}
+                  </LiveRoomText>
+                </View>
               </View>
             </View>
 
@@ -756,6 +762,15 @@ function SummaryRow({
   );
 }
 
+/** First letter of the first two words, or first two characters — the crest badge glyph on division/player cards. */
+function spotInitials(label: string): string {
+  const trimmed = (label ?? '').trim();
+  if (!trimmed) return '?';
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return trimmed.slice(0, 2).toUpperCase();
+}
+
 function TeamPill({
   variant,
   selected,
@@ -764,7 +779,7 @@ function TeamPill({
 }: {
   variant: LiveItemVariantSnapshot;
   selected: boolean;
-  /** Divisions use 2 columns; teams use 4. */
+  /** Divisions/players use the 2-column crest card; teams use the 4-column tile. */
   wide?: boolean;
   onSelect: () => void;
 }) {
@@ -778,31 +793,106 @@ function TeamPill({
     : lightAccent
       ? 'rgba(0,0,0,0.62)'
       : 'rgba(255,255,255,0.72)';
+  const showPinned = variant.isHot && !soldOut;
+  const showCheck = selected && !soldOut;
+
+  const pinnedBadge = showPinned ? (
+    <View style={styles.foilRibbon} pointerEvents="none">
+      <LinearGradient
+        colors={LIVE_CLAIM_CTA_GRADIENT}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.foilRibbonFill}
+      >
+        <LiveRoomText style={styles.foilRibbonText}>Pinned</LiveRoomText>
+      </LinearGradient>
+    </View>
+  ) : null;
+
+  const checkBadge = showCheck ? (
+    <View style={styles.checkBadge} pointerEvents="none">
+      <LiveRoomText style={styles.checkBadgeText}>{'\u2713'}</LiveRoomText>
+    </View>
+  ) : null;
+
+  if (wide) {
+    // Division/player card: crest badge + name/price — replaces the old oversized capsule pill.
+    return (
+      <Pressable
+        style={[
+          styles.wideCard,
+          !soldOut && {
+            borderColor: selected ? vaultColors.gold : 'rgba(255,255,255,0.1)',
+            borderWidth: selected ? 1.5 : 1,
+          },
+          soldOut && styles.pillSold,
+          selected && !soldOut && styles.pillSelectedGlow,
+        ]}
+        disabled={soldOut}
+        onPress={onSelect}
+        accessibilityRole="button"
+        accessibilityState={{ selected, disabled: soldOut }}
+      >
+        {pinnedBadge}
+        {checkBadge}
+        <View
+          style={[
+            styles.crest,
+            {
+              backgroundColor: soldOut ? 'rgba(255,255,255,0.05)' : lightAccent ? `${accent}ee` : `${accent}40`,
+              borderColor: soldOut ? 'rgba(255,255,255,0.1)' : accent,
+            },
+          ]}
+        >
+          <LiveRoomText style={[styles.crestText, { color: soldOut ? 'rgba(255,255,255,0.35)' : textPrimary }]}>
+            {spotInitials(variant.label)}
+          </LiveRoomText>
+        </View>
+        <View style={styles.wideCopy}>
+          <LiveRoomText
+            style={[styles.pillLabel, soldOut && styles.pillLabelSold, selected && !soldOut && styles.pillLabelSelected]}
+            numberOfLines={1}
+          >
+            {variant.label}
+          </LiveRoomText>
+          {!soldOut ? (
+            <LiveRoomText style={[styles.pillPrice, selected && styles.pillPriceSelected]}>
+              {fmtMoney(variant.priceUsd)}
+            </LiveRoomText>
+          ) : (
+            <LiveRoomText style={styles.pillSoldMeta} numberOfLines={1}>
+              {variant.status === 'removed'
+                ? formatUnavailableSpotLabel()
+                : formatSoldSpotBuyerLabel(variant.buyerUsername)}
+            </LiveRoomText>
+          )}
+        </View>
+      </Pressable>
+    );
+  }
 
   return (
     <Pressable
       style={[
         styles.pill,
-        wide ? styles.pillWide : styles.pillTeam,
+        styles.pillTeam,
         !soldOut && {
           backgroundColor: lightAccent ? `${accent}ee` : `${accent}33`,
           borderLeftWidth: 3,
           borderLeftColor: accent,
-          borderColor: selected ? 'rgba(255,215,80,0.55)' : 'rgba(255,255,255,0.16)',
+          borderColor: selected ? vaultColors.gold : 'rgba(255,255,255,0.16)',
+          borderWidth: selected ? 1.5 : 1,
         },
         soldOut && styles.pillSold,
-        selected && !soldOut && styles.pillSelected,
+        selected && !soldOut && styles.pillSelectedGlow,
       ]}
       disabled={soldOut}
       onPress={onSelect}
       accessibilityRole="button"
       accessibilityState={{ selected, disabled: soldOut }}
     >
-      {variant.isHot && !soldOut ? (
-        <View style={styles.hotBadge}>
-          <LiveRoomText style={styles.hotBadgeText}>Pinned</LiveRoomText>
-        </View>
-      ) : null}
+      {pinnedBadge}
+      {checkBadge}
       <LiveRoomText
         style={[
           styles.pillLabel,
@@ -840,7 +930,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radii.lg,
     borderTopRightRadius: radii.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(203,163,92,0.18)',
     maxHeight: '72%',
     overflow: 'hidden',
     flexDirection: 'column',
@@ -854,12 +944,12 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.xs,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomColor: 'rgba(203,163,92,0.16)',
   },
   headerCopy: { flex: 1, gap: 4 },
   checkoutHeading: {
-    fontSize: 18,
-    fontWeight: '900',
+    fontFamily: vaultFonts.display,
+    fontSize: 19,
     color: '#fff',
   },
   securityRow: {
@@ -923,21 +1013,33 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   productTitle: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontFamily: vaultFonts.displayMedium,
+    fontSize: 14.5,
     color: '#fff',
-    lineHeight: 18,
+    lineHeight: 19,
   },
   productPrice: {
+    fontFamily: vaultFonts.display,
     fontSize: 15,
-    fontWeight: '900',
-    color: colors.gold,
+    color: vaultColors.goldBright,
     fontVariant: ['tabular-nums'],
   },
+  remainingPillWrap: {
+    alignSelf: 'flex-start',
+    marginTop: 6,
+    borderRadius: radii.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: 'rgba(203,163,92,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(203,163,92,0.28)',
+  },
   remainingMeta: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.45)',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    color: vaultColors.goldBright,
   },
   qtyCol: {
     alignItems: 'center',
@@ -989,8 +1091,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   pickerTitle: {
-    fontSize: 14,
-    fontWeight: '900',
+    fontFamily: vaultFonts.display,
+    fontSize: 15,
     color: '#fff',
   },
   pickerHint: {
@@ -1013,8 +1115,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: 'rgba(255,190,40,0.25)',
-    backgroundColor: 'rgba(255,190,40,0.08)',
+    borderColor: 'rgba(203,163,92,0.25)',
+    backgroundColor: 'rgba(203,163,92,0.08)',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     alignItems: 'center',
@@ -1024,7 +1126,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 1.4,
     textTransform: 'uppercase',
-    color: 'rgba(255,215,120,0.9)',
+    color: vaultColors.goldBright,
   },
   randomRevealBody: {
     marginTop: 4,
@@ -1055,17 +1157,85 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: '22%',
   },
-  /** 2 columns for longer division names. */
-  pillWide: {
-    minWidth: 88,
+  /** Division/player card — crest badge + name/price, 2 per row. */
+  wideCard: {
+    position: 'relative',
+    minWidth: 150,
     maxWidth: '48%',
     flexGrow: 1,
     flexBasis: '46%',
-    borderRadius: 999,
-    paddingHorizontal: 12,
+    minHeight: 64,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
   },
-  pillSelected: {
-    borderColor: 'rgba(255,215,80,0.55)',
+  crest: {
+    width: 40,
+    height: 40,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  crestText: {
+    fontFamily: vaultFonts.label,
+    fontSize: 13,
+    letterSpacing: 0.3,
+  },
+  wideCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  pillSelectedGlow: {
+    shadowColor: vaultColors.gold,
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  checkBadge: {
+    position: 'absolute',
+    top: -6,
+    left: 8,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: vaultColors.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  checkBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#111',
+    lineHeight: 10,
+  },
+  foilRibbon: {
+    position: 'absolute',
+    top: -6,
+    right: 8,
+    borderRadius: 999,
+    overflow: 'hidden',
+    zIndex: 2,
+  },
+  foilRibbonFill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  foilRibbonText: {
+    fontFamily: vaultFonts.labelSemibold,
+    fontSize: 8,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    color: '#111',
   },
   pillSold: {
     borderStyle: 'dashed',
@@ -1075,8 +1245,9 @@ const styles = StyleSheet.create({
     opacity: 0.72,
   },
   pillLabel: {
+    fontFamily: vaultFonts.label,
     fontSize: 12,
-    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   pillLabelSelected: {
     fontWeight: '900',
@@ -1091,7 +1262,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   pillPriceSelected: {
-    color: colors.gold,
+    color: vaultColors.gold,
     fontWeight: '800',
   },
   pillSoldMeta: {
@@ -1101,28 +1272,10 @@ const styles = StyleSheet.create({
     color: 'rgba(52,211,153,0.85)',
     letterSpacing: 0.2,
   },
-  hotBadge: {
-    position: 'absolute',
-    top: -6,
-    right: 8,
-    borderRadius: 999,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    backgroundColor: '#dc2626',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-  },
-  hotBadgeText: {
-    fontSize: 8,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    color: '#fff',
-  },
   summaryCard: {
     borderRadius: radii.md,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(203,163,92,0.14)',
     backgroundColor: 'rgba(0,0,0,0.28)',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
@@ -1167,7 +1320,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.xs,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.08)',
+    borderTopColor: 'rgba(203,163,92,0.22)',
     backgroundColor: '#0b0b10',
   },
   rosterDoneBtn: {
@@ -1177,15 +1330,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.35)',
-    backgroundColor: 'rgba(212,175,55,0.14)',
+    borderColor: 'rgba(203,163,92,0.35)',
+    backgroundColor: 'rgba(203,163,92,0.14)',
   },
   rosterDoneTxt: {
+    fontFamily: vaultFonts.label,
     fontSize: 13,
-    fontWeight: '900',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
-    color: '#f5e6a8',
+    color: vaultColors.goldBright,
   },
   totalCol: {
     minWidth: 88,
@@ -1199,9 +1352,9 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.42)',
   },
   totalValue: {
+    fontFamily: vaultFonts.display,
     fontSize: 22,
-    fontWeight: '900',
-    color: colors.success,
+    color: vaultColors.emerald,
     fontVariant: ['tabular-nums'],
   },
   chargeNowNote: {
@@ -1216,7 +1369,7 @@ const styles = StyleSheet.create({
   },
   checkoutBtn: {
     borderRadius: radii.md,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
