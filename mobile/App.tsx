@@ -1,4 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
+import { useFonts } from 'expo-font';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -35,6 +36,16 @@ WebBrowser.maybeCompleteAuthSession();
 configureGlobalTextScaling();
 
 export default Sentry.wrap(function App() {
+  const [vaultFontsLoaded] = useFonts({
+    'Fraunces-Medium': require('./assets/fonts/Fraunces-Medium.ttf'),
+    'Fraunces-SemiBold': require('./assets/fonts/Fraunces-SemiBold.ttf'),
+    'BarlowCondensed-SemiBold': require('./assets/fonts/BarlowCondensed-SemiBold.ttf'),
+    'BarlowCondensed-Bold': require('./assets/fonts/BarlowCondensed-Bold.ttf'),
+    'BarlowCondensed-ExtraBold': require('./assets/fonts/BarlowCondensed-ExtraBold.ttf'),
+    'PublicSans-Regular': require('./assets/fonts/PublicSans-Regular.ttf'),
+    'PublicSans-Medium': require('./assets/fonts/PublicSans-Medium.ttf'),
+  });
+
   useEffect(() => {
     void loadHomeFeedCache();
     prefetchStripePublishableKey();
@@ -49,6 +60,10 @@ export default Sentry.wrap(function App() {
     globalThis.addEventListener?.('unhandledrejection', onUnhandledRejection);
     return () => globalThis.removeEventListener?.('unhandledrejection', onUnhandledRejection);
   }, []);
+
+  if (!vaultFontsLoaded) {
+    return <View style={styles.root} />;
+  }
 
   return (
     <GestureHandlerRootView style={styles.root}>

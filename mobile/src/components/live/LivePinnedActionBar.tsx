@@ -1476,7 +1476,7 @@ export function LivePinnedActionBar({
 
       <View style={[styles.hudInner, compact && styles.hudInnerCompact]}>
         <View style={styles.topBand}>
-          <LiveRoomText style={[styles.timer, { fontSize: hudFs(13) }]}>
+          <LiveRoomText style={[styles.timer, { fontSize: hudFs(19) }]}>
             {m.timerMmSs}
           </LiveRoomText>
           <View style={styles.titleBlock}>
@@ -1558,7 +1558,7 @@ export function LivePinnedActionBar({
             </Pressable>
           ) : null}
 
-          <View style={[styles.ctaPrimaryWrap, { minHeight: hudPad(44) }]}>
+          <View style={[styles.ctaPrimaryWrap, { minHeight: hudPad(compact ? 32 : 44) }]}>
             {useLiveAuctionBidFlow && (!variantItemActive || isVariantSpotAuctionLive(roomSnap)) ? (
               <SlideToBidButton
                 label={m.bottomRightLabel}
@@ -1872,7 +1872,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
   ctaPrimaryWrap: {
-    flex: 1.15,
+    flex: 0.85,
     minWidth: 0,
     minHeight: 44,
     justifyContent: 'center',

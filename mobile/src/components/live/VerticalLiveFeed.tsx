@@ -22,6 +22,8 @@ import { Gesture, GestureDetector, Pressable as GHPressable } from 'react-native
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../theme';
+import { vaultColors } from '../../theme/vaultColors';
+import { vaultFonts } from '../../theme/vaultTypography';
 import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
 import { fetchProfileById } from '../../api/profilesRepository';
 import { resolveCanonicalProfileAvatar } from '../../lib/profileAvatarSync';
@@ -265,6 +267,8 @@ function LiveSlide({
   const [streamRefreshNonce, setStreamRefreshNonce] = useState(0);
   const [clipBusy, setClipBusy] = useState(false);
   const [clipProgress, setClipProgress] = useState<string | null>(null);
+  /** Quick-actions dial (Vault Console Redesign) — fanned-out menu behind the FAB in the rail. */
+  const [dialOpen, setDialOpen] = useState(false);
   /** Immediate pause from realtime — applied before GET /stream catches up. */
   const [realtimeStreamPaused, setRealtimeStreamPaused] = useState<boolean | null>(null);
   const [roomStatus, setRoomStatus] = useState(stream.roomStatus);
@@ -1359,6 +1363,34 @@ function LiveSlide({
                 {liveSession.viewerCount == null ? '—' : formatViewers(liveSession.viewerCount)}
               </LiveRoomText>
             </View>
+            {!moderation.isHost ? (
+              <Pressable
+                style={[styles.followPillTop, following && styles.followPillTopActive]}
+                onPress={() => {
+                  if (!signedIn || !accessToken) {
+                    onRequireAuth?.();
+                    return;
+                  }
+                  const prev = following;
+                  setFollowing(!prev);
+                  void toggleSellerFollow(showHostUserId ?? stream.host.id, prev, accessToken).then(({ following: next, error }) => {
+                    if (error) {
+                      setFollowing(prev);
+                      Alert.alert('Follow', error);
+                      return;
+                    }
+                    setFollowing(next);
+                  });
+                }}
+                accessibilityLabel={following ? 'Unfollow host' : 'Follow host'}
+              >
+                <LiveRoomText
+                  style={[styles.followPillTopText, following && styles.followPillTopTextActive]}
+                >
+                  {following ? 'Following' : 'Follow'}
+                </LiveRoomText>
+              </Pressable>
+            ) : null}
             <GHPressable
               style={styles.iconTopBare}
               onPress={() => setStreamMuted((m) => !m)}
@@ -1395,184 +1427,172 @@ function LiveSlide({
         </View>
       </View>
 
-      {/* RIGHT — creator actions (commerce via Shop modal, not a bottom sheet). */}
+      {/* RIGHT — consolidated quick-actions dial (Vault Console Redesign): a single FAB
+          fans out into Message, Tip, Wallet, Shop, Clip, Notes and Share, each reusing the
+          exact handler it used as a standalone rail button. Follow moved to the header above
+          since it reads as a persistent state, not a one-off action; Giveaway stays as its own
+          always-visible LiveGiveawaySideTab rather than being folded in here. */}
+      {dialOpen ? (
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => setDialOpen(false)}
+          accessibilityLabel="Close quick actions"
+        />
+      ) : null}
       <View
         style={[
-          styles.rightRail,
-          compact && styles.rightRailCompact,
+          styles.dial,
+          compact && styles.dialCompact,
           {
             bottom: bottomStack.commerceTop + spacing.sm,
           },
         ]}
       >
-        {!moderation.isHost ? (
-          <Pressable
-            style={styles.railBtn}
-            onPress={() => {
-              if (!signedIn || !accessToken) {
-                onRequireAuth?.();
-                return;
-              }
-              const prev = following;
-              setFollowing(!prev);
-              void toggleSellerFollow(showHostUserId ?? stream.host.id, prev, accessToken).then(({ following: next, error }) => {
-                if (error) {
-                  setFollowing(prev);
-                  Alert.alert('Follow', error);
+        {dialOpen ? (
+          <View style={styles.dialMenu}>
+            {!moderation.isHost ? (
+              <Pressable
+                style={styles.dialItem}
+                onPress={() => {
+                  setDialOpen(false);
+                  if (!signedIn) {
+                    onRequireAuth?.();
+                    return;
+                  }
+                  if (rootNavigationRef.isReady()) {
+                    rootNavigationRef.navigate('MessageCompose', {
+                      liveRoomId: stream.id,
+                      sellerUserId: stream.host.id,
+                      sellerUsername: stream.host.handle || stream.host.name,
+                    });
+                  }
+                }}
+                accessibilityLabel="Message seller privately"
+              >
+                <Ionicons name="chatbubble-ellipses-outline" size={railIconSize} color={vaultColors.gold} />
+                <LiveRoomText style={[styles.dialItemLabel, { fontSize: railLabelSize, color: vaultColors.gold }]}>Message</LiveRoomText>
+              </Pressable>
+            ) : null}
+            {!moderation.isHost ? (
+              <Pressable
+                style={styles.dialItem}
+                onPress={() => {
+                  setDialOpen(false);
+                  if (!signedIn) {
+                    onRequireAuth?.();
+                    return;
+                  }
+                  if (!accessToken) {
+                    Alert.alert('Sign in required', 'Log in to send a tip.');
+                    return;
+                  }
+                  if (liveSession.unresolvedPaymentFailure) {
+                    Alert.alert(
+                      'Payment required',
+                      'Fix your failed payment before tipping in this show.',
+                    );
+                    return;
+                  }
+                  setTipOpen(true);
+                }}
+                accessibilityLabel="Send a tip"
+              >
+                <Ionicons name="cash-outline" size={railIconSize} color={vaultColors.gold} />
+                <LiveRoomText style={[styles.dialItemLabel, { fontSize: railLabelSize, color: vaultColors.gold }]}>Tip</LiveRoomText>
+              </Pressable>
+            ) : null}
+            <Pressable
+              style={styles.dialItem}
+              onPress={() => {
+                setDialOpen(false);
+                if (!signedIn) {
+                  onRequireAuth?.();
                   return;
                 }
-                setFollowing(next);
-              });
-            }}
-            accessibilityLabel={following ? 'Unfollow host' : 'Follow host'}
-          >
-            <Ionicons
-              name={following ? 'checkmark-circle-outline' : 'person-add-outline'}
-              size={railIconSize}
-              color={following ? colors.gold : 'rgba(255,255,255,0.92)'}
-            />
-            <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>
-              {following ? 'Following' : 'Follow'}
-            </LiveRoomText>
-          </Pressable>
-        ) : null}
-        {!moderation.isHost ? (
-        <Pressable
-          style={styles.railBtn}
-          onPress={() => {
-            if (!signedIn) {
-              onRequireAuth?.();
-              return;
-            }
-            if (rootNavigationRef.isReady()) {
-              rootNavigationRef.navigate('MessageCompose', {
-                liveRoomId: stream.id,
-                sellerUserId: stream.host.id,
-                sellerUsername: stream.host.handle || stream.host.name,
-              });
-            }
-          }}
-          accessibilityLabel="Message seller privately"
-        >
-          <Ionicons name="chatbubble-ellipses-outline" size={railIconSize} color={colors.gold} />
-          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize, color: colors.gold }]}>
-            Message
-          </LiveRoomText>
-        </Pressable>
-        ) : null}
-        {!moderation.isHost ? (
-          <Pressable
-            style={styles.railBtn}
-            onPress={() => {
-              if (!signedIn) {
-                onRequireAuth?.();
-                return;
-              }
-              if (!accessToken) {
-                Alert.alert('Sign in required', 'Log in to send a tip.');
-                return;
-              }
-              if (liveSession.unresolvedPaymentFailure) {
-                Alert.alert(
-                  'Payment required',
-                  'Fix your failed payment before tipping in this show.',
-                );
-                return;
-              }
-              setTipOpen(true);
-            }}
-            accessibilityLabel="Send a tip"
-          >
-            <Ionicons name="cash-outline" size={railIconSize} color={colors.gold} />
-            <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize, color: colors.gold }]}>
-              Tip
-            </LiveRoomText>
-          </Pressable>
-        ) : null}
-        <Pressable
-          style={[styles.railBtn, compact && styles.railBtnCompact]}
-          onPress={() => {
-            if (!signedIn) {
-              onRequireAuth?.();
-              return;
-            }
-            openWalletRef.current('rail_wallet');
-          }}
-          accessibilityLabel="Vault Wallet"
-        >
-          <Ionicons
-            name="wallet-outline"
-            size={compact ? Math.max(20, railIconSize - 2) : railIconSize}
-            color="rgba(255,255,255,0.92)"
-          />
-          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>Wallet</LiveRoomText>
-        </Pressable>
-        <Pressable
-          style={styles.railBtn}
-          onPress={() => {
-            if (!signedIn) {
-              onRequireAuth?.();
-              return;
-            }
-            setShopOpen(true);
-          }}
-          accessibilityLabel="Shop this room"
-        >
-          <Ionicons name="bag-handle-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
-          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>Shop</LiveRoomText>
-        </Pressable>
-        <Pressable
-          style={[styles.railBtn, clipBusy && { opacity: 0.55 }]}
-          disabled={clipBusy}
-          onPress={() => {
-            if (!signedIn) {
-              onRequireAuth?.();
-              return;
-            }
-            void shareClipFromRoom();
-          }}
-          accessibilityLabel={clipBusy ? clipProgress ?? 'Capturing hit clip' : 'Make Hit Clip'}
-        >
-          <Ionicons
-            name={clipBusy ? 'hourglass-outline' : 'cut-outline'}
-            size={railIconSize}
-            color="rgba(255,255,255,0.92)"
-          />
-          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>
-            {clipBusy ? '…' : 'Clip'}
-          </LiveRoomText>
-        </Pressable>
-        <Pressable
-          style={styles.railBtn}
-          onPress={() => setShowNotesOpen(true)}
-          accessibilityLabel={hasLiveShowNotes(showNotes) ? 'Read show notes' : 'Show notes'}
-        >
-          <View>
-            <Ionicons
-              name="document-text-outline"
-              size={railIconSize}
-              color={hasLiveShowNotes(showNotes) ? colors.gold : 'rgba(255,255,255,0.92)'}
-            />
-            {hasLiveShowNotes(showNotes) ? <View style={styles.notesDot} /> : null}
+                openWalletRef.current('rail_wallet');
+              }}
+              accessibilityLabel="Vault Wallet"
+            >
+              <Ionicons name="wallet-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
+              <LiveRoomText style={[styles.dialItemLabel, { fontSize: railLabelSize }]}>Wallet</LiveRoomText>
+            </Pressable>
+            <Pressable
+              style={styles.dialItem}
+              onPress={() => {
+                setDialOpen(false);
+                if (!signedIn) {
+                  onRequireAuth?.();
+                  return;
+                }
+                setShopOpen(true);
+              }}
+              accessibilityLabel="Shop this room"
+            >
+              <Ionicons name="bag-handle-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
+              <LiveRoomText style={[styles.dialItemLabel, { fontSize: railLabelSize }]}>Shop</LiveRoomText>
+            </Pressable>
+            <Pressable
+              style={[styles.dialItem, clipBusy && { opacity: 0.55 }]}
+              disabled={clipBusy}
+              onPress={() => {
+                setDialOpen(false);
+                if (!signedIn) {
+                  onRequireAuth?.();
+                  return;
+                }
+                void shareClipFromRoom();
+              }}
+              accessibilityLabel={clipBusy ? clipProgress ?? 'Capturing hit clip' : 'Make Hit Clip'}
+            >
+              <Ionicons
+                name={clipBusy ? 'hourglass-outline' : 'cut-outline'}
+                size={railIconSize}
+                color="rgba(255,255,255,0.92)"
+              />
+              <LiveRoomText style={[styles.dialItemLabel, { fontSize: railLabelSize }]}>{clipBusy ? '…' : 'Clip'}</LiveRoomText>
+            </Pressable>
+            <Pressable
+              style={styles.dialItem}
+              onPress={() => {
+                setDialOpen(false);
+                setShowNotesOpen(true);
+              }}
+              accessibilityLabel={hasLiveShowNotes(showNotes) ? 'Read show notes' : 'Show notes'}
+            >
+              <View>
+                <Ionicons
+                  name="document-text-outline"
+                  size={railIconSize}
+                  color={hasLiveShowNotes(showNotes) ? vaultColors.gold : 'rgba(255,255,255,0.92)'}
+                />
+                {hasLiveShowNotes(showNotes) ? <View style={styles.notesDot} /> : null}
+              </View>
+              <LiveRoomText
+                style={[styles.dialItemLabel, { fontSize: railLabelSize }, hasLiveShowNotes(showNotes) ? { color: vaultColors.gold } : null]}
+              >
+                Notes
+              </LiveRoomText>
+            </Pressable>
+            <Pressable
+              style={styles.dialItem}
+              onPress={() => {
+                setDialOpen(false);
+                openShareSheet();
+              }}
+              accessibilityLabel="Share"
+            >
+              <Ionicons name="share-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
+              <LiveRoomText style={[styles.dialItemLabel, { fontSize: railLabelSize }]}>Share</LiveRoomText>
+            </Pressable>
           </View>
-          <LiveRoomText
-            style={[
-              styles.railLabel,
-              { fontSize: railLabelSize },
-              hasLiveShowNotes(showNotes) ? { color: colors.gold } : null,
-            ]}
-          >
-            Notes
-          </LiveRoomText>
-        </Pressable>
+        ) : null}
         <Pressable
-          style={styles.railBtn}
-          onPress={() => {
-            openShareSheet();
-          }}
+          style={styles.dialFab}
+          onPress={() => setDialOpen((open) => !open)}
+          accessibilityLabel={dialOpen ? 'Close quick actions' : 'Open quick actions'}
+          accessibilityState={{ expanded: dialOpen }}
         >
-          <Ionicons name="share-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
-          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>Share</LiveRoomText>
+          <Ionicons name={dialOpen ? 'close' : 'ellipsis-horizontal'} size={22} color="#100e0b" />
         </Pressable>
       </View>
 
@@ -2707,6 +2727,67 @@ const styles = StyleSheet.create({
     backgroundColor: colors.gold,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.45)',
+  },
+  followPillTop: {
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: vaultColors.gold,
+  },
+  followPillTopActive: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  followPillTopText: {
+    fontFamily: vaultFonts.label,
+    fontSize: 11,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+    color: '#100e0b',
+  },
+  followPillTopTextActive: {
+    color: 'rgba(255,255,255,0.92)',
+  },
+  dial: {
+    position: 'absolute',
+    right: spacing.sm,
+    alignItems: 'center',
+    gap: 10,
+    zIndex: 5,
+  },
+  dialCompact: {
+    gap: 8,
+  },
+  dialMenu: {
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 2,
+  },
+  dialItem: {
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 2,
+    minWidth: 48,
+  },
+  dialItemLabel: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 0.15,
+  },
+  dialFab: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: vaultColors.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
   },
   commerceOverlayHost: {
     position: 'absolute',
