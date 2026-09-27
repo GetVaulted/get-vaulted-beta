@@ -1027,7 +1027,7 @@ new mode 100755
 index f25765e..b475dc2
 --- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoIVSRemoteStreamView.kt
 +++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoIVSRemoteStreamView.kt
-@@ -266,20 +266,41 @@
+@@ -266,20 +266,41 @@ class ExpoIVSRemoteStreamView(context: Context, appContext: AppContext) : ExpoVi
      }
  
      fun setScaleMode(mode: String) {
