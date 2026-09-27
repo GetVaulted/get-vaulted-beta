@@ -1024,6 +1024,53 @@ new mode 100755
 diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoIVSRemoteStreamView.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoIVSRemoteStreamView.kt
 old mode 100644
 new mode 100755
+index f25765e..b475dc2
+--- a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoIVSRemoteStreamView.kt
++++ b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoIVSRemoteStreamView.kt
+@@ -266,20 +266,41 @@
+     }
+ 
+     fun setScaleMode(mode: String) {
++        val previousMode = this.scaleMode
+         this.scaleMode = mode
++        if (previousMode == mode) return
+         val aspectMode = when (scaleMode.lowercase()) {
+             "fill" -> AspectMode.FILL
+             "fit" -> AspectMode.FIT
+             else -> AspectMode.FIT
+         }
++        var appliedLive = false
+         try {
+-            // Try to set aspect mode on SurfaceView
++            // Try to set aspect mode on the already-created SurfaceView without recreating it.
+             ivsSurfaceView?.let { surface ->
+                 val method = surface.javaClass.getMethod("setPreviewAspectMode", AspectMode::class.java)
+                 method.invoke(surface, aspectMode)
++                appliedLive = true
+             }
+         } catch (e: Exception) {
+-            Log.w("ExpoIVSRemoteStreamView", "Could not set aspect mode: ${e.message}")
++            Log.w("ExpoIVSRemoteStreamView", "Could not set aspect mode live: ${e.message}")
++        }
++        if (!appliedLive) {
++            // getPreviewSurfaceView() bakes the aspect mode in at surface-creation time and this
++            // SDK build exposes no live setter for it, so the reflection call above silently
++            // no-ops and the surface is stuck at whatever aspectMode it was first created with.
++            // That first creation can race the "scaleMode" prop coming from JS - this view's
++            // init{} block resolves the stage manager and can synchronously call renderStream()
++            // before React/Expo Modules has applied the current props - so a desktop OBS-over-WHIP
++            // viewer can get stuck on the phone-camera default (fill / cover) for the rest of the
++            // session even though the correct prop value ("fit" / contain) arrives right after.
++            // Force a fresh surface with the now-current scaleMode instead of leaving it wrong.
++            val device = currentImageDevice as? Device
++            if (device != null) {
++                Log.i("ExpoIVSRemoteStreamView", "Recreating surface to apply scaleMode=$mode (no live setter)")
++                currentRenderedDeviceUrn = null
++                renderStream(device)
++            }
+         }
+     }
+ 
 diff --git a/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoIVSStagePreviewView.kt b/node_modules/expo-realtime-ivs-broadcast/android/src/main/java/expo/modules/realtimeivsbroadcast/ExpoIVSStagePreviewView.kt
 old mode 100644
 new mode 100755
