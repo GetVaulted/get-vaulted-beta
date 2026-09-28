@@ -784,6 +784,7 @@ model User {
   giveawayDrawsWon                   GiveawayDraw[]              @relation("GiveawayDrawWinner")
   giveawayDrawsAsAdmin               GiveawayDraw[]              @relation("GiveawayDrawAdmin")
   appPresence                        UserAppPresence[]
+  ipLogs                              UserIpLog[]
 }
 
 /// Signed-in foreground heartbeat for admin “online now” (one row per user + platform).
@@ -798,6 +799,22 @@ model UserAppPresence {
   @@unique([userId, platform])
   @@index([lastSeenAt])
   @@index([platform, lastSeenAt])
+}
+
+/// Lightweight audit trail of client IPs seen for a user, for abuse/security investigation.
+/// Deduped: a new row is only written when the IP differs from (or is stale vs) the last one logged.
+model UserIpLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress String
+  /// Where this was captured, e.g. "presence_heartbeat", "sign_in".
+  source    String
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([ipAddress])
 }
 
 /// Single-use email verification OTP for signup (hashed at rest; expires).

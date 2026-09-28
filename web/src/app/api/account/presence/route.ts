@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { parseAppPresencePlatform, recordAppPresence } from "@/lib/app-presence";
+import { recordUserIp } from "@/lib/ip-capture";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 
 export const runtime = "nodejs";
@@ -25,6 +26,9 @@ export async function POST(req: Request) {
   if (!platform) {
     return NextResponse.json({ error: "platform must be ios, android, or web." }, { status: 400 });
   }
+
+  // Fire-and-forget: never let IP logging slow down or fail the heartbeat itself.
+  void recordUserIp({ req, userId: auth.userId, source: "presence_heartbeat" });
 
   const result = await recordAppPresence({ userId: auth.userId, platform });
   if (result.skipped) {
