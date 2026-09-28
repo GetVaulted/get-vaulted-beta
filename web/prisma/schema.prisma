@@ -804,14 +804,22 @@ model UserAppPresence {
 /// Lightweight audit trail of client IPs seen for a user, for abuse/security investigation.
 /// Deduped: a new row is only written when the IP differs from (or is stale vs) the last one logged.
 model UserIpLog {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  ipAddress String
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress   String
   /// Where this was captured, e.g. "presence_heartbeat", "sign_in".
-  source    String
-  userAgent String?
-  createdAt DateTime @default(now())
+  source      String
+  userAgent   String?
+  /// Best-effort city/region/country from IP geolocation - null when the IP
+  /// is private/local or the lookup failed/timed out.
+  city        String?
+  region      String?
+  country     String?
+  countryCode String?
+  lat         Float?
+  lon         Float?
+  createdAt   DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([ipAddress])

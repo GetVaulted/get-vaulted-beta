@@ -1,3 +1,4 @@
+import { resolveIpLocation } from "@/lib/ip-geolocation";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -57,6 +58,7 @@ export async function recordUserIp(args: {
     }
 
     const userAgent = args.req.headers.get("user-agent");
+    const location = await resolveIpLocation(ipAddress);
 
     await prisma.userIpLog.create({
       data: {
@@ -64,6 +66,12 @@ export async function recordUserIp(args: {
         ipAddress,
         source: args.source,
         userAgent: userAgent?.slice(0, 500) ?? null,
+        city: location.city,
+        region: location.region,
+        country: location.country,
+        countryCode: location.countryCode,
+        lat: location.lat,
+        lon: location.lon,
       },
     });
   } catch (err) {
