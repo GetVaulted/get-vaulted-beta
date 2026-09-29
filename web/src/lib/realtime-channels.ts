@@ -63,6 +63,12 @@ export const RT_EVENT = {
   giveawaysChanged: "giveaways_changed",
   /** Synchronized Vault Reveal wheel (giveaway draw + PYT randomizer). */
   vaultRevealSpin: "vault_reveal_spin",
+  /** Sweet 16 Break: host started the live turn-based draft. */
+  sweet16DraftStarted: "sweet16_draft_started",
+  /** Sweet 16 Break: a turn resolved (manual pick or timeout auto-assign). */
+  sweet16DraftPickMade: "sweet16_draft_pick_made",
+  /** Sweet 16 Break: every slot has a team — draft finished. */
+  sweet16DraftComplete: "sweet16_draft_complete",
 } as const;
 
 /**
@@ -89,4 +95,7 @@ export const RT_EVENT_ALIASES = {
   streamStatus: [],
   moderationChanged: [],
   giveawaysChanged: [],
+  sweet16DraftStarted: [],
+  sweet16DraftPickMade: [],
+  sweet16DraftComplete: [],
 } as const;

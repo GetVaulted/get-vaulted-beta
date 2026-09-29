@@ -50,12 +50,14 @@ import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
 import { SlideToBidButton } from './SlideToBidButton';
 import { LIVE_CLAIM_CTA_GRADIENT } from './liveClaimCtaStyle';
+import { vaultColors } from '../../theme/vaultColors';
 import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud, formatMoney } from './liveActionModule';
 import { fetchLiveVariantCheckoutPreview, type LiveVariantCheckoutPreview } from '../../api/liveVariantCheckoutPreviewRepository';
 import { formatPinnedShippingTaxLine } from '../../../../shared/live-pinned-shipping-tax-copy';
 import { LiveCustomBidSheet } from './LiveCustomBidSheet';
 import { LiveBreakSpotGridSheet } from './LiveBreakSpotGridSheet';
 import { SellerBreakSpotBoardSheet } from '../seller/liveOverlay/SellerBreakSpotBoardSheet';
+import { LiveSweet16DraftSheet } from './LiveSweet16DraftSheet';
 import type { LiveCustomBidPayload } from '../../lib/liveCustomBid';
 import {
   isActiveVariantBuyerItem,
@@ -198,6 +200,7 @@ export function LivePinnedActionBar({
   const [variantSheetOpen, setVariantSheetOpen] = useState(false);
   const [variantSheetInitialId, setVariantSheetInitialId] = useState<string | null>(null);
   const [teamsRosterOpen, setTeamsRosterOpen] = useState(false);
+  const [sweet16DraftOpen, setSweet16DraftOpen] = useState(false);
   const [customBidSheetOpen, setCustomBidSheetOpen] = useState(false);
   const [timerTick, setTimerTick] = useState(0);
   const [localRoomSnap, setLocalRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
@@ -212,6 +215,9 @@ export function LivePinnedActionBar({
     [stream, roomSnap, syncedNowMs],
   );
   const variantItemActive = isActiveVariantBuyerItem(roomSnap);
+  // Sweet 16 lots sell anonymous numbered slots (draft mode) — once the board fills, the
+  // buyer's "roster" is the live draft sheet, not the read-only sold-team board.
+  const isSweet16Item = roomSnap?.activeItemVariantAssignmentMode === 'draft';
   const variantRosterClosed = isBuyerVariantRosterClosed(roomSnap);
   const variantFixedCheckoutActive =
     variantItemActive && !isVariantSpotAuctionLive(roomSnap);
@@ -229,6 +235,7 @@ export function LivePinnedActionBar({
     setVariantSheetOpen(false);
     setVariantSheetInitialId(null);
     setTeamsRosterOpen(false);
+    setSweet16DraftOpen(false);
   }, [vaultRevealActive]);
 
   // Same as host: when the break fills / closes, keep the sold team roster available.
@@ -243,8 +250,12 @@ export function LivePinnedActionBar({
     autoOpenedRosterItemRef.current = itemId;
     setVariantSheetOpen(false);
     setVariantSheetInitialId(null);
-    setTeamsRosterOpen(true);
-  }, [variantItemActive, variantRosterClosed, roomSnap?.activeItemId]);
+    if (isSweet16Item) {
+      setSweet16DraftOpen(true);
+    } else {
+      setTeamsRosterOpen(true);
+    }
+  }, [variantItemActive, variantRosterClosed, roomSnap?.activeItemId, isSweet16Item]);
 
   // New lot → drop local hold floor so we don't bid from a prior item's next-min.
   useEffect(() => {
@@ -275,7 +286,28 @@ export function LivePinnedActionBar({
     setVariantSheetOpen(false);
     setVariantSheetInitialId(null);
     setTeamsRosterOpen(false);
+    setSweet16DraftOpen(false);
   }, [roomSnap?.activeItemId]);
+
+  // Auto-open the team/division board for every viewer the instant a break goes live, so
+  // buyers see which teams are available without first tapping Claim. Runs after the FIX 5
+  // effect above (which closes the sheet on any item change) so this has the final say for
+  // the render where a brand-new break item appears. Gated on `commerceActive` (false for a
+  // feed item the viewer has swiped away from) so it never pops open a backgrounded room's
+  // sheet. Fires once per itemId; the buyer can still dismiss it and it won't reopen for the
+  // same break, and it never overrides the roster-closed board once the break has sold out.
+  const autoOpenedBreakItemRef = useRef<string | null>(null);
+  useEffect(() => {
+    const itemId = roomSnap?.activeItemId ?? null;
+    if (!commerceActive || !variantItemActive || variantRosterClosed || !itemId) {
+      if (!variantItemActive) autoOpenedBreakItemRef.current = null;
+      return;
+    }
+    if (autoOpenedBreakItemRef.current === itemId) return;
+    autoOpenedBreakItemRef.current = itemId;
+    setVariantSheetInitialId(null);
+    setVariantSheetOpen(true);
+  }, [commerceActive, variantItemActive, variantRosterClosed, roomSnap?.activeItemId]);
 
   useEffect(() => {
     if (roomSnap?.lotBidPhase !== 'bidding_open' || !roomSnap.auctionEndsAt) return;
@@ -306,6 +338,7 @@ export function LivePinnedActionBar({
     walletSheetOpen ||
     variantSheetOpen ||
     teamsRosterOpen ||
+    sweet16DraftOpen ||
     // Custom sheet is a full-screen modal — keep Hold enabled underneath so closing/outbid
     // recovery never leaves the buyer with a dead primary CTA from sheet state alone.
     Boolean(roomSnap?.unresolvedPaymentFailure);
@@ -1325,10 +1358,15 @@ export function LivePinnedActionBar({
         }
         return;
       }
-      // Break closed — open the same sold roster board the host uses.
+      // Break closed — open the same sold roster board the host uses (or, for a Sweet 16
+      // lot, the live draft sheet instead — there is no "sold team" to show yet).
       if (variantRosterClosed) {
         setVariantSheetOpen(false);
-        setTeamsRosterOpen(true);
+        if (isSweet16Item) {
+          setSweet16DraftOpen(true);
+        } else {
+          setTeamsRosterOpen(true);
+        }
         return;
       }
       if (broadcastPurchaseBlocked) {
@@ -1376,6 +1414,7 @@ export function LivePinnedActionBar({
     );
   }, [
     auctionLane,
+    isSweet16Item,
     m.bottomRightIsSlide,
     m.bottomRightLabel,
     m.showShopButton,
@@ -1409,7 +1448,11 @@ export function LivePinnedActionBar({
       if (variantItemActive && !isVariantSpotAuctionLive(roomSnap)) {
         if (variantRosterClosed || m.bottomLeftLabel === 'Teams') {
           setVariantSheetOpen(false);
-          setTeamsRosterOpen(true);
+          if (isSweet16Item) {
+            setSweet16DraftOpen(true);
+          } else {
+            setTeamsRosterOpen(true);
+          }
           return;
         }
         if (m.bottomLeftLabel === 'All teams') {
@@ -1445,7 +1488,11 @@ export function LivePinnedActionBar({
     guard(() => {
       if (variantItemActive) {
         if (variantRosterClosed) {
-          setTeamsRosterOpen(true);
+          if (isSweet16Item) {
+            setSweet16DraftOpen(true);
+          } else {
+            setTeamsRosterOpen(true);
+          }
           return;
         }
         setVariantSheetInitialId(null);
@@ -1580,7 +1627,7 @@ export function LivePinnedActionBar({
                 <LinearGradient
                   colors={
                     useLiveBuyNowFlow
-                      ? ['#E8C872', '#D4AF37', '#B8860B']
+                      ? [vaultColors.goldBright, vaultColors.gold, vaultColors.goldDim]
                       : [...LIVE_CLAIM_CTA_GRADIENT]
                   }
                   start={{ x: 0, y: 0.5 }}
@@ -1723,6 +1770,19 @@ export function LivePinnedActionBar({
             variantAssignmentMode: roomSnap.activeItemVariantAssignmentMode ?? 'pick',
             variants: roomSnap.activeItemVariants,
           }}
+        />
+      ) : null}
+
+      {variantItemActive && isSweet16Item && roomSnap?.activeItemId ? (
+        /* Sweet 16 — live turn-based draft once all 16 blind slots are sold. */
+        <LiveSweet16DraftSheet
+          visible={sweet16DraftOpen}
+          onClose={() => setSweet16DraftOpen(false)}
+          roomId={stream.id}
+          itemId={roomSnap.activeItemId}
+          title={roomSnap.activeItemTitle ?? m.itemTitle}
+          accessToken={accessToken}
+          onDraftComplete={() => void refreshRoomSnapshot()}
         />
       ) : null}
     </View>

@@ -29,7 +29,7 @@ import {
   teamAbbrForVariant,
   isLightSpotAccent,
 } from '../../../lib/liveBreakPresets';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 import { LiveRoomText } from '../../live/LiveRoomText';
 import { UsernameMentionPicker } from '../../mentions/UsernameMentionPicker';
 
@@ -41,7 +41,7 @@ export type BreakSpotBoardItem = {
   title: string;
   displayTitle?: string;
   salesFormat?: LiveRoomItemRow['salesFormat'];
-  variantAssignmentMode?: 'pick' | 'random';
+  variantAssignmentMode?: 'pick' | 'random' | 'draft';
   variants?: LiveRoomItemRow['variants'];
   randomSpotClaims?: { label: string; buyerUsername: string }[];
 };
@@ -84,6 +84,14 @@ type Props = {
   onRepeatSupplemental?: () => void;
   /** Short label for the repeat button, e.g. "Extra random · $25". Repeat button hides without it. */
   repeatSupplementalLabel?: string | null;
+  /** Host: this board is eligible for the one-click "Divisional Supply" (PYT/PYD, pick mode, not yet added). */
+  divisionalSupplyEligible?: boolean;
+  /** Host: open the "Add Divisional Supply" sheet — appends 8 division spots to this same board. */
+  onAddDivisionalSupply?: () => void;
+  /** Host: this Sweet 16 board's 16 blind slots have all sold — the live draft can now start. */
+  sweet16Eligible?: boolean;
+  /** Host: start (or, if already running, just open) the live Sweet 16 draft sheet. */
+  onStartSweet16Draft?: () => void;
 };
 
 const SETTLEMENT_METHODS: { id: string; label: string }[] = [
@@ -267,6 +275,10 @@ export function SellerBreakSpotBoardSheet({
   onAddSupplemental,
   onRepeatSupplemental,
   repeatSupplementalLabel,
+  divisionalSupplyEligible,
+  onAddDivisionalSupply,
+  sweet16Eligible,
+  onStartSweet16Draft,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
@@ -369,7 +381,7 @@ export function SellerBreakSpotBoardSheet({
         />
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
           <LinearGradient
-            colors={['rgba(212,175,55,0.14)', 'rgba(10,10,14,0)']}
+            colors={['rgba(203,163,92,0.14)', 'rgba(10,10,14,0)']}
             style={styles.sheetGlow}
             pointerEvents="none"
           />
@@ -428,6 +440,30 @@ export function SellerBreakSpotBoardSheet({
                   hitSlop={6}
                 >
                   <LiveRoomText style={styles.addSuppBtnTxt}>+ Supp</LiveRoomText>
+                </Pressable>
+              ) : null}
+              {canMarkSold && divisionalSupplyEligible && onAddDivisionalSupply ? (
+                <Pressable
+                  style={styles.addSuppBtn}
+                  onPress={() => {
+                    dismissKeyboard();
+                    onAddDivisionalSupply();
+                  }}
+                  hitSlop={6}
+                >
+                  <LiveRoomText style={styles.addSuppBtnTxt}>+ Div Supply</LiveRoomText>
+                </Pressable>
+              ) : null}
+              {canMarkSold && sweet16Eligible && onStartSweet16Draft ? (
+                <Pressable
+                  style={styles.addSuppBtn}
+                  onPress={() => {
+                    dismissKeyboard();
+                    onStartSweet16Draft();
+                  }}
+                  hitSlop={6}
+                >
+                  <LiveRoomText style={styles.addSuppBtnTxt}>Sweet 16 Draft</LiveRoomText>
                 </Pressable>
               ) : null}
               <Pressable
@@ -757,7 +793,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 1.2,
     textTransform: 'uppercase',
-    color: colors.gold,
+    color: vaultColors.gold,
   },
   itemTitle: {
     fontSize: 17,
@@ -777,8 +813,8 @@ const styles = StyleSheet.create({
   addSuppBtn: {
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.35)',
-    backgroundColor: 'rgba(212,175,55,0.14)',
+    borderColor: 'rgba(203,163,92,0.35)',
+    backgroundColor: 'rgba(203,163,92,0.14)',
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
@@ -787,7 +823,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
-    color: colors.gold,
+    color: vaultColors.gold,
   },
   repeatSuppBtn: {
     maxWidth: 120,
@@ -835,19 +871,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.03)',
   },
   spotTilePinned: {
-    borderColor: colors.gold,
+    borderColor: vaultColors.gold,
   },
   spotTileSelected: {
-    borderColor: colors.gold,
+    borderColor: vaultColors.gold,
     borderWidth: 2,
     borderLeftWidth: 3,
   },
   spotTileMine: {
     opacity: 1,
-    borderColor: colors.gold,
+    borderColor: vaultColors.gold,
     borderWidth: 2,
     borderLeftWidth: 3,
-    backgroundColor: 'rgba(212,175,55,0.16)',
+    backgroundColor: 'rgba(203,163,92,0.16)',
   },
   mineBadge: {
     position: 'absolute',
@@ -857,8 +893,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderWidth: 1,
-    borderColor: colors.gold,
-    backgroundColor: colors.gold,
+    borderColor: vaultColors.gold,
+    backgroundColor: vaultColors.gold,
   },
   mineBadgeText: {
     fontSize: 8,
@@ -874,14 +910,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderWidth: 1,
-    borderColor: colors.gold,
-    backgroundColor: 'rgba(212,175,55,0.18)',
+    borderColor: vaultColors.gold,
+    backgroundColor: 'rgba(203,163,92,0.18)',
   },
   pinnedBadgeText: {
     fontSize: 8,
     fontWeight: '900',
     letterSpacing: 0.4,
-    color: colors.gold,
+    color: vaultColors.gold,
   },
   hotBadge: {
     position: 'absolute',
@@ -931,11 +967,11 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.2)',
   },
   pinActionBtnActive: {
-    borderColor: colors.gold,
-    backgroundColor: 'rgba(212,175,55,0.18)',
+    borderColor: vaultColors.gold,
+    backgroundColor: 'rgba(203,163,92,0.18)',
   },
   pinActionBtnText: { fontSize: 9, fontWeight: '800', color: 'rgba(255,255,255,0.7)' },
-  pinActionBtnTextActive: { color: colors.gold },
+  pinActionBtnTextActive: { color: vaultColors.gold },
   markSoldPanel: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,255,255,0.1)',
@@ -962,7 +998,7 @@ const styles = StyleSheet.create({
   },
   markSoldBtn: {
     borderRadius: radii.md,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
@@ -989,14 +1025,14 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   chipOn: {
-    borderColor: colors.gold,
-    backgroundColor: 'rgba(212,175,55,0.18)',
+    borderColor: vaultColors.gold,
+    backgroundColor: 'rgba(203,163,92,0.18)',
   },
   chipTxt: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.75)' },
-  chipTxtOn: { color: colors.gold },
+  chipTxtOn: { color: vaultColors.gold },
   feeHint: {
     fontSize: 11,
-    color: 'rgba(212,175,55,0.85)',
+    color: 'rgba(203,163,92,0.85)',
     textAlign: 'center',
   },
   retireBtn: {

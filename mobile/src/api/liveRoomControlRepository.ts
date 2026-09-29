@@ -1,5 +1,6 @@
 import { fetchWebApiMobileWithSellerAuth } from '../lib/resolveSellerAccessToken';
 import type { LiveRoomHostDetail } from './liveHostRepository';
+import { buildDivisionalSupplyVariants } from '../lib/liveBreakPresets';
 
 export type LiveRoomItemRow = {
   id: string;
@@ -28,7 +29,7 @@ export type LiveRoomItemRow = {
   itemVersion?: number;
   sortOrder: number;
   salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break' | 'player_selection';
-  variantAssignmentMode?: 'pick' | 'random';
+  variantAssignmentMode?: 'pick' | 'random' | 'draft';
   /** ISO — all spots sold; host can begin break. */
   variantBreakReadyAt?: string | null;
   /** ISO — host started the physical break / rip. */
@@ -111,7 +112,7 @@ export async function createLiveRoomQueueItem(
       color?: string;
       isHot?: boolean;
     }>;
-    variantAssignmentMode?: 'pick' | 'random';
+    variantAssignmentMode?: 'pick' | 'random' | 'draft';
     sellerShippingProfileId?: string | null;
     shippingProfileId?: string | null;
     teamBoardNcaa?: boolean;
@@ -275,6 +276,32 @@ export async function patchLiveItemVariants(
     `/api/live-rooms/${encodeURIComponent(roomId)}/items/${encodeURIComponent(itemId)}/variants`,
     accessToken,
     { method: 'PATCH', body: JSON.stringify({ updates }) },
+  );
+  let j: unknown;
+  try {
+    j = await res.json();
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+}
+
+/**
+ * One-click "Divisional Supply": appends 8 more spots (one per real NFL division, labeled with
+ * a " Supply" suffix) to a live Pick Your Team or Pick Division board, once its main board has
+ * sold out. Reuses the same variants endpoint as `appendLiveItemSupplementalVariants` — no new
+ * backend route needed, since the endpoint already accepts an explicit `variants` array.
+ */
+export async function appendDivisionalSupplyVariants(
+  accessToken: string,
+  roomId: string,
+  itemId: string,
+  priceUsd: number,
+): Promise<void> {
+  const res = await controlFetch(
+    `/api/live-rooms/${encodeURIComponent(roomId)}/items/${encodeURIComponent(itemId)}/variants`,
+    accessToken,
+    { method: 'POST', body: JSON.stringify({ variants: buildDivisionalSupplyVariants(priceUsd) }) },
   );
   let j: unknown;
   try {

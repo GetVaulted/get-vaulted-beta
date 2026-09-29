@@ -130,6 +130,36 @@ export function buildPydVariants(priceUsd: number): LiveBreakVariantDraft[] {
   }));
 }
 
+/**
+ * Divisional Supply: one-click extra 8 division-labeled spots, added on top of a sold-out
+ * Pick Your Team or Pick Division board (see `appendDivisionalSupplyVariants`). Labeled with a
+ * " Supply" suffix so they never collide with a PYD board's original 8 division labels, and
+ * colored via the short reel-abbr form (e.g. "AFC E") so `spotAccentColor`/`segmentColorForLabel`
+ * still resolve the real division brand color despite the label carrying the "Supply" suffix.
+ */
+export function buildDivisionalSupplyVariants(priceUsd: number): LiveBreakVariantDraft[] {
+  return NFL_DIVISIONS.map((division, sortOrder) => ({
+    label: `${division.label} Supply`,
+    priceUsd,
+    quantityInitial: 1,
+    sortOrder,
+    color: formatDivisionReelAbbr(division.label),
+  }));
+}
+
+/** Sweet 16 Break: 16 blind numbered slots — no team attached until the live draft assigns one. */
+export const SWEET16_SLOT_COUNT = 16;
+
+export function buildSweet16SlotVariants(priceUsd: number): LiveBreakVariantDraft[] {
+  return Array.from({ length: SWEET16_SLOT_COUNT }, (_, i) => ({
+    label: `Slot ${i + 1}`,
+    priceUsd,
+    quantityInitial: 1,
+    sortOrder: i,
+    color: '',
+  }));
+}
+
 export function buildRandomTeamVariants(
   priceUsd: number,
   boardPack: LiveBoardPackId = DEFAULT_LIVE_BOARD_PACK,

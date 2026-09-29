@@ -844,7 +844,7 @@ export function ScheduleVaultEventModal({
             )}
           </View>
           <Text style={styles.helperTxt}>
-            Auto-selected from your break category — Cards uses card mailer rates; Helmets uses full-size helmet rates. You can change it before creating the show.
+            Auto-selected from your break category — Cards uses card mailer rates; Helmets uses full-size helmet rates; Jersey uses apparel rates. You can change it before creating the show.
           </Text>
 
           <Text style={styles.label}>Show visibility</Text>

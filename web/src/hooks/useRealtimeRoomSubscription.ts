@@ -24,6 +24,9 @@ export function useRealtimeRoomSubscription(opts: {
   onVaultRevealSpin?: (payload: Record<string, unknown>) => void | Promise<void>;
   onTeamBreakReady?: () => void | Promise<void>;
   onTeamBreakBegan?: () => void | Promise<void>;
+  onSweet16DraftStarted?: (payload: Record<string, unknown>) => void | Promise<void>;
+  onSweet16DraftPickMade?: (payload: Record<string, unknown>) => void | Promise<void>;
+  onSweet16DraftComplete?: (payload: Record<string, unknown>) => void | Promise<void>;
   onVariantPurchased?: (payload: {
     label?: string;
     buyerUsername?: string;
@@ -126,6 +129,9 @@ export function useRealtimeRoomSubscription(opts: {
     onVaultRevealSpin,
     onTeamBreakReady,
     onTeamBreakBegan,
+    onSweet16DraftStarted,
+    onSweet16DraftPickMade,
+    onSweet16DraftComplete,
     onVariantPurchased,
     onBreakSpotsChange,
     onListingBid,
@@ -151,6 +157,9 @@ export function useRealtimeRoomSubscription(opts: {
     onVaultRevealSpin,
     onTeamBreakReady,
     onTeamBreakBegan,
+    onSweet16DraftStarted,
+    onSweet16DraftPickMade,
+    onSweet16DraftComplete,
     onVariantPurchased,
     onBreakSpotsChange,
     onListingBid,
@@ -176,6 +185,9 @@ export function useRealtimeRoomSubscription(opts: {
     onVaultRevealSpin,
     onTeamBreakReady,
     onTeamBreakBegan,
+    onSweet16DraftStarted,
+    onSweet16DraftPickMade,
+    onSweet16DraftComplete,
     onVariantPurchased,
     onBreakSpotsChange,
     onListingBid,
@@ -200,6 +212,9 @@ export function useRealtimeRoomSubscription(opts: {
     onVaultRevealSpin,
     onTeamBreakReady,
     onTeamBreakBegan,
+    onSweet16DraftStarted,
+    onSweet16DraftPickMade,
+    onSweet16DraftComplete,
     onVariantPurchased,
     onBreakSpotsChange,
     onListingBid,
@@ -291,6 +306,15 @@ export function useRealtimeRoomSubscription(opts: {
       })
       .on("broadcast", { event: RT_EVENT.teamBreakReady }, () => void refs.current.onTeamBreakReady?.())
       .on("broadcast", { event: RT_EVENT.teamBreakBegan }, () => void refs.current.onTeamBreakBegan?.())
+      .on("broadcast", { event: RT_EVENT.sweet16DraftStarted }, ({ payload }) => {
+        void refs.current.onSweet16DraftStarted?.((payload as Record<string, unknown> | null) ?? {});
+      })
+      .on("broadcast", { event: RT_EVENT.sweet16DraftPickMade }, ({ payload }) => {
+        void refs.current.onSweet16DraftPickMade?.((payload as Record<string, unknown> | null) ?? {});
+      })
+      .on("broadcast", { event: RT_EVENT.sweet16DraftComplete }, ({ payload }) => {
+        void refs.current.onSweet16DraftComplete?.((payload as Record<string, unknown> | null) ?? {});
+      })
       .on("broadcast", { event: RT_EVENT.breakSpots }, () => void refs.current.onBreakSpotsChange())
       .on("broadcast", { event: RT_EVENT.listingBid }, ({ payload }) => {
         const listingId = (payload as { listingId?: string } | null)?.listingId;

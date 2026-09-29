@@ -29,6 +29,9 @@ export const RT_EVENT = {
   moderationChanged: 'moderation_changed',
   giveawaysChanged: 'giveaways_changed',
   vaultRevealSpin: 'vault_reveal_spin',
+  sweet16DraftStarted: 'sweet16_draft_started',
+  sweet16DraftPickMade: 'sweet16_draft_pick_made',
+  sweet16DraftComplete: 'sweet16_draft_complete',
 } as const;
 
 export const RT_EVENT_ALIASES = {
@@ -69,4 +72,19 @@ export type RoomBroadcastPayload = {
   itemTitle?: string | null;
   failureReason?: string | null;
   randomReveal?: boolean;
+  /** Sweet 16 draft events (see live-sweet16-draft.ts) — kept loose here, narrowed by callers. */
+  turnOrder?: string[];
+  currentTurnIndex?: number | null;
+  currentTurnPurchaseId?: string | null;
+  currentTurnDeadlineAt?: string | null;
+  remainingTeamLabels?: string[];
+  turnSeconds?: number;
+  purchaseId?: string;
+  teamLabel?: string;
+  teamAbbr?: string;
+  turnIndex?: number;
+  autoAssigned?: boolean;
+  nextTurnPurchaseId?: string | null;
+  nextTurnDeadlineAt?: string | null;
+  complete?: boolean;
 };

@@ -126,6 +126,14 @@ enum LiveActiveSpotCommerceMode {
 enum LiveItemVariantAssignmentMode {
   pick
   random
+  /// Buy a blind numbered slot now; the actual team is decided later via a live turn-based draft.
+  draft
+}
+
+enum LiveSweet16DraftStatus {
+  not_started
+  in_progress
+  complete
 }
 
 enum LiveItemVariantStatus {
@@ -1321,6 +1329,7 @@ model LiveRoom {
   streamReplays                   LiveStreamReplay[]
   paymentFailures                 LiveRoomPaymentFailure[]
   reports                         Report[]
+  sweet16Drafts                    LiveSweet16Draft[]
   slowModeSeconds                 Int                        @default(0)
   pinnedModeratorMessage          String?
   pinnedModeratorMessageAt        DateTime?
@@ -1558,6 +1567,7 @@ model LiveRoomItem {
   proxyBids      LiveAuctionProxyBid[]
   inventoryHolds LiveAuctionInventoryHold[]
   roomBids       LiveRoomBid[]
+  sweet16Draft   LiveSweet16Draft?
 
   @@index([liveRoomId, sortOrder])
 }
@@ -1607,6 +1617,8 @@ model LiveItemVariantPurchase {
   /// Wheel-assigned team/division label (random assignment mode).
   revealedLabel           String?
   revealedAbbr            String?
+  /// Set once a Sweet 16 draft pick (manual or auto-assigned) resolves this purchase's team.
+  sweet16DraftPick        LiveSweet16DraftPick?
   /// Shared id when multiple spots are paid in one checkout (one Order / one PaymentIntent).
   batchId                 String?
   /// Shared across a batch; not unique so N purchases can point at one Order.
@@ -1636,6 +1648,51 @@ model LiveItemVariantPurchase {
   @@index([batchId])
   @@index([fulfillmentOrderId])
   @@index([platformFeeStatus, createdAt])
+}
+
+/// Sweet 16 Break: turn-based live draft that decides which team each of the 16 blind-slot
+/// buyers gets, once all 16 `LiveItemVariant` slots for the item are sold. One row per item.
+model LiveSweet16Draft {
+  liveRoomItemId        String                  @id
+  liveRoomItem          LiveRoomItem            @relation(fields: [liveRoomItemId], references: [id], onDelete: Cascade)
+  liveRoomId            String
+  liveRoom              LiveRoom                @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  status                LiveSweet16DraftStatus  @default(not_started)
+  /// Ordered array of LiveItemVariantPurchase.id — turn order, fixed at start (crypto-shuffled).
+  turnOrder             Json
+  currentTurnIndex      Int?
+  /// Denormalized turnOrder[currentTurnIndex] — lets the cron sweep query without decoding JSON.
+  currentTurnPurchaseId String?
+  currentTurnDeadlineAt DateTime?
+  /// JSON string[] of team labels not yet picked — starts as the full 32-team pool.
+  remainingTeamLabels   Json
+  turnSeconds           Int                     @default(60)
+  startedAt             DateTime?
+  completedAt           DateTime?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  picks                 LiveSweet16DraftPick[]
+
+  @@index([liveRoomId])
+  @@index([status, currentTurnDeadlineAt])
+}
+
+/// One row per Sweet 16 draft pick (manual or auto-assigned on turn timeout).
+model LiveSweet16DraftPick {
+  id           String           @id @default(cuid())
+  draftId      String
+  draft        LiveSweet16Draft @relation(fields: [draftId], references: [liveRoomItemId], onDelete: Cascade)
+  liveRoomId   String
+  purchaseId   String           @unique
+  purchase     LiveItemVariantPurchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  turnIndex    Int
+  teamLabel    String
+  teamAbbr     String
+  autoAssigned Boolean          @default(false)
+  pickedAt     DateTime         @default(now())
+
+  @@unique([draftId, teamLabel])
+  @@index([liveRoomId])
 }
 
 /// Unresolved live-show payment failure — blocks buyer commerce in-room until paid or cleared.

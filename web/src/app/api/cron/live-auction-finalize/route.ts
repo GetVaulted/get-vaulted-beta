@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { finalizeOverdueLiveAuctionLotsAcrossLiveRooms } from "@/lib/live-auction-finalize";
+import { finalizeOverdueSweet16DraftTurns } from "@/lib/live-sweet16-draft";
 import { reportCronAnomaly } from "@/lib/cron-anomaly-alert";
 
 /**
@@ -24,7 +25,14 @@ export async function POST(req: Request) {
 
   try {
     const result = await finalizeOverdueLiveAuctionLotsAcrossLiveRooms();
-    return NextResponse.json({ ok: true, ...result });
+    let sweet16: { checked: number; resolved: number } | null = null;
+    try {
+      sweet16 = await finalizeOverdueSweet16DraftTurns();
+    } catch (e) {
+      // Sibling sweep — a failure here must not fail the (already-succeeded) auction sweep above.
+      reportCronAnomaly("sweet16-draft-finalize", e instanceof Error ? e.message : String(e));
+    }
+    return NextResponse.json({ ok: true, ...result, sweet16 });
   } catch (e) {
     reportCronAnomaly("live-auction-finalize", e instanceof Error ? e.message : String(e));
     return NextResponse.json({ error: "Live auction finalize sweep failed" }, { status: 500 });

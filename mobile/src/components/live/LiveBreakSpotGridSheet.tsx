@@ -70,7 +70,7 @@ type Props = {
   title: string;
   imageUrl?: string | null;
   salesFormat: LiveItemSalesFormat;
-  variantAssignmentMode?: 'pick' | 'random';
+  variantAssignmentMode?: 'pick' | 'random' | 'draft';
   variants: LiveItemVariantSnapshot[];
   /** Hide teams currently in spot auction (buyers bid on those instead). */
   excludeVariantIds?: string[];

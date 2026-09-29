@@ -101,7 +101,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
     return NextResponse.json({ error: "Add at least one spot/division." }, { status: 400 });
   }
 
-  const toCreate: { label: string; priceUsd: number; quantityInitial: number; sortOrder: number }[] = [];
+  const toCreate: { label: string; priceUsd: number; quantityInitial: number; sortOrder: number; color: string }[] = [];
   for (const d of drafts) {
     let label = d.label.trim().slice(0, 120);
     if (!label) continue;
@@ -116,6 +116,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       priceUsd: d.priceUsd,
       quantityInitial: d.quantityInitial ?? 1,
       sortOrder: d.sortOrder ?? maxSort + 1 + toCreate.length,
+      color: d.color ?? "",
     });
   }
 
@@ -133,6 +134,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
           quantityInitial: row.quantityInitial,
           quantityRemaining: row.quantityInitial,
           sortOrder: row.sortOrder,
+          color: row.color,
         },
       });
     }

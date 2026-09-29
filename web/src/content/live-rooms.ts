@@ -12,7 +12,7 @@ export type LiveNowFilter = (typeof liveNowFilters)[number];
 export type LiveRoomKind = "break_room" | "live_sale_room";
 export type LiveRoomFormatBadge = "PYT Break" | "Random Break" | "Live Sale" | "Auction" | "Buy Now";
 export type LiveShowStatus = "live_now" | "scheduled";
-export type VaultBreakCategory = "Cards" | "Helmets";
+export type VaultBreakCategory = "Cards" | "Helmets" | "Jersey";
 
 type LiveNowRoomBase = {
   id: string;

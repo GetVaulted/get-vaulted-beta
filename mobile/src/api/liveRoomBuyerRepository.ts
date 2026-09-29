@@ -56,7 +56,7 @@ export type LiveRoomBuyerSnapshot = {
   activeItemImageUrl?: string | null;
   activeItemSalesFormat?: LiveItemSalesFormat | null;
   activeItemListingId?: string | null;
-  activeItemVariantAssignmentMode?: 'pick' | 'random' | null;
+  activeItemVariantAssignmentMode?: 'pick' | 'random' | 'draft' | null;
   activeItemVariants?: LiveItemVariantSnapshot[];
   /** PYT/PYD pinned spot mode (`fixed` = hold to buy, `auction` = timed bids). */
   activeSpotCommerceMode?: 'fixed' | 'auction' | null;
@@ -311,7 +311,7 @@ export async function fetchLiveRoomBuyerSnapshot(
         lastHighBidderUsername?: string | null;
         itemVersion?: number;
         auctionEndsAt?: string | null;
-        variantAssignmentMode?: 'pick' | 'random';
+        variantAssignmentMode?: 'pick' | 'random' | 'draft';
         variants?: unknown;
         activeSpotCommerceMode?: 'fixed' | 'auction' | null;
         auctionVariantId?: string | null;

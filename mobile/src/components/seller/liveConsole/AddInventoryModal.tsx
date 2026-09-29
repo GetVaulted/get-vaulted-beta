@@ -58,13 +58,13 @@ import {
   PLAYER_SPOT_MAX,
 } from '../../../../../shared/live-player-spot-list';
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 import { BreakSpotSetupGrid } from './BreakSpotSetupGrid';
 
 const THUMBNAIL_MAX_BYTES = 20 * 1024 * 1024;
 
 type SaleCategory = 'teams_divisions' | 'auction' | 'buy_now';
-type BreakSaleType = 'pyt' | 'pyd' | 'pyp' | 'random_pyt' | 'random_pyd' | 'random_pyp';
+type BreakSaleType = 'pyt' | 'pyd' | 'pyp' | 'random_pyt' | 'random_pyd' | 'random_pyp' | 'sweet16';
 type AddSourceTab = 'new' | 'shop' | 'copy';
 
 const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
@@ -84,12 +84,15 @@ const BREAK_VARIANTS: { id: BreakSaleType; label: string; sub: string }[] = [
   { id: 'random_pyt', label: 'Random Teams', sub: 'Vault reveal' },
   { id: 'random_pyd', label: 'Random Divisions', sub: '8 · NFL' },
   { id: 'random_pyp', label: 'Random Players', sub: 'Vault reveal' },
+  { id: 'sweet16', label: 'Sweet 16', sub: '16 slots · live draft · NFL' },
 ];
 
 function visibleBreakVariants(boardPack: LiveBoardPackId) {
   const base = RANDOM_BREAK_SALE_TYPES_ENABLED
     ? BREAK_VARIANTS
-    : BREAK_VARIANTS.filter((v) => v.id === 'pyt' || v.id === 'pyd' || v.id === 'pyp');
+    : BREAK_VARIANTS.filter(
+        (v) => v.id === 'pyt' || v.id === 'pyd' || v.id === 'pyp' || v.id === 'sweet16',
+      );
   if (boardPackSupportsDivisions(boardPack)) return base;
   return base.filter(
     (v) => v.id === 'pyt' || v.id === 'pyp' || v.id === 'random_pyt' || v.id === 'random_pyp',
@@ -110,6 +113,7 @@ export type QuickLiveLotSubmitPayload = QuickLiveLotValues & {
 
 export type QuickLiveLotSubmitOptions = {
   addAnother?: boolean;
+  saveForOtherShows?: boolean;
 };
 
 export function AddInventoryModal({
@@ -156,6 +160,7 @@ export function AddInventoryModal({
   const [priorLoading, setPriorLoading] = useState(false);
   const [priorError, setPriorError] = useState<string | null>(null);
   const [selectedPriorRoomId, setSelectedPriorRoomId] = useState('');
+  const [saveForOtherShows, setSaveForOtherShows] = useState(false);
 
   const resetDraft = () => {
     setAddSource('new');
@@ -177,6 +182,7 @@ export function AddInventoryModal({
     setPriorRooms([]);
     setPriorError(null);
     setSelectedPriorRoomId('');
+    setSaveForOtherShows(false);
   };
 
   useEffect(() => {
@@ -296,13 +302,17 @@ export function AddInventoryModal({
     setSpotDrafts([]);
     setSpotsCustomized(false);
     if (pack !== 'nfl') setIncludeNcaaSpot(false);
-    if (!boardPackSupportsDivisions(pack) && (draft.saleType === 'pyd' || draft.saleType === 'random_pyd')) {
+    if (
+      !boardPackSupportsDivisions(pack) &&
+      (draft.saleType === 'pyd' || draft.saleType === 'random_pyd' || draft.saleType === 'sweet16')
+    ) {
       setDraft((prev) => ({ ...prev, saleType: 'pyt' }));
     }
   };
 
   const saleCategory = saleCategoryForType(draft.saleType);
-  const breakSaleType: BreakSaleType = isBreakLotSaleType(draft.saleType) ? draft.saleType : 'pyt';
+  const breakSaleType: BreakSaleType =
+    isBreakLotSaleType(draft.saleType) || draft.saleType === 'sweet16' ? draft.saleType : 'pyt';
   const breakOptions = visibleBreakVariants(boardPack);
 
   const setSaleCategory = (category: SaleCategory) => {
@@ -376,7 +386,10 @@ export function AddInventoryModal({
     const profilePayload = profileOptionsAreSeller
       ? { sellerShippingProfileId: selectedProfileId }
       : { shippingProfileId: selectedProfileId };
-    onSubmit({ ...validated.values, imageUrl: imageUrl.trim(), ...profilePayload }, { addAnother });
+    onSubmit(
+      { ...validated.values, imageUrl: imageUrl.trim(), ...profilePayload },
+      { addAnother, saveForOtherShows },
+    );
     if (addAnother) resetDraft();
   };
 
@@ -391,7 +404,9 @@ export function AddInventoryModal({
           ? 'Price per division'
           : draft.saleType === 'pyp' || draft.saleType === 'random_pyp'
             ? 'Price per player'
-            : 'Buy-it-now price';
+            : draft.saleType === 'sweet16'
+              ? 'Price per slot'
+              : 'Buy-it-now price';
   const pricePlaceholder =
     draft.saleType === 'auction' ? '1' : isBreakLotSaleType(draft.saleType) ? '25' : '25';
   const breakSpots = breakSpotCountForSaleType(
@@ -459,7 +474,7 @@ export function AddInventoryModal({
                   style={styles.input}
                   editable={!busy}
                 />
-                {shopLoading ? <ActivityIndicator color={colors.gold} style={{ marginVertical: 12 }} /> : null}
+                {shopLoading ? <ActivityIndicator color={vaultColors.gold} style={{ marginVertical: 12 }} /> : null}
                 {shopError ? <Text style={styles.errorTxt}>{shopError}</Text> : null}
                 {!shopLoading && !shopError && shopListings.length === 0 ? (
                   <Text style={styles.sub}>
@@ -505,7 +520,7 @@ export function AddInventoryModal({
                         <Ionicons
                           name={selected ? 'checkmark-circle' : 'ellipse-outline'}
                           size={22}
-                          color={selected ? colors.gold : colors.textMuted}
+                          color={selected ? vaultColors.gold : colors.textMuted}
                         />
                       </Pressable>
                     );
@@ -532,7 +547,7 @@ export function AddInventoryModal({
             ) : addSource === 'copy' ? (
               <>
                 <Text style={styles.sub}>{SELLER_CONSOLE.addSourceCopyHint}</Text>
-                {priorLoading ? <ActivityIndicator color={colors.gold} style={{ marginVertical: 12 }} /> : null}
+                {priorLoading ? <ActivityIndicator color={vaultColors.gold} style={{ marginVertical: 12 }} /> : null}
                 {priorError ? <Text style={styles.errorTxt}>{priorError}</Text> : null}
                 {!priorLoading && !priorError && priorRooms.length === 0 ? (
                   <Text style={styles.sub}>No prior shows found to copy from.</Text>
@@ -555,7 +570,7 @@ export function AddInventoryModal({
                       <Ionicons
                         name={selected ? 'checkmark-circle' : 'ellipse-outline'}
                         size={22}
-                        color={selected ? colors.gold : colors.textMuted}
+                        color={selected ? vaultColors.gold : colors.textMuted}
                       />
                     </Pressable>
                   );
@@ -601,13 +616,13 @@ export function AddInventoryModal({
                 <Image source={{ uri: imageUri }} style={styles.photoPreview} contentFit="cover" />
               ) : (
                 <View style={styles.photoPlaceholder}>
-                  <Ionicons name="camera-outline" size={28} color={colors.gold} />
+                  <Ionicons name="camera-outline" size={28} color={vaultColors.gold} />
                   <Text style={styles.photoPlaceholderTxt}>Add photo</Text>
                 </View>
               )}
               {imageUploading ? (
                 <View style={styles.photoUploading}>
-                  <ActivityIndicator color={colors.gold} />
+                  <ActivityIndicator color={vaultColors.gold} />
                 </View>
               ) : null}
             </Pressable>
@@ -687,13 +702,24 @@ export function AddInventoryModal({
 
             {isBreakLotSaleType(draft.saleType) ? (
               <View style={styles.breakHint}>
-                <Ionicons name="grid-outline" size={16} color={colors.gold} />
+                <Ionicons name="grid-outline" size={16} color={vaultColors.gold} />
                 <Text style={styles.breakHintTxt}>
                   {isPlayerBreak
                     ? draft.saleType === 'random_pyp'
                       ? 'Buyers purchase a seat — Vault Reveal assigns a player from your list.'
                       : 'One player per line. Buyers pick a name. Sold spots disappear from the board.'
                     : `Buyers pick from ${breakSpots} selectable spots. Sold spots disappear from the board.`}
+                </Text>
+              </View>
+            ) : null}
+
+            {draft.saleType === 'sweet16' ? (
+              <View style={styles.breakHint}>
+                <Ionicons name="shuffle-outline" size={16} color={vaultColors.gold} />
+                <Text style={styles.breakHintTxt}>
+                  Buyers buy one of 16 blind numbered slots — no team is attached yet. Once all 16
+                  sell, start a live turn-based draft from the host console to decide who gets
+                  which team, one pick per turn.
                 </Text>
               </View>
             ) : null}
@@ -786,9 +812,30 @@ export function AddInventoryModal({
               placeholder="1"
               placeholderTextColor={colors.textMuted}
               keyboardType="number-pad"
-              style={[styles.input, isBreakLotSaleType(draft.saleType) && styles.inputDisabled]}
-              editable={!busy && !isBreakLotSaleType(draft.saleType)}
+              style={[
+                styles.input,
+                (isBreakLotSaleType(draft.saleType) || draft.saleType === 'sweet16') && styles.inputDisabled,
+              ]}
+              editable={!busy && !isBreakLotSaleType(draft.saleType) && draft.saleType !== 'sweet16'}
             />
+
+            <Pressable
+              style={styles.saveOtherRow}
+              onPress={() => setSaveForOtherShows((prev) => !prev)}
+              disabled={busy}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: saveForOtherShows }}
+            >
+              <View style={[styles.saveOtherCheck, saveForOtherShows && styles.saveOtherCheckOn]}>
+                {saveForOtherShows ? <Ionicons name="checkmark" size={14} color="#0c0c0e" /> : null}
+              </View>
+              <View style={styles.saveOtherTextWrap}>
+                <Text style={styles.saveOtherTxt}>Save for other shows</Text>
+                <Text style={styles.saveOtherHint}>
+                  Private to you — reusable from "From my shop" later. Never listed on your marketplace.
+                </Text>
+              </View>
+            </Pressable>
 
             <View style={styles.actionRow}>
               <Pressable
@@ -823,7 +870,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.3)',
+    borderColor: 'rgba(203,163,92,0.3)',
     maxHeight: Platform.OS === 'ios' ? '92%' : '94%',
   },
   sheetHeader: { alignItems: 'center', paddingTop: spacing.sm },
@@ -856,12 +903,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   sourceTabOn: {
-    backgroundColor: 'rgba(212,175,55,0.16)',
+    backgroundColor: 'rgba(203,163,92,0.16)',
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.4)',
+    borderColor: 'rgba(203,163,92,0.4)',
   },
   sourceTabTxt: { fontSize: 10, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase' },
-  sourceTabTxtOn: { color: colors.gold },
+  sourceTabTxtOn: { color: vaultColors.gold },
   shopRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -873,8 +920,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.03)',
   },
   shopRowOn: {
-    borderColor: 'rgba(212,175,55,0.45)',
-    backgroundColor: 'rgba(212,175,55,0.1)',
+    borderColor: 'rgba(203,163,92,0.45)',
+    backgroundColor: 'rgba(203,163,92,0.1)',
   },
   shopThumb: { width: 48, height: 48, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.06)' },
   shopMeta: { flex: 1, minWidth: 0 },
@@ -893,7 +940,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: 1,
     borderStyle: 'dashed',
-    borderColor: 'rgba(212,175,55,0.35)',
+    borderColor: 'rgba(203,163,92,0.35)',
     backgroundColor: 'rgba(0,0,0,0.35)',
     overflow: 'hidden',
     alignItems: 'center',
@@ -912,7 +959,7 @@ const styles = StyleSheet.create({
   errorTxt: { fontSize: 12, color: '#fca5a5' },
   input: {
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.25)',
+    borderColor: 'rgba(203,163,92,0.25)',
     borderRadius: radii.md,
     padding: 12,
     minHeight: 44,
@@ -944,11 +991,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
   boardPackChipOn: {
-    borderColor: 'rgba(212,175,55,0.55)',
-    backgroundColor: 'rgba(212,175,55,0.12)',
+    borderColor: 'rgba(203,163,92,0.55)',
+    backgroundColor: 'rgba(203,163,92,0.12)',
   },
   boardPackChipTxt: { fontSize: 13, fontWeight: '800', color: colors.textMuted },
-  boardPackChipTxtOn: { color: colors.gold },
+  boardPackChipTxtOn: { color: vaultColors.gold },
   saleTypeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   saleTypeCard: {
     width: '47%',
@@ -963,11 +1010,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   saleTypeCardActive: {
-    borderColor: 'rgba(212,175,55,0.55)',
-    backgroundColor: 'rgba(212,175,55,0.12)',
+    borderColor: 'rgba(203,163,92,0.55)',
+    backgroundColor: 'rgba(203,163,92,0.12)',
   },
   saleTypeLabel: { fontSize: 14, fontWeight: '900', color: colors.textMuted },
-  saleTypeLabelActive: { color: colors.gold },
+  saleTypeLabelActive: { color: vaultColors.gold },
   saleTypeSub: { marginTop: 2, fontSize: 11, fontWeight: '600', color: colors.textMuted },
   saleTypeSubActive: { color: 'rgba(255,215,80,0.75)' },
   breakHint: {
@@ -977,8 +1024,8 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.22)',
-    backgroundColor: 'rgba(212,175,55,0.06)',
+    borderColor: 'rgba(203,163,92,0.22)',
+    backgroundColor: 'rgba(203,163,92,0.06)',
   },
   breakHintTxt: { flex: 1, fontSize: 12, lineHeight: 17, color: colors.textSecondary },
   playerListHeader: {
@@ -1006,10 +1053,34 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ncaaCheckOn: {
-    borderColor: 'rgba(212,175,55,0.65)',
-    backgroundColor: colors.gold,
+    borderColor: 'rgba(203,163,92,0.65)',
+    backgroundColor: vaultColors.gold,
   },
   ncaaTxt: { flex: 1, fontSize: 12, color: colors.textSecondary, fontWeight: '600' },
+  saveOtherRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  saveOtherCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  saveOtherCheckOn: {
+    borderColor: 'rgba(203,163,92,0.65)',
+    backgroundColor: vaultColors.gold,
+  },
+  saveOtherTextWrap: { flex: 1, gap: 2 },
+  saveOtherTxt: { fontSize: 12, color: colors.textSecondary, fontWeight: '600' },
+  saveOtherHint: { fontSize: 11, color: colors.textMuted, lineHeight: 15 },
   profileWrap: { gap: 8, marginBottom: spacing.xs },
   profileChip: {
     borderRadius: radii.md,
@@ -1020,16 +1091,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   profileChipOn: {
-    borderColor: 'rgba(212,175,55,0.55)',
-    backgroundColor: 'rgba(212,175,55,0.12)',
+    borderColor: 'rgba(203,163,92,0.55)',
+    backgroundColor: 'rgba(203,163,92,0.12)',
   },
   profileChipTxt: { fontSize: 13, fontWeight: '700', color: colors.textSecondary },
-  profileChipTxtOn: { color: colors.gold },
+  profileChipTxtOn: { color: vaultColors.gold },
   actionRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   primary: {
     paddingVertical: 14,
     borderRadius: radii.md,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     alignItems: 'center',
     minHeight: 48,
     justifyContent: 'center',

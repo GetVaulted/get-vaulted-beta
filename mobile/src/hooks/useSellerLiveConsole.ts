@@ -20,9 +20,15 @@ import {
   patchLiveItemVariants,
   patchLiveRoomItem,
   appendLiveItemSupplementalVariants,
+  appendDivisionalSupplyVariants,
   type LiveRoomItemRow,
 } from '../api/liveRoomControlRepository';
 import { openStripeCheckoutSession } from '../lib/openStripeCheckoutSession';
+import {
+  startSweet16Draft as startSweet16DraftApi,
+  Sweet16ApiError,
+} from '../api/liveSweet16DraftRepository';
+import { createListingViaWeb } from '../api/webListingsRepository';
 import type { QuickLiveLotSubmitPayload, QuickLiveLotSubmitOptions } from '../components/seller/liveConsole/AddInventoryModal';
 import type { QuickLiveLotValues } from '../lib/liveAuctionPricing';
 import type { LiveBreakVariantDraft } from '../lib/liveBreakPresets';
@@ -94,6 +100,9 @@ export function useSellerLiveConsole({
   const [pricingEditItem, setPricingEditItem] = useState<LiveRoomItemRow | null>(null);
   const [supplementalModalOpen, setSupplementalModalOpen] = useState(false);
   const [lastSupplemental, setLastSupplemental] = useState<{ itemId: string; name: string; priceUsd: number } | null>(null);
+  const [divisionalSupplyFormOpen, setDivisionalSupplyFormOpen] = useState(false);
+  const [sweet16DraftSheetOpen, setSweet16DraftSheetOpen] = useState(false);
+  const [sweet16Starting, setSweet16Starting] = useState(false);
   const [pinningVariantId, setPinningVariantId] = useState<string | null>(null);
   const [markSoldBusy, setMarkSoldBusy] = useState(false);
   const [consoleError, setConsoleError] = useState<SanitizedLiveError | null>(null);
@@ -379,6 +388,32 @@ export function useSellerLiveConsole({
           priceUsd: payload.priceUsd,
         });
         invalidateHostConsoleCache(roomId);
+        if (options?.saveForOtherShows) {
+          try {
+            const savedBuyingFormat = payload.salesFormat === 'auction' ? 'auction' : 'buy_now';
+            const savedPriceUsd =
+              savedBuyingFormat === 'auction'
+                ? payload.startingBidUsd ?? payload.priceUsd ?? 0
+                : payload.priceUsd ?? payload.startingBidUsd ?? 0;
+            await createListingViaWeb(accessToken, {
+              title: payload.title,
+              images: payload.imageUrl.trim() ? [payload.imageUrl.trim()] : [],
+              buyingFormat: savedBuyingFormat,
+              priceUsd: savedPriceUsd,
+              startingBidUsd: savedBuyingFormat === 'auction' ? savedPriceUsd : undefined,
+              status: 'draft',
+              inventoryChannel: 'live_show',
+            });
+            logSellerQueue('save_for_other_shows_success', { itemId: newItemId });
+          } catch (saveErr) {
+            // Non-fatal: the lot is already in this show either way — saving a reusable copy
+            // for future shows is a convenience, not a requirement for this add to succeed.
+            logSellerQueue('save_for_other_shows_failure', {
+              itemId: newItemId,
+              error: saveErr instanceof Error ? saveErr.message : String(saveErr),
+            });
+          }
+        }
         await reload({ force: true });
         if (!options?.addAnother) setInventoryOpen(false);
         onAfterAddLot?.();
@@ -786,6 +821,78 @@ export function useSellerLiveConsole({
     appendSupplemental({ name, priceUsd, spotCount: 1 });
   };
 
+  /**
+   * Divisional Supply: a one-click "+ Add Divisional Supply" for a Pick Your Team (PYT) or Pick
+   * Division (PYD) board -- lists 8 more division-labeled spots on the SAME board. Available any
+   * time the board is still a live pick-mode team/division break (not random-assignment, not
+   * player selection, not a plain buy-now/auction lot) and hasn't already had a Supply round
+   * added -- there's no dedicated backend flag for that, so "already added" is inferred the same
+   * way the approved mockup does: an existing variant label ending in " Supply".
+   */
+  const divisionalSupplyAlreadyAdded = (item: LiveRoomItemRow): boolean =>
+    (item.variants ?? []).some((v) => v.label.trim().toLowerCase().endsWith(' supply'));
+
+  const divisionalSupplyEligible = (item: LiveRoomItemRow | null | undefined): boolean => {
+    if (!item) return false;
+    if (item.variantAssignmentMode !== 'pick') return false;
+    if (item.salesFormat !== 'variant_selection' && item.salesFormat !== 'team_break') return false;
+    return !divisionalSupplyAlreadyAdded(item);
+  };
+
+  const openDivisionalSupplyForm = () => {
+    if (!activeItem || !divisionalSupplyEligible(activeItem)) return;
+    setDivisionalSupplyFormOpen(true);
+  };
+
+  const closeDivisionalSupplyForm = () => setDivisionalSupplyFormOpen(false);
+
+  const addDivisionalSupply = (priceUsd: number) => {
+    if (!activeItem || !divisionalSupplyEligible(activeItem)) return;
+    const itemId = activeItem.id;
+    void run(async () => {
+      await appendDivisionalSupplyVariants(accessToken, roomId, itemId, priceUsd);
+      setDivisionalSupplyFormOpen(false);
+    });
+  };
+
+  /**
+   * Sweet 16 Break: host control for the live turn-based draft. Eligible once the board's 16
+   * blind slots have all sold (`variantBreakReadyAt` set) on a `draft`-mode item. Starting the
+   * draft is idempotent from the host's perspective -- if it was already started (a re-open after
+   * navigating away, or a race with the timeout cron), the server's `ALREADY_STARTED` error is
+   * swallowed and the same spectator sheet just opens to resume watching, instead of surfacing a
+   * scary error for a completely benign case. Any other failure (e.g. not all slots sold yet)
+   * still alerts and leaves the sheet closed.
+   */
+  const sweet16Eligible = (item: LiveRoomItemRow | null | undefined): boolean =>
+    Boolean(item && item.variantAssignmentMode === 'draft' && item.variantBreakReadyAt);
+
+  const openSweet16DraftSheet = () => {
+    if (!activeItem) return;
+    setSweet16DraftSheetOpen(true);
+  };
+
+  const closeSweet16DraftSheet = () => setSweet16DraftSheetOpen(false);
+
+  const startSweet16Draft = () => {
+    if (!activeItem || !sweet16Eligible(activeItem) || sweet16Starting) return;
+    const itemId = activeItem.id;
+    setSweet16Starting(true);
+    void startSweet16DraftApi(accessToken, roomId, itemId)
+      .then(() => {
+        setSweet16DraftSheetOpen(true);
+        void reload({ force: true });
+      })
+      .catch((e) => {
+        if (e instanceof Sweet16ApiError && e.code === 'ALREADY_STARTED') {
+          setSweet16DraftSheetOpen(true);
+          return;
+        }
+        Alert.alert('Sweet 16 Draft', e instanceof Error ? e.message : 'Could not start the draft.');
+      })
+      .finally(() => setSweet16Starting(false));
+  };
+
   const onReorder = (ordered: LiveRoomItemRow[]) => {
     void run(async () => {
       await Promise.all(
@@ -918,6 +1025,17 @@ export function useSellerLiveConsole({
     appendSupplemental,
     lastSupplemental,
     repeatLastSupplemental,
+    divisionalSupplyFormOpen,
+    divisionalSupplyEligible,
+    openDivisionalSupplyForm,
+    closeDivisionalSupplyForm,
+    addDivisionalSupply,
+    sweet16DraftSheetOpen,
+    sweet16Eligible,
+    sweet16Starting,
+    openSweet16DraftSheet,
+    closeSweet16DraftSheet,
+    startSweet16Draft,
     onSaveQueuePricing,
     onSaveBreakSpots,
     onPinLiveTeam,

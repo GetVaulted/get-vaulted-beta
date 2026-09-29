@@ -7,6 +7,7 @@ import {
   buildPytVariants,
   buildRandomDivisionVariants,
   buildRandomTeamVariants,
+  buildSweet16SlotVariants,
   DEFAULT_LIVE_BOARD_PACK,
   type LiveBoardPackId,
   type LiveBreakVariantDraft,
@@ -26,7 +27,9 @@ export type LiveLotSaleType =
   | 'random_pyt'
   | 'random_pyd'
   | 'pyp'
-  | 'random_pyp';
+  | 'random_pyp'
+  /** Sweet 16 Break: 16 blind slots sold now, teams decided later via a live turn-based draft. */
+  | 'sweet16';
 
 export type LiveLotApiSalesFormat =
   | 'auction'
@@ -60,7 +63,7 @@ export type QuickLiveLotValues = {
   reservePriceUsd: number | null;
   priceUsd: number | null;
   salesFormat: LiveLotApiSalesFormat;
-  variantAssignmentMode?: 'pick' | 'random';
+  variantAssignmentMode?: 'pick' | 'random' | 'draft';
   variants?: LiveBreakVariantDraft[];
   boardPack?: LiveBoardPackId;
   teamBoardNcaa?: boolean;
@@ -100,6 +103,7 @@ export function breakSpotCountForSaleType(
     return includeNcaaSpot && boardPack === 'nfl' && saleType === 'pyt' ? n + 1 : n;
   }
   if (saleType === 'pyd' || saleType === 'random_pyd') return 8;
+  if (saleType === 'sweet16') return 16;
   return 0;
 }
 
@@ -370,6 +374,27 @@ export function validateQuickLiveLot(
         variantAssignmentMode: 'random',
         variants: [buildRandomPlayerVariant(spotPrice, parsed.names.length)],
         customRandomPoolLabels: parsed.names,
+      },
+    };
+  }
+
+  if (input.saleType === 'sweet16') {
+    const spotPrice = parseUsdInput(input.price);
+    if (spotPrice == null) {
+      return { ok: false, message: 'Enter a price per slot.' };
+    }
+    return {
+      ok: true,
+      values: {
+        title,
+        saleType: 'sweet16',
+        quantity: 1,
+        startingBidUsd: null,
+        reservePriceUsd: null,
+        priceUsd: spotPrice,
+        salesFormat: 'variant_selection',
+        variantAssignmentMode: 'draft',
+        variants: buildSweet16SlotVariants(spotPrice),
       },
     };
   }

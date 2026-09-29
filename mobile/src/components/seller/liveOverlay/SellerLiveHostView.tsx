@@ -24,6 +24,8 @@ import { AddInventoryModal } from '../liveConsole/AddInventoryModal';
 import { EditBreakSpotsModal } from '../liveConsole/EditBreakSpotsModal';
 import { EditQueueItemPricingModal } from '../liveConsole/EditQueueItemPricingModal';
 import { AddSupplementalModal } from '../liveConsole/AddSupplementalModal';
+import { AddDivisionalSupplyModal } from '../liveConsole/AddDivisionalSupplyModal';
+import { LiveSweet16DraftSheet } from '../../live/LiveSweet16DraftSheet';
 import { LiveConsoleWarningBanner } from '../liveConsole/LiveConsoleWarningBanner';
 import type { SanitizedLiveError } from '../liveConsole/liveConsoleErrors';
 import { SellerLiveStreamBackdrop } from './SellerLiveStreamBackdrop';
@@ -1353,6 +1355,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
             ? `${console.lastSupplemental.name} \u00b7 $${console.lastSupplemental.priceUsd}`
             : null
         }
+        divisionalSupplyEligible={Boolean(displayItem && console.divisionalSupplyEligible(displayItem))}
+        onAddDivisionalSupply={console.openDivisionalSupplyForm}
+        sweet16Eligible={Boolean(displayItem && console.sweet16Eligible(displayItem))}
+        onStartSweet16Draft={console.startSweet16Draft}
       />
       <AddSupplementalModal
         open={console.supplementalModalOpen}
@@ -1361,6 +1367,27 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         onClose={console.closeSupplementalModal}
         onSubmit={console.appendSupplemental}
       />
+      <AddDivisionalSupplyModal
+        open={console.divisionalSupplyFormOpen}
+        parentTitle={displayItem?.displayTitle?.trim() || displayItem?.title || 'this board'}
+        defaultPriceUsd={displayItem?.priceUsd ?? null}
+        busy={console.busy}
+        onClose={console.closeDivisionalSupplyForm}
+        onSubmit={console.addDivisionalSupply}
+      />
+      {displayItem ? (
+        /* Host watches the same buyer-facing draft sheet in spectator mode -- the host never
+           holds a purchase on their own break, so it naturally renders its read-only "waiting
+           for @buyer" state and never the picker. */
+        <LiveSweet16DraftSheet
+          visible={console.sweet16DraftSheetOpen}
+          onClose={console.closeSweet16DraftSheet}
+          roomId={roomId}
+          itemId={displayItem.id}
+          title={displayItem.displayTitle?.trim() || displayItem.title}
+          accessToken={accessToken}
+        />
+      ) : null}
       <LiveSpotTakenCelebration
         celebration={spotCelebration}
         onDone={() => setSpotCelebration(null)}

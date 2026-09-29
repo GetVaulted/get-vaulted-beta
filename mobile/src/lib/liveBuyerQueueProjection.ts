@@ -22,7 +22,7 @@ export type LiveRoomLineupItemSnapshot = {
   biddingOpen: boolean;
   /** PYT/PYD spot list — present so the Shop sheet can open the buyer spot board for any lineup item. */
   variants?: LiveItemVariantSnapshot[];
-  variantAssignmentMode?: 'pick' | 'random';
+  variantAssignmentMode?: 'pick' | 'random' | 'draft';
 };
 
 type LineupItemInput = {
@@ -42,7 +42,7 @@ type LineupItemInput = {
   auctionEndsAt?: string | null;
   salesFormat?: string;
   variants?: LiveItemVariantSnapshot[];
-  variantAssignmentMode?: 'pick' | 'random';
+  variantAssignmentMode?: 'pick' | 'random' | 'draft';
   listingId?: string | null;
   createdAt?: string;
 };

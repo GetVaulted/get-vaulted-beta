@@ -11,7 +11,7 @@ export type StreamCategoryOption = {
 };
 
 /** Vault event wizard — persisted on the room as `category`. */
-export const VAULT_EVENT_CATEGORY_OPTIONS = ['Cards', 'Helmets'] as const;
+export const VAULT_EVENT_CATEGORY_OPTIONS = ['Cards', 'Helmets', 'Jersey'] as const;
 export type VaultEventCategory = (typeof VAULT_EVENT_CATEGORY_OPTIONS)[number];
 
 /** Labels match web discovery filters (`web/src/content/live-rooms.ts`) and API category strings. */
@@ -22,7 +22,7 @@ export const STREAM_CATEGORY_OPTIONS: StreamCategoryOption[] = VAULT_EVENT_CATEG
 
 export function isVaultEventCategory(raw: string | null | undefined): raw is VaultEventCategory {
   const trimmed = (raw ?? '').trim();
-  return trimmed === 'Cards' || trimmed === 'Helmets';
+  return trimmed === 'Cards' || trimmed === 'Helmets' || trimmed === 'Jersey';
 }
 
 function isBreakFormatStream(stream: LiveStream): boolean {

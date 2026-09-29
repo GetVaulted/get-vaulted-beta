@@ -194,7 +194,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const salesFormat = parseLiveItemSalesFormat(salesFormatBody);
   const variantAssignmentMode: LiveItemVariantAssignmentMode =
-    body.variantAssignmentMode === "random" && isVariantSalesFormat(salesFormat) ? "random" : "pick";
+    isVariantSalesFormat(salesFormat) && (body.variantAssignmentMode === "random" || body.variantAssignmentMode === "draft")
+      ? body.variantAssignmentMode
+      : "pick";
   const variantDrafts = isVariantSalesFormat(salesFormat) ? normalizeVariantDrafts(body.variants) : [];
   if (isVariantSalesFormat(salesFormat) && variantDrafts.length === 0) {
     return NextResponse.json({ error: "Add at least one selectable option for variant items." }, { status: 400 });
