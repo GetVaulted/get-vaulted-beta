@@ -6,7 +6,7 @@ import { LiveBadge } from '../../ui/LiveBadge';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import type { HostVideoFeedKind, HostVideoFeedStatus } from '../../../lib/hostVideoFeedStatus';
 import { formatLiveDurationHms } from '../../../lib/formatLiveDurationHms';
-import { colors, spacing } from '../../../theme';
+import { colors, spacing, vaultColors } from '../../../theme';
 
 function formatViewers(n: number) {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -224,7 +224,7 @@ const styles = StyleSheet.create({
     height: 38,
     borderRadius: 19,
     borderWidth: 2,
-    borderColor: colors.gold,
+    borderColor: vaultColors.gold,
   },
   avatarRingElsewhere: {
     borderColor: '#34d399',

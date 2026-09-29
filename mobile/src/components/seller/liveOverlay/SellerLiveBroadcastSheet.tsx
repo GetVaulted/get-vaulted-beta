@@ -3,7 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StreamAdvancedPanel } from '../liveConsole/StreamAdvancedPanel';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 export function SellerLiveBroadcastSheet({
   visible,
@@ -158,8 +158,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
   zoomPillActive: {
-    backgroundColor: colors.gold,
-    borderColor: colors.gold,
+    backgroundColor: vaultColors.gold,
+    borderColor: vaultColors.gold,
   },
   zoomPillText: { fontSize: 13, fontWeight: '700', color: colors.textSecondary },
   zoomPillTextActive: { color: '#000000' },

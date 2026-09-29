@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet } from 'react-native';
-import { colors } from '../../../theme';
+import { colors, vaultColors } from '../../../theme';
 
 type Props = {
   visible: boolean;
@@ -34,7 +34,7 @@ export function SellerMirrorFixButton({ visible, compact, disabled, active, onPr
       <Ionicons
         name="swap-horizontal-outline"
         size={compact ? 17 : 22}
-        color={active ? colors.gold : 'rgba(255,255,255,0.92)'}
+        color={active ? vaultColors.gold : 'rgba(255,255,255,0.92)'}
       />
     </Pressable>
   );
@@ -57,8 +57,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   btnActive: {
-    backgroundColor: 'rgba(212,175,55,0.18)',
-    borderColor: 'rgba(212,175,55,0.65)',
+    backgroundColor: 'rgba(203,163,92,0.18)',
+    borderColor: 'rgba(203,163,92,0.65)',
   },
   disabled: { opacity: 0.45 },
 });

@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import type { MobileHostBroadcastPhase } from '../../../hooks/useMobileStagePublish';
 import { confirmEndLive, confirmStartLive, confirmStartObsShow } from '../../../lib/sellerBroadcastConfirm';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
-import { colors, radii } from '../../../theme';
+import { colors, radii, vaultColors } from '../../../theme';
 
 type Props = {
   phase: MobileHostBroadcastPhase;
@@ -247,11 +247,11 @@ const styles = StyleSheet.create({
   },
   play: {
     borderRadius: radii.pill,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 16,
-    shadowColor: colors.gold,
+    shadowColor: vaultColors.gold,
     shadowOpacity: 0.35,
     shadowRadius: 8,
     elevation: 8,

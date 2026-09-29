@@ -3,7 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { formatUsdDisplay, queueItemQuantity } from '../../../lib/liveAuctionPricing';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 import { QueueSaleTypePill } from '../liveConsole/QueueSaleTypePill';
 
 export const SELLER_QUEUE_STRIP_CARD_W = 176;
@@ -106,12 +106,12 @@ function SellerQueueStripCard({
 
   return (
     <View style={styles.card}>
-      <LinearGradient colors={['rgba(212,175,55,0.1)', 'rgba(8,8,10,0.98)']} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={['rgba(203,163,92,0.1)', 'rgba(8,8,10,0.98)']} style={StyleSheet.absoluteFill} />
       {thumb ? (
         <Image source={{ uri: thumb }} style={styles.thumb} />
       ) : (
         <View style={[styles.thumb, styles.thumbPh]}>
-          <Ionicons name="diamond-outline" size={22} color={colors.gold} />
+          <Ionicons name="diamond-outline" size={22} color={vaultColors.gold} />
         </View>
       )}
       <Text style={styles.cardTitle} numberOfLines={2}>
@@ -166,14 +166,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: radii.pill,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
   },
   emptyAddTxt: { fontWeight: '900', fontSize: 13, color: '#0a0a0a' },
   card: {
     width: SELLER_QUEUE_STRIP_CARD_W,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.28)',
+    borderColor: 'rgba(203,163,92,0.28)',
     overflow: 'hidden',
     padding: spacing.sm,
     gap: 4,
@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
   thumb: { width: '100%', height: 72, borderRadius: radii.md, backgroundColor: 'rgba(0,0,0,0.35)' },
   thumbPh: { alignItems: 'center', justifyContent: 'center' },
   cardTitle: { fontSize: 13, fontWeight: '800', color: colors.textPrimary, minHeight: 34 },
-  meta: { fontSize: 11, fontWeight: '700', color: colors.gold },
+  meta: { fontSize: 11, fontWeight: '700', color: vaultColors.gold },
   metaSub: { fontSize: 10, fontWeight: '600', color: colors.textSecondary },
   statusChip: {
     alignSelf: 'flex-start',
@@ -202,14 +202,14 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.35)',
+    borderColor: 'rgba(203,163,92,0.35)',
   },
-  editBtnTxt: { fontWeight: '800', fontSize: 11, color: colors.gold },
+  editBtnTxt: { fontWeight: '800', fontSize: 11, color: vaultColors.gold },
   pinBtn: {
     flex: 1,
     paddingVertical: 8,
     borderRadius: radii.md,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     alignItems: 'center',
   },
   pinBtnDisabled: { opacity: 0.45 },

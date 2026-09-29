@@ -18,7 +18,7 @@ import {
   buildSellerLiveShareOgTitle,
 } from '../../../lib/liveRoomShare';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 type Props = {
   visible: boolean;
@@ -175,13 +175,13 @@ const styles = StyleSheet.create({
   primaryBtn: {
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.35)',
-    backgroundColor: 'rgba(212,175,55,0.12)',
+    borderColor: 'rgba(203,163,92,0.35)',
+    backgroundColor: 'rgba(203,163,92,0.12)',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
     marginBottom: spacing.sm,
   },
-  primaryBtnTxt: { fontSize: 14, fontWeight: '800', color: colors.gold },
+  primaryBtnTxt: { fontSize: 14, fontWeight: '800', color: vaultColors.gold },
   linkHint: { marginTop: 4, fontSize: 11, fontWeight: '600', color: colors.textMuted },
   secondaryBtn: {
     borderRadius: radii.md,

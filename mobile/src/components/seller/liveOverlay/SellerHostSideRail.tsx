@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, spacing } from '../../../theme';
+import { colors, spacing, vaultColors } from '../../../theme';
 
 type Props = {
   bottom: number;
@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.45)',
   },

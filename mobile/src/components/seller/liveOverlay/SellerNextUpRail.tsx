@@ -6,7 +6,7 @@ import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { formatUsdDisplay, queueItemQuantity } from '../../../lib/liveAuctionPricing';
 import { logSellerQueue } from '../../../lib/logSellerQueue';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 import { QueueSaleTypePill } from '../liveConsole/QueueSaleTypePill';
 
 /** Compact Whatnot-style “next up” bar — full queue opens in sheet only. */
@@ -94,7 +94,7 @@ export function SellerNextUpRail({
               hitSlop={6}
               accessibilityLabel={`${SELLER_CONSOLE.lineup}, ${queuedCount} waiting`}
             >
-              <Ionicons name="layers-outline" size={15} color={colors.gold} />
+              <Ionicons name="layers-outline" size={15} color={vaultColors.gold} />
               <Text style={styles.queueBtnTxt}>Queue</Text>
               <View style={styles.badge}>
                 <Text style={styles.badgeTxt}>{loading ? '…' : String(queuedCount)}</Text>
@@ -165,7 +165,7 @@ const styles = StyleSheet.create({
   nextMeta: {
     fontSize: 10,
     fontWeight: '600',
-    color: colors.gold,
+    color: vaultColors.gold,
     marginTop: 1,
   },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.35)',
+    borderColor: 'rgba(203,163,92,0.35)',
     backgroundColor: 'rgba(0,0,0,0.35)',
     minHeight: 36,
   },
@@ -186,7 +186,7 @@ const styles = StyleSheet.create({
     minWidth: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
@@ -196,7 +196,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     alignItems: 'center',
     justifyContent: 'center',
   },

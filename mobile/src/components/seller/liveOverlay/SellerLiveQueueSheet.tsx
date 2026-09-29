@@ -14,7 +14,7 @@ import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { LiveConsoleWarningBanner } from '../liveConsole/LiveConsoleWarningBanner';
 import type { SanitizedLiveError } from '../liveConsole/liveConsoleErrors';
 import { VaultQueueList } from '../liveConsole/VaultQueueList';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 export function SellerLiveQueueSheet({
   visible,
@@ -61,7 +61,7 @@ export function SellerLiveQueueSheet({
       {consoleError ? (
         <LiveConsoleWarningBanner error={consoleError} onRetry={onRetry} retrying={loading} />
       ) : null}
-      {loading ? <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.lg }} /> : null}
+      {loading ? <ActivityIndicator color={vaultColors.gold} style={{ marginVertical: spacing.lg }} /> : null}
     </View>
   );
 
@@ -120,7 +120,7 @@ export function SellerLiveQueueSheet({
               accessibilityRole="button"
               accessibilityLabel="Add item to show queue"
             >
-              <Ionicons name="add-circle-outline" size={20} color={colors.gold} />
+              <Ionicons name="add-circle-outline" size={20} color={vaultColors.gold} />
               <Text style={styles.addFooterTxt}>Add item</Text>
             </Pressable>
           ) : null}
@@ -172,9 +172,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.35)',
-    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderColor: 'rgba(203,163,92,0.35)',
+    backgroundColor: 'rgba(203,163,92,0.08)',
   },
   addFooterOff: { opacity: 0.55 },
-  addFooterTxt: { fontSize: 14, fontWeight: '800', color: colors.gold },
+  addFooterTxt: { fontSize: 14, fontWeight: '800', color: vaultColors.gold },
 });

@@ -14,7 +14,7 @@ import { computeLiveLotReserveMet } from '../../../lib/liveLotReserveStatus';
 import { isVariantPurchaseItem, summarizeVariantSpots, hostPinnedBuyerVariant } from '../../../lib/liveItemVariant';
 import { wallTimeMsFromServerAnchor } from '../../../lib/serverClockSync';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 import { lc } from './liveConsoleTheme';
 
 type HostLotHudPhase =
@@ -253,7 +253,7 @@ export function VaultPinnedLotCard({
   const driftX = gradientDrift.interpolate({ inputRange: [0, 1], outputRange: [-24, 24] });
   const borderColor = borderPulse.interpolate({
     inputRange: [0, 1],
-    outputRange: ['rgba(212,175,55,0.35)', 'rgba(255,59,48,0.55)'],
+    outputRange: ['rgba(203,163,92,0.35)', 'rgba(255,59,48,0.55)'],
   });
 
   if (!item) {
@@ -361,7 +361,7 @@ export function VaultPinnedLotCard({
           <Image source={{ uri: thumb }} style={[styles.thumb, compact && styles.thumbCompact]} />
         ) : (
           <View style={[styles.thumb, styles.thumbPh, compact && styles.thumbCompact]}>
-            <Ionicons name="diamond-outline" size={compact ? 20 : 26} color={colors.gold} />
+            <Ionicons name="diamond-outline" size={compact ? 20 : 26} color={vaultColors.gold} />
           </View>
         )}
       </View>
@@ -490,7 +490,7 @@ export function VaultPinnedLotCard({
     >
       <Animated.View style={[styles.gradientDrift, { transform: [{ translateX: driftX }] }]} pointerEvents="none">
         <LinearGradient
-          colors={['rgba(212,175,55,0.22)', 'rgba(255,59,48,0.08)', 'rgba(12,11,9,0.98)']}
+          colors={['rgba(203,163,92,0.22)', 'rgba(255,59,48,0.08)', 'rgba(12,11,9,0.98)']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
@@ -592,7 +592,7 @@ export function VaultPinnedLotCard({
                 value={clutchTimeEnabled}
                 onValueChange={onToggleClutchTime}
                 disabled={busy || startingAuction}
-                trackColor={{ false: 'rgba(255,255,255,0.15)', true: colors.gold }}
+                trackColor={{ false: 'rgba(255,255,255,0.15)', true: vaultColors.gold }}
                 thumbColor="#fff"
                 accessibilityLabel={SELLER_CONSOLE.clutchTime}
               />
@@ -663,7 +663,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.35)',
+    borderColor: 'rgba(203,163,92,0.35)',
     padding: spacing.sm,
     gap: 6,
   },
@@ -687,7 +687,7 @@ const styles = StyleSheet.create({
   },
   bidderFlash: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(212,175,55,0.2)',
+    backgroundColor: 'rgba(203,163,92,0.2)',
   },
   row: { flexDirection: 'row', gap: spacing.sm },
   rowCompact: { gap: 8 },
@@ -705,9 +705,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: radii.pill,
-    backgroundColor: 'rgba(212,175,55,0.15)',
+    backgroundColor: 'rgba(203,163,92,0.15)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(212,175,55,0.45)',
+    borderColor: 'rgba(203,163,92,0.45)',
   },
   timerChipUrgent: {
     backgroundColor: 'rgba(255,59,48,0.18)',
@@ -716,7 +716,7 @@ const styles = StyleSheet.create({
   timerChipTxt: {
     fontSize: 10,
     fontWeight: '900',
-    color: colors.gold,
+    color: vaultColors.gold,
     fontVariant: ['tabular-nums'],
     letterSpacing: 0.4,
   },
@@ -732,7 +732,7 @@ const styles = StyleSheet.create({
   timerFill: {
     height: '100%',
     borderRadius: 2,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
   },
   timerFillUrgent: { backgroundColor: colors.live },
   eyebrowCompact: { fontSize: 11 },
@@ -744,9 +744,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: radii.pill,
-    backgroundColor: 'rgba(212,175,55,0.18)',
+    backgroundColor: 'rgba(203,163,92,0.18)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(212,175,55,0.55)',
+    borderColor: 'rgba(203,163,92,0.55)',
   },
   pinnedTeamChipCompact: {
     marginTop: 2,
@@ -757,7 +757,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 0.5,
-    color: colors.gold,
+    color: vaultColors.gold,
     textTransform: 'uppercase',
   },
   pinnedTeamChipTxtCompact: { fontSize: 9 },
@@ -793,8 +793,8 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   durationChipSelected: {
-    borderColor: colors.gold,
-    backgroundColor: 'rgba(212,175,55,0.2)',
+    borderColor: vaultColors.gold,
+    backgroundColor: 'rgba(203,163,92,0.2)',
   },
   durationChipDisabled: { opacity: 0.5 },
   durationChipTxt: {
@@ -804,8 +804,8 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   durationChipTxtCompact: { fontSize: 11 },
-  durationChipTxtSelected: { color: colors.gold },
-  bidVal: { fontSize: 24, fontWeight: '900', color: colors.gold, marginTop: 1 },
+  durationChipTxtSelected: { color: vaultColors.gold },
+  bidVal: { fontSize: 24, fontWeight: '900', color: vaultColors.gold, marginTop: 1 },
   bidValCompact: { fontSize: 18, marginTop: 0 },
   bidderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   bidderDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.live },
@@ -814,7 +814,7 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', gap: spacing.sm, marginTop: 2 },
   meta: { fontSize: 10, fontWeight: '600', color: colors.textMuted },
   editSpotsHint: {
-    color: 'rgba(212,175,55,0.92)',
+    color: 'rgba(203,163,92,0.92)',
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.6,
@@ -861,7 +861,7 @@ const styles = StyleSheet.create({
   runningTimer: {
     fontSize: 11,
     fontWeight: '900',
-    color: colors.gold,
+    color: vaultColors.gold,
     fontVariant: ['tabular-nums'],
   },
   runningTimerUrgent: {
@@ -871,7 +871,7 @@ const styles = StyleSheet.create({
     marginLeft: 'auto',
     fontSize: 14,
     fontWeight: '900',
-    color: colors.gold,
+    color: vaultColors.gold,
     fontVariant: ['tabular-nums'],
   },
   statusBanner: {
@@ -901,7 +901,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.35)',
+    borderColor: 'rgba(203,163,92,0.35)',
     marginBottom: 4,
   },
   editLotBtnCompact: {
@@ -912,7 +912,7 @@ const styles = StyleSheet.create({
   editLotBtnTxt: {
     fontSize: 11,
     fontWeight: '800',
-    color: colors.gold,
+    color: vaultColors.gold,
   },
   editLotBtnTxtCompact: {
     fontSize: 10,
@@ -922,7 +922,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 40,
     borderRadius: radii.pill,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     paddingHorizontal: spacing.md,
   },
   startAuctionPrimaryCompact: {
@@ -972,7 +972,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     paddingHorizontal: 12,
     borderRadius: radii.pill,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
   },
   action: {
     paddingVertical: 7,
@@ -1011,11 +1011,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.45)',
-    backgroundColor: 'rgba(212,175,55,0.22)',
+    borderColor: 'rgba(203,163,92,0.45)',
+    backgroundColor: 'rgba(203,163,92,0.22)',
     alignItems: 'center',
   },
   pinBtnDefault: { marginTop: spacing.sm },
   pinBtnDisabled: { opacity: 0.45 },
-  pinBtnTxt: { fontSize: 11, fontWeight: '900', color: colors.gold, textTransform: 'uppercase', letterSpacing: 0.6 },
+  pinBtnTxt: { fontSize: 11, fontWeight: '900', color: vaultColors.gold, textTransform: 'uppercase', letterSpacing: 0.6 },
 });

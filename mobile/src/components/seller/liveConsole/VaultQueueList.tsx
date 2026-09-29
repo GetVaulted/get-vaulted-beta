@@ -6,7 +6,7 @@ import { isVariantSalesFormat, summarizeVariantSpots } from '../../../lib/liveIt
 import { formatUsdDisplay, queueItemQuantity } from '../../../lib/liveAuctionPricing';
 import { queueStatusLabel } from '../liveOverlay/SellerQueueStrip';
 import { QueueSaleTypePill } from './QueueSaleTypePill';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 function pricingSummary(item: LiveRoomItemRow): string {
   if (isVariantSalesFormat(item.salesFormat)) {
@@ -74,7 +74,7 @@ function VaultQueueRow({
         <Image source={{ uri: item.imageUrl.trim() }} style={styles.thumb} />
       ) : (
         <View style={[styles.thumb, styles.thumbPh]}>
-          <Ionicons name="diamond-outline" size={20} color={colors.gold} />
+          <Ionicons name="diamond-outline" size={20} color={vaultColors.gold} />
         </View>
       )}
       <View style={{ flex: 1, minWidth: 0 }}>
@@ -227,14 +227,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.2)',
   },
   cardActive: {
-    borderColor: 'rgba(212,175,55,0.45)',
-    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderColor: 'rgba(203,163,92,0.45)',
+    backgroundColor: 'rgba(203,163,92,0.08)',
   },
   dragHandle: { padding: 4 },
   thumb: { width: 52, height: 64, borderRadius: radii.sm, backgroundColor: 'rgba(0,0,0,0.4)' },
   thumbPh: { alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 13, fontWeight: '800', color: colors.textPrimary },
-  bid: { fontSize: 11, fontWeight: '600', color: colors.gold, marginTop: 2, lineHeight: 15 },
+  bid: { fontSize: 11, fontWeight: '600', color: vaultColors.gold, marginTop: 2, lineHeight: 15 },
   metaLine: { fontSize: 10, fontWeight: '600', color: colors.textSecondary },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
   tag: { fontSize: 9, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase' },
@@ -244,14 +244,14 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.35)',
+    borderColor: 'rgba(203,163,92,0.35)',
   },
-  editBtnTxt: { fontSize: 10, fontWeight: '800', color: colors.gold },
+  editBtnTxt: { fontSize: 10, fontWeight: '800', color: vaultColors.gold },
   pinBtn: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: radii.pill,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
   },
   pinBtnDisabled: { opacity: 0.45 },
   pinBtnTxt: { fontSize: 11, fontWeight: '800', color: '#0a0a0a' },

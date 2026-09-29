@@ -8,7 +8,7 @@ import {
   scaledStaffChatToggleHeight,
 } from '../../../lib/liveRoomBottomLayout';
 import type { MentionComposerInputHandle } from '../../mentions/MentionComposerInput';
-import { colors } from '../../../theme';
+import { colors, vaultColors } from '../../../theme';
 
 export function SellerLiveComposer({
   bottom,
@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     zIndex: 20,
     elevation: 20,
-    shadowColor: colors.gold,
+    shadowColor: vaultColors.gold,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 0 },
   },
@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.55)',
-    backgroundColor: 'rgba(212,175,55,0.06)',
+    borderColor: 'rgba(203,163,92,0.55)',
+    backgroundColor: 'rgba(203,163,92,0.06)',
   },
 });

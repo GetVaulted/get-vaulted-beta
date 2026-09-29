@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { queueSaleTypePillLabel } from '../../../lib/liveQueueSaleTypePill';
-import { colors, radii } from '../../../theme';
+import { colors, radii, vaultColors } from '../../../theme';
 
 export function QueueSaleTypePill({
   item,
@@ -47,8 +47,8 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   pillAuction: {
-    borderColor: 'rgba(212,175,55,0.45)',
-    backgroundColor: 'rgba(212,175,55,0.12)',
+    borderColor: 'rgba(203,163,92,0.45)',
+    backgroundColor: 'rgba(203,163,92,0.12)',
   },
   pillBuyNow: {
     borderColor: 'rgba(52,199,89,0.45)',
@@ -61,7 +61,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   txtAuction: {
-    color: colors.gold,
+    color: vaultColors.gold,
   },
   txtBuyNow: {
     color: colors.success,

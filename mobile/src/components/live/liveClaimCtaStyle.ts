@@ -1,2 +1,4 @@
-/** Claim Team / Division + hold-to-buy primary CTA gradient (matches live HUD). */
-export const LIVE_CLAIM_CTA_GRADIENT = ['#D946EF', '#8B5CF6', '#6366F1'] as const;
+import { vaultColors } from '../../theme/vaultColors';
+
+/** Claim Team / Division + hold-to-buy primary CTA gradient (matches live HUD, brass gold). */
+export const LIVE_CLAIM_CTA_GRADIENT = [vaultColors.goldBright, vaultColors.gold, vaultColors.goldDim] as const;

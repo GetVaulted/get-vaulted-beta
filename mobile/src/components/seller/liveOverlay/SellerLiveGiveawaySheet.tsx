@@ -27,7 +27,7 @@ import {
 import type { HostGiveawayAction } from '../../../hooks/useHostGiveawayActions';
 import { openPromoEntry } from '../../../navigation/openPromoEntry';
 import { useGiveawayCountdown } from '../../../hooks/useGiveawayCountdown';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 import { SellerGiveawayEntrantList } from './SellerGiveawayEntrantList';
 
 function HostGiveawayTimer({
@@ -359,13 +359,13 @@ export function SellerLiveGiveawaySheet({
                     <Image source={{ uri: imageUri }} style={styles.photoPreview} contentFit="cover" />
                   ) : (
                     <View style={styles.photoPlaceholder}>
-                      <Ionicons name="camera-outline" size={24} color={colors.gold} />
+                      <Ionicons name="camera-outline" size={24} color={vaultColors.gold} />
                       <Text style={styles.photoPlaceholderTxt}>Prize photo (optional)</Text>
                     </View>
                   )}
                   {imageUploading ? (
                     <View style={styles.photoUploading}>
-                      <ActivityIndicator color={colors.gold} />
+                      <ActivityIndicator color={vaultColors.gold} />
                     </View>
                   ) : null}
                 </Pressable>
@@ -591,7 +591,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tabActive: { borderColor: colors.gold, backgroundColor: 'rgba(212,175,55,0.12)' },
+  tabActive: { borderColor: vaultColors.gold, backgroundColor: 'rgba(203,163,92,0.12)' },
   tabTxt: {
     fontSize: 12,
     fontWeight: '700',
@@ -600,7 +600,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
   },
-  tabTxtActive: { color: colors.gold },
+  tabTxtActive: { color: vaultColors.gold },
   scroll: { flexGrow: 0, flexShrink: 1 },
   scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.md, flexGrow: 1 },
   hint: { fontSize: 12, color: colors.textMuted, lineHeight: 18 },
@@ -648,7 +648,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   timer: { fontSize: 11, fontWeight: '800', color: '#c4b5fd', marginTop: 2, fontVariant: ['tabular-nums'] },
-  winner: { fontSize: 12, fontWeight: '700', color: colors.gold },
+  winner: { fontSize: 12, fontWeight: '700', color: vaultColors.gold },
   amoeRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md },
   amoe: { fontSize: 10, color: colors.textMuted, flex: 1 },
   photoBox: {
@@ -712,7 +712,7 @@ const styles = StyleSheet.create({
   primaryBtn: {
     flex: 1,
     borderRadius: radii.md,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     paddingVertical: spacing.md,
     alignItems: 'center',
   },

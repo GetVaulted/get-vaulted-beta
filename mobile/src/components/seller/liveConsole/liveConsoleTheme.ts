@@ -1,14 +1,14 @@
 import { StyleSheet } from 'react-native';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 export const lc = {
   glass: {
     backgroundColor: 'rgba(12, 11, 9, 0.72)',
     borderWidth: 1,
-    borderColor: 'rgba(212, 175, 55, 0.22)',
+    borderColor: 'rgba(203,163,92,0.22)',
   },
   goldGlow: {
-    shadowColor: '#D4AF37',
+    shadowColor: '#CBA35C',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 12,
@@ -19,7 +19,7 @@ export const lc = {
     fontWeight: '800' as const,
     letterSpacing: 1.3,
     textTransform: 'uppercase' as const,
-    color: colors.gold,
+    color: vaultColors.gold,
   },
   sectionTitle: {
     fontSize: 17,
@@ -38,7 +38,7 @@ export const liveConsoleStyles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: 'rgba(212,175,55,0.28)',
+    borderColor: 'rgba(203,163,92,0.28)',
     backgroundColor: 'rgba(8,8,10,0.97)',
   },
   dockHandle: {

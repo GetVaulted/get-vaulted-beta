@@ -6,7 +6,7 @@ import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { confirmStartLive, confirmStartObsShow } from '../../../lib/sellerBroadcastConfirm';
 import { GIVVY_UI } from '../../../lib/givvyUi';
 import { sellerConsoleToolbarScale } from '../../../lib/liveRoomUiScale';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 import { SellerBroadcastControl } from './SellerBroadcastControl';
 import { SellerCameraFlipButton } from './SellerCameraFlipButton';
 import { SellerMirrorFixButton } from './SellerMirrorFixButton';
@@ -413,7 +413,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: radii.pill,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
   },
   disabled: { opacity: 0.55 },
 });

@@ -10,7 +10,7 @@ import {
 } from '../../../lib/liveBreakPresets';
 import { formatUsdInput, parseUsdInput } from '../../../lib/liveAuctionPricing';
 import { formatSoldSpotBuyerLabel } from '../../../lib/liveVariantSpotBoard';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 type Props = {
   saleType: 'pyt' | 'pyd' | 'pyp';
@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
   cellSold: { opacity: 0.92 },
   cellSelected: {
     borderWidth: 2,
-    borderColor: colors.gold,
+    borderColor: vaultColors.gold,
   },
   cellGradient: {
     minHeight: 68,
@@ -282,8 +282,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.12)',
   },
   pinBtnActive: {
-    backgroundColor: 'rgba(212,175,55,0.22)',
-    borderColor: 'rgba(212,175,55,0.45)',
+    backgroundColor: 'rgba(203,163,92,0.22)',
+    borderColor: 'rgba(203,163,92,0.45)',
   },
   pinBtnText: {
     fontSize: 9,
@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.72)',
   },
   pinBtnTextActive: {
-    color: colors.gold,
+    color: vaultColors.gold,
   },
   soldBadge: {
     position: 'absolute',
@@ -319,7 +319,7 @@ const styles = StyleSheet.create({
   editor: {
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.25)',
+    borderColor: 'rgba(203,163,92,0.25)',
     backgroundColor: 'rgba(0,0,0,0.35)',
     padding: spacing.sm,
     gap: 8,
@@ -339,7 +339,7 @@ const styles = StyleSheet.create({
   },
   editorSave: {
     borderRadius: radii.sm,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     paddingHorizontal: 16,
     justifyContent: 'center',
   },

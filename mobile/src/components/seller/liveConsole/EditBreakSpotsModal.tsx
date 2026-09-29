@@ -16,7 +16,7 @@ import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { liveBreakVariantIsSold, type LiveBreakVariantDraft } from '../../../lib/liveBreakPresets';
 import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
-import { colors, spacing } from '../../../theme';
+import { colors, spacing, vaultColors } from '../../../theme';
 import { BreakSpotSetupGrid, breakSpotsFromItemVariants } from './BreakSpotSetupGrid';
 
 function variantsSyncKey(
@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.3)',
+    borderColor: 'rgba(203,163,92,0.3)',
     maxHeight: Platform.OS === 'ios' ? '92%' : '94%',
   },
   sheetHeader: { alignItems: 'center', paddingTop: spacing.sm },
@@ -160,7 +160,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     paddingVertical: 14,
     borderRadius: 10,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     alignItems: 'center',
   },
   primaryOff: { opacity: 0.55 },

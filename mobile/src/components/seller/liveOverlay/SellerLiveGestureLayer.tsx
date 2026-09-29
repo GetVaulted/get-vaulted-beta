@@ -9,7 +9,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 type QuickAction = {
   key: string;
@@ -64,7 +64,7 @@ export function SellerLiveGestureLayer({
             <View style={styles.menuGrid}>
               {actions.map((a) => (
                 <Pressable key={a.key} style={styles.menuBtn} onPress={a.onPress}>
-                  <Ionicons name={a.icon} size={22} color={colors.gold} />
+                  <Ionicons name={a.icon} size={22} color={vaultColors.gold} />
                   <Text style={styles.menuLbl}>{a.label}</Text>
                 </Pressable>
               ))}
@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(212,175,55,0.35)',
+    borderColor: 'rgba(203,163,92,0.35)',
     padding: spacing.lg,
   },
   menuAndroid: {

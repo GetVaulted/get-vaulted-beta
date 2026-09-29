@@ -48,7 +48,7 @@ export function HeroAmbientLayer({ roomLive, biddingUrgent }: { roomLive: boolea
       ) : (
         <Animated.View style={[styles.shimmerBar, { opacity: shimmerOpacity }]}>
           <LinearGradient
-            colors={['transparent', 'rgba(212,175,55,0.35)', 'transparent']}
+            colors={['transparent', 'rgba(203,163,92,0.35)', 'transparent']}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={StyleSheet.absoluteFill}
@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
     width: '70%',
     height: '55%',
     borderRadius: 200,
-    backgroundColor: 'rgba(212,175,55,0.14)',
+    backgroundColor: 'rgba(203,163,92,0.14)',
   },
   orbRed: {
     position: 'absolute',

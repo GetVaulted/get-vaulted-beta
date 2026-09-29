@@ -19,7 +19,7 @@ import type {
 import { createOffPlatformPlatformFeeCheckout } from '../../../api/liveRoomControlRepository';
 import { cancelHostPaymentFailure } from '../../../api/livePaymentFailureRepository';
 import { openStripeCheckoutSession } from '../../../lib/openStripeCheckoutSession';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 function fmtUsd(n: number) {
   return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -165,7 +165,7 @@ export function SellerLiveSalesSheet({
           <ScrollView
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onPullRefresh()} tintColor={colors.gold} />}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onPullRefresh()} tintColor={vaultColors.gold} />}
             keyboardShouldPersistTaps="handled"
           >
             {paymentFailures.length > 0 ? (
@@ -465,7 +465,7 @@ const styles = StyleSheet.create({
   saleBody: { flex: 1, minWidth: 0 },
   saleUser: { fontSize: 12, fontWeight: '700', color: '#fff' },
   saleKind: { fontWeight: '400', color: 'rgba(255,255,255,0.45)' },
-  spotLabel: { fontSize: 10, fontWeight: '700', color: colors.gold, marginTop: 2 },
+  spotLabel: { fontSize: 10, fontWeight: '700', color: vaultColors.gold, marginTop: 2 },
   saleAmount: {
     fontSize: 12,
     fontWeight: '600',
@@ -477,7 +477,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     marginTop: 8,
     borderRadius: radii.sm,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     paddingHorizontal: 10,
     paddingVertical: 7,
     minWidth: 110,

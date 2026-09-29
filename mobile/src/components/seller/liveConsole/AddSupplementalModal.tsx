@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 export type SupplementalPayload = {
   name: string;
@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.3)',
+    borderColor: 'rgba(203,163,92,0.3)',
     maxHeight: Platform.OS === 'ios' ? '88%' : '92%',
   },
   sheetHeader: { alignItems: 'center', paddingTop: spacing.sm },
@@ -164,7 +164,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.25)',
+    borderColor: 'rgba(203,163,92,0.25)',
     borderRadius: radii.md,
     paddingHorizontal: 12,
     paddingVertical: 12,
@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     paddingVertical: 14,
     borderRadius: 10,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     alignItems: 'center',
     minHeight: 48,
     justifyContent: 'center',

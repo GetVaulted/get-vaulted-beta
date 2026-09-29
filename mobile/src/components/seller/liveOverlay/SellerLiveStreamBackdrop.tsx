@@ -4,7 +4,7 @@ import { StageHostPreviewVideo } from './StageHostPreviewVideo';
 import { SellerCameraPermissionGate } from './SellerCameraPermissionGate';
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import type { SellerCameraPermissionState } from '../../../hooks/useMobileStagePublish';
-import { colors } from '../../../theme';
+import { colors, vaultColors } from '../../../theme';
 
 export function SellerLiveStreamBackdrop({
   thumbnailUrl,
@@ -97,7 +97,7 @@ export function SellerLiveStreamBackdrop({
       ) : null}
       {!roomLive && useStageCamera && (permissionState === 'requesting' || permissionState === 'idle') ? (
         <View style={styles.previewLane} pointerEvents="box-none">
-          <ActivityIndicator color={colors.gold} size="small" />
+          <ActivityIndicator color={vaultColors.gold} size="small" />
           <Text style={styles.previewTxt}>Starting camera…</Text>
           {permissionState === 'idle' ? (
             <Pressable style={styles.previewRetry} onPress={onRetryCameraPermission} disabled={permissionRetrying}>
@@ -107,7 +107,7 @@ export function SellerLiveStreamBackdrop({
         </View>
       ) : useStageCamera && permissionState === 'granted' && !showLiveFeed ? (
         <View style={styles.previewLane} pointerEvents="box-none">
-          <ActivityIndicator color={colors.gold} size="small" />
+          <ActivityIndicator color={vaultColors.gold} size="small" />
           <Text style={styles.previewTxt}>Starting camera…</Text>
           <Pressable style={styles.previewRetry} onPress={onRetryCameraPermission} disabled={permissionRetrying}>
             <Text style={styles.previewRetryTxt}>{permissionRetrying ? 'Retrying…' : 'Retry camera'}</Text>
@@ -140,13 +140,13 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: 'rgba(0,0,0,0.42)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(212,175,55,0.4)',
+    borderColor: 'rgba(203,163,92,0.4)',
   },
   previewDot: {
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
   },
   previewTxt: {
     color: 'rgba(255,255,255,0.78)',
@@ -160,11 +160,11 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(212,175,55,0.55)',
-    backgroundColor: 'rgba(212,175,55,0.12)',
+    borderColor: 'rgba(203,163,92,0.55)',
+    backgroundColor: 'rgba(203,163,92,0.12)',
   },
   previewRetryTxt: {
-    color: colors.gold,
+    color: vaultColors.gold,
     fontSize: 10,
     fontWeight: '800',
   },

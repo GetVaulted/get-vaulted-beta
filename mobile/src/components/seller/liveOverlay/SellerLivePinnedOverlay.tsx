@@ -89,7 +89,7 @@ export function SellerLivePinnedOverlay({
           <View style={styles.androidGlass} />
         )}
         <LinearGradient
-          colors={['rgba(212,175,55,0.1)', 'rgba(8,8,8,0.9)']}
+          colors={['rgba(203,163,92,0.1)', 'rgba(8,8,8,0.9)']}
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.inner}>
@@ -130,8 +130,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(212,175,55,0.38)',
-    shadowColor: '#D4AF37',
+    borderColor: 'rgba(203,163,92,0.38)',
+    shadowColor: '#CBA35C',
     shadowOpacity: 0.25,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 2 },
