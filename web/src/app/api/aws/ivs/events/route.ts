@@ -5,7 +5,11 @@ import {
   isIvsRecordingStateChangePayload,
   parseIvsRecordingStateChange,
 } from "@/lib/trust/ivs-recording-events";
-import { markReplayRecordingFailed, markReplayRecordingReady } from "@/lib/trust/live-replay-service";
+import {
+  markReplayRecordingFailed,
+  markReplayRecordingReady,
+  markReplayRecordingStarted,
+} from "@/lib/trust/live-replay-service";
 import { applyRecordedIvsStreamState, findLiveRoomIdByIvsChannelArn } from "@/services/ivs";
 
 function clientKey(req: Request): string {
@@ -61,8 +65,17 @@ async function handleRecordingEvent(body: unknown) {
   }
 
   if (parsed.kind === "start") {
-    logIvsOpsServer("ivs_recording_started", { channelArnLen: parsed.channelArn.length });
-    return NextResponse.json({ ok: true, kind: "start" });
+    const result = await markReplayRecordingStarted({
+      channelArn: parsed.channelArn,
+      s3Bucket: parsed.s3Bucket,
+      s3KeyPrefix: parsed.s3KeyPrefix,
+    });
+    logIvsOpsServer("ivs_recording_started", {
+      channelArnLen: parsed.channelArn.length,
+      replayId: result?.replayId ?? null,
+      prefixCaptured: Boolean(parsed.s3KeyPrefix),
+    });
+    return NextResponse.json({ ok: true, kind: "start", matched: Boolean(result) });
   }
 
   if (parsed.kind === "end_success") {

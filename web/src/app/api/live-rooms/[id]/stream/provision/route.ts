@@ -41,9 +41,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       });
       const arn = provisioned.channelArn || (await getStreamRow(id))?.ivsChannelArn;
       if (arn) {
-        const { ensureChannelLowLatencyMode } = await import("@/services/ivs");
+        const { ensureChannelLowLatencyMode, ensureChannelType } = await import("@/services/ivs");
         const ok = await ensureChannelLowLatencyMode(arn);
         logIvsOpsServer("ivs_provision_latency_mode", { roomId: id, lowLatencyOk: ok });
+        await ensureChannelType(arn);
       }
       const row = await getStreamRow(id);
       if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });

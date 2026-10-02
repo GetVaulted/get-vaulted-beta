@@ -16,7 +16,9 @@ import {
   CreateStageCommand,
   DeleteStageCommand,
   GetCompositionCommand,
+  GetStageCommand,
   IVSRealTimeClient,
+  ListCompositionsCommand,
   ListParticipantsCommand,
   ListStageSessionsCommand,
   ParticipantTokenCapability,
@@ -28,7 +30,7 @@ import { IVS_WHIP_SERVER_URL, isIvsWhipIngestEndpoint } from "@/lib/ivs-whip-ing
 import type { LiveStreamHealth } from "@/generated/prisma/client";
 import { logIvsOpsServer, type IvsStreamHealthOpSource } from "@/lib/ivs-ops-log";
 import { prisma } from "@/lib/prisma";
-import { emitStreamStatusChanged } from "@/lib/realtime-emit-server";
+import { emitLiveDiscoveryChanged, emitStreamStatusChanged } from "@/lib/realtime-emit-server";
 
 type RequiredIvsEnv = {
   region: string;
@@ -80,8 +82,18 @@ function getEnv(): RequiredIvsEnv {
     );
   }
 
-  const rawChannelType = (process.env.AWS_IVS_CHANNEL_TYPE?.trim() ?? "STANDARD").toUpperCase();
-  const channelType: ChannelType = rawChannelType === "BASIC" ? "BASIC" : "STANDARD";
+  // Default ADVANCED_HD: compositions already encode the mirrored HLS output at 720p, so a
+  // STANDARD channel's 1080p ceiling was never used by this app's viewers, just paid for at
+  // $2.00/input-hr instead of $0.85/input-hr. Override with AWS_IVS_CHANNEL_TYPE if ever needed.
+  const rawChannelType = (process.env.AWS_IVS_CHANNEL_TYPE?.trim() ?? "ADVANCED_HD").toUpperCase();
+  const channelType: ChannelType =
+    rawChannelType === "BASIC"
+      ? "BASIC"
+      : rawChannelType === "ADVANCED_SD"
+        ? "ADVANCED_SD"
+        : rawChannelType === "STANDARD"
+          ? "STANDARD"
+          : "ADVANCED_HD";
 
   const rawLatencyMode = (process.env.AWS_IVS_LATENCY_MODE?.trim() ?? "LOW").toUpperCase();
   const latencyMode: ChannelLatencyMode = rawLatencyMode === "NORMAL" ? "NORMAL" : "LOW";
@@ -138,6 +150,45 @@ export async function ensureChannelRecordingConfiguration(channelArn: string): P
     return true;
   } catch (e) {
     logIvsOpsServer("ivs_channel_recording_attach_failed", {
+      channelArnLen: channelArn.length,
+      error: e instanceof Error ? e.message.slice(0, 200) : "unknown",
+    });
+    return false;
+  }
+}
+
+/**
+ * Upgrade a reused channel to the configured type (default ADVANCED_HD) when it's still on an
+ * older/pricier type. AWS rejects a `type` change while the channel has an active stream, so this
+ * is a no-op (returns false) on anything but a fully offline channel -- callers can retry next
+ * time the room is provisioned. Safe/idempotent: a no-op when already on the desired type.
+ */
+export async function ensureChannelType(channelArn: string): Promise<boolean> {
+  const desired = getEnv().channelType;
+  const client = makeClient();
+  try {
+    const current = await client.send(new GetChannelCommand({ arn: channelArn }));
+    const existing = (current.channel?.type ?? "").toUpperCase();
+    if (existing === desired) return true;
+
+    const stream = await getStreamStatus(channelArn);
+    if (stream.state !== "OFFLINE") {
+      logIvsOpsServer("ivs_channel_type_upgrade_skipped_live", {
+        channelArnLen: channelArn.length,
+        streamState: stream.state,
+      });
+      return false;
+    }
+
+    await client.send(new UpdateChannelCommand({ arn: channelArn, type: desired }));
+    logIvsOpsServer("ivs_channel_type_upgraded", {
+      channelArnLen: channelArn.length,
+      previousType: existing || "unknown",
+      newType: desired,
+    });
+    return true;
+  } catch (e) {
+    logIvsOpsServer("ivs_channel_type_upgrade_failed", {
       channelArnLen: channelArn.length,
       error: e instanceof Error ? e.message.slice(0, 200) : "unknown",
     });
@@ -665,6 +716,7 @@ export async function provisionRoomStream(roomId: string): Promise<IvsProvisionR
     room.ivsStreamKeyArn
   ) {
     await ensureChannelRecordingConfiguration(room.ivsChannelArn);
+    await ensureChannelType(room.ivsChannelArn);
     const rotated = await rotateStreamKey(roomId, room.ivsChannelArn, room.ivsStreamKeyArn);
     return {
       roomId,
@@ -1622,4 +1674,215 @@ export async function deleteRoomStage(roomId: string): Promise<void> {
     /** Stage may already be deleted. */
   }
   await prisma.liveRoom.update({ where: { id: roomId }, data: { ivsStageArn: null } });
+}
+
+/* ───────────────────────────── Orphaned composition cleanup (scheduled) ─────────────────────────────
+ * Backstop for "stop composition on show end": a composition keeps billing (~$2.30/hr -- channel
+ * input + HD encode) for as long as AWS reports it ACTIVE, independent of whatever our DB thinks
+ * happened. The normal paths (endHostStageSession on show end, the stuck-live recovery sweep for
+ * abandoned stage_webrtc rooms) cover the common cases, but both are DB-first: if the stop call
+ * never ran -- a restart mid-teardown, a crash before the fire-and-forget promise finished, or a
+ * `channel_hls` / OBS room the stage_webrtc-only recovery sweep never looks at -- the composition
+ * is orphaned and burns money until someone notices manually. This sweep is AWS-first instead: ask
+ * AWS what is ACTUALLY still ACTIVE, then decide per composition whether anything real is still
+ * using it, so DB/AWS drift of any kind self-heals within one sweep interval.
+ */
+
+/** Stage idle this long with no fresh session → its composition is almost certainly orphaned. */
+const COMPOSITION_IDLE_STOP_MS = 10 * 60_000;
+/**
+ * Backstop for a composition AWS no longer shows an active session for, but that hasn't tripped
+ * the idle-for-10-minutes check yet (e.g. ListStageSessions returning no history at all). This
+ * NEVER applies while GetStage still reports an active session -- a real, currently-live show is
+ * never cut off by this, no matter how long it runs.
+ */
+const COMPOSITION_HARD_CAP_MS = 8 * 60 * 60_000;
+
+export type IvsCompositionCleanupSummary = {
+  scanned: number;
+  stopped: number;
+  stoppedArns: string[];
+  roomsClosed: number;
+  errors: number;
+};
+
+type ActiveCompositionRef = { arn: string; stageArn: string; startTime: Date | undefined };
+
+async function listAllActiveCompositions(client: IVSRealTimeClient): Promise<ActiveCompositionRef[]> {
+  const out: ActiveCompositionRef[] = [];
+  let nextToken: string | undefined;
+  do {
+    const page = await client.send(new ListCompositionsCommand({ nextToken }));
+    for (const c of page.compositions ?? []) {
+      if (c.state === "ACTIVE" && c.arn && c.stageArn) {
+        out.push({ arn: c.arn, stageArn: c.stageArn, startTime: c.startTime });
+      }
+    }
+    nextToken = page.nextToken;
+  } while (nextToken);
+  return out;
+}
+
+type StageActivity = {
+  /** AWS currently shows a live session attached to this Stage (GetStage.activeSessionId). */
+  hasActiveSession: boolean;
+  /** ms since the newest session ended; null when there's no session history, or it's still open. */
+  idleForMs: number | null;
+};
+
+/**
+ * Read a Stage's real activity from AWS. Mirrors the "newest session first" assumption
+ * `countStagePublishers` already relies on for ListStageSessions.
+ */
+async function getStageActivity(client: IVSRealTimeClient, stageArn: string, now: number): Promise<StageActivity> {
+  const stage = await client.send(new GetStageCommand({ arn: stageArn })).catch(() => null);
+  if (stage?.stage?.activeSessionId) return { hasActiveSession: true, idleForMs: null };
+
+  const sessions = await client.send(new ListStageSessionsCommand({ stageArn })).catch(() => null);
+  const newest = sessions?.stageSessions?.[0];
+  if (!newest || !newest.endTime) return { hasActiveSession: false, idleForMs: null };
+  return { hasActiveSession: false, idleForMs: now - new Date(newest.endTime).getTime() };
+}
+
+/**
+ * Scheduled sweep (recommended: every 10 minutes). Stops any IVS composition AWS still reports as
+ * ACTIVE once its Stage shows no active session AND has been idle past the threshold (or the hard
+ * cap, for a composition with no session history at all) -- and closes any LiveRoom row still
+ * pointing at it as live. A Stage with a currently active session is never stopped, regardless of
+ * composition age, so a long-running real show is never cut off. Idempotent and safe to run
+ * concurrently with the normal show-end teardown -- StopComposition on an already-stopping/stopped
+ * composition is treated as success. Never throws per-composition.
+ */
+export async function cleanupOrphanedIvsCompositions(): Promise<IvsCompositionCleanupSummary> {
+  const summary: IvsCompositionCleanupSummary = {
+    scanned: 0,
+    stopped: 0,
+    stoppedArns: [],
+    roomsClosed: 0,
+    errors: 0,
+  };
+
+  const client = makeRealTimeClient();
+  const active = await listAllActiveCompositions(client);
+  summary.scanned = active.length;
+  const now = Date.now();
+
+  for (const comp of active) {
+    try {
+      const ageMs = comp.startTime ? now - new Date(comp.startTime).getTime() : 0;
+      const activity = await getStageActivity(client, comp.stageArn, now);
+
+      // A real, currently-attached session means someone is actually on stage right now -- never
+      // force-stop on age alone. The hard cap only ever fires for a composition AWS no longer
+      // shows an active session for (it's the backstop for "idle but somehow not idle long enough
+      // yet to trip the 10-minute check", not a kill switch on show length).
+      if (activity.hasActiveSession) continue;
+
+      const idleLongEnough = activity.idleForMs === null || activity.idleForMs >= COMPOSITION_IDLE_STOP_MS;
+      const overHardCap = ageMs >= COMPOSITION_HARD_CAP_MS;
+      if (!idleLongEnough && !overHardCap) continue;
+
+      await client.send(new StopCompositionCommand({ arn: comp.arn })).catch(() => {
+        /** Already stopped/expired between the list call and here -- treat as success. */
+      });
+      summary.stopped += 1;
+      summary.stoppedArns.push(comp.arn);
+      logIvsOpsServer("ivs_composition_cleanup_stopped", {
+        compositionArnLen: comp.arn.length,
+        reason: idleLongEnough ? "idle_stage" : "hard_cap_no_active_session",
+        ageMs,
+      });
+
+      const staleLiveRooms = await prisma.liveRoom.findMany({
+        where: { ivsCompositionArn: comp.arn, status: "live" },
+        select: { id: true },
+      });
+      if (staleLiveRooms.length > 0) {
+        await prisma.liveRoom.updateMany({
+          where: { ivsCompositionArn: comp.arn, status: "live" },
+          data: {
+            status: "ended",
+            endedAt: new Date(),
+            streamEndedAt: new Date(),
+            streamHealth: "ended",
+            ivsCompositionArn: null,
+            roomVersion: { increment: 1 },
+          },
+        });
+        for (const room of staleLiveRooms) {
+          emitLiveDiscoveryChanged({ roomId: room.id, status: "ended", reason: "ended" });
+        }
+      }
+      await prisma.liveRoom.updateMany({
+        where: { ivsCompositionArn: comp.arn, status: { not: "live" } },
+        data: { ivsCompositionArn: null },
+      });
+      summary.roomsClosed += staleLiveRooms.length;
+    } catch (e) {
+      summary.errors += 1;
+      console.error("[IVS_OPS] ivs_composition_cleanup_failure", comp.arn, e);
+    }
+  }
+
+  return summary;
+}
+
+/**
+ * One-time (or periodic) backstop for LiveRoom rows stuck `status: "live"` with no real AWS
+ * activity behind them at all -- e.g. rows from before this cleanup existed, or a room whose
+ * composition was never even started. Closes any `live` room whose `ivsStageArn` shows no
+ * publisher and whose `streamStartedAt` is older than the idle window. Never throws per-room.
+ */
+export async function closeStaleOpenLiveRooms(): Promise<{ scanned: number; closed: number }> {
+  const cutoff = new Date(Date.now() - COMPOSITION_IDLE_STOP_MS);
+  const rooms = await prisma.liveRoom.findMany({
+    where: {
+      status: "live",
+      streamStartedAt: { lt: cutoff },
+    },
+    select: { id: true, ivsStageArn: true, ivsChannelArn: true, ivsCompositionArn: true },
+  });
+
+  const client = makeRealTimeClient();
+  const nowMs = Date.now();
+  let closed = 0;
+  for (const room of rooms) {
+    try {
+      // Stage rooms (phone/browser Go Live): a real attached session means the host is actually
+      // on stage right now, whatever our own stale DB timestamp says -- never close under them.
+      if (room.ivsStageArn) {
+        const activity = await getStageActivity(client, room.ivsStageArn, nowMs);
+        if (activity.hasActiveSession) continue;
+      }
+      // OBS / `channel_hls` rooms never have a Stage at all, so the check above is a no-op for
+      // them -- this is the check that actually protects a real OBS show from being closed.
+      if (room.ivsChannelArn) {
+        const stream = await getStreamStatus(room.ivsChannelArn);
+        if (stream.state !== "OFFLINE") continue;
+      }
+      if (room.ivsCompositionArn) {
+        await stopStageComposition(room.id);
+      }
+      const now = new Date();
+      const didClose = await prisma.liveRoom.updateMany({
+        where: { id: room.id, status: "live" },
+        data: {
+          status: "ended",
+          endedAt: now,
+          streamEndedAt: now,
+          streamHealth: "ended",
+          roomVersion: { increment: 1 },
+        },
+      });
+      if (didClose.count > 0) {
+        closed += 1;
+        emitLiveDiscoveryChanged({ roomId: room.id, status: "ended", reason: "ended" });
+        logIvsOpsServer("ivs_stale_open_room_closed", { roomId: room.id });
+      }
+    } catch (e) {
+      console.error("[IVS_OPS] ivs_stale_open_room_close_failure", room.id, e);
+    }
+  }
+
+  return { scanned: rooms.length, closed };
 }
