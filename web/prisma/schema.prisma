@@ -3228,6 +3228,7 @@ model PlatformAppBanner {
   enabled         Boolean   @default(false)
   title           String    @default("")
   body            String    @default("")
+  imageUrl        String    @default("")
   /// Button label shown on the banner (e.g. "Get my link").
   ctaLabel        String    @default("")
   /// App/web path opened on tap (e.g. `/account/referrals`). Empty = non-tappable.
