@@ -333,26 +333,35 @@ async function executeGiveawayDraw(
   let orderId: string | null = updated.fulfillmentOrderId;
   if (!orderId && updated.winnerUserId) {
     try {
-      orderId = await prisma.$transaction(async (tx) => {
-        const room = await tx.liveRoom.findUnique({
-          where: { id: liveRoomId },
-          select: { sellerId: true },
-        });
-        if (!room) throw new Error("Room not found.");
-        return createOrderFromGiveawayWinTx(tx, {
-          giveaway: {
-            id: updated.id,
-            liveRoomId: updated.liveRoomId,
-            title: updated.title,
-            prizeDescription: updated.prizeDescription,
-            imageUrl: updated.imageUrl,
-            fulfillmentOrderId: updated.fulfillmentOrderId,
-            winnerUserId: updated.winnerUserId!,
-            winnerUser: updated.winnerUser,
-          },
-          sellerId: room.sellerId,
-        });
-      });
+      orderId = await prisma.$transaction(
+        async (tx) => {
+          const room = await tx.liveRoom.findUnique({
+            where: { id: liveRoomId },
+            select: { sellerId: true },
+          });
+          if (!room) throw new Error("Room not found.");
+          return createOrderFromGiveawayWinTx(tx, {
+            giveaway: {
+              id: updated.id,
+              liveRoomId: updated.liveRoomId,
+              title: updated.title,
+              prizeDescription: updated.prizeDescription,
+              imageUrl: updated.imageUrl,
+              fulfillmentOrderId: updated.fulfillmentOrderId,
+              winnerUserId: updated.winnerUserId!,
+              winnerUser: updated.winnerUser,
+            },
+            sellerId: room.sellerId,
+          });
+        },
+        // Default Prisma interactive-transaction timeout is 5s. This does ~8-12 sequential
+        // round trips (room + seller lookups, shipping-profile resolution, listing + order
+        // creates, order update, giveaway update, shipping-session link, two notifications) —
+        // against the hosted Postgres pooler that alone reliably exceeds 5s, which is why this
+        // has been silently failing on every single giveaway draw (see audit note, Oct 2026).
+        // Mirrors the same fix already applied in auction-close.ts for the same reason.
+        { timeout: 15_000, maxWait: 8_000 },
+      );
     } catch (e) {
       console.error("giveaway fulfillment order failed after draw", {
         giveawayId: row.id,
