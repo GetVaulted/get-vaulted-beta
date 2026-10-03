@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { VideoPlayer } from 'expo-video';
+import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
 
 /** Seek when playback drifts more than this many seconds behind the live edge. */
 const LIVE_EDGE_DRIFT_THRESHOLD_S = 1.5;
@@ -110,7 +111,16 @@ export function useHlsLiveEdgeSeek(
       if (mutedRef) {
         try {
           const shouldBeMuted = mutedRef.current;
-          if (player.muted !== shouldBeMuted) player.muted = shouldBeMuted;
+          if (player.muted !== shouldBeMuted) {
+            // The exact native-side reset this hook exists to self-heal (see file header) —
+            // logging every correction (not every tick) tells us whether this path is actually
+            // the one firing for a given audio-bleed report, or whether it's a different gap.
+            viewerLifecycleLog('hls_live_edge_mute_corrected', {
+              shouldBeMuted,
+              wasMuted: player.muted,
+            });
+            player.muted = shouldBeMuted;
+          }
           const targetVolume = shouldBeMuted ? 0 : 1;
           if (player.volume !== targetVolume) player.volume = targetVolume;
         } catch {
