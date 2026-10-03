@@ -93,6 +93,12 @@ export function LiveVariantSpotBoard({
   const [markSoldZeroReason, setMarkSoldZeroReason] = useState<string | null>(null);
   const [markSoldNote, setMarkSoldNote] = useState("");
   const [markSoldError, setMarkSoldError] = useState<string | null>(null);
+  // "cash" = host records the real sale amount + how the buyer paid (off-platform, charges the
+  // normal platform fee once the amount is set > $0). "supp" = the buyer already paid for this
+  // spot off-platform via a bundled supplemental charge, so this just assigns the spot at $0
+  // with no fee -- mirrors mobile's "Supp sold" button (SellerBreakSpotBoardSheet.tsx) so hosts
+  // on web aren't forced through the cash flow (and its fee) just to log an already-paid spot.
+  const [markSoldMode, setMarkSoldMode] = useState<"cash" | "supp">("cash");
 
   if (!item || !isVariantSalesFormat(item.salesFormat) || !item.variants?.length) return null;
 
@@ -118,6 +124,7 @@ export function LiveVariantSpotBoard({
     setMarkSoldZeroReason(null);
     setMarkSoldNote("");
     setMarkSoldError(null);
+    setMarkSoldMode("cash");
   };
 
   const openMarkSoldForm = (variantId: string, defaultPriceUsd: number) => {
@@ -128,6 +135,7 @@ export function LiveVariantSpotBoard({
     setMarkSoldZeroReason(null);
     setMarkSoldNote("");
     setMarkSoldError(null);
+    setMarkSoldMode("cash");
   };
 
   const submitMarkSold = async () => {
@@ -137,6 +145,31 @@ export function LiveVariantSpotBoard({
       setMarkSoldError("Enter the buyer's username.");
       return;
     }
+
+    // Supp sold: the buyer already paid for this spot off-platform via a bundled supplemental
+    // charge, so just assign it at $0 with no platform fee -- the same contract mobile's "Supp
+    // sold" button sends (priceUsd 0, settlementMethod "other", zeroReason "other"), so the
+    // backend waives the fee exactly like it already does for mobile. See
+    // computeOffPlatformPlatformFee in off-platform-settlement.ts: sale < $0.01 -> feeStatus
+    // "waived", feeCents 0. No backend change needed -- this was purely a missing web UI path.
+    if (markSoldMode === "supp") {
+      setMarkSoldError(null);
+      const result = await onMarkSold({
+        variantId: markSoldVariantId,
+        username,
+        priceUsd: 0,
+        settlementMethod: "other",
+        zeroReason: "other",
+        note: markSoldNote.trim() ? markSoldNote.trim().slice(0, 280) : "Supp purchase",
+      });
+      if (!result.ok) {
+        setMarkSoldError(result.error ?? "Could not mark this spot sold. Try again.");
+        return;
+      }
+      closeMarkSoldForm();
+      return;
+    }
+
     const priceUsd = Number(markSoldPriceUsd);
     if (!Number.isFinite(priceUsd) || priceUsd < 0) {
       setMarkSoldError("Enter a valid sale amount (use 0 for a free/comp).");
@@ -393,7 +426,7 @@ export function LiveVariantSpotBoard({
         <div className="mt-3 rounded-xl border border-emerald-400/30 bg-emerald-950/20 p-3">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-200/90">
-              Mark {markSoldRow.label} sold
+              {markSoldMode === "supp" ? `Supp sold · ${markSoldRow.label}` : `Mark ${markSoldRow.label} sold`}
             </p>
             <button
               type="button"
@@ -404,6 +437,36 @@ export function LiveVariantSpotBoard({
               Cancel
             </button>
           </div>
+
+          <div className="mt-2 flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => setMarkSoldMode("cash")}
+              className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wide ${
+                markSoldMode === "cash"
+                  ? "border-emerald-300/70 bg-emerald-500/25 text-emerald-100"
+                  : "border-white/15 bg-black/30 text-zinc-300 hover:border-white/30"
+              }`}
+            >
+              Mark sold
+            </button>
+            <button
+              type="button"
+              onClick={() => setMarkSoldMode("supp")}
+              className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wide ${
+                markSoldMode === "supp"
+                  ? "border-amber-300/70 bg-amber-500/20 text-amber-100"
+                  : "border-white/15 bg-black/30 text-zinc-300 hover:border-white/30"
+              }`}
+            >
+              Supp sold
+            </button>
+          </div>
+          <p className="mt-1 text-[9px] text-zinc-500">
+            {markSoldMode === "supp"
+              ? "Supp is already paid — pick the buyer. Logs as $0 (no platform fee)."
+              : "Buyer paid you directly (Venmo, cash, etc.) — you’ll owe the platform fee once the amount is set."}
+          </p>
 
           <div className="mt-2 flex flex-col gap-2">
             <div>
@@ -420,59 +483,63 @@ export function LiveVariantSpotBoard({
               />
             </div>
 
-            <div>
-              <p className="mb-1 text-[9px] font-bold uppercase tracking-wide text-zinc-500">Sale amount (USD)</p>
-              <input
-                type="number"
-                inputMode="decimal"
-                min={0}
-                step="0.01"
-                value={markSoldPriceUsd}
-                onChange={(e) => setMarkSoldPriceUsd(e.target.value)}
-                className="w-full rounded-lg border border-white/15 bg-black/40 px-2.5 py-1.5 text-xs font-semibold text-white outline-none focus:border-emerald-300/50"
-              />
-            </div>
-
-            <div>
-              <p className="mb-1 text-[9px] font-bold uppercase tracking-wide text-zinc-500">How did they pay?</p>
-              <div className="flex flex-wrap gap-1.5">
-                {SETTLEMENT_METHODS.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setMarkSoldMethod(m.id)}
-                    className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wide ${
-                      markSoldMethod === m.id
-                        ? "border-emerald-300/70 bg-emerald-500/25 text-emerald-100"
-                        : "border-white/15 bg-black/30 text-zinc-300 hover:border-white/30"
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {Number(markSoldPriceUsd) < 0.01 ? (
-              <div>
-                <p className="mb-1 text-[9px] font-bold uppercase tracking-wide text-zinc-500">Reason for $0</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {ZERO_REASONS.map((z) => (
-                    <button
-                      key={z.id}
-                      type="button"
-                      onClick={() => setMarkSoldZeroReason(z.id)}
-                      className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wide ${
-                        markSoldZeroReason === z.id
-                          ? "border-amber-300/70 bg-amber-500/20 text-amber-100"
-                          : "border-white/15 bg-black/30 text-zinc-300 hover:border-white/30"
-                      }`}
-                    >
-                      {z.label}
-                    </button>
-                  ))}
+            {markSoldMode === "cash" ? (
+              <>
+                <div>
+                  <p className="mb-1 text-[9px] font-bold uppercase tracking-wide text-zinc-500">Sale amount (USD)</p>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    value={markSoldPriceUsd}
+                    onChange={(e) => setMarkSoldPriceUsd(e.target.value)}
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-2.5 py-1.5 text-xs font-semibold text-white outline-none focus:border-emerald-300/50"
+                  />
                 </div>
-              </div>
+
+                <div>
+                  <p className="mb-1 text-[9px] font-bold uppercase tracking-wide text-zinc-500">How did they pay?</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {SETTLEMENT_METHODS.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setMarkSoldMethod(m.id)}
+                        className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wide ${
+                          markSoldMethod === m.id
+                            ? "border-emerald-300/70 bg-emerald-500/25 text-emerald-100"
+                            : "border-white/15 bg-black/30 text-zinc-300 hover:border-white/30"
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {Number(markSoldPriceUsd) < 0.01 ? (
+                  <div>
+                    <p className="mb-1 text-[9px] font-bold uppercase tracking-wide text-zinc-500">Reason for $0</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {ZERO_REASONS.map((z) => (
+                        <button
+                          key={z.id}
+                          type="button"
+                          onClick={() => setMarkSoldZeroReason(z.id)}
+                          className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wide ${
+                            markSoldZeroReason === z.id
+                              ? "border-amber-300/70 bg-amber-500/20 text-amber-100"
+                              : "border-white/15 bg-black/30 text-zinc-300 hover:border-white/30"
+                          }`}
+                        >
+                          {z.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </>
             ) : null}
 
             <div>
@@ -482,7 +549,9 @@ export function LiveVariantSpotBoard({
                 value={markSoldNote}
                 maxLength={280}
                 onChange={(e) => setMarkSoldNote(e.target.value)}
-                placeholder="e.g. paid via Venmo before stream"
+                placeholder={
+                  markSoldMode === "supp" ? "e.g. supp already paid before stream" : "e.g. paid via Venmo before stream"
+                }
                 className="w-full rounded-lg border border-white/15 bg-black/40 px-2.5 py-1.5 text-xs font-semibold text-white outline-none focus:border-emerald-300/50"
               />
             </div>
@@ -495,7 +564,7 @@ export function LiveVariantSpotBoard({
               onClick={() => void submitMarkSold()}
               className="mt-1 rounded-lg border border-emerald-400/50 bg-emerald-500/25 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-emerald-50 hover:bg-emerald-500/35 disabled:opacity-40"
             >
-              {markSoldBusy ? "Marking sold…" : "Confirm sold"}
+              {markSoldBusy ? "Marking sold…" : markSoldMode === "supp" ? "Supp sold" : "Confirm sold"}
             </button>
           </div>
         </div>
