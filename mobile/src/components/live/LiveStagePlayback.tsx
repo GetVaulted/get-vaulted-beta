@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, ActivityIndicator, StyleSheet, Text, View, type AppStateStatus } from 'react-native';
+import { AppState, ActivityIndicator, Platform, StyleSheet, Text, View, type AppStateStatus } from 'react-native';
 import { useVideoPlayer, VideoView, isPictureInPictureSupported, type VideoPlayer } from 'expo-video';
 import { setStageAudioOutputEnabled, leaveStage } from 'expo-realtime-ivs-broadcast';
 import { useLiveStagePlayback, type LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
@@ -218,6 +218,17 @@ export function LiveStagePlayback({
   const [appBackgrounded, setAppBackgrounded] = useState(
     () => AppState.currentState === 'background',
   );
+  // Android only: a warm neighbor ('prefetch') HLS player must stay PAUSED, not just muted. expo-video's
+  // `muted`/`volume` are shadow-state delegates, so a native ExoPlayer volume reset (e.g. after a
+  // live-edge seek or audio-focus change) is invisible to JS and can't be corrected — a playing
+  // neighbor can leak its audio over the active show. A paused player makes no sound regardless of
+  // mute state. iOS keeps the existing muted-and-playing warm behavior. Recomputed every render so
+  // the poll loop and imperative `play()` call sites below always read current state.
+  const allowHlsPlayRef = useRef(true);
+  allowHlsPlayRef.current =
+    Platform.OS !== 'android' ||
+    mode === 'active' ||
+    (mode !== 'prefetch' && (pipSurfaceActive || pipActive || appBackgrounded));
   // True once the buyer explicitly closes the OS PiP window (native X) while the app is still
   // backgrounded. Nothing is visibly playing the video at that point, so audio (HLS or Stage)
   // must stop — appBackgrounded staying true must not be read as "PiP is still up."
@@ -490,7 +501,7 @@ export function LiveStagePlayback({
       minBufferForPlayback: 0.5,
     };
     try {
-      p.play();
+      if (allowHlsPlayRef.current) p.play();
     } catch {
       /* player may be released during pager unmount */
     }
@@ -498,6 +509,11 @@ export function LiveStagePlayback({
 
   const safeVideoPlay = useCallback((target: VideoPlayer) => {
     try {
+      if (!allowHlsPlayRef.current) {
+        // Warm neighbor on Android: stay loaded + buffering but silent (paused).
+        target.pause();
+        return;
+      }
       target.play();
       viewerLifecycleLog('play_called', { roomId, transport: 'hls' });
     } catch {
@@ -522,7 +538,7 @@ export function LiveStagePlayback({
   const playerRef = useRef(player);
   playerRef.current = player;
 
-  useHlsLiveEdgeSeek(player, attachHls && playback.videoHasData, desiredHlsMutedRef);
+  useHlsLiveEdgeSeek(player, attachHls && playback.videoHasData, desiredHlsMutedRef, allowHlsPlayRef);
 
   // Detect the expo-video PiP window being explicitly stopped (buyer tapped its own X) while
   // still backgrounded. `appBackgrounded` alone stays true either way, so it can't tell us this
@@ -617,7 +633,7 @@ export function LiveStagePlayback({
       player.staysActiveInBackground = LIVE_PICTURE_IN_PICTURE_ENABLED;
       if (dismissedWhileBackgrounded) {
         player.pause();
-      } else if (pipSurfaceActive || pipActive || appBackgrounded) {
+      } else if ((pipSurfaceActive || pipActive || appBackgrounded) && allowHlsPlayRef.current) {
         player.play();
       }
     } catch {

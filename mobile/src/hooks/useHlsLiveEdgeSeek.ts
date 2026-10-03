@@ -74,11 +74,20 @@ function seekTowardLiveEdge(player: VideoPlayer, now: number, lastSeekAtRef: { c
  * regardless of what caused the reset, instead of relying solely on the one-shot reactive effect
  * in `LiveStagePlayback` (which only re-applies mute when its own dependencies change, not on a
  * timer, so it can't catch a native-side reset that happens in between).
+ *
+ * `allowPlayRef` (optional): when its current value is `false` this loop does NOT seek or play —
+ * it actively pauses the player instead. The mute self-heal above compares against expo-video's
+ * JS/Kotlin shadow state (`muted`/`volume` are "ignore same set" delegates), so it can never see or
+ * fix a native ExoPlayer volume reset; a neighbor that is playing at all can therefore still leak
+ * audio on Android. `LiveStagePlayback` passes `false` for non-foreground (warm neighbor) pages on
+ * Android so those players stay paused-but-buffered and cannot be heard no matter what the native
+ * mute state is.
  */
 export function useHlsLiveEdgeSeek(
   player: VideoPlayer,
   active: boolean,
   mutedRef?: { current: boolean },
+  allowPlayRef?: { current: boolean },
 ) {
   const lastSeekAtRef = useRef(0);
   const attachedAtRef = useRef(0);
@@ -89,6 +98,15 @@ export function useHlsLiveEdgeSeek(
     lastSeekAtRef.current = 0;
 
     const tick = () => {
+      if (allowPlayRef && !allowPlayRef.current) {
+        // Not the audible/visible page: keep it paused (buffering only). Never seek or play.
+        try {
+          if (player.playing) player.pause();
+        } catch {
+          /* player may be released during pager unmount */
+        }
+        return;
+      }
       const now = Date.now();
       const inBurst = now - attachedAtRef.current < LIVE_EDGE_BURST_MS;
       if (inBurst) {
@@ -132,5 +150,5 @@ export function useHlsLiveEdgeSeek(
     tick();
     const id = setInterval(tick, LIVE_EDGE_TICK_MS);
     return () => clearInterval(id);
-  }, [active, player, mutedRef]);
+  }, [active, player, mutedRef, allowPlayRef]);
 }
