@@ -13,6 +13,7 @@ import {
   View,
   Alert,
 } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LiveItemVariantSnapshot } from '../../api/liveRoomBuyerRepository';
 import { fetchLiveBuyerPaymentSession } from '../../api/liveBuyerPaymentRepository';
@@ -539,7 +540,10 @@ export function LiveBreakSpotGridSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
+      {/* Android renders <Modal> in its own native window, outside the app-root
+          GestureHandlerRootView — without a root here, react-native-gesture-handler gestures
+          (the Slide-to-buy Pan) never receive touches. */}
+      <GestureHandlerRootView style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close checkout" />
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
           <View style={styles.headerRow}>
@@ -737,7 +741,7 @@ export function LiveBreakSpotGridSheet({
             </View>
           )}
         </View>
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
