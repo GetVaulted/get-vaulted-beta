@@ -23,6 +23,7 @@ describe("resolvePublicAppBanner", () => {
     expect(resolvePublicAppBanner(base)).toEqual({
       title: base.title,
       body: base.body,
+      imageUrl: base.imageUrl,
       ctaLabel: base.ctaLabel,
       href: base.href,
       dismissKey: base.dismissKey,

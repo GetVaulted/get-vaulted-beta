@@ -73,6 +73,50 @@ export async function finalizeLiveStreamReplay(liveRoomId: string): Promise<void
   });
 }
 
+/**
+ * Persist the S3 bucket/prefix as soon as the "Recording Start" event arrives (it already carries
+ * both, same as the end event) instead of waiting for "Recording End" to learn where the VOD will
+ * land. Purely informational until the end event flips `recordingStatus` to `ready` -- but if the
+ * end event is ever lost again (EventBridge outage, destination mis-config, etc.), the prefix is
+ * already on the row and a backfill sweep can find the recording in S3 without having to guess it.
+ */
+export async function markReplayRecordingStarted(args: {
+  channelArn: string;
+  s3Bucket: string | null;
+  s3KeyPrefix: string | null;
+}): Promise<{ replayId: string; liveRoomId: string } | null> {
+  if (!args.s3Bucket && !args.s3KeyPrefix) return null;
+
+  const roomId = await prisma.liveRoom.findFirst({
+    where: { ivsChannelArn: args.channelArn },
+    select: { id: true },
+    orderBy: { updatedAt: "desc" },
+  });
+  if (!roomId) return null;
+
+  const replay = await prisma.liveStreamReplay.findFirst({
+    where: {
+      liveRoomId: roomId.id,
+      deletedAt: null,
+      recordingStatus: { in: ["pending", "recording"] },
+    },
+    orderBy: { endedAt: "desc" },
+    select: { id: true },
+  });
+  if (!replay) return null;
+
+  await prisma.liveStreamReplay.update({
+    where: { id: replay.id },
+    data: {
+      recordingStatus: "recording",
+      ...(args.s3Bucket ? { s3Bucket: args.s3Bucket } : {}),
+      ...(args.s3KeyPrefix ? { s3KeyPrefix: args.s3KeyPrefix.replace(/^\/+|\/+$/g, "") } : {}),
+    },
+  });
+
+  return { replayId: replay.id, liveRoomId: roomId.id };
+}
+
 export async function markReplayRecordingReady(args: {
   channelArn: string;
   s3Bucket: string;
