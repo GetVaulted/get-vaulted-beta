@@ -294,6 +294,21 @@ export function useMobileStageSubscribe(args: {
           scheduleTokenRefresh();
           return;
         }
+        // Backgrounded/Stage-PiP: iOS can report a spurious 'disconnected' for a backgrounded RN
+        // surface (same background-delivery quirk documented on `viewerBackgrounded` above) while
+        // the native Stage session is still fine. Tearing down + rejoining here raced the native
+        // Stage session in production (EXC_BAD_ACCESS inside IVSStageManager.leaveStage, Sentry
+        // GET-VAULTED-MOBILE-5 — every crashed event has in_foreground:false) — this listener
+        // fires independently of the remote-video-lost watchdog above and was never guarded the
+        // same way. Ignore disconnect/error signals entirely while backgrounded or host-paused;
+        // the foreground-return path already reconciles state once the buyer comes back.
+        if (cbRef.current.viewerBackgrounded || cbRef.current.hostPaused) {
+          viewerLifecycleLog('connection_event_ignored_while_backgrounded', {
+            roomId: args.roomId,
+            state: evt.state,
+          });
+          return;
+        }
         if (evt.state === 'disconnected' && connectedRef.current) {
           connectedRef.current = false;
           hasJoinedStageRef.current = false;
@@ -315,6 +330,17 @@ export function useMobileStageSubscribe(args: {
           code: evt.code,
           description: evt.description,
         });
+        // Same background race as the connection-state listener above (GET-VAULTED-MOBILE-5) —
+        // a fatal Stage error delivered while backgrounded/host-paused must not trigger
+        // teardown/rejoin (or `fail`, which also tears down) against a session the native side
+        // still owns via PiP/background keep-alive.
+        if (cbRef.current.viewerBackgrounded || cbRef.current.hostPaused) {
+          viewerLifecycleLog('stage_error_ignored_while_backgrounded', {
+            roomId: args.roomId,
+            code: evt.code,
+          });
+          return;
+        }
         if (connectedRef.current) {
           void attemptRejoin(evt.description || `stage_error_${evt.code}`);
         } else {
