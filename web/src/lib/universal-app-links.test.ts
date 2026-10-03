@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { iosAppStoreId, iosAppStoreUrl } from "./app-store-links";
-import { liveRoomCustomSchemeUrl, appleAppSiteAssociationDocument } from "./universal-app-links";
+import { liveRoomCustomSchemeUrl, joinReferralCustomSchemeUrl, appleAppSiteAssociationDocument } from "./universal-app-links";
 
 describe("iosAppStoreUrl", () => {
   it("defaults to the production App Store listing", () => {
@@ -12,6 +12,12 @@ describe("iosAppStoreUrl", () => {
 describe("liveRoomCustomSchemeUrl", () => {
   it("builds a getvaulted scheme deep link", () => {
     expect(liveRoomCustomSchemeUrl("room-1")).toBe("getvaulted://live/room-1");
+  });
+});
+
+describe("joinReferralCustomSchemeUrl", () => {
+  it("builds a getvaulted join scheme with ref", () => {
+    expect(joinReferralCustomSchemeUrl("K7H3N9Q2MW")).toBe("getvaulted://join?ref=K7H3N9Q2MW");
   });
 });
 

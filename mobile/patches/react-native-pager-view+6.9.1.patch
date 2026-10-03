@@ -1,0 +1,71 @@
+diff --git a/node_modules/react-native-pager-view/ios/Fabric/RNCPagerViewComponentView.mm b/node_modules/react-native-pager-view/ios/Fabric/RNCPagerViewComponentView.mm
+index 067f92e..224040f
+--- a/node_modules/react-native-pager-view/ios/Fabric/RNCPagerViewComponentView.mm
++++ b/node_modules/react-native-pager-view/ios/Fabric/RNCPagerViewComponentView.mm
+@@ -23,6 +23,12 @@ using namespace facebook::react;
+     LayoutMetrics _oldLayoutMetrics;
+     UIScrollView *scrollView;
+     BOOL transitioning;
++    // GET-VAULTED-MOBILE-P / GET-VAULTED-MOBILE-12: a goTo: requested while a transition is
++    // already in flight (see goTo: below) is queued here instead of firing a second, overlapping
++    // call into UIPageViewController, and replayed from setPagerViewControllers:'s completion
++    // block once the in-flight transition actually finishes. NSNotFound means "nothing queued".
++    NSInteger _pendingGoToIndex;
++    BOOL _pendingGoToAnimated;
+ }
+ 
+ // Needed because of this: https://github.com/facebook/react-native/pull/37274
+@@ -71,6 +77,7 @@ using namespace facebook::react;
+         _destinationIndex = -1;
+         _layoutDirection = @"ltr";
+         _overdrag = NO;
++        _pendingGoToIndex = NSNotFound;
+     }
+     
+     return self;
+@@ -121,6 +128,7 @@ using namespace facebook::react;
+     [super prepareForRecycle];
+     _nativePageViewController = nil;
+     _currentIndex = -1;
++    _pendingGoToIndex = NSNotFound;
+ }
+ 
+ - (void)shouldDismissKeyboard:(RNCViewPagerKeyboardDismissMode)dismissKeyboard {
+@@ -205,6 +213,23 @@ using namespace facebook::react;
+         return;
+     }
+ 
++    if (transitioning) {
++        // UIPageViewController asserts ("No view controller managing visible view", crashing at
++        // UIPageViewController.m:2064) if setViewControllers:direction:animated:completion: is
++        // invoked again before the previous call's own completion handler has fired - Apple's
++        // docs call overlapping calls undefined. unmountChildComponentView: used to call goTo:
++        // unconditionally whenever removing a page pushed currentIndex past the end of the
++        // array, including while a swipe or programmatic transition was still animating - exactly
++        // what happens when the live-feed pager's windowed mount/unmount drops a page the user
++        // has already swiped past but that page's own dismiss transition hasn't finished (GET-
++        // VAULTED-MOBILE-P / GET-VAULTED-MOBILE-12). Queue the request instead of racing
++        // UIPageViewController's internal transition bookkeeping; setPagerViewControllers:'s
++        // completion block below replays it once the current transition is actually done.
++        _pendingGoToIndex = index;
++        _pendingGoToAnimated = animated;
++        return;
++    }
++    
+     BOOL isForward = (index > self.currentIndex && [self isLtrLayout]) || (index < self.currentIndex && ![self isLtrLayout]);
+     UIPageViewControllerNavigationDirection direction = isForward ? UIPageViewControllerNavigationDirectionForward : UIPageViewControllerNavigationDirectionReverse;
+     
+@@ -241,6 +266,13 @@ using namespace facebook::react;
+             strongSelf->_currentIndex = index;
+         }
+         [strongSelf updateLayoutMetrics:strongSelf->_layoutMetrics oldLayoutMetrics:strongSelf->_oldLayoutMetrics];
++
++        if (strongSelf != nil && strongSelf->_pendingGoToIndex != NSNotFound) {
++            NSInteger pendingIndex = strongSelf->_pendingGoToIndex;
++            BOOL pendingAnimated = strongSelf->_pendingGoToAnimated;
++            strongSelf->_pendingGoToIndex = NSNotFound;
++            [strongSelf goTo:pendingIndex animated:pendingAnimated];
++        }
+     }];
+ }
+ 

@@ -122,6 +122,9 @@ export async function createOrderFromGiveawayWinTx(
       totalUsd: 0,
       status: "paid",
       paymentStatus: PAYMENT_PAID,
+      // $0 giveaway win — no Stripe charge ever exists for this order, so creation time is the
+      // only meaningful payment date available; nothing for the ledger backfill to upgrade it to.
+      paidAt: new Date(),
       fulfillmentStatus: "pending",
       paymentLabel: "giveaway",
       shipRecipientName,

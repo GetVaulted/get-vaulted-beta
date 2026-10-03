@@ -1,0 +1,21 @@
+---
+description: Web and mobile must mirror the same catalog information
+alwaysApply: true
+---
+
+# Web ↔ App catalog parity
+
+Get Vaulted web and mobile must show the **same listing information** from the same API. Do not invent platform-only catalog facts.
+
+## Hard rules
+
+- **One source of truth:** Prefer `GET /api/listings` (and related listing detail endpoints) and the server `dbListingToMarketplace` shape. Do not maintain a second catalog of prices, photos, sellers, or badges.
+- **Same fields:** Photos (`imageUrls`), price / trade-only label, condition, seller handle, `vaultPick`, `isCompanyListing` / Official, offers/trades flags must mean the same thing on both platforms.
+- **No silent drops:** Do not omit `imageUrls`, truncate galleries below the shared publish cap (`MARKETPLACE_MAX_PHOTOS` / `LISTING_MAX_PHOTOS` = 10), or hide published listings on one client with filters the other does not apply — unless the rule is moved server-side for both.
+- **No dual cards with different facts:** Reuse the shared listing card contract. On web, prefer `MarketplaceBrowseCard` over one-off product cards that show different price/seller/photo behavior.
+- **Badge semantics:** `vaultPick` = editorial featured. Seller trust (`sellerLevel` / `vaultVerified`) is separate — never label trust as "Vault Pick".
+- **Copy match:** Trade-only listings use **"Trade only"** on both platforms (not alternate strings).
+
+## When changing listings
+
+If you change mapping, labels, featured selection, or gallery behavior on web **or** mobile, update the other side (or the shared API) in the same change so buyers see one truth.

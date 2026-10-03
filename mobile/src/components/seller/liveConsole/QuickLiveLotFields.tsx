@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { LiveLotSaleType, QuickLiveLotInput } from '../../../lib/liveAuctionPricing';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 export function QuickLiveLotFields({
   value,
@@ -91,15 +91,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   toggleBtnActive: {
-    borderColor: 'rgba(212,175,55,0.45)',
-    backgroundColor: 'rgba(212,175,55,0.14)',
+    borderColor: 'rgba(203,163,92,0.45)',
+    backgroundColor: 'rgba(203,163,92,0.14)',
   },
   toggleOff: { opacity: 0.55 },
   toggleBtnTxt: { fontSize: 14, fontWeight: '700', color: colors.textMuted },
-  toggleBtnTxtActive: { color: colors.gold },
+  toggleBtnTxtActive: { color: vaultColors.gold },
   input: {
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.25)',
+    borderColor: 'rgba(203,163,92,0.25)',
     borderRadius: radii.md,
     paddingHorizontal: 12,
     paddingVertical: 12,

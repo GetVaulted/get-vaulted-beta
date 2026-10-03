@@ -1,11 +1,13 @@
 import { Prisma } from "@/generated/prisma/client";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { roundUsd } from "@/lib/round-usd";
+import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 import {
   consumeListingInventoryHoldTx,
   reserveListingInventoryHoldTx,
   releaseActiveInventoryHoldsForListingAndBuyerTx,
 } from "@/lib/live-auction-inventory-hold";
+import { buyerShippingSnapshotFromAddress } from "@/lib/live-buy-now-purchase";
 import { createNotification } from "@/lib/notifications";
 import { addOrderToLiveShippingSessionTx } from "@/services/shipping/live-shipping-pricing";
 import { AUCTION_WINNER_PAYMENT_WINDOW_MS, PAYMENT_PENDING } from "@/services/payments";
@@ -257,7 +259,7 @@ export async function createOrderFromAuctionWin(
         where: {
           id: params.liveRoomItemId!,
           liveRoomId: params.liveAuctionLiveShowId!,
-          liveRoom: { sellerId: params.sellerId, roomType: { in: ["auction", "break"] } },
+          liveRoom: { sellerId: params.sellerId, roomType: { in: ["auction", "break", "sale"] } },
         },
         select: { id: true },
       }),
@@ -272,12 +274,44 @@ export async function createOrderFromAuctionWin(
     params.shipState &&
     params.shipZip &&
     params.shipCountry;
-  const shipRecipientName = hasShip ? params.shipRecipientName! : "Auction won";
-  const shipAddress = hasShip ? params.shipAddress! : "Coordinate shipping with the seller";
-  const shipCity = hasShip ? params.shipCity! : "—";
-  const shipState = hasShip ? params.shipState! : "—";
-  const shipZip = hasShip ? params.shipZip! : "00000";
-  const shipCountry = hasShip ? params.shipCountry! : "US";
+  /** Prefer explicit ship-to; otherwise stamp Wallet default so TX (and other nexus) tax can apply at charge. */
+  let shipRecipientName: string;
+  let shipAddress: string;
+  let shipCity: string;
+  let shipState: string;
+  let shipZip: string;
+  let shipCountry: string;
+  let buyerAddressId = params.buyerAddressId ?? null;
+  if (hasShip) {
+    shipRecipientName = params.shipRecipientName!;
+    shipAddress = params.shipAddress!;
+    shipCity = params.shipCity!;
+    shipState = params.shipState!;
+    shipZip = params.shipZip!;
+    shipCountry = params.shipCountry!;
+  } else {
+    const addr = await tx.address.findFirst({
+      where: { userId: params.buyerId, type: "shipping" },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
+    });
+    const snap = addr ? buyerShippingSnapshotFromAddress(addr) : null;
+    if (snap) {
+      shipRecipientName = snap.shipRecipientName;
+      shipAddress = snap.shipAddress;
+      shipCity = snap.shipCity;
+      shipState = snap.shipState;
+      shipZip = snap.shipZip;
+      shipCountry = snap.shipCountry;
+      buyerAddressId = buyerAddressId ?? snap.buyerAddressId;
+    } else {
+      shipRecipientName = "Auction won";
+      shipAddress = "Coordinate shipping with the seller";
+      shipCity = "—";
+      shipState = "—";
+      shipZip = "00000";
+      shipCountry = "US";
+    }
+  }
   const paymentLabel = (params.paymentLabel && params.paymentLabel.trim()) || "auction";
   /** Live-show wins stay open until the buyer recovers in-room — no timed expiry during the broadcast. */
   const paymentDeadlineAt = hasLiveAuctionContext
@@ -313,7 +347,7 @@ export async function createOrderFromAuctionWin(
         shipState,
         shipZip,
         shipCountry,
-        buyerAddressId: params.buyerAddressId ?? null,
+        buyerAddressId,
         sellerShipFromAddressId: params.sellerShipFromAddressId ?? null,
       },
       select: { id: true },
@@ -374,11 +408,7 @@ export async function createOrderFromAuctionWin(
   }
 
   const titleShort = params.listingTitle.length > 80 ? `${params.listingTitle.slice(0, 77)}…` : params.listingTitle;
-  const priceStr = params.itemPriceUsd.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  });
+  const priceStr = formatMarketplaceUsd(params.itemPriceUsd);
   const buyerTitle = params.notify?.buyerTitle ?? "You won the auction";
   const buyerBody =
     params.notify?.buyerBody ??

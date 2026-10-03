@@ -20,6 +20,7 @@ import { sellerHasVerifiedStripePayoutAccount } from "@/services/payout/instant-
 import { resolveSellerLevel, sellerLevelLabel } from "@/services/payout/seller-level";
 import { getCachedPayoutProgramConfig } from "@/services/payout/payout-program-settings";
 import { STRIPE_ALIGNED_PAYOUT_PROGRAM_DEFAULTS } from "@/lib/stripe-instant-payout-reference";
+import { excessiveShippingDelayOrderWhere } from "@/services/payout/live-order-handling-clock";
 
 /** @deprecated Use getCachedPayoutProgramConfig().thresholds — kept for tests and static imports. */
 export const PAYOUT_TIER_THRESHOLDS = STRIPE_ALIGNED_PAYOUT_PROGRAM_DEFAULTS.thresholds;
@@ -157,13 +158,9 @@ export async function computeSellerPayoutMetrics(
 
   const delayCutoff = new Date();
   delayCutoff.setDate(delayCutoff.getDate() - EXCESSIVE_SHIPPING_DELAY_DAYS);
+  // Live-show sales: handling clock starts when the show ends (not at purchase).
   const excessiveShippingDelayCount = await prisma.order.count({
-    where: {
-      sellerId,
-      paymentStatus: "paid",
-      fulfillmentStatus: { in: ["pending", "label_created"] },
-      createdAt: { lt: delayCutoff },
-    },
+    where: excessiveShippingDelayOrderWhere(sellerId, delayCutoff),
   });
 
   const openFraudReports = await prisma.report.count({

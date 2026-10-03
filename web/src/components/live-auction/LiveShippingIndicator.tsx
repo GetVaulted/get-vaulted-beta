@@ -169,10 +169,14 @@ export function LiveShippingIndicator({
     );
   }
 
-  if (data.capReached || (shippingMode === "capped" && data.shippingCapCents != null && data.shippingCostCents >= data.shippingCapCents)) {
+  const atCap =
+    data.capReached ||
+    (data.shippingCapCents != null && data.shippingCapCents > 0 && data.shippingCostCents >= data.shippingCapCents);
+
+  if (atCap) {
     return (
-      <div className={`rounded-lg border border-amber-400/30 bg-amber-950/20 px-2.5 py-2 ${className}`}>
-        <p className={`font-semibold text-amber-100 ${compact ? "text-[10px]" : "text-xs"}`}>
+      <div className={`rounded-lg border border-emerald-400/25 bg-emerald-950/15 px-2.5 py-2 ${className}`}>
+        <p className={`font-semibold text-emerald-100 ${compact ? "text-[10px]" : "text-xs"}`}>
           {buyerLiveShippingPaidCopy({
             mode: shippingMode,
             paidCents: data.shippingCostCents,
@@ -188,17 +192,13 @@ export function LiveShippingIndicator({
     mode: shippingMode,
     paidCents: data.shippingCostCents,
     capCents: data.shippingCapCents,
-    capReached: data.capReached,
+    capReached: false,
   });
 
   const previewFrom = previewDelta != null && previewDelta > 0 ? previewDelta : null;
   const previewCopy =
     previewFrom != null
-      ? buyerLiveShippingPreviewCopy({
-          mode: shippingMode,
-          previewFromCents: data.shippingCostCents + previewFrom,
-          capCents: data.shippingCapCents,
-        })
+      ? `Next win adds $${(previewFrom / 100).toFixed(2)} shipping`
       : null;
 
   return (
@@ -206,7 +206,7 @@ export function LiveShippingIndicator({
       <p className={`font-semibold text-emerald-100 ${compact ? "text-[10px]" : "text-xs"}`}>{paidCopy}</p>
       {previewCopy ? (
         <p className={`mt-0.5 text-emerald-50/95 ${compact ? "text-[9px]" : "text-[10px]"}`}>
-          Next win → {previewCopy}
+          {previewCopy}
           {separateHint}
         </p>
       ) : null}

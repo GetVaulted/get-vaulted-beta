@@ -11,7 +11,7 @@ import {
   UIManager,
   View,
 } from 'react-native';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 import { lc } from './liveConsoleTheme';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -75,7 +75,7 @@ export function StreamAdvancedPanel({
     <View style={styles.wrap}>
       <Pressable style={styles.summary} onPress={toggle}>
         <View style={styles.summaryLeft}>
-          <Ionicons name="videocam-outline" size={18} color={colors.gold} />
+          <Ionicons name="videocam-outline" size={18} color={vaultColors.gold} />
           <View>
             <Text style={styles.summaryTitle}>Broadcast source</Text>
             <Text style={styles.summarySub}>
@@ -139,7 +139,7 @@ export function StreamAdvancedPanel({
                 <Text style={styles.copyVal} selectable numberOfLines={2}>
                   {serverUrl}
                 </Text>
-                <Ionicons name="share-outline" size={18} color={colors.gold} />
+                <Ionicons name="share-outline" size={18} color={vaultColors.gold} />
               </Pressable>
               {masked ? (
                 <>
@@ -151,7 +151,7 @@ export function StreamAdvancedPanel({
                     <Text style={styles.copyVal} selectable numberOfLines={1}>
                       {masked}
                     </Text>
-                    <Ionicons name="share-outline" size={18} color={colors.gold} />
+                    <Ionicons name="share-outline" size={18} color={vaultColors.gold} />
                   </Pressable>
                   <Pressable onPress={onToggleReveal} hitSlop={8}>
                     <Text style={styles.reveal}>{revealKey ? 'Hide key' : 'Reveal key'}</Text>
@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     paddingVertical: 12,
     borderRadius: radii.md,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     alignItems: 'center',
   },
   connectBtnTxt: { fontWeight: '800', color: '#0a0a0a', fontSize: 14 },
@@ -209,7 +209,7 @@ const styles = StyleSheet.create({
     minWidth: 120,
     paddingVertical: 10,
     borderRadius: radii.md,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     alignItems: 'center',
   },
   btnGoldTxt: { fontWeight: '800', color: '#0a0a0a' },
@@ -235,6 +235,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   copyVal: { flex: 1, fontSize: 12, color: colors.textPrimary, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-  reveal: { color: colors.gold, fontWeight: '700', fontSize: 13 },
+  reveal: { color: vaultColors.gold, fontWeight: '700', fontSize: 13 },
   disabled: { opacity: 0.55 },
 });

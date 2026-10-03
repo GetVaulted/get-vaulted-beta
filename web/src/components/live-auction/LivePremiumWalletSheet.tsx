@@ -30,6 +30,8 @@ type Props = {
   onClose: () => void;
   liveRoomId: string;
   onReadinessChange?: (ready: boolean) => void;
+  /** Fired after a card/Cash App is saved — use for live payment recovery retry. */
+  onPaymentMethodSaved?: (paymentMethodId: string) => void;
 };
 
 function SheetHeader({ title, onBack }: { title: string; onBack?: () => void }) {
@@ -85,7 +87,13 @@ function RowButton({
   );
 }
 
-export function LivePremiumWalletSheet({ open, onClose, liveRoomId: _liveRoomId, onReadinessChange }: Props) {
+export function LivePremiumWalletSheet({
+  open,
+  onClose,
+  liveRoomId: _liveRoomId,
+  onReadinessChange,
+  onPaymentMethodSaved,
+}: Props) {
   const [step, setStep] = useState<Step>("main");
   const [loading, setLoading] = useState(false);
   const [wallet, setWallet] = useState<BuyerWalletSummaryDTO | null>(null);
@@ -93,6 +101,10 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId: _liveRoomId,
   const [paymentMethods, setPaymentMethods] = useState<PmRow[]>([]);
   const [promoDraft, setPromoDraft] = useState("");
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
+  const [venmoBusy, setVenmoBusy] = useState(false);
+  const [venmoError, setVenmoError] = useState<string | null>(null);
+  const [paypalBusy, setPaypalBusy] = useState(false);
+  const [paypalError, setPaypalError] = useState<string | null>(null);
 
   const defaultAddress = useMemo(
     () => addresses.find((a) => a.isDefault) ?? addresses[0] ?? null,
@@ -152,11 +164,12 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId: _liveRoomId,
   const handleCardSaved = (pm: { id: string; brand: string; last4: string; expMonth: number; expYear: number }) => {
     setPaymentMethods((prev) => {
       if (prev.some((row) => row.id === pm.id)) return prev;
-      return [{ ...pm, isDefault: prev.length === 0 }, ...prev.map((row) => ({ ...row, isDefault: false }))];
+      return [{ ...pm, isDefault: true }, ...prev.map((row) => ({ ...row, isDefault: false }))];
     });
     setSaveNotice("Payment method saved.");
     setStep("payment");
     void reload();
+    onPaymentMethodSaved?.(pm.id);
   };
 
   const handleAddressSaved = (address: WalletShippingAddressRow) => {
@@ -165,6 +178,110 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId: _liveRoomId,
     setStep("shipping");
     void reload();
   };
+
+  const startVenmoSetup = useCallback(async () => {
+    setVenmoBusy(true);
+    setVenmoError(null);
+    setPaypalError(null);
+    setSaveNotice(null);
+    try {
+      const res = await fetch("/api/account/payment-methods/venmo-setup", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const raw = await res.text();
+      let j: {
+        authorizeUrl?: string;
+        paymentMethodId?: string;
+        error?: string;
+        issue?: string;
+        debugId?: string;
+      } = {};
+      try {
+        j = JSON.parse(raw) as typeof j;
+      } catch {
+        /* non-JSON */
+      }
+      if (!res.ok) {
+        const detail = [j.error, j.issue ? `(${j.issue})` : null, j.debugId ? `debug ${j.debugId}` : null]
+          .filter(Boolean)
+          .join(" ");
+        setVenmoError(
+          detail ||
+            `Venmo linking failed (HTTP ${res.status}). ${raw.replace(/\s+/g, " ").trim().slice(0, 160) || "Empty server response."}`,
+        );
+        return;
+      }
+      if (typeof j.authorizeUrl === "string" && j.authorizeUrl.trim()) {
+        window.location.assign(j.authorizeUrl.trim());
+        return;
+      }
+      if (typeof j.paymentMethodId === "string" && j.paymentMethodId.trim()) {
+        setSaveNotice("Venmo connected.");
+        void reload();
+        return;
+      }
+      setVenmoError("Venmo linking did not return a next step.");
+    } catch {
+      setVenmoError("Could not start Venmo linking.");
+    } finally {
+      setVenmoBusy(false);
+    }
+  }, [reload]);
+
+  const startPayPalSetup = useCallback(async () => {
+    setPaypalBusy(true);
+    setPaypalError(null);
+    setVenmoError(null);
+    setSaveNotice(null);
+    try {
+      const res = await fetch("/api/account/payment-methods/paypal-setup", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const raw = await res.text();
+      let j: {
+        authorizeUrl?: string;
+        paymentMethodId?: string;
+        error?: string;
+        issue?: string;
+        debugId?: string;
+      } = {};
+      try {
+        j = JSON.parse(raw) as typeof j;
+      } catch {
+        /* non-JSON */
+      }
+      if (!res.ok) {
+        const detail = [j.error, j.issue ? `(${j.issue})` : null, j.debugId ? `debug ${j.debugId}` : null]
+          .filter(Boolean)
+          .join(" ");
+        setPaypalError(
+          detail ||
+            `PayPal linking failed (HTTP ${res.status}). ${raw.replace(/\s+/g, " ").trim().slice(0, 160) || "Empty server response."}`,
+        );
+        return;
+      }
+      if (typeof j.authorizeUrl === "string" && j.authorizeUrl.trim()) {
+        window.location.assign(j.authorizeUrl.trim());
+        return;
+      }
+      if (typeof j.paymentMethodId === "string" && j.paymentMethodId.trim()) {
+        setSaveNotice("PayPal connected.");
+        void reload();
+        return;
+      }
+      setPaypalError("PayPal linking did not return a next step.");
+    } catch {
+      setPaypalError("Could not start PayPal linking.");
+    } finally {
+      setPaypalBusy(false);
+    }
+  }, [reload]);
 
   if (!open) return null;
 
@@ -365,12 +482,35 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId: _liveRoomId,
                   type="button"
                   onClick={() => {
                     setSaveNotice(null);
+                    setVenmoError(null);
                     setStep("add_card");
                   }}
                   className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/18 bg-white/[0.04] py-3 text-sm font-extrabold text-zinc-100"
                 >
-                  Add card here
+                  Add card / Cash App
                 </button>
+                {wallet?.capabilities?.venmo ? (
+                  <button
+                    type="button"
+                    disabled={venmoBusy || paypalBusy}
+                    onClick={() => void startVenmoSetup()}
+                    className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-white/18 bg-white/[0.04] py-3 text-sm font-extrabold text-zinc-100 disabled:opacity-60"
+                  >
+                    {venmoBusy ? "Starting Venmo…" : "Connect Venmo"}
+                  </button>
+                ) : null}
+                {wallet?.capabilities?.paypal ? (
+                  <button
+                    type="button"
+                    disabled={paypalBusy || venmoBusy}
+                    onClick={() => void startPayPalSetup()}
+                    className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-white/18 bg-white/[0.04] py-3 text-sm font-extrabold text-zinc-100 disabled:opacity-60"
+                  >
+                    {paypalBusy ? "Starting PayPal…" : "Connect PayPal"}
+                  </button>
+                ) : null}
+                {venmoError ? <p className="mt-2 text-xs font-medium text-rose-300">{venmoError}</p> : null}
+                {paypalError ? <p className="mt-2 text-xs font-medium text-rose-300">{paypalError}</p> : null}
                 <p className="mb-2 mt-5 text-[11px] font-extrabold uppercase tracking-wide text-zinc-500">
                   Accepted on live
                 </p>

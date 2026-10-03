@@ -93,6 +93,21 @@ describe('validateQuickLiveLot', () => {
     expect(r.ok).toBe(false);
   });
 
+  it('allows $1 starting bid when explicitly set by host', () => {
+    const r = validateQuickLiveLot({
+      title: 'Dollar auction',
+      saleType: 'auction',
+      price: '1', // Host explicitly sets $1 starting bid
+      quantity: '1',
+      reservePrice: '',
+      buyNowPrice: '',
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.values.startingBidUsd).toBe(1);
+    }
+  });
+
   it('builds PYT variants for all 32 teams', () => {
     const r = validateQuickLiveLot({
       title: '2024 Prizm Hobby',
@@ -126,6 +141,43 @@ describe('validateQuickLiveLot', () => {
       expect(r.values.variants?.[0]?.label).toBe('AFC East');
     }
   });
+
+  it('appends buyable NCAA spot on NFL PYT when enabled', () => {
+    const r = validateQuickLiveLot({
+      title: 'NFL PYT with NCAA',
+      saleType: 'pyt',
+      price: '40',
+      quantity: '1',
+      reservePrice: '',
+      buyNowPrice: '',
+      boardPack: 'nfl',
+      includeNcaaSpot: true,
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.values.variants?.length).toBe(33);
+      expect(r.values.teamBoardNcaa).toBe(true);
+      expect(r.values.variants?.some((v) => v.color === 'NCAA' && v.label === 'NCAA')).toBe(true);
+    }
+  });
+
+  it('bumps random NFL pool when NCAA is enabled', () => {
+    const r = validateQuickLiveLot({
+      title: 'Random NFL with NCAA',
+      saleType: 'random_pyt',
+      price: '25',
+      quantity: '1',
+      reservePrice: '',
+      buyNowPrice: '',
+      boardPack: 'nfl',
+      includeNcaaSpot: true,
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.values.teamBoardNcaa).toBe(true);
+      expect(r.values.variants?.[0]?.quantityInitial).toBe(33);
+    }
+  });
 });
 
 describe('syncPickBreakSpotDrafts', () => {
@@ -154,5 +206,58 @@ describe('syncPickBreakSpotDrafts', () => {
     });
     expect(synced[0]?.priceUsd).toBe(45);
     expect(synced[1]?.priceUsd).toBe(30);
+  });
+
+  it("adds NCAA spot when includeNcaaSpot is set", () => {
+    const synced = syncPickBreakSpotDrafts({
+      prev: [],
+      saleType: 'pyt',
+      basePrice: 20,
+      spotsCustomized: false,
+      boardPack: 'nfl',
+      includeNcaaSpot: true,
+    });
+    expect(synced).toHaveLength(33);
+    expect(synced[32]?.color).toBe('NCAA');
+  });
+});
+
+describe('validateQuickLiveLot PYP', () => {
+  it('builds pick-your-player variants from a pasted list', () => {
+    const r = validateQuickLiveLot({
+      title: 'Rookie checklist',
+      saleType: 'pyp',
+      price: '15',
+      quantity: '1',
+      reservePrice: '',
+      buyNowPrice: '',
+      playerListText: 'Mahomes\nAllen\nHurts',
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.values.salesFormat).toBe('player_selection');
+      expect(r.values.variantAssignmentMode).toBe('pick');
+      expect(r.values.variants?.length).toBe(3);
+      expect(r.values.variants?.[0]?.label).toBe('Mahomes');
+    }
+  });
+
+  it('builds random player pool from a pasted list', () => {
+    const r = validateQuickLiveLot({
+      title: 'Random rookies',
+      saleType: 'random_pyp',
+      price: '10',
+      quantity: '1',
+      reservePrice: '',
+      buyNowPrice: '',
+      playerListText: 'A\nB\nC\nD',
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.values.salesFormat).toBe('player_selection');
+      expect(r.values.variantAssignmentMode).toBe('random');
+      expect(r.values.customRandomPoolLabels).toEqual(['A', 'B', 'C', 'D']);
+      expect(r.values.variants?.[0]?.quantityInitial).toBe(4);
+    }
   });
 });

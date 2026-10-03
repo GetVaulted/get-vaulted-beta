@@ -4,6 +4,19 @@ import {
   stripePmTypeToWalletType,
   type BuyerWalletPaymentMethodDTO,
 } from "@/lib/payment-processor";
+import { isLiveEligibleStripePaymentMethodType } from "@/lib/stripe-payment-method-config";
+import {
+  buyerHasVenmoOnFile,
+  getBuyerVenmoWalletMethod,
+  isVenmoWalletPaymentMethodId,
+} from "@/lib/paypal-buyer-venmo";
+import {
+  buyerHasPayPalWalletOnFile,
+  getBuyerPayPalWalletMethod,
+  isPayPalWalletPaymentMethodId,
+} from "@/lib/paypal-buyer-wallet";
+import { isPayPalRailWalletPaymentMethodId } from "@/lib/paypal-buyer-rail";
+import type Stripe from "stripe";
 
 export type BuyerCardPaymentMethodRow = {
   id: string;
@@ -84,7 +97,48 @@ export async function listBuyerCardPaymentMethods(userId: string): Promise<Buyer
 
 const WALLET_PM_STRIPE_TYPES = ["card", "link", "cashapp", "amazon_pay", "paypal"] as const;
 
-async function resolveDefaultPaymentMethodId(customerId: string): Promise<string | null> {
+function isUsableLivePaymentMethod(pm: Stripe.PaymentMethod): boolean {
+  if (!isLiveEligibleStripePaymentMethodType(pm.type)) return false;
+  if (pm.type === "card") {
+    const expMonth = pm.card?.exp_month ?? 0;
+    const expYear = pm.card?.exp_year ?? 0;
+    return !isCardExpired(expMonth, expYear);
+  }
+  return true;
+}
+
+type WalletPmType = (typeof WALLET_PM_STRIPE_TYPES)[number];
+
+/**
+ * Fetches every wallet-eligible PaymentMethod type for a Stripe Customer in one parallel
+ * round trip, instead of one `list` call per type run one after another. Callers that need
+ * both "what's the default" and "what's the full list" should fetch this ONCE and pass it to
+ * both, rather than each independently re-listing every type (the bug behind GET-VAULTED-H:
+ * one wallet page load was making 15-20+ sequential Stripe calls and tripping Stripe's rate
+ * limit — see stripe.com/docs/rate-limits).
+ */
+async function fetchStripeWalletPaymentMethodsByType(
+  stripe: Stripe,
+  customerId: string,
+): Promise<Map<WalletPmType, Stripe.PaymentMethod[]>> {
+  const lists = await Promise.all(
+    WALLET_PM_STRIPE_TYPES.map((pmType) => stripe.paymentMethods.list({ customer: customerId, type: pmType })),
+  );
+  const byType = new Map<WalletPmType, Stripe.PaymentMethod[]>();
+  WALLET_PM_STRIPE_TYPES.forEach((pmType, i) => byType.set(pmType, lists[i].data));
+  return byType;
+}
+
+/**
+ * @param byType Optional pre-fetched wallet PaymentMethods (see `fetchStripeWalletPaymentMethodsByType`).
+ * When provided, this never re-lists Stripe for the fallback scan — it reuses what the caller
+ * already fetched. Only pass this when the caller is about to use (or already used) that same
+ * fetch for something else; otherwise omit it and this fetches on its own as before.
+ */
+async function resolveDefaultPaymentMethodId(
+  customerId: string,
+  byType?: Map<WalletPmType, Stripe.PaymentMethod[]>,
+): Promise<string | null> {
   const stripe = getStripe();
   const customer = await stripe.customers.retrieve(customerId, {
     expand: ["invoice_settings.default_payment_method"],
@@ -97,19 +151,57 @@ async function resolveDefaultPaymentMethodId(customerId: string): Promise<string
     const id = (dpm as { id: string }).id;
     if (typeof id === "string" && id.startsWith("pm_")) defaultId = id;
   }
-  if (defaultId) return defaultId;
+  if (defaultId) {
+    try {
+      // Reuse an already-fetched copy when we have one instead of a fresh `retrieve` call.
+      const cached = byType ? [...byType.values()].flat().find((pm) => pm.id === defaultId) : undefined;
+      const pm = cached ?? (await stripe.paymentMethods.retrieve(defaultId));
+      if (isUsableLivePaymentMethod(pm)) return defaultId;
+    } catch {
+      /* fall through to first usable wallet PM */
+    }
+  }
 
-  const cards = await stripe.paymentMethods.list({ customer: customerId, type: "card" });
-  const valid = cards.data.find((pm) => {
-    const expMonth = pm.card?.exp_month ?? 0;
-    const expYear = pm.card?.exp_year ?? 0;
-    return !isCardExpired(expMonth, expYear);
-  });
-  return valid?.id ?? cards.data[0]?.id ?? null;
+  const typeLists = byType ?? (await fetchStripeWalletPaymentMethodsByType(stripe, customerId));
+  for (const pmType of WALLET_PM_STRIPE_TYPES) {
+    const valid = (typeLists.get(pmType) ?? []).find((pm) => isUsableLivePaymentMethod(pm));
+    if (valid) return valid.id;
+  }
+  return null;
 }
 
-/** All saved wallet payment methods on the Stripe Customer (cards, Link, Cash App, PayPal). */
+/** All saved wallet payment methods (Stripe PMs + vaulted Venmo / PayPal). */
 export async function listBuyerWalletPaymentMethods(userId: string): Promise<BuyerWalletPaymentMethodDTO[]> {
+  const [stripeRows, venmo, paypal] = await Promise.all([
+    listStripeBuyerWalletPaymentMethods(userId),
+    getBuyerVenmoWalletMethod(userId),
+    getBuyerPayPalWalletMethod(userId),
+  ]);
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { buyerDefaultWalletPaymentMethodId: true },
+  });
+  const preferred = user?.buyerDefaultWalletPaymentMethodId?.trim() ?? "";
+
+  const rows = [...stripeRows];
+  if (venmo) rows.push(venmo);
+  if (paypal) rows.push(paypal);
+
+  if (preferred) {
+    return rows.map((row) => ({ ...row, isDefault: row.id === preferred }));
+  }
+  if (rows.some((r) => r.isDefault)) return rows;
+  if (paypal) {
+    return rows.map((row) => ({ ...row, isDefault: row.id === paypal.id }));
+  }
+  if (venmo) {
+    return rows.map((row) => ({ ...row, isDefault: row.id === venmo.id }));
+  }
+  return rows;
+}
+
+async function listStripeBuyerWalletPaymentMethods(userId: string): Promise<BuyerWalletPaymentMethodDTO[]> {
   if (!isStripeConfigured()) return [];
 
   const user = await prisma.user.findUnique({
@@ -120,12 +212,13 @@ export async function listBuyerWalletPaymentMethods(userId: string): Promise<Buy
   if (!customerId) return [];
 
   const stripe = getStripe();
-  const defaultId = await resolveDefaultPaymentMethodId(customerId);
+  const byType = await fetchStripeWalletPaymentMethodsByType(stripe, customerId);
+  const defaultId = await resolveDefaultPaymentMethodId(customerId, byType);
   const rows: BuyerWalletPaymentMethodDTO[] = [];
 
   for (const pmType of WALLET_PM_STRIPE_TYPES) {
-    const list = await stripe.paymentMethods.list({ customer: customerId, type: pmType });
-    for (const pm of list.data) {
+    const list = byType.get(pmType) ?? [];
+    for (const pm of list) {
       const card = pm.card;
       const walletType = stripePmTypeToWalletType(pm.type, card?.wallet?.type ?? null);
       let brand = formatBrand(card?.brand ?? pm.type);
@@ -159,56 +252,120 @@ export async function listBuyerWalletPaymentMethods(userId: string): Promise<Buy
 }
 
 export async function setBuyerDefaultPaymentMethod(userId: string, paymentMethodId: string): Promise<void> {
+  if (isVenmoWalletPaymentMethodId(paymentMethodId)) {
+    const { setBuyerVenmoAsDefault } = await import("@/lib/paypal-buyer-venmo");
+    await setBuyerVenmoAsDefault(userId);
+    return;
+  }
+  if (isPayPalWalletPaymentMethodId(paymentMethodId)) {
+    const { setBuyerPayPalWalletAsDefault } = await import("@/lib/paypal-buyer-wallet");
+    await setBuyerPayPalWalletAsDefault(userId);
+    return;
+  }
   await assertPaymentMethodOwnedByUser(userId, paymentMethodId);
   const customerId = await ensureStripeCustomerIdForUser(userId);
   const stripe = getStripe();
   await stripe.customers.update(customerId, {
     invoice_settings: { default_payment_method: paymentMethodId },
   });
+  await prisma.user.update({
+    where: { id: userId },
+    data: { buyerDefaultWalletPaymentMethodId: paymentMethodId },
+  });
 }
 
 export async function detachBuyerPaymentMethod(userId: string, paymentMethodId: string): Promise<void> {
+  if (isVenmoWalletPaymentMethodId(paymentMethodId)) {
+    const { detachBuyerVenmo } = await import("@/lib/paypal-buyer-venmo");
+    await detachBuyerVenmo(userId);
+    return;
+  }
+  if (isPayPalWalletPaymentMethodId(paymentMethodId)) {
+    const { detachBuyerPayPalWallet } = await import("@/lib/paypal-buyer-wallet");
+    await detachBuyerPayPalWallet(userId);
+    return;
+  }
   await assertPaymentMethodOwnedByUser(userId, paymentMethodId);
   const stripe = getStripe();
   await stripe.paymentMethods.detach(paymentMethodId);
-}
-
-/** True when Stripe is off (local dev) or the buyer has at least one saved card on their Customer. */
-export async function buyerHasCardOnFileForLiveBidding(userId: string): Promise<boolean> {
-  if (!isStripeConfigured()) return true;
-  const cards = await listBuyerCardPaymentMethods(userId);
-  return cards.length > 0;
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { buyerDefaultWalletPaymentMethodId: true },
+  });
+  if (user?.buyerDefaultWalletPaymentMethodId === paymentMethodId) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { buyerDefaultWalletPaymentMethodId: null },
+    });
+  }
 }
 
 /**
- * Stripe Customer default card PM when set; otherwise the first saved card from the Customer.
- * Used to charge live auction wins when `Order.paymentLabel` is still the placeholder `"auction"`.
+ * True when Stripe is off (local dev) or the buyer has a live-eligible saved PM
+ * (card, Cash App Pay, Link, Amazon Pay, vaulted Venmo, or vaulted PayPal).
+ */
+export async function buyerHasCardOnFileForLiveBidding(userId: string): Promise<boolean> {
+  if (!isStripeConfigured()) return true;
+  if (await buyerHasVenmoOnFile(userId)) return true;
+  if (await buyerHasPayPalWalletOnFile(userId)) return true;
+  const pmId = await getBuyerDefaultCardPaymentMethodId(userId);
+  return pmId != null;
+}
+
+/**
+ * Stripe Customer default live-eligible PM when set; otherwise the first usable
+ * card / Cash App / Link / Amazon Pay on the Customer.
+ * Returns null when the buyer's preferred method is Venmo/PayPal (use PayPal-rail charge path).
  */
 export async function getBuyerDefaultCardPaymentMethodId(userId: string): Promise<string | null> {
+  const preferred = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { buyerDefaultWalletPaymentMethodId: true },
+  });
+  const pref = preferred?.buyerDefaultWalletPaymentMethodId?.trim() ?? "";
+  if (isPayPalRailWalletPaymentMethodId(pref)) return null;
+
   if (!isStripeConfigured()) return null;
+  if (pref.startsWith("pm_")) {
+    try {
+      await assertPaymentMethodOwnedByUser(userId, pref);
+      return pref;
+    } catch {
+      /* fall through to Stripe customer default */
+    }
+  }
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { stripeCustomerId: true },
   });
   const customerId = user?.stripeCustomerId?.trim();
   if (!customerId) return null;
+  return resolveDefaultPaymentMethodId(customerId);
+}
 
-  const defaultId = await resolveDefaultPaymentMethodId(customerId);
-  if (!defaultId) return null;
+/** Preferred wallet id for live charges: `paypal_…`, `venmo_…`, or Stripe `pm_…`. */
+export async function getBuyerPreferredWalletPaymentMethodId(userId: string): Promise<string | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      buyerDefaultWalletPaymentMethodId: true,
+      venmoPaymentTokenId: true,
+      paypalWalletPaymentTokenId: true,
+    },
+  });
+  const pref = user?.buyerDefaultWalletPaymentMethodId?.trim() ?? "";
+  if (isPayPalRailWalletPaymentMethodId(pref)) return pref;
+  if (pref.startsWith("pm_")) return pref;
 
-  const stripe = getStripe();
-  try {
-    const pm = await stripe.paymentMethods.retrieve(defaultId);
-    const expMonth = pm.card?.exp_month ?? 0;
-    const expYear = pm.card?.exp_year ?? 0;
-    if (!isCardExpired(expMonth, expYear)) return defaultId;
-  } catch {
-    /* fall through */
+  const stripePm = await getBuyerDefaultCardPaymentMethodId(userId);
+  if (stripePm) return stripePm;
+  if (user?.paypalWalletPaymentTokenId?.trim()) {
+    return `paypal_${user.paypalWalletPaymentTokenId.trim()}`;
   }
-
-  const cards = await listBuyerCardPaymentMethods(userId);
-  const valid = cards.find((card) => !isCardExpired(card.expMonth, card.expYear));
-  return valid?.id ?? cards[0]?.id ?? null;
+  if (user?.venmoPaymentTokenId?.trim()) {
+    return `venmo_${user.venmoPaymentTokenId.trim()}`;
+  }
+  return null;
 }
 
 /**

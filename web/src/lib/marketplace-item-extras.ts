@@ -1,5 +1,6 @@
 import type { MarketplaceListing } from "@/content/marketplace-listings";
 import { minNextBidUsd } from "@/lib/auction";
+import { MARKETPLACE_MAX_PHOTOS } from "@/lib/listing-photo-requirements";
 
 export type ItemPageExtras = {
   description: string;
@@ -57,11 +58,21 @@ function defaultDescription(listing: MarketplaceListing) {
 }
 
 function defaultShippingSummary(listing: MarketplaceListing) {
-  if (listing.shippingPriceUsd != null && listing.handlingTimeLabel) {
+  if (listing.tradeOnly) {
+    return "On accepted trades, each party buys their own shipping label for the items they send. Label cost is quoted from your addresses after the trade is accepted — it is not a $0 listing shipping fee.";
+  }
+  // `shippingPriceUsd <= 0` means carrier-calculated at checkout (same as usesCarrierCalculatedShipping),
+  // not "free $0.00 flat shipping".
+  if (
+    listing.shippingPriceUsd != null &&
+    Number.isFinite(listing.shippingPriceUsd) &&
+    listing.shippingPriceUsd > 0 &&
+    listing.handlingTimeLabel
+  ) {
     const sig = listing.signatureRequired ? " Signature required on delivery." : "";
     return `Buyer pays $${listing.shippingPriceUsd.toFixed(2)} shipping. ${listing.handlingTimeLabel}.${sig} Tracking is added to your order when the seller purchases a label.`;
   }
-  return "Ships within 2 business days. Signature required over $500. Insurance availability depends on the carrier and rate selected at checkout. International: duties and import taxes may apply.";
+  return "Shipping is calculated at checkout from carrier rates to your address. Signature required over $500. Insurance availability depends on the carrier and rate selected. International: duties and import taxes may apply.";
 }
 
 export function buildItemPageExtras(
@@ -69,7 +80,9 @@ export function buildItemPageExtras(
   realSignals?: { watchingCount?: number; sellerCredibilityLabel?: string },
 ): ItemPageExtras {
   const galleryImageUrls =
-    listing.imageUrls && listing.imageUrls.length > 0 ? listing.imageUrls.slice(0, 8) : undefined;
+    listing.imageUrls && listing.imageUrls.length > 0
+      ? listing.imageUrls.slice(0, MARKETPLACE_MAX_PHOTOS)
+      : undefined;
 
   const gallerySeeds = [
     listing.imageSeed,
@@ -112,8 +125,9 @@ export function buildItemPageExtras(
     (listing.listingStatus === "sold" ||
       (listing.auctionEndsAtIso != null && new Date(listing.auctionEndsAtIso).getTime() <= now));
 
-  const estimatedShippingDisplay =
-    listing.shippingPriceUsd != null && Number.isFinite(listing.shippingPriceUsd) && listing.shippingPriceUsd > 0
+  const estimatedShippingDisplay = listing.tradeOnly
+    ? "Each party buys their own label"
+    : listing.shippingPriceUsd != null && Number.isFinite(listing.shippingPriceUsd) && listing.shippingPriceUsd > 0
       ? listing.shippingPriceUsd.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 })
       : "Estimated at checkout";
 
@@ -128,8 +142,9 @@ export function buildItemPageExtras(
   const shipsFromDisplay =
     typeof listing.shipsFromRegion === "string" && listing.shipsFromRegion.trim() ? listing.shipsFromRegion.trim() : null;
 
-  const trackingAfterPurchaseLine =
-    "After your payment clears, the seller purchases a carrier label and tracking is added to your order automatically when available.";
+  const trackingAfterPurchaseLine = listing.tradeOnly
+    ? "After a trade is accepted, each participant purchases a carrier label for the package they send. Tracking is added when labels are bought."
+    : "After your payment clears, the seller purchases a carrier label and tracking is added to your order automatically when available.";
 
   return {
     description: listing.longDescription?.trim() ? listing.longDescription.trim() : defaultDescription(listing),

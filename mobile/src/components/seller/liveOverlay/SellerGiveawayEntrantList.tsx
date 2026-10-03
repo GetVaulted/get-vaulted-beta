@@ -4,7 +4,7 @@ import {
   fetchLiveGiveawayEntries,
   type GiveawayEntryRow,
 } from '../../../api/liveGiveawayRepository';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 function entryMethodLabel(method: GiveawayEntryRow['method']): string | null {
   switch (method) {
@@ -61,7 +61,7 @@ export function SellerGiveawayEntrantList({
   if (loading) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator color={colors.gold} size="small" />
+        <ActivityIndicator color={vaultColors.gold} size="small" />
       </View>
     );
   }

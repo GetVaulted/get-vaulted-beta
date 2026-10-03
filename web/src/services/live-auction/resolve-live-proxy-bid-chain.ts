@@ -1,5 +1,5 @@
 import type { Prisma } from "@/generated/prisma/client";
-import { minNextBidUsd } from "@/lib/auction";
+import { liveAuctionMinBidUsd } from "@/lib/auction";
 import { computeNextAuctionEndsAtAfterBid } from "@/lib/live-auction-bid-extension";
 import { LIVE_AUCTION_EVENT_PAYLOAD_VERSION, type LiveAuctionBidPlacedPayloadV1 } from "@/lib/live-auction-event-schema";
 import { getTransactionServerNow } from "@/lib/server-transaction-now";
@@ -11,7 +11,7 @@ const MAX_PROXY_CHAIN = 32;
  * After a human bid is accepted on a **host-only** lot (`listingId == null`), applies automatic
  * proxy (max-bid) responses in deterministic order until no eligible proxy remains.
  *
- * **Not used** for marketplace listing lots (`placeListingBid` path) — those use `Bid` rows only.
+ * **Not used** for marketplace listing lots (`placeLiveListingBid` path) — those use `Bid` rows only.
  */
 export async function resolveLiveProxyBidChain(
   tx: Prisma.TransactionClient,
@@ -35,6 +35,9 @@ export async function resolveLiveProxyBidChain(
         status: true,
         biddingOpen: true,
         currentBidUsd: true,
+        startingBidUsd: true,
+        priceUsd: true,
+        bidIncrementUsd: true,
         lastHighBidderId: true,
         auctionEndsAt: true,
       },
@@ -42,14 +45,13 @@ export async function resolveLiveProxyBidChain(
     if (!row || row.liveRoomId !== ctx.liveRoomId || row.status !== "active" || !row.biddingOpen) return outbids;
     if (row.listingId) return outbids;
 
-    const high = row.currentBidUsd ?? 0;
     const leaderId = row.lastHighBidderId;
     if (!leaderId) return outbids;
 
     const now = await getTransactionServerNow(tx);
     if (row.auctionEndsAt && row.auctionEndsAt <= now) return outbids;
 
-    const minNeed = minNextBidUsd(high);
+    const minNeed = liveAuctionMinBidUsd(row);
     const proxy = await tx.liveAuctionProxyBid.findFirst({
       where: {
         liveRoomItemId: ctx.itemId,

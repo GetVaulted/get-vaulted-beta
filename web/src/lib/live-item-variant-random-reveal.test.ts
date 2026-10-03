@@ -11,6 +11,12 @@ const prismaMock = vi.hoisted(() => ({
     findMany: vi.fn(),
     update: vi.fn(),
   },
+  liveItemVariant: {
+    findFirst: vi.fn().mockResolvedValue({ color: "nfl_teams" }),
+  },
+  liveRoomItem: {
+    findUnique: vi.fn().mockResolvedValue({ teamBoardNcaa: false }),
+  },
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
@@ -38,7 +44,11 @@ function makeAssignedStore(initial: string[] = []) {
 }
 
 describe("remainingRandomPoolCount", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.liveRoomItem.findUnique.mockResolvedValue({ teamBoardNcaa: false });
+    prismaMock.liveItemVariant.findFirst.mockResolvedValue({ color: "nfl_teams" });
+  });
 
   it("counts unclaimed labels for team_break (8-division pool)", async () => {
     prismaMock.liveItemVariantPurchase.findMany.mockResolvedValue([
@@ -50,6 +60,31 @@ describe("remainingRandomPoolCount", () => {
       salesFormat: "team_break",
     });
     expect(remaining).toBe(6);
+  });
+
+  it("includes NCAA in NFL random team pool when flagged", async () => {
+    prismaMock.liveItemVariantPurchase.findMany.mockResolvedValue([]);
+    prismaMock.liveRoomItem.findUnique.mockResolvedValue({ teamBoardNcaa: true });
+    const remaining = await remainingRandomPoolCount({
+      liveRoomItemId: "item_1",
+      salesFormat: "variant_selection",
+      boardPack: "nfl",
+      includeNcaa: true,
+    });
+    expect(remaining).toBe(33);
+  });
+
+  it("uses custom player pool for player_selection", async () => {
+    prismaMock.liveItemVariantPurchase.findMany.mockResolvedValue([]);
+    prismaMock.liveRoomItem.findUnique.mockResolvedValue({
+      salesFormat: "player_selection",
+      customRandomPoolLabels: ["Mahomes", "Allen", "Hurts"],
+    });
+    const remaining = await remainingRandomPoolCount({
+      liveRoomItemId: "item_1",
+      salesFormat: "player_selection",
+    });
+    expect(remaining).toBe(3);
   });
 
   it("returns 0 once every label in the pool has been claimed", async () => {

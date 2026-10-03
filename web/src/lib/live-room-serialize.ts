@@ -15,19 +15,26 @@ import type {
 } from "@/generated/prisma/client";
 import { buildBreakPublicSnapshot, type LiveRoomBreakPublicDTO } from "@/lib/live-room-break-public";
 import { resolveLiveRoomItemQuantityState } from "@/lib/live-room-item-quantity-display";
+import { isVariantSalesFormat, summarizeVariantSpots } from "@/lib/live-item-variant-presets";
 import {
   serializeLiveItemVariants,
   type LiveItemVariantDTO,
 } from "@/lib/live-item-variant-serialize";
+import { normalizeCustomRandomPoolLabels } from "../../../shared/live-player-spot-list";
+import { effectiveLiveRoomViewerCount } from "@/lib/live-room-viewer-count-freshness";
+import { resolveLiveRoomMediaUrl } from "@/lib/live-room-preview-image";
 
 export type { LiveItemVariantDTO };
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
 import type { ViewerGiveawayDTO } from "@/lib/live-giveaway";
-import type { LiveVariantCheckoutPreviewForRoom } from "@/lib/live-variant-checkout-preview-for-room";
+import type {
+  LivePinnedShippingTaxDTO,
+  LiveVariantCheckoutPreviewForRoom,
+} from "@/lib/live-variant-checkout-preview-for-room";
 
 /** Result of `liveRoom.findUnique` with seller, items, messages+sender, and optional break relations. */
 export type LiveRoomDetailPayload = LiveRoom & {
-  seller: Pick<User, "id" | "username">;
+  seller: Pick<User, "id" | "username" | "image">;
   tipModerator?: Pick<User, "id" | "username"> | null;
   items: (LiveRoomItem & { variants?: LiveRoomItemVariantRow[] })[];
   messages: (LiveRoomMessage & { sender: Pick<User, "username" | "image"> })[];
@@ -68,6 +75,9 @@ export type LiveRoomItemDTO = {
   status: LiveRoomItemStatus;
   sortOrder: number;
   teamBoardMisc: boolean;
+  teamBoardNcaa: boolean;
+  /** Custom random-reveal pool (player_selection random). */
+  customRandomPoolLabels: string[] | null;
   itemVersion: number;
   /** Host opens bidding with Start; false while lot is only posted on screen. */
   biddingOpen: boolean;
@@ -111,12 +121,21 @@ export type LiveRoomDetailDTO = {
   id: string;
   sellerId: string;
   sellerUsername: string;
+  /** Host profile photo — empty/omitted when the host has none set. */
+  sellerAvatarUrl?: string;
   title: string;
   description: string;
+  /** In-room show notes for people who enter (not discovery). */
+  showNotes: string;
   category: string;
   roomType: LiveRoomType;
   status: LiveRoomStatus;
+  /** `private` = unlisted from Live Shows (link/share invite only). */
+  discoveryVisibility: "public" | "private";
   thumbnailUrl: string;
+  /** Short looping promo for scheduled rooms; null when unset. */
+  teaserVideoUrl: string | null;
+  teaserVideoDurationMs: number | null;
   viewerCount: number;
   roomVersion: number;
   /** Monotonic canonical auction event sequence for this room (bid stream ordering). */
@@ -157,6 +176,8 @@ export type LiveRoomDetailDTO = {
   giveaways?: ViewerGiveawayDTO[];
   /** PYT/PYD checkout totals for the active item when buyer wallet is ready. */
   variantCheckoutPreview?: LiveVariantCheckoutPreviewForRoom | null;
+  /** Shipping + tax for the active auction / buy-now pinned lot (pinned-box line). */
+  activeItemShippingTax?: LivePinnedShippingTaxDTO | null;
 };
 
 export type LiveBuyerPaymentFailureDTO = {
@@ -201,12 +222,35 @@ export function serializeLiveRoomItem(
     typeof qtyInitRaw === "number" && Number.isFinite(qtyInitRaw) && qtyInitRaw >= 1
       ? Math.min(512, Math.floor(qtyInitRaw))
       : Math.max(1, quantity);
+  const salesFormat = (row as { salesFormat?: LiveItemSalesFormat }).salesFormat ?? "auction";
+  // PYT/PYD progress comes from variant soldCount — not BreakSpot claims (often 0 for variant lots).
+  // Item.quantityInitial is forced to 1 at create for variant formats, so pool size must come from variants.
+  const variantSpotSummary =
+    isVariantSalesFormat(salesFormat) && Array.isArray(row.variants) && row.variants.length > 0
+      ? summarizeVariantSpots(
+          row.variants.map((v) => ({
+            soldCount: v.soldCount,
+            quantityRemaining: v.quantityRemaining,
+            status: v.status,
+            priceUsd: v.priceUsd,
+          })),
+        )
+      : null;
+  const unitsClaimed =
+    variantSpotSummary != null ? variantSpotSummary.sold : (options?.unitsClaimed ?? null);
   const qtyState = resolveLiveRoomItemQuantityState({
     title: row.title,
-    quantity,
-    quantityInitial,
+    quantity: variantSpotSummary != null ? variantSpotSummary.available : quantity,
+    quantityInitial:
+      variantSpotSummary != null && variantSpotSummary.spotCount > 0
+        ? Math.max(
+            quantityInitial,
+            variantSpotSummary.spotCount,
+            variantSpotSummary.available + variantSpotSummary.sold,
+          )
+        : quantityInitial,
     status: row.status,
-    unitsClaimed: options?.unitsClaimed ?? null,
+    unitsClaimed,
   });
   const ext = row as LiveRoomItem & {
     biddingOpen?: unknown;
@@ -227,7 +271,6 @@ export function serializeLiveRoomItem(
   const clutchTimeEnabled = ext.clutchTimeEnabled === true;
   const lastHighBidderId =
     typeof row.lastHighBidderId === "string" && row.lastHighBidderId.trim() ? row.lastHighBidderId.trim() : null;
-  const salesFormat = ext.salesFormat ?? "auction";
   const variantAssignmentMode = ext.variantAssignmentMode === "random" ? "random" : "pick";
   const variants = serializeLiveItemVariants(ext.variants);
   const variantBreakReadyAt =
@@ -261,6 +304,10 @@ export function serializeLiveRoomItem(
     status: row.status,
     sortOrder: row.sortOrder,
     teamBoardMisc: row.teamBoardMisc,
+    teamBoardNcaa: row.teamBoardNcaa,
+    customRandomPoolLabels: normalizeCustomRandomPoolLabels(
+      (row as { customRandomPoolLabels?: unknown }).customRandomPoolLabels,
+    ),
     itemVersion: row.itemVersion,
     biddingOpen,
     auctionEndsAt,
@@ -292,7 +339,9 @@ export function serializeLiveRoomMessage(
     body: deleted ? "[message removed]" : row.body,
     messageType: row.messageType,
     createdAt: row.createdAt.toISOString(),
-    mentions: deleted ? [] : mentions,
+    mentions: deleted
+      ? []
+      : mentions.filter((m) => m.userId !== row.senderId),
   };
 }
 
@@ -312,13 +361,24 @@ export function buildLiveRoomDetail(room: LiveRoomDetailPayload): LiveRoomDetail
     id: room.id,
     sellerId: room.sellerId,
     sellerUsername: room.seller.username,
+    sellerAvatarUrl: resolveLiveRoomMediaUrl(room.seller.image ?? ""),
     title: room.title,
     description: room.description,
+    showNotes: room.showNotes ?? "",
     category: room.category,
     roomType: room.roomType,
     status: room.status,
+    discoveryVisibility: room.discoveryVisibility === "private" ? "private" : "public",
     thumbnailUrl: room.thumbnailUrl,
-    viewerCount: room.viewerCount,
+    teaserVideoUrl: room.teaserVideoUrl?.trim() || null,
+    teaserVideoDurationMs:
+      typeof room.teaserVideoDurationMs === "number" && Number.isFinite(room.teaserVideoDurationMs)
+        ? Math.round(room.teaserVideoDurationMs)
+        : null,
+    viewerCount: effectiveLiveRoomViewerCount({
+      viewerCount: room.viewerCount,
+      viewerCountUpdatedAt: room.viewerCountUpdatedAt ?? null,
+    }),
     roomVersion: room.roomVersion,
     auctionEventSeq: room.auctionEventSeq ?? 0,
     scheduledStartAt: room.scheduledStartAt?.toISOString() ?? null,

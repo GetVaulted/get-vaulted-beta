@@ -2,13 +2,13 @@ import { prisma } from "@/lib/prisma";
 import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import type { LiveRoomType } from "@/generated/prisma/client";
 import { closeActiveLiveRoomItemUnitSale } from "@/lib/live-room-item-unit-sale";
-import { sendBreakAuctionWinNotificationsDeferred } from "@/lib/break-live-auction-round-finalize";
 import { notifyLiveAuctionWinPaymentOutcome } from "@/lib/live-auction-win-payment-notify";
 import { recordPaymentFailureFromCharge } from "@/lib/live-room-payment-failure";
 import {
   chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard,
   type ChargeOrderSavedPmOutcome,
 } from "@/lib/stripe-charge-order-saved-pm";
+import { PAYMENT_FAILED, PAYMENT_PENDING, PAYMENT_REQUIRES_ACTION } from "@/services/payments";
 import {
   emitActiveItemChanged,
   emitLiveRoomQueueItemsChanged,
@@ -19,7 +19,21 @@ import {
   resetVariantSpotAuctionNoBids,
   settleVariantSpotAuctionWinner,
 } from "@/lib/live-variant-spot-auction-settle";
-import { isMultiQuantityLiveAuctionItem } from "@/lib/live-auction-host-start";
+import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
+
+/**
+ * Early charge failures (no saved card, Stripe not configured, etc.) return `error` without flipping
+ * Order.paymentStatus — leave those as Declined in Sales instead of stuck Pending.
+ */
+async function markLiveAuctionOrderFailedIfStillOpen(orderId: string): Promise<void> {
+  await prisma.order.updateMany({
+    where: {
+      id: orderId,
+      paymentStatus: { in: [PAYMENT_PENDING, PAYMENT_REQUIRES_ACTION] },
+    },
+    data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
+  });
+}
 
 /**
  * Grace after `auctionEndsAt` before the server force-finalizes an overdue lot. Kept small so the
@@ -28,7 +42,7 @@ import { isMultiQuantityLiveAuctionItem } from "@/lib/live-auction-host-start";
  */
 export const LIVE_AUCTION_AUTO_CLOSE_GRACE_MS = 1500;
 
-export type FinalizeTrigger = "manual" | "timer_nudge" | "read_sweep";
+export type FinalizeTrigger = "manual" | "timer_nudge" | "read_sweep" | "host_pin_lot";
 
 /** Reusable error codes thrown by the settle path (mapped to HTTP by the manual route). */
 export type LiveAuctionSettleError =
@@ -64,7 +78,7 @@ function chargeOutcomeToPaymentStatus(outcome: ChargeOrderSavedPmOutcome["outcom
 /**
  * Settle a live auction/break lot to its winner, charge the winner's saved card, emit realtime,
  * and record a payment-failure for buyer recovery on charge failure. This is the single source of
- * truth shared by the manual host "mark sold" route and the automatic timer-zero finalize. It is
+ * truth shared by the host "mark sold" route and automatic timer-zero finalize. It is
  * idempotent: the transaction only settles a lot still in `active` status, so concurrent callers
  * (manual click, timer nudge, read-sweep across multiple polls) cannot double-settle or
  * double-charge — losers throw `ITEM_ALREADY_SOLD` / `ITEM_NOT_ACTIVE`.
@@ -147,12 +161,6 @@ export async function settleAndChargeLiveAuctionLot(args: {
     }
   }
 
-  if (settled.pendingWinNotifications) {
-    void sendBreakAuctionWinNotificationsDeferred(settled.pendingWinNotifications).catch((err) =>
-      console.error("[auction close] deferred win notifications", err),
-    );
-  }
-
   const winnerUsername = settled.buyerId
     ? (await prisma.user.findUnique({ where: { id: settled.buyerId }, select: { username: true } }))?.username ?? null
     : null;
@@ -168,76 +176,75 @@ export async function settleAndChargeLiveAuctionLot(args: {
   }
 
   let autoCharge: ChargeOrderSavedPmOutcome = { outcome: "error", code: "NO_BUYER" };
-  const chargeAndNotifyDeferred = Boolean(settled.pendingWinNotifications);
   if (settled.buyerId && settled.orderId) {
-    if (!chargeAndNotifyDeferred) {
-      console.info("[auction close] charging winner", {
+    // Always charge before emitting purchase_completed so Sales shows Approved/Declined, not Pending.
+    // (Break rounds used to fire-and-forget charge via pendingWinNotifications and stuck on Pending.)
+    console.info("[auction close] charging winner", {
+      trigger,
+      liveRoomId,
+      itemId,
+      orderId: settled.orderId,
+      buyerId: settled.buyerId,
+      amountUsd: settled.itemPriceUsd ?? null,
+    });
+    try {
+      autoCharge = await chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard({
+        buyerId: settled.buyerId,
+        orderId: settled.orderId,
+      });
+    } catch (err) {
+      console.error("[auction close] auto-charge exception", err);
+      autoCharge = { outcome: "error", code: "CHARGE_EXCEPTION" };
+    }
+    if (autoCharge.outcome === "error") {
+      await markLiveAuctionOrderFailedIfStillOpen(settled.orderId);
+    }
+    if (settled.sellerId && settled.listingTitle && settled.itemPriceUsd != null) {
+      try {
+        await notifyLiveAuctionWinPaymentOutcome({
+          buyerId: settled.buyerId,
+          sellerId: settled.sellerId,
+          orderId: settled.orderId,
+          listingTitle: settled.listingTitle,
+          itemPriceUsd: settled.itemPriceUsd,
+          charge: autoCharge,
+        });
+      } catch (err) {
+        console.error("[auction close] win notify", err);
+      }
+    }
+    if (autoCharge.outcome === "paid") {
+      console.info("[auction close] payment success", {
         trigger,
         liveRoomId,
         itemId,
         orderId: settled.orderId,
         buyerId: settled.buyerId,
-        amountUsd: settled.itemPriceUsd ?? null,
       });
-      try {
-        autoCharge = await chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard({
-          buyerId: settled.buyerId,
-          orderId: settled.orderId,
-        });
-      } catch (err) {
-        console.error("[auction close] auto-charge exception", err);
-        autoCharge = { outcome: "error", code: "CHARGE_EXCEPTION" };
-      }
-      if (settled.sellerId && settled.listingTitle && settled.itemPriceUsd != null) {
-        try {
-          await notifyLiveAuctionWinPaymentOutcome({
-            buyerId: settled.buyerId,
-            sellerId: settled.sellerId,
-            orderId: settled.orderId,
-            listingTitle: settled.listingTitle,
-            itemPriceUsd: settled.itemPriceUsd,
-            charge: autoCharge,
-          });
-        } catch (err) {
-          console.error("[auction close] win notify", err);
-        }
-      }
-      if (autoCharge.outcome === "paid") {
-        console.info("[auction close] payment success", {
-          trigger,
-          liveRoomId,
-          itemId,
-          orderId: settled.orderId,
-          buyerId: settled.buyerId,
-        });
-        void recordBuyerGiveawayPurchaseEntries(liveRoomId, settled.buyerId, settled.orderId).catch((e) => {
-          console.error("[auction close] buyers giveaway entry", e);
-        });
-      } else {
-        console.info("[auction close] payment failed", {
-          trigger,
-          liveRoomId,
-          itemId,
-          orderId: settled.orderId,
-          buyerId: settled.buyerId,
-          outcome: autoCharge.outcome,
-          code: autoCharge.outcome === "error" ? autoCharge.code : undefined,
-        });
-        await recordPaymentFailureFromCharge({
-          liveRoomId,
-          buyerId: settled.buyerId,
-          kind: "auction_win",
-          liveRoomItemId: itemId,
-          orderId: settled.orderId,
-          amountUsd: settled.itemPriceUsd ?? 0,
-          itemTitle: settled.listingTitle ?? undefined,
-          charge: autoCharge,
-        });
-      }
+      void recordBuyerGiveawayPurchaseEntries(liveRoomId, settled.buyerId, settled.orderId).catch((e) => {
+        console.error("[auction close] buyers giveaway entry", e);
+      });
+    } else {
+      console.info("[auction close] payment failed", {
+        trigger,
+        liveRoomId,
+        itemId,
+        orderId: settled.orderId,
+        buyerId: settled.buyerId,
+        outcome: autoCharge.outcome,
+        code: autoCharge.outcome === "error" ? autoCharge.code : undefined,
+      });
+      await recordPaymentFailureFromCharge({
+        liveRoomId,
+        buyerId: settled.buyerId,
+        kind: "auction_win",
+        liveRoomItemId: itemId,
+        orderId: settled.orderId,
+        amountUsd: settled.itemPriceUsd ?? 0,
+        itemTitle: settled.listingTitle ?? undefined,
+        charge: autoCharge,
+      });
     }
-    const paymentStatus = chargeAndNotifyDeferred
-      ? "pending"
-      : chargeOutcomeToPaymentStatus(autoCharge.outcome);
     emitPurchaseCompleted(liveRoomId, itemId, {
       roomVersion: settled.roomVersion,
       itemVersion: settled.itemVersion,
@@ -246,7 +253,7 @@ export async function settleAndChargeLiveAuctionLot(args: {
       winningAmountUsd: settled.itemPriceUsd,
       itemTitle: settled.listingTitle ?? null,
       orderId: settled.orderId,
-      paymentStatus,
+      paymentStatus: chargeOutcomeToPaymentStatus(autoCharge.outcome),
       itemSoldOut: settled.itemSoldOut,
     });
   } else if (settled.buyerId) {
@@ -256,8 +263,9 @@ export async function settleAndChargeLiveAuctionLot(args: {
       winnerUsername,
       winnerId: settled.buyerId,
       winningAmountUsd: settled.itemPriceUsd,
+      itemTitle: settled.listingTitle ?? null,
       orderId: settled.orderId ?? null,
-      paymentStatus: "pending",
+      paymentStatus: "payment_failed",
       itemSoldOut: settled.itemSoldOut,
     });
   }
@@ -271,7 +279,8 @@ export async function settleAndChargeLiveAuctionLot(args: {
 }
 
 /**
- * Multi-unit lot ended with no bids: clear the round and keep the row active for another start.
+ * Auction ended with no bids: clear the round, keep quantity, keep the lot active.
+ * Single-unit and multi-unit lots share this path — unsold must NEVER skip/consume inventory.
  */
 export async function resetLiveAuctionLotAfterNoBids(args: {
   liveRoomId: string;
@@ -282,10 +291,9 @@ export async function resetLiveAuctionLotAfterNoBids(args: {
   const next = await prisma.$transaction(async (tx) => {
     const row = await tx.liveRoomItem.findFirst({
       where: { id: itemId, liveRoomId, status: "active" },
-      select: { id: true, quantity: true, quantityInitial: true },
+      select: { id: true },
     });
     if (!row) return null;
-    if (!isMultiQuantityLiveAuctionItem(row)) return null;
 
     const updated = await tx.liveRoomItem.updateMany({
       where: { id: itemId, liveRoomId, status: "active" },
@@ -299,6 +307,8 @@ export async function resetLiveAuctionLotAfterNoBids(args: {
       },
     });
     if (updated.count === 0) return null;
+
+    await clearLiveAuctionProxyBidsForItem(tx, { liveRoomId, itemId });
 
     const roomNext = await tx.liveRoom.update({
       where: { id: liveRoomId },
@@ -327,88 +337,25 @@ export async function resetLiveAuctionLotAfterNoBids(args: {
   return { reset: true };
 }
 
-async function skipLiveAuctionLotNoWinner(args: {
+/** Timer elapsed with a winner — settle + charge (same path as host Mark sold). */
+async function settleLiveAuctionLotOnTimerEnd(args: {
   liveRoomId: string;
   itemId: string;
   room: RoomCtx;
   trigger: FinalizeTrigger;
-}): Promise<{ closed: boolean }> {
-  const { liveRoomId, itemId, trigger } = args;
-  const next = await prisma.$transaction(async (tx) => {
-    const updated = await tx.liveRoomItem.updateMany({
-      where: { id: itemId, liveRoomId, status: "active" },
-      data: { status: "skipped", biddingOpen: false, auctionEndsAt: null, clutchTimeEnabled: false, itemVersion: { increment: 1 } },
-    });
-    if (updated.count === 0) return null;
-    const roomNext = await tx.liveRoom.update({
-      where: { id: liveRoomId },
-      data: { roomVersion: { increment: 1 } },
-      select: { roomVersion: true },
-    });
-    const itemNext = await tx.liveRoomItem.findUnique({ where: { id: itemId }, select: { itemVersion: true } });
-    return { roomVersion: roomNext.roomVersion, itemVersion: itemNext?.itemVersion ?? 0 };
+}): Promise<{ settled: boolean; orderId: string | null }> {
+  const r = await settleAndChargeLiveAuctionLot({
+    liveRoomId: args.liveRoomId,
+    itemId: args.itemId,
+    room: args.room,
+    trigger: args.trigger,
   });
-  if (!next) return { closed: false };
-  emitPurchaseCompleted(liveRoomId, itemId, {
-    roomVersion: next.roomVersion,
-    itemVersion: next.itemVersion,
-    noBids: true,
-    itemSoldOut: true,
-  });
-  emitActiveItemChanged(liveRoomId, itemId, {
-    roomVersion: next.roomVersion,
-    itemVersion: next.itemVersion,
-    biddingOpen: false,
-    auctionEndsAt: null,
-  });
-  emitLiveRoomQueueItemsChanged(liveRoomId);
-  console.info("[auction close] no bids, closed unsold", { trigger, liveRoomId, itemId });
-  return { closed: true };
-}
-
-/** Timer elapsed with a winner — close bidding; host marks sold to settle. */
-async function closeLiveAuctionLotPendingWinner(args: {
-  liveRoomId: string;
-  itemId: string;
-  trigger: FinalizeTrigger;
-}): Promise<{ closed: boolean }> {
-  const { liveRoomId, itemId, trigger } = args;
-  const next = await prisma.$transaction(async (tx) => {
-    const updated = await tx.liveRoomItem.updateMany({
-      where: { id: itemId, liveRoomId, status: "active", biddingOpen: true },
-      data: { biddingOpen: false, itemVersion: { increment: 1 } },
-    });
-    if (updated.count === 0) return null;
-    const roomNext = await tx.liveRoom.update({
-      where: { id: liveRoomId },
-      data: { roomVersion: { increment: 1 } },
-      select: { roomVersion: true },
-    });
-    const itemNext = await tx.liveRoomItem.findUnique({
-      where: { id: itemId },
-      select: { itemVersion: true, auctionEndsAt: true },
-    });
-    return {
-      roomVersion: roomNext.roomVersion,
-      itemVersion: itemNext?.itemVersion ?? 0,
-      auctionEndsAt: itemNext?.auctionEndsAt?.toISOString() ?? null,
-    };
-  });
-  if (!next) return { closed: false };
-  emitActiveItemChanged(liveRoomId, itemId, {
-    roomVersion: next.roomVersion,
-    itemVersion: next.itemVersion,
-    biddingOpen: false,
-    auctionEndsAt: next.auctionEndsAt,
-  });
-  emitLiveRoomQueueItemsChanged(liveRoomId);
-  console.info("[auction close] timer ended, winner pending host mark sold", { trigger, liveRoomId, itemId });
-  return { closed: true };
+  return { settled: true, orderId: r.orderId };
 }
 
 /**
  * Close an overdue auction lot that has no winning bidder.
- * Multi-quantity lots reset for another round; single-quantity lots are skipped.
+ * Always reset in place — never skip/retire inventory when nothing sold.
  */
 export async function closeLiveAuctionLotNoWinner(args: {
   liveRoomId: string;
@@ -417,15 +364,8 @@ export async function closeLiveAuctionLotNoWinner(args: {
   trigger: FinalizeTrigger;
 }): Promise<{ closed: boolean }> {
   const { liveRoomId, itemId, trigger } = args;
-  const row = await prisma.liveRoomItem.findFirst({
-    where: { id: itemId, liveRoomId, status: "active" },
-    select: { quantity: true, quantityInitial: true },
-  });
-  if (row && isMultiQuantityLiveAuctionItem(row)) {
-    const reset = await resetLiveAuctionLotAfterNoBids({ liveRoomId, itemId, trigger });
-    return { closed: reset.reset };
-  }
-  return skipLiveAuctionLotNoWinner(args);
+  const reset = await resetLiveAuctionLotAfterNoBids({ liveRoomId, itemId, trigger });
+  return { closed: reset.reset };
 }
 
 export type OverdueFinalizeSummary = {
@@ -435,9 +375,10 @@ export type OverdueFinalizeSummary = {
 
 /**
  * Server-authoritative sweep: find active auction/break lots in this room whose server timer has
- * elapsed (`biddingOpen && auctionEndsAt <= now - grace`) and finalize each — settle+charge when a
- * winner exists, otherwise close unsold. Safe to call from any read/poll or an explicit nudge; the
- * underlying settle/close are idempotent so simultaneous callers can't double-process.
+ * elapsed (`auctionEndsAt <= now - grace`) and finalize each — settle+charge when a winner exists,
+ * otherwise close unsold. Also recovers lots left with bidding closed but not yet settled (older
+ * “mark sold” flow). Safe to call from any read/poll or an explicit nudge; settle/close are
+ * idempotent so simultaneous callers can't double-process.
  */
 export async function finalizeOverdueLiveAuctionLotsForRoom(args: {
   liveRoomId: string;
@@ -454,8 +395,12 @@ export async function finalizeOverdueLiveAuctionLotsForRoom(args: {
     where: {
       liveRoomId,
       status: "active",
-      biddingOpen: true,
       auctionEndsAt: { not: null, lte: cutoff },
+      OR: [
+        { biddingOpen: true },
+        // Older close-bidding-only path left these waiting for Mark sold — settle them now.
+        { biddingOpen: false, lastHighBidderId: { not: null } },
+      ],
     },
     select: { id: true, lastHighBidderId: true, auctionEndsAt: true, auctionVariantId: true },
   });
@@ -486,15 +431,14 @@ export async function finalizeOverdueLiveAuctionLotsForRoom(args: {
         continue;
       }
       if (lot.lastHighBidderId?.trim()) {
-        if (room.roomType === "auction") {
-          const c = await closeLiveAuctionLotPendingWinner({ liveRoomId, itemId: lot.id, trigger });
-          if (c.closed) summary.finalized += 1;
-          summary.results.push({ itemId: lot.id, outcome: "unsold" });
-        } else {
-          const r = await settleAndChargeLiveAuctionLot({ liveRoomId, itemId: lot.id, room, trigger });
-          summary.finalized += 1;
-          summary.results.push({ itemId: lot.id, outcome: "sold", orderId: r.orderId });
-        }
+        const r = await settleLiveAuctionLotOnTimerEnd({
+          liveRoomId,
+          itemId: lot.id,
+          room,
+          trigger,
+        });
+        summary.finalized += 1;
+        summary.results.push({ itemId: lot.id, outcome: "sold", orderId: r.orderId });
       } else {
         const c = await closeLiveAuctionLotNoWinner({ liveRoomId, itemId: lot.id, room, trigger });
         if (c.closed) summary.finalized += 1;
@@ -512,4 +456,70 @@ export async function finalizeOverdueLiveAuctionLotsForRoom(args: {
     }
   }
   return summary;
+}
+
+/**
+ * Global sweep for every live auction/break/sale room with an overdue open timer.
+ * Used by cron so settlement does not depend on a buyer polling or a host screen staying open.
+ */
+export async function finalizeOverdueLiveAuctionLotsAcrossLiveRooms(args?: {
+  nowMs?: number;
+  limitRooms?: number;
+}): Promise<{
+  roomsChecked: number;
+  roomsTouched: number;
+  finalized: number;
+  results: Array<{ liveRoomId: string; summary: OverdueFinalizeSummary }>;
+}> {
+  const nowMs = args?.nowMs ?? Date.now();
+  const cutoff = new Date(nowMs - LIVE_AUCTION_AUTO_CLOSE_GRACE_MS);
+  const limitRooms = Math.min(Math.max(args?.limitRooms ?? 40, 1), 100);
+
+  const overdueItems = await prisma.liveRoomItem.findMany({
+    where: {
+      status: "active",
+      auctionEndsAt: { not: null, lte: cutoff },
+      OR: [
+        { biddingOpen: true },
+        { biddingOpen: false, lastHighBidderId: { not: null } },
+      ],
+      liveRoom: {
+        status: "live",
+        roomType: { in: ["auction", "break", "sale"] },
+      },
+    },
+    select: { liveRoomId: true },
+    distinct: ["liveRoomId"],
+    take: limitRooms,
+  });
+
+  const roomIds = overdueItems.map((r) => r.liveRoomId);
+  if (roomIds.length === 0) {
+    return { roomsChecked: 0, roomsTouched: 0, finalized: 0, results: [] };
+  }
+
+  const rooms = await prisma.liveRoom.findMany({
+    where: { id: { in: roomIds } },
+    select: { id: true, sellerId: true, roomType: true, roomVersion: true },
+  });
+
+  let finalized = 0;
+  let roomsTouched = 0;
+  const results: Array<{ liveRoomId: string; summary: OverdueFinalizeSummary }> = [];
+
+  for (const room of rooms) {
+    const summary = await finalizeOverdueLiveAuctionLotsForRoom({
+      liveRoomId: room.id,
+      room: { sellerId: room.sellerId, roomType: room.roomType, roomVersion: room.roomVersion },
+      nowMs,
+      trigger: "timer_nudge",
+    });
+    if (summary.finalized > 0 || summary.results.length > 0) {
+      roomsTouched += 1;
+      finalized += summary.finalized;
+      results.push({ liveRoomId: room.id, summary });
+    }
+  }
+
+  return { roomsChecked: rooms.length, roomsTouched, finalized, results };
 }

@@ -17,7 +17,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   applyLiveModerationAction,
   type LiveRoomModHistoryRow,
+  type LiveRoomModPaymentFailureRow,
   type LiveRoomModQueueRow,
+  type LiveRoomModRecentSaleRow,
   type LiveRoomModerationSnapshot,
   type LiveRoomTipRow,
   type LiveRoomTipSummary,
@@ -45,12 +47,13 @@ const PIN_EXPIRES_OPTIONS = [
   { minutes: 24 * 60, label: '24 hr' },
 ] as const;
 
-type TabId = 'tools' | 'users' | 'queue' | 'tips' | 'pinned' | 'announcements' | 'giveaway' | 'history';
+type TabId = 'tools' | 'users' | 'queue' | 'sales' | 'tips' | 'pinned' | 'announcements' | 'giveaway' | 'history';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'tools', label: 'Tools' },
   { id: 'users', label: 'Users' },
   { id: 'queue', label: 'Queue' },
+  { id: 'sales', label: 'Sales' },
   { id: 'tips', label: 'Tips' },
   { id: 'pinned', label: 'Pinned' },
   { id: 'announcements', label: 'Post' },
@@ -158,7 +161,7 @@ export function ModeratorDrawer({
   onRefreshRef.current = onRefresh;
 
   useEffect(() => {
-    if (visible && tab === 'tips') {
+    if (visible && (tab === 'tips' || tab === 'sales')) {
       onRefreshRef.current();
     }
   }, [visible, tab]);
@@ -272,8 +275,13 @@ export function ModeratorDrawer({
             onOpenQueue={() => setTab('queue')}
             onOpenUsers={() => setTab('users')}
             onOpenAnnounce={() => setTab('announcements')}
+            onOpenSales={() => setTab('sales')}
             queueCount={(moderation.modQueue ?? []).length}
             userCount={roomUsers.length}
+            paymentAttentionCount={
+              (moderation.paymentFailures ?? []).length +
+              (moderation.recentSales ?? []).filter((r) => r.paymentTone === 'retry').length
+            }
           />
         );
       case 'users':
@@ -290,6 +298,13 @@ export function ModeratorDrawer({
       case 'queue':
         return (
           <ModQueueList rows={moderation.modQueue ?? []} emptyLabel="No open reports for this show." />
+        );
+      case 'sales':
+        return (
+          <SalesTab
+            paymentFailures={moderation.paymentFailures ?? []}
+            recentSales={moderation.recentSales ?? []}
+          />
         );
       case 'tips':
         return (
@@ -361,6 +376,8 @@ export function ModeratorDrawer({
     moderation.slowModeSeconds,
     moderation.tips,
     moderation.tipSummary,
+    moderation.recentSales,
+    moderation.paymentFailures,
     moderation.modHistory,
     moderation.pinnedModeratorMessage,
     moderation.pinnedModeratorMessageExpiresAt,
@@ -422,6 +439,11 @@ export function ModeratorDrawer({
             >
               {TABS.map((t) => {
                 const tipCount = t.id === 'tips' ? moderation.tipSummary?.paidCount ?? 0 : 0;
+                const salesAttention =
+                  t.id === 'sales'
+                    ? (moderation.paymentFailures ?? []).length +
+                      (moderation.recentSales ?? []).filter((r) => r.paymentTone === 'retry').length
+                    : 0;
                 const userCount = t.id === 'users' ? roomUsers.length : 0;
                 const on = tab === t.id;
                 return (
@@ -434,6 +456,13 @@ export function ModeratorDrawer({
                     {tipCount > 0 ? (
                       <View style={[styles.tabChipBadge, on && styles.tabChipBadgeActive]}>
                         <Text style={[styles.tabChipBadgeText, on && styles.tabChipBadgeTextActive]}>{tipCount}</Text>
+                      </View>
+                    ) : null}
+                    {salesAttention > 0 ? (
+                      <View style={[styles.tabChipBadge, styles.tabChipBadgeWarn, on && styles.tabChipBadgeActive]}>
+                        <Text style={[styles.tabChipBadgeText, on && styles.tabChipBadgeTextActive]}>
+                          {salesAttention}
+                        </Text>
                       </View>
                     ) : null}
                     {userCount > 0 && t.id === 'users' ? (
@@ -495,8 +524,10 @@ function RoomToolsTab({
   onOpenQueue,
   onOpenUsers,
   onOpenAnnounce,
+  onOpenSales,
   queueCount,
   userCount,
+  paymentAttentionCount,
 }: {
   slowModeSeconds: number;
   canSlowMode: boolean;
@@ -505,8 +536,10 @@ function RoomToolsTab({
   onOpenQueue: () => void;
   onOpenUsers: () => void;
   onOpenAnnounce: () => void;
+  onOpenSales: () => void;
   queueCount: number;
   userCount: number;
+  paymentAttentionCount: number;
 }) {
   return (
     <View style={styles.formBlock}>
@@ -544,10 +577,21 @@ function RoomToolsTab({
             Reports{queueCount > 0 ? ` (${queueCount})` : ''}
           </Text>
         </Pressable>
+        <Pressable style={styles.quickNavBtn} onPress={onOpenSales}>
+          <Text style={styles.quickNavBtnText}>
+            Sales{paymentAttentionCount > 0 ? ` (${paymentAttentionCount})` : ''}
+          </Text>
+        </Pressable>
         <Pressable style={styles.quickNavBtn} onPress={onOpenAnnounce}>
           <Text style={styles.quickNavBtnText}>Post update</Text>
         </Pressable>
       </View>
+      {paymentAttentionCount > 0 ? (
+        <Text style={styles.paymentAttentionHint}>
+          {paymentAttentionCount} payment{paymentAttentionCount === 1 ? '' : 's'} need attention — tell the host
+          before the next lot.
+        </Text>
+      ) : null}
 
       <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>User moderation</Text>
       <Text style={styles.hint}>
@@ -556,7 +600,8 @@ function RoomToolsTab({
 
       <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>More in this drawer</Text>
       <Text style={styles.hint}>
-        Pin messages, post announcements, run giveaways, review reports, tips, and action history in the other tabs.
+        Check Sales for Paid / Failed payments, tip totals, pin messages, post announcements, run giveaways, and review
+        reports in the other tabs.
       </Text>
     </View>
   );
@@ -663,6 +708,86 @@ function HistoryList({ rows }: { rows: LiveRoomModHistoryRow[] }) {
 
 function formatTipUsd(amount: number): string {
   return `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function saleToneStyle(tone: LiveRoomModRecentSaleRow['paymentTone']) {
+  if (tone === 'paid') {
+    return {
+      wrap: { backgroundColor: 'rgba(16,185,129,0.18)', borderColor: 'rgba(16,185,129,0.4)' },
+      text: { color: '#6ee7b7' },
+    };
+  }
+  if (tone === 'retry') {
+    return {
+      wrap: { backgroundColor: 'rgba(248,113,113,0.18)', borderColor: 'rgba(248,113,113,0.45)' },
+      text: { color: '#fecaca' },
+    };
+  }
+  return {
+    wrap: { backgroundColor: 'rgba(251,191,36,0.16)', borderColor: 'rgba(251,191,36,0.4)' },
+    text: { color: '#fde68a' },
+  };
+}
+
+function SalesTab({
+  paymentFailures,
+  recentSales,
+}: {
+  paymentFailures: LiveRoomModPaymentFailureRow[];
+  recentSales: LiveRoomModRecentSaleRow[];
+}) {
+  return (
+    <View style={styles.formBlock}>
+      <Text style={styles.sectionTitle}>Payments</Text>
+      <Text style={styles.hint}>
+        Tell the host if something shows Failed / Needs retry. Cancel retry stays on the host Sales sheet.
+      </Text>
+
+      {paymentFailures.length > 0 ? (
+        <View style={styles.salesAttentionBlock}>
+          <Text style={styles.salesAttentionTitle}>Needs attention</Text>
+          {paymentFailures.map((f) => (
+            <View key={f.id} style={styles.card}>
+              <Text style={styles.cardTitle}>
+                @{f.buyerUsername ?? 'buyer'} · {formatTipUsd(f.amountUsd)}
+              </Text>
+              <Text style={styles.cardMeta}>
+                {f.status === 'recovery_pending' ? 'Retrying payment' : 'Payment failed'}
+                {f.itemTitle ? ` · ${f.itemTitle}` : ''}
+              </Text>
+              {f.failureReason ? <Text style={styles.cardBody}>{f.failureReason}</Text> : null}
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      <Text style={[styles.sectionTitle, { marginTop: spacing.xs }]}>Recent sales</Text>
+      {recentSales.length === 0 ? (
+        <Text style={styles.empty}>No payments on this show yet.</Text>
+      ) : (
+        recentSales.map((r) => {
+          const badge = saleToneStyle(r.paymentTone);
+          return (
+            <View key={r.id} style={styles.saleRow}>
+              <View style={styles.saleRowMain}>
+                <Text style={styles.cardTitle} numberOfLines={1}>
+                  @{r.buyerUsername} · {formatTipUsd(r.amountUsd)}
+                </Text>
+                <Text style={styles.cardMeta} numberOfLines={1}>
+                  {r.itemTitle?.trim() || r.spotLabel?.trim() || r.kind.replace(/_/g, ' ')}
+                  {' · '}
+                  {new Date(r.occurredAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                </Text>
+              </View>
+              <View style={[styles.saleBadge, badge.wrap]}>
+                <Text style={[styles.saleBadgeTxt, badge.text]}>{r.statusLabel}</Text>
+              </View>
+            </View>
+          );
+        })
+      )}
+    </View>
+  );
 }
 
 function TipsTab({ tips, summary }: { tips: LiveRoomTipRow[]; summary: LiveRoomTipSummary | null }) {
@@ -964,6 +1089,9 @@ const styles = StyleSheet.create({
   tabChipBadgeActive: {
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
+  tabChipBadgeWarn: {
+    backgroundColor: 'rgba(248,113,113,0.35)',
+  },
   tabChipBadgeText: {
     fontSize: 10,
     fontWeight: '900',
@@ -971,6 +1099,46 @@ const styles = StyleSheet.create({
   },
   tabChipBadgeTextActive: {
     color: colors.gold,
+  },
+  paymentAttentionHint: {
+    marginTop: spacing.sm,
+    color: '#fecaca',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+  },
+  salesAttentionBlock: {
+    marginBottom: spacing.sm,
+    gap: spacing.xs,
+  },
+  salesAttentionTitle: {
+    color: '#fecaca',
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  saleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  saleRowMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+  saleBadge: {
+    borderWidth: 1,
+    borderRadius: radii.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  saleBadgeTxt: {
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
   },
   body: {
     flex: 1,

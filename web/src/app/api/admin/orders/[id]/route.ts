@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildOrderShippingReconciliation } from "@/lib/admin/shipping-reconciliation";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
 import { loadOrderPayoutDetailForAdmin } from "@/services/payout/process-delivery-payout";
@@ -26,12 +27,38 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       },
       buyer: { select: { id: true, username: true, email: true } },
       seller: { select: { id: true, username: true, email: true, trustapUserId: true } },
+      liveShippingSession: {
+        select: {
+          id: true,
+          shippingChargedCents: true,
+          estimatedLabelCostCents: true,
+          finalLabelCostCents: true,
+          shippingMode: true,
+        },
+      },
     },
   });
 
   if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const payoutDetail = await loadOrderPayoutDetailForAdmin(id);
+  const shippingReconciliation = buildOrderShippingReconciliation({
+    id: order.id,
+    sellerId: order.sellerId,
+    paymentStatus: order.paymentStatus,
+    payoutStatus: order.payoutStatus,
+    fulfillmentStatus: order.fulfillmentStatus,
+    shippingStatus: order.shippingStatus,
+    shippingPriceUsd: order.shippingPriceUsd,
+    shippingChargedCents: order.shippingChargedCents,
+    shippingLabelCostCents: order.shippingLabelCostCents,
+    shippingLabelCostReversedCents: order.shippingLabelCostReversedCents,
+    shippingLabelCostReversalId: order.shippingLabelCostReversalId,
+    shippoTransactionId: order.shippoTransactionId,
+    labelUrl: order.labelUrl,
+    labelCreatedAt: order.labelCreatedAt,
+    liveShippingSessionId: order.liveShippingSessionId,
+  });
 
   return NextResponse.json({
     order: {
@@ -64,10 +91,27 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       trustapBuyerUserId: order.trustapBuyerUserId,
       shippingChargedCents: order.shippingChargedCents,
       shippingLabelCostCents: order.shippingLabelCostCents,
+      shippingLabelCostReversedCents: order.shippingLabelCostReversedCents,
+      shippingLabelCostReversalId: order.shippingLabelCostReversalId,
+      shippoTransactionId: order.shippoTransactionId,
+      labelUrl: order.labelUrl,
+      labelCreatedAt: order.labelCreatedAt?.toISOString() ?? null,
+      shippingStatus: order.shippingStatus,
+      /** Legacy field — buyer shipping minus label cost. Not platform margin (buyer shipping is seller pass-through). */
       shippingMarginCents:
         order.shippingChargedCents != null && order.shippingLabelCostCents != null
           ? order.shippingChargedCents - order.shippingLabelCostCents
           : null,
+      shippingReconciliation,
+      liveShippingSession: order.liveShippingSession
+        ? {
+            id: order.liveShippingSession.id,
+            shippingChargedCents: order.liveShippingSession.shippingChargedCents,
+            estimatedLabelCostCents: order.liveShippingSession.estimatedLabelCostCents,
+            finalLabelCostCents: order.liveShippingSession.finalLabelCostCents,
+            shippingMode: order.liveShippingSession.shippingMode,
+          }
+        : null,
       payoutStatus: order.payoutStatus,
       deliveryConfirmedAt: order.deliveryConfirmedAt?.toISOString() ?? null,
       payoutEligibleAt: order.payoutEligibleAt?.toISOString() ?? null,
@@ -76,6 +120,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       payoutMethod: order.payoutMethod,
       payoutReserveAmountCents: order.payoutReserveAmountCents,
       payoutHoldUntil: order.payoutHoldUntil?.toISOString() ?? null,
+      paymentProcessor: order.paymentProcessor,
+      sellerPayoutProcessor: order.sellerPayoutProcessor,
+      processorTransferId: order.processorTransferId,
+      paypalPayoutFeeCents: order.paypalPayoutFeeCents,
+      paypalPayoutStatus: order.paypalPayoutStatus,
+      stripeTransferId: order.stripeTransferId,
       buyer: order.buyer,
       seller: order.seller,
       listing: {

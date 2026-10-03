@@ -17,6 +17,8 @@ export type LiveVariantCheckoutPreview = {
   shippingDisplay: string;
   taxUsd: number;
   taxDisplay: string;
+  /** True when the buyer's ship-to jurisdiction actually collects sales tax on this order. */
+  taxApplies: boolean;
   /** Item + shipping + tax charged to the saved card at purchase. */
   chargeNowUsd: number;
   /** Same as chargeNowUsd — full amount due at checkout. */
@@ -53,6 +55,11 @@ export async function getLiveVariantCheckoutPreview(args: {
   liveRoomId: string;
   liveRoomItemId: string;
   itemPriceUsd: number;
+  /**
+   * When false, skip Stripe Tax Calculation API (live room GET / HUD). Tax is computed on the
+   * dedicated checkout-preview endpoint or at charge time. Default true.
+   */
+  includeTaxEstimate?: boolean;
 }): Promise<LiveVariantCheckoutPreview | null> {
   const itemPriceUsd = Math.round(Math.max(0, args.itemPriceUsd) * 100) / 100;
   if (itemPriceUsd <= 0) return null;
@@ -123,10 +130,20 @@ export async function getLiveVariantCheckoutPreview(args: {
 
   let taxUsd = 0;
   let taxDisplay = "Not applicable";
+  let taxApplies = false;
   let taxNote: string | null = null;
 
+  const includeTaxEstimate = args.includeTaxEstimate !== false;
   const buyerShipping = await resolveBuyerDefaultShippingForOrder(args.buyerId);
-  if (!buyerShipping) {
+  if (!includeTaxEstimate) {
+    // Hot path (live room GET): never bill Stripe Tax Calculation API. Clients show "+ Tax" /
+    // "Calculated at checkout"; the checkout-preview route still computes a precise estimate.
+    taxDisplay = buyerShipping ? "Calculated at checkout" : "Add address to estimate";
+    taxApplies = Boolean(buyerShipping && isStripeTaxFeatureEnabled());
+    taxNote = buyerShipping
+      ? "Sales tax is calculated when you open checkout."
+      : "Save a shipping address in Vault Wallet to estimate sales tax.";
+  } else if (!buyerShipping) {
     taxDisplay = "Add address to estimate";
     taxNote = "Save a shipping address in Vault Wallet to estimate sales tax.";
   } else if (!isStripeTaxFeatureEnabled()) {
@@ -149,6 +166,7 @@ export async function getLiveVariantCheckoutPreview(args: {
         sellerShipFrom,
       });
       taxUsd = est.taxAmountCents / 100;
+      taxApplies = est.collectTax;
       if (est.collectTax && est.taxAmountCents > 0) {
         taxDisplay = fmtUsd(taxUsd);
       } else if (est.collectTax) {
@@ -170,6 +188,7 @@ export async function getLiveVariantCheckoutPreview(args: {
     shippingDisplay,
     taxUsd,
     taxDisplay,
+    taxApplies,
     chargeNowUsd,
     estimatedTotalUsd: chargeNowUsd,
     taxNote,

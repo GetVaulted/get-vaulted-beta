@@ -138,6 +138,11 @@ function buildVm(
     offered_item_ids: row.offered_item_ids ?? [],
     cash_difference: num(row.cash_difference),
     message: row.message,
+    conversation_id: null,
+    cash_paid_at: null,
+    proposer_deposit_paid_at: null,
+    recipient_deposit_paid_at: null,
+    security_deposit_cents: null,
     trade_fee: num(row.trade_fee),
     shipping_weight_tier: row.shipping_weight_tier,
     label_error_message: row.label_error_message,
@@ -146,6 +151,8 @@ function buildVm(
     recipient,
     requested,
     offered,
+    proposer_fulfillment: null,
+    recipient_fulfillment: null,
   };
 }
 

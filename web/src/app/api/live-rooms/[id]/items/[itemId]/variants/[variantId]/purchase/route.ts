@@ -10,7 +10,12 @@ import {
   syncLiveItemVariantPurchasePaymentIntent,
 } from "@/lib/live-payment-pipeline";
 import { prisma } from "@/lib/prisma";
-import { getLiveBuyerCommerceBlock, getLiveRoomBroadcastCommerceBlock } from "@/lib/live-room-commerce-guards";
+import {
+  getLiveBuyerCommerceBlock,
+  getLiveRoomBroadcastCommerceBlock,
+  isLiveRoomOpenForSpotPurchase,
+} from "@/lib/live-room-commerce-guards";
+import { getLiveRoomUserRestrictions } from "@/lib/trust/live-room-moderation";
 import { getUnresolvedPaymentFailureForBuyer, liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { isStripeConfigured } from "@/lib/stripe";
@@ -103,10 +108,14 @@ export async function POST(
     select: { id: true, sellerId: true, status: true, lockPurchases: true, streamHealth: true, streamPaused: true, streamMode: true, streamStartedAt: true, streamEndedAt: true },
   });
   if (!room) return NextResponse.json({ error: "Room not found." }, { status: 404 });
-  if (room.status !== "live") {
-    return NextResponse.json({ error: "This room is not live." }, { status: 409 });
+  // Scheduled = pre-sale before Go Live; live = during the show. Broadcast gate is live-only.
+  if (!isLiveRoomOpenForSpotPurchase(room.status)) {
+    return NextResponse.json(
+      { error: "Team sales are only open before and during the live show.", code: "ROOM_NOT_OPEN_FOR_PURCHASE" },
+      { status: 409 },
+    );
   }
-  const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room);
+  const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room, "purchase");
   if (broadcastBlock) {
     return NextResponse.json({ error: broadcastBlock.error, code: broadcastBlock.code }, { status: broadcastBlock.status });
   }
@@ -117,6 +126,14 @@ export async function POST(
   const commerceBlock = await getLiveBuyerCommerceBlock({ liveRoomId, userId });
   if (commerceBlock) {
     return NextResponse.json({ error: commerceBlock.error, code: commerceBlock.code }, { status: commerceBlock.status });
+  }
+
+  // `getLiveBuyerCommerceBlock` only blocks the host/moderators — it never checked whether the
+  // buyer themselves was room-banned or kicked, so a banned/kicked buyer could still claim a
+  // PYT/PYD spot (mirrors the check already in bid/route.ts and pre-bid/route.ts).
+  const modRestrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId });
+  if (modRestrictions.roomBanned || modRestrictions.kickedUntil) {
+    return NextResponse.json({ error: "You cannot participate in this room." }, { status: 403 });
   }
 
   if (isStripeConfigured()) {
@@ -226,6 +243,7 @@ export async function POST(
               title: true,
               biddingOpen: true,
               auctionVariantId: true,
+              activeSpotCommerceMode: true,
               variantAssignmentMode: true,
             },
           },
@@ -241,6 +259,14 @@ export async function POST(
       }
       if (item.biddingOpen && item.auctionVariantId === variantId) {
         throw Object.assign(new Error("SPOT_AUCTION_LIVE"), { code: "SPOT_AUCTION_LIVE" });
+      }
+      // Host pinned this team for auction but has not started bidding — do not sell at tile price.
+      if (
+        item.activeSpotCommerceMode === "auction" &&
+        !item.biddingOpen &&
+        (variant.isHot || item.auctionVariantId === variantId)
+      ) {
+        throw Object.assign(new Error("SPOT_AUCTION_ARMED"), { code: "SPOT_AUCTION_ARMED" });
       }
 
       const isRandomReveal = isRandomVariantAssignment(item.variantAssignmentMode);
@@ -329,8 +355,25 @@ export async function POST(
     } catch (settleErr) {
       console.error("[variant purchase POST] settle failed", settleErr);
       await releaseVariantPurchaseOnCheckoutExpired(result.id);
+      const code =
+        settleErr && typeof settleErr === "object" && "code" in settleErr
+          ? String((settleErr as { code: string }).code)
+          : undefined;
+      const rawMessage = settleErr instanceof Error ? settleErr.message.trim() : "";
+      const safeMessage =
+        rawMessage &&
+        rawMessage.length <= 160 &&
+        !/stripe|payment_intent|prisma|sql|undefined|null/i.test(rawMessage) &&
+        !rawMessage.includes(" at ")
+          ? rawMessage
+          : "Could not complete purchase.";
       return NextResponse.json(
-        { error: "Could not complete purchase.", paymentFailed: true, purchaseId: result.id },
+        {
+          error: safeMessage,
+          ...(code ? { code } : {}),
+          paymentFailed: true,
+          purchaseId: result.id,
+        },
         { status: 500 },
       );
     }
@@ -381,6 +424,12 @@ export async function POST(
     if (code === "ITEM_UNAVAILABLE") return NextResponse.json({ error: "This item is not available." }, { status: 409 });
     if (code === "SPOT_AUCTION_LIVE") {
       return NextResponse.json({ error: "This spot is in a live auction — place a bid instead." }, { status: 409 });
+    }
+    if (code === "SPOT_AUCTION_ARMED") {
+      return NextResponse.json(
+        { error: "This team is pinned for auction. Wait for the host to start bidding — it is not for sale at the tile price." },
+        { status: 409 },
+      );
     }
     if (code === "SOLD_OUT") return NextResponse.json({ error: "That option is sold out." }, { status: 409 });
     if (code === "RANDOM_REVEAL_QUANTITY_LIMIT") {

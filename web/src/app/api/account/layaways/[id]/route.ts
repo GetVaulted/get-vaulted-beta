@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { serializeBuyerLayawayRow } from "@/lib/layaway/serialize-buyer-layaway";
 import { prisma } from "@/lib/prisma";
 import { processLayawayMaintenance } from "@/services/layaway";
@@ -7,9 +7,9 @@ import { processLayawayMaintenance } from "@/services/layaway";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await ctx.params;
   const layawayId = id?.trim();
@@ -22,7 +22,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const row = await prisma.layaway.findFirst({
-    where: { id: layawayId, buyerId: session.user.id },
+    where: { id: layawayId, buyerId: auth.userId },
     include: {
       listing: { select: { id: true, title: true, images: { orderBy: { sortOrder: "asc" }, take: 1 } } },
       order: { select: { paymentStatus: true } },

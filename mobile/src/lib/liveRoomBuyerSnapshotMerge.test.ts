@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import {
   mergeBuyerSnapshotForActiveItemChanged,
+  mergeBuyerSnapshotForBidAck,
+  mergeBuyerSnapshotForOptimisticBid,
+  patchBuyerSnapshotMinNextBid,
   reconcileBuyerSnapshotMonotonic,
 } from './liveRoomBuyerSnapshotMerge';
 
@@ -79,12 +82,98 @@ describe('reconcileBuyerSnapshotMonotonic', () => {
     expect(r.lotChanged).toBe(false);
   });
 
-  it('preserves the known high when the incoming snapshot drops currentBid to null', () => {
-    const prev = snap({ currentBidUsd: 4 });
-    const incoming = snap({ currentBidUsd: null, minNextBidUsd: null });
+  it('accepts a server-cleared round (null high + no bidder) after a prior win on the same lot', () => {
+    const prev = snap({
+      currentBidUsd: 2,
+      minNextBidUsd: 3,
+      lastHighBidderId: 'winner',
+      lastHighBidderUsername: 'winner',
+      biddingOpen: false,
+      lotBidPhase: 'not_started',
+      auctionEndsAt: null,
+    });
+    const incoming = snap({
+      currentBidUsd: null,
+      minNextBidUsd: 1,
+      lastHighBidderId: null,
+      lastHighBidderUsername: null,
+      startingBidUsd: 1,
+      biddingOpen: true,
+      lotBidPhase: 'bidding_open',
+      auctionEndsAt: '2026-01-01T00:01:00.000Z',
+      fetchedAtMs: 2_000,
+    });
+
+    const r = reconcileBuyerSnapshotMonotonic(prev, incoming);
+
+    expect(r.staleIgnored).toBe(false);
+    expect(r.snap.currentBidUsd).toBeNull();
+    expect(r.snap.lastHighBidderId).toBeNull();
+    expect(r.snap.minNextBidUsd).toBe(1);
+  });
+
+  it('still preserves the known high when a stale poll drops currentBid but keeps a high bidder', () => {
+    const prev = snap({ currentBidUsd: 4, lastHighBidderId: 'me' });
+    const incoming = snap({
+      currentBidUsd: null,
+      minNextBidUsd: null,
+      lastHighBidderId: 'me',
+      fetchedAtMs: 2_000,
+    });
     const r = reconcileBuyerSnapshotMonotonic(prev, incoming);
     expect(r.staleIgnored).toBe(true);
     expect(r.snap.currentBidUsd).toBe(4);
+  });
+
+  it('accepts a lower high when a new timed round opens on the same multi-qty lot', () => {
+    const prev = snap({
+      currentBidUsd: 34,
+      minNextBidUsd: 35,
+      lastHighBidderId: 'old',
+      biddingOpen: false,
+      lotBidPhase: 'settled',
+      auctionEndsAt: '2026-01-01T00:00:30.000Z',
+    });
+    const incoming = snap({
+      currentBidUsd: 1,
+      minNextBidUsd: 2,
+      lastHighBidderId: 'new',
+      biddingOpen: true,
+      lotBidPhase: 'bidding_open',
+      auctionEndsAt: '2026-01-01T00:01:30.000Z',
+      fetchedAtMs: 2_000,
+    });
+    const r = reconcileBuyerSnapshotMonotonic(prev, incoming);
+    expect(r.staleIgnored).toBe(false);
+    expect(r.snap.currentBidUsd).toBe(1);
+    expect(r.snap.lastHighBidderId).toBe('new');
+  });
+
+  it('bid ACK replaces a stale prior-unit high instead of Math.max', () => {
+    const prev = snap({
+      currentBidUsd: 34,
+      minNextBidUsd: 35,
+      lastHighBidderId: 'old',
+      itemVersion: 10,
+    });
+    const merged = mergeBuyerSnapshotForBidAck(
+      prev,
+      {
+        item: {
+          id: 'item-1',
+          currentBidUsd: 2,
+          lastHighBidderId: 'new',
+          lastHighBidderUsername: 'newbie',
+          itemVersion: 12,
+          biddingOpen: true,
+          auctionEndsAt: '2026-01-01T00:01:00.000Z',
+        },
+      },
+      3_000,
+    );
+    expect(merged?.currentBidUsd).toBe(2);
+    expect(merged?.lastHighBidderId).toBe('new');
+    expect(merged?.itemVersion).toBe(12);
   });
 
   it('preserves minNextBidUsd when high is unchanged but incoming min regresses', () => {
@@ -202,6 +291,9 @@ describe('mergeBuyerSnapshotForActiveItemChanged', () => {
       lotBidPhase: 'not_started',
       biddingOpen: false,
       auctionEndsAt: null,
+      currentBidUsd: null,
+      lastHighBidderId: null,
+      minNextBidUsd: 1,
     });
 
     const merged = mergeBuyerSnapshotForActiveItemChanged(
@@ -217,5 +309,77 @@ describe('mergeBuyerSnapshotForActiveItemChanged', () => {
     expect(merged?.activeItemId).toBe('item-1');
     expect(merged?.biddingOpen).toBe(true);
     expect(merged?.auctionEndsAt).toBe('2026-01-01T00:00:30.000Z');
+  });
+
+  it('clears prior-round bid state when bidding reopens on the same lot', () => {
+    const prev = snap({
+      activeItemId: 'item-1',
+      currentBidUsd: 2,
+      minNextBidUsd: 3,
+      lastHighBidderId: 'winner',
+      lastHighBidderUsername: 'winner',
+      startingBidUsd: 1,
+      biddingOpen: false,
+      lotBidPhase: 'not_started',
+      auctionEndsAt: null,
+    });
+
+    const merged = mergeBuyerSnapshotForActiveItemChanged(
+      prev,
+      {
+        itemId: 'item-1',
+        biddingOpen: true,
+        auctionEndsAt: '2026-01-01T00:00:30.000Z',
+      },
+      Date.parse('2026-01-01T00:00:00.000Z'),
+    );
+
+    expect(merged?.currentBidUsd).toBeNull();
+    expect(merged?.lastHighBidderId).toBeNull();
+    expect(merged?.minNextBidUsd).toBe(1);
+    expect(merged?.biddingOpen).toBe(true);
+  });
+});
+
+describe('mergeBuyerSnapshotForOptimisticBid', () => {
+  it('advances the high bid immediately for Hold-to-Bid', () => {
+    const prev = snap({ currentBidUsd: 4, minNextBidUsd: 5 });
+    const merged = mergeBuyerSnapshotForOptimisticBid(prev, {
+      itemId: 'item-1',
+      amountUsd: 5,
+      wallNowMs: 2_000,
+    });
+
+    expect(merged?.currentBidUsd).toBe(5);
+    expect(merged?.minNextBidUsd).toBeGreaterThan(5);
+    expect(merged?.lotBidPhase).toBe('bidding_open');
+  });
+
+  it('marks the local viewer as leading bidder when provided', () => {
+    const prev = snap({ currentBidUsd: 4, minNextBidUsd: 5, lastHighBidderId: 'other' });
+    const merged = mergeBuyerSnapshotForOptimisticBid(prev, {
+      itemId: 'item-1',
+      amountUsd: 5,
+      wallNowMs: 2_000,
+      leadingBidderId: 'me',
+      leadingBidderUsername: 'vaulted_me',
+    });
+
+    expect(merged?.lastHighBidderId).toBe('me');
+    expect(merged?.lastHighBidderUsername).toBe('vaulted_me');
+  });
+});
+
+describe('patchBuyerSnapshotMinNextBid', () => {
+  it('raises the local floor after an outbid rejection', () => {
+    const prev = snap({ currentBidUsd: 10, minNextBidUsd: 11 });
+    const next = patchBuyerSnapshotMinNextBid(prev, 16);
+    expect(next.minNextBidUsd).toBe(16);
+    expect(next.currentBidUsd).toBe(10);
+  });
+
+  it('does not lower an already-higher floor', () => {
+    const prev = snap({ minNextBidUsd: 20 });
+    expect(patchBuyerSnapshotMinNextBid(prev, 16).minNextBidUsd).toBe(20);
   });
 });

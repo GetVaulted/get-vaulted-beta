@@ -15,6 +15,19 @@ function eventLabel(type: string): string {
   if (type === "offer_declined") return "Offer declined";
   if (type === "offer_cancelled") return "Offer cancelled";
   if (type === "offer_expired") return "Offer expired";
+  if (type === "platform_fee_paid") return "Platform fee paid";
+  if (type === "cash_paid") return "Trade cash paid";
+  if (type === "shipping_label_purchased") return "Shipping label purchased";
+  if (type === "shipping_label_failed") return "Label purchase failed";
+  if (type === "party_shipped") return "Package shipped";
+  if (type === "party_received") return "Receipt confirmed";
+  if (type === "offer_completed") return "Trade completed";
+  if (type === "dispute_opened") return "Dispute opened";
+  if (type === "cash_released") return "Trade cash released";
+  if (type === "cash_refunded") return "Trade cash refunded";
+  if (type === "dispute_resolved") return "Dispute resolved";
+  if (type === "deposit_paid") return "Security deposit paid";
+  if (type === "deposit_refunded") return "Security deposit refunded";
   return "Trade update";
 }
 

@@ -7,6 +7,7 @@ import type {
   StageConnectionState as StageConnectionStateType,
   StageError,
   StageStrategy,
+  StageVideoConfiguration,
 } from "amazon-ivs-web-broadcast";
 import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 
@@ -38,6 +39,9 @@ function friendlyMediaError(err: unknown): string {
     if (err.name === "NotReadableError") {
       return "Your camera or microphone is in use by another app. Close it and try again.";
     }
+    if (err.name === "OverconstrainedError" || err.name === "ConstraintNotSatisfiedError") {
+      return "Your camera or microphone doesn't support the requested settings. Try selecting a different camera below.";
+    }
   }
   if (err instanceof Error && err.message) return err.message;
   return "Could not access camera or microphone.";
@@ -45,15 +49,76 @@ function friendlyMediaError(err: unknown): string {
 
 /** Max automatic publish rejoin attempts before surfacing an error to the host. */
 const HOST_MAX_REJOIN_ATTEMPTS = 5;
-/** Proactive host token refresh before the 60-minute TTL expires. */
-const HOST_TOKEN_REFRESH_MS = 50 * 60 * 1000;
+/** Proactive host token refresh before the 12-hour server TTL expires. */
+const HOST_TOKEN_REFRESH_MS = 11 * 60 * 60 * 1000;
+
+/** Persists the seller's manual Lite mode choice on this device across rooms/sessions. */
+const LITE_MODE_STORAGE_KEY = "gv:hostLiteMode";
+
+/**
+ * Reduced encoder ceiling for hosts publishing from a hot/low-power device. With no config
+ * passed to LocalStageStream, the SDK defaults to STAGE_MAX_BITRATE (2500 Kbps) at
+ * STAGE_MAX_FRAMERATE (30fps) for every host regardless of device - sustained 720p/30fps
+ * WebRTC encode for a whole show is a well-known source of "my phone gets hot" complaints.
+ * This caps both well below the max. It is an encoder-side cap only, independent of the
+ * getUserMedia capture resolution, so it applies cleanly to the same camera track.
+ */
+const LITE_VIDEO_CONFIG: StageVideoConfiguration = { maxVideoBitrateKbps: 700, maxFramerate: 15 };
+
+/**
+ * Defaults Lite mode on for phones/tablets (the devices actually reporting heat issues),
+ * remembering any explicit choice the seller has already made on this device first.
+ */
+function detectDefaultLiteMode(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const stored = window.localStorage.getItem(LITE_MODE_STORAGE_KEY);
+    if (stored === "1") return true;
+    if (stored === "0") return false;
+  } catch {
+    /** Storage unavailable (private browsing, etc.) - fall through to device detection. */
+  }
+  const uaData = (navigator as unknown as { userAgentData?: { mobile?: boolean } }).userAgentData;
+  if (uaData?.mobile) return true;
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+}
+
+/** Builds the local camera/mic streams for publish, applying the Lite encoder cap to video only. */
+function buildLocalStreams(
+  ivs: Awaited<typeof import("amazon-ivs-web-broadcast")>,
+  media: MediaStream,
+  lite: boolean,
+): LocalStageStream[] {
+  const streams: LocalStageStream[] = [];
+  const videoTrack = media.getVideoTracks()[0];
+  const audioTrack = media.getAudioTracks()[0];
+  if (videoTrack) streams.push(new ivs.LocalStageStream(videoTrack, lite ? LITE_VIDEO_CONFIG : undefined));
+  if (audioTrack) streams.push(new ivs.LocalStageStream(audioTrack));
+  return streams;
+}
 
 function mediaConstraints(videoDeviceId?: string, audioDeviceId?: string): MediaStreamConstraints {
+  const audio: MediaTrackConstraints = {
+    // Keep host mic levels consistent for viewers (bare `audio: true` often captures quietly).
+    autoGainControl: true,
+    echoCancellation: true,
+    noiseSuppression: true,
+  };
+  if (audioDeviceId) {
+    audio.deviceId = { exact: audioDeviceId };
+  }
   return {
+    // No `facingMode` default: this console is desktop/PC-only, and `facingMode: "user"` is an
+    // EXACT constraint per the getUserMedia spec when passed as a bare string. Most external/USB
+    // webcams don't report any facingMode capability at all (that concept only really applies to
+    // mobile front/back cameras), so requiring it made getUserMedia reject with
+    // OverconstrainedError before the browser ever showed a permission prompt - sellers with an
+    // external webcam got no camera/mic permission dialog at all. Falling back to just a
+    // resolution hint lets the browser use whatever default camera is available.
     video: videoDeviceId
       ? { deviceId: { exact: videoDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-      : { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-    audio: audioDeviceId ? { deviceId: { exact: audioDeviceId } } : true,
+      : { width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio,
   };
 }
 
@@ -88,11 +153,16 @@ export function useHostStagePublish({
   const ivsModuleRef = useRef<Awaited<typeof import("amazon-ivs-web-broadcast")> | null>(null);
   const reconnectPublishRef = useRef<(trigger: string) => void>(() => {});
   const [phase, setPhase] = useState<HostBroadcastPhase>("idle");
+  /** Publish / reconnect failures only — never set by preview so companion consoles stay clean. */
   const [error, setError] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [devices, setDevices] = useState<HostMediaDevices>({ video: [], audio: [] });
   const [selectedVideoDeviceId, setSelectedVideoDeviceId] = useState("");
   const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState("");
+  const [liteMode, setLiteModeState] = useState<boolean>(() => detectDefaultLiteMode());
+  const liteModeRef = useRef(liteMode);
+  liteModeRef.current = liteMode;
 
   const callbacksRef = useRef({ onBroadcastStarted, onStreamRefresh, onLive });
   callbacksRef.current = { onBroadcastStarted, onStreamRefresh, onLive };
@@ -164,13 +234,13 @@ export function useHostStagePublish({
 
   const startPreview = useCallback(async () => {
     if (stageRef.current) return;
-    setError(null);
+    setPreviewError(null);
     try {
       await acquireMedia({ previewOnly: true });
       setPhase("preview");
     } catch (err) {
       setPhase("idle");
-      setError(friendlyMediaError(err));
+      setPreviewError(friendlyMediaError(err));
     }
   }, [acquireMedia]);
 
@@ -179,16 +249,23 @@ export function useHostStagePublish({
       if (stageRef.current) return;
       setSelectedVideoDeviceId(videoDeviceId);
       setSelectedAudioDeviceId(audioDeviceId);
-      setError(null);
+      setPreviewError(null);
       try {
         await acquireMedia({ videoDeviceId, audioDeviceId, previewOnly: true });
         setPhase("preview");
       } catch (err) {
-        setError(friendlyMediaError(err));
+        setPreviewError(friendlyMediaError(err));
       }
     },
     [acquireMedia],
   );
+
+  const releasePreview = useCallback(() => {
+    if (stageRef.current || wentLiveRef.current) return;
+    stopMediaTracks();
+    setPreviewError(null);
+    setPhase("idle");
+  }, [stopMediaTracks]);
 
   useEffect(() => {
     if (!autoPreview) return;
@@ -300,7 +377,13 @@ export function useHostStagePublish({
           message: err instanceof Error ? err.message : "rejoin_failed",
         });
         if (reconnectAttemptsRef.current >= HOST_MAX_REJOIN_ATTEMPTS) {
-          setError("Live connection lost. End the show and go live again, or refresh the page.");
+          setError("Reconnecting to live…");
+          setTimeout(() => {
+            if (!intentionalStopRef.current && wentLiveRef.current) {
+              reconnectAttemptsRef.current = 0;
+              reconnectPublishRef.current("rejoin_loop");
+            }
+          }, 5_000);
         }
       } finally {
         reconnectInFlightRef.current = false;
@@ -325,7 +408,17 @@ export function useHostStagePublish({
   }, [phase, reconnectPublish]);
 
   const start = useCallback(async () => {
-    if (startInFlightRef.current || stageRef.current) return;
+    if (startInFlightRef.current) return;
+    if (stageRef.current) {
+      // A Stage object can be left behind here without this hook ever reaching "live" - e.g.
+      // stage.join() hangs or errors outside this function's own try/catch, or a race with
+      // startPreview/releasePreview leaves stageRef set while phase reports idle/preview. Before
+      // this fix that made start() refuse forever with zero feedback: no permission prompt, no
+      // error, the camera simply never turned on and Go Live looked like it did nothing. Clear
+      // the stale Stage and proceed instead of silently bailing.
+      logIvsWeb("startBroadcast", { roomId, note: "clearing stale stage before restart", phase });
+      cleanupStage();
+    }
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("This browser does not support in-browser streaming. Use OBS / RTMP instead.");
       return;
@@ -360,12 +453,7 @@ export function useHostStagePublish({
 
       const ivs = await import("amazon-ivs-web-broadcast");
       ivsModuleRef.current = ivs;
-      const videoTrack = media.getVideoTracks()[0];
-      const audioTrack = media.getAudioTracks()[0];
-      const localStreams: LocalStageStream[] = [];
-      if (videoTrack) localStreams.push(new ivs.LocalStageStream(videoTrack));
-      if (audioTrack) localStreams.push(new ivs.LocalStageStream(audioTrack));
-      localStreamsRef.current = localStreams;
+      localStreamsRef.current = buildLocalStreams(ivs, media, liteModeRef.current);
 
       await joinPublishStage(token, ivs);
     } catch (err) {
@@ -376,7 +464,7 @@ export function useHostStagePublish({
     } finally {
       startInFlightRef.current = false;
     }
-  }, [acquireMedia, cleanupStage, endServerSession, joinPublishStage, previewStream, roomId]);
+  }, [acquireMedia, cleanupStage, endServerSession, joinPublishStage, phase, previewStream, roomId]);
 
   const stop = useCallback(async () => {
     intentionalStopRef.current = true;
@@ -415,18 +503,56 @@ export function useHostStagePublish({
     setPhase("live");
   }, [phase]);
 
+  /**
+   * Toggles the publish encoder cap. Before Go Live this only sets the preference the next
+   * `start()` will use. Once live/paused, it swaps in a freshly-configured LocalStageStream for
+   * the same camera track and calls `stage.refreshStrategy()` - the SDK's documented way to
+   * pick up a stageStreamsToPublish() change - so quality drops without leaving/rejoining the
+   * Stage and with no visible interruption for buyers.
+   */
+  const setLiteMode = useCallback(
+    (next: boolean) => {
+      liteModeRef.current = next;
+      setLiteModeState(next);
+      try {
+        window.localStorage.setItem(LITE_MODE_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        /** ignore */
+      }
+      const ivs = ivsModuleRef.current;
+      const media = mediaStreamRef.current;
+      if (!ivs || !media || !stageRef.current || !wentLiveRef.current) return;
+      try {
+        localStreamsRef.current = buildLocalStreams(ivs, media, next);
+        stageRef.current.refreshStrategy();
+        logIvsWeb("lite mode changed", { roomId, lite: next, live: true });
+      } catch (err) {
+        logIvsWeb("lite mode apply failed", {
+          roomId,
+          lite: next,
+          message: err instanceof Error ? err.message : "refresh_failed",
+        });
+      }
+    },
+    [roomId],
+  );
+
   return {
     phase,
     error,
+    previewError,
     previewStream,
     devices,
     selectedVideoDeviceId,
     selectedAudioDeviceId,
     setSelectedVideoDeviceId,
     setSelectedAudioDeviceId,
+    liteMode,
+    setLiteMode,
     refreshDevices,
     startPreview,
     restartPreviewWithDevices,
+    releasePreview,
     start,
     stop,
     pause,

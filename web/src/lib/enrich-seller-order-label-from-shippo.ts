@@ -177,6 +177,8 @@ export async function regenerateSellerOrderShippingLabel(orderId: string): Promi
   const afterRepair = await enrichSellerOrderLabelFromShippo(order);
   if (afterRepair.labelUrl?.trim()) return;
 
+  const priorShippoTransactionId = order.shippoTransactionId?.trim() || null;
+
   await prisma.order.update({
     where: { id: orderId },
     data: {
@@ -189,5 +191,8 @@ export async function regenerateSellerOrderShippingLabel(orderId: string): Promi
   });
 
   const { fulfillOrderShippingAfterPayment } = await import("@/services/shipping");
-  await fulfillOrderShippingAfterPayment(orderId);
+  await fulfillOrderShippingAfterPayment(orderId, {
+    purpose: priorShippoTransactionId ? "replacement" : "initial",
+    replacesShippoTransactionId: priorShippoTransactionId,
+  });
 }

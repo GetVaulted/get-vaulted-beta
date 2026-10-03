@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { adminChangeUsername } from "@/lib/profile-setup";
 import { requireAdmin } from "@/lib/require-admin";
 import { endLiveRoomsForSuspendedSeller } from "@/lib/seller-suspension-live-guard";
 import { logTrustModerationAction } from "@/lib/trust/moderation-audit-log";
 
-type Body = { action?: string; reason?: string };
+type Body = { action?: string; reason?: string; username?: string };
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAdmin();
@@ -29,6 +30,33 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   const existing = await prisma.user.findUnique({ where: { id }, select: { id: true } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  if (action === "set_username") {
+    if (!reason) {
+      return NextResponse.json({ error: "Reason is required when changing a username." }, { status: 400 });
+    }
+    const result = await adminChangeUsername({ targetUserId: id, username: body.username });
+    if (!result.ok) {
+      return NextResponse.json({ error: result.message }, { status: result.status });
+    }
+    await logTrustModerationAction({
+      actorUserId: gate.userId,
+      action: "admin_username_changed",
+      targetType: "user",
+      targetId: id,
+      detail: {
+        reason,
+        previousUsername: result.previousUsername,
+        username: result.username,
+      },
+    });
+    return NextResponse.json({
+      ok: true,
+      username: result.username,
+      previousUsername: result.previousUsername,
+      usernameChosenAt: result.usernameChosenAt,
+    });
+  }
 
   if (action === "suspend") {
     await prisma.user.update({

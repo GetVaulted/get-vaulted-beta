@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 import { useObsWidgetToken } from "@/hooks/useObsWidgetToken";
@@ -46,6 +46,15 @@ export function ObsStudioPage() {
       router.replace(SELLER_SETUP_PATH);
     }
   }, [status, sellerGateLoading, sellerReady, router]);
+
+  // OBS Start Streaming auto-starts the scheduled room server-side — refresh the show list
+  // so status flips to Live without a manual Start show / Play tap.
+  useEffect(() => {
+    const health = (streamSetup.stream?.streamHealth ?? "").toLowerCase();
+    if (shows.selected?.status !== "scheduled") return;
+    if (health !== "live" && health !== "connecting") return;
+    void shows.reload();
+  }, [streamSetup.stream?.streamHealth, shows.selected?.status, shows.reload]);
 
   if (status === "unauthenticated") {
     return (

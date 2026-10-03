@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { loadAdminReconciliationReport, type ReconciliationRangeKey } from "@/lib/admin/admin-reconciliation";
 import { requireAdmin } from "@/lib/require-admin";
 
-const VALID_RANGES: ReconciliationRangeKey[] = ["7d", "30d", "90d", "all"];
+const VALID_RANGES: ReconciliationRangeKey[] = ["24h", "7d", "30d", "90d", "all"];
 
 export async function GET(req: Request) {
   const gate = await requireAdmin();

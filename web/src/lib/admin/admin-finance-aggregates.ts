@@ -2,10 +2,13 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   estimatePlatformFeeUsd,
-  estimateStripeProcessingFeeUsd,
+  estimateSellerOrderPayoutUsd,
   resolvePlatformFeePercentForSellerOrder,
+  resolveSellerAbsorbedProcessingFeeUsd,
 } from "@/lib/seller-payout-estimate";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
+import { ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
 
 /**
  * Same per-order fee-tier resolution the seller sales report uses (`mapSellerSalesOrderForApi`).
@@ -46,12 +49,16 @@ const paidOrderWhere: Prisma.OrderWhereInput = {
 export type AdminFinanceSummary = {
   gmvUsd: number | null;
   platformFeesUsd: number | null;
-  /** Stripe card processing on buyer charges — paid by sellers, shown for reference only. */
+  /** Stripe card processing absorbed by sellers on Connect (company listings = $0). */
   processingFeesUsd: number | null;
   processingFeesEstimated: boolean;
   /** Platform application fees collected on sales (not net of Stripe processing). */
   netRevenueUsd: number | null;
   sellerPayoutsUsd: number | null;
+  /** Seller payouts on Stripe Connect rail (destination charges). */
+  sellerPayoutsStripeUsd: number | null;
+  /** Seller payouts on PayPal rail (platform-held then PayPal Payouts). */
+  sellerPayoutsPayPalUsd: number | null;
   pendingPayoutsUsd: number | null;
   refundedOrders: number | null;
   /** TODO: Wire from Stripe Disputes API — count from seller metrics proxy until then. */
@@ -63,6 +70,7 @@ export type AdminFinanceSummary = {
 
 export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
   const notes: string[] = [];
+  await Promise.all([ensureMarketplacePlatformFeeCache(true), ensureLiveShowFeeCache(true)]);
 
   const paidOrders = await prisma.order.findMany({
     where: paidOrderWhere,
@@ -73,6 +81,12 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
       paymentStatus: true,
       payoutStatus: true,
       payoutReserveAmountCents: true,
+      shippingLabelCostCents: true,
+      shippingLabelCostReversedCents: true,
+      stripeProcessingFeeCents: true,
+      platformFeeCents: true,
+      platformFeePercentApplied: true,
+      sellerPayoutProcessor: true,
       listing: { select: { isCompanyListing: true } },
       liveShippingSession: {
         select: {
@@ -94,24 +108,45 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
   let platformFeesUsd = 0;
   let processingFeesUsd = 0;
   let sellerPayoutsUsd = 0;
+  let sellerPayoutsStripeUsd = 0;
+  let sellerPayoutsPayPalUsd = 0;
   let pendingPayoutsUsd = 0;
 
   for (const o of paidOrders) {
     const item = Math.max(0, o.itemPriceUsd);
     gmvUsd += item;
-    const feePct = resolveOrderFeePercent(o);
-    const feeUsd = o.listing.isCompanyListing ? 0 : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
+    const feePct =
+      o.platformFeePercentApplied != null && Number.isFinite(o.platformFeePercentApplied)
+        ? Math.max(0, o.platformFeePercentApplied)
+        : resolveOrderFeePercent(o);
+    const feeUsd = o.listing.isCompanyListing
+      ? 0
+      : o.platformFeeCents != null && Number.isFinite(o.platformFeeCents)
+        ? Math.max(0, o.platformFeeCents) / 100
+        : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
     platformFeesUsd += feeUsd;
-    processingFeesUsd += estimateStripeProcessingFeeUsd(o.totalUsd);
+    const processingUsd = resolveSellerAbsorbedProcessingFeeUsd({
+      isCompanyListing: Boolean(o.listing.isCompanyListing),
+      stripeProcessingFeeCents: o.stripeProcessingFeeCents,
+      buyerChargeTotalUsd: o.totalUsd,
+    });
+    processingFeesUsd += processingUsd;
 
-    // Shipping is a pass-through to the seller (not platform revenue) — include it in seller net
-    // so this figure matches what `estimateSellerOrderPayoutUsd` shows sellers on their own
-    // Sales report for the same order.
-    const shippingUsd = Math.max(0, o.shippingPriceUsd ?? 0);
-    const sellerNet = item - feeUsd - Math.max(0, o.payoutReserveAmountCents) / 100 + shippingUsd;
+    const sellerNet = estimateSellerOrderPayoutUsd({
+      itemPriceUsd: item,
+      shippingPriceUsd: o.shippingPriceUsd,
+      platformFeePercent: feePct,
+      payoutReserveAmountCents: o.payoutReserveAmountCents,
+      shippingLabelCostCents: o.shippingLabelCostCents,
+      shippingLabelCostReversedCents: o.shippingLabelCostReversedCents,
+      stripeProcessingFeeUsd: processingUsd,
+    });
 
     if (o.payoutStatus === "paid_out") {
-      sellerPayoutsUsd += Math.max(0, sellerNet);
+      const net = Math.max(0, sellerNet);
+      sellerPayoutsUsd += net;
+      if (o.sellerPayoutProcessor === "PAYPAL") sellerPayoutsPayPalUsd += net;
+      else sellerPayoutsStripeUsd += net;
     } else if (o.payoutStatus !== "blocked" && o.payoutStatus !== "manual_review") {
       pendingPayoutsUsd += Math.max(0, sellerNet);
     }
@@ -133,6 +168,7 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
   const chargebacksDisputes = metricsAgg._sum.unresolvedDisputeCount ?? 0;
   notes.push("Stripe processing fees are paid by sellers on Connect — not deducted from platform net.");
   notes.push("Chargeback/dispute count sums seller unresolved disputes — not full Stripe dispute history.");
+  notes.push("Seller payouts are split by sellerPayoutProcessor (Stripe Connect vs PayPal Payouts).");
 
   return {
     gmvUsd: Math.round(gmvUsd * 100) / 100,
@@ -141,6 +177,8 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
     processingFeesEstimated: true,
     netRevenueUsd: Math.round(platformFeesUsd * 100) / 100,
     sellerPayoutsUsd: Math.round(sellerPayoutsUsd * 100) / 100,
+    sellerPayoutsStripeUsd: Math.round(sellerPayoutsStripeUsd * 100) / 100,
+    sellerPayoutsPayPalUsd: Math.round(sellerPayoutsPayPalUsd * 100) / 100,
     pendingPayoutsUsd: Math.round(pendingPayoutsUsd * 100) / 100,
     refundedOrders,
     chargebacksDisputes,
@@ -153,6 +191,7 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
 export type AdminFinanceChartPoint = { label: string; gmvUsd: number; platformFeesUsd: number };
 
 export async function loadAdminFinanceCharts(period: "daily" | "weekly" | "monthly"): Promise<AdminFinanceChartPoint[]> {
+  await Promise.all([ensureMarketplacePlatformFeeCache(true), ensureLiveShowFeeCache(true)]);
   const now = new Date();
   const buckets: { start: Date; end: Date; label: string }[] = [];
 
@@ -197,6 +236,8 @@ export async function loadAdminFinanceCharts(period: "daily" | "weekly" | "month
       createdAt: true,
       itemPriceUsd: true,
       paymentStatus: true,
+      platformFeeCents: true,
+      platformFeePercentApplied: true,
       listing: { select: { isCompanyListing: true } },
       liveShippingSession: {
         select: {
@@ -217,10 +258,17 @@ export async function loadAdminFinanceCharts(period: "daily" | "weekly" | "month
       const item = Math.max(0, o.itemPriceUsd);
       gmvUsd += item;
       if (!o.listing.isCompanyListing) {
-        platformFeesUsd += estimatePlatformFeeUsd({
-          itemPriceUsd: item,
-          platformFeePercent: resolveOrderFeePercent(o),
-        });
+        const feePct =
+          o.platformFeePercentApplied != null && Number.isFinite(o.platformFeePercentApplied)
+            ? Math.max(0, o.platformFeePercentApplied)
+            : resolveOrderFeePercent(o);
+        platformFeesUsd +=
+          o.platformFeeCents != null && Number.isFinite(o.platformFeeCents)
+            ? Math.max(0, o.platformFeeCents) / 100
+            : estimatePlatformFeeUsd({
+                itemPriceUsd: item,
+                platformFeePercent: feePct,
+              });
       }
     }
     return {

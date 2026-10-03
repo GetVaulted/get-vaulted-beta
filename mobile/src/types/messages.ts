@@ -46,6 +46,7 @@ export type ThreadMessage = {
   systemEvent: string | null;
   readAt: string | null;
   createdAt: string;
+  imageUrl: string | null;
   mentions?: { userId: string; username: string }[];
 };
 

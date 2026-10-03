@@ -7,15 +7,23 @@ export const SELLER_CONSOLE = {
   goLive: 'Go live',
   startStream: 'Start stream',
   pauseStream: 'Pause',
-  resumeStream: 'Resume',
+  resumeStream: 'Play',
   stopStream: 'Stop stream',
   endShow: 'End show',
   clutchTime: 'Clutch Time',
-  clutchTimeHint: 'Sudden death — timer resets on every bid.',
+  clutchTimeHint: 'Sudden death — timer does not extend on bids.',
   obsSetup: 'OBS / RTMP',
   camera: 'Camera',
   microphone: 'Microphone',
-  previewHint: 'Check your camera and mic, then go live. You stay in the command center.',
+  previewHint:
+    'Phone camera Go Live, or use OBS / RTMP for desktop. After Connect OBS, Start show opens the room — video comes from OBS, not this phone.',
+  resumeStreamHint: 'Show minimized — tap Play to bring the live feed back.',
+  liveLeaveAppHint:
+    'Leaving the app pauses your show for buyers. Tap Play when you return. Need the camera to stay on? Use OBS / RTMP.',
+  obsBroadcastHint:
+    'This show is set to OBS. Start show opens the room; keep Start Streaming on in OBS (WHIP). Tap Use this camera only if you want to switch off OBS to the phone.',
+  obsLiveBadge: 'OBS live',
+  obsWaitingSignal: 'Waiting for OBS — Start Streaming in OBS (WHIP), then Refresh status.',
   copyLink: 'Copy link',
   nativeShare: 'Share…',
   shareInApp: 'Share in Get Vaulted',
@@ -32,4 +40,16 @@ export const SELLER_CONSOLE = {
   saleCategoryTeamsDivisions: 'Teams/Divisions',
   saleCategoryAuction: 'Auction',
   saleCategoryBuyNow: 'Buy Now',
+  /** Add-item modal — inventory source tabs */
+  addSourceNew: 'New item',
+  addSourceShop: 'From my shop',
+  addSourceCopyShow: 'Copy last show',
+  addSourceShopHint: 'Pull Live show or Marketplace inventory into this lineup.',
+  addSourceCopyHint: 'Bring unsold lots from a previous show — finish a break you did not complete.',
+  /** Companion host — another device owns the camera. */
+  companionBannerTitle: 'Live on another device',
+  companionBannerBody:
+    'Camera is publishing from your other device. Use this phone for queue, pricing, and start auction — buyers keep that stream.',
+  companionLiveBadge: 'Live elsewhere',
+  companionTakeOverCamera: 'Use this camera',
 } as const;

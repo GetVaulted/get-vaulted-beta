@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { fetchSellerShop, type SellerShopTab } from '../../api/sellerShopRepository';
+import { useAuth } from '../../auth/AuthContext';
 import { MarketplaceListingCard } from '../discover/DiscoverMarketplaceCard';
 import { colors, radii, spacing } from '../../theme';
 
@@ -18,6 +19,7 @@ export function ProfileSellerShopPanel({
   sellerId: string;
   onPressProduct: (productId: string) => void;
 }) {
+  const { session } = useAuth();
   const [shopTab, setShopTab] = useState<SellerShopTab>('all');
   const [loading, setLoading] = useState(true);
   const [shop, setShop] = useState<Awaited<ReturnType<typeof fetchSellerShop>>>(null);
@@ -25,7 +27,11 @@ export function ProfileSellerShopPanel({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void fetchSellerShop({ sellerId, tab: shopTab }).then((result) => {
+    void fetchSellerShop({
+      sellerId,
+      tab: shopTab,
+      accessToken: session?.access_token,
+    }).then((result) => {
       if (cancelled) return;
       setShop(result);
       setLoading(false);
@@ -33,7 +39,7 @@ export function ProfileSellerShopPanel({
     return () => {
       cancelled = true;
     };
-  }, [sellerId, shopTab]);
+  }, [sellerId, shopTab, session?.access_token]);
 
   if (loading && !shop) {
     return <ActivityIndicator color={colors.gold} style={styles.loader} />;

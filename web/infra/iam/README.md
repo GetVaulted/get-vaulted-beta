@@ -47,3 +47,11 @@ npx tsx scripts/verify-beta-ivs-config.ts
 ```
 
 A successful run lists sample IVS channels and confirms Real-Time `ivs:GetStage` authorization (via a harmless not-found probe).
+
+## Live show recordings (VOD)
+
+Auto-record IVS channels to S3 with **30-day** retention and admin ZIP download.
+
+See **[LIVE_RECORDINGS.md](./LIVE_RECORDINGS.md)** for bucket, Recording configuration, EventBridge → webhook, and Netlify env (`AWS_IVS_RECORDING_CONFIGURATION_ARN`, `AWS_IVS_RECORDINGS_BUCKET`).
+
+Add-on IAM: [`vaulted-beta-ivs-recording-policy.json`](./vaulted-beta-ivs-recording-policy.json) (also merged into the full policy JSON above).

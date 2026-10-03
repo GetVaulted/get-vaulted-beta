@@ -9,7 +9,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Switch,
   TextInput,
@@ -54,13 +53,14 @@ import {
   normalizePmType,
 } from './walletPaymentMethodDisplay';
 import { WalletNativePayButton } from './WalletNativePayButton';
-import { referralJoinUrl } from '../../lib/referralLink';
+import { referralJoinUrl, shareReferralLinkNative } from '../../lib/referralLink';
 import {
   LIVE_PREMIUM_WALLET_TITLE,
   catalogEntryIcon,
   liveAcceptedMethodsLabel,
   liveAcceptedWalletMethods,
 } from '../../lib/livePremiumWallet';
+import { walletRecoveryPaymentSetupStartWith } from '../../lib/androidPaymentSheetPresentation';
 
 const referralStyles = StyleSheet.create({
   linkBox: {
@@ -112,6 +112,11 @@ type Props = {
   recoveryMode?: boolean;
   initialStep?: WalletStep;
   openPaymentSetupOnMount?: boolean;
+  /**
+   * When `openPaymentSetupOnMount` is true, which setup surface to show.
+   * Android recovery must use `picker` — auto `card` launches PaymentSheet inside a Modal and sticks.
+   */
+  paymentSetupStartWith?: 'picker' | 'card' | 'wallet';
   /** Recovery — jump straight into Shippo address form (edit default or add new). */
   openAddressFormOnMount?: boolean;
   onPaymentMethodSaved?: (paymentMethodId?: string) => void;
@@ -204,6 +209,7 @@ export function VaultWalletSheet({
   recoveryMode = false,
   initialStep = 'main',
   openPaymentSetupOnMount = false,
+  paymentSetupStartWith: paymentSetupStartWithProp,
   openAddressFormOnMount = false,
   onPaymentMethodSaved,
 }: Props) {
@@ -212,6 +218,8 @@ export function VaultWalletSheet({
   void useKeyboardInset();
   const sheetMaxHeight = Math.min(windowHeight * 0.92, 720);
   const safeBottom = Math.max(insets.bottom, spacing.lg);
+  const recoverySetupStartWith =
+    paymentSetupStartWithProp ?? walletRecoveryPaymentSetupStartWith();
 
   const [step, setStep] = useState<WalletStep>(() =>
     recoveryMode && initialStep ? initialStep : 'main',
@@ -220,7 +228,7 @@ export function VaultWalletSheet({
     () => recoveryMode && openPaymentSetupOnMount,
   );
   const [paymentSetupStartWith, setPaymentSetupStartWith] = useState<'picker' | 'card' | 'wallet'>(
-    'picker',
+    () => (recoveryMode && openPaymentSetupOnMount ? recoverySetupStartWith : 'picker'),
   );
   const [addressFormDraft, setAddressFormDraft] = useState<CreateShippingAddressInput>(EMPTY_ADDRESS);
   const [addressFormEditing, setAddressFormEditing] = useState(false);
@@ -304,9 +312,12 @@ export function VaultWalletSheet({
       openSeedAppliedRef.current = true;
     }
     setStep(recoveryMode ? initialStep : 'main');
-    if (recoveryMode && openPaymentSetupOnMount) setPaymentSetupOpen(true);
+    if (recoveryMode && openPaymentSetupOnMount) {
+      setPaymentSetupStartWith(recoverySetupStartWith);
+      setPaymentSetupOpen(true);
+    }
     void loadRef.current();
-  }, [visible, recoveryMode, initialStep, openPaymentSetupOnMount, initialReadiness]);
+  }, [visible, recoveryMode, initialStep, openPaymentSetupOnMount, initialReadiness, recoverySetupStartWith]);
 
   useEffect(() => {
     if (!visible || !openAddressFormOnMount || addressFormSeedAppliedRef.current || loading) return;
@@ -686,55 +697,79 @@ export function VaultWalletSheet({
           paymentMethods.map((pm) => {
             const pmType = normalizePmType(pm.type);
             return (
-              <Pressable
+              <View
                 key={pm.id}
                 style={[t.savedPmCard, (pm.isDefault || pm.id === primaryPayment?.id) && t.savedPmCardSelected]}
-                onPress={() => void handleSetDefaultPm(pm)}
               >
-                <View style={t.pmIcon}>
-                  <Ionicons name={walletPmIcon(pmType)} size={20} color="#fff" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <LiveRoomText style={t.detailTitle}>{walletPmLabel(pm)}</LiveRoomText>
-                  {pmType === 'card' && pm.last4 ? (
-                    <LiveRoomText style={t.detailBody}>
-                      ···· {pm.last4} · Exp {formatCardExp(pm.expMonth, pm.expYear)}
-                    </LiveRoomText>
-                  ) : (
-                    <LiveRoomText style={t.detailBody}>Saved for live checkout</LiveRoomText>
-                  )}
-                </View>
-                {pm.isDefault ? (
-                  <LiveRoomText style={[t.pmActionTxt, { color: '#93c5fd' }]}>Default</LiveRoomText>
-                ) : (
-                  <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
-                )}
-              </Pressable>
+                <Pressable
+                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}
+                  onPress={() => void handleSetDefaultPm(pm)}
+                >
+                  <View style={t.pmIcon}>
+                    <Ionicons name={walletPmIcon(pmType)} size={20} color="#fff" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <LiveRoomText style={t.detailTitle}>{walletPmLabel(pm)}</LiveRoomText>
+                    {pmType === 'card' && pm.last4 ? (
+                      <LiveRoomText style={t.detailBody}>
+                        ···· {pm.last4} · Exp {formatCardExp(pm.expMonth, pm.expYear)}
+                      </LiveRoomText>
+                    ) : (
+                      <LiveRoomText style={t.detailBody}>Saved for live checkout</LiveRoomText>
+                    )}
+                  </View>
+                  {pm.isDefault ? (
+                    <LiveRoomText style={[t.pmActionTxt, { color: '#93c5fd' }]}>Default</LiveRoomText>
+                  ) : null}
+                </Pressable>
+                <Pressable
+                  onPress={() => handleRemovePm(pm)}
+                  hitSlop={10}
+                  style={{ paddingHorizontal: spacing.xs, paddingVertical: spacing.xs }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${walletPmLabel(pm)}`}
+                >
+                  <Ionicons name="trash-outline" size={18} color="#fca5a5" />
+                </Pressable>
+              </View>
             );
           })
         )}
 
         <LiveRoomText style={t.liveSectionLabel}>New payment method</LiveRoomText>
-        <Pressable style={t.newCardBtn} onPress={() => openPaymentSetup('card')}>
-          <Ionicons name="card-outline" size={18} color="#f4f2ec" />
-          <LiveRoomText style={t.newCardBtnText}>New card</LiveRoomText>
+        <Pressable style={t.newCardBtn} onPress={() => openPaymentSetup('picker')}>
+          <Ionicons name="add-circle-outline" size={18} color="#f4f2ec" />
+          <LiveRoomText style={t.newCardBtnText}>Add payment method</LiveRoomText>
         </Pressable>
 
         <LiveRoomText style={t.liveSectionLabel}>Accepted on live</LiveRoomText>
         <View style={t.detailCard}>
           {liveMethods.map((entry, idx) => (
-            <View
+            <Pressable
               key={entry.id}
               style={[t.liveMethodRow, idx === liveMethods.length - 1 && t.liveMethodRowLast]}
+              onPress={() => {
+                if (entry.id === 'apple_pay' || entry.id === 'google_pay') {
+                  openPaymentSetup('wallet');
+                  return;
+                }
+                if (entry.id === 'card') {
+                  openPaymentSetup('card');
+                  return;
+                }
+                // Cash App / Link / Amazon Pay / Venmo — full method picker (not card-only).
+                openPaymentSetup('picker');
+              }}
             >
               <View style={t.pmIcon}>
                 <Ionicons name={catalogEntryIcon(entry.id)} size={18} color={colors.gold} />
               </View>
               <View style={{ flex: 1 }}>
                 <LiveRoomText style={t.detailTitle}>{entry.label}</LiveRoomText>
-                <LiveRoomText style={t.detailBody}>Instant checkout for bids & buy-now</LiveRoomText>
+                <LiveRoomText style={t.detailBody}>Tap to add · Instant checkout for bids & buy-now</LiveRoomText>
               </View>
-            </View>
+              <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
+            </Pressable>
           ))}
         </View>
         <LiveRoomText style={t.hintText}>
@@ -936,14 +971,8 @@ export function VaultWalletSheet({
   };
 
   const shareReferralLink = async () => {
-    if (!referralUrl) return;
-    try {
-      await Share.share({
-        message: `Join me on Get Vaulted — sign up with my link and we'll both get $10 in credit after your first order.\n${referralUrl}`,
-      });
-    } catch {
-      /* dismissed */
-    }
+    if (!referralCode) return;
+    await shareReferralLinkNative(referralCode);
   };
 
   const renderReferral = () => (
@@ -954,7 +983,7 @@ export function VaultWalletSheet({
           <LiveRoomText style={t.detailTitle}>Available referral credit</LiveRoomText>
           <LiveRoomText style={[t.sectionAmount, { fontSize: 28, marginTop: 4 }]}>{formatUsd(referralUsd)}</LiveRoomText>
           <LiveRoomText style={t.detailBody}>
-            Applied automatically on your next eligible purchase — Buy Now, offers, live auctions, or layaway.
+            Applied when you choose it at checkout — Buy Now, offers, and auction pay.
           </LiveRoomText>
           {referralPendingUsd > 0 ? (
             <LiveRoomText style={[t.detailBody, { marginTop: 6 }]}>
@@ -1020,61 +1049,91 @@ export function VaultWalletSheet({
         visible={visible}
         animationType="slide"
         transparent
+        presentationStyle="overFullScreen"
         onRequestClose={
-          recoveryMode
-            ? () => {}
-            : paymentSetupOpen
-              ? () => {
-                  setPaymentSetupOpen(false);
-                  setPaymentSetupStartWith('picker');
-                }
-              : step === 'main'
-                ? onClose
-                : () => setStep(step === 'addressForm' ? addressFormReturnStep.current : 'main')
+          paymentSetupOpen
+            ? () => {
+                setPaymentSetupOpen(false);
+                setPaymentSetupStartWith('picker');
+                if (recoveryMode) setStep('payment');
+              }
+            : step === 'main' || (recoveryMode && step === 'payment')
+              ? onClose
+              : () => setStep(step === 'addressForm' ? addressFormReturnStep.current : 'main')
         }
         statusBarTranslucent
       >
-        {paymentSetupOpen ? (
-          <View style={[t.sheet, { flex: 1, paddingBottom: safeBottom, maxHeight: sheetMaxHeight }]}>
-            <WalletPaymentSetupPanel
-              active={paymentSetupOpen}
-              accessToken={accessToken}
-              startWith={paymentSetupStartWith}
-              onClose={() => {
-                if (recoveryMode) {
-                  onClose();
-                  return;
-                }
-                setPaymentSetupOpen(false);
-                setPaymentSetupStartWith('picker');
-              }}
-              onSaved={(paymentMethodId) => {
-                void loadWalletData();
-                setPaymentSetupOpen(false);
-                setPaymentSetupStartWith('picker');
-                setStep('payment');
-                onPaymentMethodSaved?.(paymentMethodId);
-              }}
-            />
-          </View>
-        ) : (
         <View style={t.backdrop}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={recoveryMode ? undefined : step === 'main' ? onClose : undefined}
-            accessibilityLabel="Dismiss Vault Wallet"
-          />
-          <KeyboardAvoidingView
-            style={{ maxHeight: sheetMaxHeight, width: '100%' }}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          >
-            <View style={[t.sheet, { paddingBottom: safeBottom }]}>
-              <View style={t.handle} />
-              {renderStep()}
-            </View>
-          </KeyboardAvoidingView>
+          {paymentSetupOpen ? (
+            <>
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={() => {
+                  setPaymentSetupOpen(false);
+                  setPaymentSetupStartWith('picker');
+                  if (recoveryMode) setStep('payment');
+                }}
+                accessibilityLabel="Dismiss payment setup"
+              />
+              <View
+                style={{
+                  height: sheetMaxHeight,
+                  maxHeight: sheetMaxHeight,
+                  width: '100%',
+                }}
+              >
+                <View
+                  style={[
+                    t.sheet,
+                    {
+                      flex: 1,
+                      paddingBottom: safeBottom,
+                      // Payment setup is a full-height panel — drop horizontal padding so the
+                      // picker/header can use the sheet edge-to-edge (matches modal setup UI).
+                      paddingHorizontal: 0,
+                      paddingTop: 0,
+                    },
+                  ]}
+                >
+                  <WalletPaymentSetupPanel
+                    active={paymentSetupOpen}
+                    accessToken={accessToken}
+                    startWith={paymentSetupStartWith}
+                    onClose={() => {
+                      setPaymentSetupOpen(false);
+                      setPaymentSetupStartWith('picker');
+                      if (recoveryMode) setStep('payment');
+                    }}
+                    onSaved={(paymentMethodId) => {
+                      void loadWalletData();
+                      setPaymentSetupOpen(false);
+                      setPaymentSetupStartWith('picker');
+                      setStep('payment');
+                      onPaymentMethodSaved?.(paymentMethodId);
+                    }}
+                  />
+                </View>
+              </View>
+            </>
+          ) : (
+            <>
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={recoveryMode ? undefined : step === 'main' ? onClose : undefined}
+                accessibilityLabel="Dismiss Vault Wallet"
+              />
+              <KeyboardAvoidingView
+                style={{ maxHeight: sheetMaxHeight, width: '100%' }}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              >
+                <View style={[t.sheet, { paddingBottom: safeBottom }]}>
+                  <View style={t.handle} />
+                  {renderStep()}
+                </View>
+              </KeyboardAvoidingView>
+            </>
+          )}
         </View>
-        )}
       </Modal>
     </>
   );

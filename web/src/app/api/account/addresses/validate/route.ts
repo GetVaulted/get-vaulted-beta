@@ -5,7 +5,7 @@ import { verifyAddressForShipping } from "@/lib/shippo-address-validation";
 import { isShippoConfigured } from "@/lib/shippo";
 
 export async function POST(req: Request) {
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
 
   let body: AddressInput;

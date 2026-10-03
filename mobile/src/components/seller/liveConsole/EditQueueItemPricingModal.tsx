@@ -19,7 +19,7 @@ import {
   type QuickLiveLotInput,
 } from '../../../lib/liveAuctionPricing';
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
-import { colors, spacing } from '../../../theme';
+import { colors, spacing, vaultColors } from '../../../theme';
 import { QuickLiveLotFields } from './QuickLiveLotFields';
 
 export function EditQueueItemPricingModal({
@@ -103,7 +103,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.3)',
+    borderColor: 'rgba(203,163,92,0.3)',
     maxHeight: Platform.OS === 'ios' ? '88%' : '92%',
   },
   sheetHeader: { alignItems: 'center', paddingTop: spacing.sm },
@@ -124,7 +124,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     paddingVertical: 14,
     borderRadius: 10,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
     alignItems: 'center',
     minHeight: 48,
     justifyContent: 'center',

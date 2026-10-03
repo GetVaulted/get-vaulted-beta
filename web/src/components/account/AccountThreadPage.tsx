@@ -192,14 +192,14 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
       {meta.inbox === "request" && meta.isSeller ? (
         <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-3">
           <p className="text-xs text-amber-100/90">
-            This collector messaged you from your profile. Accept to move the conversation to your inbox and reply.
+            Message request — accept to move it to your inbox, or just reply (that accepts automatically).
           </p>
           <button
             type="button"
             onClick={() => void acceptRequest()}
             className="mt-2 inline-flex h-9 items-center rounded-full bg-gold px-4 text-xs font-bold text-zinc-950"
           >
-            Accept message request
+            Accept request
           </button>
         </div>
       ) : null}
@@ -247,7 +247,9 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
 
       <div className="border-t border-white/[0.08] bg-[#060608] p-3 sm:p-4">
         {meta.inbox === "request" && !meta.isSeller ? (
-          <p className="mb-2 text-xs text-zinc-500">Waiting for them to accept your message request.</p>
+          <p className="mb-2 text-xs text-zinc-500">
+            Waiting for them to accept your message request (or reply — that also opens the chat).
+          </p>
         ) : null}
         {sendError ? <p className="mb-2 text-xs font-medium text-rose-300">{sendError}</p> : null}
         <div className="flex gap-2">

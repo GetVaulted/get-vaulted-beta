@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { parseLiveRoomDiscoveryVisibility } from "@/lib/live-room-public-discovery";
 
 async function followerIdsForSeller(sellerId: string): Promise<string[]> {
   const rows = await prisma.sellerFollow.findMany({
@@ -11,8 +12,18 @@ async function followerIdsForSeller(sellerId: string): Promise<string[]> {
   return rows.map((r) => r.followerId);
 }
 
-/** Notify followers when a seller goes live (call only on transition to `live`). */
+/**
+ * Notify followers when a seller goes live (call only on transition to `live`).
+ * Private (unlisted) shows never blast followers — those must be shared intentionally.
+ */
 export async function notifyFollowersSellerWentLive(sellerId: string, sellerUsername: string, liveRoomId: string) {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: liveRoomId },
+    select: { discoveryVisibility: true },
+  });
+  if (!room) return;
+  if (parseLiveRoomDiscoveryVisibility(room) === "private") return;
+
   const followerIds = await followerIdsForSeller(sellerId);
   if (followerIds.length === 0) return;
   const title = `@${sellerUsername} is live now`;

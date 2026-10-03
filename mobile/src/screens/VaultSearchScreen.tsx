@@ -3,7 +3,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -15,7 +15,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchMarketplaceListings } from '../api/listingsFeedRepository';
 import { fetchLiveShowsForDiscovery } from '../api/liveShowsDiscoveryRepository';
+import { searchPeopleUsers, type PeopleSearchUser } from '../api/peopleSearchRepository';
+import { useAuth } from '../auth/AuthContext';
 import { SearchBar } from '../components/ui/SearchBar';
+import { UserAvatar } from '../components/ui/UserAvatar';
 import { VaultImage } from '../components/ui/VaultImage';
 import {
   filterLiveStreamsByQuery,
@@ -23,6 +26,7 @@ import {
   filterScheduledStreamsByQuery,
 } from '../lib/vaultSearch';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { openUserProfile } from '../navigation/openPlatform';
 import type { MainTabParamList, RootStackParamList } from '../navigation/types';
 import { colors, radii, spacing } from '../theme';
 import type { LiveStream, Product, ScheduledStream } from '../types';
@@ -34,13 +38,20 @@ type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList>
 >;
 
+const PEOPLE_DEBOUNCE_MS = 280;
+
 export function VaultSearchScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const { session } = useAuth();
+  const token = session?.access_token;
   const [query, setQuery] = useState(route.params?.initialQuery ?? '');
   const [loading, setLoading] = useState(true);
   const [listings, setListings] = useState<Product[]>([]);
   const [live, setLive] = useState<LiveStream[]>([]);
   const [scheduled, setScheduled] = useState<ScheduledStream[]>([]);
+  const [people, setPeople] = useState<PeopleSearchUser[]>([]);
+  const [peopleLoading, setPeopleLoading] = useState(false);
+  const peopleGen = useRef(0);
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured()) {
@@ -68,6 +79,27 @@ export function VaultSearchScreen({ navigation, route }: Props) {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const q = query.trim().replace(/^@+/, '');
+    if (q.length < 1) {
+      setPeople([]);
+      setPeopleLoading(false);
+      return;
+    }
+    const gen = ++peopleGen.current;
+    setPeopleLoading(true);
+    const handle = setTimeout(() => {
+      void searchPeopleUsers(token, q).then((users) => {
+        if (gen !== peopleGen.current) return;
+        setPeople(users);
+        setPeopleLoading(false);
+      });
+    }, PEOPLE_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(handle);
+    };
+  }, [query, token]);
+
   const filteredListings = useMemo(() => filterProductsByQuery(listings, query), [listings, query]);
   const filteredLive = useMemo(() => filterLiveStreamsByQuery(live, query), [live, query]);
   const filteredScheduled = useMemo(
@@ -78,6 +110,8 @@ export function VaultSearchScreen({ navigation, route }: Props) {
   const empty =
     hasQuery &&
     !loading &&
+    !peopleLoading &&
+    people.length === 0 &&
     filteredListings.length === 0 &&
     filteredLive.length === 0 &&
     filteredScheduled.length === 0;
@@ -101,7 +135,7 @@ export function VaultSearchScreen({ navigation, route }: Props) {
         </Pressable>
         <View style={styles.searchWrap}>
           <SearchBar
-            placeholder="Search listings, live shows, sellers…"
+            placeholder="Search people, listings, live…"
             value={query}
             onChangeText={setQuery}
             autoFocus={!route.params?.initialQuery}
@@ -116,10 +150,46 @@ export function VaultSearchScreen({ navigation, route }: Props) {
       ) : (
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           {!hasQuery ? (
-            <Text style={styles.hint}>Search marketplace listings, live rooms, and seller handles.</Text>
+            <Text style={styles.hint}>
+              Search usernames to follow people, plus marketplace listings and live rooms.
+            </Text>
           ) : null}
           {empty ? (
-            <Text style={styles.empty}>No results for “{query.trim()}”. Try another keyword or browse Marketplace.</Text>
+            <Text style={styles.empty}>
+              No results for “{query.trim()}”. Try a username, listing keyword, or browse Marketplace.
+            </Text>
+          ) : null}
+
+          {hasQuery ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>People</Text>
+              {peopleLoading && people.length === 0 ? (
+                <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.sm }} />
+              ) : null}
+              {!peopleLoading && people.length === 0 ? (
+                <Text style={styles.peopleEmpty}>No users match that username.</Text>
+              ) : null}
+              {people.map((user) => (
+                <Pressable
+                  key={user.id}
+                  style={styles.row}
+                  onPress={() => openUserProfile(user.id, navigation as Nav)}
+                >
+                  <UserAvatar uri={user.image} username={user.username} size={52} />
+                  <View style={styles.rowCopy}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      @{user.username}
+                    </Text>
+                    <Text style={styles.rowMeta} numberOfLines={1}>
+                      {user.followerCount.toLocaleString()} follower
+                      {user.followerCount === 1 ? '' : 's'}
+                      {user.following ? ' · Following' : ''}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                </Pressable>
+              ))}
+            </View>
           ) : null}
 
           {filteredLive.length ? (
@@ -202,6 +272,7 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: spacing.md, paddingBottom: spacing.xxxl, gap: spacing.lg },
   hint: { fontSize: 13, lineHeight: 18, color: colors.textSecondary, marginBottom: spacing.sm },
   empty: { fontSize: 13, lineHeight: 18, color: colors.textMuted },
+  peopleEmpty: { fontSize: 12, lineHeight: 16, color: colors.textMuted, marginBottom: spacing.xs },
   section: { gap: spacing.sm },
   sectionTitle: {
     fontSize: 11,
@@ -220,7 +291,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surfaceElevated,
   },
-  thumb: { width: 52, height: 52, borderRadius: radii.md, backgroundColor: colors.surface },
   rowCopy: { flex: 1, minWidth: 0, gap: 2 },
   rowTitle: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
   rowMeta: { fontSize: 12, color: colors.textMuted },

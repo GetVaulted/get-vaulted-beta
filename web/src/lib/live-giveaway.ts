@@ -324,7 +324,7 @@ async function executeGiveawayDraw(
     });
     spin.winnerLabel =
       updatedGiveaway.winnerUser?.username?.trim() || spin.winnerLabel;
-    spin.winnerUserId = updated.winnerUserId ?? winnerUserId;
+    spin.winnerUserId = updatedGiveaway.winnerUserId ?? winnerUserId;
     return updatedGiveaway;
   });
 

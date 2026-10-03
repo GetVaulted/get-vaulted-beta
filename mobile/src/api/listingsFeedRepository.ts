@@ -2,6 +2,7 @@ import {
   fetchListingsByIdsFromWeb,
   fetchMarketplaceListingFromWeb,
   fetchPublishedListingsFromWeb,
+  fetchPublishedListingsPageFromWeb,
 } from './webListingsRepository';
 import { mapListingCategoryToCategoryId } from './marketplaceListingCategory';
 import { mapWebMarketplaceListingToProduct } from './mapWebMarketplaceListing';
@@ -35,6 +36,36 @@ export async function fetchMarketplaceListings(opts?: {
     : published;
   const mapped = filtered.slice(0, lim * 2).map(mapWebMarketplaceListingToProduct);
   return filterBrowsableMarketplaceProducts(mapped).slice(0, lim);
+}
+
+export type MarketplaceListingsPage = {
+  products: Product[];
+  hasMore: boolean;
+  page: number;
+  totalListingCount: number;
+};
+
+/**
+ * Real pagination for the main marketplace browse grid — `fetchMarketplaceListings` above always
+ * silently returns just a first, capped batch (at most 60 rows) with no way to ask for more, which
+ * made anything past that cutoff permanently unreachable in the app once the catalog grew past it.
+ * This calls the same `scope=published` endpoint the web marketplace's own "Load more" already
+ * uses correctly, actually sending `page`/`pageSize` so every listing is reachable by scrolling.
+ */
+export async function fetchMarketplaceListingsPage(opts: {
+  page: number;
+  pageSize?: number;
+}): Promise<MarketplaceListingsPage> {
+  const pageSize = Math.min(Math.max(opts.pageSize ?? 60, 1), 100);
+  const result = await fetchPublishedListingsPageFromWeb({ page: opts.page, pageSize });
+  const published = result.listings.filter((r) => isPublishedOnMarketplace(r.listingStatus));
+  const products = filterBrowsableMarketplaceProducts(published.map(mapWebMarketplaceListingToProduct));
+  return {
+    products,
+    hasMore: result.hasMore,
+    page: result.page,
+    totalListingCount: result.totalListingCount,
+  };
 }
 
 export async function fetchMarketplaceListingById(listingId: string): Promise<Product | null> {

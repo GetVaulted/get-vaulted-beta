@@ -22,6 +22,7 @@ import {
 import { checkUsernameAvailable, validateUsernameFormat } from '../../api/profilesRepository';
 import { GetVaultedBrandMark } from '../../components/branding/GetVaultedBrandMark';
 import { useAuth } from '../../auth/AuthContext';
+import { navigateAfterAccountReady } from '../../navigation/navigateAfterSignIn';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
 
@@ -51,7 +52,7 @@ export function CompleteProfileSetupScreen({ navigation, route }: Props) {
         const status = await fetchProfileSetupStatus(accessToken);
         if (cancelled) return;
         if (!status.needsSetup) {
-          navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+          await navigateAfterAccountReady(navigation, 'signup');
           return;
         }
         setUsername(status.username);
@@ -109,8 +110,8 @@ export function CompleteProfileSetupScreen({ navigation, route }: Props) {
     };
   }, [username, suggestedUsername]);
 
-  const finishHome = () => {
-    navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+  const finishHome = async () => {
+    await navigateAfterAccountReady(navigation, 'signup');
   };
 
   const onSubmit = async () => {
@@ -150,7 +151,7 @@ export function CompleteProfileSetupScreen({ navigation, route }: Props) {
         username: u,
         referralCode: referralLocked ? undefined : referralCode.trim() || undefined,
       });
-      finishHome();
+      await finishHome();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not save your profile.');
     } finally {

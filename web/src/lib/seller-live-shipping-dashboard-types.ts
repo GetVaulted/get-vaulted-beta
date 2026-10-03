@@ -7,6 +7,10 @@ export type SellerLiveShippingOrderRow = {
   /** When true, the listing is excluded from combined bundled Shippo labels. */
   shipAlone: boolean;
   shippingChargedPortionCents: number | null;
+  /** Actual purchased label cost (null = pending). Never a quote-only figure. */
+  actualLabelCostCents: number | null;
+  labelStatus: "quoted" | "purchased" | "pending" | "failed" | "refunded" | "voided";
+  netShippingImpactCents: number;
   orderStatus: string;
   paymentStatus: string;
   fulfillmentStatus: string;
@@ -29,6 +33,10 @@ export type SellerLiveShippingSessionRow = {
   sessionShippingCents: number;
   shippingChargedCents: number;
   shippingLabelCostCents: number;
+  /** Alias for buyer shipping − actual labels + credits. */
+  netShippingImpactCents: number;
+  pendingLabelCount: number;
+  failedLabelCount: number;
   marginCents: number;
   marginNegative: boolean;
   capReached: boolean;
@@ -49,6 +57,9 @@ export type SellerLiveShippingDashboard = {
   totals: {
     shippingChargedCents: number;
     shippingLabelCostCents: number;
+    netShippingImpactCents: number;
+    pendingLabelCount: number;
+    failedLabelCount: number;
     marginCents: number;
     marginNegative: boolean;
   };

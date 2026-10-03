@@ -43,15 +43,6 @@ export default async function BreakHostConsolePage({ params }: { params: Promise
       </div>
     );
   }
-  if (room.roomType !== "break") {
-    logLiveLoaderDebug("seller_console_wrong_room_type", {
-      roomId,
-      roomType: room.roomType,
-      sessionUserId: session.user.id,
-    });
-    redirect("/seller/live");
-  }
-
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: { role: true, suspendedAt: true },
@@ -67,5 +58,5 @@ export default async function BreakHostConsolePage({ params }: { params: Promise
     redirect("/");
   }
 
-  return <BreakHostConsole roomId={roomId} />;
+  return <BreakHostConsole roomId={roomId} roomType={room.roomType} />;
 }

@@ -7,6 +7,7 @@ import { LiveAuctionRoom } from "@/components/live-auction/LiveAuctionRoom";
 import { LiveSaleRoom } from "@/components/live-auction/LiveSaleRoom";
 import { useRealtimeRoomPresence } from "@/hooks/useRealtimeRoomPresence";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
+import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { logLiveDebugEvent } from "@/lib/live-debug";
 import { announceLiveRoomJoin, announceLiveRoomLeave, buildOptimisticViewerJoinMessage } from "@/lib/live-room-viewer-event-client";
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
@@ -19,7 +20,7 @@ import {
 } from "@/lib/live-room-realtime-merge";
 import { estimateClockSkewMs } from "@/lib/server-clock-sync";
 import { liveChatFallbackPollMs, liveRoomReconcilePollMs } from "@/lib/live-fallback-poll-intervals";
-import { parsePurchaseCompletedCelebration, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
+import { parsePurchaseCompletedCelebration, soldCelebrationDismissKey, SOLD_CELEBRATION_DISPLAY_MS, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
 import {
   parseAuctionWinSpotCelebration,
   parseVariantPurchasedCelebration,
@@ -37,12 +38,13 @@ import { VaultRevealOverlay } from "@/components/live-auction/VaultRevealOverlay
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from "@/lib/vault-reveal-spin";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
-import { isLiveRoomBroadcastOnAir, type LiveRoomBroadcastGate } from "@/lib/live-room-broadcast-on-air";
+import { isLiveRoomBroadcastOnAir, isLiveRoomBroadcastPurchasable, type LiveRoomBroadcastGate } from "@/lib/live-room-broadcast-on-air";
 import {
   LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR,
   LIVE_STREAM_PAUSED_COMMERCE_ERROR,
 } from "@/lib/live-room-commerce-messages";
 import { parseBuyerSafeStreamPayload } from "@/lib/live-stream-playback";
+import { syncLiveRoomViewerCount } from "@/lib/sync-live-room-viewer-count";
 
 type LiveRoomShellProps = {
   roomId: string;
@@ -50,6 +52,7 @@ type LiveRoomShellProps = {
 
 export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const { data: session, status } = useSession();
+  const moderation = useLiveRoomModerationState(roomId, Boolean(roomId));
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<LiveRoomDetailDTO | null>(null);
   /** Set when the room snapshot API returns an error (404, 503, etc.) so viewers see a real message instead of a bare “not found”. */
@@ -81,8 +84,12 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const [spotCelebration, setSpotCelebration] = useState<LiveSpotTakenCelebrationPayload | null>(null);
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
   const [premiumWalletOpen, setPremiumWalletOpen] = useState(false);
+  const [recoveryPaymentMethodId, setRecoveryPaymentMethodId] = useState<string | null>(null);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const seenSpotCelebrationKeysRef = useRef<Set<string>>(new Set());
+  const seenSoldCelebrationKeysRef = useRef<Set<string>>(new Set());
+  /** Sticky last known count — must stay above loading/null early returns (React hooks rules). */
+  const stickyViewerCountRef = useRef<number | null>(null);
 
   const showSpotCelebration = useCallback((taken: LiveSpotTakenCelebrationPayload) => {
     const key = spotCelebrationDismissKey(taken);
@@ -94,7 +101,22 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     }, SPOT_CELEBRATION_DISPLAY_MS + 1000);
   }, []);
 
+  const showSoldCelebration = useCallback((celebration: LiveAuctionCloseCelebration) => {
+    if (celebration.kind !== "sold") {
+      setSoldCelebration(celebration);
+      return;
+    }
+    const key = soldCelebrationDismissKey(celebration);
+    if (seenSoldCelebrationKeysRef.current.has(key)) return;
+    seenSoldCelebrationKeysRef.current.add(key);
+    setSoldCelebration(celebration);
+    window.setTimeout(() => {
+      seenSoldCelebrationKeysRef.current.delete(key);
+    }, SOLD_CELEBRATION_DISPLAY_MS + 1000);
+  }, []);
+
   const clearSpotCelebration = useCallback(() => setSpotCelebration(null), []);
+  const clearSoldCelebration = useCallback(() => setSoldCelebration(null), []);
   const appendSystemMessage = useCallback((body: string, chatLabel = "System") => {
     setMessages((prev) => {
       const next: LiveRoomMessageDTO = {
@@ -112,9 +134,11 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     });
   }, [roomId]);
 
+  // Saved / scheduled / ended shows are not live rooms — do not mount presence (or crash the page
+  // trying to attach presence callbacks on a channel already subscribed for moderation/chat).
   const presenceCount = useRealtimeRoomPresence({
     liveRoomId: roomId,
-    enabled: Boolean(roomId),
+    enabled: Boolean(roomId) && detail?.status === "live",
     userId: session?.user?.id ?? null,
     viewerDisplayName: session?.user?.username?.trim() ? session.user.username : null,
     onPresenceStateChange: ({ status, reconnectCount }) => {
@@ -127,6 +151,12 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       });
     },
   });
+
+  // Keep discovery / feed in sync with live presence (not a stale DB snapshot).
+  useEffect(() => {
+    if (presenceCount == null || detail?.status !== "live" || !session?.user?.id) return;
+    void syncLiveRoomViewerCount({ liveRoomId: roomId, viewerCount: presenceCount });
+  }, [detail?.status, presenceCount, roomId, session?.user?.id]);
 
   /** Latest room id for rejecting stale async `load()` responses after navigation. */
   const roomIdRef = useRef(roomId);
@@ -240,7 +270,40 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           typeof ack.auctionSeq === "number" && Number.isFinite(ack.auctionSeq)
             ? Math.max(prev.auctionEventSeq ?? 0, Math.floor(ack.auctionSeq))
             : prev.auctionEventSeq;
-        const items = prev.items.map((it) => (it.id === item.id ? item : it));
+        // Lean bid ACK only carries auction fields — patch onto the existing row so variants/title stay intact.
+        const items = prev.items.map((it) => {
+          if (it.id !== item.id) return it;
+          // Ignore a late ACK from an older unit so the prior hammer cannot reappear.
+          if (
+            typeof item.itemVersion === "number" &&
+            Number.isFinite(item.itemVersion) &&
+            item.itemVersion < it.itemVersion
+          ) {
+            return it;
+          }
+          return {
+            ...it,
+            currentBidUsd:
+              typeof item.currentBidUsd === "number" && Number.isFinite(item.currentBidUsd)
+                ? item.currentBidUsd
+                : it.currentBidUsd,
+            startingBidUsd: item.startingBidUsd !== undefined ? item.startingBidUsd : it.startingBidUsd,
+            lastHighBidderId:
+              item.lastHighBidderId !== undefined ? item.lastHighBidderId : it.lastHighBidderId,
+            lastHighBidderUsername:
+              item.lastHighBidderUsername !== undefined
+                ? item.lastHighBidderUsername
+                : it.lastHighBidderUsername,
+            auctionEndsAt: item.auctionEndsAt !== undefined ? item.auctionEndsAt : it.auctionEndsAt,
+            biddingOpen: typeof item.biddingOpen === "boolean" ? item.biddingOpen : it.biddingOpen,
+            clutchTimeEnabled:
+              typeof item.clutchTimeEnabled === "boolean" ? item.clutchTimeEnabled : it.clutchTimeEnabled,
+            itemVersion:
+              typeof item.itemVersion === "number" && Number.isFinite(item.itemVersion)
+                ? Math.max(it.itemVersion, Math.floor(item.itemVersion))
+                : it.itemVersion,
+          };
+        });
         const activeItem = items.find((it) => it.status === "active") ?? null;
         return { ...prev, roomVersion, auctionEventSeq, items, activeItem };
       });
@@ -575,12 +638,14 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     /** Subscribe as soon as the route is known so broadcasts are not missed while the first room payload loads. */
     liveRoomId: roomId,
     enabled: Boolean(roomId),
+    includeStaffChat: moderation.canModerate,
     onLiveRoomMessage: (m) => {
+      if (m.messageType === "staff" && !moderation.canModerate) return;
       logLiveDebugEvent({
         event: "event_received",
         roomId,
         lastRefreshAtMs: lastRefreshAtRef.current,
-        extra: { type: "chat_message" },
+        extra: { type: m.messageType === "staff" ? "staff_chat_message" : "chat_message" },
       });
       const now = Date.now();
       const lastRefresh = lastRefreshAtRef.current;
@@ -807,7 +872,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       });
       if (!shouldProcessRealtimePayload("purchase_completed", payload)) return;
       const celebration = parsePurchaseCompletedCelebration(payload, session?.user?.id);
-      if (celebration?.kind === "sold") setSoldCelebration(celebration);
+      if (celebration?.kind === "sold") showSoldCelebration(celebration);
       if (
         payload.paymentStatus === "payment_failed" &&
         payload.winnerId &&
@@ -820,7 +885,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         setDetail((prev) => {
           if (!prev) return prev;
           const noBids = payload.noBids === true;
-          const itemSoldOut = payload.itemSoldOut !== false;
+          const itemSoldOut = payload.itemSoldOut === true;
           const items = prev.items.map((it) => {
             if (it.id !== payload.itemId) return it;
             const itemVersion =
@@ -973,22 +1038,25 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
 
   const host = `@${detail.sellerUsername}`;
   const isLive = detail.status === "live";
-  const broadcastCommerceBlocked =
-    isLive &&
-    !isLiveRoomBroadcastOnAir({
-      status: "live",
-      streamHealth: broadcastGate.streamHealth,
-      streamPaused: broadcastGate.streamPaused,
-      streamMode: broadcastGate.streamMode,
-      streamStartedAt: broadcastGate.streamStartedAt,
-      streamEndedAt: broadcastGate.streamEndedAt,
-    });
-  const broadcastCommerceHint = broadcastCommerceBlocked
+  const gate = {
+    status: "live" as const,
+    streamHealth: broadcastGate.streamHealth,
+    streamPaused: broadcastGate.streamPaused,
+    streamMode: broadcastGate.streamMode,
+    streamStartedAt: broadcastGate.streamStartedAt,
+    streamEndedAt: broadcastGate.streamEndedAt,
+  };
+  // Auctions pause with the host; Buy Now / spots / shop stay open while paused.
+  const broadcastAuctionBlocked = isLive && !isLiveRoomBroadcastOnAir(gate);
+  const broadcastPurchaseBlocked = isLive && !isLiveRoomBroadcastPurchasable(gate);
+  const broadcastCommerceHint = broadcastAuctionBlocked
     ? broadcastGate.streamPaused
       ? LIVE_STREAM_PAUSED_COMMERCE_ERROR
       : LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR
     : null;
-  const viewerCount = presenceCount ?? 0;
+  // Sticky last known count — avoid flashing 0 while presence/broadcast reconnects.
+  if (presenceCount != null) stickyViewerCountRef.current = presenceCount;
+  const viewerCount = presenceCount ?? stickyViewerCountRef.current ?? 0;
   const paymentFailure = detail.buyerUnresolvedPaymentFailure ?? null;
   const isHostViewer = session?.user?.id === detail.sellerId;
   const buyerPaymentRecoveryPending = Boolean(paymentFailure && session?.user?.id && !isHostViewer);
@@ -1000,6 +1068,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         failure={paymentFailure}
         onResolved={() => void load()}
         onOpenWallet={() => setPremiumWalletOpen(true)}
+        recoveryPaymentMethodId={recoveryPaymentMethodId}
+        onRecoveryPaymentMethodConsumed={() => setRecoveryPaymentMethodId(null)}
       />
     ) : null;
 
@@ -1011,6 +1081,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           breakId={detail.id}
           roomTitle={detail.title}
           roomCategory={detail.category}
+          discoveryVisibility={detail.discoveryVisibility}
           sellerId={detail.sellerId}
           sellerShopUsername={detail.sellerUsername}
           hostDisplayName={host}
@@ -1028,6 +1099,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
           scheduledStartAt={detail.scheduledStartAt}
           thumbnailUrl={detail.thumbnailUrl}
+          teaserVideoUrl={detail.teaserVideoUrl}
           clockSkewMs={clockSkewMs}
           buyerLiveBidPaymentReady={detail.buyerLiveBidPaymentReady}
           buyerLiveShippingReady={detail.buyerLiveShippingReady}
@@ -1035,10 +1107,11 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           onOpenWallet={() => setPremiumWalletOpen(true)}
           onApplyVariantPurchase={handleBuyerVariantPurchased}
           buyerPaymentRecoveryPending={buyerPaymentRecoveryPending}
-          broadcastCommerceBlocked={broadcastCommerceBlocked}
+          broadcastCommerceBlocked={broadcastAuctionBlocked}
+          broadcastPurchaseBlocked={broadcastPurchaseBlocked}
           broadcastCommerceHint={broadcastCommerceHint}
         />
-        <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+        <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={clearSoldCelebration} />
         <LiveSpotTakenCelebration
           celebration={spotCelebration}
           onDone={clearSpotCelebration}
@@ -1056,6 +1129,10 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           onClose={() => setPremiumWalletOpen(false)}
           liveRoomId={detail.id}
           onReadinessChange={() => void load()}
+          onPaymentMethodSaved={(paymentMethodId) => {
+            setPremiumWalletOpen(false);
+            setRecoveryPaymentMethodId(paymentMethodId);
+          }}
         />
       </>
     );
@@ -1068,6 +1145,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       roomId={detail.id}
       roomTitle={detail.title}
       roomCategory={detail.category}
+      discoveryVisibility={detail.discoveryVisibility}
       sellerId={detail.sellerId}
       sellerShopUsername={detail.sellerUsername}
       hostDisplayName={host}
@@ -1084,6 +1162,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
       scheduledStartAt={detail.scheduledStartAt}
       thumbnailUrl={detail.thumbnailUrl}
+      teaserVideoUrl={detail.teaserVideoUrl}
       clockSkewMs={clockSkewMs}
       buyerLiveBidPaymentReady={detail.buyerLiveBidPaymentReady}
       buyerLiveShippingReady={detail.buyerLiveShippingReady}
@@ -1091,10 +1170,11 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       onOpenWallet={() => setPremiumWalletOpen(true)}
       onApplyVariantPurchase={handleBuyerVariantPurchased}
       buyerPaymentRecoveryPending={buyerPaymentRecoveryPending}
-      broadcastCommerceBlocked={broadcastCommerceBlocked}
+      broadcastCommerceBlocked={broadcastAuctionBlocked}
+      broadcastPurchaseBlocked={broadcastPurchaseBlocked}
       broadcastCommerceHint={broadcastCommerceHint}
     />
-      <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+      <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={clearSoldCelebration} />
       <LiveSpotTakenCelebration
         celebration={spotCelebration}
         onDone={clearSpotCelebration}
@@ -1112,6 +1192,10 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         onClose={() => setPremiumWalletOpen(false)}
         liveRoomId={detail.id}
         onReadinessChange={() => void load()}
+        onPaymentMethodSaved={(paymentMethodId) => {
+          setPremiumWalletOpen(false);
+          setRecoveryPaymentMethodId(paymentMethodId);
+        }}
       />
     </>
   );

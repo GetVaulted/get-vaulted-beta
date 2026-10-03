@@ -28,32 +28,40 @@ export type HostRecentSaleRowDTO = {
   occurredAt: string;
   /** Team/division assigned on random reveal, or PYT/PYD spot label. */
   spotLabel?: string | null;
+  /** Off-platform sale: unpaid platform fee owed by the host. */
+  platformFeeDueUsd?: number | null;
+  purchaseId?: string | null;
 };
 
 function toneFromVariantPaymentStatus(ps: string): { paymentTone: HostRecentSaleRowDTO["paymentTone"]; statusLabel: string } {
-  if (ps === "paid") return { paymentTone: "paid", statusLabel: "Paid" };
-  if (ps === "failed") return { paymentTone: "retry", statusLabel: "Failed" };
+  if (ps === "paid") return { paymentTone: "paid", statusLabel: "Approved" };
+  if (ps === "failed") return { paymentTone: "retry", statusLabel: "Declined" };
+  if (ps === "payment_requires_action") return { paymentTone: "pending", statusLabel: "Needs auth" };
   return { paymentTone: "pending", statusLabel: "Pending" };
 }
 
 function toneFromOrderPaymentStatus(ps: string): { paymentTone: HostRecentSaleRowDTO["paymentTone"]; statusLabel: string } {
-  if (ps === PAYMENT_PAID) return { paymentTone: "paid", statusLabel: "Paid" };
-  if (ps === PAYMENT_FAILED || ps === PAYMENT_EXPIRED) return { paymentTone: "retry", statusLabel: "Failed" };
-  if (ps === PAYMENT_PENDING || ps === PAYMENT_REQUIRES_ACTION) return { paymentTone: "pending", statusLabel: "Pending" };
+  if (ps === PAYMENT_PAID) return { paymentTone: "paid", statusLabel: "Approved" };
+  if (ps === PAYMENT_FAILED || ps === PAYMENT_EXPIRED) return { paymentTone: "retry", statusLabel: "Declined" };
+  if (ps === PAYMENT_REQUIRES_ACTION) return { paymentTone: "pending", statusLabel: "Needs auth" };
+  if (ps === PAYMENT_PENDING) return { paymentTone: "pending", statusLabel: "Pending" };
   return { paymentTone: "pending", statusLabel: ps };
 }
 
 function toneFromBreakPaymentStatus(ps: string): { paymentTone: HostRecentSaleRowDTO["paymentTone"]; statusLabel: string } {
-  if (ps === PAYMENT_PAID || ps === "paid") return { paymentTone: "paid", statusLabel: "Paid" };
-  if (ps === "failed" || ps === PAYMENT_FAILED) return { paymentTone: "retry", statusLabel: "Failed" };
+  if (ps === PAYMENT_PAID || ps === "paid") return { paymentTone: "paid", statusLabel: "Approved" };
+  if (ps === "failed" || ps === PAYMENT_FAILED) return { paymentTone: "retry", statusLabel: "Declined" };
+  if (ps === PAYMENT_REQUIRES_ACTION || ps === "payment_requires_action") {
+    return { paymentTone: "pending", statusLabel: "Needs auth" };
+  }
   if (ps === "pending_payment" || ps === PAYMENT_PENDING) return { paymentTone: "pending", statusLabel: "Pending" };
   if (ps === "unpaid") return { paymentTone: "pending", statusLabel: "Unpaid" };
   return { paymentTone: "pending", statusLabel: ps };
 }
 
-/** Seller recent-sales list shows settled outcomes only — not in-flight pending rows. */
+/** Seller recent-sales list shows settled outcomes and in-flight payments (not cancelled). */
 export function includeHostRecentSaleRow(row: Pick<HostRecentSaleRowDTO, "paymentTone">): boolean {
-  return row.paymentTone === "paid" || row.paymentTone === "retry";
+  return row.paymentTone === "paid" || row.paymentTone === "retry" || row.paymentTone === "pending";
 }
 
 type SpotCommerceAnchor = {
@@ -149,6 +157,10 @@ type VariantPurchaseWithBuyer = {
   createdAt: Date;
   revealedLabel: string | null;
   fulfillmentOrderId: string | null;
+  settlementChannel: string | null;
+  offPlatformMethod: string | null;
+  platformFeeCents: number | null;
+  platformFeeStatus: string | null;
   buyer: Pick<User, "username"> | null;
   variant: {
     label: string;
@@ -160,19 +172,37 @@ function mapVariantPurchase(
   vp: VariantPurchaseWithBuyer,
   orderChargeUsdById: ReadonlyMap<string, number>,
 ): HostRecentSaleRowDTO | null {
-  if (vp.paymentStatus === "pending_payment" || vp.paymentStatus === "cancelled") return null;
+  if (vp.paymentStatus === "cancelled") return null;
   const { paymentTone, statusLabel } = toneFromVariantPaymentStatus(vp.paymentStatus);
   const spotLabel = vp.revealedLabel?.trim() || vp.variant.label;
+  const offPlatform = vp.settlementChannel === "off_platform";
+  const feeDueUsd =
+    offPlatform && vp.platformFeeStatus === "unpaid" && (vp.platformFeeCents ?? 0) > 0
+      ? (vp.platformFeeCents ?? 0) / 100
+      : null;
+  let label = statusLabel;
+  if (vp.paymentStatus === "paid" && vp.revealedLabel) {
+    label = "Revealed";
+  } else if (vp.paymentStatus === "pending_payment") {
+    label = "Processing";
+  } else if (offPlatform && vp.paymentStatus === "paid") {
+    if (feeDueUsd != null) label = "Off-platform · fee due";
+    else if (vp.platformFeeStatus === "paid") label = "Off-platform · fee paid";
+    else if (vp.platformFeeStatus === "waived") label = "Off-platform · $0";
+    else label = "Off-platform";
+  }
   return {
     id: `variant_purchase:${vp.id}`,
     kind: "variant_purchase",
     itemTitle: itemDisplayTitle(vp.variant.liveRoomItem, spotLabel),
     buyerUsername: vp.buyer?.username?.trim() || "buyer",
     amountUsd: resolveChargeUsdFromFulfillmentOrderMap(vp.totalUsd, vp.fulfillmentOrderId, orderChargeUsdById),
-    paymentTone,
-    statusLabel: vp.paymentStatus === "paid" && vp.revealedLabel ? "Revealed" : statusLabel,
+    paymentTone: feeDueUsd != null ? "pending" : paymentTone,
+    statusLabel: label,
     occurredAt: (vp.paidAt ?? vp.createdAt).toISOString(),
     spotLabel,
+    platformFeeDueUsd: feeDueUsd,
+    purchaseId: offPlatform ? vp.id : null,
   };
 }
 
@@ -180,6 +210,13 @@ function mapVariantPurchase(
  * Orders and break-spot checkouts tied to this live room (listing queue + shipping session + spots).
  */
 export async function fetchHostRecentSales(liveRoomId: string, sellerId: string): Promise<HostRecentSaleRowDTO[]> {
+  try {
+    const { reconcileLiveRoomPendingVariantPurchases } = await import("@/lib/live-payment-pipeline");
+    await reconcileLiveRoomPendingVariantPurchases(liveRoomId);
+  } catch (e) {
+    console.warn("[live-room-recent-sales] reconcile pending variant purchases", liveRoomId, e);
+  }
+
   const listingRows = await prisma.liveRoomItem.findMany({
     where: { liveRoomId, listingId: { not: null } },
     select: { listingId: true },
@@ -233,7 +270,7 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
       take: 50,
     }),
     prisma.liveItemVariantPurchase.findMany({
-      where: { liveRoomId, paymentStatus: { in: ["paid", "failed"] } },
+      where: { liveRoomId, paymentStatus: { in: ["paid", "failed", "pending_payment"] } },
       include: {
         buyer: { select: { username: true } },
         variant: {
@@ -243,7 +280,7 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
           },
         },
       },
-      orderBy: { paidAt: "desc" },
+      orderBy: { createdAt: "desc" },
       take: 50,
     }),
     prisma.liveGiveaway.findMany({
@@ -260,7 +297,6 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
   }
 
   const fulfillmentOrderIdSet = new Set(fulfillmentOrderIds);
-  const liveShowSessionOrderIds = new Set(ordersBySession.map((o) => o.id));
 
   const spotCommerceAnchors: SpotCommerceAnchor[] = [
     ...spots.map((s) => ({
@@ -301,7 +337,6 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
   const rows: HostRecentSaleRowDTO[] = [];
   for (const o of orderById.values()) {
     if (fulfillmentOrderIdSet.has(o.id)) continue;
-    if (liveShowSessionOrderIds.has(o.id)) continue;
     if (shouldHideOrderForSpotCommerceRow(o, spotCommerceAnchors)) continue;
     const mapped = mapOrder(o);
     if (!includeHostRecentSaleRow(mapped)) continue;

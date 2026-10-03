@@ -7,7 +7,6 @@ import {
   Alert,
   AppState,
   type AppStateStatus,
-  Image,
   useWindowDimensions,
   KeyboardAvoidingView,
   Modal,
@@ -47,67 +46,19 @@ import {
 } from '../../lib/rememberMeCredentials';
 import { getKeepMeLoggedInPreference } from '../../lib/authSessionStorage';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
+import { navigateAfterSignIn } from '../../navigation/navigateAfterSignIn';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
 import { shouldAutoAdvanceAfterAuthRecovery } from './launchIntroAuthRecovery';
-import {
-  BEAT_COUNT,
-  BEAT_OVERLAYS,
-  COLLAPSE_END_P,
-  HELMET_FLASH_URI,
-  INTRO_TOTAL_MS,
-  LOGO_ENTER_P,
-  LOGO_SETTLE_P,
-  MONTAGE_END_P,
-  MONTAGE_URIS,
-  prefetchIntroMontageAssets,
-  VIGNETTE_END_P,
-  VIGNETTE_PEAK_P,
-  VIGNETTE_START_P,
-  type MontageOverlay,
-} from './introMontageAssets';
+import { INTRO_TOTAL_MS, LOGO_ENTER_P, LOGO_SETTLE_P } from './introMontageAssets';
 
-/** Mid-montage memorabilia flash — haptic fires as the cut lands. */
-const HELMET_FLASH_HAPTIC_P = 0.304;
 const MAX_WAIT_AUTH_MS = 8000;
 const AUTH_HANDOFF_MS = 760;
 
 type Props = NativeStackScreenProps<RootStackParamList, 'LaunchIntro'>;
 
-/** Full-bleed cover sizing — extra bleed hides seams on tall iPhones during Ken Burns. */
-function montageCoverFrame(width: number, height: number) {
-  const bleed = Math.max(width, height) * 0.1;
-  return {
-    left: -bleed,
-    top: -bleed,
-    width: width + bleed * 2,
-    height: height + bleed * 2,
-  };
-}
-
-function montageMinScale(width: number, height: number): number {
-  const aspect = height / Math.max(width, 1);
-  return aspect > 2.05 ? 1.22 : aspect > 1.85 ? 1.18 : 1.14;
-}
-
-function montageBeatOpacity(p: number, beatIndex: number): number {
-  'worklet';
-  const segment = MONTAGE_END_P / BEAT_COUNT;
-  const a = beatIndex * segment;
-  const peak = a + segment * 0.48;
-  const b = Math.min(a + segment * 1.12, MONTAGE_END_P + 0.04);
-  if (p < a || p >= MONTAGE_END_P) return 0;
-  if (p < peak) return interpolate(p, [a, peak], [0, 1], Extrapolation.CLAMP);
-  return interpolate(p, [peak, b], [1, 0], Extrapolation.CLAMP);
-}
-
 function fireIntroLift() {
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
-}
-
-function fireBeatHit(beatIndex: number) {
-  const style = beatIndex % 3 === 0 ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light;
-  void Haptics.impactAsync(style).catch(() => undefined);
 }
 
 function fireLogoSlam() {
@@ -115,195 +66,6 @@ function fireLogoSlam() {
   setTimeout(() => {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
   }, 60);
-}
-
-function MontageOverlayGraphic({ overlay }: { overlay: MontageOverlay }) {
-  switch (overlay) {
-    case 'sold':
-      return (
-        <View style={styles.ovSold} pointerEvents="none">
-          <Text style={styles.ovSoldTxt}>SOLD</Text>
-        </View>
-      );
-    case 'bid':
-      return (
-        <View style={styles.ovBid} pointerEvents="none">
-          {[0.45, 0.72, 1, 0.55, 0.88, 0.38, 0.95].map((h, i) => (
-            <View key={i} style={[styles.bidBar, { height: 52 * h }]} />
-          ))}
-        </View>
-      );
-    case 'live':
-      return (
-        <View style={styles.ovLive} pointerEvents="none">
-          <View style={styles.livePill}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveTxt}>LIVE</Text>
-          </View>
-        </View>
-      );
-    case 'chat':
-      return (
-        <View style={styles.ovChat} pointerEvents="none">
-          <View style={[styles.tickerLine, { width: '88%' }]} />
-          <View style={[styles.tickerLine, { width: '72%', opacity: 0.75 }]} />
-          <View style={[styles.tickerLine, { width: '80%', opacity: 0.55 }]} />
-        </View>
-      );
-    case 'patch':
-      return (
-        <View style={styles.ovPatch} pointerEvents="none">
-          <View style={styles.patchSwatch}>
-            <LinearGradient
-              colors={['rgba(55,62,78,0.55)', 'rgba(35,38,48,0.65)', 'rgba(72,62,52,0.4)']}
-              style={StyleSheet.absoluteFill}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            />
-            <View style={styles.patchStitchL} />
-            <View style={styles.patchStitchR} />
-          </View>
-        </View>
-      );
-    case 'breaker':
-      return (
-        <View style={styles.ovBreaker} pointerEvents="none">
-          <LinearGradient
-            colors={['transparent', 'rgba(255,255,255,0.03)', 'rgba(255,140,60,0.05)']}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.breakerEdge} />
-        </View>
-      );
-    case 'refractor':
-      return (
-        <LinearGradient
-          colors={['rgba(255,255,255,0)', 'rgba(210,225,255,0.1)', 'rgba(255,255,255,0)']}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-      );
-    case 'stream':
-      return (
-        <View style={styles.ovStream} pointerEvents="none">
-          <View style={styles.streamBar} />
-          <View style={[styles.streamBar, { width: '40%', opacity: 0.6 }]} />
-        </View>
-      );
-    case 'chrome':
-      return (
-        <LinearGradient
-          colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.16)', 'rgba(200,215,235,0.1)', 'rgba(255,255,255,0)']}
-          start={{ x: 0, y: 0.25 }}
-          end={{ x: 1, y: 0.75 }}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-      );
-    case 'slab':
-      return (
-        <LinearGradient
-          colors={['rgba(0,0,0,0.28)', 'transparent', 'rgba(0,0,0,0.4)']}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-      );
-    case 'stadium':
-      return (
-        <LinearGradient
-          colors={['rgba(0,0,0,0.5)', 'transparent', 'rgba(0,0,0,0.62)']}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-      );
-    case 'watch':
-    case 'sneaker':
-      return (
-        <LinearGradient
-          colors={['rgba(255,255,255,0.06)', 'transparent', 'rgba(0,0,0,0.48)']}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-      );
-    case 'bids':
-      return (
-        <View style={styles.ovBids} pointerEvents="none">
-          <Text style={styles.bidTxt}>$24,500</Text>
-          <Text style={styles.bidSub}>+ $2,100</Text>
-        </View>
-      );
-    default:
-      return null;
-  }
-}
-
-function IntroHypeCopy({ progress }: { progress: SharedValue<number> }) {
-  const micro = useAnimatedStyle(() => ({
-    opacity: interpolate(progress.value, [0.04, 0.1, 0.2, 0.26], [0, 1, 1, 0], Extrapolation.CLAMP),
-    transform: [{ scale: interpolate(progress.value, [0.04, 0.2], [0.92, 1], Extrapolation.CLAMP) }],
-  }));
-  const rail = useAnimatedStyle(() => ({
-    opacity: interpolate(progress.value, [0.1, 0.18, 0.32, 0.4], [0, 1, 1, 0], Extrapolation.CLAMP),
-    transform: [{ translateY: interpolate(progress.value, [0.1, 0.4], [22, 0], Extrapolation.CLAMP) }],
-  }));
-  const mega = useAnimatedStyle(() => ({
-    opacity: interpolate(progress.value, [0.2, 0.3, 0.48, 0.56], [0, 1, 1, 0], Extrapolation.CLAMP),
-    transform: [
-      { translateY: interpolate(progress.value, [0.2, 0.56], [28, 0], Extrapolation.CLAMP) },
-      { scale: interpolate(progress.value, [0.2, 0.38, 0.52], [0.86, 1.06, 1], Extrapolation.CLAMP) },
-    ],
-  }));
-  const brand = useAnimatedStyle(() => ({
-    opacity: interpolate(progress.value, [0.38, 0.46, 0.58, 0.66], [0, 1, 1, 0], Extrapolation.CLAMP),
-    transform: [{ translateY: interpolate(progress.value, [0.38, 0.66], [18, 0], Extrapolation.CLAMP) }],
-  }));
-  return (
-    <View style={styles.hypeWrap} pointerEvents="none">
-      <Animated.Text style={[styles.hypeMicro, micro]}>GET VAULTED</Animated.Text>
-      <Animated.Text style={[styles.hypeRail, rail]}>LIVE · CARDS · SNEAKERS · WATCHES · MEMORABILIA</Animated.Text>
-      <Animated.Text style={[styles.hypeMega, mega]}>OWN THE PULL.</Animated.Text>
-      <Animated.Text style={[styles.hypeBrand, brand]}>The premium live collectible network.</Animated.Text>
-    </View>
-  );
-}
-
-function IntroGoldSweep({ progress, frameW, frameH }: { progress: SharedValue<number>; frameW: number; frameH: number }) {
-  const sweep = useAnimatedStyle(() => ({
-    opacity: interpolate(progress.value, [0.02, 0.1, 0.45, 0.55], [0, 0.5, 0.22, 0], Extrapolation.CLAMP),
-    transform: [
-      { rotate: '-14deg' },
-      { translateX: interpolate(progress.value, [0, 0.52], [-frameW * 1.5, frameW * 1.5], Extrapolation.CLAMP) },
-    ],
-  }));
-  return (
-    <View style={styles.sweepClip} pointerEvents="none">
-      <Animated.View
-        style={[
-          {
-            position: 'absolute',
-            width: 160,
-            height: frameH * 1.45,
-            left: frameW * 0.5 - 80,
-            top: -frameH * 0.12,
-          },
-          sweep,
-        ]}
-      >
-        <LinearGradient
-          colors={['transparent', 'rgba(255,220,150,0.55)', 'rgba(212,175,55,0.45)', 'transparent']}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-          style={StyleSheet.absoluteFill}
-        />
-      </Animated.View>
-    </View>
-  );
 }
 
 function IntroVaultFlash({ progress }: { progress: SharedValue<number> }) {
@@ -318,38 +80,6 @@ function IntroVaultFlash({ progress }: { progress: SharedValue<number> }) {
         end={{ x: 0.5, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-    </Animated.View>
-  );
-}
-
-function IntroHelmetFlash({
-  progress,
-  coverStyle,
-}: {
-  progress: SharedValue<number>;
-  coverStyle: ReturnType<typeof montageCoverFrame>;
-}) {
-  const layer = useAnimatedStyle(() => {
-    const p = progress.value;
-    return {
-      opacity: interpolate(p, [0.278, 0.302, 0.334, 0.366], [0, 0.98, 0.82, 0], Extrapolation.CLAMP),
-    };
-  });
-  const ken = useAnimatedStyle(() => {
-    const p = progress.value;
-    const o = interpolate(p, [0.278, 0.302, 0.334, 0.366], [0, 0.98, 0.82, 0], Extrapolation.CLAMP);
-    const scale = interpolate(o, [0, 0.55, 1], [1.14, 1.05, 1], Extrapolation.CLAMP);
-    return { transform: [{ scale }] };
-  });
-  return (
-    <Animated.View style={[StyleSheet.absoluteFill, layer]} pointerEvents="none">
-      <Animated.View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }, ken]}>
-        <Image source={{ uri: HELMET_FLASH_URI }} style={[styles.montageImgBase, coverStyle]} resizeMode="cover" />
-        <LinearGradient
-          colors={['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.86)']}
-          style={StyleSheet.absoluteFill}
-        />
-      </Animated.View>
     </Animated.View>
   );
 }
@@ -391,51 +121,10 @@ function IntroImpactBurst({ progress, frameW, frameH }: { progress: SharedValue<
   );
 }
 
-function MontageLayer({
-  beatIndex,
-  progress,
-  coverStyle,
-  minKenScale,
-}: {
-  beatIndex: number;
-  progress: SharedValue<number>;
-  coverStyle: ReturnType<typeof montageCoverFrame>;
-  minKenScale: number;
-}) {
-  const uri = MONTAGE_URIS[beatIndex % MONTAGE_URIS.length];
-  const overlay = BEAT_OVERLAYS[beatIndex] ?? 'none';
-
-  const ken = useAnimatedStyle(() => {
-    const o = montageBeatOpacity(progress.value, beatIndex);
-    const scale = interpolate(o, [0, 0.45, 1], [minKenScale, minKenScale * 0.92, 1], Extrapolation.CLAMP);
-    return { transform: [{ scale }] };
-  });
-
-  const layer = useAnimatedStyle(() => {
-    const o = montageBeatOpacity(progress.value, beatIndex);
-    return { opacity: o };
-  });
-
-  return (
-    <Animated.View style={[StyleSheet.absoluteFill, layer]} pointerEvents="none">
-      <Animated.View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }, ken]}>
-        <Image source={{ uri }} style={[styles.montageImgBase, coverStyle]} resizeMode="cover" />
-      </Animated.View>
-      <LinearGradient
-        colors={['rgba(0,0,0,0.04)', 'rgba(0,0,0,0.42)', 'rgba(0,0,0,0.88)']}
-        style={StyleSheet.absoluteFill}
-      />
-      {overlay !== 'none' ? <MontageOverlayGraphic overlay={overlay} /> : null}
-    </Animated.View>
-  );
-}
-
 export function LaunchIntroScreen({ navigation, route }: Props) {
   const { width: frameW, height: frameH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const instantAuth = route.params?.instantAuth === true;
-  const coverStyle = montageCoverFrame(frameW, frameH);
-  const minKenScale = montageMinScale(frameW, frameH);
   const logoW = Math.min(frameW * 0.82, 320);
   const { user, loading: authLoading, signInWithPassword, signInWithGoogle, signInWithApple, requestPasswordReset, enterGuestExplore } = useAuth();
   const userRef = useRef(user);
@@ -451,9 +140,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
   const skipped = useRef(false);
   const wentToBackground = useRef(false);
   const logoHapticFired = useRef(false);
-  const helmetFlashHapticFired = useRef(false);
   const authHandoffStarted = useRef(false);
-  const beatHapticsDone = useRef(new Set<number>());
   /** Has the user interacted with the login form since it was shown (see `markFormTouched`)? */
   const formTouchedRef = useRef(false);
   /** Guards against auto-advancing more than once per screen instance. */
@@ -461,12 +148,6 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
 
   const markFormTouched = useCallback(() => {
     formTouchedRef.current = true;
-  }, []);
-
-  const fireBeatIfNew = useCallback((i: number) => {
-    if (beatHapticsDone.current.has(i)) return;
-    beatHapticsDone.current.add(i);
-    fireBeatHit(i);
   }, []);
 
   const [email, setEmail] = useState('');
@@ -510,7 +191,9 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
 
   const finishIntroRouting = useCallback(() => {
     if (userRef.current) {
-      navigation.replace('MainTabs', { screen: 'Home' });
+      // Must run the same setup gate as Apple/Google sign-in — do not jump to MainTabs
+      // with an auto-allocated username (usernameChosenAt still null).
+      void navigateAfterSignIn(navigation);
     } else {
       beginAuthContinuity();
     }
@@ -531,7 +214,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
       })
     ) {
       autoAdvancedAfterRecoveryRef.current = true;
-      navigation.replace('MainTabs', { screen: 'Home' });
+      void navigateAfterSignIn(navigation);
     }
   }, [user, navigation]);
 
@@ -553,29 +236,12 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
     fireLogoSlam();
   }, []);
 
-  const markHelmetFlashHaptic = useCallback(() => {
-    if (helmetFlashHapticFired.current) return;
-    helmetFlashHapticFired.current = true;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
-  }, []);
-
   useAnimatedReaction(
     () => progress.value,
     (value, previous) => {
       if (previous === null) return;
       if (previous < LOGO_ENTER_P && value >= LOGO_ENTER_P) {
         runOnJS(markLogoHaptic)();
-      }
-      if (previous < HELMET_FLASH_HAPTIC_P && value >= HELMET_FLASH_HAPTIC_P && value < MONTAGE_END_P) {
-        runOnJS(markHelmetFlashHaptic)();
-      }
-      if (value >= MONTAGE_END_P) return;
-      const seg = MONTAGE_END_P / BEAT_COUNT;
-      for (let i = 0; i < BEAT_COUNT; i++) {
-        const cross = i * seg + seg * 0.26;
-        if (previous < cross && value >= cross) {
-          runOnJS(fireBeatIfNew)(i);
-        }
       }
     },
   );
@@ -591,10 +257,8 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     logoHapticFired.current = false;
-    helmetFlashHapticFired.current = false;
     skipped.current = false;
     authHandoffStarted.current = false;
-    beatHapticsDone.current = new Set();
     formTouchedRef.current = false;
     autoAdvancedAfterRecoveryRef.current = false;
     setAuthUiVisible(instantAuth);
@@ -607,7 +271,6 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
     if (instantAuth) {
       skipped.current = true;
       logoHapticFired.current = true;
-      helmetFlashHapticFired.current = true;
       progress.value = 1;
       introEndAt.current = Date.now();
       const runInstant = async () => {
@@ -623,9 +286,28 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
       };
     }
 
-    const start = async () => {
-      await prefetchIntroMontageAssets(650);
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next === 'background' || next === 'inactive') wentToBackground.current = true;
+      if (next === 'active' && wentToBackground.current) {
+        wentToBackground.current = false;
+        skipToEnd();
+      }
+    });
+
+    const run = async () => {
+      await waitForAuth();
       if (cancelled) return;
+
+      // Returning signed-in users: skip the intro and route immediately.
+      if (userRef.current) {
+        skipped.current = true;
+        logoHapticFired.current = true;
+        progress.value = 1;
+        introEndAt.current = Date.now();
+        finishIntroRouting();
+        return;
+      }
+
       fireIntroLift();
       introEndAt.current = Date.now() + INTRO_TOTAL_MS;
       progress.value = withTiming(
@@ -635,27 +317,14 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
           if (finished) runOnJS(onTimelineFinished)();
         },
       );
-    };
 
-    void start();
-
-    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (next === 'background' || next === 'inactive') wentToBackground.current = true;
-      if (next === 'active' && wentToBackground.current) {
-        wentToBackground.current = false;
-        skipToEnd();
-      }
-    });
-
-    const runNav = async () => {
-      await waitForAuth();
       while (Date.now() < introEndAt.current) {
         await new Promise((r) => setTimeout(r, 16));
       }
       if (cancelled) return;
       finishIntroRouting();
     };
-    void runNav();
+    void run();
 
     return () => {
       cancelled = true;
@@ -664,21 +333,6 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
       cancelAnimation(authProgress);
     };
   }, [authProgress, finishIntroRouting, instantAuth, onTimelineFinished, progress, skipToEnd, waitForAuth]);
-
-  const montageShell = useAnimatedStyle(() => {
-    const collapseT = interpolate(progress.value, [MONTAGE_END_P, COLLAPSE_END_P], [0, 1], Extrapolation.CLAMP);
-    const shellOp = interpolate(collapseT, [0, 0.35, 1], [1, 0.55, 0], Extrapolation.CLAMP);
-    return { opacity: shellOp };
-  });
-
-  const vignette = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      progress.value,
-      [VIGNETTE_START_P, VIGNETTE_PEAK_P, VIGNETTE_END_P],
-      [0, 0.58, 0.14],
-      Extrapolation.CLAMP,
-    ),
-  }));
 
   const logoShell = useAnimatedStyle(() => ({
     opacity: interpolate(progress.value, [LOGO_ENTER_P, LOGO_ENTER_P + 0.028], [0, 1], Extrapolation.CLAMP),
@@ -734,7 +388,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
     try {
       await signInWithPassword(email, password, { persistSession: rememberMe });
       await persistRememberMeCredentials(rememberMe, email);
-      navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+      await navigateAfterSignIn(navigation);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Sign-in failed');
     } finally {
@@ -752,7 +406,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
           ? await signInWithGoogle({ persistSession: rememberMe })
           : await signInWithApple({ persistSession: rememberMe });
       if (result === 'success') {
-        navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+        await navigateAfterSignIn(navigation);
       } else if (result === 'error') {
         setErr(AUTH_USER_MESSAGES.socialSignInFailed);
       }
@@ -796,24 +450,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
         />
       </Animated.View>
 
-      <Animated.View style={[styles.montageStage, montageShell]} pointerEvents="none">
-        {Array.from({ length: BEAT_COUNT }, (_, i) => (
-          <MontageLayer
-            key={i}
-            beatIndex={i}
-            progress={progress}
-            coverStyle={coverStyle}
-            minKenScale={minKenScale}
-          />
-        ))}
-        <IntroHelmetFlash progress={progress} coverStyle={coverStyle} />
-      </Animated.View>
-
-      <IntroGoldSweep progress={progress} frameW={frameW} frameH={frameH} />
       <IntroImpactBurst progress={progress} frameW={frameW} frameH={frameH} />
-      <IntroHypeCopy progress={progress} />
-
-      <Animated.View style={[styles.vignette, vignette]} pointerEvents="none" />
 
       <IntroVaultFlash progress={progress} />
 
@@ -873,6 +510,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
                 placeholder="Email"
                 placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
+                autoCorrect={false}
                 keyboardType="email-address"
                 autoComplete="email"
                 value={email}
@@ -975,6 +613,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
               placeholder="Your account email"
               placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
+              autoCorrect={false}
               keyboardType="email-address"
               value={forgotEmail}
               onChangeText={setForgotEmail}
@@ -1005,19 +644,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000', overflow: 'hidden' },
   flex: { flex: 1, zIndex: 10 },
-  montageStage: {
-    ...StyleSheet.absoluteFillObject,
-    overflow: 'hidden',
-    backgroundColor: '#000',
-  },
-  montageImgBase: {
-    position: 'absolute',
-  },
   scrollInner: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.lg },
-  vignette: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000',
-  },
   finale: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -1036,59 +663,6 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
   },
   liveLbl: { color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: '900', letterSpacing: 2 },
-  hypeWrap: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    paddingBottom: '18%',
-    zIndex: 4,
-    gap: 10,
-  },
-  hypeMicro: {
-    color: colors.gold,
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 4,
-    textAlign: 'center',
-    width: '92%',
-    textShadowColor: 'rgba(0,0,0,0.85)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 10,
-  },
-  hypeRail: {
-    color: 'rgba(255,255,255,0.62)',
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1.8,
-    textTransform: 'uppercase',
-    textAlign: 'center',
-    width: '92%',
-  },
-  hypeMega: {
-    color: colors.gold,
-    fontSize: 44,
-    fontWeight: '900',
-    letterSpacing: -1.2,
-    textAlign: 'center',
-    width: '94%',
-    textShadowColor: 'rgba(0,0,0,0.88)',
-    textShadowOffset: { width: 0, height: 3 },
-    textShadowRadius: 16,
-  },
-  hypeBrand: {
-    color: 'rgba(255,255,255,0.45)',
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-    textAlign: 'center',
-    width: '90%',
-    lineHeight: 20,
-  },
-  sweepClip: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 2,
-    overflow: 'hidden',
-  },
   vaultFlash: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 14,

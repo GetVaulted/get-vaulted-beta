@@ -7,7 +7,7 @@ import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 import { useSellerStripeConnect } from './useSellerStripeConnect';
 import { useSellerLiveReadiness } from './useSellerLiveReadiness';
 import { useSellerWallet } from './useSellerWallet';
-import { isSellerHQApproved } from '../lib/sellerHubEntry';
+import { computeSellerStudioReadinessProgress, isSellerHQApproved } from '../lib/sellerHubEntry';
 import { resolveLiveSalesGate } from '../lib/sellerLiveReadiness';
 import type { SellerLayawayCounts } from '../api/layawayRepository';
 import type { SellerReloadOptions } from './sellerReloadOptions';
@@ -123,14 +123,10 @@ export function useSellerCommandCenterData(
   );
   const liveCount = liveRoom ? 1 : 0;
 
-  const setupProgress = useMemo(() => {
-    const st = sellerConnect.status;
-    if (approved) return 1;
-    if (!st) return 0.15;
-    if (st.stripe_account_id?.trim()) return 0.65;
-    if (st.stripeConfigured) return 0.45;
-    return 0.25;
-  }, [approved, sellerConnect.status]);
+  const setupProgress = useMemo(
+    () => computeSellerStudioReadinessProgress(sellerConnect.status),
+    [sellerConnect.status],
+  );
 
   const todayItems = useMemo(() => {
     const items: {

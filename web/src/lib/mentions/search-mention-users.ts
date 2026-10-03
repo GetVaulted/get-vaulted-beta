@@ -1,18 +1,20 @@
-import type { PrismaClient } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { MentionSearchUser } from "@/lib/mentions/mention-types";
+import { listHiddenPeerIdsForViewer } from "@/lib/user-block";
 
 export async function searchMentionUsers(
   query: string,
   viewerUserId: string,
-  db: Pick<PrismaClient, "user"> = prisma,
 ): Promise<MentionSearchUser[]> {
   const q = query.trim().toLowerCase();
   if (q.length < 1) return [];
 
-  return db.user.findMany({
+  const hiddenIds = await listHiddenPeerIdsForViewer(prisma, viewerUserId);
+  const excludeIds = [viewerUserId, ...hiddenIds];
+
+  return prisma.user.findMany({
     where: {
-      id: { not: viewerUserId },
+      id: { notIn: excludeIds },
       suspendedAt: null,
       accountDeletedAt: null,
       username: { contains: q },

@@ -118,8 +118,8 @@ export function AdminFeesPage() {
     setSaveError(null);
     setSaveOk(null);
     const n = Number(feeDraft.trim());
-    if (!Number.isFinite(n) || n < 0 || n > 25) {
-      setSaveError("Enter a fee between 0 and 25.");
+    if (!Number.isFinite(n) || n < 0 || n > 6.75) {
+      setSaveError("Enter a fee between 0 and 6.75.");
       return;
     }
     setSaving(true);
@@ -224,7 +224,7 @@ export function AdminFeesPage() {
                   <input
                     type="number"
                     min={0}
-                    max={25}
+                    max={6.75}
                     step={0.01}
                     value={feeDraft}
                     onChange={(e) => setFeeDraft(e.target.value)}
@@ -262,7 +262,7 @@ export function AdminFeesPage() {
                       <input
                         type="number"
                         min={0}
-                        max={25}
+                        max={6.75}
                         step={0.01}
                         value={liveDraft.tier1FeePercent}
                         onChange={(e) =>
@@ -295,7 +295,7 @@ export function AdminFeesPage() {
                         <input
                           type="number"
                           min={0}
-                          max={25}
+                          max={6.75}
                           step={0.01}
                           value={liveDraft.tier2FeePercent}
                           onChange={(e) =>
@@ -329,7 +329,7 @@ export function AdminFeesPage() {
                         <input
                           type="number"
                           min={0}
-                          max={25}
+                          max={6.75}
                           step={0.01}
                           value={liveDraft.tier3FeePercent}
                           onChange={(e) =>

@@ -3,12 +3,17 @@ import { createNotification } from "@/lib/notifications";
 import { recordPaymentFailureFromCharge } from "@/lib/live-room-payment-failure";
 import { prisma } from "@/lib/prisma";
 import { createOrderFromAuctionWin } from "@/lib/offer-fulfillment";
-import { chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard } from "@/lib/stripe-charge-order-saved-pm";
+import {
+  chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard,
+  type ChargeOrderSavedPmOutcome,
+} from "@/lib/stripe-charge-order-saved-pm";
+import { PAYMENT_FAILED, PAYMENT_PENDING, PAYMENT_REQUIRES_ACTION } from "@/services/payments";
 import {
   formatLiveQueueItemUnitTitle,
   normalizeQuantityInitial,
   resolveClosingUnitNumber,
 } from "@/lib/live-room-item-quantity-display";
+import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
 
 export type BreakRoundFinalizeResult = {
   /** True when a prior timed round was closed (winner sale and/or bid reset). */
@@ -76,28 +81,6 @@ export async function finalizeBreakAuctionRoundIfEnded(
     item.biddingOpen === true && item.auctionEndsAt != null && item.auctionEndsAt <= now;
   if (!roundEnded) return { finalized: false, skipStartAuction: false };
 
-  if (item.listingId) {
-    /** Linked-listing break bids need a manual / separate close path. */
-    const resetStart = item.startingBidUsd ?? item.priceUsd ?? 1;
-    await tx.liveRoomItem.update({
-      where: { id: item.id },
-      data: {
-        biddingOpen: false,
-        auctionEndsAt: null,
-        clutchTimeEnabled: false,
-        currentBidUsd: null,
-        startingBidUsd: resetStart,
-        lastHighBidderId: null,
-        itemVersion: { increment: 1 },
-      },
-    });
-    await tx.liveRoom.update({
-      where: { id: args.liveRoomId },
-      data: { roomVersion: { increment: 1 } },
-    });
-    return { finalized: true, skipStartAuction: false };
-  }
-
   const winnerId = item.lastHighBidderId?.trim();
   const winUsdRaw = item.currentBidUsd ?? item.startingBidUsd ?? item.priceUsd ?? 0;
   const winUsd = typeof winUsdRaw === "number" && Number.isFinite(winUsdRaw) ? winUsdRaw : 0;
@@ -111,44 +94,89 @@ export async function finalizeBreakAuctionRoundIfEnded(
   let itemSold = false;
 
   if (winnerId && winUsd >= 1) {
-    const listing = await tx.listing.create({
-      data: {
-        sellerId: args.sellerId,
-        title: unitTitle,
-        category: "Live break",
-        condition: "See title",
-        buyingFormat: "auction",
-        status: "auction_live",
-        priceUsd: winUsd,
-        startingBidUsd: item.startingBidUsd ?? item.priceUsd ?? 1,
-        currentBidUsd: winUsd,
-        auctionEndsAt: new Date(0),
-        shippingPriceUsd: 0,
-      },
-      select: { id: true },
-    });
-    await tx.bid.create({
-      data: {
+    let listingId = item.listingId?.trim() || null;
+    if (listingId) {
+      const listingRow = await tx.listing.findUnique({
+        where: { id: listingId },
+        select: { id: true, moderationRemovedAt: true, shippingPriceUsd: true },
+      });
+      if (!listingRow || listingRow.moderationRemovedAt) {
+        listingId = null;
+      } else {
+        await tx.listing.update({
+          where: { id: listingId },
+          data: {
+            title: unitTitle,
+            priceUsd: winUsd,
+            currentBidUsd: winUsd,
+            auctionEndsAt: new Date(0),
+            status: "auction_live",
+          },
+        });
+        await tx.bid.create({
+          data: {
+            listingId,
+            bidderId: winnerId,
+            amountUsd: winUsd,
+            maxBidUsd: winUsd,
+          },
+        });
+        const { orderId: oid } = await createOrderFromAuctionWin(tx, {
+          listingId,
+          listingTitle: unitTitle,
+          buyerId: winnerId,
+          sellerId: args.sellerId,
+          itemPriceUsd: winUsd,
+          shippingPriceUsd: listingRow.shippingPriceUsd ?? 0,
+          liveAuctionLiveShowId: args.liveRoomId,
+          liveRoomItemId: args.liveRoomItemId,
+          skipWinNotifications: true,
+        });
+        orderId = oid;
+        nextQty = item.quantity - 1;
+        itemSold = nextQty < 1;
+      }
+    }
+    if (!orderId) {
+      const listing = await tx.listing.create({
+        data: {
+          sellerId: args.sellerId,
+          title: unitTitle,
+          category: "Live break",
+          condition: "See title",
+          buyingFormat: "auction",
+          status: "auction_live",
+          priceUsd: winUsd,
+          startingBidUsd: item.startingBidUsd ?? item.priceUsd ?? 1,
+          currentBidUsd: winUsd,
+          auctionEndsAt: new Date(0),
+          shippingPriceUsd: 0,
+        },
+        select: { id: true },
+      });
+      await tx.bid.create({
+        data: {
+          listingId: listing.id,
+          bidderId: winnerId,
+          amountUsd: winUsd,
+          maxBidUsd: winUsd,
+        },
+      });
+      const { orderId: oid } = await createOrderFromAuctionWin(tx, {
         listingId: listing.id,
-        bidderId: winnerId,
-        amountUsd: winUsd,
-        maxBidUsd: winUsd,
-      },
-    });
-    const { orderId: oid } = await createOrderFromAuctionWin(tx, {
-      listingId: listing.id,
-      listingTitle: unitTitle,
-      buyerId: winnerId,
-      sellerId: args.sellerId,
-      itemPriceUsd: winUsd,
-      shippingPriceUsd: 0,
-      liveAuctionLiveShowId: args.liveRoomId,
-      liveRoomItemId: args.liveRoomItemId,
-      skipWinNotifications: true,
-    });
-    orderId = oid;
-    nextQty = item.quantity - 1;
-    itemSold = nextQty < 1;
+        listingTitle: unitTitle,
+        buyerId: winnerId,
+        sellerId: args.sellerId,
+        itemPriceUsd: winUsd,
+        shippingPriceUsd: 0,
+        liveAuctionLiveShowId: args.liveRoomId,
+        liveRoomItemId: args.liveRoomItemId,
+        skipWinNotifications: true,
+      });
+      orderId = oid;
+      nextQty = item.quantity - 1;
+      itemSold = nextQty < 1;
+    }
   }
 
   const resetStart = item.startingBidUsd ?? item.priceUsd ?? 1;
@@ -166,6 +194,10 @@ export async function finalizeBreakAuctionRoundIfEnded(
       clutchTimeEnabled: false,
       itemVersion: { increment: 1 },
     },
+  });
+  await clearLiveAuctionProxyBidsForItem(tx, {
+    liveRoomId: args.liveRoomId,
+    itemId: item.id,
   });
   await tx.liveRoom.update({
     where: { id: args.liveRoomId },
@@ -192,10 +224,10 @@ export async function finalizeBreakAuctionRoundIfEnded(
   };
 }
 
-/** Default auction-win copy (mirrors `createOrderFromAuctionWin` when `skipWinNotifications` was used). */
+/** Charge winner + notify. Callers must await so Sales can show Approved/Declined (not stuck Pending). */
 export async function sendBreakAuctionWinNotificationsDeferred(
   pending: NonNullable<BreakRoundFinalizeResult["pendingWinNotifications"]>,
-): Promise<void> {
+): Promise<ChargeOrderSavedPmOutcome> {
   const titleShort =
     pending.listingTitle.length > 80 ? `${pending.listingTitle.slice(0, 77)}…` : pending.listingTitle;
   const priceStr = pending.itemPriceUsd.toLocaleString("en-US", {
@@ -203,10 +235,25 @@ export async function sendBreakAuctionWinNotificationsDeferred(
     currency: "USD",
     maximumFractionDigits: 0,
   });
-  const charge = await chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard({
-    buyerId: pending.buyerId,
-    orderId: pending.orderId,
-  });
+  let charge: ChargeOrderSavedPmOutcome;
+  try {
+    charge = await chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard({
+      buyerId: pending.buyerId,
+      orderId: pending.orderId,
+    });
+  } catch (err) {
+    console.error("[break auction] auto-charge exception", err);
+    charge = { outcome: "error", code: "CHARGE_EXCEPTION" };
+  }
+  if (charge.outcome === "error") {
+    await prisma.order.updateMany({
+      where: {
+        id: pending.orderId,
+        paymentStatus: { in: [PAYMENT_PENDING, PAYMENT_REQUIRES_ACTION] },
+      },
+      data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
+    });
+  }
   const paid = charge.outcome === "paid";
   const paymentFailed = charge.outcome === "error";
   const needsAuth = charge.outcome === "requires_action" || charge.outcome === "processing";
@@ -230,7 +277,11 @@ export async function sendBreakAuctionWinNotificationsDeferred(
       ? `You won “${titleShort}” at ${priceStr}. Complete payment in the show — your bank may require an extra step.`
       : `You won “${titleShort}” at ${priceStr}. We could not charge your card. Update your payment method in the show before the host continues.`;
 
-  const sellerTitle = paid ? "Auction ended — paid" : paymentFailed ? "Auction ended — payment failed" : "Auction ended — payment pending";
+  const sellerTitle = paid
+    ? "Auction ended — approved"
+    : paymentFailed
+      ? "Auction ended — declined"
+      : "Auction ended — payment pending";
   const sellerBody = paid
     ? `Payment received for "${titleShort}".`
     : paymentFailed
@@ -255,4 +306,5 @@ export async function sendBreakAuctionWinNotificationsDeferred(
     body: sellerBody,
     href: "/account/sales",
   });
+  return charge;
 }

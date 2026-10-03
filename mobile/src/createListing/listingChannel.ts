@@ -37,8 +37,8 @@ export const LISTING_CHANNEL_CONFIG: Record<ListingChannel, ListingChannelAccent
     border: 'rgba(255,69,58,0.45)',
     fill: 'rgba(255,69,58,0.1)',
     gradient: ['rgba(255,69,58,0.12)', 'rgba(10,8,8,0.98)'],
-    helper: 'Prepare inventory for upcoming live shows and auctions.',
-    futureNote: 'Auctions · Breaks · Vault drops · On-air only',
+    helper: 'Prepare inventory once, then pull it into any live show from Add inventory → From my shop.',
+    futureNote: 'Reusable shop stock · Auctions · Breaks · On-air drops',
   },
 };
 

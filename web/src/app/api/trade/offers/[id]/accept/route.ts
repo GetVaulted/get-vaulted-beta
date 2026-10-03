@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveListingsUserId } from "@/lib/resolve-listings-auth";import { prisma } from "@/lib/prisma";
 import { assertActiveForMutation, ensureOfferFreshForAction } from "../_shared";
-import { isTradeListingAvailableStatus } from "@/lib/trade-offers";
+import { isTradeListingAvailableStatus, TRADE_ACTIVE_STATUSES } from "@/lib/trade-offers";
 import { notifyTradeOfferAccepted } from "@/lib/trade-offer-notifications";
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -40,10 +40,33 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       }
     }
 
-    await tx.tradeOffer.update({
-      where: { id: offer.id },
+    // Lock every listing in this trade so it can't ALSO be accepted into a second, different trade
+    // offer (or bought/won on the marketplace) after this one accepts — nothing previously changed
+    // listing status on trade acceptance, so the same card could be traded away twice. The read-then-
+    // check loop above gives a clear per-listing error in the common case; this CAS `updateMany`
+    // (status still in the where clause) is what actually closes the race for two acceptances
+    // landing at nearly the same time, mirroring the pattern already used for orders/auctions.
+    const listingIds = offer.items.map((item) => item.listingId);
+    const locked = await tx.listing.updateMany({
+      where: { id: { in: listingIds }, status: { in: ["active", "auction_live"] } },
+      data: { status: "sold" },
+    });
+    if (locked.count !== listingIds.length) {
+      return { error: "One or more listings are unavailable now.", code: 409 as const };
+    }
+
+    // CAS guard: the checks above (`ensureOfferFreshForAction` / `assertActiveForMutation`) can
+    // pass for two concurrent requests (e.g. accept + decline, or a double-tap) before either
+    // commits. A plain `update` by id has no re-check and would let both writes "succeed",
+    // leaving the offer accepted AND declined. `updateMany` with the status still in the where
+    // clause makes the second writer's transition a no-op (mirrors `expireOfferIfNeeded`).
+    const transitioned = await tx.tradeOffer.updateMany({
+      where: { id: offer.id, status: { in: TRADE_ACTIVE_STATUSES } },
       data: { status: "accepted" },
     });
+    if (transitioned.count === 0) {
+      return { error: "This offer is no longer active.", code: 409 as const };
+    }
     await tx.tradeOfferEvent.create({
       data: {
         tradeOfferId: offer.id,

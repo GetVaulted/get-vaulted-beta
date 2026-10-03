@@ -6,6 +6,9 @@ import { ReportTrigger } from "@/components/trust/ReportModal";
 
 export type BuyerLiveActionRailProps = {
   liveRoomId: string;
+  /** Opens the in-room shop / lineup (not the seller marketplace profile). */
+  onShop?: () => void;
+  /** Optional fallback link when `onShop` is not provided. */
   shopHref?: string | null;
   onShare: () => void;
   onWallet: () => void;
@@ -17,6 +20,7 @@ export type BuyerLiveActionRailProps = {
 /** Tip / share / wallet / shop / report — desktop item board or mobile stage overlay. */
 export function BuyerLiveActionRail({
   liveRoomId,
+  onShop,
   shopHref,
   onShare,
   onWallet,
@@ -33,7 +37,13 @@ export function BuyerLiveActionRail({
       {onTip ? <ActionPill label="Tip" icon={<TipIcon />} onClick={onTip} compact={layout === "row"} /> : null}
       <ActionPill label="Share" icon={<ShareIcon />} onClick={onShare} compact={layout === "row"} />
       <ActionPill label="Wallet" icon={<WalletIcon />} onClick={onWallet} compact={layout === "row"} />
-      <ActionPill label="Shop" icon={<ShopIcon />} href={shopHref ?? "/marketplace"} compact={layout === "row"} />
+      <ActionPill
+        label="Shop"
+        icon={<ShopIcon />}
+        onClick={onShop}
+        href={onShop ? undefined : shopHref ?? undefined}
+        compact={layout === "row"}
+      />
       <ReportTrigger
         targetType="live_room"
         targetId={liveRoomId}

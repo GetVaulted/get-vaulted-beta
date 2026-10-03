@@ -13,8 +13,10 @@ export type LiveSalesGate = {
 export function getNextLiveReadinessStep(
   checks: NonNullable<SellerLiveReadiness['checks']>,
 ): 'stripe' | 'ship_from' | 'ready' {
-  const stripeOk = checks.hasStripeAccount !== false && checks.stripeChargesEnabled !== false;
-  if (!stripeOk) return 'stripe';
+  const payoutOk =
+    checks.paypalPayoutReady === true ||
+    (checks.hasStripeAccount !== false && checks.stripeChargesEnabled !== false);
+  if (!payoutOk) return 'stripe';
   if (!checks.hasShipFromAddress) return 'ship_from';
   return 'ready';
 }

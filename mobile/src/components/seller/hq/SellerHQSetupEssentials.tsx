@@ -6,6 +6,7 @@ import {
   sellerConnectDetailMessage,
   type SellerConnectStatusResponse,
 } from '../../../api/stripeConnectRepository';
+import { isSellerPayoutSetupSubmitted } from '../../../lib/sellerHubEntry';
 import { colors, radii, spacing } from '../../../theme';
 import { SellerShipFromSetupCard } from './SellerShipFromSetupCard';
 import { hq } from './hqStyles';
@@ -30,6 +31,8 @@ export function SellerHQSetupEssentials({
   forceShipFromEditKey?: number;
 }) {
   const payoutComplete = isSellerPayoutSetupComplete(connectStatus);
+  const payoutSubmitted = isSellerPayoutSetupSubmitted(connectStatus);
+  const payoutDoneForUi = payoutComplete || payoutSubmitted;
   const badge = sellerConnectBadge(connectStatus, { fetchError: connectError });
 
   return (
@@ -49,17 +52,21 @@ export function SellerHQSetupEssentials({
             ) : (
               <>
                 <Text style={styles.rowValue}>{badge}</Text>
-                {!payoutComplete ? (
+                {payoutComplete ? (
+                  <Text style={styles.rowSub}>Stripe Connect is ready for marketplace and live sales.</Text>
+                ) : payoutSubmitted ? (
+                  <Text style={styles.rowSub}>
+                    Stripe received your details. Publishing and live unlock when verification finishes.
+                  </Text>
+                ) : (
                   <Text style={styles.rowSub} numberOfLines={2}>
                     {sellerConnectDetailMessage(connectStatus, { fetchError: connectError })}
                   </Text>
-                ) : (
-                  <Text style={styles.rowSub}>Stripe Connect is ready for marketplace and live sales.</Text>
                 )}
               </>
             )}
           </View>
-          {!payoutComplete ? (
+          {!payoutDoneForUi ? (
             <Pressable
               style={[styles.rowBtn, stripeSetupBusy && styles.rowBtnOff]}
               onPress={onStripeSetup}

@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   const setupIntentId = typeof body.setupIntentId === "string" ? body.setupIntentId.trim() : undefined;
   const clientSecret = typeof body.clientSecret === "string" ? body.clientSecret.trim() : undefined;
 
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
 
   console.log("[payment recovery] finalize route hit", {

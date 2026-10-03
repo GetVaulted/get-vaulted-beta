@@ -25,7 +25,7 @@ export type Host = {
   followers: string;
 };
 
-export type ChatMessageKind = 'chat' | 'system' | 'purchase' | 'bid' | 'tip';
+export type ChatMessageKind = 'chat' | 'system' | 'purchase' | 'bid' | 'tip' | 'staff';
 
 export type ChatMessage = {
   id: string;
@@ -83,6 +83,8 @@ export type LiveStream = {
   scheduledStartAtIso: string | null;
   /** Rich preview art — collectibles, desk breaks, host energy (shown under gradients). */
   previewImageUrl: string;
+  /** Short looping promo for scheduled rooms (null/undefined when unset). */
+  teaserVideoUrl?: string | null;
   thumbnailGradient: [string, string];
   host: Host;
   /** Legacy / pinned line in room UI */
@@ -199,6 +201,8 @@ export type Product = {
   handlingTimeLabel?: string;
   signatureRequired?: boolean;
   shipsFromRegion?: string;
+  /** Real completed seller order count from listing detail API (absent ⇒ New). */
+  sellerCompletedOrderCount?: number;
   /** Real live show appearances — empty hides the section. */
   liveAppearances?: ListingLiveAppearance[];
   /** Single ask / buy-now price shown on marketplace cards. */

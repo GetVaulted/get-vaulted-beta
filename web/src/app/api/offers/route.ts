@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { createNotification } from "@/lib/notifications";
+import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 import {
   assertMakeOfferAllowed,
   CommerceGuardError,
@@ -8,6 +9,20 @@ import {
   loadListingCommerceContext,
 } from "@/lib/marketplace/commerce-guards";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
+
+const DUPLICATE_OPEN_OFFER_ERROR = "You already have an open offer on this listing. Check your account offers.";
+
+class DuplicateOpenOfferError extends Error {}
+
+function isSerializationConflict(e: unknown): boolean {
+  // P2034: "Transaction failed due to a write conflict or a deadlock" — Postgres aborting one
+  // side of a Serializable-isolation race (same signal `order-refund-request.ts` treats as proof
+  // two writers collided, not proof of an actual duplicate — but here the only concurrent writer
+  // possible for this same buyer+listing pair *is* another make-offer call, so it's safe to map
+  // straight to the duplicate-offer message rather than a generic retry).
+  return Boolean(e && typeof e === "object" && "code" in e && (e as { code: unknown }).code === "P2034");
+}
 
 type Body = {
   listingId?: string;
@@ -83,7 +98,7 @@ export async function POST(req: Request) {
   if (min != null && Number.isFinite(min) && amountUsd < min) {
     return NextResponse.json(
       {
-        error: `Offers must be at least ${min.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}.`,
+        error: `Offers must be at least ${formatMarketplaceUsd(min)}.`,
       },
       { status: 400 },
     );
@@ -97,53 +112,69 @@ export async function POST(req: Request) {
     );
   }
 
-  const openFromBuyer = await prisma.offer.findFirst({
-    where: {
-      listingId,
-      buyerId,
-      status: { in: ["pending", "countered"] },
-    },
-    select: { id: true },
-  });
-  if (openFromBuyer) {
-    return NextResponse.json(
-      { error: "You already have an open offer on this listing. Check your account offers." },
-      { status: 409 },
-    );
-  }
-
+  // The read-check-then-create for "does this buyer already have an open offer on this listing"
+  // must happen inside a single Serializable-isolation transaction — two concurrent make-offer
+  // requests (e.g. a double-tap, or two tabs) could otherwise both pass the plain findFirst check
+  // before either commit its create, landing two open offers for the same buyer+listing pair.
+  // Serializable isolation makes Postgres itself detect that collision and abort one side (mirrors
+  // the same guard already used for `OrderRefundRequest` in order-refund-request.ts); the P2034
+  // catch below turns that abort into the same 409 a non-concurrent duplicate already gets.
+  let offer: { id: string; status: string; amountUsd: number; createdAt: Date };
   try {
-    const offer = await prisma.offer.create({
-      data: {
-        listingId,
-        sellerId: listing.sellerId,
-        buyerId,
-        amountUsd,
-        message,
-        status: "pending",
+    offer = await prisma.$transaction(
+      async (tx) => {
+        const openFromBuyer = await tx.offer.findFirst({
+          where: {
+            listingId,
+            buyerId,
+            status: { in: ["pending", "countered"] },
+          },
+          select: { id: true },
+        });
+        if (openFromBuyer) {
+          throw new DuplicateOpenOfferError();
+        }
+        return tx.offer.create({
+          data: {
+            listingId,
+            sellerId: listing.sellerId,
+            buyerId,
+            amountUsd,
+            message,
+            status: "pending",
+          },
+          select: {
+            id: true,
+            status: true,
+            amountUsd: true,
+            createdAt: true,
+          },
+        });
       },
-      select: {
-        id: true,
-        status: true,
-        amountUsd: true,
-        createdAt: true,
-      },
-    });
-    const lt = listing.title.length > 90 ? `${listing.title.slice(0, 87)}…` : listing.title;
-    const amt = amountUsd.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-    await createNotification(prisma, {
-      userId: listing.sellerId,
-      type: "offer_received",
-      title: "New offer",
-      body: `You received an offer of ${amt} on “${lt}”.`,
-      // Sellers manage received offers in the listing studio, not the buyer-facing "/account/offers"
-      // page — link straight to the listing with the offer id so the studio can auto-open and
-      // highlight it, instead of dropping the seller on a page that can't even show this offer.
-      href: `/seller/listings/${encodeURIComponent(listing.id)}?offerId=${encodeURIComponent(offer.id)}`,
-    });
-    return NextResponse.json({ offer });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   } catch (e) {
+    if (e instanceof DuplicateOpenOfferError) {
+      return NextResponse.json({ error: DUPLICATE_OPEN_OFFER_ERROR }, { status: 409 });
+    }
+    if (isSerializationConflict(e)) {
+      return NextResponse.json({ error: DUPLICATE_OPEN_OFFER_ERROR }, { status: 409 });
+    }
     console.error(e);
     return NextResponse.json({ error: "Could not save your offer." }, { status: 500 });
   }
+
+  const lt = listing.title.length > 90 ? `${listing.title.slice(0, 87)}…` : listing.title;
+  const amt = formatMarketplaceUsd(amountUsd);
+  await createNotification(prisma, {
+    userId: listing.sellerId,
+    type: "offer_received",
+    title: "New offer",
+    body: `You received an offer of ${amt} on “${lt}”.`,
+    // Sellers manage received offers in the listing studio, not the buyer-facing "/account/offers"
+    // page — link straight to the listing with the offer id so the studio can auto-open and
+    // highlight it, instead of dropping the seller on a page that can't even show this offer.
+    href: `/seller/listings/${encodeURIComponent(listing.id)}?offerId=${encodeURIComponent(offer.id)}`,
+  });
+  return NextResponse.json({ offer });
 }

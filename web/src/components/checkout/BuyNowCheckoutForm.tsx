@@ -197,6 +197,9 @@ export function BuyNowCheckoutForm({
   const [shipFromLabel, setShipFromLabel] = useState<string | null>(null);
   const [hasSavedAddress, setHasSavedAddress] = useState(false);
   const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false);
+  const [referralCreditUsd, setReferralCreditUsd] = useState(0);
+  const [vaultCreditsUsd, setVaultCreditsUsd] = useState(0);
+  const [applyReferralCredit, setApplyReferralCredit] = useState(false);
   const router = useRouter();
 
   const selectShippingRate = (rate: CheckoutShippingRate) => {
@@ -232,6 +235,28 @@ export function BuyNowCheckoutForm({
         setState(preferred.state ?? "");
         setZip(preferred.postalCode ?? "");
         setCountry(preferred.country ?? "");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/account/wallet", { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const j = (await res.json()) as {
+          wallet?: { referralCreditUsd?: number; vaultCreditsUsd?: number };
+        };
+        const bal = Number(j.wallet?.referralCreditUsd ?? 0);
+        const vault = Number(j.wallet?.vaultCreditsUsd ?? 0);
+        if (!cancelled && Number.isFinite(bal) && bal > 0) setReferralCreditUsd(bal);
+        if (!cancelled && Number.isFinite(vault) && vault > 0) setVaultCreditsUsd(vault);
+      } catch {
+        /* ignore */
       }
     })();
     return () => {
@@ -381,8 +406,15 @@ export function BuyNowCheckoutForm({
     () => listing.itemPriceUsd + shippingPriceUsd,
     [listing.itemPriceUsd, shippingPriceUsd],
   );
-
-  const total = useMemo(() => subtotal + (taxCollect ? taxUsd : 0), [subtotal, taxCollect, taxUsd]);
+  const storeCreditUsd = referralCreditUsd + vaultCreditsUsd;
+  const referralDiscountUsd = useMemo(() => {
+    if (!applyReferralCredit || storeCreditUsd <= 0) return 0;
+    return Math.min(storeCreditUsd, Math.max(0, listing.itemPriceUsd - 0.5));
+  }, [applyReferralCredit, storeCreditUsd, listing.itemPriceUsd]);
+  const total = useMemo(
+    () => Math.max(0, subtotal - referralDiscountUsd) + (taxCollect ? taxUsd : 0),
+    [subtotal, referralDiscountUsd, taxCollect, taxUsd],
+  );
   const selectedRate = shippingRates.find((r) => r.id === selectedRateId) ?? null;
   const addressReady = Boolean(line1.trim() && city.trim() && state.trim() && zip.trim());
   const shippingReady = usesFlatShipping || Boolean(liveRoomItemId) || Boolean(selectedRateId);
@@ -426,6 +458,7 @@ export function BuyNowCheckoutForm({
           kind: "buy_now",
           embedded: !useVaultedSecureCheckout,
           listingId: listing.id,
+          applyReferralCredit: applyReferralCredit === true,
           ...(liveRoomItemId ? { liveRoomItemId } : {}),
           shipping: {
             buyerAddressId: buyerAddressId || undefined,
@@ -851,6 +884,30 @@ export function BuyNowCheckoutForm({
                   </span>
                 </li>
               </ul>
+              {storeCreditUsd > 0 ? (
+                <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-gold/20 bg-gold/5 px-3 py-3 text-sm text-zinc-300">
+                  <input
+                    type="checkbox"
+                    className="mt-1 size-4 accent-gold"
+                    checked={applyReferralCredit}
+                    onChange={(e) => setApplyReferralCredit(e.target.checked)}
+                  />
+                  <span>
+                    Apply available credits ({formatMoney(storeCreditUsd)}
+                    {vaultCreditsUsd > 0 && referralCreditUsd > 0
+                      ? ` — ${formatMoney(vaultCreditsUsd)} Get Vaulted + ${formatMoney(referralCreditUsd)} referral`
+                      : vaultCreditsUsd > 0
+                        ? " Get Vaulted Credit"
+                        : " referral"}
+                    )
+                    {referralDiscountUsd > 0 ? (
+                      <span className="mt-0.5 block text-xs text-emerald-400/90">
+                        Saves {formatMoney(referralDiscountUsd)} on this order
+                      </span>
+                    ) : null}
+                  </span>
+                </label>
+              ) : null}
               {error ? <p className="mt-3 text-xs font-medium text-rose-300">{error}</p> : null}
               <button
                 type="submit"

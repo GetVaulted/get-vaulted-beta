@@ -11,8 +11,11 @@ import {
   syncBreakSpotPaymentIntent,
 } from "@/lib/live-payment-pipeline";
 import { finalizeLiveItemVariantPurchasePaid, releaseVariantPurchaseOnCheckoutExpired, reopenVariantPurchaseForRecovery } from "@/lib/live-item-variant-purchase";
-import { finalizeBreakSpotPaid } from "@/lib/live-buy-now-purchase";
+import { releaseVariantPurchaseBatchOnCheckoutExpired } from "@/lib/live-item-variant-batch-purchase";
+import { finalizeBreakSpotPaid, releaseBreakSpotOnDefiniteFailure } from "@/lib/live-buy-now-purchase";
+import { releaseActiveInventoryHoldsForOrderId } from "@/lib/live-auction-inventory-hold";
 import { prisma } from "@/lib/prisma";
+import { releaseStoreCreditAndRestoreOrder } from "@/lib/store-credit-release";
 import {
   emitLiveRoomPaymentFailed,
   emitLiveRoomPaymentRecovered,
@@ -35,6 +38,10 @@ import {
   resolveBuyerRecoveryPaymentMethodId,
 } from "@/lib/stripe-buyer-payment-method-setup";
 import { assertPaymentMethodOwnedByUser } from "@/lib/stripe-customer";
+import {
+  enrichPaymentFailureChargeAmounts,
+  resolveLivePaymentFailureChargeUsd,
+} from "@/lib/live-purchase-charge-total";
 
 export type LiveBuyerPaymentFailureDTO = {
   id: string;
@@ -117,6 +124,13 @@ function serializeBuyerFailure(row: {
   };
 }
 
+async function toBuyerFailureDto(
+  row: Parameters<typeof serializeBuyerFailure>[0] & { buyerId?: string },
+): Promise<LiveBuyerPaymentFailureDTO | null> {
+  const [enriched] = await enrichPaymentFailureChargeAmounts([row]);
+  return serializeBuyerFailure(enriched ?? row);
+}
+
 export async function getUnresolvedPaymentFailureForBuyer(
   liveRoomId: string,
   buyerId: string,
@@ -129,7 +143,8 @@ export async function getUnresolvedPaymentFailureForBuyer(
     },
     orderBy: { failedAt: "desc" },
   });
-  return row ? serializeBuyerFailure(row) : null;
+  if (!row) return null;
+  return toBuyerFailureDto(row);
 }
 
 export async function listUnresolvedPaymentFailuresForRoom(
@@ -140,7 +155,8 @@ export async function listUnresolvedPaymentFailuresForRoom(
     orderBy: { failedAt: "desc" },
     take: 20,
   });
-  return rows
+  const enriched = await enrichPaymentFailureChargeAmounts(rows);
+  return enriched
     .map((row) => {
       const base = serializeBuyerFailure(row);
       if (!base) return null;
@@ -248,6 +264,13 @@ export async function recordLiveRoomPaymentFailure(args: {
     )?.username ??
     null;
 
+  const amountUsd = await resolveLivePaymentFailureChargeUsd({
+    fallbackUsd: args.amountUsd,
+    orderId: args.orderId,
+    variantPurchaseId: args.variantPurchaseId,
+    breakSpotId: args.breakSpotId,
+  });
+
   const row = existing
     ? await prisma.liveRoomPaymentFailure.update({
         where: { id: existing.id },
@@ -257,7 +280,7 @@ export async function recordLiveRoomPaymentFailure(args: {
           orderId: args.orderId ?? existing.orderId,
           variantPurchaseId: args.variantPurchaseId ?? existing.variantPurchaseId,
           breakSpotId: args.breakSpotId ?? existing.breakSpotId,
-          amountUsd: args.amountUsd,
+          amountUsd,
           status: args.status,
           failureReason: args.failureReason,
           itemTitle: args.itemTitle ?? existing.itemTitle,
@@ -273,7 +296,7 @@ export async function recordLiveRoomPaymentFailure(args: {
           orderId: args.orderId ?? undefined,
           variantPurchaseId: args.variantPurchaseId ?? undefined,
           breakSpotId: args.breakSpotId ?? undefined,
-          amountUsd: args.amountUsd,
+          amountUsd,
           status: args.status,
           failureReason: args.failureReason,
           itemTitle: args.itemTitle ?? undefined,
@@ -286,7 +309,7 @@ export async function recordLiveRoomPaymentFailure(args: {
     failureId: row.id,
     buyerId: args.buyerId,
     buyerUsername,
-    amountUsd: args.amountUsd,
+    amountUsd,
     itemTitle: row.itemTitle,
     liveRoomItemId: row.liveRoomItemId,
     orderId: row.orderId,
@@ -570,6 +593,8 @@ export async function retryLiveRoomPaymentFailure(args: {
               liveRoomId: args.liveRoomId,
               liveRoomItemId: failureRow.liveRoomItemId,
               paymentMethodId: recoveryPmId,
+              // Re-enabled — see live-payment-pipeline.ts for why this was safe to restore.
+              applyReferralCredit: true,
             })
           : await chargeMarketplaceOrderWithSavedPaymentMethod({
               buyerId: args.buyerId,
@@ -635,6 +660,8 @@ export async function retryLiveRoomPaymentFailure(args: {
       buyerId: args.buyerId,
       purchaseId: failureRow.variantPurchaseId,
       paymentMethodId: recoveryPmId,
+      // Re-enabled — see live-payment-pipeline.ts for why this was safe to restore.
+      applyReferralCredit: true,
     });
     logRecoveryChargeResult(
       {
@@ -684,6 +711,8 @@ export async function retryLiveRoomPaymentFailure(args: {
       buyerId: args.buyerId,
       breakSpotId: failureRow.breakSpotId,
       paymentMethodId: recoveryPmId,
+      // Re-enabled — see live-payment-pipeline.ts for why this was safe to restore.
+      applyReferralCredit: true,
     });
     logRecoveryChargeResult(
       { failureId: failureRow.id, breakSpotId: failureRow.breakSpotId, paymentMethodId: recoveryPmId },
@@ -720,7 +749,7 @@ export async function retryLiveRoomPaymentFailure(args: {
       ok: false,
       error: "This payment cannot be retried automatically yet.",
       code: "UNSUPPORTED_KIND",
-      paymentFailure: serializeBuyerFailure(failureRow)!,
+      paymentFailure: (await toBuyerFailureDto(failureRow))!,
     };
   }
 
@@ -729,7 +758,7 @@ export async function retryLiveRoomPaymentFailure(args: {
       ok: false,
       error: "Retry failed.",
       code: "CHARGE_FAILED",
-      paymentFailure: serializeBuyerFailure(failureRow)!,
+      paymentFailure: (await toBuyerFailureDto(failureRow))!,
     };
   }
 
@@ -885,7 +914,7 @@ export async function syncLiveRoomPaymentFailureAfterSca(args: {
     }
   }
 
-  const dto = serializeBuyerFailure(failureRow);
+  const dto = await toBuyerFailureDto(failureRow);
   return {
     ok: false,
     error: "Payment not completed yet.",
@@ -893,7 +922,7 @@ export async function syncLiveRoomPaymentFailureAfterSca(args: {
   };
 }
 
-/** Host dismisses a stuck payment retry — releases held variant spot and unblocks the buyer. */
+/** Host dismisses a stuck payment retry — releases held spots/inventory and unblocks the buyer. */
 export async function cancelLiveRoomPaymentFailureBySeller(args: {
   liveRoomId: string;
   sellerId: string;
@@ -920,11 +949,39 @@ export async function cancelLiveRoomPaymentFailureBySeller(args: {
   if (failure.variantPurchaseId) {
     const purchase = await prisma.liveItemVariantPurchase.findUnique({
       where: { id: failure.variantPurchaseId },
-      select: { paymentStatus: true },
+      select: { paymentStatus: true, batchId: true },
     });
-    if (purchase?.paymentStatus === "pending_payment") {
+    if (purchase?.batchId) {
+      await releaseVariantPurchaseBatchOnCheckoutExpired(purchase.batchId);
+    } else if (purchase?.paymentStatus === "pending_payment") {
       await releaseVariantPurchaseOnCheckoutExpired(failure.variantPurchaseId);
     }
+  }
+
+  // Break spots stay held through buyer recovery; host cancel returns the label to the board.
+  if (failure.breakSpotId) {
+    await releaseBreakSpotOnDefiniteFailure(failure.breakSpotId);
+  }
+
+  if (failure.orderId) {
+    await releaseActiveInventoryHoldsForOrderId(failure.orderId).catch((e) =>
+      console.error("[payment failure] cancel could not release inventory holds", {
+        orderId: failure.orderId,
+        error: e,
+      }),
+    );
+    await prisma.order
+      .updateMany({
+        where: { id: failure.orderId, paymentStatus: { not: "paid" } },
+        data: { paymentStatus: "failed", status: "cancelled", stripePaymentIntentId: null },
+      })
+      .catch(() => {});
+    releaseStoreCreditAndRestoreOrder(failure.orderId).catch((e) =>
+      console.error("[store-credit] release failed (host cancel payment retry)", {
+        orderId: failure.orderId,
+        error: e,
+      }),
+    );
   }
 
   await prisma.liveRoomPaymentFailure.delete({ where: { id: failure.id } });

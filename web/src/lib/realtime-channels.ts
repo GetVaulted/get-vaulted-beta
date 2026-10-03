@@ -19,8 +19,12 @@ export function vaultEcosystemChannel(userId: string): string {
 
 export const RT_EVENT = {
   chatMessage: "chat_message",
+  /** Host/mod staff chat — clients must only handle when `canModerate`. */
+  staffChatMessage: "staff_chat_message",
   viewerJoined: "viewer_joined",
   viewerLeft: "viewer_left",
+  /** Host-observed concurrent viewers — one room-wide number for all clients. */
+  viewerCount: "viewer_count",
   bidPlaced: "bid_placed",
   auctionStarted: "auction_started",
   auctionEnded: "auction_ended",
@@ -59,6 +63,12 @@ export const RT_EVENT = {
   giveawaysChanged: "giveaways_changed",
   /** Synchronized Vault Reveal wheel (giveaway draw + PYT randomizer). */
   vaultRevealSpin: "vault_reveal_spin",
+  /** Sweet 16 Break: host started the live turn-based draft. */
+  sweet16DraftStarted: "sweet16_draft_started",
+  /** Sweet 16 Break: a turn resolved (manual pick or timeout auto-assign). */
+  sweet16DraftPickMade: "sweet16_draft_pick_made",
+  /** Sweet 16 Break: every slot has a team — draft finished. */
+  sweet16DraftComplete: "sweet16_draft_complete",
 } as const;
 
 /**
@@ -68,6 +78,7 @@ export const RT_EVENT = {
  */
 export const RT_EVENT_ALIASES = {
   chatMessage: ["live_room_message"],
+  staffChatMessage: [],
   viewerJoined: [],
   viewerLeft: [],
   bidPlaced: [],
@@ -84,4 +95,7 @@ export const RT_EVENT_ALIASES = {
   streamStatus: [],
   moderationChanged: [],
   giveawaysChanged: [],
+  sweet16DraftStarted: [],
+  sweet16DraftPickMade: [],
+  sweet16DraftComplete: [],
 } as const;

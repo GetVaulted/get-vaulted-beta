@@ -8,6 +8,7 @@ const prismaMock = vi.hoisted(() => ({
   order: {
     findUnique: vi.fn(),
     findMany: vi.fn().mockResolvedValue([]),
+    count: vi.fn().mockResolvedValue(0),
   },
   referralCredit: {
     create: vi.fn().mockResolvedValue(undefined),
@@ -56,7 +57,13 @@ beforeEach(() => {
   prismaMock.referralCredit.aggregate.mockResolvedValue({ _sum: { amountUsd: 0 } });
   prismaMock.referralCredit.count.mockResolvedValue(0);
   prismaMock.order.findMany.mockResolvedValue([]);
+  prismaMock.order.count.mockResolvedValue(0);
   prismaMock.user.updateMany.mockResolvedValue({ count: 1 });
+  prismaMock.user.findUnique.mockResolvedValue({
+    referredById: null,
+    createdAt: new Date(),
+    email: "referrer@example.com",
+  });
 });
 
 describe("attributeReferralOnSignup", () => {
@@ -85,6 +92,23 @@ describe("attributeReferralOnSignup", () => {
   it("refuses to let a user refer themselves", async () => {
     resolveReferrerMock.mockResolvedValue("new_user_1");
     await attributeReferralOnSignup("new_user_1", "K7H3N9Q2MW");
+    expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses attribution for accounts older than the new-account window", async () => {
+    resolveReferrerMock.mockResolvedValue("referrer_1");
+    prismaMock.user.findUnique.mockResolvedValue({
+      referredById: null,
+      createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+    });
+    await attributeReferralOnSignup("old_user_1", "K7H3N9Q2MW");
+    expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses attribution when the user already has a paid order", async () => {
+    resolveReferrerMock.mockResolvedValue("referrer_1");
+    prismaMock.order.count.mockResolvedValue(1);
+    await attributeReferralOnSignup("buyer_1", "K7H3N9Q2MW");
     expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
   });
 
@@ -157,6 +181,13 @@ describe("grantReferralCreditsForQualifyingOrder", () => {
   it("only grants once per referee — skips if the buyer already has a referee credit", async () => {
     prismaMock.order.findUnique.mockResolvedValue(baseOrder);
     prismaMock.referralCredit.findFirst.mockResolvedValue({ id: "existing_credit" });
+    await grantReferralCreditsForQualifyingOrder("order_1");
+    expect(prismaMock.referralCredit.create).not.toHaveBeenCalled();
+  });
+
+  it("skips when the buyer already has another paid order — new accounts only", async () => {
+    prismaMock.order.findUnique.mockResolvedValue(baseOrder);
+    prismaMock.order.count.mockResolvedValue(1);
     await grantReferralCreditsForQualifyingOrder("order_1");
     expect(prismaMock.referralCredit.create).not.toHaveBeenCalled();
   });

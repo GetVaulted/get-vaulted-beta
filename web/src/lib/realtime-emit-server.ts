@@ -47,6 +47,10 @@ export function emitLiveRoomMessageDto(liveRoomId: string, dto: LiveRoomMessageD
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.chatMessage, { message: dto });
 }
 
+export function emitLiveRoomStaffMessageDto(liveRoomId: string, dto: LiveRoomMessageDTO): void {
+  emitRoomEventWithAliases(liveRoomId, RT_EVENT.staffChatMessage, { message: dto });
+}
+
 export async function emitLiveRoomMessageById(messageId: string): Promise<void> {
   const row = await prisma.liveRoomMessage.findUnique({
     where: { id: messageId },
@@ -54,7 +58,12 @@ export async function emitLiveRoomMessageById(messageId: string): Promise<void> 
   });
   if (!row) return;
   const mentions = await loadMentionsForSource("live_room_message", row.id);
-  emitLiveRoomMessageDto(row.liveRoomId, serializeLiveRoomMessage(row, mentions));
+  const dto = serializeLiveRoomMessage(row, mentions);
+  if (row.messageType === "staff") {
+    emitLiveRoomStaffMessageDto(row.liveRoomId, dto);
+    return;
+  }
+  emitLiveRoomMessageDto(row.liveRoomId, dto);
 }
 
 export function emitLiveRoomMessagesRefetch(liveRoomId: string): void {
@@ -93,6 +102,9 @@ export function emitVariantPurchased(
     itemVersion: number;
     quantity?: number;
     randomReveal?: boolean;
+    /** Multi-spot checkout: all claimed labels (label is a joined display string). */
+    labels?: string[];
+    batchId?: string;
   },
 ): void {
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.variantPurchased, payload);
@@ -114,6 +126,40 @@ export function emitTeamBreakBegan(
 
 export function emitTeamBoardChanged(liveRoomId: string): void {
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.teamBoard, { liveRoomId });
+}
+
+type Sweet16DraftStartedPayload = {
+  itemId: string;
+  turnOrder: string[];
+  currentTurnIndex: number;
+  currentTurnPurchaseId: string;
+  currentTurnDeadlineAt: string;
+  remainingTeamLabels: string[];
+  turnSeconds: number;
+};
+
+export function emitSweet16DraftStarted(liveRoomId: string, payload: Sweet16DraftStartedPayload): void {
+  emitRoomEventWithAliases(liveRoomId, RT_EVENT.sweet16DraftStarted, payload);
+}
+
+type Sweet16DraftPickPayload = {
+  itemId: string;
+  purchaseId: string;
+  teamLabel: string;
+  teamAbbr: string;
+  turnIndex: number;
+  autoAssigned: boolean;
+  nextTurnPurchaseId: string | null;
+  nextTurnDeadlineAt: string | null;
+  complete: boolean;
+};
+
+export function emitSweet16DraftPickMade(liveRoomId: string, payload: Sweet16DraftPickPayload): void {
+  emitRoomEventWithAliases(liveRoomId, RT_EVENT.sweet16DraftPickMade, payload);
+}
+
+export function emitSweet16DraftComplete(liveRoomId: string, payload: Sweet16DraftPickPayload): void {
+  emitRoomEventWithAliases(liveRoomId, RT_EVENT.sweet16DraftComplete, payload);
 }
 
 export function emitListingBidPlaced(listingId: string, liveRoomId?: string | null): void {
@@ -249,7 +295,7 @@ export function emitPurchaseCompleted(
     orderId: opts?.orderId ?? null,
     paymentStatus: opts?.paymentStatus ?? null,
     noBids: opts?.noBids === true,
-    itemSoldOut: opts?.itemSoldOut !== false,
+    itemSoldOut: opts?.itemSoldOut === true,
   });
 }
 
@@ -310,7 +356,7 @@ export function emitStreamStatusChanged(
 export function emitLiveDiscoveryChanged(payload?: {
   roomId?: string;
   status?: string;
-  reason?: "created" | "updated" | "started" | "ended" | "cancelled";
+  reason?: "created" | "updated" | "started" | "ended" | "cancelled" | "obs_ingest_auto_start";
 }): void {
   broadcastRealtimeEvent(LIVE_DISCOVERY_CHANNEL, LIVE_DISCOVERY_EVENT, {
     emittedAt: new Date().toISOString(),

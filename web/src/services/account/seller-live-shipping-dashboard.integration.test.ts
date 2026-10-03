@@ -276,4 +276,55 @@ describe("getSellerLiveShippingDashboard (integration)", () => {
     expect(complete.sessions[0].labelStatus).toBe("complete");
     expect(complete.sessions[0].ordersNeedingLabels).toEqual([]);
   });
+
+  it("marking a bundle shipped via the seller's own carrier (no Shippo label) settles the session", async () => {
+    // Regression: a session shipped via "Ship it yourself" never gets a shippoTransactionId /
+    // labelUrl, so canCreateBundledLabel used to stay true forever (it only ever checked for a
+    // label, never the order's own shipped status) — the bundle-ship button kept reappearing and
+    // clicking it always found zero orders still eligible to mark shipped.
+    const seller = await seedSellerStripeReady(prisma, { email: "slsd_owncarrier@test.internal", username: "slsdowncarrier" });
+    const buyer = await seedUser(prisma, { email: "slsd_owncarrierb@test.internal", username: "slsdowncarrierb" });
+    const live = await prisma.liveRoom.create({
+      data: { sellerId: seller.id, title: "Own-carrier show", roomType: "auction", status: "live" },
+    });
+    const o1 = await seedAuctionWinOrder({
+      sellerId: seller.id,
+      buyerId: buyer.id,
+      liveRoomId: live.id,
+      shippingCategory: "raw_card",
+      baseWeight: 4,
+      incrementalWeight: 1,
+    });
+    const o2 = await seedAuctionWinOrder({
+      sellerId: seller.id,
+      buyerId: buyer.id,
+      liveRoomId: live.id,
+      shippingCategory: "raw_card",
+      baseWeight: 4,
+      incrementalWeight: 1,
+    });
+    await addOrderToLiveShippingSession(o1.id);
+    await addOrderToLiveShippingSession(o2.id);
+    await prisma.order.update({
+      where: { id: o1.id },
+      data: { paymentStatus: PAYMENT_PAID, status: "paid", shippingChargedCents: 200 },
+    });
+    await prisma.order.update({
+      where: { id: o2.id },
+      data: { paymentStatus: PAYMENT_PAID, status: "paid", shippingChargedCents: 200 },
+    });
+
+    const beforeShip = await getSellerLiveShippingDashboard(seller.id);
+    expect(beforeShip.sessions[0].canCreateBundledLabel).toBe(true);
+    expect(beforeShip.sessions[0].labelStatus).toBe("labels_needed");
+
+    // Mimic the PATCH /api/orders/[id] markShipped route: status -> "shipped", no label fields set.
+    await prisma.order.update({ where: { id: o1.id }, data: { status: "shipped", fulfillmentStatus: "shipped" } });
+    await prisma.order.update({ where: { id: o2.id }, data: { status: "shipped", fulfillmentStatus: "shipped" } });
+
+    const afterShip = await getSellerLiveShippingDashboard(seller.id);
+    expect(afterShip.sessions[0].canCreateBundledLabel).toBe(false);
+    expect(afterShip.sessions[0].labelStatus).toBe("complete");
+    expect(afterShip.sessions[0].ordersNeedingLabels).toEqual([]);
+  });
 });

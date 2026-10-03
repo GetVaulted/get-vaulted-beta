@@ -20,12 +20,19 @@ export function isLiveStreamDisconnectConfirmed(room: LiveRoomBroadcastGate): bo
   if (room.status !== "live") return false;
   const health = room.streamHealth.toLowerCase();
   if (health === "live" || health === "connecting") return false;
-  if (health === "ended") return true;
 
   const endedAt = parseGateTimestamp(room.streamEndedAt);
-  if (endedAt == null) return false;
-
   const startedAt = parseGateTimestamp(room.streamStartedAt);
+  // Host republished after a prior disconnect — newer start wins.
+  if (startedAt != null && endedAt != null && startedAt > endedAt) return false;
+
+  if (health === "ended") {
+    if (endedAt == null) return true;
+    if (startedAt != null && endedAt >= startedAt) return true;
+    return false;
+  }
+
+  if (endedAt == null) return false;
   if (startedAt != null && endedAt >= startedAt) return true;
 
   return health === "offline" || health === "error";
@@ -35,9 +42,47 @@ export function isLiveStreamDisconnectConfirmed(room: LiveRoomBroadcastGate): bo
 export function isLiveRoomBroadcastOnAir(room: LiveRoomBroadcastGate): boolean {
   if (room.status !== "live") return false;
   if (room.streamPaused === true) return false;
+  return isLiveRoomBroadcastSignalReady(room);
+}
+
+/**
+ * Buy Now / shop / spots stay available while the host is paused.
+ * Only a confirmed disconnect (or ended signal) blocks purchases.
+ */
+export function isLiveRoomBroadcastPurchasable(room: LiveRoomBroadcastGate): boolean {
+  if (room.status !== "live") return false;
+  return isLiveRoomBroadcastSignalReady(room);
+}
+
+function isLiveRoomBroadcastSignalReady(room: LiveRoomBroadcastGate): boolean {
   if (isLiveStreamSignal(room.streamHealth)) return true;
-  if (room.streamHealth.toLowerCase() === "ended") return false;
-  if (room.streamMode === "stage_webrtc") return true;
+
+  /**
+   * Room status can be `live` before the host starts camera/OBS. Do not open bidding or
+   * team shop checkout until a broadcast session has actually started.
+   */
+  const startedAt = parseGateTimestamp(room.streamStartedAt);
+  if (startedAt == null) return false;
+
+  // Stage / OBS: channel health can stick offline while WebRTC/HLS is still warming.
+  // Only hard-block when health is ended after a real start.
+  if (room.streamMode === "stage_webrtc" || room.streamMode === "channel_hls") {
+    return room.streamHealth.toLowerCase() !== "ended";
+  }
+
   if (isLiveStreamDisconnectConfirmed(room)) return false;
-  return true;
+  return room.streamHealth.toLowerCase() !== "ended";
+}
+
+/**
+ * Strong signal that another device is actually publishing buyer-facing video.
+ * Soft commerce warm-up (`stage_webrtc` / offline grace) must not count as companion/elsewhere.
+ *
+ * `connecting` means “waiting on host / no Stage publisher” — never treat that as a remote
+ * publisher, or a force-quit → reopen falsely enters companion mode and skips camera resume.
+ */
+export function isLiveRoomRemotePublisherActive(room: LiveRoomBroadcastGate): boolean {
+  if (room.status !== "live") return false;
+  if (room.streamPaused === true) return false;
+  return room.streamHealth.toLowerCase() === "live";
 }

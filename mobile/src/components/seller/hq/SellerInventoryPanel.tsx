@@ -18,6 +18,7 @@ import type { useSellerInventory } from '../../../hooks/useSellerInventory';
 import {
   bucketListings,
   countBucket,
+  defaultInventoryBucketForChannel,
   INVENTORY_BUCKET_LABELS,
   type InventoryBucket,
 } from '../../../lib/sellerInventoryBuckets';
@@ -32,7 +33,7 @@ const BUCKETS: InventoryBucket[] = ['active', 'drafts', 'sold'];
 function statusStyle(status: ListingPreview['status']) {
   switch (status) {
     case 'active':
-      return { bg: 'rgba(52,199,89,0.15)', fg: colors.success, label: 'Live' };
+      return { bg: 'rgba(52,199,89,0.15)', fg: colors.success, label: 'Active' };
     case 'draft':
       return { bg: 'rgba(255,255,255,0.06)', fg: colors.textSecondary, label: 'Draft' };
     case 'sold':
@@ -86,7 +87,10 @@ export function SellerInventoryPanel({
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.intro}>Separate lanes for marketplace storefront and live show queue.</Text>
+      <Text style={styles.intro}>
+        Separate lanes for marketplace storefront and live show stock. Live show items stay in your shop so you can pull
+        them into any go-live from Add inventory → From my shop.
+      </Text>
 
       <View style={styles.channelRow}>
         {CHANNEL_TABS.map((ch) => {
@@ -96,7 +100,10 @@ export function SellerInventoryPanel({
             <Pressable
               key={ch}
               style={[styles.channelTab, on && { borderColor: chCfg.border, backgroundColor: chCfg.fill }]}
-              onPress={() => setChannelTab(ch)}
+              onPress={() => {
+                setChannelTab(ch);
+                setBucketTab(defaultInventoryBucketForChannel(ch));
+              }}
             >
               <Ionicons name={chCfg.icon} size={16} color={on ? chCfg.primary : colors.textMuted} />
               <Text style={[styles.channelTabTxt, on && { color: chCfg.primary }]}>

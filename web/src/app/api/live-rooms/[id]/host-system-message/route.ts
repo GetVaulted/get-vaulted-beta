@@ -14,7 +14,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { id: raw } = await ctx.params;
   const liveRoomId = decodeURIComponent(raw);
 
-  const access = await getLiveRoomHostAccess(liveRoomId, session.user.id, { requireBreak: true });
+  const access = await getLiveRoomHostAccess(liveRoomId, session.user.id, { requireBreak: false });
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
   let body: PostBody;

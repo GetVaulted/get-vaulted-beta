@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 type Props = {
   message: string;
@@ -37,7 +37,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     backgroundColor: 'rgba(0,0,0,0.72)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(212,175,55,0.35)',
+    borderColor: 'rgba(203,163,92,0.35)',
     gap: spacing.sm,
   },
   title: {
@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: radii.pill,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
   },
   retryBusy: { opacity: 0.6 },
   retryTxt: {

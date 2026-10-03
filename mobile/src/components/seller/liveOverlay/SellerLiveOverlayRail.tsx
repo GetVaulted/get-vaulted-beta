@@ -3,7 +3,7 @@ import { BlurView } from 'expo-blur';
 import { useRef } from 'react';
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 type RailAction = {
   key: string;
@@ -59,7 +59,7 @@ function RailButton({
         <Ionicons
           name={icon}
           size={20}
-          color={accent ? colors.gold : 'rgba(255,255,255,0.94)'}
+          color={accent ? vaultColors.gold : 'rgba(255,255,255,0.94)'}
         />
         <Text style={[styles.label, accent && styles.labelAccent]}>{label}</Text>
       </Animated.View>
@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.12)',
   },
   btnGlowAccent: {
-    backgroundColor: 'rgba(212,175,55,0.25)',
+    backgroundColor: 'rgba(203,163,92,0.25)',
   },
   label: {
     color: 'rgba(255,255,255,0.78)',
@@ -149,5 +149,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 52,
   },
-  labelAccent: { color: colors.gold },
+  labelAccent: { color: vaultColors.gold },
 });

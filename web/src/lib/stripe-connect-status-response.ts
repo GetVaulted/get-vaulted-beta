@@ -1,6 +1,7 @@
 import type { StripeConnectOnboardingUiStatus } from "@/lib/stripe-connect-account-map";
 import { onboardingUiStatusFromPartial } from "@/lib/stripe-connect-account-map";
 import type { StripeConnectStatusUserRow } from "@/lib/load-user-stripe-connect-status";
+import { isStripePayoutSetupSubmitted } from "@/lib/stripe-payout-submitted";
 
 type RequirementsSnapshot = {
   currentlyDue: string[];
@@ -93,9 +94,14 @@ export function connectStatusFromUserRow(
     stripePayoutsEnabled: user.stripePayoutsEnabled ?? null,
     requirementsDue: requirementsSnap,
   });
-  const payoutSetupSubmitted =
-    Boolean(user.stripeOnboardingComplete) &&
-    (requirementsSnap?.currentlyDue?.length ?? 0) === 0;
+  const payoutSetupSubmitted = isStripePayoutSetupSubmitted({
+    hasStripeAccount: Boolean(user.stripeAccountId?.trim()),
+    stripeOnboardingComplete: Boolean(user.stripeOnboardingComplete),
+    stripeChargesEnabled: user.stripeChargesEnabled ?? null,
+    stripePayoutsEnabled: user.stripePayoutsEnabled ?? null,
+    currentlyDue: requirementsSnap?.currentlyDue ?? [],
+    pendingVerification: requirementsSnap?.pendingVerification ?? [],
+  });
 
   return buildStripeConnectStatusJson({
     user,

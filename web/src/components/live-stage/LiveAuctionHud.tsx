@@ -212,18 +212,24 @@ export function LiveAuctionHud({
     onEditVariantSpots();
   };
 
+  const winnerSource = boardItem ?? null;
+  const winnerHandle = winnerSource?.lastHighBidderUsername?.trim() || null;
   const winnerLine =
-    item && !isVariantItem
+    winnerSource && !isVariantItem
       ? formatAuctionLeaderLine({
-          lastHighBidderUsername: item.lastHighBidderUsername,
-          lastHighBidderId: item.lastHighBidderId,
-          currentBidUsd: item.currentBidUsd,
-          startingBidUsd: item.startingBidUsd,
-          priceUsd: item.priceUsd,
+          lastHighBidderUsername: winnerSource.lastHighBidderUsername,
+          lastHighBidderId: winnerSource.lastHighBidderId,
+          currentBidUsd: winnerSource.currentBidUsd,
+          startingBidUsd: winnerSource.startingBidUsd,
+          priceUsd: winnerSource.priceUsd,
         })
       : isVariantItem && variantHeroSub
         ? variantHeroSub
         : null;
+  const liveBidAmount =
+    winnerSource && !isVariantItem
+      ? formatAuctionMoneyUsd(winnerSource.currentBidUsd ?? winnerSource.startingBidUsd ?? winnerSource.priceUsd)
+      : null;
 
   const timerUrgent =
     hostAuctionCountdownLabel != null &&
@@ -268,7 +274,7 @@ export function LiveAuctionHud({
         className={`live-stage-auction-hud relative w-full ${ENERGY_WRAPPER[energyLevel]}`}
         data-testid="live-auction-hud"
       >
-        <div className="live-stage-command-bar flex min-h-[36px] items-center justify-between gap-2 px-3 py-1.5">
+        <div className="live-stage-command-bar flex min-h-[40px] items-center justify-between gap-2 px-3 py-1.5">
           {editableVariantItem && onEditVariantSpots ? (
             <button
               type="button"
@@ -280,9 +286,17 @@ export function LiveAuctionHud({
               {titleEl}
             </button>
           ) : (
-            titleEl
+            <div className="min-w-0 flex-1">
+              {titleEl}
+              {auctionRunning ? (
+                <p className="truncate text-[10px] font-bold text-amber-100/95">
+                  {winnerHandle ? `Winning @${winnerHandle}` : "Waiting for bids"}
+                  {liveBidAmount ? ` · ${liveBidAmount}` : ""}
+                </p>
+              ) : null}
+            </div>
           )}
-          <span className="shrink-0 font-mono text-[10px] font-black tabular-nums text-amber-100">{statusBit}</span>
+          <span className="shrink-0 font-mono text-[11px] font-black tabular-nums text-amber-100">{statusBit}</span>
           {onToggleHostMinimized ? (
             <button
               type="button"
@@ -333,13 +347,15 @@ export function LiveAuctionHud({
       data-testid="live-auction-hud"
     >
       <div
-        className={`live-stage-command-bar relative flex min-h-[48px] max-h-[58px] items-stretch gap-0 overflow-hidden ${
+        className={`live-stage-command-bar relative flex items-stretch gap-0 overflow-hidden ${
+          auctionRunning ? "min-h-[72px] max-h-[88px]" : "min-h-[48px] max-h-[58px]"
+        } ${
           preAuction && !isVariantItem ? "live-stage-hud-glass-idle" : ""
         } ${lotTransitionPhase === "incoming" ? "motion-safe:animate-[live-lot-slide-up_0.5s_var(--live-ease)_both]" : ""} ${
           breakReady && !breakBegan ? "live-stage-command-bar-ready" : ""
         }`}
       >
-        {/* LEFT — item identity (tap PYT/PYD pinned lot to edit spots) */}
+        {/* LEFT — lot identity + winning bidder (matches phone host clarity) */}
         {editableVariantItem && onEditVariantSpots ? (
           <button
             type="button"
@@ -369,31 +385,39 @@ export function LiveAuctionHud({
             </div>
           </button>
         ) : (
-        <div className="live-stage-command-section flex min-w-0 flex-[1.05] items-center gap-1.5 border-r border-amber-400/10 px-2.5 py-1">
-          <div className="size-8 shrink-0 overflow-hidden rounded-md bg-zinc-900/80 ring-1 ring-amber-300/15">
+        <div className="live-stage-command-section flex min-w-0 flex-[1.2] items-center gap-1.5 border-r border-amber-400/10 px-2.5 py-1.5">
+          <div className={`shrink-0 overflow-hidden rounded-md bg-zinc-900/80 ring-1 ring-amber-300/15 ${auctionRunning ? "size-11" : "size-8"}`}>
             {thumb ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={thumb} alt="" className="size-full object-cover" />
             ) : (
               <div className="flex size-full items-center justify-center text-[8px] font-black text-zinc-600">
-                {(item?.title ?? "—").slice(0, 2).toUpperCase()}
+                {(boardItem?.title ?? item?.title ?? "—").slice(0, 2).toUpperCase()}
               </div>
             )}
           </div>
           <div className="min-w-0">
-            <p className="truncate text-[10px] font-semibold text-zinc-100">
-              {item ? hostQueueTitleLine(item) : "No lot pinned"}
-              {item ? <span className="font-medium text-zinc-500"> · #{item.sortOrder}</span> : null}
+            <p className={`truncate font-semibold text-zinc-100 ${auctionRunning ? "text-[12px]" : "text-[10px]"}`}>
+              {boardItem ? hostQueueTitleLine(boardItem) : item ? hostQueueTitleLine(item) : "No lot pinned"}
+              {boardItem ? <span className="font-medium text-zinc-500"> · #{boardItem.sortOrder}</span> : null}
             </p>
-            {switchPin.switchAwaitingPin && previewItem ? (
+            {auctionRunning ? (
+              <>
+                <p className="mt-0.5 truncate text-[13px] font-black tracking-tight text-amber-100">
+                  {winnerHandle ? `@${winnerHandle}` : "Waiting for bids"}
+                </p>
+                <p className="truncate text-[8px] font-bold uppercase tracking-[0.16em] text-emerald-300/95">
+                  {winnerHandle ? "Winning now" : "Auction live"}
+                </p>
+              </>
+            ) : switchPin.switchAwaitingPin && previewItem ? (
               <p className="truncate text-[8px] font-bold uppercase tracking-[0.14em] text-amber-200/90">
                 Selected: {hostQueueTitleLine(previewItem)} — pin to switch
               </p>
             ) : awaitingPin ? (
               <p className="truncate text-[8px] font-bold uppercase tracking-[0.14em] text-amber-200/90">Pin to go on block</p>
-            ) : null}
-            {winnerLine ? (
-              <p className="truncate text-[9px] font-medium text-amber-200/90">{winnerLine}</p>
+            ) : winnerLine ? (
+              <p className="truncate text-[10px] font-semibold text-amber-200/90">{winnerLine}</p>
             ) : null}
           </div>
         </div>
@@ -402,11 +426,17 @@ export function LiveAuctionHud({
         {/* CENTER — price / timer / spot status */}
         <div className="live-stage-command-section flex min-w-0 flex-1 flex-col items-center justify-center px-2 py-1">
           <p
-            className={`live-stage-hud-bid-hero font-mono text-[1.35rem] font-black leading-none tabular-nums tracking-tight ${
+            className={`live-stage-hud-bid-hero font-mono font-black leading-none tabular-nums tracking-tight ${
+              auctionRunning ? "text-[1.55rem]" : "text-[1.35rem]"
+            } ${
               motionBurst === "bid" || motionBurst === "bid_war" ? "[animation:live-price-glow_0.6s_ease-out]" : ""
             } ${breakReady && !breakBegan ? "text-emerald-100" : ""}`}
           >
-            {breakReady && !breakBegan ? "BREAK READY" : isVariantItem ? variantHeroAmount : overlayPrice?.amountFormatted ?? "—"}
+            {breakReady && !breakBegan
+              ? "BREAK READY"
+              : isVariantItem
+                ? variantHeroAmount
+                : liveBidAmount ?? overlayPrice?.amountFormatted ?? "—"}
           </p>
           <div className="mt-0.5 flex items-center gap-1">
             {isVariantItem ? (
@@ -419,7 +449,7 @@ export function LiveAuctionHud({
               </span>
             ) : hostAuctionCountdownLabel ? (
               <span
-                className={`font-mono text-[11px] font-black tabular-nums ${
+                className={`font-mono text-[12px] font-black tabular-nums ${
                   timerUrgent
                     ? "live-stage-hud-timer-urgent motion-safe:[animation:live-countdown-pulse_0.7s_ease-in-out_infinite]"
                     : auctionRunning
@@ -438,6 +468,11 @@ export function LiveAuctionHud({
               </span>
             ) : null}
           </div>
+          {auctionRunning && winnerHandle ? (
+            <p className="mt-0.5 hidden truncate text-[9px] font-semibold text-zinc-400 sm:block">
+              High bidder · @{winnerHandle}
+            </p>
+          ) : null}
         </div>
 
         {/* RIGHT — actions */}

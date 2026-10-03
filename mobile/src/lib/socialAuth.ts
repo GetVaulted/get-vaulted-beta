@@ -9,6 +9,7 @@ import {
   mapAppleSignInErrorMessage,
   isGoogleOAuthConfigured,
 } from './authProviderAvailability';
+import { extractOAuthAuthCode } from './extractOAuthAuthCode';
 import { provisionSocialAuthAccount } from './provisionSocialAuthAccount';
 import { ensureSupabaseReady, getSupabase, isSupabaseConfigured } from './supabase';
 import { runSupabaseAuthOp } from './supabaseAuthRetry';
@@ -83,9 +84,19 @@ export async function signInWithGoogleOAuth(): Promise<SocialAuthResult> {
     throw new Error('Google sign-in did not complete. Check redirect URLs in Supabase Auth settings.');
   }
 
-  const { error: exchangeError } = await sb.auth.exchangeCodeForSession(result.url);
+  const authCode = extractOAuthAuthCode(result.url);
+  if (!authCode) {
+    devAuthLog('missing code in callback', result.url.slice(0, 120));
+    throw new Error('Google sign-in did not return an auth code. Please try again.');
+  }
+
+  const { error: exchangeError } = await sb.auth.exchangeCodeForSession(authCode);
   if (exchangeError) {
     devAuthLog('exchange error', exchangeError.message);
+    const msg = exchangeError.message.toLowerCase();
+    if (msg.includes('flow state') || msg.includes('code verifier') || msg.includes('pkce')) {
+      throw new Error('Google sign-in expired or was interrupted. Please try Continue with Google again.');
+    }
     throw exchangeError;
   }
   await provisionSocialAuthAccount();

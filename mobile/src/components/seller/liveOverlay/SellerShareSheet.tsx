@@ -18,7 +18,7 @@ import {
   buildSellerLiveShareOgTitle,
 } from '../../../lib/liveRoomShare';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 type Props = {
   visible: boolean;
@@ -36,7 +36,8 @@ function socialShareUrl(platform: 'x' | 'facebook' | 'sms', url: string, title: 
   const link = encodeURIComponent(url);
   if (platform === 'x') return `https://twitter.com/intent/tweet?text=${text}&url=${link}`;
   if (platform === 'facebook') return `https://www.facebook.com/sharer/sharer.php?u=${link}`;
-  return Platform.OS === 'ios' ? `sms:&body=${text}%20${link}` : `sms:?body=${text}%20${link}`;
+  // Bare URL so iMessage can fetch OG metadata and show a preview tile.
+  return Platform.OS === 'ios' ? `sms:&body=${link}` : `sms:?body=${link}`;
 }
 
 export function SellerShareSheet({ visible, onClose, publicUrl, showTitle, hostUsername, isLive = true, onToast }: Props) {
@@ -70,11 +71,15 @@ export function SellerShareSheet({ visible, onClose, publicUrl, showTitle, hostU
 
   const nativeShare = async () => {
     try {
-      await Share.share({
-        title: shareTitle,
-        message: shareMessage,
-        url: Platform.OS === 'ios' ? publicUrl : undefined,
-      });
+      if (Platform.OS === 'ios') {
+        // URL-only so iMessage can unfurl the OG tile (message text suppresses previews).
+        await Share.share({ url: publicUrl });
+      } else {
+        await Share.share({
+          title: shareTitle,
+          message: shareMessage,
+        });
+      }
       onClose();
     } catch {
       /* dismissed */
@@ -170,13 +175,13 @@ const styles = StyleSheet.create({
   primaryBtn: {
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.35)',
-    backgroundColor: 'rgba(212,175,55,0.12)',
+    borderColor: 'rgba(203,163,92,0.35)',
+    backgroundColor: 'rgba(203,163,92,0.12)',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
     marginBottom: spacing.sm,
   },
-  primaryBtnTxt: { fontSize: 14, fontWeight: '800', color: colors.gold },
+  primaryBtnTxt: { fontSize: 14, fontWeight: '800', color: vaultColors.gold },
   linkHint: { marginTop: 4, fontSize: 11, fontWeight: '600', color: colors.textMuted },
   secondaryBtn: {
     borderRadius: radii.md,

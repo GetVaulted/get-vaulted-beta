@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import type { HostStreamPayload } from '../../../api/liveHostRepository';
 import type { LiveRoomHostDetail } from '../../../api/liveHostRepository';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 import { lc } from './liveConsoleTheme';
 import { AnimatedMetricPill } from './AnimatedMetricPill';
 import { BroadcastStatusPill } from './BroadcastStatusPill';
@@ -119,7 +119,7 @@ export function LiveStreamHero({
 
       {!preview && streamChecking ? (
         <View style={styles.shimmerWrap} pointerEvents="none">
-          <ActivityIndicator color={colors.gold} />
+          <ActivityIndicator color={vaultColors.gold} />
         </View>
       ) : null}
 
@@ -158,7 +158,7 @@ export function LiveStreamHero({
         <View style={styles.ctaRow}>
           {canStart ? (
             <Pressable style={[styles.goLive, busy && styles.disabled]} disabled={busy} onPress={onGoLive}>
-              <LinearGradient colors={['#F0D56A', colors.gold, '#9A7B2C']} style={StyleSheet.absoluteFill} />
+              <LinearGradient colors={['#F4E3B6', vaultColors.gold, '#8A6A34']} style={StyleSheet.absoluteFill} />
               <Ionicons name="radio" size={20} color="#0a0a0a" />
               <Text style={styles.goLiveTxt}>Take the lane</Text>
             </Pressable>

@@ -121,7 +121,7 @@ export function AccountOffersPage() {
           <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">Your offers</h1>
           <p className="mt-1.5 text-sm text-zinc-500">Offers you have sent on listings.</p>
           <div className="mt-4">
-            <AccountOrdersNav active="offers" />
+            <AccountOrdersNav active="offers" mode="seller" />
           </div>
         </header>
 

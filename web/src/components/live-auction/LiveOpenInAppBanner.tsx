@@ -20,7 +20,22 @@ export function LiveOpenInAppBanner({ roomId }: LiveOpenInAppBannerProps) {
     if (!isMobileWebUserAgent(navigator.userAgent)) return;
     if (sessionStorage.getItem(DISMISS_SESSION_KEY) === "1") return;
     setVisible(true);
-  }, []);
+
+    // Soft handoff when Universal Links haven't claimed the URL yet (older installs).
+    // Do not bounce to the store here — that traps users who don't have the app.
+    const alreadyTried = sessionStorage.getItem(`gv-live-open-app-try:${roomId}`) === "1";
+    if (alreadyTried) return;
+    sessionStorage.setItem(`gv-live-open-app-try:${roomId}`, "1");
+    const schemeUrl = liveRoomCustomSchemeUrl(roomId);
+    const timer = window.setTimeout(() => {
+      try {
+        window.location.href = schemeUrl;
+      } catch {
+        /* ignore */
+      }
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [roomId]);
 
   const dismiss = useCallback(() => {
     sessionStorage.setItem(DISMISS_SESSION_KEY, "1");

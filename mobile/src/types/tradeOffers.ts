@@ -39,6 +39,18 @@ export type ListingLite = {
   authentication_status: string;
 };
 
+/** Per-party fee/label/ship/receive progress from web Prisma trades. */
+export type TradePartyFulfillmentVM = {
+  platform_fee_paid_at: string | null;
+  label_url: string | null;
+  tracking_number: string | null;
+  tracking_url: string | null;
+  label_purchased_at: string | null;
+  label_error_message: string | null;
+  shipped_at: string | null;
+  received_at: string | null;
+};
+
 export type TradeOfferVM = {
   id: string;
   status: TradeOfferStatus;
@@ -48,6 +60,15 @@ export type TradeOfferVM = {
   offered_item_ids: string[];
   cash_difference: number;
   message: string | null;
+  /** Linked MessageThread id when trade chat has been opened. */
+  conversation_id: string | null;
+  /** ISO timestamp when on-platform trade cash was paid. */
+  cash_paid_at: string | null;
+  /** Locked deposit amount in cents (straight trades). */
+  security_deposit_cents: number | null;
+  /** Straight-trade security deposit timestamps (proposer / recipient). */
+  proposer_deposit_paid_at: string | null;
+  recipient_deposit_paid_at: string | null;
   trade_fee: number;
   shipping_weight_tier: ShippingWeightTier | null;
   label_error_message: string | null;
@@ -56,6 +77,8 @@ export type TradeOfferVM = {
   recipient: ProfileLite;
   requested: ListingLite;
   offered: ListingLite[];
+  proposer_fulfillment: TradePartyFulfillmentVM | null;
+  recipient_fulfillment: TradePartyFulfillmentVM | null;
 };
 
 export type ShippingLabelVM = {

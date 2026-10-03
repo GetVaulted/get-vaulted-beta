@@ -19,7 +19,7 @@ describe("seller platform fee override", () => {
     ).toBeNull();
   });
 
-  it("clamps override percent to 0–25", () => {
+  it("clamps override percent to 0–6.75", () => {
     expect(
       effectiveSellerPlatformFeePercentOverride({
         percent: 4.5,
@@ -31,7 +31,7 @@ describe("seller platform fee override", () => {
         percent: 99,
         expiresAt: null,
       }),
-    ).toBe(25);
+    ).toBe(6.75);
   });
 
   it("ignores expired overrides", () => {

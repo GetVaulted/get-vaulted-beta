@@ -35,9 +35,10 @@ describe("live-item-variant-presets", () => {
     expect(rows[0]?.isHot).toBe(true);
   });
 
-  it("isVariantSalesFormat covers team break and variant selection", () => {
+  it("isVariantSalesFormat covers team break, variant selection, and player selection", () => {
     expect(isVariantSalesFormat("team_break")).toBe(true);
     expect(isVariantSalesFormat("variant_selection")).toBe(true);
+    expect(isVariantSalesFormat("player_selection")).toBe(true);
     expect(isVariantSalesFormat("auction")).toBe(false);
   });
 
@@ -73,6 +74,8 @@ describe("live-item-variant-presets", () => {
   it("variantBuyerSelectLabel uses division wording for team breaks", () => {
     expect(variantBuyerSelectLabel("team_break")).toBe("Pick Your Division");
     expect(variantBuyerSelectLabel("variant_selection")).toBe("Pick Your Team");
+    expect(variantBuyerSelectLabel("player_selection")).toBe("Pick Your Player");
+    expect(variantBuyerSelectLabel("player_selection", true)).toBe("Random Player");
   });
 
   it("variantClaimPrimaryLabel uses claim wording for pinned breaks", () => {

@@ -6,6 +6,10 @@ export function roomChannel(liveRoomId: string): string {
 
 export const RT_EVENT = {
   chatMessage: 'chat_message',
+  /** Host/mod staff chat — only subscribe when canModerate. */
+  staffChatMessage: 'staff_chat_message',
+  /** Host-observed concurrent viewers — one room-wide number for all clients. */
+  viewerCount: 'viewer_count',
   bidPlaced: 'bid_placed',
   auctionStarted: 'auction_started',
   auctionEnded: 'auction_ended',
@@ -25,6 +29,9 @@ export const RT_EVENT = {
   moderationChanged: 'moderation_changed',
   giveawaysChanged: 'giveaways_changed',
   vaultRevealSpin: 'vault_reveal_spin',
+  sweet16DraftStarted: 'sweet16_draft_started',
+  sweet16DraftPickMade: 'sweet16_draft_pick_made',
+  sweet16DraftComplete: 'sweet16_draft_complete',
 } as const;
 
 export const RT_EVENT_ALIASES = {
@@ -51,6 +58,8 @@ export type RoomBroadcastPayload = {
   emittedAt?: string;
   streamHealth?: string;
   streamMode?: string;
+  /** Host Pause / background pause — buyers must refresh and show Host paused (not Retry). */
+  streamPaused?: boolean;
   winnerUsername?: string | null;
   winnerId?: string | null;
   winningAmountUsd?: number | null;
@@ -63,4 +72,19 @@ export type RoomBroadcastPayload = {
   itemTitle?: string | null;
   failureReason?: string | null;
   randomReveal?: boolean;
+  /** Sweet 16 draft events (see live-sweet16-draft.ts) — kept loose here, narrowed by callers. */
+  turnOrder?: string[];
+  currentTurnIndex?: number | null;
+  currentTurnPurchaseId?: string | null;
+  currentTurnDeadlineAt?: string | null;
+  remainingTeamLabels?: string[];
+  turnSeconds?: number;
+  purchaseId?: string;
+  teamLabel?: string;
+  teamAbbr?: string;
+  turnIndex?: number;
+  autoAssigned?: boolean;
+  nextTurnPurchaseId?: string | null;
+  nextTurnDeadlineAt?: string | null;
+  complete?: boolean;
 };

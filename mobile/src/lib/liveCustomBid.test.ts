@@ -20,4 +20,9 @@ describe('liveCustomBid', () => {
       maxProxyUsd: 25,
     });
   });
+
+  it('defaults custom mode to max/reserve so Exact is opt-in', async () => {
+    const { LIVE_CUSTOM_BID_DEFAULT_MODE } = await import('./liveCustomBid');
+    expect(LIVE_CUSTOM_BID_DEFAULT_MODE).toBe('reserve');
+  });
 });

@@ -31,6 +31,13 @@ export function SellerOrderDetailLabelSection(props: SellerOrderDetailLabelSecti
   const canCreateLabel = fulfillmentAllowed && !hasLabel;
 
   const createLabel = async (labelFormat: SellerLabelPrintFormat) => {
+    if (
+      !window.confirm(
+        "Purchase a Get Vaulted shipping label? The carrier cost will be deducted from your payout. If you ship with your own carrier instead, you keep the shipping you collected and pay that carrier yourself.",
+      )
+    ) {
+      return;
+    }
     setLabelError(null);
     setLabelBusy(true);
     try {
@@ -75,7 +82,7 @@ export function SellerOrderDetailLabelSection(props: SellerOrderDetailLabelSecti
   const regenerateLabel = async () => {
     if (
       !window.confirm(
-        "Purchase a new shipping label? Shippo may charge again if the original label cannot be recovered.",
+        "Purchase a new shipping label? The new carrier cost will be deducted from your payout again if Shippo charges for a replacement label.",
       )
     ) {
       return;

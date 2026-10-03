@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { LIVE_BUNDLED_SHIPPING_DESTINATION_KEY } from "@/services/shipping/live-shipping-pricing";
 import {
   buyerLiveShowShippingHudCopy,
+  PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS,
+  resolveLiveShowShippingCapCents,
   shippingModeFromRoomFlags,
 } from "@/lib/live-show-shipping-terms";
 import {
@@ -14,23 +16,34 @@ import {
 } from "@/services/shipping/live-shipping-pool";
 
 export type BuyerLiveShippingSessionApi = {
+  /** Shipping already charged to the buyer this show (not a re-estimated pool total). */
   shippingCostCents: number;
   pricingWeightOz: number;
   capReached: boolean;
   nextIncrementalCostCents: number | null;
   tierLabel: string | null;
-  /** Show-level buyer shipping cap (cents), when enabled. */
+  /** Effective buyer shipping cap (cents) for this show — always ≤ platform max when not free. */
   shippingCapCents: number | null;
   freeShippingEnabled: boolean;
   shippingMode: "calculated" | "capped" | "free";
   showShippingHudCopy: string;
   packageCount: number;
-  /** Preview: if buyer wins `previewItemId`, shipping adds this much. */
+  /** Preview: if buyer wins `previewItemId`, shipping adds this much (0 after cap). */
   previewWinDeltaCents: number | null;
   previewRequiresSeparatePackage: boolean;
 };
 
-type Db = Pick<PrismaClient, "liveRoom" | "liveRoomItem" | "liveShippingSession" | "liveShippingSessionItem" | "platformShippingProfile" | "sellerShippingProfile">;
+type Db = Pick<
+  PrismaClient,
+  | "liveRoom"
+  | "liveRoomItem"
+  | "liveShippingSession"
+  | "liveShippingSessionItem"
+  | "liveAuctionInventoryHold"
+  | "platformShippingProfile"
+  | "sellerShippingProfile"
+  | "listing"
+>;
 
 /**
  * Bundled live shipping pool for buyer UX (read-only).
@@ -61,7 +74,9 @@ export async function getBuyerBundledLiveShippingSessionUx(
 
   const shippingMode = shippingModeFromRoomFlags(room);
   const showConfig = liveShowShippingConfigFromRoom(room);
-  const capCents = shippingMode === "capped" ? room.shippingCapCents : null;
+  // Platform max always applies (even in calculated mode) so buyers never see phantom add-ons past $9.99.
+  const capCents =
+    shippingMode === "free" ? null : resolveLiveShowShippingCapCents(room.shippingCapCents);
   const hudCopy = buyerLiveShowShippingHudCopy({ mode: shippingMode, capCents: room.shippingCapCents });
 
   const emptyPayload = (): BuyerLiveShippingSessionApi => ({
@@ -102,16 +117,22 @@ export async function getBuyerBundledLiveShippingSessionUx(
   }
 
   const alreadyChargedCents = Math.max(0, session?.shippingChargedCents ?? 0);
+  const platformMax = PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS;
+  const effectiveCap = capCents ?? platformMax;
   const capReachedEffective =
+    shippingMode === "free" ||
     pool.capReached ||
     session?.capReached === true ||
-    (capCents != null && capCents > 0 && alreadyChargedCents >= capCents);
+    (effectiveCap > 0 && alreadyChargedCents >= effectiveCap) ||
+    alreadyChargedCents >= platformMax;
 
   const previewItemId = opts?.previewLiveRoomItemId?.trim();
   let previewWinDeltaCents: number | null = null;
   let previewRequiresSeparatePackage = false;
 
-  if (previewItemId) {
+  if (capReachedEffective) {
+    previewWinDeltaCents = 0;
+  } else if (previewItemId) {
     try {
       previewWinDeltaCents = await estimateWinItemShippingDeltaCents({
         buyerId,
@@ -129,7 +150,7 @@ export async function getBuyerBundledLiveShippingSessionUx(
       });
       previewWinDeltaCents = null;
     }
-  } else if (!capReachedEffective && session) {
+  } else if (session) {
     const lastItem = await db.liveShippingSessionItem.findFirst({
       where: { sessionId: session.id },
       orderBy: { createdAt: "desc" },
@@ -154,6 +175,7 @@ export async function getBuyerBundledLiveShippingSessionUx(
 
   if (capReachedEffective) {
     previewWinDeltaCents = 0;
+    previewRequiresSeparatePackage = false;
   }
 
   const packageLabel =
@@ -162,7 +184,8 @@ export async function getBuyerBundledLiveShippingSessionUx(
       : `${pool.packageCount} packages`;
 
   return {
-    shippingCostCents: Math.max(pool.buyerTotalCents, alreadyChargedCents),
+    // Show what the buyer already paid — never an inflated re-estimate that looks like extra shipping.
+    shippingCostCents: alreadyChargedCents,
     pricingWeightOz: pool.pricingWeightOz,
     capReached: capReachedEffective,
     nextIncrementalCostCents: previewWinDeltaCents,
@@ -170,7 +193,7 @@ export async function getBuyerBundledLiveShippingSessionUx(
     shippingCapCents: capCents,
     freeShippingEnabled: room.freeShippingEnabled,
     shippingMode,
-    showShippingHudCopy: hudCopy,
+    showShippingHudCopy: capReachedEffective ? "Free shipping" : hudCopy,
     packageCount: pool.packageCount,
     previewWinDeltaCents,
     previewRequiresSeparatePackage,

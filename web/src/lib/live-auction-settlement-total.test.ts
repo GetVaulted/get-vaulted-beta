@@ -8,7 +8,7 @@ describe("live-auction-settlement-total", () => {
         winningBidUsd: 50,
         shippingUsd: 5.99,
         taxUsd: 0,
-        shippingCapCents: 1199,
+        shippingCapCents: 999,
       }),
     ).toMatchObject({
       subtotalUsd: 50,

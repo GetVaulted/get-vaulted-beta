@@ -30,7 +30,7 @@ const FALLBACK_PREVIEW =
   'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&h=1500&q=80&auto=format&fit=crop';
 
 function profileToHost(id: string, p?: ProfileRow): Host {
-  const name = p?.display_name?.trim() || p?.username?.trim() || 'Host';
+  const name = p?.username?.trim() || p?.display_name?.trim() || 'Host';
   const handle = p?.username?.trim() ? `@${p.username.trim()}` : '@host';
   return {
     id,
@@ -78,7 +78,7 @@ function showToLiveStream(row: ShowRow, host?: ProfileRow): LiveStream {
     chat: emptyChat,
     recentBids: emptyBids,
     highlightsCount: 0,
-    showDescription: row.description?.trim() || 'Show notes will appear when the host publishes them.',
+    showDescription: row.description?.trim() || 'Live on Get Vaulted.',
     categoryTags: tags,
     engagementLine: '',
     discoveryTags: tags,
