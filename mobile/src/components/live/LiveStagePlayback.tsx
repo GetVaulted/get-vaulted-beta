@@ -496,6 +496,9 @@ export function LiveStagePlayback({
     }
   };
 
+  // URL currently loaded into the HLS player while the HLS surface has stayed attached.
+  const hlsLoadedUrlRef = useRef<string | null>(null);
+
   const safeVideoPlay = useCallback((target: VideoPlayer) => {
     try {
       target.play();
@@ -505,12 +508,24 @@ export function LiveStagePlayback({
     }
   }, [roomId]);
 
+  // Latest-wins token so an older async load can't start playback after a newer one was requested.
+  const videoReplaceSeqRef = useRef(0);
   const safeVideoReplace = useCallback(
     (target: VideoPlayer, url: string) => {
+      const seq = (videoReplaceSeqRef.current += 1);
       try {
-        target.replace(url);
-        viewerLifecycleLog('source_loaded', { roomId, transport: 'hls', playbackUrl: url });
-        safeVideoPlay(target);
+        // `replace` loads the asset on the main thread on iOS (Expo logs a UI-freeze warning for
+        // it ~5k times a day). `replaceAsync` loads off the main thread.
+        void target
+          .replaceAsync(url)
+          .then(() => {
+            if (seq !== videoReplaceSeqRef.current) return;
+            viewerLifecycleLog('source_loaded', { roomId, transport: 'hls', playbackUrl: url });
+            safeVideoPlay(target);
+          })
+          .catch(() => {
+            /* player may be released during pager unmount */
+          });
       } catch {
         /* ignore */
       }
@@ -765,7 +780,10 @@ export function LiveStagePlayback({
   // equivalent of tearing down the surface. When this slide becomes the active HLS surface again,
   // the muted + safeVideoReplace effects above restore the correct state and resume playback.
   useEffect(() => {
-    if (attachHls) return;
+    if (attachHls) {
+      return;
+    }
+    hlsLoadedUrlRef.current = null;
     try {
       player.pause();
       player.muted = true;
@@ -777,9 +795,17 @@ export function LiveStagePlayback({
   // Load + play whenever HLS is attachable (includes re-entry after playbackMode off→active).
   useEffect(() => {
     if (!attachHls || !playbackUrl) return;
+    // Already loaded this exact URL and the HLS surface stayed attached the whole time (for example
+    // only the foreground flag flipped): don't tear the stream down and reload it, just make sure
+    // it is playing. Reloading here caused a visible stall + main-thread work on every flip.
+    if (hlsLoadedUrlRef.current === playbackUrl && player.status !== 'error') {
+      safeVideoPlay(player);
+      return;
+    }
+    hlsLoadedUrlRef.current = playbackUrl;
     viewerLifecycleLog('player_created', { roomId, transport: 'hls', foreground: isForeground });
     safeVideoReplace(player, playbackUrl);
-  }, [attachHls, isForeground, playbackUrl, player, roomId, safeVideoReplace]);
+  }, [attachHls, isForeground, playbackUrl, player, roomId, safeVideoPlay, safeVideoReplace]);
 
   useEffect(() => {
     const clearSuspendTimer = () => {

@@ -16,6 +16,43 @@ import * as Sentry from '@sentry/react-native';
  */
 const WARN_EVENT_PATTERN = /fail|error|unsupported|dismiss/i;
 
+/**
+ * High-frequency events (player ticks, every stream poll). In production these were ~500k Sentry
+ * log calls per day — each one runs sanitize + a native bridge hop on the JS thread while a buyer
+ * is watching. Keep the trail searchable but cap each (event, room) pair to one entry per window.
+ * Errors, joins/leaves, PiP and teardown events are NOT in this set and always send.
+ */
+const NOISY_EVENT_MIN_INTERVAL_MS = 20_000;
+const NOISY_EVENTS = new Set([
+  'player_state_changed',
+  'player_playing_change',
+  'playback_url_received',
+  'viewer_playback_plan',
+  'source_loaded',
+  'play_called',
+  'stage_participants_changed',
+  'screen_blurred',
+  'screen_focused',
+  'pip_retry_no_view',
+]);
+const noisyLastSentAt = new Map<string, number>();
+
+function shouldSendToSentry(event: string, detail?: Record<string, unknown>): boolean {
+  if (!NOISY_EVENTS.has(event)) return true;
+  const room = detail && (detail.roomId ?? detail.showId);
+  const key = `${event}:${typeof room === 'string' ? room : ''}`;
+  const now = Date.now();
+  const last = noisyLastSentAt.get(key);
+  if (last != null && now - last < NOISY_EVENT_MIN_INTERVAL_MS) return false;
+  noisyLastSentAt.set(key, now);
+  if (noisyLastSentAt.size > 500) {
+    for (const [k, t] of noisyLastSentAt) {
+      if (now - t > NOISY_EVENT_MIN_INTERVAL_MS) noisyLastSentAt.delete(k);
+    }
+  }
+  return true;
+}
+
 function sanitizeDetail(detail?: Record<string, unknown>): Record<string, string | number | boolean> | undefined {
   if (!detail) return undefined;
   const out: Record<string, string | number | boolean> = {};
@@ -37,6 +74,8 @@ export function viewerLifecycleLog(event: string, detail?: Record<string, unknow
       console.log(`[ViewerLifecycle] ${event}`);
     }
   }
+
+  if (!shouldSendToSentry(event, detail)) return;
 
   try {
     const attributes = { event, ...sanitizeDetail(detail) };
