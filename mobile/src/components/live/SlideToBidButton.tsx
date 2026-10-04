@@ -7,6 +7,7 @@ import Animated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withSequence,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
@@ -15,8 +16,15 @@ import { vaultColors } from '../../theme/vaultColors';
 import { vaultFonts } from '../../theme/vaultTypography';
 import { LiveRoomText } from './LiveRoomText';
 
-/** Swipe must cross this fraction of the track to commit; short of it snaps back. */
-const COMMIT_THRESHOLD = 0.82;
+/** Swipe must cross this fraction of the track to commit; short of it snaps back.
+ * Was 0.82 — logs showed ~85% of slide attempts snapping back (buyers stopping short or drifting
+ * off-axis), which read to buyers as "it won't let me bid". */
+const COMMIT_THRESHOLD = 0.62;
+/** A quick rightward flick commits even when it hasn't travelled the full threshold. */
+const FLING_MIN_PROGRESS = 0.3;
+const FLING_MIN_VELOCITY_X = 700;
+/** A touch that barely moves is a tap, not a slide — nudge the handle to show how it works. */
+const TAP_NUDGE_MAX_PROGRESS = 0.12;
 const THUMB_SIZE = 40;
 const THUMB_SIZE_COMPACT = 26;
 const TRACK_INSET = 3;
@@ -63,11 +71,19 @@ export function SlideToBidButton({
 
   const showProcessing = busy && !disabled;
 
-  const snapBack = useCallback((reason: string) => {
+  const snapBack = useCallback((reason: string, progress?: number) => {
     committedRef.current = false;
-    logBidControl('reset', { reason });
+    logBidControl('reset', {
+      reason,
+      ...(typeof progress === 'number' ? { progress: Math.round(progress * 100) / 100 } : {}),
+    });
     translateX.value = withSpring(0, { damping: 20, stiffness: 220 });
   }, [translateX]);
+
+  // Log-only (does not reset translateX, which would cancel the nudge animation).
+  const logTapNudge = useCallback((progress: number) => {
+    logBidControl('reset', { reason: 'tap_nudge', progress: Math.round(progress * 100) / 100 });
+  }, []);
 
   // Disabled/busy can flip out from under an in-progress or resting drag (e.g. bid ACK lands,
   // or the lot closes) — always snap the handle back to the start in that case.
@@ -108,7 +124,9 @@ export function SlideToBidButton({
     // that ancestor gesture reaches its own threshold. failOffsetY cedes fast on a mostly-vertical
     // touch, which this control never needs anyway.
     .activeOffsetX([-8, 8])
-    .failOffsetY([-14, 14])
+    // Was ±14px: a slightly diagonal thumb path failed the slide (and handed the touch to the
+    // vertical pager). A bid slide drifts vertically more than that on a real phone.
+    .failOffsetY([-28, 28])
     .onBegin(() => {
       'worklet';
       dragStartX.value = translateX.value;
@@ -121,19 +139,27 @@ export function SlideToBidButton({
       const next = dragStartX.value + e.translationX;
       translateX.value = Math.min(Math.max(next, 0), maxTranslate);
     })
-    .onEnd(() => {
+    .onEnd((e) => {
       'worklet';
       if (!gateOk.value) {
         translateX.value = withSpring(0, { damping: 20, stiffness: 220 });
         return;
       }
       const progress = maxTranslate > 0 ? translateX.value / maxTranslate : 0;
-      if (progress >= COMMIT_THRESHOLD) {
+      const flung = progress >= FLING_MIN_PROGRESS && e.velocityX >= FLING_MIN_VELOCITY_X;
+      if (progress >= COMMIT_THRESHOLD || flung) {
         translateX.value = withTiming(maxTranslate, { duration: 120 });
         runOnJS(commit)();
+      } else if (progress < TAP_NUDGE_MAX_PROGRESS && maxTranslate > 0) {
+        // Tapped instead of slid: hint the direction, then settle back.
+        translateX.value = withSequence(
+          withTiming(Math.min(maxTranslate * 0.35, 56), { duration: 170 }),
+          withSpring(0, { damping: 18, stiffness: 200 }),
+        );
+        runOnJS(logTapNudge)(progress);
       } else {
         translateX.value = withSpring(0, { damping: 20, stiffness: 220 });
-        runOnJS(snapBack)('release_early');
+        runOnJS(snapBack)('release_early', progress);
       }
     });
 
