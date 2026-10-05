@@ -3,6 +3,7 @@ import { Prisma } from "@/generated/prisma/client";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { prisma } from "@/lib/prisma";
 import { NFL_TEAMS_PRESET } from "@/lib/live-item-variant-presets";
+import { countBlockingPendingPayments, resolveViewerPurchaseId } from "@/lib/live-sweet16-draft-logic";
 import {
   emitSweet16DraftComplete,
   emitSweet16DraftPickMade,
@@ -101,11 +102,17 @@ async function toDraftDto(
   }
   let viewerPurchaseId: string | null = null;
   if (viewerUserId) {
-    const viewerPurchase = await db.liveItemVariantPurchase.findFirst({
+    // A buyer can own several slots, each with its own turn -- resolve against the current turn
+    // instead of taking an arbitrary one (see resolveViewerPurchaseId).
+    const viewerPurchases = await db.liveItemVariantPurchase.findMany({
       where: { liveRoomItemId: draft.liveRoomItemId, buyerId: viewerUserId, paymentStatus: "paid" },
       select: { id: true },
+      orderBy: { id: "asc" },
     });
-    viewerPurchaseId = viewerPurchase?.id ?? null;
+    viewerPurchaseId = resolveViewerPurchaseId(
+      viewerPurchases.map((p) => p.id),
+      draft.currentTurnPurchaseId,
+    );
   }
   return {
     itemId: draft.liveRoomItemId,
@@ -187,6 +194,27 @@ export async function startSweet16Draft(args: { liveRoomId: string; itemId: stri
   }
 
   const variantIds = item.variants.map((v) => v.id);
+
+  // The board reads "sold out" once stock is reserved, but only paid purchases get a turn. Don't
+  // start while a checkout is still in flight, or that buyer would be left out of the draft.
+  const pendingRows = await prisma.liveItemVariantPurchase.findMany({
+    where: { variantId: { in: variantIds }, paymentStatus: "pending_payment" },
+    select: { paymentStatus: true, createdAt: true },
+  });
+  const pendingCount = countBlockingPendingPayments(
+    pendingRows.map((r) => ({ paymentStatus: r.paymentStatus, createdAtMs: r.createdAt.getTime() })),
+    Date.now(),
+  );
+  if (pendingCount > 0) {
+    throw new Sweet16Error(
+      "PAYMENTS_PENDING",
+      pendingCount === 1
+        ? "One buyer is still completing payment. Try again in a moment."
+        : `${pendingCount} buyers are still completing payment. Try again in a moment.`,
+      409,
+    );
+  }
+
   const paidPurchases = await prisma.liveItemVariantPurchase.findMany({
     where: { variantId: { in: variantIds }, paymentStatus: "paid" },
     select: { id: true, variantId: true },
@@ -349,14 +377,16 @@ export async function makeSweet16DraftPick(args: {
     throw new Sweet16Error("TURN_EXPIRED", "Your turn timed out.", 409);
   }
 
-  const purchase = await prisma.liveItemVariantPurchase.findFirst({
+  const ownedPurchases = await prisma.liveItemVariantPurchase.findMany({
     where: { liveRoomItemId: args.itemId, buyerId: args.buyerUserId, paymentStatus: "paid" },
     select: { id: true },
   });
-  if (!purchase) {
+  if (ownedPurchases.length === 0) {
     throw new Sweet16Error("NOT_A_PARTICIPANT", "You don't have a paid slot in this break.", 403);
   }
-  if (purchase.id !== draft.currentTurnPurchaseId) {
+  // A buyer can own several slots; the pick counts for whichever of theirs is up now.
+  const purchase = ownedPurchases.find((p) => p.id === draft.currentTurnPurchaseId);
+  if (!purchase) {
     throw new Sweet16Error("NOT_YOUR_TURN", "It's not your turn yet.", 409);
   }
 
