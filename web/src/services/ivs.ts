@@ -26,6 +26,10 @@ import {
   StopCompositionCommand,
 } from "@aws-sdk/client-ivs-realtime";
 import { decideCompositionHealAction } from "@/lib/live-composition-heal";
+import {
+  COMPOSITION_IDLE_STOP_MS,
+  decideOrphanCompositionStop,
+} from "@/lib/live-composition-cleanup-decision";
 import { IVS_WHIP_SERVER_URL, isIvsWhipIngestEndpoint } from "@/lib/ivs-whip-ingest";
 import type { LiveStreamHealth } from "@/generated/prisma/client";
 import { logIvsOpsServer, type IvsStreamHealthOpSource } from "@/lib/ivs-ops-log";
@@ -1688,15 +1692,7 @@ export async function deleteRoomStage(roomId: string): Promise<void> {
  * using it, so DB/AWS drift of any kind self-heals within one sweep interval.
  */
 
-/** Stage idle this long with no fresh session → its composition is almost certainly orphaned. */
-const COMPOSITION_IDLE_STOP_MS = 10 * 60_000;
-/**
- * Backstop for a composition AWS no longer shows an active session for, but that hasn't tripped
- * the idle-for-10-minutes check yet (e.g. ListStageSessions returning no history at all). This
- * NEVER applies while GetStage still reports an active session -- a real, currently-live show is
- * never cut off by this, no matter how long it runs.
- */
-const COMPOSITION_HARD_CAP_MS = 8 * 60 * 60_000;
+// Thresholds + the stop/keep decision live in "@/lib/live-composition-cleanup-decision" (unit tested).
 
 export type IvsCompositionCleanupSummary = {
   scanned: number;
@@ -1772,15 +1768,22 @@ export async function cleanupOrphanedIvsCompositions(): Promise<IvsCompositionCl
       const ageMs = comp.startTime ? now - new Date(comp.startTime).getTime() : 0;
       const activity = await getStageActivity(client, comp.stageArn, now);
 
-      // A real, currently-attached session means someone is actually on stage right now -- never
-      // force-stop on age alone. The hard cap only ever fires for a composition AWS no longer
-      // shows an active session for (it's the backstop for "idle but somehow not idle long enough
-      // yet to trip the 10-minute check", not a kill switch on show length).
-      if (activity.hasActiveSession) continue;
-
-      const idleLongEnough = activity.idleForMs === null || activity.idleForMs >= COMPOSITION_IDLE_STOP_MS;
-      const overHardCap = ageMs >= COMPOSITION_HARD_CAP_MS;
-      if (!idleLongEnough && !overHardCap) continue;
+      // A live show with a real attached session is never cut off. But when our own record says
+      // every room on this composition/stage has ENDED (or no room points at it at all), the
+      // composition is stopped even if the Stage still shows a zombie session -- otherwise a host
+      // app that keeps publishing after "end show" keeps the ~$2.30/hr composition running.
+      const roomRows = await prisma.liveRoom.findMany({
+        where: { OR: [{ ivsCompositionArn: comp.arn }, { ivsStageArn: comp.stageArn }] },
+        select: { status: true, endedAt: true },
+      });
+      const decision = decideOrphanCompositionStop({
+        ageMs,
+        nowMs: now,
+        hasActiveSession: activity.hasActiveSession,
+        idleForMs: activity.idleForMs,
+        rooms: roomRows.map((r) => ({ status: r.status, endedAtMs: r.endedAt ? r.endedAt.getTime() : null })),
+      });
+      if (!decision.stop) continue;
 
       await client.send(new StopCompositionCommand({ arn: comp.arn })).catch(() => {
         /** Already stopped/expired between the list call and here -- treat as success. */
@@ -1789,7 +1792,7 @@ export async function cleanupOrphanedIvsCompositions(): Promise<IvsCompositionCl
       summary.stoppedArns.push(comp.arn);
       logIvsOpsServer("ivs_composition_cleanup_stopped", {
         compositionArnLen: comp.arn.length,
-        reason: idleLongEnough ? "idle_stage" : "hard_cap_no_active_session",
+        reason: decision.reason,
         ageMs,
       });
 
