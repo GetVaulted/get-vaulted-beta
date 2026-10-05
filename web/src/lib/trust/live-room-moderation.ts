@@ -245,11 +245,15 @@ export async function getLiveRoomModeratorContext(args: {
   liveRoomId: string;
   userId: string;
   isAdmin?: boolean;
+  /** Pass the room's `sellerId` when the caller already loaded the room (saves a query per call). */
+  room?: { sellerId: string } | null;
 }): Promise<LiveRoomModeratorContext> {
-  const room = await prisma.liveRoom.findUnique({
-    where: { id: args.liveRoomId },
-    select: { sellerId: true },
-  });
+  const room =
+    args.room ??
+    (await prisma.liveRoom.findUnique({
+      where: { id: args.liveRoomId },
+      select: { sellerId: true },
+    }));
   if (!room) {
     return {
       isHost: false,
@@ -318,12 +322,16 @@ async function isSellerStreamBanned(args: {
 export async function getLiveRoomUserRestrictions(args: {
   liveRoomId: string;
   userId: string;
+  /** Pass the room's `sellerId` when the caller already loaded the room (saves a query per call). */
+  room?: { sellerId: string } | null;
 }): Promise<LiveRoomUserRestrictions> {
   const now = new Date();
-  const room = await prisma.liveRoom.findUnique({
-    where: { id: args.liveRoomId },
-    select: { sellerId: true },
-  });
+  const room =
+    args.room ??
+    (await prisma.liveRoom.findUnique({
+      where: { id: args.liveRoomId },
+      select: { sellerId: true },
+    }));
   if (!room) {
     return { muted: false, roomBanned: false, bidBlocked: false, kickedUntil: null, sellerStreamBanned: false };
   }

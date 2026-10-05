@@ -197,7 +197,6 @@ export function LiveAuctionChat({
     [messages, mod.canModerate],
   );
   const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [staffOnly, setStaffOnly] = useState(false);
 
@@ -235,7 +234,7 @@ export function LiveAuctionChat({
     const text = draft.trim();
     if (!text || status !== "authenticated" || !session?.user?.id) return;
     const asStaff = staffOnly && mod.canModerate;
-    const pendingId = `pending:${Date.now()}`;
+    const pendingId = `pending:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const senderUsername = session.user.username?.trim() || session.user.name?.trim() || "You";
     const optimistic: LiveRoomMessageDTO = {
       id: pendingId,
@@ -248,7 +247,6 @@ export function LiveAuctionChat({
       createdAt: new Date().toISOString(),
       mentions: [],
     };
-    setSending(true);
     setSendError(null);
     setDraft("");
     onMessagesChange((prev) => appendLiveRoomMessageDedupe(prev, optimistic));
@@ -264,7 +262,7 @@ export function LiveAuctionChat({
         setSendError(err);
         mod.handleRestrictionError(err);
         onMessagesChange((prev) => prev.filter((m) => m.id !== pendingId));
-        setDraft(text);
+        setDraft((cur) => (cur.trim() ? cur : text));
         return;
       }
       if (j.message) {
@@ -279,10 +277,12 @@ export function LiveAuctionChat({
       } else {
         onMessagesChange((prev) => prev.filter((m) => m.id !== pendingId));
         setSendError("Message could not be sent.");
-        setDraft(text);
+        setDraft((cur) => (cur.trim() ? cur : text));
       }
-    } finally {
-      setSending(false);
+    } catch {
+      onMessagesChange((prev) => prev.filter((m) => m.id !== pendingId));
+      setSendError("Message could not be sent. Check your connection.");
+      setDraft((cur) => (cur.trim() ? cur : text));
     }
   }, [draft, liveRoomId, mod, onMessagesChange, session?.user, staffOnly, status]);
 
@@ -489,7 +489,7 @@ export function LiveAuctionChat({
                   <button
                     data-testid="live-chat-send"
                     type="button"
-                    disabled={sending || !draft.trim()}
+                    disabled={!draft.trim()}
                     onClick={() => void send()}
                     className="inline-flex h-8 shrink-0 items-center justify-center self-center rounded-full bg-[#facc15] px-3 text-[10px] font-black uppercase leading-none tracking-wide text-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.94] disabled:opacity-50 motion-reduce:active:scale-100 max-[380px]:h-7 max-[380px]:px-2.5 max-[380px]:text-[9px]"
                   >
@@ -665,11 +665,11 @@ export function LiveAuctionChat({
               <button
                 data-testid="live-chat-send"
                 type="button"
-                disabled={sending || !draft.trim()}
+                disabled={!draft.trim()}
                 onClick={() => void send()}
                 className={`inline-flex h-9 shrink-0 items-center justify-center rounded-xl bg-[#facc15] font-black uppercase tracking-wide text-zinc-950 transition hover:bg-[#fde047] disabled:opacity-50 ${compact ? "px-5 text-xs" : "px-7 text-sm"}`}
               >
-                {sending ? "Sending…" : "Send"}
+                Send
               </button>
             </div>
             {sendError ? <p className="mt-2 text-center text-[11px] font-medium text-rose-300">{sendError}</p> : null}
