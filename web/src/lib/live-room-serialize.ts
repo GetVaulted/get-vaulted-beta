@@ -86,7 +86,7 @@ export type LiveRoomItemDTO = {
   /** True = sudden death (no timer extension on bids). */
   clutchTimeEnabled: boolean;
   salesFormat: LiveItemSalesFormat;
-  variantAssignmentMode: "pick" | "random";
+  variantAssignmentMode: "pick" | "random" | "draft";
   variants: LiveItemVariantDTO[];
   /** Paid random-reveal assignments (team/division label → buyer). */
   randomSpotClaims?: { label: string; buyerUsername: string }[];
@@ -257,7 +257,7 @@ export function serializeLiveRoomItem(
     auctionEndsAt?: Date | null;
     clutchTimeEnabled?: unknown;
     salesFormat?: LiveItemSalesFormat;
-    variantAssignmentMode?: "pick" | "random";
+    variantAssignmentMode?: "pick" | "random" | "draft";
     variants?: LiveRoomItemVariantRow[];
     variantBreakReadyAt?: Date | null;
     variantBreakBeganAt?: Date | null;
@@ -271,7 +271,10 @@ export function serializeLiveRoomItem(
   const clutchTimeEnabled = ext.clutchTimeEnabled === true;
   const lastHighBidderId =
     typeof row.lastHighBidderId === "string" && row.lastHighBidderId.trim() ? row.lastHighBidderId.trim() : null;
-  const variantAssignmentMode = ext.variantAssignmentMode === "random" ? "random" : "pick";
+  // Keep "draft" (Sweet 16): collapsing it to "pick" hid the draft from every client -- the host's
+  // Start Draft button and the buyers' draft sheet both key off this value.
+  const variantAssignmentMode: "pick" | "random" | "draft" =
+    ext.variantAssignmentMode === "random" || ext.variantAssignmentMode === "draft" ? ext.variantAssignmentMode : "pick";
   const variants = serializeLiveItemVariants(ext.variants);
   const variantBreakReadyAt =
     ext.variantBreakReadyAt instanceof Date && !Number.isNaN(ext.variantBreakReadyAt.getTime())

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import * as Haptics from 'expo-haptics';
 import {
   ActivityIndicator,
   Alert,
@@ -92,6 +93,19 @@ export function LiveSweet16DraftSheet({
   const isMyTurn = Boolean(
     draft?.viewerPurchaseId && draft.currentTurnPurchaseId && draft.viewerPurchaseId === draft.currentTurnPurchaseId,
   );
+  // Buzz once per turn that is mine (a multi-slot buyer gets one per slot), so a buyer who is
+  // looking at the stream rather than the sheet still notices the 60-second clock starting.
+  const buzzedTurnRef = useRef<string | null>(null);
+  useEffect(() => {
+    const turnId = draft?.status === 'in_progress' && isMyTurn ? draft.currentTurnPurchaseId : null;
+    if (!turnId) {
+      buzzedTurnRef.current = null;
+      return;
+    }
+    if (buzzedTurnRef.current === turnId) return;
+    buzzedTurnRef.current = turnId;
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+  }, [draft?.status, draft?.currentTurnPurchaseId, isMyTurn]);
   const deadlineMs = draft?.currentTurnDeadlineAt ? new Date(draft.currentTurnDeadlineAt).getTime() : null;
   const remainingMs = deadlineMs != null ? deadlineMs - nowMs : null;
 

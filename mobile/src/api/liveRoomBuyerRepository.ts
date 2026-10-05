@@ -167,6 +167,11 @@ function parseSalesFormat(raw: unknown): LiveItemSalesFormat | null {
   return null;
 }
 
+/** Keep `draft` (Sweet 16) intact -- collapsing it to `pick` hid the draft sheet from buyers. */
+function parseVariantAssignmentMode(raw: unknown): 'pick' | 'random' | 'draft' {
+  return raw === 'random' || raw === 'draft' ? raw : 'pick';
+}
+
 function parseVariantSnapshots(raw: unknown): LiveItemVariantSnapshot[] {
   if (!Array.isArray(raw)) return [];
   const out: LiveItemVariantSnapshot[] = [];
@@ -269,7 +274,7 @@ function parseRoomLineupItems(raw: unknown): Parameters<typeof projectBuyerQueue
       salesFormat: typeof o.salesFormat === 'string' ? o.salesFormat : 'auction',
       listingId: typeof o.listingId === 'string' ? o.listingId : null,
       variants: parseVariantSnapshots(o.variants),
-      variantAssignmentMode: o.variantAssignmentMode === 'random' ? 'random' : 'pick',
+      variantAssignmentMode: parseVariantAssignmentMode(o.variantAssignmentMode),
       createdAt: typeof o.createdAt === 'string' ? o.createdAt : undefined,
     });
   }
@@ -398,7 +403,7 @@ export async function fetchLiveRoomBuyerSnapshot(
     activeItemSalesFormat: activeSalesFormat,
     activeItemListingId: typeof active?.listingId === 'string' ? active.listingId.trim() || null : null,
     activeItemVariantAssignmentMode:
-      active?.variantAssignmentMode === 'random' ? 'random' : active ? 'pick' : null,
+      active ? parseVariantAssignmentMode(active.variantAssignmentMode) : null,
     activeItemVariants: activeVariants.length > 0 ? activeVariants : undefined,
     activeSpotCommerceMode:
       active?.activeSpotCommerceMode === 'auction' || active?.activeSpotCommerceMode === 'fixed'
