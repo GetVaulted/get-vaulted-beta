@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { LiveAuctionRoom } from "@/components/live-auction/LiveAuctionRoom";
 import { LiveSaleRoom } from "@/components/live-auction/LiveSaleRoom";
+import { LiveSweet16Draft } from "@/components/live-auction/LiveSweet16Draft";
 import { useRealtimeRoomPresence } from "@/hooks/useRealtimeRoomPresence";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
@@ -1123,6 +1124,13 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           viewerUsername={session?.user?.username}
           viewerUserId={session?.user?.id}
         />
+        <LiveSweet16Draft
+          liveRoomId={detail.id}
+          items={detail.items}
+          isHost={isHostViewer}
+          roomEnded={detail.status === "ended"}
+          onDraftComplete={() => void load()}
+        />
         {paymentBlocker}
         <LivePremiumWalletSheet
           open={premiumWalletOpen}
@@ -1185,6 +1193,13 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         onDismiss={() => setVaultRevealSpin(null)}
         viewerUsername={session?.user?.username}
         viewerUserId={session?.user?.id}
+      />
+      <LiveSweet16Draft
+        liveRoomId={detail.id}
+        items={detail.items}
+        isHost={isHostViewer}
+        roomEnded={detail.status === "ended"}
+        onDraftComplete={() => void load()}
       />
       {paymentBlocker}
       <LivePremiumWalletSheet
