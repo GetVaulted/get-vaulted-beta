@@ -1012,25 +1012,22 @@ function LiveSlide({
     }
     if (slowMode.chatBlocked) return;
     const t = chatDraft.trim();
-    if (!t || liveChat.sending) return;
+    if (!t) return;
     chatComposerRef.current?.dismissSuggestions();
     setChatSendError(null);
-    // Keep draft until the server confirms — clearing then restoring on failure looked like
-    // "message bounced back" and buyers mashed Send.
+    // iMessage feel: the draft clears and the bubble appears instantly, the keyboard stays up for
+    // the next message, and sends are never blocked by one still in flight. The draft is only put
+    // back (if the box is still empty) when the server rejects the message.
+    setChatDraft('');
+    const staffOnlySend = staffChatOnly && modActor.canModerate;
     try {
-      const ok = await liveChat.send(t, {
-        staffOnly: staffChatOnly && modActor.canModerate,
-      });
-      if (ok) {
-        setChatDraft('');
-        if (!(staffChatOnly && modActor.canModerate)) {
-          slowMode.recordSuccessfulSend();
-        }
-        chatComposerRef.current?.blur();
-        Keyboard.dismiss();
+      const ok = await liveChat.send(t, { staffOnly: staffOnlySend });
+      if (ok && !staffOnlySend) {
+        slowMode.recordSuccessfulSend();
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      setChatDraft((cur) => (cur.trim() ? cur : t));
       setChatSendError(msg);
       slowMode.syncFromSendError(msg);
       moderation.handleRestrictionError(msg);
@@ -1045,7 +1042,6 @@ function LiveSlide({
     slowMode.recordSuccessfulSend,
     slowMode.syncFromSendError,
     chatDraft,
-    liveChat.sending,
     liveChat.send,
     moderation.handleRestrictionError,
     staffChatOnly,
@@ -1749,7 +1745,6 @@ function LiveSlide({
           Boolean(moderation.myRestrictions?.muted || liveChat.error?.includes('muted'))
         }
         sendDisabled={
-          liveChat.sending ||
           breakParticipationBlocked ||
           (slowMode.chatBlocked && !(staffChatOnly && modActor.canModerate))
         }

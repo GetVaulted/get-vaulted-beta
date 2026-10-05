@@ -682,21 +682,19 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
 
   const sendHostChat = useCallback(async () => {
     const text = chatDraft.trim();
-    if (!text || liveChat.sending) return;
+    if (!text) return;
     if (!canHostChat) {
       Alert.alert('Chat unavailable', 'Chat is closed for this show.');
       return;
     }
     chatComposerRef.current?.dismissSuggestions();
+    // Instant clear, keyboard stays up, no send lock; draft restored only if the send fails.
+    setChatDraft('');
     try {
-      const ok = await liveChat.send(text, { staffOnly: staffChatOnly });
-      if (ok) {
-        setChatDraft('');
-        chatComposerRef.current?.blur();
-        Keyboard.dismiss();
-      }
+      await liveChat.send(text, { staffOnly: staffChatOnly });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      setChatDraft((cur) => (cur.trim() ? cur : text));
       Alert.alert('Chat', msg);
     }
   }, [chatDraft, liveChat, canHostChat, staffChatOnly]);
@@ -1020,7 +1018,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         value={chatDraft}
         onChangeText={setChatDraft}
         onSend={sendHostChat}
-        sendDisabled={liveChat.sending || !canHostChat}
+        sendDisabled={!canHostChat}
         inputDisabled={host.room?.status === 'ended'}
         placeholder={
           staffChatOnly ? 'Staff only…' : canHostChat ? 'Say something' : 'Chat unavailable'

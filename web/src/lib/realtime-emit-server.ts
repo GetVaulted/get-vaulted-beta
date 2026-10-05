@@ -51,6 +51,19 @@ export function emitLiveRoomStaffMessageDto(liveRoomId: string, dto: LiveRoomMes
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.staffChatMessage, { message: dto });
 }
 
+/**
+ * Broadcast a chat message that is already serialized, and wait for delivery.
+ * The chat route uses this so the broadcast finishes before a serverless function is frozen, and so
+ * the message is not re-read from the database first.
+ */
+export async function emitLiveRoomMessageDtoAndWait(liveRoomId: string, dto: LiveRoomMessageDTO): Promise<void> {
+  await emitRoomEventWithAliasesAwait(
+    liveRoomId,
+    dto.messageType === "staff" ? RT_EVENT.staffChatMessage : RT_EVENT.chatMessage,
+    { message: dto },
+  );
+}
+
 export async function emitLiveRoomMessageById(messageId: string): Promise<void> {
   const row = await prisma.liveRoomMessage.findUnique({
     where: { id: messageId },

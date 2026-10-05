@@ -101,7 +101,7 @@ export function useLiveRoomChat(args: {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const sendLockRef = useRef(false);
+  const inFlightRef = useRef(0);
   const reloadLockRef = useRef(false);
 
   useEffect(() => {
@@ -279,17 +279,6 @@ export function useLiveRoomChat(args: {
     async (text: string, opts?: { staffOnly?: boolean }): Promise<boolean> => {
       const body = text.trim();
       if (!body) return false;
-      // Resolve a fresh JWT — long-lived live screens often hold an expired React prop token.
-      let accessToken: string;
-      try {
-        accessToken = await resolveChatAccessToken(args.accessToken);
-      } catch {
-        throw new Error('Sign in to chat.');
-      }
-      if (sendLockRef.current) return false;
-
-      sendLockRef.current = true;
-      setSending(true);
       const staffOnly = opts?.staffOnly === true;
       const clientMessageId = `cm-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
       const pendingId = `pending:${clientMessageId}`;
@@ -303,7 +292,11 @@ export function useLiveRoomChat(args: {
         messageType: staffOnly ? 'staff' : 'chat',
         createdAt: new Date().toISOString(),
       };
+      // Show the bubble before any async work (token lookup, network) so the sender sees it
+      // immediately — like iMessage. Sends are never serialized: several can be in flight.
       setMessages((prev) => mergeChatMessagesById(prev, [optimistic]));
+      inFlightRef.current += 1;
+      setSending(true);
 
       const commitRow = (row: LiveRoomChatMessageRow) => {
         const next = mapRow(row, args.hostUsername, args.hostUserId);
@@ -316,6 +309,8 @@ export function useLiveRoomChat(args: {
       };
 
       try {
+        // Resolve a fresh JWT — long-lived live screens often hold an expired React prop token.
+        let accessToken = await resolveChatAccessToken(args.accessToken);
         const post = () =>
           sendLiveRoomChatMessage({
             accessToken,
@@ -346,8 +341,8 @@ export function useLiveRoomChat(args: {
         setError(isAuthChatError(msg) ? 'Sign in to chat.' : msg);
         throw e;
       } finally {
-        sendLockRef.current = false;
-        setSending(false);
+        inFlightRef.current = Math.max(0, inFlightRef.current - 1);
+        if (inFlightRef.current === 0) setSending(false);
       }
     },
     [
