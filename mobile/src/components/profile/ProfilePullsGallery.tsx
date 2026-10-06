@@ -9,6 +9,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -31,6 +32,9 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 const GRID_GAP = 3;
 const COLUMNS = 3;
 const TILE_SIZE = (SCREEN_WIDTH - spacing.lg * 2 - GRID_GAP * (COLUMNS - 1)) / COLUMNS;
+const SHELF_TILE_W = 112;
+const SHELF_TILE_H = 168;
+const SHELF_MAX_TILES = 12;
 
 function formatCount(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k`;
@@ -89,9 +93,13 @@ type Props = {
   sellerId: string;
   /** Signed-in viewer's Supabase access token — required to like or comment, optional to browse. */
   viewerAccessToken?: string | null;
+  /** `shelf` is a single horizontally scrolling row of tall tiles (seller profile); default is the 3-up grid. */
+  variant?: 'grid' | 'shelf';
+  /** Render nothing (no spinner, no empty copy) until there is at least one pull. */
+  hideWhenEmpty?: boolean;
 };
 
-export function ProfilePullsGallery({ sellerId, viewerAccessToken }: Props) {
+export function ProfilePullsGallery({ sellerId, viewerAccessToken, variant = 'grid', hideWhenEmpty = false }: Props) {
   const [media, setMedia] = useState<PullMediaDto[] | null>(null);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const [comments, setComments] = useState<PullCommentDto[] | null>(null);
@@ -173,20 +181,21 @@ export function ProfilePullsGallery({ sellerId, viewerAccessToken }: Props) {
   };
 
   if (media == null) {
-    return <ActivityIndicator color={colors.gold} style={styles.loader} />;
+    return hideWhenEmpty ? null : <ActivityIndicator color={colors.gold} style={styles.loader} />;
   }
 
   if (!media.length) {
-    return <Text style={styles.empty}>No pulls shared yet.</Text>;
+    return hideWhenEmpty ? null : <Text style={styles.empty}>No pulls shared yet.</Text>;
   }
 
-  return (
-    <View style={styles.block}>
-      <View style={styles.grid}>
-        {media.map((item, index) => (
+  const shelf = variant === 'shelf';
+  const tileSize = shelf ? { width: SHELF_TILE_W, height: SHELF_TILE_H } : { width: TILE_SIZE, height: TILE_SIZE };
+
+  // The shelf is a teaser row; each video tile runs a player, so cap it.
+  const tiles = (shelf ? media.slice(0, SHELF_MAX_TILES) : media).map((item, index) => (
           <Pressable
             key={item.id}
-            style={[styles.tile, { width: TILE_SIZE, height: TILE_SIZE }]}
+            style={[styles.tile, tileSize]}
             onPress={() => setOpenIndex(index)}
           >
             {item.type === 'PHOTO' ? (
@@ -199,15 +208,34 @@ export function ProfilePullsGallery({ sellerId, viewerAccessToken }: Props) {
                 </View>
               </>
             )}
-            {(item.likeCount ?? 0) > 0 ? (
+            {(item.likeCount ?? 0) > 0 || (shelf && (item.commentCount ?? 0) > 0) ? (
               <View style={styles.likeBadge} pointerEvents="none">
-                <Ionicons name="heart" size={11} color="#fff" />
-                <Text style={styles.likeBadgeText}>{formatCount(item.likeCount ?? 0)}</Text>
+                {(item.likeCount ?? 0) > 0 ? (
+                  <>
+                    <Ionicons name="heart" size={11} color="#fff" />
+                    <Text style={styles.likeBadgeText}>{formatCount(item.likeCount ?? 0)}</Text>
+                  </>
+                ) : null}
+                {shelf && (item.commentCount ?? 0) > 0 ? (
+                  <>
+                    <Ionicons name="chatbubble" size={10} color="#fff" />
+                    <Text style={styles.likeBadgeText}>{formatCount(item.commentCount ?? 0)}</Text>
+                  </>
+                ) : null}
               </View>
             ) : null}
           </Pressable>
-        ))}
-      </View>
+  ));
+
+  return (
+    <View style={styles.block}>
+      {shelf ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.shelf}>
+          {tiles}
+        </ScrollView>
+      ) : (
+        <View style={styles.grid}>{tiles}</View>
+      )}
 
       <Modal visible={openItem != null} animationType="fade" onRequestClose={() => setOpenIndex(null)} transparent>
         <KeyboardAvoidingView
@@ -308,6 +336,7 @@ const styles = StyleSheet.create({
   loader: { marginTop: spacing.xl },
   empty: { color: colors.textMuted, fontSize: 13, marginTop: spacing.md, textAlign: 'center' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP },
+  shelf: { flexDirection: 'row', gap: spacing.sm },
   tile: {
     borderRadius: radii.sm,
     overflow: 'hidden',
