@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildProfileTrust, shapeProfileShows } from "@/lib/seller-profile-public";
+import {
+  buildProfileTrust,
+  loadSellerSalesCount,
+  sellerFollowerWhere,
+  shapeProfileShows,
+} from "@/lib/seller-profile-public";
 
 const row = (id: string, status: "live" | "scheduled" | "ended", over: Record<string, unknown> = {}) => ({
   id,
@@ -56,5 +61,25 @@ describe("buildProfileTrust", () => {
     expect(t.emailVerified).toBe(true);
     expect(t.ordersCompleted).toBe(48);
     expect(buildProfileTrust({ sellerLevel: "vault_seller", ordersCompleted: 0, createdAt: new Date(), emailVerified: null }).emailVerified).toBe(false);
+  });
+});
+
+describe("loadSellerSalesCount", () => {
+  it("returns the combined count as a number (bigint from Postgres)", async () => {
+    const db = { $queryRaw: async () => [{ count: BigInt(126) }] } as never;
+    expect(await loadSellerSalesCount(db, "seller-1")).toBe(126);
+  });
+  it("defaults to 0 when there is no row", async () => {
+    const db = { $queryRaw: async () => [] } as never;
+    expect(await loadSellerSalesCount(db, "seller-1")).toBe(0);
+  });
+});
+
+describe("sellerFollowerWhere", () => {
+  it("only counts followers with active accounts", () => {
+    expect(sellerFollowerWhere("s1")).toEqual({
+      sellerId: "s1",
+      follower: { accountDeletedAt: null, suspendedAt: null },
+    });
   });
 });

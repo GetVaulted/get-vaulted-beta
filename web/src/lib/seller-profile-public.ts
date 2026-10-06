@@ -113,6 +113,41 @@ export async function loadProfileShows(
   return shapeProfileShows({ live, scheduled, ended, totalShows });
 }
 
+/** Followers who still have an active account (deleted or suspended accounts don't count). */
+export function sellerFollowerWhere(sellerId: string) {
+  return {
+    sellerId,
+    follower: { accountDeletedAt: null, suspendedAt: null },
+  } as const;
+}
+
+/**
+ * "Sales" on a profile = items sold on Get Vaulted: paid standalone orders (a paid order that only
+ * bundles live-spot purchases for shipping is not counted again) plus paid live-spot purchases
+ * settled on the platform (spots the seller marked paid off-platform are not Get Vaulted sales).
+ */
+export async function loadSellerSalesCount(
+  db: Pick<PrismaClient, "$queryRaw">,
+  sellerId: string,
+): Promise<number> {
+  const rows = await db.$queryRaw<{ count: bigint | number }[]>`
+    select (
+      (select count(*) from "Order" o
+        where o."sellerId" = ${sellerId}
+          and o."paymentStatus" = 'paid'
+          and not exists (
+            select 1 from "LiveItemVariantPurchase" p where p."fulfillmentOrderId" = o.id
+          ))
+      +
+      (select count(*) from "LiveItemVariantPurchase" p
+        join "LiveRoom" r on r.id = p."liveRoomId"
+        where r."sellerId" = ${sellerId}
+          and p."paymentStatus" = 'paid'
+          and p."settlementChannel" is distinct from 'off_platform')
+    ) as count`;
+  return Number(rows[0]?.count ?? 0);
+}
+
 export type ProfileTrust = {
   sellerLevel: SellerLevel;
   sellerLevelLabel: string;

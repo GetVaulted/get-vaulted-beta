@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { sellerFollowerWhere } from "@/lib/seller-profile-public";
 import { resolveOptionalSellerFollowUserId } from "@/lib/resolve-seller-follow-auth";
 import { resolveSellerFromApiParam } from "@/lib/resolve-seller-route-param";
 
@@ -9,7 +10,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ sellerId: strin
   if (!seller) return NextResponse.json({ error: "Seller not found." }, { status: 404 });
 
   const viewerId = await resolveOptionalSellerFollowUserId(req);
-  const followerCount = await prisma.sellerFollow.count({ where: { sellerId: seller.id } });
+  const followerCount = await prisma.sellerFollow.count({ where: sellerFollowerWhere(seller.id) });
 
   if (!viewerId) {
     return NextResponse.json({

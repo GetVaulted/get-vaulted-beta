@@ -136,7 +136,7 @@ export function buildTrustRows(
 ): { label: string; value: string }[] {
   return [
     { label: 'Seller level', value: trust.sellerLevelLabel },
-    { label: 'Orders completed', value: trust.ordersCompleted.toLocaleString('en-US') },
+    { label: 'Items sold', value: trust.ordersCompleted.toLocaleString('en-US') },
     { label: 'Member since', value: formatMemberSince(trust.memberSince) },
     { label: 'Email', value: trust.emailVerified ? 'Verified' : 'Not verified' },
     ...(reviews !== undefined ? [{ label: 'Buyer reviews', value: reviewSummaryLabel(reviews) }] : []),

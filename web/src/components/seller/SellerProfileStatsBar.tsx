@@ -3,7 +3,7 @@ import Link from "next/link";
 export type SellerProfileHeroStats = {
   followerCount: number;
   followingCount: number;
-  salesOrderCount: number;
+  salesCount: number;
   showsHosted: number;
   isOwnShop: boolean;
 };
@@ -39,7 +39,7 @@ export function SellerProfileStatsBar({ stats }: { stats: SellerProfileHeroStats
       className="mt-4 flex flex-wrap items-start justify-start gap-x-6 gap-y-3 sm:gap-x-10"
       aria-label="Profile stats"
     >
-      <StatCell value={formatCount(stats.salesOrderCount)} label="Sales" />
+      <StatCell value={formatCount(stats.salesCount)} label="Sales" />
       <StatCell
         value={formatCount(stats.followerCount)}
         label="Followers"
