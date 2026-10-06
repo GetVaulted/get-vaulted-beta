@@ -8,10 +8,11 @@ type Props = {
   visible: boolean;
   readiness: BuyerWalletReadiness;
   onSetupWallet: () => void;
-  onLeaveRoom: () => void;
+  /** Dismiss the popup and keep watching — the buyer is never forced out of the room. */
+  onClose: () => void;
 };
 
-export function LiveBuyerWalletGateModal({ visible, readiness, onSetupWallet, onLeaveRoom }: Props) {
+export function LiveBuyerWalletGateModal({ visible, readiness, onSetupWallet, onClose }: Props) {
   return (
     <Modal
       visible={visible}
@@ -19,7 +20,7 @@ export function LiveBuyerWalletGateModal({ visible, readiness, onSetupWallet, on
       transparent
       statusBarTranslucent
       presentationStyle="overFullScreen"
-      onRequestClose={onLeaveRoom}
+      onRequestClose={onClose}
     >
       <View style={styles.backdrop} pointerEvents="box-none" accessibilityViewIsModal>
         <View style={styles.card}>
@@ -27,10 +28,10 @@ export function LiveBuyerWalletGateModal({ visible, readiness, onSetupWallet, on
             <Ionicons name="wallet-outline" size={22} color={colors.gold} />
           </View>
           <Text style={styles.title}>Wallet required</Text>
-          <Text style={styles.body}>{buyerWalletGatePromptBody(readiness)}</Text>
-          <Text style={styles.hint}>
-            Set up once — used for live bids, buy now, and break spots in this show.
+          <Text style={styles.body}>
+            You must add a valid payment method and shipping address before you can bid or buy.
           </Text>
+          <Text style={styles.hint}>{buyerWalletGatePromptBody(readiness)}</Text>
           <View style={styles.actions}>
             <Pressable
               style={styles.primaryBtn}
@@ -44,12 +45,12 @@ export function LiveBuyerWalletGateModal({ visible, readiness, onSetupWallet, on
             </Pressable>
             <Pressable
               style={styles.secondaryBtn}
-              onPress={onLeaveRoom}
+              onPress={onClose}
               accessibilityRole="button"
-              accessibilityLabel="Leave room"
+              accessibilityLabel="Close"
             >
               <Text pointerEvents="none" style={styles.secondaryLabel}>
-                Leave room
+                Close
               </Text>
             </Pressable>
           </View>

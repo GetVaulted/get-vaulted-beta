@@ -127,6 +127,10 @@ type Props = {
   broadcastCommerceBlockMessage?: string | null;
   broadcastPurchaseBlockMessage?: string | null;
   participationBlockMessage?: string;
+  /** Buyer has no complete wallet: hide Bid/Buy and show an "add wallet" control instead. */
+  walletRequired?: boolean;
+  /** Tapping the wallet-required control — parent shows the closable "wallet required" popup. */
+  onWalletRequiredTap?: () => void;
   /** Host or assigned moderator — cannot bid/buy in this show. */
   staffCommerceBlocked?: boolean;
   /** Parent can disable feed gestures while wallet overlay is open. */
@@ -169,6 +173,8 @@ export function LivePinnedActionBar({
   broadcastCommerceBlockMessage = null,
   broadcastPurchaseBlockMessage = null,
   participationBlockMessage = 'Complete setup in this show before bidding or buying.',
+  walletRequired = false,
+  onWalletRequiredTap,
   staffCommerceBlocked = false,
   onWalletOverlayChange,
   layoutWidth,
@@ -1625,6 +1631,21 @@ export function LivePinnedActionBar({
           </LiveRoomText>
         ) : null}
 
+        {walletRequired && signedIn && !staffCommerceBlocked ? (
+          <View style={[styles.ctaBand, compact && styles.ctaBandCompact]}>
+            <Pressable
+              style={[styles.ctaWalletRequired, { minHeight: hudPad(44) }]}
+              onPress={onWalletRequiredTap}
+              accessibilityRole="button"
+              accessibilityLabel="Add payment and shipping address to bid or buy"
+            >
+              <Ionicons name="wallet-outline" size={hudFs(16)} color={vaultColors.goldBright} />
+              <LiveRoomText style={[styles.ctaWalletRequiredText, { fontSize: hudFs(11) }]} numberOfLines={1}>
+                Add payment &amp; address to bid or buy
+              </LiveRoomText>
+            </Pressable>
+          </View>
+        ) : (
         <View style={[styles.ctaBand, compact && styles.ctaBandCompact]}>
           <Pressable
             style={[
@@ -1722,6 +1743,7 @@ export function LivePinnedActionBar({
             )}
           </View>
         </View>
+        )}
       </View>
 
       <WalletSheet
@@ -1993,6 +2015,24 @@ const styles = StyleSheet.create({
     minWidth: 0,
     minHeight: 44,
     justifyContent: 'center',
+  },
+  ctaWalletRequired: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 80, 0.45)',
+    backgroundColor: 'rgba(255, 215, 80, 0.10)',
+    paddingHorizontal: 14,
+  },
+  ctaWalletRequiredText: {
+    fontWeight: '800',
+    color: vaultColors.goldBright,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   ctaBidPressable: {
     flex: 1,
