@@ -457,6 +457,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     [clearPendingSpotCelebrationTimer, flushPendingSpotCelebration],
   );
 
+  // Sweet 16 draft realtime events -> the host draft sheet refetches immediately.
+  const [sweet16DraftSignal, setSweet16DraftSignal] = useState(0);
+  const bumpSweet16DraftSignal = useCallback(() => setSweet16DraftSignal((n) => n + 1), []);
+
   const dismissVaultRevealSpin = useCallback(() => {
     vaultRevealActiveRef.current = false;
     setVaultRevealSpin(null);
@@ -530,6 +534,9 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     onAuctionStarted: () => {
       console.syncQueue();
     },
+    onSweet16DraftStarted: bumpSweet16DraftSignal,
+    onSweet16DraftPickMade: bumpSweet16DraftSignal,
+    onSweet16DraftComplete: bumpSweet16DraftSignal,
   });
 
   const chatPool = liveChat.messages;
@@ -1356,7 +1363,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         divisionalSupplyEligible={Boolean(displayItem && console.divisionalSupplyEligible(displayItem))}
         onAddDivisionalSupply={console.openDivisionalSupplyForm}
         sweet16Eligible={Boolean(displayItem && console.sweet16Eligible(displayItem))}
-        onStartSweet16Draft={console.startSweet16Draft}
+        onOpenSweet16Draft={() => {
+          // One modal at a time: hand off from the team board to the draft sheet.
+          setTeamsBoardOpen(false);
+          console.openSweet16DraftSheet();
+        }}
       />
       <AddSupplementalModal
         open={console.supplementalModalOpen}
@@ -1374,16 +1385,20 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         onSubmit={console.addDivisionalSupply}
       />
       {displayItem ? (
-        /* Host watches the same buyer-facing draft sheet in spectator mode -- the host never
-           holds a purchase on their own break, so it naturally renders its read-only "waiting
-           for @buyer" state and never the picker. */
+        /* Host version of the draft sheet: step 1 "Randomize order", step 2 "Start draft", then
+           it follows the live picks. The host never holds a purchase on their own break, so they
+           never get the picker. */
         <LiveSweet16DraftSheet
+          key={displayItem.id}
+          isHost
           visible={console.sweet16DraftSheetOpen}
           onClose={console.closeSweet16DraftSheet}
           roomId={roomId}
           itemId={displayItem.id}
           title={displayItem.displayTitle?.trim() || displayItem.title}
           accessToken={accessToken}
+          refreshSignal={sweet16DraftSignal}
+          variants={displayItem.variants}
         />
       ) : null}
       <LiveSpotTakenCelebration

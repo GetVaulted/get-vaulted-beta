@@ -28,6 +28,7 @@ import {
 import { AddQueueItemModal, type AddQueueItemAuctionPayload, type AddQueueItemCloseReason, type AddQueueItemGiveawayPayload } from "@/components/break-host/AddQueueItemModal";
 import { VaultQueueDrawer } from "@/components/break-host/vault/VaultQueueDrawer";
 import { HostVariantCommerceStage } from "@/components/break-host/HostVariantCommerceStage";
+import { LiveSweet16Draft } from "@/components/live-auction/LiveSweet16Draft";
 import { HostRecentSalesTile } from "@/components/break-host/HostRecentSalesTile";
 import { LiveShowSalesTile } from "@/components/break-host/LiveShowSalesTile";
 import { HostAddSupplementalModal } from "@/components/break-host/HostAddSupplementalModal";
@@ -308,6 +309,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const [hostLineupOpen, setHostLineupOpen] = useState(false);
   const [queueDrawerOpen, setQueueDrawerOpen] = useState(false);
   const [hostCommerceMinimized, setHostCommerceMinimized] = useState(false);
+  /** Bumped on realtime Sweet 16 draft events so the host's draft panel refetches immediately. */
+  const [sweet16Tick, setSweet16Tick] = useState(0);
   const [supplementalModalOpen, setSupplementalModalOpen] = useState(false);
   const [variantSpotEditOpen, setVariantSpotEditOpen] = useState(false);
   const [lotPricingEditItemId, setLotPricingEditItemId] = useState<string | null>(null);
@@ -1135,6 +1138,12 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
           }),
         };
       });
+      void load();
+    },
+    onSweet16DraftStarted: () => setSweet16Tick((n) => n + 1),
+    onSweet16DraftPickMade: () => setSweet16Tick((n) => n + 1),
+    onSweet16DraftComplete: () => {
+      setSweet16Tick((n) => n + 1);
       void load();
     },
     onBreakSpotsChange: () => {
@@ -3197,6 +3206,17 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
           onSubmit={handleAppendSupplemental}
         />
       ) : null}
+
+      {/* Sweet 16 Break: Randomize order -> Start draft. The panel renders nothing unless the active
+          lot is a Sweet 16 lot whose 16 teams have sold (sales closed). */}
+      <LiveSweet16Draft
+        liveRoomId={roomId}
+        items={data.queueItems.map((q) => q.item)}
+        isHost
+        roomEnded={data.room.status === "ended"}
+        onDraftComplete={() => void load()}
+        refreshKey={sweet16Tick}
+      />
 
       <HostEditBreakSpotsModal
         open={variantSpotEditOpen}

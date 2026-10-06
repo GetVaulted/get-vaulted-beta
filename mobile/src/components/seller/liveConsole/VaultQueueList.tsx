@@ -4,6 +4,7 @@ import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { isVariantSalesFormat, summarizeVariantSpots } from '../../../lib/liveItemVariant';
 import { formatUsdDisplay, queueItemQuantity } from '../../../lib/liveAuctionPricing';
+import { isSweet16DraftMode, sweet16SalesProgress } from '../../../lib/liveSweet16Sales';
 import { queueStatusLabel } from '../liveOverlay/SellerQueueStrip';
 import { QueueSaleTypePill } from './QueueSaleTypePill';
 import { colors, radii, spacing, vaultColors } from '../../../theme';
@@ -16,10 +17,14 @@ function pricingSummary(item: LiveRoomItemRow): string {
         ? Math.max(stats.spotCount, stats.available + stats.sold)
         : (item.variants?.length ?? (item.salesFormat === 'variant_selection' ? 32 : 8));
     const open = stats.spotCount > 0 ? stats.available : pool;
-    const label = item.salesFormat === 'variant_selection' ? 'PYT' : 'PYD';
     const from = item.variants?.length
       ? formatUsdDisplay(Math.min(...item.variants.map((v) => v.priceUsd)))
       : '—';
+    if (isSweet16DraftMode(item.variantAssignmentMode)) {
+      const sweet16 = sweet16SalesProgress({ variants: item.variants, breakReadyAt: item.variantBreakReadyAt });
+      return `Sweet 16 · ${sweet16.statusLabel} · ${item.variants?.length ?? 32} teams · from ${from}`;
+    }
+    const label = item.salesFormat === 'variant_selection' ? 'PYT' : 'PYD';
     const pinned = item.variants?.filter((v) => v.isHot).length ?? 0;
     return `${label} · ${open} of ${pool} open · from ${from}${pinned ? ` · ${pinned} pinned` : ''}`;
   }

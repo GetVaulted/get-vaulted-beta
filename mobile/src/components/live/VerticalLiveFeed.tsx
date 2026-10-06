@@ -1845,6 +1845,7 @@ function LiveSlide({
           viewerUserId={userId ?? null}
           commerceActive={isActive}
           vaultRevealActive={Boolean(liveSession.vaultRevealSpin)}
+          sweet16DraftSignal={liveSession.sweet16DraftSignal}
         />
       </View>
       ) : null}

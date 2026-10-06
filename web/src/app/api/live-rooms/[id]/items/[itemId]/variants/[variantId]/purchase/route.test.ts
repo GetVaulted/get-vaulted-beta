@@ -28,7 +28,9 @@ vi.mock("@/lib/live-room-payment-failure", () => ({
 vi.mock("@/lib/live-room-commerce-guards", () => ({
   getLiveRoomBroadcastCommerceBlock: hoisted.getLiveRoomBroadcastCommerceBlock,
   getLiveBuyerCommerceBlock: hoisted.getLiveBuyerCommerceBlock,
+  isLiveRoomOpenForSpotPurchase: vi.fn().mockReturnValue(true),
 }));
+vi.mock("@/lib/live-sweet16-draft", () => ({ assertSweet16CapacityInTx: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/stripe", () => ({ isStripeConfigured: hoisted.isStripeConfigured }));
 vi.mock("@/lib/live-item-variant-presets", () => ({ isVariantSalesFormat: vi.fn().mockReturnValue(true) }));
 vi.mock("@/lib/live-item-variant-random-reveal", () => ({

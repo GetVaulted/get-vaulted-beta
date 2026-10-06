@@ -5,6 +5,7 @@ import {
   evaluateFreshVariantsForBatchCheckout,
   evaluateFreshVariantsForCheckout,
   isActiveVariantBuyerItem,
+  isBuyerVariantRosterClosed,
   isVariantSalesFormat,
   sortVariantsForBuyerDisplay,
   summarizeVariantSpots,
@@ -185,5 +186,44 @@ describe('resolvePinnedLotOverlayPrice', () => {
         variants: [{ priceUsd: 35, quantityRemaining: 32, status: 'available' }],
       }),
     ).toMatchObject({ label: 'From', amountUsd: 35 });
+  });
+});
+
+describe('isBuyerVariantRosterClosed (Sweet 16)', () => {
+  const variant = (i: number, sold: boolean) => ({
+    id: `v${i}`,
+    label: `Team ${i}`,
+    priceUsd: 20,
+    quantityRemaining: sold ? 0 : 1,
+    soldCount: sold ? 1 : 0,
+    isHot: false,
+    sortOrder: i,
+    status: sold ? 'sold_out' : 'available',
+    buyerUsername: null,
+  });
+  const snap = (soldCount: number, extra: Partial<LiveRoomBuyerSnapshot> = {}) =>
+    ({
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemSalesFormat: 'variant_selection',
+      activeItemVariantAssignmentMode: 'draft',
+      activeItemVariants: Array.from({ length: 32 }, (_, i) => variant(i, i < soldCount)),
+      ...extra,
+    }) as LiveRoomBuyerSnapshot;
+
+  it('stays open below 16 sold even though most of the 32 are unsold', () => {
+    expect(isBuyerVariantRosterClosed(snap(15))).toBe(false);
+  });
+
+  it('closes at 16 sold although 16 tiles are still unsold', () => {
+    expect(isBuyerVariantRosterClosed(snap(16))).toBe(true);
+  });
+
+  it('closes when the server flag is set', () => {
+    expect(isBuyerVariantRosterClosed(snap(10, { activeItemVariantBreakReadyAt: '2026-10-06T00:00:00.000Z' }))).toBe(true);
+  });
+
+  it('does not change normal pick boards', () => {
+    expect(isBuyerVariantRosterClosed(snap(16, { activeItemVariantAssignmentMode: 'pick' }))).toBe(false);
   });
 });

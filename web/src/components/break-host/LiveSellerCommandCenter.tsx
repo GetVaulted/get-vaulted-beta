@@ -16,6 +16,7 @@ import type { LiveGiveawayDTO } from "@/lib/live-giveaway";
 import type { SellerQueueTab } from "@/lib/seller-queue-tabs";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { isVariantPurchaseItem, summarizeVariantSpots } from "@/lib/live-item-variant-presets";
+import { sweet16SalesStatus } from "@/lib/sweet16-draft-client";
 import { HOST_PIN_BLOCKED_AUCTION_LIVE_MSG } from "@/lib/host-queue-selection";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
@@ -239,9 +240,12 @@ export function LiveSellerCommandCenter({
   const commerceItem = item;
   const isVariantItem = isVariantPurchaseItem(commerceItem);
   const spotStats = isVariantItem ? summarizeVariantSpots(commerceItem?.variants) : null;
+  // Sweet 16: "N of 16 sold" (the board lists 32 teams, only 16 are ever sold).
+  const sweet16Sales = isVariantItem ? sweet16SalesStatus(commerceItem) : null;
   const leaderLine = item
     ? isVariantItem && spotStats
-      ? `${spotStats.available} of ${spotStats.available + spotStats.sold} spots open · ${spotStats.sold} sold`
+      ? (sweet16Sales?.label ??
+        `${spotStats.available} of ${spotStats.available + spotStats.sold} spots open · ${spotStats.sold} sold`)
       : formatAuctionLeaderLine({
           lastHighBidderUsername: item.lastHighBidderUsername,
           lastHighBidderId: item.lastHighBidderId,

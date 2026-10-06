@@ -143,10 +143,12 @@ export function emitTeamBoardChanged(liveRoomId: string): void {
 
 type Sweet16DraftStartedPayload = {
   itemId: string;
+  /** `order_set`: host randomized the draft order. `started`: first buyer is on the clock. */
+  phase?: "order_set" | "started";
   turnOrder: string[];
-  currentTurnIndex: number;
-  currentTurnPurchaseId: string;
-  currentTurnDeadlineAt: string;
+  currentTurnIndex: number | null;
+  currentTurnPurchaseId: string | null;
+  currentTurnDeadlineAt: string | null;
   remainingTeamLabels: string[];
   turnSeconds: number;
 };

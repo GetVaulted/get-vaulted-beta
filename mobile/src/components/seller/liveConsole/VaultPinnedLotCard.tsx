@@ -12,6 +12,7 @@ import {
 } from '../../../lib/liveAuctionStartPayload';
 import { computeLiveLotReserveMet } from '../../../lib/liveLotReserveStatus';
 import { isVariantPurchaseItem, summarizeVariantSpots, hostPinnedBuyerVariant } from '../../../lib/liveItemVariant';
+import { isSweet16DraftMode, sweet16SalesProgress } from '../../../lib/liveSweet16Sales';
 import { wallTimeMsFromServerAnchor } from '../../../lib/serverClockSync';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii, spacing, vaultColors } from '../../../theme';
@@ -304,6 +305,11 @@ export function VaultPinnedLotCard({
   const isVariantItem = isVariantPurchaseItem(item);
   const isBuyNowItem = item.salesFormat === 'buy_now';
   const spotStats = isVariantItem ? summarizeVariantSpots(item.variants) : null;
+  // Sweet 16: the board lists 32 teams but sells 16 — report "N of 16 sold" / "Sales closed".
+  const sweet16Progress =
+    isVariantItem && isSweet16DraftMode(item.variantAssignmentMode)
+      ? sweet16SalesProgress({ variants: item.variants, breakReadyAt: item.variantBreakReadyAt })
+      : null;
   const overlayPrice = resolvePinnedLotOverlayPrice({
     commerceMode: isBuyNowItem ? 'buy_now' : 'auction',
     salesFormat: item.salesFormat,
@@ -433,9 +439,11 @@ export function VaultPinnedLotCard({
           <Text style={[styles.meta, compact && styles.metaCompact]}>
             {pinnedVariant && !item.biddingOpen
               ? `${pinnedVariant.label} pinned · ${item.activeSpotCommerceMode === 'auction' ? 'ready to auction' : 'buy now — or Start Auction'}`
-                  : spotStats.available > 0
-                ? `${spotStats.available} of ${spotStats.available + spotStats.sold} spots available`
-                : 'All spots sold'}
+                  : sweet16Progress
+                ? sweet16Progress.statusLabel
+                : spotStats.available > 0
+                  ? `${spotStats.available} of ${spotStats.available + spotStats.sold} spots available`
+                  : 'All spots sold'}
           </Text>
         ) : hostOverlayMinimal ? null : isBuyNowItem && item.status === 'active' ? (
           <Text style={[styles.meta, compact && styles.metaCompact]}>Live for buyers</Text>

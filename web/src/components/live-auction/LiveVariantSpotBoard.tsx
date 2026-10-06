@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { isVariantSalesFormat, variantBuyerSelectLabel, hostSpotBoardPinEnabled } from "@/lib/live-item-variant-presets";
+import { sweet16SalesStatus } from "@/lib/sweet16-draft-client";
 import { buildVariantSpotDisplayRows, formatSoldSpotBuyerLabel, formatUnavailableSpotLabel } from "@/lib/live-variant-spot-board";
 import { MentionComposer } from "@/components/mentions/MentionComposer";
 import type { MentionSearchUser } from "@/lib/mentions/mention-types";
@@ -106,12 +107,18 @@ export function LiveVariantSpotBoard({
   const available = rows.filter((r) => !r.sold && !r.unavailable).length;
   const unavailableCount = rows.filter((r) => r.unavailable).length;
   const soldCount = rows.filter((r) => r.sold).length;
+  // Sweet 16: 32 teams on the board but only 16 are ever sold, so count "of 16" and, once the 16th
+  // is paid, read the 16 unsold teams as closed (they become the draft pool) rather than buyable.
+  const sweet16 = sweet16SalesStatus(item);
+  const sweet16Closed = Boolean(sweet16?.closed);
   const breakRoster =
-    available <= 0 || Boolean(item.variantBreakReadyAt) || Boolean(item.variantBreakBeganAt);
+    available <= 0 || Boolean(item.variantBreakReadyAt) || Boolean(item.variantBreakBeganAt) || sweet16Closed;
   const boardLabel = breakRoster
     ? item.variantBreakBeganAt
       ? "Break roster"
-      : "Sold roster"
+      : sweet16Closed
+        ? "Sales closed"
+        : "Sold roster"
     : variantBuyerSelectLabel(item.salesFormat);
   const canHostEdit = hostMode && !breakRoster;
   const viewerKey = highlightUsername?.trim().replace(/^@+/, "").toLowerCase() ?? "";
@@ -208,9 +215,11 @@ export function LiveVariantSpotBoard({
         <div className="min-w-0 flex-1">
           <p className="truncate text-[10px] font-bold text-zinc-200">{item.title}</p>
           <p className="text-[9px] font-semibold text-emerald-300/90">
-            {breakRoster
-              ? `${rows.length} teams · tap Expand to view buyers`
-              : `${available} open · ${rows.length} spots`}
+            {sweet16
+              ? sweet16.label
+              : breakRoster
+                ? `${rows.length} teams · tap Expand to view buyers`
+                : `${available} open · ${rows.length} spots`}
           </p>
         </div>
         {canHostEdit && onRepeatSupplemental && repeatSupplementalLabel ? (
@@ -256,11 +265,13 @@ export function LiveVariantSpotBoard({
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200/80">{boardLabel}</p>
           <p className="mt-0.5 truncate text-xs font-bold text-white">{item.title}</p>
           <p className="mt-0.5 text-[10px] font-semibold text-zinc-500">
-            {breakRoster
-              ? item.variantBreakBeganAt
-                ? `Break in progress · ${soldCount} sold${unavailableCount ? ` · ${unavailableCount} unavailable` : ""}`
-                : `All spots sold · ${soldCount} sold${unavailableCount ? ` · ${unavailableCount} unavailable` : ""}`
-              : `${available} open · ${soldCount} sold${unavailableCount ? ` · ${unavailableCount} unavailable` : ""}`}
+            {sweet16
+              ? `${sweet16.label}${sweet16Closed ? " · unsold teams go to the draft" : ""}${unavailableCount ? ` · ${unavailableCount} unavailable` : ""}`
+              : breakRoster
+                ? item.variantBreakBeganAt
+                  ? `Break in progress · ${soldCount} sold${unavailableCount ? ` · ${unavailableCount} unavailable` : ""}`
+                  : `All spots sold · ${soldCount} sold${unavailableCount ? ` · ${unavailableCount} unavailable` : ""}`
+                : `${available} open · ${soldCount} sold${unavailableCount ? ` · ${unavailableCount} unavailable` : ""}`}
             {canHostEdit && onPinVariant ? " · use Pin on a team to feature it for buyers" : ""}
           </p>
         </div>
@@ -313,7 +324,9 @@ export function LiveVariantSpotBoard({
 
       <div className="mt-3 flex max-h-[min(42vh,320px)] flex-wrap gap-2 overflow-y-auto pr-0.5">
         {rows.map((r) => {
-          const closed = r.sold || r.unavailable;
+          // Sweet 16 with sales closed: unsold teams can't be bought any more (draft pool).
+          const salesClosedOpenTile = sweet16Closed && !r.sold && !r.unavailable;
+          const closed = r.sold || r.unavailable || salesClosedOpenTile;
           const pinned = r.isHot && !closed;
           const rowBuyer = r.buyerUsername?.trim().replace(/^@+/, "").toLowerCase() ?? "";
           const mine = Boolean(viewerKey && r.sold && rowBuyer === viewerKey);
@@ -327,7 +340,7 @@ export function LiveVariantSpotBoard({
           const tileClass = `relative min-w-[5.5rem] max-w-[48%] flex-grow rounded-full border px-3 py-2 ${
             mine
               ? "border-gold/70 bg-gold/15 ring-1 ring-gold/35"
-              : r.unavailable
+              : r.unavailable || salesClosedOpenTile
                 ? "border-white/10 bg-white/[0.02] opacity-70"
                 : r.sold
                   ? "border-emerald-400/25 bg-emerald-950/25"
@@ -378,9 +391,11 @@ export function LiveVariantSpotBoard({
                 >
                   {r.unavailable
                     ? formatUnavailableSpotLabel()
-                    : r.sold
-                      ? formatSoldSpotBuyerLabel(r.buyerUsername)
-                      : fmtMoney(r.priceUsd)}
+                    : salesClosedOpenTile
+                      ? "Closed"
+                      : r.sold
+                        ? formatSoldSpotBuyerLabel(r.buyerUsername)
+                        : fmtMoney(r.priceUsd)}
                 </p>
                 <div className="flex shrink-0 items-center gap-1">
                   {canPin && r.variantId ? (

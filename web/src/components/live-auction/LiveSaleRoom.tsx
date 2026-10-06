@@ -62,6 +62,7 @@ import { LiveRoomShareSheet } from "@/components/live-auction/LiveRoomShareSheet
 import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 import type { VariantPurchasedMergePayload } from "@/lib/live-room-variant-merge";
 import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
+import { sweet16SalesStatus } from "@/lib/sweet16-draft-client";
 import {
   isVariantSpotAuctionArmed,
   isVariantSpotAuctionLive,
@@ -649,7 +650,10 @@ export function LiveSaleRoom({
   const shopVariantSpots = activeHasVariants && activeDb
     ? summarizeVariantSpots(shopAvailableVariants(activeDb))
     : null;
-  const shoppableSpotCount = activeHasVariants && activeDb ? shopAvailableSpotCount(activeDb) : 0;
+  // Sweet 16: sales stop once 16 of the 32 teams are sold, even though unsold tiles remain.
+  const sweet16Sales = sweet16SalesStatus(activeDb);
+  const shoppableSpotCount =
+    activeHasVariants && activeDb && !sweet16Sales?.closed ? shopAvailableSpotCount(activeDb) : 0;
   const variantSelectLabel = activeDb
     ? isVariantSpotAuctionLive(activeDb)
       ? pinnedVariantAuctionPrimaryLabel(
@@ -662,7 +666,9 @@ export function LiveSaleRoom({
           ? variantBuyerSelectLabel(activeDb.salesFormat, true)
           : shoppableSpotCount > 0
             ? variantClaimPrimaryLabel(activeDb.salesFormat)
-            : "Sold out"
+            : sweet16Sales?.closed
+              ? "Sales closed"
+              : "Sold out"
     : "Select spot";
   const hybridSpotCommerce =
     spotAuctionLive && (shopVariantSpots?.available ?? 0) > 0 && activeLotBidPhase === "bidding_open";

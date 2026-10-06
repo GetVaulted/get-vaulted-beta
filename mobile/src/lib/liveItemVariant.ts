@@ -1,4 +1,5 @@
 import type { LiveItemVariantSnapshot, LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
+import { isSweet16DraftMode, sweet16SalesProgress } from './liveSweet16Sales';
 
 export type LiveItemSalesFormat =
   | 'auction'
@@ -112,7 +113,15 @@ export function isActiveVariantBuyerItem(snap: LiveRoomBuyerSnapshot | null | un
 export function isBuyerVariantRosterClosed(snap: LiveRoomBuyerSnapshot | null | undefined): boolean {
   if (!isActiveVariantBuyerItem(snap)) return false;
   const variants = snap!.activeItemVariants ?? [];
-  return variants.length > 0 && availableVariantCount(variants) <= 0;
+  if (variants.length === 0) return false;
+  // Sweet 16: 32 teams are listed but sales stop at 16 sold — unsold tiles are closed, not open.
+  if (
+    isSweet16DraftMode(snap!.activeItemVariantAssignmentMode) &&
+    sweet16SalesProgress({ variants, breakReadyAt: snap!.activeItemVariantBreakReadyAt }).closed
+  ) {
+    return true;
+  }
+  return availableVariantCount(variants) <= 0;
 }
 
 export function variantIsAvailable(v: LiveItemVariantSnapshot): boolean {

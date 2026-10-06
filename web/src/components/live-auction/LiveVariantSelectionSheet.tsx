@@ -6,6 +6,7 @@ import type { LiveItemVariantDTO, LiveRoomItemDTO } from "@/lib/live-room-serial
 import { sortVariantsForBuyerDisplay } from "@/lib/live-item-variant-display-order";
 import { isVariantSalesFormat, isRandomVariantAssignment, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
 import { formatSoldSpotBuyerLabel } from "@/lib/live-variant-spot-board";
+import { sweet16SalesStatus } from "@/lib/sweet16-draft-client";
 import {
   createLiveVariantBatchPurchaseIdempotencyKey,
   createLiveVariantPurchaseIdempotencyKey,
@@ -88,6 +89,10 @@ export function LiveVariantSelectionSheet({
   const [staleVariantIds, setStaleVariantIds] = useState<Set<string>>(new Set());
 
   const isRandom = isRandomVariantAssignment(item.variantAssignmentMode);
+  // Sweet 16: the board lists 32 teams but sales stop at 16 sold -- count "of 16" and lock the tiles
+  // once the 16th is paid. The server enforces the cap too (409 SOLD_OUT).
+  const sweet16 = sweet16SalesStatus(item);
+  const salesClosed = Boolean(sweet16?.closed);
   const isDivisionBreak = item.salesFormat === "team_break";
   const isPlayerBreak = item.salesFormat === "player_selection";
   const spotNoun = isDivisionBreak ? "divisions" : isPlayerBreak ? "players" : "teams";
@@ -158,7 +163,18 @@ export function LiveVariantSelectionSheet({
   }, [open, isRandom, variants, initialVariantId, staleVariantIds]);
 
   const toggleSpot = (variantId: string) => {
-    if (isRandom) return;
+    if (isRandom || salesClosed) return;
+    const teamsLeftBeforeClose = sweet16 ? Math.max(0, sweet16.max - sweet16.sold) : null;
+    if (
+      teamsLeftBeforeClose != null &&
+      !selectedIds.includes(variantId) &&
+      selectedIds.length >= teamsLeftBeforeClose
+    ) {
+      setError(
+        `Only ${teamsLeftBeforeClose} team${teamsLeftBeforeClose === 1 ? " is" : "s are"} left before sales close.`,
+      );
+      return;
+    }
     setSelectedIds((prev) => {
       if (prev.includes(variantId)) return prev.filter((id) => id !== variantId);
       return [...prev, variantId];
@@ -328,7 +344,7 @@ export function LiveVariantSelectionSheet({
     }
   };
 
-  const allSold = spotSummary.available <= 0;
+  const allSold = spotSummary.available <= 0 || salesClosed;
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[55] flex items-end justify-center sm:items-center sm:p-4">
@@ -381,9 +397,11 @@ export function LiveVariantSelectionSheet({
               <p className="line-clamp-2 text-sm font-extrabold text-white">{item.title}</p>
               <p className="mt-0.5 font-mono text-[15px] font-black text-amber-300">{fmtMoney(unitPrice)}</p>
               <p className="mt-0.5 text-[11px] font-semibold text-zinc-500">
-                {allSold
-                  ? "All spots sold"
-                  : `${spotSummary.available} spot${spotSummary.available === 1 ? "" : "s"} remaining`}
+                {sweet16
+                  ? sweet16.label
+                  : allSold
+                    ? "All spots sold"
+                    : `${spotSummary.available} spot${spotSummary.available === 1 ? "" : "s"} remaining`}
               </p>
             </div>
           </div>
@@ -419,6 +437,7 @@ export function LiveVariantSelectionSheet({
                       key={v.id}
                       variant={v}
                       locallyStale={staleVariantIds.has(v.id)}
+                      salesClosed={salesClosed}
                       selected={selectedIds.includes(v.id)}
                       onSelect={() => {
                         if (!variantIsAvailable(v, staleVariantIds)) return;
@@ -501,7 +520,9 @@ export function LiveVariantSelectionSheet({
                       : `Hold to buy · ${fmtMoney(chargeNow)}`
                   : isRandom
                     ? "Hold to buy"
-                    : "Select spots"
+                    : salesClosed
+                      ? "Sales closed"
+                      : "Select spots"
               }
               disabled={selectionCount === 0 || allSold}
               busy={busy}
@@ -535,6 +556,7 @@ function VariantPill({
   selected,
   onSelect,
   locallyStale = false,
+  salesClosed = false,
 }: {
   variant: LiveItemVariantDTO;
   selected: boolean;
@@ -542,8 +564,11 @@ function VariantPill({
   /** This spot just lost a purchase race — treat as sold out even though `variant` (from the last
    * poll) doesn't know that yet. */
   locallyStale?: boolean;
+  /** Sweet 16 sales are closed: unsold teams read as closed (they become the draft pool). */
+  salesClosed?: boolean;
 }) {
-  const soldOut = variant.quantityRemaining <= 0 || variant.status === "sold_out" || locallyStale;
+  const bought = variant.quantityRemaining <= 0 || variant.status === "sold_out" || locallyStale;
+  const soldOut = bought || salesClosed;
   return (
     <button
       type="button"
@@ -566,7 +591,7 @@ function VariantPill({
         </span>
       ) : null}
       <span
-        className={`block text-xs font-bold ${soldOut ? "text-zinc-500 line-through" : selected ? "font-black text-white" : "text-zinc-200"}`}
+        className={`block text-xs font-bold ${bought ? "text-zinc-500 line-through" : soldOut ? "text-zinc-500" : selected ? "font-black text-white" : "text-zinc-200"}`}
       >
         {variant.label}
       </span>
@@ -576,7 +601,7 @@ function VariantPill({
         </span>
       ) : (
         <span className="mt-0.5 block truncate text-[9px] font-semibold text-emerald-300/80">
-          {formatSoldSpotBuyerLabel(variant.buyerUsername)}
+          {bought ? formatSoldSpotBuyerLabel(variant.buyerUsername) : "Closed"}
         </span>
       )}
     </button>

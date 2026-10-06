@@ -29,6 +29,7 @@ import {
   teamAbbrForVariant,
   isLightSpotAccent,
 } from '../../../lib/liveBreakPresets';
+import { isSweet16DraftMode, sweet16SalesProgress } from '../../../lib/liveSweet16Sales';
 import { colors, radii, spacing, vaultColors } from '../../../theme';
 import { LiveRoomText } from '../../live/LiveRoomText';
 import { UsernameMentionPicker } from '../../mentions/UsernameMentionPicker';
@@ -44,6 +45,8 @@ export type BreakSpotBoardItem = {
   variantAssignmentMode?: 'pick' | 'random' | 'draft';
   variants?: LiveRoomItemRow['variants'];
   randomSpotClaims?: { label: string; buyerUsername: string }[];
+  /** ISO — sales closed (Sweet 16: 16 teams sold). */
+  variantBreakReadyAt?: string | null;
 };
 
 type Props = {
@@ -88,10 +91,10 @@ type Props = {
   divisionalSupplyEligible?: boolean;
   /** Host: open the "Add Divisional Supply" sheet — appends 8 division spots to this same board. */
   onAddDivisionalSupply?: () => void;
-  /** Host: this Sweet 16 board's 16 blind slots have all sold — the live draft can now start. */
+  /** Host: this Sweet 16 board has sold its 16 teams (sales closed) — the draft steps are available. */
   sweet16Eligible?: boolean;
-  /** Host: start (or, if already running, just open) the live Sweet 16 draft sheet. */
-  onStartSweet16Draft?: () => void;
+  /** Host: open the Sweet 16 draft sheet (step 1 "Randomize order", step 2 "Start draft"). */
+  onOpenSweet16Draft?: () => void;
 };
 
 const SETTLEMENT_METHODS: { id: string; label: string }[] = [
@@ -131,6 +134,7 @@ function SpotTile({
   tileWidth,
   compact,
   canPin,
+  salesClosed = false,
   pinBusy,
   onPinTeam,
   selected,
@@ -143,6 +147,8 @@ function SpotTile({
   tileWidth: number;
   compact: boolean;
   canPin: boolean;
+  /** Sweet 16 sales stopped — an unsold team reads "Closed" and is not interactive. */
+  salesClosed?: boolean;
   pinBusy: boolean;
   onPinTeam?: (variantId: string) => void;
   selected: boolean;
@@ -152,7 +158,8 @@ function SpotTile({
 }) {
   const sold = row.sold;
   const unavailable = row.unavailable;
-  const closed = sold || unavailable;
+  const unsoldClosed = salesClosed && !sold && !unavailable;
+  const closed = sold || unavailable || unsoldClosed;
   const pinned = row.isHot && !closed;
   const accent = spotAccentColor(row.label ?? '', row.color, isDivisionBreak);
   const lightAccent = isLightSpotAccent(accent);
@@ -222,6 +229,10 @@ function SpotTile({
         <LiveRoomText style={styles.unavailableTag} numberOfLines={1}>
           {formatUnavailableSpotLabel()}
         </LiveRoomText>
+      ) : unsoldClosed ? (
+        <LiveRoomText style={styles.unavailableTag} numberOfLines={1}>
+          Closed
+        </LiveRoomText>
       ) : (
         <View style={styles.spotFooter}>
           <LiveRoomText style={[styles.priceTag, { color: textSecondary }]}>{fmtMoney(row.priceUsd)}</LiveRoomText>
@@ -278,7 +289,7 @@ export function SellerBreakSpotBoardSheet({
   divisionalSupplyEligible,
   onAddDivisionalSupply,
   sweet16Eligible,
-  onStartSweet16Draft,
+  onOpenSweet16Draft,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
@@ -337,6 +348,15 @@ export function SellerBreakSpotBoardSheet({
   if (!item || !board || !isVariantSalesFormat(item.salesFormat)) return null;
 
   const { rows, openCount, soldCount, unavailableCount } = board;
+  // Sweet 16: 32 teams listed, sales stop at 16 sold — progress is "N of 16", and unsold tiles are
+  // closed (not buyable / not markable) once sales stop.
+  const sweet16 = isSweet16DraftMode(item.variantAssignmentMode)
+    ? sweet16SalesProgress({
+        variants: item.variants,
+        breakReadyAt: (item as { variantBreakReadyAt?: string | null }).variantBreakReadyAt,
+      })
+    : null;
+  const salesClosed = sweet16?.closed === true;
   const selectedRow = rows.find((r) => r.variantId === selectedVariantId && !r.sold) ?? null;
   const selectedUnavailable = Boolean(selectedRow?.unavailable);
   const isSuppSale = selectedUnavailable || saleMode === 'supp';
@@ -389,11 +409,15 @@ export function SellerBreakSpotBoardSheet({
           <View style={styles.headerRow}>
             <View style={styles.headerCopy}>
               <LiveRoomText style={styles.sheetTitle}>
-                {openCount === 0
-                  ? isDivisionBreak
-                    ? 'Division roster'
-                    : 'Team roster'
-                  : isDivisionBreak
+                {sweet16
+                  ? salesClosed
+                    ? 'Sales closed'
+                    : 'Team board'
+                  : openCount === 0
+                    ? isDivisionBreak
+                      ? 'Division roster'
+                      : 'Team roster'
+                    : isDivisionBreak
                     ? 'Division board'
                     : 'Team board'}
               </LiveRoomText>
@@ -401,11 +425,15 @@ export function SellerBreakSpotBoardSheet({
                 {item.displayTitle?.trim() || item.title}
               </LiveRoomText>
               <LiveRoomText style={styles.spotsMeta}>
-                {openCount === 0
-                  ? `Break roster · ${soldCount} sold${unavailableCount ? ` · ${unavailableCount} unavailable` : ''}`
-                  : `${openCount} open · ${soldCount} sold${
-                      unavailableCount ? ` · ${unavailableCount} unavailable` : ''
-                    }`}
+                {sweet16
+                  ? salesClosed
+                    ? `${sweet16.closedLabel} · open teams are the draft pool`
+                    : sweet16.progressLabel
+                  : openCount === 0
+                    ? `Break roster · ${soldCount} sold${unavailableCount ? ` · ${unavailableCount} unavailable` : ''}`
+                    : `${openCount} open · ${soldCount} sold${
+                        unavailableCount ? ` · ${unavailableCount} unavailable` : ''
+                      }`}
                 {canMarkSold
                   ? ' · tap a team for Mark sold, Supp sold, or Mark unavailable'
                   : canPinTeams
@@ -454,12 +482,12 @@ export function SellerBreakSpotBoardSheet({
                   <LiveRoomText style={styles.addSuppBtnTxt}>+ Div Supply</LiveRoomText>
                 </Pressable>
               ) : null}
-              {canMarkSold && sweet16Eligible && onStartSweet16Draft ? (
+              {canMarkSold && sweet16Eligible && onOpenSweet16Draft ? (
                 <Pressable
                   style={styles.addSuppBtn}
                   onPress={() => {
                     dismissKeyboard();
-                    onStartSweet16Draft();
+                    onOpenSweet16Draft();
                   }}
                   hitSlop={6}
                 >
@@ -488,9 +516,12 @@ export function SellerBreakSpotBoardSheet({
             onScrollBeginDrag={dismissKeyboard}
           >
             {rows.map((row) => {
-              const canPin = Boolean(canPinTeams && onPinTeam && row.variantId && !row.sold && !row.unavailable);
+              const canPin = Boolean(
+                canPinTeams && onPinTeam && row.variantId && !row.sold && !row.unavailable && !salesClosed,
+              );
               const canSelect = Boolean(
                 canMarkSold &&
+                  !(salesClosed && !row.sold) &&
                   row.variantId &&
                   !row.sold &&
                   (row.unavailable ? onRestoreTeam || onMarkSold : onMarkSold),
@@ -505,6 +536,7 @@ export function SellerBreakSpotBoardSheet({
                   tileWidth={grid.tileWidth}
                   compact={!isDivisionBreak && grid.columns >= 4}
                   canPin={canPin}
+                  salesClosed={salesClosed}
                   pinBusy={Boolean(pinningVariantId)}
                   onPinTeam={onPinTeam}
                   selected={selectedVariantId === row.variantId}

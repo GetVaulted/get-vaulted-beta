@@ -60,6 +60,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const [roomFetchError, setRoomFetchError] = useState<string | null>(null);
   const [messages, setMessages] = useState<LiveRoomMessageDTO[]>([]);
   const [teamBoardTick, setTeamBoardTick] = useState(0);
+  /** Bumped on every realtime Sweet 16 draft event so the draft panel refetches immediately. */
+  const [sweet16Tick, setSweet16Tick] = useState(0);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [streamPlaybackRefreshNonce, setStreamPlaybackRefreshNonce] = useState(0);
   const [broadcastGate, setBroadcastGate] = useState<LiveRoomBroadcastGate>({
@@ -684,6 +686,11 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       setVaultRevealSpin(spin);
       scheduleFallbackRefresh("giveaways_changed", 250);
     },
+    // Order set / draft started / pick made / draft complete: all mean "refetch the draft now".
+    // The panel's poll stays on as the fallback.
+    onSweet16DraftStarted: () => setSweet16Tick((n) => n + 1),
+    onSweet16DraftPickMade: () => setSweet16Tick((n) => n + 1),
+    onSweet16DraftComplete: () => setSweet16Tick((n) => n + 1),
     onBreakSpotsChange: () => {
       logLiveDebugEvent({
         event: "event_received",
@@ -1130,6 +1137,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           isHost={isHostViewer}
           roomEnded={detail.status === "ended"}
           onDraftComplete={() => void load()}
+          refreshKey={sweet16Tick}
         />
         {paymentBlocker}
         <LivePremiumWalletSheet
@@ -1200,6 +1208,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         isHost={isHostViewer}
         roomEnded={detail.status === "ended"}
         onDraftComplete={() => void load()}
+        refreshKey={sweet16Tick}
       />
       {paymentBlocker}
       <LivePremiumWalletSheet

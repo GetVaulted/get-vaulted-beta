@@ -132,6 +132,24 @@ export async function bootstrapIntegrationPrisma(): Promise<PrismaClient> {
   return sharedClient;
 }
 
+/**
+ * Connect to an integration database whose migrations are ALREADY applied (skips the Prisma CLI
+ * steps of `bootstrapIntegrationPrisma`). Same URL safety checks. Meant for tests that only insert
+ * and remove rows of their own, so they never need the full reset.
+ */
+export async function connectMigratedIntegrationPrisma(): Promise<PrismaClient> {
+  const dbUrl = integrationDatabaseUrl();
+  assertNotDestructiveTarget("intended integration database URL", dbUrl);
+  await assertSupabaseIntegrationProjectReachable(dbUrl);
+  if (sharedClient) {
+    await sharedClient.$disconnect().catch(() => {});
+  }
+  sharedClient = createPostgresPrismaClient(dbUrl);
+  await sharedClient.$connect();
+  setIntegrationPrismaClient(sharedClient);
+  return sharedClient;
+}
+
 export async function teardownIntegrationPrisma(): Promise<void> {
   if (sharedClient) {
     try {

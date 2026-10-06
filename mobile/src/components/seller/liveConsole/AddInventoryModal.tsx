@@ -84,7 +84,7 @@ const BREAK_VARIANTS: { id: BreakSaleType; label: string; sub: string }[] = [
   { id: 'random_pyt', label: 'Random Teams', sub: 'Vault reveal' },
   { id: 'random_pyd', label: 'Random Divisions', sub: '8 · NFL' },
   { id: 'random_pyp', label: 'Random Players', sub: 'Vault reveal' },
-  { id: 'sweet16', label: 'Sweet 16', sub: '16 slots · live draft · NFL' },
+  { id: 'sweet16', label: 'Sweet 16', sub: '32 teams · 16 sell · live draft' },
 ];
 
 function visibleBreakVariants(boardPack: LiveBoardPackId) {
@@ -405,7 +405,7 @@ export function AddInventoryModal({
           : draft.saleType === 'pyp' || draft.saleType === 'random_pyp'
             ? 'Price per player'
             : draft.saleType === 'sweet16'
-              ? 'Price per slot'
+              ? 'Price per team'
               : 'Buy-it-now price';
   const pricePlaceholder =
     draft.saleType === 'auction' ? '1' : isBreakLotSaleType(draft.saleType) ? '25' : '25';
@@ -717,9 +717,9 @@ export function AddInventoryModal({
               <View style={styles.breakHint}>
                 <Ionicons name="shuffle-outline" size={16} color={vaultColors.gold} />
                 <Text style={styles.breakHintTxt}>
-                  Buyers buy one of 16 blind numbered slots — no team is attached yet. Once all 16
-                  sell, start a live turn-based draft from the host console to decide who gets
-                  which team, one pick per turn.
+                  32 teams are on the board at one flat price. Sales stop automatically once 16
+                  are sold, then a live draft hands out the remaining 16 teams so every buyer
+                  ends with 2.
                 </Text>
               </View>
             ) : null}

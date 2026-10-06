@@ -4,6 +4,7 @@ import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { formatAuctionLeaderLine, formatAuctionMoneyUsd } from "@/lib/live-auction-winner-display";
 import { resolveLiveItemOverlayPrice } from "@/lib/live-auction-overlay-price";
 import { isVariantPurchaseItem, summarizeVariantSpots } from "@/lib/live-item-variant-presets";
+import { sweet16SalesStatus } from "@/lib/sweet16-draft-client";
 import { hostQueueSwitchPinState } from "@/lib/host-queue-selection";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
@@ -174,6 +175,8 @@ export function VaultPinnedLot({
   const commerceItem = boardItem ?? null;
   const isVariantItem = isVariantPurchaseItem(commerceItem);
   const spotStats = isVariantItem ? summarizeVariantSpots(commerceItem?.variants) : null;
+  // Sweet 16: "N of 16 sold" (the board lists 32 teams, only 16 are ever sold).
+  const sweet16Sales = isVariantItem ? sweet16SalesStatus(commerceItem) : null;
   const thumb = item?.imageUrl?.trim();
   const reserveMet = computeLiveLotReserveMet(item);
   const overlayPrice = item && !isVariantItem ? fmtOverlayLead(item) : null;
@@ -292,7 +295,8 @@ export function VaultPinnedLot({
             {item ? (
               <p className={`mt-1 text-left font-semibold text-amber-100/95 ${compactEmbedded ? "text-[10px]" : "text-[11px]"}`}>
                 {isVariantItem && spotStats
-                  ? `${spotStats.available} of ${spotStats.available + spotStats.sold} spots open · ${spotStats.sold} sold`
+                  ? (sweet16Sales?.label ??
+                    `${spotStats.available} of ${spotStats.available + spotStats.sold} spots open · ${spotStats.sold} sold`)
                   : formatAuctionLeaderLine({
                       lastHighBidderUsername: item.lastHighBidderUsername,
                       lastHighBidderId: item.lastHighBidderId,
@@ -333,7 +337,7 @@ export function VaultPinnedLot({
             </p>
             {isVariantItem && spotStats ? (
               <p className="mt-0.5 text-[8px] font-semibold text-emerald-300/90">
-                {spotStats.available === 0 ? "All spots sold" : "Spot board live"}
+                {sweet16Sales?.closed ? "Sales closed" : spotStats.available === 0 ? "All spots sold" : "Spot board live"}
               </p>
             ) : item?.reservePriceUsd != null && Number.isFinite(item.reservePriceUsd) ? (
               <p className="mt-0.5 text-[8px] font-semibold text-zinc-400">
@@ -383,7 +387,7 @@ export function VaultPinnedLot({
                   </span>
                   {spotStats ? (
                     <span className="text-[10px] font-bold tabular-nums text-amber-100">
-                      {spotStats.available} open · {spotStats.sold} sold
+                      {sweet16Sales ? sweet16Sales.label : `${spotStats.available} open · ${spotStats.sold} sold`}
                     </span>
                   ) : null}
                   {onNextItem ? (

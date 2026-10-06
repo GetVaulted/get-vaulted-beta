@@ -74,6 +74,10 @@ export function useLiveRoomRealtimeSession(args: {
   );
   const [connectionBanner, setConnectionBanner] = useState<string | null>(null);
   const [myHighBidUsd, setMyHighBidUsd] = useState<number | null>(null);
+  /** Bumped on every Sweet 16 draft realtime event (order set / started / pick / complete) and on
+   *  reconnect — consumers refetch the draft snapshot when it changes. */
+  const [sweet16DraftSignal, setSweet16DraftSignal] = useState(0);
+  const bumpSweet16DraftSignal = useCallback(() => setSweet16DraftSignal((n) => n + 1), []);
   const [showOutbidToast, setShowOutbidToast] = useState(false);
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
   const [spotCelebration, setSpotCelebration] = useState<LiveSpotTakenCelebration | null>(null);
@@ -388,8 +392,14 @@ export function useLiveRoomRealtimeSession(args: {
     },
     onMessagesRefreshMerge: () => args.onChatBroadcast?.({ id: '', body: '', messageType: '__refresh__' }),
     onQueueItemsChange: () => scheduleReconcile(120),
-    onTeamBreakReady: () => scheduleReconcile(200),
+    onTeamBreakReady: () => {
+      scheduleReconcile(200);
+      bumpSweet16DraftSignal();
+    },
     onTeamBreakBegan: () => scheduleReconcile(200),
+    onSweet16DraftStarted: bumpSweet16DraftSignal,
+    onSweet16DraftPickMade: bumpSweet16DraftSignal,
+    onSweet16DraftComplete: bumpSweet16DraftSignal,
     onModerationChanged: () => void args.onModerationChanged?.(),
     onGiveawaysChange: () => scheduleReconcile(250),
     onVaultRevealSpin: (payload) => {
@@ -473,6 +483,7 @@ export function useLiveRoomRealtimeSession(args: {
     onRoomStateEvent: () => scheduleReconcile(600),
     onReconnect: () => {
       setConnectionBanner(null);
+      bumpSweet16DraftSignal();
       scheduleReconcile(120);
       args.onStreamHardRefresh?.() ?? args.onStreamRefresh?.();
     },
@@ -593,6 +604,7 @@ export function useLiveRoomRealtimeSession(args: {
 
   return {
     roomSnap,
+    sweet16DraftSignal,
     syncRefreshing,
     clockSkewMs,
     connectionState,

@@ -58,6 +58,8 @@ import { LiveCustomBidSheet } from './LiveCustomBidSheet';
 import { LiveBreakSpotGridSheet } from './LiveBreakSpotGridSheet';
 import { SellerBreakSpotBoardSheet } from '../seller/liveOverlay/SellerBreakSpotBoardSheet';
 import { LiveSweet16DraftSheet } from './LiveSweet16DraftSheet';
+import { useSweet16DraftWatcher } from '../../hooks/useSweet16DraftWatcher';
+import { shouldAutoOpenForTurn } from '../../lib/liveSweet16Draft';
 import type { LiveCustomBidPayload } from '../../lib/liveCustomBid';
 import {
   isActiveVariantBuyerItem,
@@ -141,6 +143,8 @@ type Props = {
   commerceActive?: boolean;
   /** Vault reveal is on screen — collapse checkout so the roll is visible. */
   vaultRevealActive?: boolean;
+  /** Bumped on every Sweet 16 `sweet16_draft_*` realtime event — refetches the draft snapshot. */
+  sweet16DraftSignal?: number;
 };
 
 export function LivePinnedActionBar({
@@ -174,6 +178,7 @@ export function LivePinnedActionBar({
   viewerUserId,
   commerceActive = true,
   vaultRevealActive = false,
+  sweet16DraftSignal = 0,
 }: Props) {
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const tabNav = stackNav.getParent<BottomTabNavigationProp<MainTabParamList>>();
@@ -215,10 +220,34 @@ export function LivePinnedActionBar({
     [stream, roomSnap, syncedNowMs],
   );
   const variantItemActive = isActiveVariantBuyerItem(roomSnap);
-  // Sweet 16 lots sell anonymous numbered slots (draft mode) — once the board fills, the
-  // buyer's "roster" is the live draft sheet, not the read-only sold-team board.
+  // Sweet 16 lots list all 32 teams but stop selling at 16 — once sales close, the buyer's
+  // "roster" is the live draft sheet (order, then picks), not the read-only sold-team board.
   const isSweet16Item = roomSnap?.activeItemVariantAssignmentMode === 'draft';
   const variantRosterClosed = isBuyerVariantRosterClosed(roomSnap);
+  // Draft snapshot for this lot (only once sales closed): drives the automatic "your pick" pop-up.
+  const sweet16Watch = useSweet16DraftWatcher({
+    enabled:
+      commerceActive &&
+      signedIn &&
+      variantItemActive &&
+      isSweet16Item &&
+      variantRosterClosed &&
+      !staffCommerceBlocked,
+    roomId: stream.id,
+    itemId: roomSnap?.activeItemId ?? null,
+    accessToken,
+    refreshSignal: sweet16DraftSignal,
+    paused: sweet16DraftOpen,
+  });
+  const sweet16MyTurnKeyRef = useRef<string | null>(null);
+  sweet16MyTurnKeyRef.current = sweet16Watch.myTurnKey;
+  const sweet16DismissedTurnKeyRef = useRef<string | null>(null);
+  const sweet16AutoOpenedTurnKeyRef = useRef<string | null>(null);
+  const closeSweet16Draft = useCallback(() => {
+    // Remember the turn the buyer dismissed so the pop-up does not bounce back for that same turn.
+    if (sweet16MyTurnKeyRef.current) sweet16DismissedTurnKeyRef.current = sweet16MyTurnKeyRef.current;
+    setSweet16DraftOpen(false);
+  }, []);
   const variantFixedCheckoutActive =
     variantItemActive && !isVariantSpotAuctionLive(roomSnap);
 
@@ -250,12 +279,32 @@ export function LivePinnedActionBar({
     autoOpenedRosterItemRef.current = itemId;
     setVariantSheetOpen(false);
     setVariantSheetInitialId(null);
-    if (isSweet16Item) {
-      setSweet16DraftOpen(true);
-    } else {
-      setTeamsRosterOpen(true);
-    }
+    // Sweet 16 has its own turn-based pop-up (below); sales closing must not pop the sheet for
+    // every viewer — only buyers on the clock get it automatically.
+    if (!isSweet16Item) setTeamsRosterOpen(true);
   }, [variantItemActive, variantRosterClosed, roomSnap?.activeItemId, isSweet16Item]);
+
+  // Sweet 16: when it becomes THIS viewer's turn (and again for each further turn they own),
+  // open the draft sheet automatically. Never for non-participants (myTurnKey is only set for a
+  // paid buyer on the clock) and never again for a turn the buyer already dismissed.
+  useEffect(() => {
+    if (!commerceActive || vaultRevealActive) return;
+    const key = sweet16Watch.myTurnKey;
+    if (
+      !shouldAutoOpenForTurn({
+        myTurnKey: key,
+        dismissedTurnKey: sweet16DismissedTurnKeyRef.current,
+        lastAutoOpenedKey: sweet16AutoOpenedTurnKeyRef.current,
+      })
+    ) {
+      return;
+    }
+    sweet16AutoOpenedTurnKeyRef.current = key;
+    setVariantSheetOpen(false);
+    setVariantSheetInitialId(null);
+    setTeamsRosterOpen(false);
+    setSweet16DraftOpen(true);
+  }, [commerceActive, vaultRevealActive, sweet16Watch.myTurnKey]);
 
   // New lot → drop local hold floor so we don't bid from a prior item's next-min.
   useEffect(() => {
@@ -1716,6 +1765,7 @@ export function LivePinnedActionBar({
           salesFormat={roomSnap.activeItemSalesFormat ?? 'variant_selection'}
           variantAssignmentMode={roomSnap.activeItemVariantAssignmentMode ?? 'pick'}
           variants={roomSnap.activeItemVariants ?? []}
+          salesClosedAt={roomSnap.activeItemVariantBreakReadyAt ?? null}
           initialVariantId={variantSheetInitialId}
           excludeVariantIds={
             isVariantSpotAuctionLive(roomSnap) && roomSnap.auctionVariantId
@@ -1769,19 +1819,26 @@ export function LivePinnedActionBar({
             salesFormat: roomSnap.activeItemSalesFormat ?? undefined,
             variantAssignmentMode: roomSnap.activeItemVariantAssignmentMode ?? 'pick',
             variants: roomSnap.activeItemVariants,
+            variantBreakReadyAt: roomSnap.activeItemVariantBreakReadyAt ?? null,
           }}
         />
       ) : null}
 
       {variantItemActive && isSweet16Item && roomSnap?.activeItemId ? (
-        /* Sweet 16 — live turn-based draft once all 16 blind slots are sold. */
+        /* Sweet 16 — draft order, then live turn-based picks once 16 teams are sold. Opens by
+           itself on the buyer's turn; any buyer can open it to watch. */
         <LiveSweet16DraftSheet
+          key={roomSnap.activeItemId}
           visible={sweet16DraftOpen}
-          onClose={() => setSweet16DraftOpen(false)}
+          onClose={closeSweet16Draft}
           roomId={stream.id}
           itemId={roomSnap.activeItemId}
           title={roomSnap.activeItemTitle ?? m.itemTitle}
           accessToken={accessToken}
+          refreshSignal={sweet16DraftSignal}
+          seedDraft={sweet16Watch.draft}
+          onDraftChange={sweet16Watch.applyDraft}
+          variants={roomSnap.activeItemVariants}
           onDraftComplete={() => void refreshRoomSnapshot()}
         />
       ) : null}

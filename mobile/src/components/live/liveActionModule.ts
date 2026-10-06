@@ -12,6 +12,7 @@ import {
   variantIsAvailable,
   variantSelectSpotLabel,
 } from '../../lib/liveItemVariant';
+import { isSweet16DraftMode, sweet16SalesProgress } from '../../lib/liveSweet16Sales';
 import {
   isVariantSpotAuctionArmed,
   isVariantSpotAuctionLive,
@@ -110,7 +111,11 @@ function resolveBuyerVariantItemHud(
     };
   }
 
-  const pinned = featuredBuyerVariant(snap);
+  // Sweet 16: 32 teams on the board, but sales stop at 16 sold — unsold tiles are "closed".
+  const sweet16 = isSweet16DraftMode(snap.activeItemVariantAssignmentMode)
+    ? sweet16SalesProgress({ variants, breakReadyAt: snap.activeItemVariantBreakReadyAt })
+    : null;
+  const pinned = sweet16?.closed ? null : featuredBuyerVariant(snap);
   if (pinned && isVariantSpotAuctionLive(snap)) {
     const hasBid = Boolean(snap.lastHighBidderId?.trim() || snap.lastHighBidderUsername?.trim());
     const opening = snap.startingBidUsd ?? pinned.priceUsd ?? 1;
@@ -209,7 +214,7 @@ function resolveBuyerVariantItemHud(
     };
   }
 
-  const available = availableVariantCount(variants);
+  const available = sweet16?.closed ? 0 : availableVariantCount(variants);
   const fromPrice = lowestAvailableVariantPrice(variants) ?? snap.priceUsd ?? snap.startingBidUsd ?? 0;
   if (variants.length === 0) {
     // Snapshot lag — keep Claim CTA (do not show Sold out / fall through to bid).
@@ -238,11 +243,13 @@ function resolveBuyerVariantItemHud(
       timerMmSs: '—',
       itemTitle: itemTitleFallback,
       currentPrefix: 'Status',
-      currentAmount: 'Sold out',
+      currentAmount: sweet16 ? 'Sales closed' : 'Sold out',
       winningLine: '',
-      stateLine: 'All spots sold — open the team roster to see who got each team.',
+      stateLine: sweet16
+        ? `${sweet16.closedLabel} — open the draft board to follow the live draft.`
+        : 'All spots sold — open the team roster to see who got each team.',
       bottomLeftLabel: 'Teams',
-      bottomRightLabel: 'Team roster',
+      bottomRightLabel: sweet16 ? 'Draft board' : 'Team roster',
       bottomRightIsSlide: false,
       showShopButton: false,
       buyerPrimaryDisabled: false,
@@ -258,7 +265,9 @@ function resolveBuyerVariantItemHud(
     currentPrefix: 'From',
     currentAmount: formatMoney(fromPrice),
     winningLine: '',
-    stateLine: `${available} spot${available === 1 ? '' : 's'} available — tap to claim yours.`,
+    stateLine: sweet16
+      ? `${sweet16.progressLabel} — tap a team to claim it.`
+      : `${available} spot${available === 1 ? '' : 's'} available — tap to claim yours.`,
     bottomLeftLabel: 'Custom',
     bottomRightLabel: variantClaimPrimaryLabel(snap.activeItemSalesFormat),
     bottomRightIsSlide: false,

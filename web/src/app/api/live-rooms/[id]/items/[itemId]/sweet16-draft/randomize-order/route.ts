@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
-import { startSweet16Draft, Sweet16Error } from "@/lib/live-sweet16-draft";
+import { randomizeSweet16DraftOrder, Sweet16Error } from "@/lib/live-sweet16-draft";
 
-/** Host: step 2 of the Sweet 16 draft — open the first buyer's pick after the order has been randomized. */
+/** Host: step 1 of the Sweet 16 draft — randomize the buyers into draft order once 16 teams are sold. */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string; itemId: string }> }) {
   const { id: rawRoom, itemId } = await ctx.params;
   const liveRoomId = decodeURIComponent(rawRoom);
@@ -14,17 +14,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   }
 
   try {
-    const draft = await startSweet16Draft({ liveRoomId, itemId });
+    const draft = await randomizeSweet16DraftOrder({ liveRoomId, itemId });
     return NextResponse.json({ draft });
   } catch (e) {
     if (e instanceof Sweet16Error) {
       return NextResponse.json({ error: e.message, code: e.code }, { status: e.status });
     }
-    console.error("[sweet16-draft/start] failed", {
+    console.error("[sweet16-draft/randomize-order] failed", {
       liveRoomId,
       itemId,
       error: e instanceof Error ? e.message : String(e),
     });
-    return NextResponse.json({ error: "Could not start the draft." }, { status: 500 });
+    return NextResponse.json({ error: "Could not set the draft order." }, { status: 500 });
   }
 }

@@ -31,6 +31,7 @@ import { isWalletIncompleteError } from '../../lib/buyerWalletErrors';
 import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
 import { withLivePlaybackCommerceHold } from '../../lib/livePlaybackCommerceHold';
 import { formatSoldSpotBuyerLabel, formatUnavailableSpotLabel } from '../../lib/liveVariantSpotBoard';
+import { isSweet16DraftMode, sweet16SalesProgress } from '../../lib/liveSweet16Sales';
 import {
   isLightSpotAccent,
   spotAccentColor,
@@ -73,6 +74,8 @@ type Props = {
   salesFormat: LiveItemSalesFormat;
   variantAssignmentMode?: 'pick' | 'random' | 'draft';
   variants: LiveItemVariantSnapshot[];
+  /** Sweet 16 only: ISO `variantBreakReadyAt` — sales closed, unsold tiles are no longer buyable. */
+  salesClosedAt?: string | null;
   /** Hide teams currently in spot auction (buyers bid on those instead). */
   excludeVariantIds?: string[];
   /** Pre-select a team/division when opening checkout (host-pinned spot). */
@@ -112,6 +115,7 @@ export function LiveBreakSpotGridSheet({
   salesFormat,
   variantAssignmentMode = 'pick',
   variants,
+  salesClosedAt = null,
   excludeVariantIds,
   initialVariantId,
   accessToken,
@@ -153,6 +157,16 @@ export function LiveBreakSpotGridSheet({
     return sortedVariants.filter((v) => v.label.toLowerCase().includes(q));
   }, [spotSearch, sortedVariants]);
   const spotSummary = useMemo(() => summarizeVariantSpots(pickerVariants), [pickerVariants]);
+  // Sweet 16 lists all 32 teams but only 16 can sell: show "N of 16 sold", and once sales close
+  // (server `variantBreakReadyAt`, or 16 already sold) every unsold tile reads "Closed".
+  const sweet16 = useMemo(
+    () =>
+      isSweet16DraftMode(variantAssignmentMode)
+        ? sweet16SalesProgress({ variants: pickerVariants, breakReadyAt: salesClosedAt })
+        : null,
+    [pickerVariants, salesClosedAt, variantAssignmentMode],
+  );
+  const salesClosed = sweet16?.closed === true;
   const selectedVariants = useMemo(
     () => sortedVariants.filter((v) => selectedIds.includes(v.id)),
     [selectedIds, sortedVariants],
@@ -231,7 +245,7 @@ export function LiveBreakSpotGridSheet({
   }, [initialVariantId, isRandom, sortedVariants, visible]);
 
   const toggleSpot = (variantId: string) => {
-    if (isRandom) return;
+    if (isRandom || salesClosed) return;
     setSelectedIds((prev) => {
       if (prev.includes(variantId)) return prev.filter((id) => id !== variantId);
       return [...prev, variantId];
@@ -304,7 +318,7 @@ export function LiveBreakSpotGridSheet({
         ? `${pickerBaseLabel}: ${selectedVariants[0]!.label}`
         : `${pickerBaseLabel}: ${selectionCount} selected`;
 
-  const allSold = spotSummary.available <= 0 && pickerVariants.length > 0;
+  const allSold = (spotSummary.available <= 0 && pickerVariants.length > 0) || salesClosed;
 
   const finishSuccessfulPurchase = (spotLabel: string, amountUsd: number) => {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -328,6 +342,10 @@ export function LiveBreakSpotGridSheet({
     // FIX 3: synchronous guard checked before any async work — `busy` is a React state update
     // and is not guaranteed to have re-rendered yet when a second hold-to-commit fires.
     if (checkoutInFlightRef.current) return;
+    if (salesClosed) {
+      setError('Sales are closed — all 16 teams are sold.');
+      return;
+    }
     if (selectedVariants.length === 0) {
       setError(`Select ${isDivisionBreak ? 'a division' : 'a team'} first.`);
       return;
@@ -549,11 +567,19 @@ export function LiveBreakSpotGridSheet({
           <View style={styles.headerRow}>
             <View style={styles.headerCopy}>
               <LiveRoomText style={styles.checkoutHeading}>
-                {rosterMode ? (isDivisionBreak ? 'Division roster' : 'Team roster') : 'Checkout'}
+                {rosterMode
+                  ? sweet16
+                    ? 'Sales closed'
+                    : isDivisionBreak
+                      ? 'Division roster'
+                      : 'Team roster'
+                  : 'Checkout'}
               </LiveRoomText>
               {rosterMode ? (
                 <LiveRoomText style={styles.securityLine}>
-                  All spots sold · see who got each {isDivisionBreak ? 'division' : 'team'}
+                  {sweet16
+                    ? `${sweet16.closedLabel} · a live draft hands out the rest`
+                    : `All spots sold · see who got each ${isDivisionBreak ? 'division' : 'team'}`}
                 </LiveRoomText>
               ) : (
                 <View style={styles.securityRow}>
@@ -593,8 +619,12 @@ export function LiveBreakSpotGridSheet({
                 <View style={styles.remainingPillWrap}>
                   <LiveRoomText style={styles.remainingMeta}>
                     {rosterMode
-                      ? `Break in progress · ${pickerVariants.length} ${isDivisionBreak ? 'divisions' : 'teams'}`
-                      : `${spotSummary.available} spot${spotSummary.available === 1 ? '' : 's'} remaining`}
+                      ? sweet16
+                        ? sweet16.closedLabel
+                        : `Break in progress · ${pickerVariants.length} ${isDivisionBreak ? 'divisions' : 'teams'}`
+                      : sweet16
+                        ? sweet16.progressLabel
+                        : `${spotSummary.available} spot${spotSummary.available === 1 ? '' : 's'} remaining`}
                   </LiveRoomText>
                 </View>
               </View>
@@ -603,16 +633,20 @@ export function LiveBreakSpotGridSheet({
             <View style={styles.pickerSection}>
               <LiveRoomText style={styles.pickerTitle}>
                 {rosterMode
-                  ? isDivisionBreak
-                    ? 'Who got each division'
-                    : isPlayerBreak
-                      ? 'Who got each player'
-                      : 'Who got each team'
+                  ? sweet16
+                    ? 'Who bought each team'
+                    : isDivisionBreak
+                      ? 'Who got each division'
+                      : isPlayerBreak
+                        ? 'Who got each player'
+                        : 'Who got each team'
                   : pickerTitle}
               </LiveRoomText>
               <LiveRoomText style={styles.pickerHint}>
                 {rosterMode
-                  ? `Sold roster — stays available while the host runs the break`
+                  ? sweet16
+                    ? 'Open tiles are closed — they become the draft pool for the 16 buyers'
+                    : `Sold roster — stays available while the host runs the break`
                   : isRandom
                     ? 'Slide to buy — Vault Reveal assigns your spot from what’s left'
                     : selectionCount > 0
@@ -650,6 +684,7 @@ export function LiveBreakSpotGridSheet({
                         key={variant.id}
                         variant={variant}
                         selected={!rosterMode && selectedIds.includes(variant.id)}
+                        closed={salesClosed}
                         wide={isDivisionBreak || isPlayerBreak}
                         onSelect={() => {
                           if (rosterMode || !variantIsAvailable(variant)) return;
@@ -778,16 +813,19 @@ function spotInitials(label: string): string {
 function TeamPill({
   variant,
   selected,
+  closed = false,
   wide = false,
   onSelect,
 }: {
   variant: LiveItemVariantSnapshot;
   selected: boolean;
+  /** Sweet 16 sales closed — an unsold team is not buyable and reads "Closed". */
+  closed?: boolean;
   /** Divisions/players use the 2-column crest card; teams use the 4-column tile. */
   wide?: boolean;
   onSelect: () => void;
 }) {
-  const soldOut = !variantIsAvailable(variant);
+  const soldOut = !variantIsAvailable(variant) || closed;
   // Same accent pattern as host `SellerBreakSpotBoardSheet` / setup grid — team board colors must match.
   const accent = spotAccentColor(variant.label ?? '', variant.color, wide);
   const lightAccent = isLightSpotAccent(accent);
@@ -867,7 +905,9 @@ function TeamPill({
             <LiveRoomText style={styles.pillSoldMeta} numberOfLines={1}>
               {variant.status === 'removed'
                 ? formatUnavailableSpotLabel()
-                : formatSoldSpotBuyerLabel(variant.buyerUsername)}
+                : variantIsAvailable(variant)
+                  ? 'Closed'
+                  : formatSoldSpotBuyerLabel(variant.buyerUsername)}
             </LiveRoomText>
           )}
         </View>
@@ -916,7 +956,9 @@ function TeamPill({
         <LiveRoomText style={styles.pillSoldMeta} numberOfLines={1}>
           {variant.status === 'removed'
             ? formatUnavailableSpotLabel()
-            : formatSoldSpotBuyerLabel(variant.buyerUsername)}
+            : variantIsAvailable(variant)
+              ? 'Closed'
+              : formatSoldSpotBuyerLabel(variant.buyerUsername)}
         </LiveRoomText>
       )}
     </Pressable>
