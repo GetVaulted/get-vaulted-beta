@@ -13,7 +13,7 @@ export default function TermsPage() {
         ← Back to Join
       </Link>
       <h1 className="font-display mt-6 text-2xl font-bold text-foreground">Terms of Service</h1>
-      <p className="mt-2 text-xs text-zinc-500">Last updated: July 3, 2026</p>
+      <p className="mt-2 text-xs text-zinc-500">Last updated: October 6, 2026</p>
 
       <div className="mt-10 space-y-8 text-sm leading-relaxed text-zinc-300">
         <section>
@@ -220,7 +220,14 @@ export default function TermsPage() {
               honor giveaways and promotions run in your room according to in-product rules and claim windows;
             </li>
             <li>
-              understand that livestreams may be recorded or clipped for moderation, disputes, and platform safety.
+              understand that livestreams may be recorded or clipped for moderation, disputes, and platform safety;
+            </li>
+            <li>
+              be solely responsible for everything shown or heard in your live shows, as described in{" "}
+              <a href="#live-content" className="font-medium text-gold-bright hover:underline">
+                Section 7.1
+              </a>
+              .
             </li>
           </ul>
 
@@ -380,6 +387,62 @@ export default function TermsPage() {
             high bidder on is skipped or voided before sale, you will not be charged for that lot (and any hold will
             be released); we do not guarantee the item will be offered again.
           </p>
+
+          <h3 id="live-content" className="mt-6 font-semibold text-zinc-100">
+            7.1 Seller live content and responsibility
+          </h3>
+          <p className="mt-2 text-muted">
+            Live shows are created and broadcast by independent sellers and hosts, not by Get Vaulted. Everything shown,
+            said, played, displayed, or done in a live show — including video, audio, backgrounds, items, packaging,
+            overlays, screen shares, guests, chat, and anyone who appears on camera or is heard (“Live Content”) — is
+            the sole responsibility of the seller or host who broadcasts it.
+          </p>
+          <p className="mt-3 text-muted">As a seller or host, you represent, warrant, and agree that:</p>
+          <ul className="mt-2 list-disc space-y-2 pl-5 text-muted">
+            <li>
+              you own or have all rights, licenses, and permissions needed to broadcast your Live Content, including for
+              music, video, images, logos, trademarks, brand names, and licensed products shown or played (do not play
+              copyrighted music or rebroadcast video you do not have the right to use);
+            </li>
+            <li>
+              everyone who appears on camera or is heard has consented to being recorded and broadcast, you will not
+              knowingly feature minors on camera unless a parent or legal guardian is present and consents, and you
+              will comply with all recording, wiretap, privacy, and publicity laws that apply where you broadcast;
+            </li>
+            <li>
+              your Live Content will not show, promote, or facilitate illegal items or activity, weapons, drugs,
+              nudity or sexual content, graphic violence, hate, harassment, threats, self-harm, other people’s personal
+              information (such as addresses or payment details), or anything barred by our Prohibited Items Policy or
+              Community Guidelines;
+            </li>
+            <li>
+              statements you make about items, authenticity, condition, grading, odds, contents, value, shipping, and
+              giveaways are yours alone, are not statements of Get Vaulted, and must be truthful;
+            </li>
+            <li>
+              you will comply with all laws that apply to your Live Content and the formats you run, including laws on
+              advertising, consumer protection, sweepstakes, raffles, and games of chance. That compliance is your
+              responsibility, not ours.
+            </li>
+          </ul>
+          <p className="mt-3 text-muted">
+            Get Vaulted does not create, review, edit, approve, endorse, or guarantee Live Content. We do not review
+            live shows before or while they air and have no duty to monitor them. We may, but are not required to,
+            remove, mute, limit, end, record, review, or restrict any Live Content, show, or account at any time and for
+            any reason, and may preserve recordings and disclose them to payment processors, rights holders, platform
+            partners, or law enforcement when we believe it is appropriate or required. Choosing not to act on a show,
+            or acting on one report and not another, does not waive our rights or create any duty.
+          </p>
+          <p className="mt-3 text-muted">
+            To the maximum extent permitted by law, Get Vaulted is a provider of an interactive computer service and a
+            host of third-party content. We are not the publisher, speaker, producer, or seller of Live Content or of
+            any item offered in a live show.
+          </p>
+          <p className="mt-3 text-muted">
+            Viewers and buyers understand that live shows are unscripted and are not moderated in real time, may
+            contain statements or content that is inaccurate, offensive, or objectionable, and are watched and relied
+            on at the viewer’s own risk. Report concerns in the app from the live room or the host’s profile.
+          </p>
         </section>
 
         <section>
@@ -405,6 +468,12 @@ export default function TermsPage() {
           <p className="mt-3 text-muted">
             This includes marketplace listings, social features, clips, “Hit Clip” content, promotional use, and
             fraud/security review.
+          </p>
+          <p className="mt-3 text-muted">
+            Live video, audio, and chat you broadcast are User Content. The license above includes the right to
+            record, store, clip, replay, and display your live shows, and to keep recordings for moderation, disputes,
+            safety, legal compliance, and promotion. You are responsible for getting consent from anyone who appears in
+            or is heard in them.
           </p>
           <p className="mt-3 text-muted">
             You represent that you have all rights necessary to submit the content and grant this license. If you
@@ -592,6 +661,7 @@ export default function TermsPage() {
           <ul className="mt-3 list-disc space-y-2 pl-5 text-muted">
             <li>uninterrupted or error-free service;</li>
             <li>accuracy of listings or content;</li>
+            <li>the content of livestreams, or statements made by sellers, hosts, guests, or other users;</li>
             <li>authenticity of user-listed items;</li>
             <li>success of transactions;</li>
             <li>delivery outcomes;</li>
@@ -625,6 +695,14 @@ export default function TermsPage() {
             You agree to defend, indemnify, and hold harmless Get Vaulted from claims, damages, losses, liabilities,
             and expenses arising from your use of the platform, your content, your listings, your transactions, your
             violation of law or policy, or your infringement of third-party rights.
+          </p>
+          <p className="mt-3 text-muted">
+            Without limiting the above, if you host, appear in, or run a live show, you will defend, indemnify, and hold
+            harmless Get Vaulted LLC and its affiliates, officers, directors, employees, agents, and service providers
+            (including streaming and payment providers) from any claim, demand, loss, or expense, including reasonable
+            attorneys’ fees, arising from your Live Content (as defined in Section 7.1). This includes claims of
+            intellectual property infringement, defamation, invasion of privacy or publicity, product liability, false
+            advertising or consumer protection violations, personal injury or property damage, and violations of law.
           </p>
         </section>
 

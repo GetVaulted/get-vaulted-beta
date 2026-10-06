@@ -106,7 +106,16 @@ export default function CommunityGuidelinesPage() {
             <li>run giveaways and promotions according to in-product rules and claim windows;</li>
             <li>moderate chat responsibly and follow platform safety tools;</li>
             <li>fulfill live sales with the same shipping and authenticity standards as marketplace orders;</li>
-            <li>not mislead buyers about odds, product type, or fulfillment.</li>
+            <li>not mislead buyers about odds, product type, or fulfillment;</li>
+            <li>
+              keep your camera, background, audio, and on-screen content free of illegal items, nudity, hate,
+              harassment, other people&apos;s personal information, and copyrighted music you do not have rights to —
+              you are responsible for everything shown or heard in your stream (see{" "}
+              <Link href="/terms#live-content" className="font-medium text-gold-bright hover:underline">
+                Terms, Section 7.1
+              </Link>
+              ).
+            </li>
           </ul>
           <p className="mt-3 text-muted">
             Breaks involve disclosed risk — buyers may receive low-value or no-hit results. That is not misconduct when
