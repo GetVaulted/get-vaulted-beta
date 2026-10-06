@@ -523,16 +523,9 @@ export async function processShippedPayoutEvaluation(orderId: string): Promise<v
   });
 
   if (prev !== OrderPayoutStatus.fast_payout_ready) {
-    const { scheduleNotifyAdminsBankPayoutReady, loadSellerHandleForPayoutAlert } = await import(
-      "@/lib/admin/notify-admins-bank-payout-ready"
-    );
-    const handle = await loadSellerHandleForPayoutAlert(order.sellerId);
-    scheduleNotifyAdminsBankPayoutReady({
-      orderId,
-      sellerId: order.sellerId,
-      sellerUsername: handle,
-      estimatedNetUsd: sellerNetUsd,
-    });
+    // One admin alert per completed break (not per order); non-break orders send nothing.
+    const { notifyAdminsIfBreakPayoutReady } = await import("@/lib/admin/notify-admins-bank-payout-ready");
+    await notifyAdminsIfBreakPayoutReady({ orderId, sellerId: order.sellerId });
   }
 }
 

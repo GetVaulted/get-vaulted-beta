@@ -34,11 +34,9 @@ vi.mock("@/services/payout/stripe-seller-payout", () => ({
   orderLabelClawbackSettledForBankPayout: () => true,
 }));
 
-const scheduleNotifyAdminsBankPayoutReady = vi.hoisted(() => vi.fn());
-const loadSellerHandleForPayoutAlert = vi.hoisted(() => vi.fn().mockResolvedValue("seller1"));
+const notifyAdminsIfBreakPayoutReady = vi.hoisted(() => vi.fn().mockResolvedValue("waiting"));
 vi.mock("@/lib/admin/notify-admins-bank-payout-ready", () => ({
-  scheduleNotifyAdminsBankPayoutReady,
-  loadSellerHandleForPayoutAlert,
+  notifyAdminsIfBreakPayoutReady,
 }));
 
 const loadSellerPayoutTierDashboard = vi.hoisted(() =>
@@ -158,10 +156,10 @@ describe("Stripe label hold vs admin bank payout queue", () => {
 
     expect(prismaMock.order.updateMany).not.toHaveBeenCalled();
     expect(releaseSellerStripePayout).not.toHaveBeenCalled();
-    expect(scheduleNotifyAdminsBankPayoutReady).not.toHaveBeenCalled();
+    expect(notifyAdminsIfBreakPayoutReady).not.toHaveBeenCalled();
   });
 
-  it("marks shipped Stripe orders ready and alerts admins (no auto bank payout)", async () => {
+  it("marks shipped Stripe orders ready and checks the break alert (no auto bank payout)", async () => {
     prismaMock.order.findUnique.mockResolvedValue(
       baseOrder({ shippedAt: new Date(), carrierAcceptedAt: new Date() }),
     );
@@ -175,7 +173,7 @@ describe("Stripe label hold vs admin bank payout queue", () => {
         data: expect.objectContaining({ payoutStatus: OrderPayoutStatus.fast_payout_ready }),
       }),
     );
-    expect(scheduleNotifyAdminsBankPayoutReady).toHaveBeenCalledWith(
+    expect(notifyAdminsIfBreakPayoutReady).toHaveBeenCalledWith(
       expect.objectContaining({ orderId: "ord_1", sellerId: "seller_1" }),
     );
   });
@@ -191,6 +189,6 @@ describe("Stripe label hold vs admin bank payout queue", () => {
 
     await processShippedPayoutEvaluation("ord_1");
 
-    expect(scheduleNotifyAdminsBankPayoutReady).not.toHaveBeenCalled();
+    expect(notifyAdminsIfBreakPayoutReady).not.toHaveBeenCalled();
   });
 });
