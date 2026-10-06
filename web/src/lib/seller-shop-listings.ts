@@ -23,9 +23,14 @@ export function parseSellerShopTab(v: string | null | undefined): SellerShopTab 
   return "all";
 }
 
+/** Sold items shown publicly: live-show spot/checkout rows are not shop sales, so they stay out. */
+export function sellerShopSoldWhere(sellerId: string): Prisma.ListingWhereInput {
+  return { sellerId, status: "sold", ...notLiveShowCheckout };
+}
+
 export function sellerShopListingWhere(sellerId: string, tab: SellerShopTab): Prisma.ListingWhereInput {
   if (tab === "sold") {
-    return { sellerId, status: "sold" };
+    return sellerShopSoldWhere(sellerId);
   }
   const visible = { moderationRemovedAt: null, ...notLiveShowCheckout };
   if (tab === "buy_now") {

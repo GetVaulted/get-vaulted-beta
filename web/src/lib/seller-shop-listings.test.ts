@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { LIVE_SHOW_INVENTORY_MARKER } from "@/lib/listing-inventory-channel";
 import { parseSellerShopTab, sellerShopListingWhere } from "./seller-shop-listings";
 
 describe("parseSellerShopTab", () => {
@@ -17,9 +18,10 @@ describe("parseSellerShopTab", () => {
 
 describe("sellerShopListingWhere", () => {
   const sellerId = "seller_1";
+  const notLiveShow = { description: { not: { contains: LIVE_SHOW_INVENTORY_MARKER } } };
 
-  it("filters sold listings", () => {
-    expect(sellerShopListingWhere(sellerId, "sold")).toEqual({ sellerId, status: "sold" });
+  it("filters sold listings and leaves live-show spot rows out", () => {
+    expect(sellerShopListingWhere(sellerId, "sold")).toEqual({ sellerId, status: "sold", ...notLiveShow });
   });
 
   it("filters buy now active listings", () => {
@@ -28,6 +30,7 @@ describe("sellerShopListingWhere", () => {
       status: "active",
       buyingFormat: "buy_now",
       moderationRemovedAt: null,
+      ...notLiveShow,
     });
   });
 
@@ -35,6 +38,7 @@ describe("sellerShopListingWhere", () => {
     expect(sellerShopListingWhere(sellerId, "auctions")).toEqual({
       sellerId,
       moderationRemovedAt: null,
+      ...notLiveShow,
       OR: [{ status: "auction_live" }, { status: "active", buyingFormat: "auction" }],
     });
   });

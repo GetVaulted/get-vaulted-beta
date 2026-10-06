@@ -6,6 +6,8 @@ import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-i
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { NEW_SELLER_CREDIBILITY_LABEL } from "@/lib/marketplace-item-extras";
 import { prisma } from "@/lib/prisma";
+import { profileLinksFromStored } from "@/lib/seller-profile-fields";
+import { buildProfileTrust, loadProfileShows } from "@/lib/seller-profile-public";
 import { viewerCanSeeUser } from "@/lib/user-block";
 import {
   parseSellerShopTab,
@@ -13,6 +15,7 @@ import {
   SELLER_SHOP_MAX_PAGE_SIZE,
   sellerShopEmptyCopy,
   sellerShopListingWhere,
+  sellerShopSoldWhere,
 } from "@/lib/seller-shop-listings";
 
 const listingInclude = listingWithSellerFulfillmentInclude;
@@ -42,6 +45,11 @@ export async function GET(req: Request) {
           image: true,
           emailVerified: true,
           email: true,
+          sellerLevel: true,
+          createdAt: true,
+          profileBio: true,
+          profileBannerUrl: true,
+          profileLinks: true,
         },
       })
     : await prisma.user.findUnique({
@@ -53,6 +61,11 @@ export async function GET(req: Request) {
           image: true,
           emailVerified: true,
           email: true,
+          sellerLevel: true,
+          createdAt: true,
+          profileBio: true,
+          profileBannerUrl: true,
+          profileLinks: true,
         },
       });
 
@@ -89,16 +102,33 @@ export async function GET(req: Request) {
     auctionsLiveCount,
     salesOrderCount,
     followerCount,
+    ordersCompleted,
+    shows,
+    pullRows,
     total,
     rows,
   ] = await Promise.all([
     prisma.listing.count({
       where: { sellerId: user.id, status: { in: ["active", "auction_live"] }, moderationRemovedAt: null },
     }),
-    prisma.listing.count({ where: { sellerId: user.id, status: "sold" } }),
+    prisma.listing.count({ where: sellerShopSoldWhere(user.id) }),
     prisma.listing.count({ where: { sellerId: user.id, status: "auction_live" } }),
     prisma.order.count({ where: { sellerId: user.id } }),
     prisma.sellerFollow.count({ where: { sellerId: user.id } }),
+    prisma.order.count({ where: { sellerId: user.id, paymentStatus: "paid" } }),
+    loadProfileShows(prisma, user.id),
+    // First page only: the app shelf is a single page of up to 25.
+    page === 1
+      ? prisma.profilePullMedia.findMany({
+          where: { sellerId: user.id },
+          orderBy: { sortOrder: "asc" },
+          take: 25,
+          include: {
+            _count: { select: { likes: true, comments: true } },
+            ...(viewerId ? { likes: { where: { userId: viewerId }, select: { id: true } } } : {}),
+          },
+        })
+      : Promise.resolve([]),
     prisma.listing.count({ where }),
     prisma.listing.findMany({
       where,
@@ -120,6 +150,19 @@ export async function GET(req: Request) {
       ? `${salesOrderCount.toLocaleString("en-US")} orders on Get Vaulted`
       : NEW_SELLER_CREDIBILITY_LABEL;
 
+  const pulls = pullRows.map((m) => {
+    const { _count, likes, ...rest } = m as typeof m & { likes?: { id: string }[] };
+    return {
+      id: rest.id,
+      type: rest.type,
+      url: rest.url,
+      durationMs: rest.durationMs,
+      likeCount: _count.likes,
+      commentCount: _count.comments,
+      viewerHasLiked: Boolean(likes && likes.length),
+    };
+  });
+
   return NextResponse.json({
     seller: {
       id: user.id,
@@ -129,7 +172,18 @@ export async function GET(req: Request) {
       verified: user.emailVerified != null,
       credibility,
       isOwnShop,
+      bio: user.profileBio,
+      bannerUrl: user.profileBannerUrl,
+      links: profileLinksFromStored(user.profileLinks),
     },
+    trust: buildProfileTrust({
+      sellerLevel: user.sellerLevel,
+      ordersCompleted,
+      createdAt: user.createdAt,
+      emailVerified: user.emailVerified,
+    }),
+    shows,
+    pulls,
     stats: {
       activeListings: activeListingsCount,
       soldListings: soldListingsCount,
