@@ -144,7 +144,7 @@ export function SellerShowCard({
 export function SellerTrustCard({ trust, reviews }: { trust: ProfileTrust; reviews: ReviewSummary }) {
   const rows: { label: string; value: string }[] = [
     { label: "Seller level", value: trust.sellerLevelLabel },
-    { label: "Orders completed", value: trust.ordersCompleted.toLocaleString("en-US") },
+    { label: "Items sold", value: trust.ordersCompleted.toLocaleString("en-US") },
     {
       label: "Member since",
       value: new Date(trust.memberSince).toLocaleDateString("en-US", { month: "short", year: "numeric" }),

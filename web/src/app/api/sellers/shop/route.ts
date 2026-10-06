@@ -7,7 +7,12 @@ import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { NEW_SELLER_CREDIBILITY_LABEL } from "@/lib/marketplace-item-extras";
 import { prisma } from "@/lib/prisma";
 import { profileLinksFromStored } from "@/lib/seller-profile-fields";
-import { buildProfileTrust, loadProfileShows } from "@/lib/seller-profile-public";
+import {
+  buildProfileTrust,
+  loadProfileShows,
+  loadSellerSalesCount,
+  sellerFollowerWhere,
+} from "@/lib/seller-profile-public";
 import { loadSellerReviewSummary, loadSellerReviews } from "@/lib/seller-review-queries";
 import { viewerCanSeeUser } from "@/lib/user-block";
 import {
@@ -117,8 +122,8 @@ export async function GET(req: Request) {
     prisma.listing.count({ where: sellerShopSoldWhere(user.id) }),
     prisma.listing.count({ where: { sellerId: user.id, status: "auction_live" } }),
     prisma.order.count({ where: { sellerId: user.id } }),
-    prisma.sellerFollow.count({ where: { sellerId: user.id } }),
-    prisma.order.count({ where: { sellerId: user.id, paymentStatus: "paid" } }),
+    prisma.sellerFollow.count({ where: sellerFollowerWhere(user.id) }),
+    loadSellerSalesCount(prisma, user.id),
     loadProfileShows(prisma, user.id),
     loadSellerReviewSummary(prisma, user.id),
     loadSellerReviews(prisma, user.id, { take: 3 }),

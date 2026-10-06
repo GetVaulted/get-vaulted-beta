@@ -23,7 +23,12 @@ import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-i
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { prisma } from "@/lib/prisma";
 import { profileLinksFromStored } from "@/lib/seller-profile-fields";
-import { buildProfileTrust, loadProfileShows } from "@/lib/seller-profile-public";
+import {
+  buildProfileTrust,
+  loadProfileShows,
+  loadSellerSalesCount,
+  sellerFollowerWhere,
+} from "@/lib/seller-profile-public";
 import { loadSellerReviewSummary, loadSellerReviews } from "@/lib/seller-review-queries";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { buildSellerPageMetadata, buildSellerProfileJsonLd } from "@/lib/site-seo";
@@ -111,7 +116,7 @@ export default async function SellerShopPage({
 
   const [
     activeListingsCount,
-    salesOrderCount,
+    salesCount,
     followerCount,
     followingCount,
     shows,
@@ -123,8 +128,8 @@ export default async function SellerShopPage({
     prisma.listing.count({
       where: { sellerId: user.id, status: { in: ["active", "auction_live"] }, moderationRemovedAt: null },
     }),
-    prisma.order.count({ where: { sellerId: user.id, paymentStatus: "paid" } }),
-    prisma.sellerFollow.count({ where: { sellerId: user.id } }),
+    loadSellerSalesCount(prisma, user.id),
+    prisma.sellerFollow.count({ where: sellerFollowerWhere(user.id) }),
     prisma.sellerFollow.count({ where: { followerId: user.id } }),
     loadProfileShows(prisma, user.id),
     loadSellerReviewSummary(prisma, user.id),
@@ -166,7 +171,7 @@ export default async function SellerShopPage({
 
   const trust = buildProfileTrust({
     sellerLevel: user.sellerLevel,
-    ordersCompleted: salesOrderCount,
+    ordersCompleted: salesCount,
     createdAt: user.createdAt,
     emailVerified: user.emailVerified,
   });
@@ -231,7 +236,7 @@ export default async function SellerShopPage({
                 stats={{
                   followerCount,
                   followingCount,
-                  salesOrderCount,
+                  salesCount,
                   showsHosted: shows.totalShows,
                   isOwnShop,
                 }}

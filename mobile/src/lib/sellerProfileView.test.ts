@@ -84,7 +84,7 @@ describe('trust rows', () => {
     });
     expect(rows).toEqual([
       { label: 'Seller level', value: 'Vault Seller' },
-      { label: 'Orders completed', value: '1,234' },
+      { label: 'Items sold', value: '1,234' },
       { label: 'Member since', value: 'Aug 2026' },
       { label: 'Email', value: 'Not verified' },
     ]);
