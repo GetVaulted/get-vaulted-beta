@@ -110,6 +110,8 @@ export async function fetchPublishedListingsPageFromWeb(opts: {
   page: number;
   pageSize: number;
   category?: string;
+  /** Server title/seller search term (`q`). */
+  q?: string;
   /** Server sort: `recent` (default), `price-asc`, `price-desc`, `seller-level`. */
   sort?: string;
 }): Promise<WebPublishedListingsPage> {
@@ -126,6 +128,7 @@ export async function fetchPublishedListingsPageFromWeb(opts: {
     pageSize: String(Math.min(Math.max(1, Math.trunc(opts.pageSize)), 120)),
   });
   if (opts.category) params.set('category', opts.category);
+  if (opts.q) params.set('q', opts.q);
   if (opts.sort) params.set('sort', opts.sort);
   const res = await fetchWebApi(`/api/listings?${params.toString()}`, { headers });
   const body = (await res.json().catch(() => null)) as {

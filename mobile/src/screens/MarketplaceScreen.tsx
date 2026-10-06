@@ -19,7 +19,7 @@ import { useMarketplaceCatalogSync } from '../hooks/useMarketplaceCatalogSync';
 import { useMarketplaceLayout } from '../hooks/useMarketplaceLayout';
 import { useMarketplaceShelves } from '../hooks/useMarketplaceShelves';
 import { hasWarmHomeFeedCache, getHomeFeedMemorySnapshot } from '../lib/homeFeedCache';
-import { marketplaceChipCategory, MARKETPLACE_CHIPS, type MarketplaceChipId } from '../lib/marketplaceChips';
+import { marketplaceChipCategory, marketplaceChipQuery, MARKETPLACE_CHIPS, type MarketplaceChipId } from '../lib/marketplaceChips';
 import { marketplaceSortLabel, type MarketplaceSortValue } from '../lib/marketplaceSort';
 import { recordRecentlyViewed } from '../lib/recentlyViewed';
 import { computeMarketplaceGrid, marketplaceFontSize, MARKETPLACE_TEXT_PROPS } from '../lib/marketplaceUiScale';
@@ -63,6 +63,7 @@ export function MarketplaceScreen() {
   const requestRef = useRef(0);
 
   const category = marketplaceChipCategory(chip);
+  const query = marketplaceChipQuery(chip);
   const filtered = chip !== 'all' || sort !== 'recent';
 
   const load = useCallback(
@@ -77,7 +78,7 @@ export function MarketplaceScreen() {
       const silent = opts?.silent ?? loadedOnceRef.current;
       if (!silent) setLoading(true);
       try {
-        const result = await fetchMarketplaceListingsPage({ page: 1, pageSize: PAGE_SIZE, category, sort });
+        const result = await fetchMarketplaceListingsPage({ page: 1, pageSize: PAGE_SIZE, category, q: query, sort });
         if (request !== requestRef.current) return;
         setCatalog(result.products);
         setTotalCount(result.totalListingCount);
@@ -91,7 +92,7 @@ export function MarketplaceScreen() {
         }
       }
     },
-    [category, sort],
+    [category, query, sort],
   );
 
   const loadMore = useCallback(async () => {
@@ -100,7 +101,7 @@ export function MarketplaceScreen() {
     setLoadingMore(true);
     try {
       const nextPage = pageRef.current + 1;
-      const result = await fetchMarketplaceListingsPage({ page: nextPage, pageSize: PAGE_SIZE, category, sort });
+      const result = await fetchMarketplaceListingsPage({ page: nextPage, pageSize: PAGE_SIZE, category, q: query, sort });
       if (request !== requestRef.current) return;
       pageRef.current = result.page;
       hasMoreRef.current = result.hasMore;
@@ -112,7 +113,7 @@ export function MarketplaceScreen() {
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, loading, category, sort]);
+  }, [loadingMore, loading, category, query, sort]);
 
   // Reload whenever the chip or sort changes (and once on mount). Clearing first means the new
   // filter never briefly shows the previous filter's listings.

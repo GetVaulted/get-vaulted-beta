@@ -60,6 +60,8 @@ export async function fetchMarketplaceListingsPage(opts: {
   pageSize?: number;
   /** Server category label (`Helmets`, `Trading Cards`, `Memorabilia`…); omit for everything. */
   category?: string;
+  /** Title/seller search term, e.g. `helmet`. */
+  q?: string;
   sort?: string;
 }): Promise<MarketplaceListingsPage> {
   const pageSize = Math.min(Math.max(opts.pageSize ?? 60, 1), 100);
@@ -67,6 +69,7 @@ export async function fetchMarketplaceListingsPage(opts: {
     page: opts.page,
     pageSize,
     category: opts.category,
+    q: opts.q,
     sort: opts.sort,
   });
   const published = result.listings.filter((r) => isPublishedOnMarketplace(r.listingStatus));
