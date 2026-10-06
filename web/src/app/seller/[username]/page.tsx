@@ -14,6 +14,7 @@ import {
   SellerShowCard,
   SellerTrustCard,
 } from "@/components/seller/SellerProfileSections";
+import { SellerReviewsSection } from "@/components/seller/SellerReviewsSection";
 import { SellerProfileStatsBar } from "@/components/seller/SellerProfileStatsBar";
 import { getServerSessionSafe } from "@/lib/auth";
 import { auctionBidCountsByListingIds } from "@/lib/listing-bid-counts";
@@ -23,6 +24,7 @@ import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { prisma } from "@/lib/prisma";
 import { profileLinksFromStored } from "@/lib/seller-profile-fields";
 import { buildProfileTrust, loadProfileShows } from "@/lib/seller-profile-public";
+import { loadSellerReviewSummary, loadSellerReviews } from "@/lib/seller-review-queries";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { buildSellerPageMetadata, buildSellerProfileJsonLd } from "@/lib/site-seo";
 import { JsonLdScript } from "@/components/seo/JsonLdScript";
@@ -113,6 +115,8 @@ export default async function SellerShopPage({
     followerCount,
     followingCount,
     shows,
+    reviewSummary,
+    reviews,
     rows,
     pullMedia,
   ] = await Promise.all([
@@ -123,6 +127,8 @@ export default async function SellerShopPage({
     prisma.sellerFollow.count({ where: { sellerId: user.id } }),
     prisma.sellerFollow.count({ where: { followerId: user.id } }),
     loadProfileShows(prisma, user.id),
+    loadSellerReviewSummary(prisma, user.id),
+    loadSellerReviews(prisma, user.id, { take: 10 }),
     prisma.listing.findMany({
       where: sellerShopListingWhere(user.id, tab),
       include: listingInclude,
@@ -292,12 +298,14 @@ export default async function SellerShopPage({
               </div>
             </section>
 
+            <SellerReviewsSection summary={reviewSummary} reviews={reviews} />
+
             <SellerRecentShows shows={shows.recent} totalShows={shows.totalShows} />
           </div>
 
           <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:self-start" aria-label="Seller details">
             <SellerShowCard liveNow={shows.liveNow} nextShow={shows.nextShow} lastLive={shows.lastLive} />
-            <SellerTrustCard trust={trust} />
+            <SellerTrustCard trust={trust} reviews={reviewSummary} />
           </aside>
         </div>
       </div>

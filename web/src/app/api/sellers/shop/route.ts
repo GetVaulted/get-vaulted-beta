@@ -8,6 +8,7 @@ import { NEW_SELLER_CREDIBILITY_LABEL } from "@/lib/marketplace-item-extras";
 import { prisma } from "@/lib/prisma";
 import { profileLinksFromStored } from "@/lib/seller-profile-fields";
 import { buildProfileTrust, loadProfileShows } from "@/lib/seller-profile-public";
+import { loadSellerReviewSummary, loadSellerReviews } from "@/lib/seller-review-queries";
 import { viewerCanSeeUser } from "@/lib/user-block";
 import {
   parseSellerShopTab,
@@ -104,6 +105,8 @@ export async function GET(req: Request) {
     followerCount,
     ordersCompleted,
     shows,
+    reviewSummary,
+    recentReviews,
     pullRows,
     total,
     rows,
@@ -117,6 +120,8 @@ export async function GET(req: Request) {
     prisma.sellerFollow.count({ where: { sellerId: user.id } }),
     prisma.order.count({ where: { sellerId: user.id, paymentStatus: "paid" } }),
     loadProfileShows(prisma, user.id),
+    loadSellerReviewSummary(prisma, user.id),
+    loadSellerReviews(prisma, user.id, { take: 3 }),
     // First page only: the app shelf is a single page of up to 25.
     page === 1
       ? prisma.profilePullMedia.findMany({
@@ -183,6 +188,7 @@ export async function GET(req: Request) {
       emailVerified: user.emailVerified,
     }),
     shows,
+    reviews: { summary: reviewSummary, recent: recentReviews },
     pulls,
     stats: {
       activeListings: activeListingsCount,
