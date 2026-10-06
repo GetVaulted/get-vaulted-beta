@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { SellerLevel } from "@/generated/prisma/enums";
 import { profileLinkDisplay, type ProfileLinkKey } from "@/lib/seller-profile-fields";
 import type { ProfileShow, ProfileTrust } from "@/lib/seller-profile-public";
+import type { ReviewSummary } from "@/lib/seller-reviews";
 
 const dateFmt: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
 
@@ -140,7 +141,7 @@ export function SellerShowCard({
   );
 }
 
-export function SellerTrustCard({ trust }: { trust: ProfileTrust }) {
+export function SellerTrustCard({ trust, reviews }: { trust: ProfileTrust; reviews: ReviewSummary }) {
   const rows: { label: string; value: string }[] = [
     { label: "Seller level", value: trust.sellerLevelLabel },
     { label: "Orders completed", value: trust.ordersCompleted.toLocaleString("en-US") },
@@ -149,6 +150,13 @@ export function SellerTrustCard({ trust }: { trust: ProfileTrust }) {
       value: new Date(trust.memberSince).toLocaleDateString("en-US", { month: "short", year: "numeric" }),
     },
     { label: "Email", value: trust.emailVerified ? "Verified" : "Not verified" },
+    {
+      label: "Buyer reviews",
+      value:
+        reviews.count > 0
+          ? `${reviews.average?.toFixed(1)} ★ (${reviews.count.toLocaleString("en-US")})`
+          : "None yet",
+    },
   ];
   return (
     <section className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4" aria-label="Trust and credentials">

@@ -7,6 +7,7 @@ import { BuyerOrderShipToPanel } from "@/components/orders/BuyerOrderShipToPanel
 import { OrderEscrowBuyerPanel } from "@/components/orders/OrderEscrowBuyerPanel";
 import { OrderPaySection } from "@/components/orders/OrderPaySection";
 import { OrderReportLink } from "@/components/orders/OrderReportLink";
+import { OrderReviewPanel } from "@/components/orders/OrderReviewPanel";
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
 import { OrderTimelineSteps, SellerMilestoneSteps } from "@/components/orders/OrderTimeline";
 import { SellerOrderDetailLabelSection } from "@/components/account/SellerOrderDetailLabelSection";
@@ -110,6 +111,7 @@ export default async function OrderPage({
       paymentMethod: true,
       escrowStatus: true,
       listing: { select: { id: true, title: true, status: true, buyingFormat: true } },
+      seller: { select: { username: true } },
       liveShippingSession: { select: { liveShowId: true } },
     },
   });
@@ -338,6 +340,10 @@ export default async function OrderPage({
 
         {order.paymentStatus === "paid" || order.paymentStatus === "refunded" ? (
           <OrderRefundRequestPanel orderId={order.id} role={isBuyer ? "buyer" : "seller"} />
+        ) : null}
+
+        {isBuyer && order.paymentStatus === "paid" ? (
+          <OrderReviewPanel orderId={order.id} sellerUsername={order.seller.username} />
         ) : null}
 
         {!isBuyer && sellerCommerceEventsAsc.length > 0 ? (

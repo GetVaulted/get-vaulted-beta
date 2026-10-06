@@ -658,6 +658,9 @@ model User {
   profileBannerUrl              String?
   /// Public social links as canonical URLs: `{ instagram?, tiktok?, youtube?, x?, website? }`.
   profileLinks                  Json?
+  /// Verified-buyer reviews this user received as a seller / wrote as a buyer.
+  sellerReviewsReceived         SellerReview[]              @relation("SellerReviewSeller")
+  sellerReviewsWritten          SellerReview[]              @relation("SellerReviewBuyer")
   /// Referral attribution — set once at account creation from a `?ref=` signup link, never changed.
   referredById                  String?
   referredBy                    User?                       @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
@@ -2094,6 +2097,8 @@ model Order {
   /// Seller payout lifecycle (instant after delivery vs standard hold).
   payoutStatus               OrderPayoutStatus          @default(pending)
   deliveryConfirmedAt        DateTime?
+  /// Buyer's review of the seller for this order (one per order, after delivery).
+  sellerReview               SellerReview?
   payoutEligibleAt           DateTime?
   payoutReleasedAt           DateTime?
   payoutBlockedReason        String?
@@ -3283,4 +3288,26 @@ model PlatformPayoutProgramConfig {
   instantSuspensionRateCeiling Float    @default(0.0075)
   updatedAt                    DateTime @updatedAt
   updatedByUserId              String?
+}
+
+/// A verified-buyer review of a seller: one per delivered order, written by that order's buyer.
+model SellerReview {
+  id        String    @id @default(cuid())
+  orderId   String    @unique
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sellerId  String
+  seller    User      @relation("SellerReviewSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  buyerId   String
+  buyer     User      @relation("SellerReviewBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  /// 1–5 stars.
+  rating    Int
+  body      String    @default("")
+  /// Quick tags the buyer picked (e.g. "Fast shipping").
+  tags      String[]  @default([])
+  /// Set by moderation to take a review off the public profile without deleting it.
+  hiddenAt  DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([sellerId, hiddenAt, createdAt])
+  @@index([buyerId])
 }
