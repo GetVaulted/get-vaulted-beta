@@ -33,6 +33,9 @@ export type ThreadListItem = {
   lastAt: string;
   lastKind: MessageKind;
   unreadCount: number;
+  /** Set only in the Deleted area: when it was deleted and when it is removed for good. */
+  deletedAt?: string | null;
+  purgeAt?: string | null;
   pinned: boolean;
   starred: boolean;
   muted: boolean;
@@ -72,6 +75,8 @@ export type ThreadDetail = {
   otherSellerLevelLabel?: string | null;
   otherVerified?: boolean;
   isSeller: boolean;
+  /** True while the conversation is in this person's Deleted area. */
+  deleted?: boolean;
   pinned: boolean;
   starred: boolean;
   muted: boolean;

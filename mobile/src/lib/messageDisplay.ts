@@ -104,3 +104,13 @@ export function buildThreadRows(
   });
   return rows;
 }
+
+/** How long a deleted conversation has left in Deleted: "14 days left", "1 day left", "Removes today". */
+export function formatDeletedTimeLeft(purgeAtIso: string | null | undefined, now: Date = new Date()): string {
+  if (!purgeAtIso) return '';
+  const purgeAt = new Date(purgeAtIso);
+  if (Number.isNaN(purgeAt.getTime())) return '';
+  const days = Math.ceil((purgeAt.getTime() - now.getTime()) / DAY_MS);
+  if (days <= 0) return 'Removes today';
+  return days === 1 ? '1 day left' : `${days} days left`;
+}

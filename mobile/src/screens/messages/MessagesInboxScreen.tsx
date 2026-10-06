@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -12,9 +14,13 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fetchMessageThreads } from '../../api/messagesRepository';
+import { fetchMessageThreads, patchThreadAction } from '../../api/messagesRepository';
 import { useAuth } from '../../auth/AuthContext';
+import { resolveRealtimeUserId, useCanonicalUserId } from '../../hooks/useCanonicalUserId';
+import { syncServerNotifications } from '../../platform/notificationStore';
 import { MessageThreadCard } from '../../components/messages/MessageThreadCard';
+import { SwipeableThreadRow } from '../../components/messages/SwipeableThreadRow';
+import { formatDeletedTimeLeft } from '../../lib/messageDisplay';
 import type { RootStackParamList } from '../../navigation/types';
 import { openMessageThread, openNewMessage } from '../../navigation/openMessages';
 import type { ThreadListItem } from '../../types/messages';
@@ -26,16 +32,20 @@ type Props = NativeStackScreenProps<RootStackParamList, 'MessagesInbox'>;
 
 export function MessagesInboxScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { session } = useAuth();
+  const { session, user } = useAuth();
   const token = session?.access_token;
+  const canonicalUserId = useCanonicalUserId(token);
+  const notificationUserId = resolveRealtimeUserId(canonicalUserId, user?.id);
 
-  const [inbox, setInbox] = useState<'primary' | 'request'>('primary');
+  const [inbox, setInbox] = useState<'primary' | 'request' | 'deleted'>('primary');
   const [threads, setThreads] = useState<ThreadListItem[]>([]);
   const [requestCount, setRequestCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [undo, setUndo] = useState<{ id: string; username: string } | null>(null);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     if (!token) {
@@ -62,9 +72,72 @@ export function MessagesInboxScreen({ navigation }: Props) {
     void load();
   }, [load]);
 
+  // Coming back from a conversation: refresh the list (so its unread count clears) and re-sync
+  // notifications (so the bell / app-icon badge clears too).
+  const firstFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (firstFocus.current) {
+        firstFocus.current = false;
+        return;
+      }
+      void load();
+      if (token && notificationUserId) void syncServerNotifications(notificationUserId, token);
+    }, [load, notificationUserId, token]),
+  );
+
   const onRefresh = () => {
     setRefreshing(true);
     void load();
+  };
+
+  useEffect(
+    () => () => {
+      if (undoTimer.current) clearTimeout(undoTimer.current);
+    },
+    [],
+  );
+
+  const removeLocally = (id: string) => setThreads((prev) => prev.filter((t) => t.id !== id));
+
+  const runAction = (id: string, value: boolean, action: 'delete' | 'purge', failTitle: string) => {
+    if (!token) return;
+    removeLocally(id);
+    void patchThreadAction(token, id, action, value).catch((e) => {
+      Alert.alert(failTitle, e instanceof Error ? e.message : 'Try again.');
+      void load();
+    });
+  };
+
+  const onDeleteThread = (t: ThreadListItem) => {
+    runAction(t.id, true, 'delete', 'Could not delete');
+    if (inbox === 'request') setRequestCount((c) => Math.max(0, c - 1));
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setUndo({ id: t.id, username: t.otherUsername });
+    undoTimer.current = setTimeout(() => setUndo(null), 6000);
+  };
+
+  const onUndoDelete = () => {
+    if (!token || !undo) return;
+    const id = undo.id;
+    setUndo(null);
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    void patchThreadAction(token, id, 'delete', false)
+      .catch((e) => Alert.alert('Could not undo', e instanceof Error ? e.message : 'Try again.'))
+      .finally(() => void load());
+  };
+
+  const onRestoreThread = (t: ThreadListItem) => runAction(t.id, false, 'delete', 'Could not restore');
+
+  const onPurgeThread = (t: ThreadListItem) => {
+    Alert.alert(
+      `Delete @${t.otherUsername} forever?`,
+      "This removes the conversation from your account now. It can't be undone. They keep their own copy.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete forever', style: 'destructive', onPress: () => runAction(t.id, true, 'purge', 'Could not delete') },
+      ],
+    );
   };
 
   const visibleThreads = useMemo(() => {
@@ -122,6 +195,9 @@ export function MessagesInboxScreen({ navigation }: Props) {
             </View>
           ) : null}
         </Pressable>
+        <Pressable style={[styles.tab, inbox === 'deleted' && styles.tabOn]} onPress={() => setInbox('deleted')}>
+          <Text style={[styles.tabTxt, inbox === 'deleted' && styles.tabTxtOn]}>Deleted</Text>
+        </Pressable>
       </View>
 
       {viewState === 'loading' ? (
@@ -132,6 +208,14 @@ export function MessagesInboxScreen({ navigation }: Props) {
           keyExtractor={(t) => t.id}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.gold} />}
           contentContainerStyle={visibleThreads.length === 0 ? styles.emptyList : styles.list}
+          ListHeaderComponent={
+            inbox === 'deleted' && visibleThreads.length > 0 ? (
+              <Text style={styles.deletedNote}>
+                Deleted conversations are removed for good after 14 days. Only your copy is deleted, and the other
+                person keeps theirs. Swipe right to restore, or left to delete forever.
+              </Text>
+            ) : null
+          }
           ListEmptyComponent={
             viewState === 'error' ? (
               <View style={styles.empty}>
@@ -146,14 +230,22 @@ export function MessagesInboxScreen({ navigation }: Props) {
               <View style={styles.empty}>
                 <Ionicons name="chatbubbles-outline" size={40} color={colors.textMuted} />
                 <Text style={styles.emptyTitle}>
-                  {searching ? 'No matches' : inbox === 'request' ? 'No message requests' : 'No conversations yet'}
+                  {searching
+                    ? 'No matches'
+                    : inbox === 'request'
+                      ? 'No message requests'
+                      : inbox === 'deleted'
+                        ? 'Nothing deleted'
+                        : 'No conversations yet'}
                 </Text>
                 <Text style={styles.emptySub}>
                   {searching
                     ? 'No one in this folder matches that name.'
                     : inbox === 'request'
                       ? 'People you have not talked to yet will appear here until you accept.'
-                      : 'Start a conversation with anyone on Get Vaulted.'}
+                      : inbox === 'deleted'
+                        ? 'Conversations you delete stay here for 14 days, then are removed for good.'
+                        : 'Start a conversation with anyone on Get Vaulted.'}
                 </Text>
                 {inbox === 'primary' && !searching ? (
                   <Pressable style={styles.retryBtn} onPress={() => openNewMessage(navigation)}>
@@ -164,14 +256,37 @@ export function MessagesInboxScreen({ navigation }: Props) {
             )
           }
           renderItem={({ item, index }) => (
-            <MessageThreadCard
-              thread={item}
-              showDivider={index > 0}
-              onPress={() => openMessageThread(navigation, item.id)}
-            />
+            <SwipeableThreadRow
+              mode={inbox === 'deleted' ? 'deleted' : 'inbox'}
+              onDelete={() => onDeleteThread(item)}
+              onRestore={() => onRestoreThread(item)}
+              onPurge={() => onPurgeThread(item)}
+            >
+              <MessageThreadCard
+                thread={item}
+                showDivider={index > 0}
+                timeText={inbox === 'deleted' ? formatDeletedTimeLeft(item.purgeAt) : undefined}
+                onPress={() => {
+                  // Opening a conversation reads it: clear its unread count right away.
+                  setThreads((prev) => prev.map((t) => (t.id === item.id ? { ...t, unreadCount: 0 } : t)));
+                  openMessageThread(navigation, item.id);
+                }}
+              />
+            </SwipeableThreadRow>
           )}
         />
       )}
+
+      {undo ? (
+        <View style={[styles.undoBar, { bottom: insets.bottom + 16 }]}>
+          <Text style={styles.undoTxt} numberOfLines={1}>
+            Moved @{undo.username} to Deleted
+          </Text>
+          <Pressable onPress={onUndoDelete} hitSlop={10} accessibilityRole="button" accessibilityLabel="Undo delete">
+            <Text style={styles.undoBtn}>Undo</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -251,6 +366,31 @@ const styles = StyleSheet.create({
   },
   reqBadgeTxt: { fontSize: 11, fontWeight: '700', color: colors.background },
   list: { paddingBottom: spacing.xxl },
+  deletedNote: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#9B9B9B',
+    paddingHorizontal: spacing.md,
+    paddingTop: 4,
+    paddingBottom: 12,
+  },
+  undoBar: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    backgroundColor: '#161616',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+  },
+  undoTxt: { flex: 1, fontSize: 14, color: colors.textPrimary },
+  undoBtn: { fontFamily: vaultFonts.label, fontSize: 16, letterSpacing: 1, textTransform: 'uppercase', color: colors.gold },
   emptyList: { flexGrow: 1, justifyContent: 'center' },
   empty: { alignItems: 'center', paddingHorizontal: spacing.xl, gap: spacing.sm },
   emptyTitle: { fontFamily: vaultFonts.display, fontSize: 20, color: colors.textPrimary, textAlign: 'center' },

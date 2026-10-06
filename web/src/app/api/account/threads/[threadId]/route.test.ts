@@ -21,6 +21,7 @@ const hoisted = vi.hoisted(() => ({
   userFindUnique: vi.fn().mockResolvedValue({ username: "buyer" }),
   offerFindUnique: vi.fn().mockResolvedValue(null),
   orderFindUnique: vi.fn().mockResolvedValue(null),
+  notificationUpdateMany: vi.fn().mockResolvedValue({ count: 1 }),
 }));
 
 vi.mock("@/lib/resolve-account-auth", () => ({
@@ -61,7 +62,8 @@ const prismaMock = vi.hoisted(() => ({
   messageThreadParticipant: { findUnique: hoisted.participantFindUnique },
   user: { findUnique: hoisted.userFindUnique },
   offer: { findUnique: hoisted.offerFindUnique },
-  order: { findUnique: hoisted.orderFindUnique },
+  order: { findUnique: hoisted.orderFindUnique, groupBy: vi.fn().mockResolvedValue([]) },
+  notification: { updateMany: hoisted.notificationUpdateMany },
   $transaction: async (fn: (tx: unknown) => unknown) => fn(prismaMock),
 }));
 
@@ -129,6 +131,23 @@ describe("GET /api/account/threads/[threadId] — pagination", () => {
     // Ascending order preserved for the UI (oldest of the page first).
     expect(new Date(json.messages[0].createdAt).getTime()).toBeLessThan(
       new Date(json.messages[json.messages.length - 1].createdAt).getTime(),
+    );
+  });
+
+  it("opening a conversation also marks its message notifications read (so the badge clears)", async () => {
+    hoisted.messageFindMany.mockResolvedValue(makeMessages(2, "n").reverse());
+
+    await GET(new Request("http://localhost/api/account/threads/thread_1"), ctx());
+
+    expect(hoisted.notificationUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: "buyer_1",
+          readAt: null,
+          href: "/account/messages/thread_1",
+          type: { in: ["message_received", "message_requested"] },
+        }),
+      }),
     );
   });
 

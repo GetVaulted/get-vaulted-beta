@@ -32,6 +32,8 @@ import { PremiumEmptyPanel } from '../../components/empty/PremiumEmptyPanel';
 import type { RootStackParamList } from '../../navigation/types';
 import { buildThreadRows, type ThreadListRow } from '../../lib/messageDisplay';
 import type { ThreadDetail, ThreadMessage } from '../../types/messages';
+import { resolveRealtimeUserId, useCanonicalUserId } from '../../hooks/useCanonicalUserId';
+import { syncServerNotifications } from '../../platform/notificationStore';
 import { colors, spacing } from '../../theme';
 import { vaultFonts } from '../../theme/vaultTypography';
 import { deriveMessageThreadViewState, describeThreadLoadError } from './messageThreadViewState';
@@ -53,6 +55,9 @@ export function MessageThreadScreen({ navigation, route }: Props) {
   const [pendingImageUri, setPendingImageUri] = useState<string | null>(null);
   const [pickingImage, setPickingImage] = useState(false);
   const listRef = useRef<FlatList>(null);
+  const notificationsSynced = useRef(false);
+  const canonicalUserId = useCanonicalUserId(token);
+  const notificationUserId = resolveRealtimeUserId(canonicalUserId, user?.id);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -61,12 +66,17 @@ export function MessageThreadScreen({ navigation, route }: Props) {
       setThread(data.thread);
       setMessages(data.messages);
       setLoadError(null);
+      // The server just marked this conversation (and its notification) read: refresh the badges once.
+      if (!notificationsSynced.current && notificationUserId) {
+        notificationsSynced.current = true;
+        void syncServerNotifications(notificationUserId, token);
+      }
     } catch (e) {
       setLoadError(describeThreadLoadError(e));
     } finally {
       setLoading(false);
     }
-  }, [threadId, token]);
+  }, [threadId, token, notificationUserId]);
 
   const onRetryLoad = useCallback(() => {
     setLoading(true);
@@ -111,7 +121,7 @@ export function MessageThreadScreen({ navigation, route }: Props) {
       setDraft('');
       setPendingImageUri(null);
       setMessages((prev) => [...prev, msg]);
-      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+      requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }));
     } catch (e) {
       Alert.alert('Send failed', e instanceof Error ? e.message : 'Try again.');
     } finally {
@@ -148,12 +158,42 @@ export function MessageThreadScreen({ navigation, route }: Props) {
     ]);
   };
 
+  const onDeleteConversation = () => {
+    if (!token || !thread) return;
+    Alert.alert(
+      `Delete conversation with @${thread.otherUsername}?`,
+      'It moves to Deleted for 14 days, then is removed for good. They keep their own copy, and you can restore it before then.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void patchThreadAction(token, threadId, 'delete', true)
+              .then(() => navigation.goBack())
+              .catch((e) => Alert.alert('Could not delete', e instanceof Error ? e.message : 'Try again.'));
+          },
+        },
+      ],
+    );
+  };
+
+  const onRestoreConversation = () => {
+    if (!token) return;
+    void patchThreadAction(token, threadId, 'delete', false)
+      .then(() => load())
+      .catch((e) => Alert.alert('Could not restore', e instanceof Error ? e.message : 'Try again.'));
+  };
+
   const onOpenMenu = () => {
     if (!thread) return;
     Alert.alert(`@${thread.otherUsername}`, undefined, [
       { text: thread.pinned ? 'Unpin conversation' : 'Pin conversation', onPress: () => onThreadAction('pin') },
       { text: thread.starred ? 'Remove star' : 'Star conversation', onPress: () => onThreadAction('star') },
       { text: thread.muted ? 'Unmute notifications' : 'Mute notifications', onPress: () => onThreadAction('mute') },
+      thread.deleted
+        ? { text: 'Restore conversation', onPress: onRestoreConversation }
+        : { text: 'Delete conversation', style: 'destructive', onPress: onDeleteConversation },
       { text: 'Block', style: 'destructive', onPress: onBlock },
       { text: 'Cancel', style: 'cancel' },
     ]);
@@ -170,6 +210,7 @@ export function MessageThreadScreen({ navigation, route }: Props) {
   const awaitingAcceptance = thread?.inbox === 'request' && !thread.isSeller;
   const viewState = deriveMessageThreadViewState({ loading, hasThread: !!thread, hasError: !!loadError });
   const rows = useMemo(() => buildThreadRows(messages, uid), [messages, uid]);
+  const invertedRows = useMemo(() => [...rows].reverse(), [rows]);
   const isRequestRecipient = thread?.inbox === 'request' && !!thread.isSeller;
 
   if (viewState === 'loading') {
@@ -233,12 +274,24 @@ export function MessageThreadScreen({ navigation, route }: Props) {
         </Pressable>
       </View>
 
+      {thread?.deleted ? (
+        <View style={styles.deletedBar}>
+          <Text style={styles.deletedBarTxt}>In Deleted. It will be removed for good after 14 days.</Text>
+          <Pressable onPress={onRestoreConversation} hitSlop={8} accessibilityRole="button" accessibilityLabel="Restore conversation">
+            <Text style={styles.deletedBarBtn}>Restore</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       <FlatList<ThreadListRow>
         ref={listRef}
-        data={rows}
+        // Inverted so the newest message is always anchored at the bottom, fully in view, however
+        // tall the rows turn out to be (photos, long messages). Rows are passed newest-first.
+        inverted
+        data={invertedRows}
         keyExtractor={(r) => r.key}
         contentContainerStyle={styles.messages}
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+        keyboardShouldPersistTaps="handled"
         renderItem={({ item }) =>
           item.type === 'day' ? (
             <Text style={styles.dayLabel}>{item.label}</Text>
@@ -254,7 +307,8 @@ export function MessageThreadScreen({ navigation, route }: Props) {
             />
           )
         }
-        ListFooterComponent={
+        // In an inverted list the header renders at the bottom, below the newest message.
+        ListHeaderComponent={
           isRequestRecipient ? (
             <View style={styles.requestCard}>
               <View style={styles.requestCopy}>
@@ -337,6 +391,19 @@ export function MessageThreadScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
+  deletedBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    backgroundColor: '#0F0F0F',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(212,175,55,0.10)',
+  },
+  deletedBarTxt: { flex: 1, fontSize: 13, color: '#9B9B9B', lineHeight: 18 },
+  deletedBarBtn: { fontFamily: vaultFonts.label, fontSize: 15, letterSpacing: 1, textTransform: 'uppercase', color: colors.gold },
   root: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
   backFloating: { alignSelf: 'flex-start', padding: 4, marginBottom: spacing.md },
@@ -365,7 +432,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     color: '#6E6E6E',
   },
-  messages: { paddingTop: spacing.sm, paddingBottom: spacing.md, flexGrow: 1, justifyContent: 'flex-end' },
+  messages: { paddingVertical: spacing.md },
   requestCard: {
     marginHorizontal: spacing.md,
     marginTop: spacing.md,

@@ -2689,11 +2689,18 @@ model MessageThreadParticipant {
   starred   Boolean       @default(false)
   muted     Boolean       @default(false)
   blocked   Boolean       @default(false)
+  /// Per-person delete: moves the conversation to this user's Deleted area (the other person keeps
+  /// theirs). A newer message in the thread brings it back to the inbox automatically.
+  deletedAt DateTime?
+  /// Per-person permanent delete (manual, or auto after DELETED_RETENTION_DAYS in Deleted). Messages
+  /// at or before this time are hidden from this user for good.
+  purgedAt  DateTime?
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
   @@unique([threadId, userId])
   @@index([userId])
+  @@index([deletedAt])
 }
 
 /// Durable, cross-thread block between two users. Source of truth for whether a NEW thread
