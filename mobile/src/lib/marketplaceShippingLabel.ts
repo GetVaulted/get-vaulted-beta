@@ -1,15 +1,15 @@
 import { formatMarketplaceUsd } from './formatMarketplaceUsd';
 
 /**
- * One-line shipping note for a marketplace tile.
+ * Shipping note for a marketplace tile — only when the seller set a real flat price.
  *
- * A stored shipping price of 0 (or none) does NOT mean free shipping — the app and the web both
- * treat it as "carrier-calculated at checkout" (Shippo quote). Only a positive flat price is
- * shown as an amount; everything else says shipping is worked out at checkout.
+ * A stored shipping price of 0 (or none) does NOT mean free shipping: the app and the web treat
+ * it as "carrier-calculated at checkout". That is the default for almost every listing, so the
+ * tile says nothing rather than repeating "Shipping at checkout" under every price.
  */
-export function marketplaceShippingLabel(shippingPriceUsd: number | null | undefined): string {
+export function marketplaceShippingLabel(shippingPriceUsd: number | null | undefined): string | null {
   if (typeof shippingPriceUsd === 'number' && Number.isFinite(shippingPriceUsd) && shippingPriceUsd > 0) {
     return `+${formatMarketplaceUsd(shippingPriceUsd)} shipping`;
   }
-  return 'Shipping at checkout';
+  return null;
 }

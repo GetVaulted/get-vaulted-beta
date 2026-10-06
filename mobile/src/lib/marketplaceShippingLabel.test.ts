@@ -2,16 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { marketplaceShippingLabel } from './marketplaceShippingLabel';
 
 describe('marketplaceShippingLabel', () => {
-  it('never claims free shipping for a stored price of 0', () => {
-    expect(marketplaceShippingLabel(0)).toBe('Shipping at checkout');
-    expect(marketplaceShippingLabel(0).toLowerCase()).not.toContain('free');
+  it('never claims free shipping for a stored price of 0 — it shows nothing', () => {
+    expect(marketplaceShippingLabel(0)).toBeNull();
   });
 
-  it('treats missing or invalid prices as calculated at checkout', () => {
-    expect(marketplaceShippingLabel(undefined)).toBe('Shipping at checkout');
-    expect(marketplaceShippingLabel(null)).toBe('Shipping at checkout');
-    expect(marketplaceShippingLabel(Number.NaN)).toBe('Shipping at checkout');
-    expect(marketplaceShippingLabel(-3)).toBe('Shipping at checkout');
+  it('shows nothing for missing or invalid prices', () => {
+    expect(marketplaceShippingLabel(undefined)).toBeNull();
+    expect(marketplaceShippingLabel(null)).toBeNull();
+    expect(marketplaceShippingLabel(Number.NaN)).toBeNull();
+    expect(marketplaceShippingLabel(-3)).toBeNull();
   });
 
   it('shows a positive flat price', () => {
