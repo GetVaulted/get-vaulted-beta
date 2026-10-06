@@ -2,6 +2,7 @@ import { fetchWebApi } from './webListingsRepository';
 import { mapWebMarketplaceListingToProduct } from './mapWebMarketplaceListing';
 import type { WebMarketplaceListing } from './webListingsTypes';
 import type { Product } from '../types';
+import type { ProfileLink, ProfileShows, ProfileTrust } from '../lib/sellerProfileView';
 
 export type SellerShopTab = 'all' | 'buy_now' | 'auctions' | 'sold';
 
@@ -13,6 +14,10 @@ export type SellerShopSeller = {
   verified: boolean;
   credibility: string;
   isOwnShop: boolean;
+  /** Public profile fields — older servers omit them. */
+  bio?: string | null;
+  bannerUrl?: string | null;
+  links?: ProfileLink[];
 };
 
 export type SellerShopStats = {
@@ -25,6 +30,8 @@ export type SellerShopStats = {
 
 export type SellerShopResponse = {
   seller: SellerShopSeller;
+  trust?: ProfileTrust;
+  shows?: ProfileShows;
   stats: SellerShopStats;
   tab: SellerShopTab;
   emptyCopy: string;
@@ -37,6 +44,8 @@ export type SellerShopResponse = {
 
 export type SellerShopResult = {
   seller: SellerShopSeller;
+  trust: ProfileTrust | null;
+  shows: ProfileShows | null;
   stats: SellerShopStats;
   tab: SellerShopTab;
   emptyCopy: string;
@@ -76,6 +85,8 @@ export async function fetchSellerShop(opts: {
 
   return {
     seller: body.seller,
+    trust: body.trust ?? null,
+    shows: body.shows ?? null,
     stats: body.stats,
     tab: body.tab,
     emptyCopy: body.emptyCopy,

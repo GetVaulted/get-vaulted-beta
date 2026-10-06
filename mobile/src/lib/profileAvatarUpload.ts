@@ -25,3 +25,15 @@ export async function cropAvatarImage(uri: string, crop: AvatarCropRect): Promis
   );
   return result.uri;
 }
+
+export const PROFILE_BANNER_UPLOAD_PX = 1200;
+
+/** Resize a banner photo to a sensible width and compress it before upload. */
+export async function prepareProfileBannerForUpload(uri: string): Promise<string> {
+  const result = await ImageManipulator.manipulateAsync(
+    uri,
+    [{ resize: { width: PROFILE_BANNER_UPLOAD_PX } }],
+    { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG },
+  );
+  return result.uri;
+}

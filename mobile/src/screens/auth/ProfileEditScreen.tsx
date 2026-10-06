@@ -22,6 +22,11 @@ import {
   fetchUsernameChangeStatus,
   type UsernameChangeStatus,
 } from '../../api/profileSetupRepository';
+import {
+  fetchMyPublicProfile,
+  saveMyPublicProfile,
+  uploadMyBanner,
+} from '../../api/publicProfileRepository';
 import { ProfileAvatarCropModal } from '../../components/profile/ProfileAvatarCropModal';
 import { SellerHQEntryBanner } from '../../components/seller/SellerHQEntryBanner';
 import { useAuth } from '../../auth/AuthContext';
@@ -30,6 +35,13 @@ import { useSellerStripeConnect } from '../../hooks/useSellerStripeConnect';
 import type { SellerHQEntryPhase } from '../../lib/sellerHubEntry';
 import { avatarUrlWithCacheBust } from '../../lib/profileAvatarUpload';
 import { persistProfileAvatarEverywhere, resolveCanonicalProfileAvatar } from '../../lib/profileAvatarSync';
+import {
+  PROFILE_BIO_MAX,
+  PROFILE_LINK_KEYS,
+  PROFILE_LINK_LABELS,
+  PROFILE_LINK_PLACEHOLDERS,
+  type ProfileLinkKey,
+} from '../../lib/sellerProfileView';
 import { openSellerHQ } from '../../navigation/openSellerHQ';
 import { openSettings } from '../../navigation/openPlatform';
 import { navigateAuthSignUp } from '../../navigation/rootNavigationRef';
@@ -53,6 +65,12 @@ export function ProfileEditScreen({ navigation }: Props) {
   const [cropUri, setCropUri] = useState<string | null>(null);
   const [initialUsername, setInitialUsername] = useState('');
   const [usernameEligibility, setUsernameEligibility] = useState<UsernameChangeStatus | null>(null);
+  const [bio, setBio] = useState('');
+  const [bannerUrl, setBannerUrl] = useState<string | null>(null);
+  const [links, setLinks] = useState<Partial<Record<ProfileLinkKey, string>>>({});
+  const [uploadingBanner, setUploadingBanner] = useState(false);
+  /** False until the public profile loaded, so a failed load can never overwrite saved values with blanks. */
+  const [publicLoaded, setPublicLoaded] = useState(false);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -75,6 +93,15 @@ export function ProfileEditScreen({ navigation }: Props) {
         supabaseAvatarUrl: p?.avatar_url ?? null,
       });
       setAvatarUrl(remote ? avatarUrlWithCacheBust(remote) : null);
+      if (session?.access_token) {
+        const mine = await fetchMyPublicProfile(session.access_token);
+        if (mine) {
+          setBio(mine.bio ?? '');
+          setBannerUrl(mine.bannerUrl);
+          setLinks(mine.links);
+          setPublicLoaded(true);
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -105,6 +132,34 @@ export function ProfileEditScreen({ navigation }: Props) {
     });
     if (picked.canceled || !picked.assets[0]) return;
     setCropUri(picked.assets[0].uri);
+  };
+
+  const onChangeBanner = async () => {
+    if (!session?.access_token) return;
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Photos', 'Please allow photo library access to choose a banner.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+      ]);
+      return;
+    }
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [16, 5],
+      quality: 1,
+    });
+    if (picked.canceled || !picked.assets[0]) return;
+    setUploadingBanner(true);
+    try {
+      const url = await uploadMyBanner(session.access_token, picked.assets[0].uri);
+      setBannerUrl(url);
+    } catch (e) {
+      Alert.alert('Could not upload banner', e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setUploadingBanner(false);
+    }
   };
 
   const onCropConfirm = async (preparedUri: string) => {
@@ -155,6 +210,9 @@ export function ProfileEditScreen({ navigation }: Props) {
       await updateMyProfile(user.id, {
         display_name: usernameChanged ? trimmedUsername : initialUsername.trim() || trimmedUsername,
       });
+      if (publicLoaded && session?.access_token) {
+        await saveMyPublicProfile(session.access_token, { bio, bannerUrl, links });
+      }
       Alert.alert('Saved', 'Your profile was updated.');
       navigation.goBack();
     } catch (e) {
@@ -245,6 +303,36 @@ export function ProfileEditScreen({ navigation }: Props) {
             <Text style={styles.avatarHint}>Circle crop · JPG up to 5 MB · optimized for fast loading</Text>
           </View>
 
+          <Text style={styles.label}>Banner</Text>
+          <View style={styles.bannerBox}>
+            {bannerUrl ? (
+              <Image source={{ uri: bannerUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+            ) : (
+              <Text style={styles.bannerEmpty}>No banner yet</Text>
+            )}
+            {uploadingBanner ? (
+              <View style={styles.avatarLoading}>
+                <ActivityIndicator color={colors.gold} />
+              </View>
+            ) : null}
+          </View>
+          <View style={styles.bannerActions}>
+            <Pressable
+              disabled={uploadingBanner || saving || !publicLoaded}
+              onPress={() => void onChangeBanner()}
+              hitSlop={8}
+            >
+              <Text style={[styles.changePhotoTxt, (uploadingBanner || !publicLoaded) && { opacity: 0.5 }]}>
+                {bannerUrl ? 'Change banner' : 'Add banner'}
+              </Text>
+            </Pressable>
+            {bannerUrl ? (
+              <Pressable onPress={() => setBannerUrl(null)} hitSlop={8}>
+                <Text style={styles.bannerRemove}>Remove</Text>
+              </Pressable>
+            ) : null}
+          </View>
+
           <Pressable style={styles.pullsRow} onPress={() => navigation.navigate('PullMediaManage')}>
             <View>
               <Text style={styles.pullsRowTitle}>Manage pull photos & videos</Text>
@@ -266,6 +354,40 @@ export function ProfileEditScreen({ navigation }: Props) {
           />
           {usernameLockHint ? <Text style={styles.lockHint}>{usernameLockHint}</Text> : null}
           <Text style={styles.hint}>Your username is your public name and @handle everywhere.</Text>
+          <Text style={styles.label}>Bio</Text>
+          <TextInput
+            style={[styles.input, styles.bioInput]}
+            placeholder="What do you sell and break? Where are you based?"
+            placeholderTextColor={colors.textMuted}
+            multiline
+            maxLength={PROFILE_BIO_MAX}
+            value={bio}
+            onChangeText={setBio}
+            editable={publicLoaded}
+          />
+          <Text style={styles.counter}>
+            {Array.from(bio).length}/{PROFILE_BIO_MAX}
+          </Text>
+
+          <Text style={styles.label}>Links</Text>
+          {PROFILE_LINK_KEYS.map((key) => (
+            <View key={key} style={styles.linkRow}>
+              <Text style={styles.linkLabel}>{PROFILE_LINK_LABELS[key]}</Text>
+              <TextInput
+                style={[styles.input, styles.linkInput]}
+                placeholder={PROFILE_LINK_PLACEHOLDERS[key]}
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType={key === 'website' ? 'url' : 'default'}
+                value={links[key] ?? ''}
+                onChangeText={(v) => setLinks((prev) => ({ ...prev, [key]: v }))}
+                editable={publicLoaded}
+              />
+            </View>
+          ))}
+          <Text style={styles.hint}>Handles or full links. Only these networks are shown on your profile.</Text>
+
           <Pressable style={[styles.primary, saving && { opacity: 0.7 }]} disabled={saving} onPress={() => void onSave()}>
             {saving ? (
               <ActivityIndicator color={colors.background} />
@@ -346,6 +468,24 @@ const styles = StyleSheet.create({
   inputDisabled: { opacity: 0.55 },
   lockHint: { color: colors.textMuted, fontSize: 12, marginTop: -spacing.xs },
   hint: { color: colors.textMuted, fontSize: 12, marginTop: -spacing.xs },
+  bannerBox: {
+    height: 110,
+    borderRadius: radii.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bannerEmpty: { color: colors.textMuted, fontSize: 12 },
+  bannerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg, marginTop: -spacing.xs },
+  bannerRemove: { color: colors.textMuted, fontWeight: '700', fontSize: 14 },
+  bioInput: { minHeight: 88, textAlignVertical: 'top' },
+  counter: { color: colors.textMuted, fontSize: 12, textAlign: 'right', marginTop: -spacing.xs },
+  linkRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  linkLabel: { width: 76, color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
+  linkInput: { flex: 1, paddingVertical: spacing.sm, fontSize: 15 },
   primary: {
     marginTop: spacing.lg,
     backgroundColor: colors.gold,
