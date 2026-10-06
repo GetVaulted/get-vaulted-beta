@@ -1,20 +1,12 @@
 import { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { VaultImage } from '../ui/VaultImage';
-import { formatMarketplaceUsd } from '../../lib/formatMarketplaceUsd';
+import { marketplaceShippingLabel } from '../../lib/marketplaceShippingLabel';
 import { marketplaceFontSize, MARKETPLACE_TEXT_PROPS } from '../../lib/marketplaceUiScale';
 import { colors } from '../../theme';
 import type { Product } from '../../types';
 import { HeartButton } from './HeartButton';
 import { LayawayPill } from './LayawayPill';
-
-/** "Free shipping" / "+$5 shipping" — nothing when the seller has not set a price. */
-export function shippingLabel(product: Pick<Product, 'shippingPriceUsd'>): { text: string; free: boolean } | null {
-  const n = product.shippingPriceUsd;
-  if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return null;
-  if (n === 0) return { text: 'Free shipping', free: true };
-  return { text: `+${formatMarketplaceUsd(n)} shipping`, free: false };
-}
 
 type Props = {
   product: Product;
@@ -28,7 +20,7 @@ type Props = {
 
 /** Compact eBay-style grid card: photo on top, plain text underneath. */
 function MarketplaceTileBase({ product, width, saved, scale, onPress, onToggleSave, imagePriority = 'normal' }: Props) {
-  const ship = shippingLabel(product);
+  const ship = marketplaceShippingLabel(product.shippingPriceUsd);
   const handle = product.seller.handle;
   return (
     <Pressable
@@ -54,15 +46,15 @@ function MarketplaceTileBase({ product, width, saved, scale, onPress, onToggleSa
         <Text style={[styles.price, { fontSize: marketplaceFontSize(15, scale) }]} numberOfLines={1} {...MARKETPLACE_TEXT_PROPS}>
           {product.listingPrice}
         </Text>
-        {ship ? (
-          <Text
-            style={[styles.meta, { fontSize: marketplaceFontSize(11, scale) }, ship.free && styles.free]}
-            numberOfLines={1}
-            {...MARKETPLACE_TEXT_PROPS}
-          >
-            {ship.text}
-          </Text>
-        ) : null}
+        <Text
+          style={[styles.meta, { fontSize: marketplaceFontSize(11, scale) }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.85}
+          {...MARKETPLACE_TEXT_PROPS}
+        >
+          {ship}
+        </Text>
         {product.allowOffers ? (
           <Text style={[styles.meta, { fontSize: marketplaceFontSize(11, scale) }]} numberOfLines={1} {...MARKETPLACE_TEXT_PROPS}>
             or Best Offer
@@ -91,6 +83,5 @@ const styles = StyleSheet.create({
   title: { fontWeight: '500', color: colors.textPrimary },
   price: { fontWeight: '700', color: colors.textPrimary, lineHeight: 20 },
   meta: { fontWeight: '600', color: colors.textSecondary, lineHeight: 14 },
-  free: { color: colors.success },
   seller: { color: '#8A8A8A', lineHeight: 14 },
 });
