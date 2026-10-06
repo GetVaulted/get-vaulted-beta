@@ -132,6 +132,27 @@ describe('openNotificationHref', () => {
     });
   });
 
+  describe('buyer layaway links', () => {
+    it('routes a layaway reminder href to the buyer My layaways screen', () => {
+      const nav = fakeNav();
+      expect(openNotificationHref(nav, '/account/layaways/lay_1', { type: 'layaway_reminder' })).toBe(true);
+      expect(nav.navigate).toHaveBeenCalledWith('BuyerLayaways');
+    });
+
+    it('routes the layaway list href to the buyer My layaways screen', () => {
+      const nav = fakeNav();
+      expect(openNotificationHref(nav, '/account/layaways')).toBe(true);
+      expect(nav.navigate).toHaveBeenCalledWith('BuyerLayaways');
+    });
+
+    it('does not send a buyer to the seller layaway screens', () => {
+      const nav = fakeNav();
+      openNotificationHref(nav, '/account/layaways/lay_1');
+      expect(nav.navigate).not.toHaveBeenCalledWith('SellerLayawayDetail', expect.anything());
+      expect(nav.navigate).not.toHaveBeenCalledWith('SellerLayaways', expect.anything());
+    });
+  });
+
   it('falls back to NotificationInbox for an unrecognized href', () => {
     const nav = fakeNav();
     expect(openNotificationHref(nav, '/something/unknown')).toBe(true);

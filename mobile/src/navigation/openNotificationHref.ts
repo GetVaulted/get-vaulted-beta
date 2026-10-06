@@ -1,5 +1,4 @@
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
-import { openSellerLayaways } from './openSellerLayaways';
 import { openSellerOrderDetail } from './openSellerOrderDetail';
 import { openMessageThread } from './openMessages';
 import { rootNavigationRef } from './rootNavigationRef';
@@ -97,13 +96,11 @@ export function openNotificationHref(
     return true;
   }
 
-  const layawayMatch = path.match(/\/account\/layaways\/([^/]+)/);
-  if (layawayMatch?.[1]) {
-    openSellerLayaways(n, { layawayId: decodeURIComponent(layawayMatch[1]) });
-    return true;
-  }
-  if (path.includes('/layaways')) {
-    openSellerLayaways(n);
+  // Layaway links here are the buyer's own (`/account/layaways[/<id>]` — reminders, payment
+  // receipts, "paid in full"). The seller-side links live under `/account/sales/...` and are
+  // handled above, so these open the buyer's "My layaways" screen, not the seller's.
+  if (path === '/account/layaways' || path.startsWith('/account/layaways/')) {
+    n.navigate('BuyerLayaways');
     return true;
   }
 
