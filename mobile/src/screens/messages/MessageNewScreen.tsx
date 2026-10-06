@@ -15,7 +15,8 @@ import { searchMentionUsers, type MentionSearchUser } from '../../api/mentionSea
 import { useAuth } from '../../auth/AuthContext';
 import { UserAvatar } from '../../components/ui/UserAvatar';
 import type { RootStackParamList } from '../../navigation/types';
-import { colors, radii, spacing } from '../../theme';
+import { colors, spacing } from '../../theme';
+import { vaultFonts } from '../../theme/vaultTypography';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MessageNew'>;
 
@@ -88,21 +89,20 @@ export function MessageNewScreen({ navigation }: Props) {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12} accessibilityLabel="Close">
-          <Ionicons name="close" size={24} color={colors.textSecondary} />
+        <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.back} accessibilityLabel="Back">
+          <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
         </Pressable>
-        <Text style={styles.title}>New message</Text>
-        <View style={{ width: 24 }} />
       </View>
+      <Text style={styles.title}>New message</Text>
 
       <View style={styles.searchRow}>
-        <Ionicons name="search" size={18} color={colors.textMuted} />
+        <Ionicons name="search" size={18} color={colors.gold} />
         <TextInput
           style={styles.searchInput}
           value={query}
           onChangeText={setQuery}
-          placeholder="Search by username"
-          placeholderTextColor={colors.textMuted}
+          placeholder="Search people"
+          placeholderTextColor="#6E6E6E"
           autoCapitalize="none"
           autoCorrect={false}
           autoFocus
@@ -123,9 +123,9 @@ export function MessageNewScreen({ navigation }: Props) {
               <Text style={styles.emptySub}>Sign in to message collectors.</Text>
             ) : query.trim().length < 1 ? (
               <>
-                <Ionicons name="person-outline" size={36} color={colors.textMuted} />
+                <Ionicons name="person-outline" size={36} color="#6E6E6E" />
                 <Text style={styles.emptyTitle}>Find someone to message</Text>
-                <Text style={styles.emptySub}>Search a Vaulted username to start a conversation.</Text>
+                <Text style={styles.emptySub}>Search a username to start a private conversation.</Text>
               </>
             ) : searching ? (
               <Text style={styles.emptySub}>Searching…</Text>
@@ -142,14 +142,17 @@ export function MessageNewScreen({ navigation }: Props) {
             <UserAvatar
               uri={item.image}
               username={item.username}
-              size={44}
-              borderColor="rgba(255,255,255,0.2)"
+              size={48}
+              cornerRadius={15}
+              tone="light"
+              borderColor="rgba(212,175,55,0.45)"
+              borderWidth={1.5}
             />
             <View style={styles.rowText}>
               <Text style={styles.username}>@{item.username.replace(/^@/, '')}</Text>
-              <Text style={styles.rowHint}>Message</Text>
+              <Text style={styles.rowHint}>Send a message</Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            <Ionicons name="chevron-forward" size={18} color="#6E6E6E" />
           </Pressable>
         )}
       />
@@ -159,48 +162,47 @@ export function MessageNewScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, height: 44 },
+  back: { padding: 4, marginLeft: -6 },
+  title: {
+    fontFamily: vaultFonts.display,
+    fontSize: 30,
+    lineHeight: 32,
+    letterSpacing: -0.3,
+    color: colors.textPrimary,
     paddingHorizontal: spacing.md,
-    paddingBottom: spacing.sm,
+    marginTop: spacing.xs,
+    marginBottom: spacing.md,
   },
-  title: { fontSize: 17, fontWeight: '800', color: colors.textPrimary },
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: 10,
+    height: 48,
     marginHorizontal: spacing.md,
     marginBottom: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.md,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: '#0F0F0F',
+    borderWidth: 1.5,
+    borderColor: 'rgba(212,175,55,0.55)',
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: colors.textPrimary,
-    paddingVertical: 10,
-  },
+  searchInput: { flex: 1, fontSize: 15, color: colors.textPrimary, paddingVertical: 0 },
   list: { paddingBottom: spacing.xxl },
   emptyList: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: spacing.xl },
   empty: { alignItems: 'center', gap: spacing.sm },
-  emptyTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary, textAlign: 'center' },
-  emptySub: { fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 18 },
+  emptyTitle: { fontFamily: vaultFonts.display, fontSize: 20, color: colors.textPrimary, textAlign: 'center' },
+  emptySub: { fontSize: 14, color: '#9B9B9B', textAlign: 'center', lineHeight: 20 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: 14,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(212,175,55,0.10)',
   },
   rowText: { flex: 1, gap: 2 },
-  username: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
-  rowHint: { fontSize: 12, color: colors.textMuted },
+  username: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  rowHint: { fontSize: 13, color: '#9B9B9B' },
 });

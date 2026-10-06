@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Image } from 'expo-image';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -26,11 +26,14 @@ import { pickSingleImageFromLibrary } from '../../createListing/pickListingMedia
 import { prepareMessageImageForUpload } from '../../lib/messageImagePrepare';
 import { MentionComposerInput } from '../../components/mentions/MentionComposerInput';
 import { MessageBubble } from '../../components/messages/MessageBubble';
-import { MessageContextBanner } from '../../components/messages/MessageContextBanner';
+import { MessagePersonBadges } from '../../components/messages/MessagePersonBadges';
+import { UserAvatar } from '../../components/ui/UserAvatar';
 import { PremiumEmptyPanel } from '../../components/empty/PremiumEmptyPanel';
 import type { RootStackParamList } from '../../navigation/types';
+import { buildThreadRows, type ThreadListRow } from '../../lib/messageDisplay';
 import type { ThreadDetail, ThreadMessage } from '../../types/messages';
-import { colors, radii, spacing } from '../../theme';
+import { colors, spacing } from '../../theme';
+import { vaultFonts } from '../../theme/vaultTypography';
 import { deriveMessageThreadViewState, describeThreadLoadError } from './messageThreadViewState';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MessageThread'>;
@@ -126,13 +129,38 @@ export function MessageThreadScreen({ navigation, route }: Props) {
     }
   };
 
-  const onSellerAction = (action: 'pin' | 'star' | 'mute' | 'block') => {
+  const onThreadAction = (action: 'pin' | 'star' | 'mute' | 'block') => {
     if (!token || !thread) return;
     const next =
       action === 'pin' ? !thread.pinned : action === 'star' ? !thread.starred : action === 'mute' ? !thread.muted : true;
-    void patchThreadAction(token, threadId, action, next).then(load).catch((e) => {
-      Alert.alert('Action failed', e instanceof Error ? e.message : 'Try again.');
-    });
+    void patchThreadAction(token, threadId, action, next)
+      .then(() => (action === 'block' ? navigation.goBack() : load()))
+      .catch((e) => {
+        Alert.alert('Action failed', e instanceof Error ? e.message : 'Try again.');
+      });
+  };
+
+  const onBlock = () => {
+    if (!thread) return;
+    Alert.alert(`Block @${thread.otherUsername}?`, 'They will no longer be able to message you.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Block', style: 'destructive', onPress: () => onThreadAction('block') },
+    ]);
+  };
+
+  const onOpenMenu = () => {
+    if (!thread) return;
+    Alert.alert(`@${thread.otherUsername}`, undefined, [
+      { text: thread.pinned ? 'Unpin conversation' : 'Pin conversation', onPress: () => onThreadAction('pin') },
+      { text: thread.starred ? 'Remove star' : 'Star conversation', onPress: () => onThreadAction('star') },
+      { text: thread.muted ? 'Unmute notifications' : 'Mute notifications', onPress: () => onThreadAction('mute') },
+      { text: 'Block', style: 'destructive', onPress: onBlock },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const openProfile = () => {
+    if (thread?.otherUserId) navigation.navigate('UserProfile', { userId: thread.otherUserId });
   };
 
   const uid = user?.id ?? '';
@@ -141,6 +169,8 @@ export function MessageThreadScreen({ navigation, route }: Props) {
   // composer that fails with a generic "Send failed".
   const awaitingAcceptance = thread?.inbox === 'request' && !thread.isSeller;
   const viewState = deriveMessageThreadViewState({ loading, hasThread: !!thread, hasError: !!loadError });
+  const rows = useMemo(() => buildThreadRows(messages, uid), [messages, uid]);
+  const isRequestRecipient = thread?.inbox === 'request' && !!thread.isSeller;
 
   if (viewState === 'loading') {
     return (
@@ -175,67 +205,76 @@ export function MessageThreadScreen({ navigation, route }: Props) {
       keyboardVerticalOffset={Platform.OS === 'ios' ? 6 : 0}
     >
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.iconBtn} accessibilityLabel="Back">
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
         </Pressable>
-        <View style={styles.headerMid}>
-          <Text style={styles.headerUser}>@{thread?.otherUsername ?? '…'}</Text>
-          <Text style={styles.headerSub}>{thread?.conversationLabel}</Text>
-        </View>
-        <Pressable
-          hitSlop={12}
-          onPress={() => {
-            if (!thread?.isSeller) return;
-            Alert.alert('Collector tools', undefined, [
-              { text: 'Star buyer', onPress: () => onSellerAction('star') },
-              { text: thread.pinned ? 'Unpin' : 'Pin', onPress: () => onSellerAction('pin') },
-              { text: thread.muted ? 'Unmute' : 'Mute', onPress: () => onSellerAction('mute') },
-              { text: 'Block', style: 'destructive', onPress: () => onSellerAction('block') },
-              { text: 'Cancel', style: 'cancel' },
-            ]);
-          }}
-        >
-          <Ionicons name="ellipsis-horizontal" size={22} color={colors.textSecondary} />
+        <Pressable onPress={openProfile} style={styles.headerPerson} accessibilityRole="button" accessibilityLabel="View profile">
+          <UserAvatar
+            uri={thread?.otherAvatarUrl}
+            username={thread?.otherUsername}
+            size={42}
+            cornerRadius={13}
+            tone="light"
+            borderColor="rgba(212,175,55,0.55)"
+            borderWidth={1.5}
+          />
+          <View style={styles.headerMid}>
+            <Text style={styles.headerUser} numberOfLines={1}>
+              @{thread?.otherUsername ?? '…'}
+            </Text>
+            <MessagePersonBadges sellerLevelLabel={thread?.otherSellerLevelLabel} verified={thread?.otherVerified} />
+          </View>
+        </Pressable>
+        <Pressable onPress={openProfile} hitSlop={6} style={styles.iconBtn} accessibilityLabel="View profile">
+          <Ionicons name="person-outline" size={22} color="#9B9B9B" />
+        </Pressable>
+        <Pressable onPress={onOpenMenu} hitSlop={6} style={styles.iconBtn} accessibilityLabel="More options">
+          <Ionicons name="ellipsis-horizontal" size={22} color="#9B9B9B" />
         </Pressable>
       </View>
 
-      {thread?.inbox === 'request' && thread.isSeller ? (
-        <Pressable style={styles.acceptBar} onPress={() => void onAcceptRequest()}>
-          <Text style={styles.acceptTxt}>Accept request (or just reply)</Text>
-        </Pressable>
-      ) : null}
-
-      {thread ? (
-        <MessageContextBanner
-          thread={thread}
-          onViewListing={() => navigation.navigate('ProductDetail', { productId: thread.listingId })}
-          onQuickAction={(a) => {
-            if (a === 'live' && thread.liveRoomId) {
-              navigation.navigate('MainTabs', {
-                screen: 'Live',
-                params: { screen: 'LiveRoom', params: { streamId: thread.liveRoomId } },
-              });
-            }
-          }}
-        />
-      ) : null}
-
-      <FlatList
+      <FlatList<ThreadListRow>
         ref={listRef}
-        data={messages}
-        keyExtractor={(m) => m.id}
+        data={rows}
+        keyExtractor={(r) => r.key}
         contentContainerStyle={styles.messages}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
-        renderItem={({ item, index }) => (
-          <MessageBubble
-            message={item}
-            isMine={item.senderId === uid}
-            // Only the most recent message you sent shows "Sent"/"Read" — matches the
-            // standard iMessage/WhatsApp convention instead of a status line under every bubble.
-            showStatus={index === messages.length - 1}
-            onPressMentionUser={(userId) => navigation.navigate('UserProfile', { userId })}
-          />
-        )}
+        renderItem={({ item }) =>
+          item.type === 'day' ? (
+            <Text style={styles.dayLabel}>{item.label}</Text>
+          ) : (
+            <MessageBubble
+              message={item.message}
+              isMine={item.isMine}
+              firstInGroup={item.firstInGroup}
+              lastInGroup={item.lastInGroup}
+              timeLabel={item.timeLabel}
+              showStatus={item.showStatus}
+              onPressMentionUser={(userId) => navigation.navigate('UserProfile', { userId })}
+            />
+          )
+        }
+        ListFooterComponent={
+          isRequestRecipient ? (
+            <View style={styles.requestCard}>
+              <View style={styles.requestCopy}>
+                <Text style={styles.requestKicker}>Message request</Text>
+                <Text style={styles.requestBody}>
+                  @{thread?.otherUsername} wants to message you. Accept to move this conversation to your inbox.
+                </Text>
+              </View>
+              <View style={styles.requestActions}>
+                <Pressable style={styles.requestAccept} onPress={() => void onAcceptRequest()} accessibilityRole="button">
+                  <Text style={styles.requestAcceptTxt}>Accept</Text>
+                </Pressable>
+                <Pressable style={styles.requestBlock} onPress={onBlock} accessibilityRole="button">
+                  <Text style={styles.requestBlockTxt}>Block</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.requestHint}>Replying also accepts the request.</Text>
+            </View>
+          ) : null
+        }
       />
 
       {awaitingAcceptance ? (
@@ -264,9 +303,9 @@ export function MessageThreadScreen({ navigation, route }: Props) {
               accessibilityLabel="Attach photo"
             >
               {pickingImage ? (
-                <ActivityIndicator color={colors.textSecondary} size="small" />
+                <ActivityIndicator color="#9B9B9B" size="small" />
               ) : (
-                <Ionicons name="image-outline" size={22} color={colors.textSecondary} />
+                <Ionicons name="image-outline" size={22} color="#9B9B9B" />
               )}
             </Pressable>
             <MentionComposerInput
@@ -274,7 +313,7 @@ export function MessageThreadScreen({ navigation, route }: Props) {
               value={draft}
               onChangeText={setDraft}
               accessToken={token}
-              placeholder="Message…"
+              placeholder="Message"
               placeholderTextColor={colors.textMuted}
               multiline
               maxLength={2000}
@@ -285,9 +324,9 @@ export function MessageThreadScreen({ navigation, route }: Props) {
               disabled={sending}
             >
               {sending ? (
-                <ActivityIndicator color="#0a0a0a" size="small" />
+                <ActivityIndicator color={colors.background} size="small" />
               ) : (
-                <Ionicons name="send" size={18} color="#0a0a0a" />
+                <Ionicons name="arrow-up" size={20} color={colors.background} />
               )}
             </Pressable>
           </View>
@@ -305,70 +344,122 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.sm,
-    gap: spacing.sm,
+    gap: 6,
+    minHeight: 64,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(212,175,55,0.10)',
   },
-  headerMid: { flex: 1 },
-  headerUser: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
-  headerSub: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
-  acceptBar: {
+  iconBtn: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
+  headerPerson: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerMid: { flex: 1, minWidth: 0, gap: 2 },
+  headerUser: { fontFamily: vaultFonts.display, fontSize: 18, lineHeight: 20, color: colors.textPrimary },
+  dayLabel: {
+    alignSelf: 'center',
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+    fontFamily: vaultFonts.label,
+    fontSize: 12,
+    letterSpacing: 1.7,
+    textTransform: 'uppercase',
+    color: '#6E6E6E',
+  },
+  messages: { paddingTop: spacing.sm, paddingBottom: spacing.md, flexGrow: 1, justifyContent: 'flex-end' },
+  requestCard: {
     marginHorizontal: spacing.md,
-    marginBottom: spacing.sm,
-    paddingVertical: 12,
-    borderRadius: radii.pill,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: 16,
+    gap: 14,
+    backgroundColor: '#0F0F0F',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.12)',
+  },
+  requestCopy: { gap: 4 },
+  requestKicker: {
+    fontFamily: vaultFonts.label,
+    fontSize: 13,
+    letterSpacing: 1.8,
+    textTransform: 'uppercase',
+    color: '#9B9B9B',
+  },
+  requestBody: { fontSize: 14, lineHeight: 20, color: colors.textPrimary },
+  requestActions: { flexDirection: 'row', gap: 10 },
+  requestAccept: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
     backgroundColor: colors.gold,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  acceptTxt: { fontWeight: '900', fontSize: 13, color: '#0a0a0a' },
-  messages: { paddingVertical: spacing.sm, flexGrow: 1 },
+  requestAcceptTxt: {
+    fontFamily: vaultFonts.label,
+    fontSize: 17,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: colors.background,
+  },
+  requestBlock: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,59,48,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  requestBlockTxt: {
+    fontFamily: vaultFonts.label,
+    fontSize: 17,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: '#FF6B61',
+  },
+  requestHint: { fontSize: 12, color: '#9B9B9B', textAlign: 'center' },
   composerWrap: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    backgroundColor: 'rgba(8,8,10,0.98)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(212,175,55,0.10)',
+    backgroundColor: colors.background,
   },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
+    gap: 10,
+    paddingHorizontal: spacing.sm,
+    paddingTop: 10,
   },
   attach: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+    backgroundColor: '#0F0F0F',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.12)',
   },
-  imagePreviewRow: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-  },
-  imagePreview: {
-    width: 72,
-    height: 72,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-  },
+  imagePreviewRow: { paddingHorizontal: spacing.md, paddingTop: spacing.sm },
+  imagePreview: { width: 72, height: 72, borderRadius: 12, backgroundColor: '#161616' },
   imagePreviewRemove: {
     position: 'absolute',
     top: -6,
     left: 64,
-    backgroundColor: 'rgba(10,10,10,0.9)',
+    backgroundColor: 'rgba(5,5,5,0.9)',
     borderRadius: 11,
   },
   input: {
     flex: 1,
     minHeight: 44,
     maxHeight: 120,
-    borderRadius: radii.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(212,175,55,0.35)',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.30)',
+    backgroundColor: '#0F0F0F',
     paddingHorizontal: spacing.md,
-    paddingVertical: 10,
+    paddingTop: 11,
+    paddingBottom: 11,
     color: colors.textPrimary,
     fontSize: 15,
   },
@@ -387,9 +478,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    backgroundColor: 'rgba(8,8,10,0.98)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(212,175,55,0.10)',
+    backgroundColor: colors.background,
   },
-  pendingTxt: { flex: 1, fontSize: 12, color: colors.textSecondary, fontWeight: '600' },
+  pendingTxt: { flex: 1, fontSize: 13, color: '#9B9B9B' },
 });

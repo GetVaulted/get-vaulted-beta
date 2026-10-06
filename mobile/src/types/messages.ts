@@ -26,6 +26,9 @@ export type ThreadListItem = {
   otherUserId: string;
   otherUsername: string;
   otherAvatarUrl: string | null;
+  /** Seller-level label, only for people who have sold on Get Vaulted (older servers omit it). */
+  otherSellerLevelLabel?: string | null;
+  otherVerified?: boolean;
   lastPreview: string;
   lastAt: string;
   lastKind: MessageKind;
@@ -66,6 +69,8 @@ export type ThreadDetail = {
   otherUserId: string;
   otherUsername: string;
   otherAvatarUrl: string | null;
+  otherSellerLevelLabel?: string | null;
+  otherVerified?: boolean;
   isSeller: boolean;
   pinned: boolean;
   starred: boolean;

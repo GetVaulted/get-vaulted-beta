@@ -21,7 +21,8 @@ import { useAuth } from '../../auth/AuthContext';
 import { pickSingleImageFromLibrary } from '../../createListing/pickListingMedia';
 import { prepareMessageImageForUpload } from '../../lib/messageImagePrepare';
 import type { RootStackParamList } from '../../navigation/types';
-import { colors, radii, spacing } from '../../theme';
+import { colors, spacing } from '../../theme';
+import { vaultFonts } from '../../theme/vaultTypography';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MessageCompose'>;
 
@@ -36,13 +37,8 @@ export function MessageComposeScreen({ navigation, route }: Props) {
 
   const sellerLabel = route.params.sellerUsername?.trim();
   const profileTarget = route.params.sellerUserId?.trim();
-  const title = sellerLabel
-    ? `Message @${sellerLabel.replace(/^@/, '')}`
-    : profileTarget
-      ? 'Message collector'
-      : 'Message seller';
+  const title = sellerLabel ? `Message @${sellerLabel.replace(/^@/, '')}` : 'New message';
   const fromLive = Boolean(route.params.liveRoomId);
-  const fromProfile = Boolean(profileTarget && !route.params.listingId && !route.params.liveRoomId);
 
   const onPickImage = async () => {
     if (pickingImage || busy) return;
@@ -110,7 +106,7 @@ export function MessageComposeScreen({ navigation, route }: Props) {
     >
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} accessibilityLabel="Close">
-          <Ionicons name="close" size={24} color={colors.textSecondary} />
+          <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>
           {title}
@@ -126,17 +122,15 @@ export function MessageComposeScreen({ navigation, route }: Props) {
       >
         <Text style={styles.hint}>
           {fromLive
-            ? 'Private message — stays off the live chat.'
-            : fromProfile
-              ? 'Direct message — private conversation on Get Vaulted.'
-              : 'Ask about condition, shipping, or make an offer.'}
+            ? 'Private message. It stays off the live chat.'
+            : 'A private conversation between the two of you on Get Vaulted.'}
         </Text>
         <MentionComposerInput
           style={styles.input}
           value={draft}
           onChangeText={setDraft}
           accessToken={token}
-          placeholder="Hi — I'm interested in this piece…"
+          placeholder="Write a message"
           placeholderTextColor={colors.textMuted}
           multiline
           autoFocus
@@ -176,7 +170,7 @@ export function MessageComposeScreen({ navigation, route }: Props) {
           accessibilityLabel="Send message"
         >
           {busy ? (
-            <ActivityIndicator color="#0a0a0a" />
+            <ActivityIndicator color="#050505" />
           ) : (
             <Text style={styles.sendTxt}>Send message</Text>
           )}
@@ -192,17 +186,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.md,
+    height: 52,
   },
-  title: { flex: 1, fontSize: 17, fontWeight: '800', color: colors.textPrimary, textAlign: 'center' },
+  title: {
+    flex: 1,
+    fontFamily: vaultFonts.display,
+    fontSize: 20,
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
   body: { flex: 1 },
   bodyContent: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
     paddingBottom: spacing.md,
     flexGrow: 1,
   },
-  hint: { fontSize: 13, color: colors.textMuted, lineHeight: 18, marginBottom: spacing.md },
+  hint: { fontSize: 14, color: '#9B9B9B', lineHeight: 20, marginBottom: spacing.md },
   attachRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -211,41 +212,48 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     paddingVertical: 6,
   },
-  attachTxt: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+  attachTxt: { fontSize: 14, fontWeight: '600', color: '#9B9B9B' },
   imagePreviewRow: { marginTop: spacing.md, alignSelf: 'flex-start' },
-  imagePreview: { width: 84, height: 84, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.06)' },
+  imagePreview: { width: 84, height: 84, borderRadius: 14, backgroundColor: '#161616' },
   imagePreviewRemove: {
     position: 'absolute',
     top: -8,
     right: -8,
-    backgroundColor: 'rgba(10,10,10,0.9)',
+    backgroundColor: 'rgba(5,5,5,0.9)',
     borderRadius: 11,
   },
   input: {
     minHeight: 160,
     maxHeight: 240,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(212,175,55,0.35)',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.30)',
+    backgroundColor: '#0F0F0F',
     padding: spacing.md,
     color: colors.textPrimary,
     fontSize: 16,
     textAlignVertical: 'top',
   },
   footer: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    backgroundColor: 'rgba(8,8,10,0.98)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(212,175,55,0.10)',
+    backgroundColor: colors.background,
   },
   send: {
-    paddingVertical: 14,
-    borderRadius: radii.pill,
+    height: 48,
+    borderRadius: 12,
     backgroundColor: colors.gold,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   sendDim: { opacity: 0.45 },
-  sendTxt: { fontWeight: '900', fontSize: 15, color: '#0a0a0a' },
+  sendTxt: {
+    fontFamily: vaultFonts.label,
+    fontSize: 17,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: colors.background,
+  },
 });
