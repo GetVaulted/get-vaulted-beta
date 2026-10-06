@@ -658,6 +658,9 @@ model User {
   profileBannerUrl              String?
   /// Public social links as canonical URLs: `{ instagram?, tiktok?, youtube?, x?, website? }`.
   profileLinks                  Json?
+  /// Last time this seller's whole follower list was notified (share "Notify followers" or the
+  /// automatic go-live alert). Enforces one follower-wide notification per hour.
+  followerNotifiedAt            DateTime?
   /// Verified-buyer reviews this user received as a seller / wrote as a buyer.
   sellerReviewsReceived         SellerReview[]              @relation("SellerReviewSeller")
   sellerReviewsWritten          SellerReview[]              @relation("SellerReviewBuyer")

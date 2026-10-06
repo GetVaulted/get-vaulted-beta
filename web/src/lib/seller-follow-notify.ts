@@ -1,3 +1,4 @@
+import { claimFollowerNotifySlot, releaseFollowerNotifySlot } from "@/lib/seller-follower-notify-limit";
 import { prisma } from "@/lib/prisma";
 import { parseLiveRoomDiscoveryVisibility } from "@/lib/live-room-public-discovery";
 
@@ -26,16 +27,25 @@ export async function notifyFollowersSellerWentLive(sellerId: string, sellerUser
 
   const followerIds = await followerIdsForSeller(sellerId);
   if (followerIds.length === 0) return;
+  // Strict limit: one follower-wide notification per seller per hour. If the seller already
+  // notified their followers within the hour (share sheet or an earlier go-live), stay quiet.
+  const slot = await claimFollowerNotifySlot(prisma, sellerId);
+  if (!slot.ok) return;
   const title = `@${sellerUsername} is live now`;
   const href = `/live/${encodeURIComponent(liveRoomId)}`;
-  await prisma.notification.createMany({
-    data: followerIds.map((userId) => ({
-      userId,
-      type: "seller_live",
-      title,
-      body: "Open their live room.",
-      href,
-    })),
-  });
+  try {
+    await prisma.notification.createMany({
+      data: followerIds.map((userId) => ({
+        userId,
+        type: "seller_live",
+        title,
+        body: "Open their live room.",
+        href,
+      })),
+    });
+  } catch (e) {
+    await releaseFollowerNotifySlot(prisma, sellerId, slot);
+    throw e;
+  }
 }
 
