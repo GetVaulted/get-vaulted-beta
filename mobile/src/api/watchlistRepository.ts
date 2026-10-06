@@ -28,3 +28,12 @@ export async function removeFromWatchlist(accessToken: string, listingId: string
   });
   return res.ok;
 }
+
+export async function addToWatchlist(accessToken: string, listingId: string): Promise<boolean> {
+  const res = await fetchWebApiAuthed('/api/watchlist', accessToken, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ listingId }),
+  });
+  return res.ok;
+}

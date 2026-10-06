@@ -63,15 +63,15 @@ describe('computeMarketplaceLayoutMetrics', () => {
 });
 
 describe('computeMarketplaceGrid', () => {
-  it('uses 2 columns on phone content widths', () => {
+  it('uses 3 compact columns on phone content widths', () => {
     const grid = computeMarketplaceGrid(358);
-    expect(grid.cols).toBe(2);
-    expect(grid.cardWidth).toBe(Math.floor((358 - MARKETPLACE_GRID_GAP) / 2));
+    expect(grid.cols).toBe(3);
+    expect(grid.cardWidth).toBe(Math.floor((358 - MARKETPLACE_GRID_GAP * 2) / 3));
   });
 
-  it('adds columns on wide tablet content widths (capped at 4)', () => {
-    expect(computeMarketplaceGrid(760).cols).toBeGreaterThanOrEqual(3);
-    expect(computeMarketplaceGrid(2000).cols).toBe(4);
+  it('adds columns on wide tablet content widths (capped at 5)', () => {
+    expect(computeMarketplaceGrid(760).cols).toBeGreaterThanOrEqual(4);
+    expect(computeMarketplaceGrid(2000).cols).toBe(5);
   });
 
   it('fills the row exactly: cols * cardWidth + gaps <= contentWidth', () => {
@@ -83,7 +83,7 @@ describe('computeMarketplaceGrid', () => {
     }
   });
 
-  it('never drops below 2 columns even on tiny widths', () => {
-    expect(computeMarketplaceGrid(1).cols).toBe(2);
+  it('never drops below 3 columns even on tiny widths', () => {
+    expect(computeMarketplaceGrid(1).cols).toBe(3);
   });
 });

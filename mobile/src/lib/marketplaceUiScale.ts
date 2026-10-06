@@ -31,23 +31,26 @@ export function isCompactMarketplaceLayout(windowWidth: number, windowHeight: nu
   return isCompactAppLayout(windowWidth, windowHeight);
 }
 
-/** Max grid tile width — keeps cards from ballooning on tablets. */
-export const MARKETPLACE_GRID_MAX_CARD_W = 220;
+/** Max grid tile width — keeps cards compact (phones stay at 3 columns, tablets add more). */
+export const MARKETPLACE_GRID_MAX_CARD_W = 150;
 /** Gap between grid cards (both axes). */
-export const MARKETPLACE_GRID_GAP = 10;
+export const MARKETPLACE_GRID_GAP = 8;
+/** Phones always show this many columns; wide tablets add columns up to the max. */
+export const MARKETPLACE_GRID_MIN_COLS = 3;
+export const MARKETPLACE_GRID_MAX_COLS = 5;
 
 export type MarketplaceGridMetrics = { cols: number; cardWidth: number; gap: number };
 
 /**
- * Continuous browse grid: 2 columns on phones, up to 4 on wide tablets, with a capped tile width so
- * the vault keeps scrolling vertically instead of showing a couple of horizontal rails.
+ * Continuous browse grid: 3 compact columns on phones, up to 5 on wide tablets, with a capped tile
+ * width so the vault keeps scrolling vertically instead of showing a couple of horizontal rails.
  */
 export function computeMarketplaceGrid(contentWidth: number): MarketplaceGridMetrics {
   const gap = MARKETPLACE_GRID_GAP;
   const inner = Math.max(1, contentWidth);
   const cols = Math.max(
-    2,
-    Math.min(4, Math.floor((inner + gap) / (MARKETPLACE_GRID_MAX_CARD_W + gap))),
+    MARKETPLACE_GRID_MIN_COLS,
+    Math.min(MARKETPLACE_GRID_MAX_COLS, Math.floor((inner + gap) / (MARKETPLACE_GRID_MAX_CARD_W + gap))),
   );
   const cardWidth = Math.floor((inner - gap * (cols - 1)) / cols);
   return { cols, cardWidth, gap };
