@@ -43,7 +43,7 @@ function autoEndEnabled(): boolean {
  * Force-end an abandoned live room (mirrors the admin `end` action). Safe under concurrency:
  * only transitions rooms still in `live`.
  */
-async function autoEndRoom(roomId: string, completedSalesGmvUsd: number): Promise<boolean> {
+export async function autoEndRoom(roomId: string, completedSalesGmvUsd: number): Promise<boolean> {
   const ended = await prisma.liveRoom.updateMany({
     where: { id: roomId, status: "live" },
     data: {
