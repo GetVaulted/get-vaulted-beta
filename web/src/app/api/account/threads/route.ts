@@ -7,6 +7,7 @@ import {
   orderStatusChip,
   resolveThreadContext,
 } from "@/lib/message-threads";
+import { loadParticipantBadges } from "@/lib/message-participant-badges";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(req: Request) {
@@ -37,8 +38,8 @@ export async function GET(req: Request) {
           images: { take: 1, orderBy: { sortOrder: "asc" }, select: { url: true } },
         },
       },
-      buyer: { select: { id: true, username: true, image: true } },
-      seller: { select: { id: true, username: true, image: true } },
+      buyer: { select: { id: true, username: true, image: true, sellerLevel: true, emailVerified: true } },
+      seller: { select: { id: true, username: true, image: true, sellerLevel: true, emailVerified: true } },
       participants: { where: { userId: uid } },
       messages: {
         orderBy: { createdAt: "desc" },
@@ -82,9 +83,15 @@ export async function GET(req: Request) {
   const offerMap = new Map(offers.map((o) => [o.id, o]));
   const orderMap = new Map(orders.map((o) => [o.id, o]));
 
+  const badgeMap = await loadParticipantBadges(
+    prisma,
+    threads.map((t) => (t.buyerId === uid ? t.seller : t.buyer)),
+  );
+
   const enriched = await Promise.all(
     threads.map(async (t) => {
       const other = t.buyerId === uid ? t.seller : t.buyer;
+      const otherBadges = badgeMap.get(other.id);
       const last = t.messages[0];
       const participant = t.participants[0];
       const ctx = await resolveThreadContext(t);
@@ -108,6 +115,8 @@ export async function GET(req: Request) {
         otherUserId: other.id,
         otherUsername: other.username,
         otherAvatarUrl: other.image,
+        otherSellerLevelLabel: otherBadges?.sellerLevelLabel ?? null,
+        otherVerified: otherBadges?.verified ?? false,
         lastPreview: last?.body || (last?.imageUrl ? "📷 Photo" : ""),
         lastAt: last ? last.createdAt.toISOString() : t.updatedAt.toISOString(),
         lastKind: last?.kind ?? "user",

@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -9,6 +8,7 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,7 +18,8 @@ import { MessageThreadCard } from '../../components/messages/MessageThreadCard';
 import type { RootStackParamList } from '../../navigation/types';
 import { openMessageThread, openNewMessage } from '../../navigation/openMessages';
 import type { ThreadListItem } from '../../types/messages';
-import { colors, radii, spacing } from '../../theme';
+import { colors, spacing } from '../../theme';
+import { vaultFonts } from '../../theme/vaultTypography';
 import { deriveMessagesInboxViewState, describeInboxLoadError } from './messagesInboxViewState';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MessagesInbox'>;
@@ -34,6 +35,7 @@ export function MessagesInboxScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     if (!token) {
@@ -65,45 +67,54 @@ export function MessagesInboxScreen({ navigation }: Props) {
     void load();
   };
 
-  const viewState = deriveMessagesInboxViewState({ loading, hasError: !!loadError, threadCount: threads.length });
+  const visibleThreads = useMemo(() => {
+    const q = search.trim().replace(/^@/, '').toLowerCase();
+    if (!q) return threads;
+    return threads.filter((t) => t.otherUsername.toLowerCase().includes(q));
+  }, [threads, search]);
+  const searching = search.trim().length > 0;
+
+  const viewState = deriveMessagesInboxViewState({ loading, hasError: !!loadError, threadCount: visibleThreads.length });
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      <LinearGradient
-        colors={['rgba(212,175,55,0.08)', 'transparent']}
-        style={styles.topGlow}
-        pointerEvents="none"
-      />
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.back}>
+        <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.back} accessibilityLabel="Back">
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
         </Pressable>
-        <View style={styles.headerText}>
-          <Text style={styles.title}>Messages</Text>
-          <Text style={styles.sub}>Private commerce · collector network</Text>
-        </View>
         <Pressable
           onPress={() => openNewMessage(navigation)}
-          hitSlop={12}
+          hitSlop={8}
           style={styles.composeBtn}
           accessibilityRole="button"
           accessibilityLabel="New message"
         >
-          <Ionicons name="create-outline" size={22} color={colors.gold} />
+          <Ionicons name="create-outline" size={20} color={colors.gold} />
         </Pressable>
+      </View>
+      <Text style={styles.title}>Messages</Text>
+
+      <View style={styles.searchRow}>
+        <Ionicons name="search" size={18} color="#9B9B9B" />
+        <TextInput
+          style={styles.searchInput}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search people"
+          placeholderTextColor="#6E6E6E"
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+          clearButtonMode="while-editing"
+          accessibilityLabel="Search people"
+        />
       </View>
 
       <View style={styles.tabs}>
-        <Pressable
-          style={[styles.tab, inbox === 'primary' && styles.tabOn]}
-          onPress={() => setInbox('primary')}
-        >
+        <Pressable style={[styles.tab, inbox === 'primary' && styles.tabOn]} onPress={() => setInbox('primary')}>
           <Text style={[styles.tabTxt, inbox === 'primary' && styles.tabTxtOn]}>Inbox</Text>
         </Pressable>
-        <Pressable
-          style={[styles.tab, inbox === 'request' && styles.tabOn]}
-          onPress={() => setInbox('request')}
-        >
+        <Pressable style={[styles.tab, inbox === 'request' && styles.tabOn]} onPress={() => setInbox('request')}>
           <Text style={[styles.tabTxt, inbox === 'request' && styles.tabTxtOn]}>Requests</Text>
           {requestCount > 0 ? (
             <View style={styles.reqBadge}>
@@ -117,10 +128,10 @@ export function MessagesInboxScreen({ navigation }: Props) {
         <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.xl }} />
       ) : (
         <FlatList
-          data={threads}
+          data={visibleThreads}
           keyExtractor={(t) => t.id}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.gold} />}
-          contentContainerStyle={threads.length === 0 ? styles.emptyList : styles.list}
+          contentContainerStyle={visibleThreads.length === 0 ? styles.emptyList : styles.list}
           ListEmptyComponent={
             viewState === 'error' ? (
               <View style={styles.empty}>
@@ -135,14 +146,16 @@ export function MessagesInboxScreen({ navigation }: Props) {
               <View style={styles.empty}>
                 <Ionicons name="chatbubbles-outline" size={40} color={colors.textMuted} />
                 <Text style={styles.emptyTitle}>
-                  {inbox === 'request' ? 'No message requests' : 'No conversations yet'}
+                  {searching ? 'No matches' : inbox === 'request' ? 'No message requests' : 'No conversations yet'}
                 </Text>
                 <Text style={styles.emptySub}>
-                  {inbox === 'request'
-                    ? 'New collectors will appear here until you accept.'
-                    : 'Search for a collector, or message a seller from a listing or live show.'}
+                  {searching
+                    ? 'No one in this folder matches that name.'
+                    : inbox === 'request'
+                      ? 'People you have not talked to yet will appear here until you accept.'
+                      : 'Start a conversation with anyone on Get Vaulted.'}
                 </Text>
-                {inbox === 'primary' ? (
+                {inbox === 'primary' && !searching ? (
                   <Pressable style={styles.retryBtn} onPress={() => openNewMessage(navigation)}>
                     <Text style={styles.retryTxt}>New message</Text>
                   </Pressable>
@@ -150,9 +163,10 @@ export function MessagesInboxScreen({ navigation }: Props) {
               </View>
             )
           }
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => (
             <MessageThreadCard
               thread={item}
+              showDivider={index > 0}
               onPress={() => openMessageThread(navigation, item.id)}
             />
           )}
@@ -164,69 +178,92 @@ export function MessagesInboxScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
-  topGlow: { position: 'absolute', left: 0, right: 0, top: 0, height: 160 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
-    paddingBottom: spacing.sm,
-    gap: spacing.sm,
+    height: 44,
   },
-  back: { padding: 4 },
-  headerText: { flex: 1 },
+  back: { padding: 4, marginLeft: -6 },
   composeBtn: {
-    padding: 8,
-    borderRadius: radii.pill,
-    backgroundColor: 'rgba(212,175,55,0.12)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(212,175,55,0.35)',
-  },
-  title: { fontSize: 24, fontWeight: '900', color: colors.textPrimary, letterSpacing: -0.3 },
-  sub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-  tabs: {
-    flexDirection: 'row',
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.md,
-    padding: 4,
-    borderRadius: radii.pill,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  tab: {
-    flex: 1,
-    flexDirection: 'row',
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: radii.pill,
+    backgroundColor: 'rgba(212,175,55,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
   },
-  tabOn: { backgroundColor: 'rgba(212,175,55,0.15)' },
-  tabTxt: { fontSize: 13, fontWeight: '700', color: colors.textMuted },
+  title: {
+    fontFamily: vaultFonts.display,
+    fontSize: 30,
+    lineHeight: 32,
+    letterSpacing: -0.3,
+    color: colors.textPrimary,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.xs,
+    marginBottom: spacing.md,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    height: 44,
+    marginHorizontal: spacing.md,
+    marginBottom: 14,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: '#0F0F0F',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.12)',
+  },
+  searchInput: { flex: 1, fontSize: 15, color: colors.textPrimary, paddingVertical: 0 },
+  tabs: { flexDirection: 'row', gap: 8, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
+  tab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.14)',
+  },
+  tabOn: { backgroundColor: 'rgba(212,175,55,0.15)', borderColor: 'rgba(212,175,55,0.45)' },
+  tabTxt: {
+    fontFamily: vaultFonts.label,
+    fontSize: 15,
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+    color: '#9B9B9B',
+  },
   tabTxtOn: { color: colors.gold },
   reqBadge: {
     minWidth: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: colors.live,
+    backgroundColor: colors.gold,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 5,
   },
-  reqBadgeTxt: { fontSize: 9, fontWeight: '900', color: '#fff' },
-  list: { paddingTop: spacing.xs, paddingBottom: spacing.xxl },
+  reqBadgeTxt: { fontSize: 11, fontWeight: '700', color: colors.background },
+  list: { paddingBottom: spacing.xxl },
   emptyList: { flexGrow: 1, justifyContent: 'center' },
   empty: { alignItems: 'center', paddingHorizontal: spacing.xl, gap: spacing.sm },
-  emptyTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary, textAlign: 'center' },
-  emptySub: { fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 18 },
+  emptyTitle: { fontFamily: vaultFonts.display, fontSize: 20, color: colors.textPrimary, textAlign: 'center' },
+  emptySub: { fontSize: 14, color: '#9B9B9B', textAlign: 'center', lineHeight: 20 },
   retryBtn: {
     marginTop: spacing.sm,
-    paddingVertical: spacing.sm,
+    height: 44,
     paddingHorizontal: spacing.lg,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.gold,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(212,175,55,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  retryTxt: { color: colors.gold, fontWeight: '800', fontSize: 14 },
+  retryTxt: { fontFamily: vaultFonts.label, fontSize: 16, letterSpacing: 1, textTransform: 'uppercase', color: colors.gold },
 });

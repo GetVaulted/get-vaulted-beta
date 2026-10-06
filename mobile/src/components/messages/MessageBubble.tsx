@@ -9,12 +9,20 @@ import { colors, radii, spacing } from '../../theme';
 export function MessageBubble({
   message,
   isMine,
+  firstInGroup = true,
+  lastInGroup = true,
+  timeLabel = null,
   /** Show a small "Sent"/"Read" line under this bubble — only the most recent message you sent. */
   showStatus,
   onPressMentionUser,
 }: {
   message: ThreadMessage;
   isMine: boolean;
+  /** First bubble of a run from one person (more space above). */
+  firstInGroup?: boolean;
+  /** Last bubble of a run: square tail corner and the time underneath. */
+  lastInGroup?: boolean;
+  timeLabel?: string | null;
   showStatus?: boolean;
   onPressMentionUser?: (userId: string) => void;
 }) {
@@ -33,11 +41,12 @@ export function MessageBubble({
   }
 
   return (
-    <View style={[styles.row, isMine ? styles.rowMine : styles.rowTheirs]}>
+    <View style={[styles.row, isMine ? styles.rowMine : styles.rowTheirs, { marginTop: firstInGroup ? 10 : 3 }]}>
       <View
         style={[
           styles.bubble,
           isMine ? styles.bubbleMine : styles.bubbleTheirs,
+          lastInGroup && (isMine ? styles.tailMine : styles.tailTheirs),
           imageUrl && !message.body ? styles.bubbleImageOnly : null,
         ]}
       >
@@ -63,14 +72,21 @@ export function MessageBubble({
         ) : null}
       </View>
 
-      {isMine && showStatus ? (
-        <View style={styles.statusRow} accessibilityLabel={message.readAt ? 'Read' : 'Sent'}>
-          <Ionicons
-            name={message.readAt ? 'checkmark-done' : 'checkmark'}
-            size={13}
-            color={message.readAt ? colors.gold : 'rgba(255,255,255,0.4)'}
-          />
-          <Text style={styles.statusTxt}>{message.readAt ? 'Read' : 'Sent'}</Text>
+      {timeLabel || (isMine && showStatus) ? (
+        <View style={styles.statusRow} accessibilityLabel={isMine && showStatus ? (message.readAt ? 'Read' : 'Sent') : undefined}>
+          {timeLabel ? <Text style={styles.statusTxt}>{timeLabel}</Text> : null}
+          {isMine && showStatus ? (
+            <>
+              <Ionicons
+                name={message.readAt ? 'checkmark-done' : 'checkmark'}
+                size={14}
+                color={message.readAt ? colors.gold : '#6E6E6E'}
+              />
+              <Text style={[styles.statusTxt, message.readAt && styles.statusRead]}>
+                {message.readAt ? 'Read' : 'Sent'}
+              </Text>
+            </>
+          ) : null}
         </View>
       ) : null}
 
@@ -89,38 +105,41 @@ export function MessageBubble({
 }
 
 const styles = StyleSheet.create({
-  row: { marginBottom: 6, paddingHorizontal: spacing.md },
+  row: { paddingHorizontal: spacing.md },
   rowMine: { alignItems: 'flex-end' },
   rowTheirs: { alignItems: 'flex-start' },
   bubble: {
-    maxWidth: '82%',
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    maxWidth: '78%',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderRadius: 18,
   },
   bubbleMine: {
-    backgroundColor: 'rgba(212,175,55,0.92)',
-    borderBottomRightRadius: 4,
+    backgroundColor: colors.gold,
+    borderWidth: 1,
+    borderColor: colors.gold,
   },
   bubbleTheirs: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
-    borderBottomLeftRadius: 4,
+    backgroundColor: '#161616',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.12)',
   },
+  tailMine: { borderBottomRightRadius: 6 },
+  tailTheirs: { borderBottomLeftRadius: 6 },
   bubbleImageOnly: { padding: 4 },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    marginTop: 3,
-    paddingRight: 4,
+    gap: 5,
+    marginTop: 5,
+    paddingHorizontal: 4,
   },
   statusTxt: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.4)',
+    fontSize: 12,
+    color: '#6E6E6E',
+    fontVariant: ['tabular-nums'],
   },
+  statusRead: { color: colors.gold },
   image: {
     width: 220,
     height: 220,
@@ -141,17 +160,17 @@ const styles = StyleSheet.create({
     right: 20,
     padding: 8,
   },
-  body: { fontSize: 14, lineHeight: 19, color: colors.textPrimary, fontWeight: '500' },
-  bodyMine: { color: '#0a0a0a', fontWeight: '600' },
+  body: { fontSize: 15, lineHeight: 21, color: colors.textPrimary },
+  bodyMine: { color: colors.background, fontWeight: '500' },
   mentionOnMine: { color: '#0e7490' },
   systemWrap: { alignItems: 'center', marginVertical: spacing.sm, paddingHorizontal: spacing.lg },
   system: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: radii.pill,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(212,175,55,0.25)',
+    backgroundColor: '#0F0F0F',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.15)',
   },
   systemTxt: {
     fontSize: 11,

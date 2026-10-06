@@ -11,6 +11,7 @@ import {
 } from "@/lib/message-threads";
 import { isUserBlocked } from "@/lib/user-block";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
+import { loadParticipantBadges } from "@/lib/message-participant-badges";
 import { prisma } from "@/lib/prisma";
 
 /** Default/backward-compatible page size — short threads load in one page, unchanged. */
@@ -32,8 +33,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
     },
     include: {
       listing: { select: { id: true, title: true } },
-      buyer: { select: { id: true, username: true, image: true } },
-      seller: { select: { id: true, username: true, image: true } },
+      buyer: { select: { id: true, username: true, image: true, sellerLevel: true, emailVerified: true } },
+      seller: { select: { id: true, username: true, image: true, sellerLevel: true, emailVerified: true } },
       participants: { where: { userId: uid } },
     },
   });
@@ -111,6 +112,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
   );
 
   const other = thread.buyerId === uid ? thread.seller : thread.buyer;
+  const otherBadges = (await loadParticipantBadges(prisma, [other])).get(other.id);
   const ctxLabel = await resolveThreadContext(thread);
 
   const [offer, order] = await Promise.all([
@@ -146,6 +148,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
       otherUserId: other.id,
       otherUsername: other.username,
       otherAvatarUrl: other.image,
+      otherSellerLevelLabel: otherBadges?.sellerLevelLabel ?? null,
+      otherVerified: otherBadges?.verified ?? false,
       isSeller: thread.sellerId === uid,
       pinned: Boolean(participant?.pinnedAt),
       starred: participant?.starred ?? false,
