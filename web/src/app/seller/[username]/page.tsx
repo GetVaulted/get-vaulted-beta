@@ -5,14 +5,24 @@ import { MarketplaceBrowseCard } from "@/components/marketplace/MarketplaceBrows
 import { marketplaceBrowseGridClass } from "@/components/marketplace/MarketplaceSectionHeader";
 import { SellerProfileActions } from "@/components/seller/SellerProfileActions";
 import { SellerPullsSection } from "@/components/seller/SellerPullsSection";
+import {
+  SellerBadges,
+  SellerBanner,
+  SellerBio,
+  SellerLinks,
+  SellerRecentShows,
+  SellerShowCard,
+  SellerTrustCard,
+} from "@/components/seller/SellerProfileSections";
 import { SellerProfileStatsBar } from "@/components/seller/SellerProfileStatsBar";
 import { getServerSessionSafe } from "@/lib/auth";
 import { auctionBidCountsByListingIds } from "@/lib/listing-bid-counts";
 import { dbListingToMarketplace } from "@/lib/listing-mapper";
-import { NEW_SELLER_CREDIBILITY_LABEL } from "@/lib/marketplace-item-extras";
 import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-include";
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { prisma } from "@/lib/prisma";
+import { profileLinksFromStored } from "@/lib/seller-profile-fields";
+import { buildProfileTrust, loadProfileShows } from "@/lib/seller-profile-public";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { buildSellerPageMetadata, buildSellerProfileJsonLd } from "@/lib/site-seo";
 import { JsonLdScript } from "@/components/seo/JsonLdScript";
@@ -84,6 +94,9 @@ export default async function SellerShopPage({
       email: true,
       sellerLevel: true,
       createdAt: true,
+      profileBio: true,
+      profileBannerUrl: true,
+      profileLinks: true,
     },
   });
   if (!user) notFound();
@@ -96,22 +109,20 @@ export default async function SellerShopPage({
 
   const [
     activeListingsCount,
-    soldListingsCount,
-    auctionsLiveCount,
     salesOrderCount,
     followerCount,
     followingCount,
+    shows,
     rows,
     pullMedia,
   ] = await Promise.all([
     prisma.listing.count({
       where: { sellerId: user.id, status: { in: ["active", "auction_live"] }, moderationRemovedAt: null },
     }),
-    prisma.listing.count({ where: { sellerId: user.id, status: "sold" } }),
-    prisma.listing.count({ where: { sellerId: user.id, status: "auction_live" } }),
     prisma.order.count({ where: { sellerId: user.id, paymentStatus: "paid" } }),
     prisma.sellerFollow.count({ where: { sellerId: user.id } }),
     prisma.sellerFollow.count({ where: { followerId: user.id } }),
+    loadProfileShows(prisma, user.id),
     prisma.listing.findMany({
       where: sellerShopListingWhere(user.id, tab),
       include: listingInclude,
@@ -147,11 +158,13 @@ export default async function SellerShopPage({
     dbListingToMarketplace(r, r.buyingFormat === "auction" ? { bidCount: bidCounts.get(r.id) ?? 0 } : undefined),
   );
 
-  const credibility =
-    salesOrderCount > 0
-      ? `${salesOrderCount.toLocaleString("en-US")} orders on Get Vaulted`
-      : NEW_SELLER_CREDIBILITY_LABEL;
-  const verified = user.emailVerified != null;
+  const trust = buildProfileTrust({
+    sellerLevel: user.sellerLevel,
+    ordersCompleted: salesOrderCount,
+    createdAt: user.createdAt,
+    emailVerified: user.emailVerified,
+  });
+  const links = profileLinksFromStored(user.profileLinks);
 
   const emptyCopy = sellerShopEmptyCopy(tab);
 
@@ -183,39 +196,37 @@ export default async function SellerShopPage({
           ← Marketplace
         </Link>
 
-        <header className="mt-6 flex flex-col gap-6 border-b border-white/[0.08] pb-8 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
-            <div className="relative size-20 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-[#121218] sm:size-24">
+        <div className="mt-5">
+          <SellerBanner url={user.profileBannerUrl} />
+        </div>
+
+        <header className="relative -mt-10 flex flex-col gap-5 pb-6 sm:-mt-12 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex min-w-0 flex-col gap-4 px-1 sm:flex-row sm:items-end sm:gap-5 sm:px-3">
+            <div className="relative size-24 shrink-0 overflow-hidden rounded-3xl border-2 border-gold/50 bg-[#121218] shadow-[0_0_0_4px_#030303] sm:size-28">
               {user.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={user.image} alt="" className="h-full w-full object-cover" />
               ) : (
-                <span className="flex h-full w-full items-center justify-center font-display text-xl font-black text-gold-bright/90 sm:text-2xl">
+                <span className="flex h-full w-full items-center justify-center font-display text-2xl font-black text-gold-bright/90 sm:text-3xl">
                   {initials}
                 </span>
               )}
             </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Seller shop</p>
-              <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">
+            <div className="min-w-0 pb-1">
+              <h1 className="font-display text-2xl font-black tracking-tight text-foreground sm:text-3xl">
                 @{user.username}
               </h1>
-              <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm">
-                <span className="text-[11px] font-medium text-zinc-500">{credibility}</span>
-                {verified ? (
-                  <span className="inline-flex items-center rounded border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-200">
-                    Verified
-                  </span>
-                ) : null}
+              <div className="mt-2">
+                <SellerBadges trust={trust} />
               </div>
+              <SellerBio bio={user.profileBio} />
+              <SellerLinks links={links} />
               <SellerProfileStatsBar
                 stats={{
                   followerCount,
                   followingCount,
                   salesOrderCount,
-                  activeListingsCount,
-                  sellerLevel: user.sellerLevel,
-                  memberSince: user.createdAt,
+                  showsHosted: shows.totalShows,
                   isOwnShop,
                 }}
               />
@@ -233,57 +244,62 @@ export default async function SellerShopPage({
           />
         </header>
 
-        <section className="mt-8 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:gap-3" aria-label="Shop inventory">
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Active listings</p>
-            <p className="mt-1 font-mono text-xl font-black tabular-nums text-gold-bright">{activeListingsCount}</p>
-          </div>
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Sold</p>
-            <p className="mt-1 font-mono text-xl font-black tabular-nums text-zinc-100">{soldListingsCount}</p>
-          </div>
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Auctions live</p>
-            <p className="mt-1 font-mono text-xl font-black tabular-nums text-rose-100/95">{auctionsLiveCount}</p>
-          </div>
-        </section>
+        <div className="mt-2 grid gap-8 border-t border-white/[0.08] pt-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-10">
+          <div className="min-w-0 space-y-10">
+            <SellerPullsSection media={pullMediaWithEngagement} />
 
-        <SellerPullsSection media={pullMediaWithEngagement} />
+            <section aria-label="Shop">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h2 className="font-display text-xl font-black tracking-tight text-foreground">Shop</h2>
+                <span className="text-xs text-zinc-500">
+                  {activeListingsCount.toLocaleString("en-US")} listing{activeListingsCount === 1 ? "" : "s"}
+                </span>
+              </div>
 
-        <nav className="mt-8 flex flex-wrap gap-2 border-b border-white/[0.06] pb-3" aria-label="Listing filters">
-          {SELLER_SHOP_TABS.map((t) => {
-            const href = t.key === "all" ? basePath : `${basePath}?tab=${t.key}`;
-            const active = tab === t.key;
-            return (
-              <Link
-                key={t.key}
-                href={href}
-                scroll={false}
-                className={`inline-flex h-9 items-center rounded-full px-4 text-xs font-semibold transition ${
-                  active
-                    ? "border border-gold/40 bg-gold/15 text-gold-bright"
-                    : "border border-transparent text-zinc-500 hover:border-white/10 hover:bg-white/[0.03] hover:text-zinc-300"
-                }`}
-              >
-                {t.label}
-              </Link>
-            );
-          })}
-        </nav>
+              <nav className="mt-3 flex flex-wrap gap-2 border-b border-white/[0.06] pb-3" aria-label="Listing filters">
+                {SELLER_SHOP_TABS.map((t) => {
+                  const href = t.key === "all" ? basePath : `${basePath}?tab=${t.key}`;
+                  const active = tab === t.key;
+                  return (
+                    <Link
+                      key={t.key}
+                      href={href}
+                      scroll={false}
+                      className={`inline-flex h-9 items-center rounded-full px-4 text-xs font-semibold transition ${
+                        active
+                          ? "border border-gold/40 bg-gold/15 text-gold-bright"
+                          : "border border-transparent text-zinc-500 hover:border-white/10 hover:bg-white/[0.03] hover:text-zinc-300"
+                      }`}
+                    >
+                      {t.label}
+                    </Link>
+                  );
+                })}
+              </nav>
 
-        <section className="mt-6" aria-label="Seller listings">
-          {listings.length === 0 ? (
-            <div className="rounded-2xl border border-white/[0.08] bg-[#0a0a0d]/80 px-6 py-14 text-center">
-              <p className="text-sm font-medium text-zinc-400">{emptyCopy}</p>
-            </div>
-          ) : (
-            <div className={marketplaceBrowseGridClass}>
-              {listings.map((l) => (
-                <MarketplaceBrowseCard key={l.id} listing={l} vaultPick={Boolean(l.vaultPick)} compact />
-              ))}
-            </div>
-          )}
-        </section>
+              <div className="mt-5" aria-label="Seller listings">
+                {listings.length === 0 ? (
+                  <div className="rounded-2xl border border-white/[0.08] bg-[#0a0a0d]/80 px-6 py-14 text-center">
+                    <p className="text-sm font-medium text-zinc-400">{emptyCopy}</p>
+                  </div>
+                ) : (
+                  <div className={marketplaceBrowseGridClass}>
+                    {listings.map((l) => (
+                      <MarketplaceBrowseCard key={l.id} listing={l} vaultPick={Boolean(l.vaultPick)} compact />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <SellerRecentShows shows={shows.recent} totalShows={shows.totalShows} />
+          </div>
+
+          <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:self-start" aria-label="Seller details">
+            <SellerShowCard liveNow={shows.liveNow} nextShow={shows.nextShow} lastLive={shows.lastLive} />
+            <SellerTrustCard trust={trust} />
+          </aside>
+        </div>
       </div>
     </main>
   );

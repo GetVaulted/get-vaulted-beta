@@ -652,6 +652,12 @@ model User {
   accountDeletedAt              DateTime?
   /// When the member last confirmed their public username (signup or profile setup). Used for the 60-day change lock.
   usernameChosenAt              DateTime?
+  /// Public profile bio (max 280 chars, plain text). Shown on the seller profile on web + app.
+  profileBio                    String?
+  /// Public profile banner image URL (Supabase storage `avatars/{id}/banner.jpg`).
+  profileBannerUrl              String?
+  /// Public social links as canonical URLs: `{ instagram?, tiktok?, youtube?, x?, website? }`.
+  profileLinks                  Json?
   /// Referral attribution — set once at account creation from a `?ref=` signup link, never changed.
   referredById                  String?
   referredBy                    User?                       @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)

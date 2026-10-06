@@ -180,6 +180,9 @@ async function persistAvatarPublicUrl(args: {
 }
 
 export async function POST(req: Request) {
+  // `?kind=banner` stores the public profile banner; the URL is saved with PATCH /api/account/profile.
+  const kind: "avatar" | "banner" =
+    new URL(req.url).searchParams.get("kind") === "banner" ? "banner" : "avatar";
   if (!isSupabaseAvatarStorageConfigured()) {
     return NextResponse.json({ error: "Avatar storage is not configured." }, { status: 503 });
   }
@@ -272,23 +275,26 @@ export async function POST(req: Request) {
   }
 
   // Always store as JPEG path for stable public URL; content-type may still be png/webp.
-  const uploaded = await uploadAvatarToSupabase(authUserId, buf, mime);
+  const uploaded = await uploadAvatarToSupabase(authUserId, buf, mime, kind);
   if (!uploaded.ok) {
     return NextResponse.json({ error: uploaded.message }, { status: 502 });
   }
 
-  // Do not block the mobile spinner on secondary writes / auth metadata.
-  void withTimeout(
-    persistAvatarPublicUrl({
-      authUserId,
-      prismaUserId,
-      publicUrl: uploaded.publicUrl,
-    }),
-    PERSIST_MS,
-    "avatar persist",
-  ).catch((e) => {
-    console.warn("[uploads/avatar] persist skipped", e instanceof Error ? e.message : e);
-  });
+  // Banner URLs are saved by the profile PATCH, so skip the avatar side effects for them.
+  if (kind === "avatar") {
+    // Do not block the mobile spinner on secondary writes / auth metadata.
+    void withTimeout(
+      persistAvatarPublicUrl({
+        authUserId,
+        prismaUserId,
+        publicUrl: uploaded.publicUrl,
+      }),
+      PERSIST_MS,
+      "avatar persist",
+    ).catch((e) => {
+      console.warn("[uploads/avatar] persist skipped", e instanceof Error ? e.message : e);
+    });
+  }
 
   return NextResponse.json({ url: uploaded.publicUrl });
 }

@@ -33,6 +33,8 @@ export async function uploadAvatarToSupabase(
   supabaseAuthUserId: string,
   body: Buffer,
   contentType: string,
+  /** `avatar` (default) or `banner` — profile banner lives beside the avatar in the same folder. */
+  kind: "avatar" | "banner" = "avatar",
 ): Promise<UploadAvatarToSupabaseResult> {
   const supabase = getServiceRoleClient();
   if (!supabase) {
@@ -43,7 +45,7 @@ export async function uploadAvatarToSupabase(
     return { ok: false, message: "Missing account id for avatar upload." };
   }
 
-  const objectKey = `${authId}/avatar.jpg`;
+  const objectKey = kind === "banner" ? `${authId}/banner.jpg` : `${authId}/avatar.jpg`;
   // Keep well under typical mobile client timeouts — RN multipart aborts are unreliable.
   const UPLOAD_MS = 12_000;
   let timedOut = false;
