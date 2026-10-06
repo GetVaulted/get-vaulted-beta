@@ -4,6 +4,7 @@ import {
   formatMemberSince,
   profileLinkDisplay,
   profileShowCard,
+  reviewSummaryLabel,
   safeProfileLinkUrl,
   type ProfileShow,
   type ProfileShows,
@@ -87,5 +88,25 @@ describe('trust rows', () => {
       { label: 'Member since', value: 'Aug 2026' },
       { label: 'Email', value: 'Not verified' },
     ]);
+  });
+});
+
+describe('reviews in the trust card', () => {
+  it('labels the summary', () => {
+    expect(reviewSummaryLabel(null)).toBe('None yet');
+    expect(reviewSummaryLabel({ count: 0, average: null })).toBe('None yet');
+    expect(reviewSummaryLabel({ count: 1234, average: 4.8 })).toBe('4.8 ★ (1,234)');
+  });
+  it('adds the reviews row only when reviews are provided', () => {
+    const trust = {
+      sellerLevel: 'vault_seller',
+      sellerLevelLabel: 'Vault Seller',
+      sellerLevelDescription: 'x',
+      ordersCompleted: 2,
+      memberSince: '2026-08-15T12:00:00',
+      emailVerified: true,
+    };
+    expect(buildTrustRows(trust)).toHaveLength(4);
+    expect(buildTrustRows(trust, { count: 3, average: 5 }).at(-1)).toEqual({ label: 'Buyer reviews', value: '5.0 ★ (3)' });
   });
 });

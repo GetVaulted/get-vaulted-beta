@@ -3,6 +3,7 @@ import { mapWebMarketplaceListingToProduct } from './mapWebMarketplaceListing';
 import type { WebMarketplaceListing } from './webListingsTypes';
 import type { Product } from '../types';
 import type { ProfileLink, ProfileShows, ProfileTrust } from '../lib/sellerProfileView';
+import type { PublicSellerReview, SellerReviewSummary } from './sellerReviewsRepository';
 
 export type SellerShopTab = 'all' | 'buy_now' | 'auctions' | 'sold';
 
@@ -32,6 +33,7 @@ export type SellerShopResponse = {
   seller: SellerShopSeller;
   trust?: ProfileTrust;
   shows?: ProfileShows;
+  reviews?: { summary: SellerReviewSummary; recent: PublicSellerReview[] };
   stats: SellerShopStats;
   tab: SellerShopTab;
   emptyCopy: string;
@@ -46,6 +48,7 @@ export type SellerShopResult = {
   seller: SellerShopSeller;
   trust: ProfileTrust | null;
   shows: ProfileShows | null;
+  reviews: { summary: SellerReviewSummary; recent: PublicSellerReview[] } | null;
   stats: SellerShopStats;
   tab: SellerShopTab;
   emptyCopy: string;
@@ -87,6 +90,7 @@ export async function fetchSellerShop(opts: {
     seller: body.seller,
     trust: body.trust ?? null,
     shows: body.shows ?? null,
+    reviews: body.reviews ?? null,
     stats: body.stats,
     tab: body.tab,
     emptyCopy: body.emptyCopy,

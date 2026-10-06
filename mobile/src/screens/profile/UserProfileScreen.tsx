@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchLiveShowsByHostId } from '../../api/liveShowsDiscoveryRepository';
 import { fetchProfileById } from '../../api/profilesRepository';
+import { fetchSellerReviews, type PublicSellerReview } from '../../api/sellerReviewsRepository';
 import { fetchSellerShop } from '../../api/sellerShopRepository';
 import { fetchCompletedTradesForUser } from '../../api/tradeOffersRepository';
 import { fetchSellerFollowStatus, fetchAccountFollows, toggleSellerFollow } from '../../api/sellerFollowRepository';
@@ -28,7 +29,6 @@ import type { RootStackParamList } from '../../navigation/types';
 import { computeTrustProfile } from '../../platform/computeTrustProfile';
 import {
   isUserDeleted,
-  listReviewsForUser,
   reviewStatsForUser,
 } from '../../platform/platformStore';
 import type { TrustProfile } from '../../platform/trustTypes';
@@ -62,7 +62,7 @@ export function UserProfileScreen({ navigation, route }: Props) {
   const [followingUser, setFollowingUser] = useState(false);
   const [reviewCount, setReviewCount] = useState(0);
   const [avgRating, setAvgRating] = useState(0);
-  const [reviews, setReviews] = useState<Awaited<ReturnType<typeof listReviewsForUser>>>([]);
+  const [reviews, setReviews] = useState<PublicSellerReview[]>([]);
   const [liveNow, setLiveNow] = useState<LiveStream[]>([]);
   const [upcomingShows, setUpcomingShows] = useState<ScheduledStream[]>([]);
   const [pastShows, setPastShows] = useState<LiveStream[]>([]);
@@ -95,10 +95,10 @@ export function UserProfileScreen({ navigation, route }: Props) {
     }
     const p = await fetchProfileById(userId);
     setProfile(p);
-    const [followStatus, stats, revs, shows, trades] = await Promise.all([
+    const [followStatus, stats, serverReviews, shows, trades] = await Promise.all([
       fetchSellerFollowStatus(userId, session?.access_token),
       reviewStatsForUser(userId),
-      listReviewsForUser(userId),
+      fetchSellerReviews(userId),
       fetchLiveShowsByHostId(userId),
       fetchCompletedTradesForUser(userId),
     ]);
@@ -115,9 +115,10 @@ export function UserProfileScreen({ navigation, route }: Props) {
       setFollowers(followStatus?.followerCount ?? 0);
     }
     setFollowing(followingTotal);
-    setReviewCount(stats.count);
-    setAvgRating(stats.average);
-    setReviews(revs);
+    // Reviews of a seller are verified-buyer reviews saved on the server.
+    setReviewCount(serverReviews?.summary.count ?? 0);
+    setAvgRating(serverReviews?.summary.average ?? 0);
+    setReviews(serverReviews?.reviews ?? []);
     setLiveNow(shows.live);
     setUpcomingShows(shows.scheduled);
     setPastShows(shows.ended);
@@ -384,8 +385,9 @@ export function UserProfileScreen({ navigation, route }: Props) {
             reviews.map((r) => (
               <View key={r.id} style={styles.review}>
                 <Text style={styles.stars}>{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</Text>
+                <Text style={styles.tags}>@{r.buyer.username}</Text>
                 {r.tags?.length ? <Text style={styles.tags}>{r.tags.join(' · ')}</Text> : null}
-                <Text style={styles.reviewBody}>{r.body}</Text>
+                {r.body ? <Text style={styles.reviewBody}>{r.body}</Text> : null}
               </View>
             ))
           ) : (
