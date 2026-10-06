@@ -14,7 +14,7 @@ export default function CommunityGuidelinesPage() {
         ← Home
       </Link>
       <h1 className="font-display mt-6 text-2xl font-bold text-foreground">Community Guidelines</h1>
-      <p className="mt-2 text-xs text-zinc-500">Last updated: July 3, 2026</p>
+      <p className="mt-2 text-xs text-zinc-500">Last updated: October 6, 2026</p>
 
       <div className="mt-10 space-y-8 text-sm leading-relaxed text-zinc-300">
         <section>
