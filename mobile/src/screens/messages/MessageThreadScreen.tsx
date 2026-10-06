@@ -121,7 +121,7 @@ export function MessageThreadScreen({ navigation, route }: Props) {
       setDraft('');
       setPendingImageUri(null);
       setMessages((prev) => [...prev, msg]);
-      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+      requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }));
     } catch (e) {
       Alert.alert('Send failed', e instanceof Error ? e.message : 'Try again.');
     } finally {
@@ -210,6 +210,7 @@ export function MessageThreadScreen({ navigation, route }: Props) {
   const awaitingAcceptance = thread?.inbox === 'request' && !thread.isSeller;
   const viewState = deriveMessageThreadViewState({ loading, hasThread: !!thread, hasError: !!loadError });
   const rows = useMemo(() => buildThreadRows(messages, uid), [messages, uid]);
+  const invertedRows = useMemo(() => [...rows].reverse(), [rows]);
   const isRequestRecipient = thread?.inbox === 'request' && !!thread.isSeller;
 
   if (viewState === 'loading') {
@@ -284,10 +285,13 @@ export function MessageThreadScreen({ navigation, route }: Props) {
 
       <FlatList<ThreadListRow>
         ref={listRef}
-        data={rows}
+        // Inverted so the newest message is always anchored at the bottom, fully in view, however
+        // tall the rows turn out to be (photos, long messages). Rows are passed newest-first.
+        inverted
+        data={invertedRows}
         keyExtractor={(r) => r.key}
         contentContainerStyle={styles.messages}
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+        keyboardShouldPersistTaps="handled"
         renderItem={({ item }) =>
           item.type === 'day' ? (
             <Text style={styles.dayLabel}>{item.label}</Text>
@@ -303,7 +307,8 @@ export function MessageThreadScreen({ navigation, route }: Props) {
             />
           )
         }
-        ListFooterComponent={
+        // In an inverted list the header renders at the bottom, below the newest message.
+        ListHeaderComponent={
           isRequestRecipient ? (
             <View style={styles.requestCard}>
               <View style={styles.requestCopy}>
@@ -427,7 +432,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     color: '#6E6E6E',
   },
-  messages: { paddingTop: spacing.sm, paddingBottom: spacing.md, flexGrow: 1, justifyContent: 'flex-end' },
+  messages: { paddingVertical: spacing.md },
   requestCard: {
     marginHorizontal: spacing.md,
     marginTop: spacing.md,
