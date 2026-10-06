@@ -24,15 +24,12 @@ import {
   type LiveRoomItemRow,
 } from '../api/liveRoomControlRepository';
 import { openStripeCheckoutSession } from '../lib/openStripeCheckoutSession';
-import {
-  startSweet16Draft as startSweet16DraftApi,
-  Sweet16ApiError,
-} from '../api/liveSweet16DraftRepository';
 import { createListingViaWeb } from '../api/webListingsRepository';
 import type { QuickLiveLotSubmitPayload, QuickLiveLotSubmitOptions } from '../components/seller/liveConsole/AddInventoryModal';
 import type { QuickLiveLotValues } from '../lib/liveAuctionPricing';
 import type { LiveBreakVariantDraft } from '../lib/liveBreakPresets';
 import { isVariantSalesFormat } from '../lib/liveItemVariant';
+import { isSweet16DraftMode, sweet16SalesProgress } from '../lib/liveSweet16Sales';
 import { logSellerQueue } from '../lib/logSellerQueue';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
@@ -102,7 +99,6 @@ export function useSellerLiveConsole({
   const [lastSupplemental, setLastSupplemental] = useState<{ itemId: string; name: string; priceUsd: number } | null>(null);
   const [divisionalSupplyFormOpen, setDivisionalSupplyFormOpen] = useState(false);
   const [sweet16DraftSheetOpen, setSweet16DraftSheetOpen] = useState(false);
-  const [sweet16Starting, setSweet16Starting] = useState(false);
   const [pinningVariantId, setPinningVariantId] = useState<string | null>(null);
   const [markSoldBusy, setMarkSoldBusy] = useState(false);
   const [consoleError, setConsoleError] = useState<SanitizedLiveError | null>(null);
@@ -856,42 +852,24 @@ export function useSellerLiveConsole({
   };
 
   /**
-   * Sweet 16 Break: host control for the live turn-based draft. Eligible once the board's 16
-   * blind slots have all sold (`variantBreakReadyAt` set) on a `draft`-mode item. Starting the
-   * draft is idempotent from the host's perspective -- if it was already started (a re-open after
-   * navigating away, or a race with the timeout cron), the server's `ALREADY_STARTED` error is
-   * swallowed and the same spectator sheet just opens to resume watching, instead of surfacing a
-   * scary error for a completely benign case. Any other failure (e.g. not all slots sold yet)
-   * still alerts and leaves the sheet closed.
+   * Sweet 16 Break: host control for the live draft. Eligible once sales have closed (16 of the
+   * 32 teams sold -> `variantBreakReadyAt` set) on a `draft`-mode item. The draft sheet itself
+   * runs the two host steps (Randomize order, then Start draft) -- this hook only gates and opens
+   * it, so re-opening after navigating away simply resumes wherever the draft is.
    */
   const sweet16Eligible = (item: LiveRoomItemRow | null | undefined): boolean =>
-    Boolean(item && item.variantAssignmentMode === 'draft' && item.variantBreakReadyAt);
+    Boolean(
+      item &&
+        isSweet16DraftMode(item.variantAssignmentMode) &&
+        sweet16SalesProgress({ variants: item.variants, breakReadyAt: item.variantBreakReadyAt }).closed,
+    );
 
   const openSweet16DraftSheet = () => {
-    if (!activeItem) return;
+    if (!activeItem || !sweet16Eligible(activeItem)) return;
     setSweet16DraftSheetOpen(true);
   };
 
   const closeSweet16DraftSheet = () => setSweet16DraftSheetOpen(false);
-
-  const startSweet16Draft = () => {
-    if (!activeItem || !sweet16Eligible(activeItem) || sweet16Starting) return;
-    const itemId = activeItem.id;
-    setSweet16Starting(true);
-    void startSweet16DraftApi(accessToken, roomId, itemId)
-      .then(() => {
-        setSweet16DraftSheetOpen(true);
-        void reload({ force: true });
-      })
-      .catch((e) => {
-        if (e instanceof Sweet16ApiError && e.code === 'ALREADY_STARTED') {
-          setSweet16DraftSheetOpen(true);
-          return;
-        }
-        Alert.alert('Sweet 16 Draft', e instanceof Error ? e.message : 'Could not start the draft.');
-      })
-      .finally(() => setSweet16Starting(false));
-  };
 
   const onReorder = (ordered: LiveRoomItemRow[]) => {
     void run(async () => {
@@ -1032,10 +1010,8 @@ export function useSellerLiveConsole({
     addDivisionalSupply,
     sweet16DraftSheetOpen,
     sweet16Eligible,
-    sweet16Starting,
     openSweet16DraftSheet,
     closeSweet16DraftSheet,
-    startSweet16Draft,
     onSaveQueuePricing,
     onSaveBreakSpots,
     onPinLiveTeam,

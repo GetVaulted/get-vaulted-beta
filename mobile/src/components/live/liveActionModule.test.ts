@@ -592,3 +592,42 @@ describe('formatBidMoney', () => {
     expect(formatBidMoney(1)).toBe('$1.00');
   });
 });
+
+describe('resolveLiveBuyerCommerceHud Sweet 16', () => {
+  const variants = (soldCount: number) =>
+    Array.from({ length: 32 }, (_, i) => ({
+      id: `v${i}`,
+      label: `Team ${i}`,
+      priceUsd: 20,
+      quantityRemaining: i < soldCount ? 0 : 1,
+      soldCount: i < soldCount ? 1 : 0,
+      isHot: false,
+      sortOrder: i,
+      status: i < soldCount ? 'sold_out' : 'available',
+      buyerUsername: null,
+    }));
+  const snap = (soldCount: number) =>
+    ({
+      roomType: 'break',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemSalesFormat: 'variant_selection',
+      activeItemVariantAssignmentMode: 'draft',
+      activeItemVariants: variants(soldCount),
+      lotBidPhase: 'idle',
+      biddingOpen: false,
+    }) as unknown as LiveRoomBuyerSnapshot;
+
+  it('reports N of 16 sold while sales are open', () => {
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap(4));
+    expect(hud.stateLine).toContain('4 of 16 sold');
+    expect(hud.buyerPrimaryDisabled).toBe(false);
+  });
+
+  it('shows a clear closed state at 16 sold (unsold tiles are not buyable)', () => {
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap(16));
+    expect(hud.currentAmount).toBe('Sales closed');
+    expect(hud.stateLine).toContain('Sales closed — 16 teams sold');
+    expect(hud.bottomRightLabel).toBe('Draft board');
+  });
+});

@@ -7,7 +7,7 @@ import {
   buildPytVariants,
   buildRandomDivisionVariants,
   buildRandomTeamVariants,
-  buildSweet16SlotVariants,
+  buildSweet16TeamVariants,
   DEFAULT_LIVE_BOARD_PACK,
   type LiveBoardPackId,
   type LiveBreakVariantDraft,
@@ -28,7 +28,7 @@ export type LiveLotSaleType =
   | 'random_pyd'
   | 'pyp'
   | 'random_pyp'
-  /** Sweet 16 Break: 16 blind slots sold now, teams decided later via a live turn-based draft. */
+  /** Sweet 16 Break: all 32 NFL teams on the board, sales stop at 16 sold, then a live draft hands out the other 16. */
   | 'sweet16';
 
 export type LiveLotApiSalesFormat =
@@ -103,7 +103,7 @@ export function breakSpotCountForSaleType(
     return includeNcaaSpot && boardPack === 'nfl' && saleType === 'pyt' ? n + 1 : n;
   }
   if (saleType === 'pyd' || saleType === 'random_pyd') return 8;
-  if (saleType === 'sweet16') return 16;
+  if (saleType === 'sweet16') return 32;
   return 0;
 }
 
@@ -381,7 +381,7 @@ export function validateQuickLiveLot(
   if (input.saleType === 'sweet16') {
     const spotPrice = parseUsdInput(input.price);
     if (spotPrice == null) {
-      return { ok: false, message: 'Enter a price per slot.' };
+      return { ok: false, message: 'Enter a price per team.' };
     }
     return {
       ok: true,
@@ -394,7 +394,8 @@ export function validateQuickLiveLot(
         priceUsd: spotPrice,
         salesFormat: 'variant_selection',
         variantAssignmentMode: 'draft',
-        variants: buildSweet16SlotVariants(spotPrice),
+        variants: buildSweet16TeamVariants(spotPrice),
+        boardPack: 'nfl',
       },
     };
   }

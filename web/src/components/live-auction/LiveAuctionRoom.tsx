@@ -69,6 +69,7 @@ import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import { toUserFacingErrorMessage } from "@/lib/user-facing-error-message";
 import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
+import { sweet16SalesStatus } from "@/lib/sweet16-draft-client";
 import {
   isVariantSpotAuctionArmed,
   isVariantSpotAuctionLive,
@@ -401,8 +402,10 @@ export function LiveAuctionRoom({
   const shopVariantSpots = activeHasVariants && activeDbItem
     ? summarizeVariantSpots(shopAvailableVariants(activeDbItem))
     : null;
+  // Sweet 16: sales stop once 16 of the 32 teams are sold, even though unsold tiles remain.
+  const sweet16Sales = sweet16SalesStatus(activeDbItem);
   const shoppableSpotCount =
-    activeHasVariants && activeDbItem ? shopAvailableSpotCount(activeDbItem) : 0;
+    activeHasVariants && activeDbItem && !sweet16Sales?.closed ? shopAvailableSpotCount(activeDbItem) : 0;
   const variantPickLabel = activeDbItem
     ? isVariantSpotAuctionLive(activeDbItem)
       ? pinnedVariantAuctionPrimaryLabel(
@@ -415,7 +418,9 @@ export function LiveAuctionRoom({
           ? variantBuyerSelectLabel(activeDbItem.salesFormat, true)
           : shoppableSpotCount > 0
             ? variantClaimPrimaryLabel(activeDbItem.salesFormat)
-            : "Sold out"
+            : sweet16Sales?.closed
+              ? "Sales closed"
+              : "Sold out"
     : "Select spot";
   const variantShopLabel = activeDbItem ? variantClaimPrimaryLabel(activeDbItem.salesFormat) : "Claim spot";
   const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(5);
@@ -657,7 +662,8 @@ export function LiveAuctionRoom({
         : queueStatusLabelRaw;
   const queueStatusText = activeHasVariants
     ? pytCommerceLive
-      ? `${activeVariantSpots?.available ?? 0} spot${activeVariantSpots?.available === 1 ? "" : "s"} open`
+      ? (sweet16Sales?.label ??
+        `${activeVariantSpots?.available ?? 0} spot${activeVariantSpots?.available === 1 ? "" : "s"} open`)
       : !isLive
         ? "Waiting for host to go live"
         : "Up next"
@@ -1196,7 +1202,8 @@ export function LiveAuctionRoom({
               <>
                 <span className="text-zinc-400">•</span>
                 <p className="font-medium text-zinc-200">
-                  {activeVariantSpots?.available ?? 0} spot{(activeVariantSpots?.available ?? 0) === 1 ? "" : "s"} open
+                  {sweet16Sales?.label ??
+                    `${activeVariantSpots?.available ?? 0} spot${(activeVariantSpots?.available ?? 0) === 1 ? "" : "s"} open`}
                 </p>
               </>
             ) : (
@@ -1475,7 +1482,8 @@ export function LiveAuctionRoom({
           ) : (
             <>
               <p className="mt-0.5 line-clamp-1 text-[10px] text-emerald-300/90">
-                {activeVariantSpots?.available ?? 0} spot{(activeVariantSpots?.available ?? 0) === 1 ? "" : "s"} open
+                {sweet16Sales?.label ??
+                  `${activeVariantSpots?.available ?? 0} spot${(activeVariantSpots?.available ?? 0) === 1 ? "" : "s"} open`}
               </p>
               {pytCheckoutHudMetaLine ? (
                 <p className="mt-0.5 line-clamp-2 text-[9px] font-medium text-zinc-400">{pytCheckoutHudMetaLine}</p>

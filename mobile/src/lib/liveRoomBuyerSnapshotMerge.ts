@@ -322,6 +322,7 @@ export function mergeBuyerSnapshotForActiveItemChanged(
       activeItemListingId: null,
       activeItemVariantAssignmentMode: null,
       activeItemVariants: undefined,
+      activeItemVariantBreakReadyAt: null,
       currentBidUsd: null,
       minNextBidUsd: liveAuctionMinBidUsd({
         currentBidUsd: null,

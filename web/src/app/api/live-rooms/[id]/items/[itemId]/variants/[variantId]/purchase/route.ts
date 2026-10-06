@@ -1,3 +1,4 @@
+import { assertSweet16CapacityInTx } from "@/lib/live-sweet16-draft";
 import { NextResponse } from "next/server";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
 import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
@@ -290,6 +291,13 @@ export async function POST(
         }
       }
 
+      // Sweet 16: 32 teams on the board but only 16 may be sold — serialized per item.
+      await assertSweet16CapacityInTx(tx, {
+        itemId: item.id,
+        variantAssignmentMode: item.variantAssignmentMode,
+        additional: quantity,
+      });
+
       const updated = await tx.liveItemVariant.updateMany({
         where: { id: variantId, quantityRemaining: { gte: quantity } },
         data: {
@@ -432,6 +440,12 @@ export async function POST(
       );
     }
     if (code === "SOLD_OUT") return NextResponse.json({ error: "That option is sold out." }, { status: 409 });
+    if (code === "SWEET16_SOLD_OUT") {
+      return NextResponse.json(
+        { error: "All 16 teams are sold — sales are closed.", code: "SOLD_OUT" },
+        { status: 409 },
+      );
+    }
     if (code === "RANDOM_REVEAL_QUANTITY_LIMIT") {
       return NextResponse.json(
         { error: "Random reveal spots can only be purchased one at a time.", code },

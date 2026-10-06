@@ -58,6 +58,8 @@ export type LiveRoomBuyerSnapshot = {
   activeItemListingId?: string | null;
   activeItemVariantAssignmentMode?: 'pick' | 'random' | 'draft' | null;
   activeItemVariants?: LiveItemVariantSnapshot[];
+  /** ISO — sales closed (Sweet 16: 16 teams sold). Unsold tiles must not be buyable once set. */
+  activeItemVariantBreakReadyAt?: string | null;
   /** PYT/PYD pinned spot mode (`fixed` = hold to buy, `auction` = timed bids). */
   activeSpotCommerceMode?: 'fixed' | 'auction' | null;
   auctionVariantId?: string | null;
@@ -275,6 +277,8 @@ function parseRoomLineupItems(raw: unknown): Parameters<typeof projectBuyerQueue
       listingId: typeof o.listingId === 'string' ? o.listingId : null,
       variants: parseVariantSnapshots(o.variants),
       variantAssignmentMode: parseVariantAssignmentMode(o.variantAssignmentMode),
+      variantBreakReadyAt:
+        typeof o.variantBreakReadyAt === 'string' && o.variantBreakReadyAt.trim() ? o.variantBreakReadyAt : null,
       createdAt: typeof o.createdAt === 'string' ? o.createdAt : undefined,
     });
   }
@@ -317,6 +321,7 @@ export async function fetchLiveRoomBuyerSnapshot(
         itemVersion?: number;
         auctionEndsAt?: string | null;
         variantAssignmentMode?: 'pick' | 'random' | 'draft';
+        variantBreakReadyAt?: string | null;
         variants?: unknown;
         activeSpotCommerceMode?: 'fixed' | 'auction' | null;
         auctionVariantId?: string | null;
@@ -405,6 +410,10 @@ export async function fetchLiveRoomBuyerSnapshot(
     activeItemVariantAssignmentMode:
       active ? parseVariantAssignmentMode(active.variantAssignmentMode) : null,
     activeItemVariants: activeVariants.length > 0 ? activeVariants : undefined,
+    activeItemVariantBreakReadyAt:
+      typeof active?.variantBreakReadyAt === 'string' && active.variantBreakReadyAt.trim()
+        ? active.variantBreakReadyAt
+        : null,
     activeSpotCommerceMode:
       active?.activeSpotCommerceMode === 'auction' || active?.activeSpotCommerceMode === 'fixed'
         ? active.activeSpotCommerceMode

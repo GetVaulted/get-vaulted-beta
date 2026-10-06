@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { assertSweet16CapacityInTx } from "@/lib/live-sweet16-draft";
 import { NextResponse } from "next/server";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
 import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
@@ -325,6 +326,13 @@ export async function POST(
         throw Object.assign(new Error("NOT_FOUND"), { code: "NOT_FOUND" });
       }
 
+      // Sweet 16: 32 teams on the board but only 16 may be sold — serialized per item.
+      await assertSweet16CapacityInTx(tx, {
+        itemId: item.id,
+        variantAssignmentMode: item.variantAssignmentMode,
+        additional: variantIds.length,
+      });
+
       const purchaseIds: string[] = [];
       let itemSumUsd = 0;
       const labels: string[] = [];
@@ -516,6 +524,12 @@ export async function POST(
     }
     if (code === "SOLD_OUT") {
       return NextResponse.json({ error: "One or more selected spots just sold out." }, { status: 409 });
+    }
+    if (code === "SWEET16_SOLD_OUT") {
+      return NextResponse.json(
+        { error: "Not enough teams left — Sweet 16 sales stop at 16 sold.", code: "SOLD_OUT" },
+        { status: 409 },
+      );
     }
     if (code === "RANDOM_REVEAL_BATCH_UNSUPPORTED") {
       return NextResponse.json(

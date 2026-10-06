@@ -1,6 +1,7 @@
 import { resolveLiveAuctionLotBidPhase } from './liveAuctionLotPhase';
 import { resolvePinnedLotOverlayPrice } from './liveAuctionOverlayPrice';
 import { isVariantPurchaseItem, summarizeVariantSpots } from './liveItemVariant';
+import { isSweet16DraftMode, sweet16SalesProgress } from './liveSweet16Sales';
 import type { LiveItemSalesFormat, LiveItemVariantSnapshot } from '../api/liveRoomBuyerRepository';
 
 export type LiveRoomLineupItemSnapshot = {
@@ -43,6 +44,8 @@ type LineupItemInput = {
   salesFormat?: string;
   variants?: LiveItemVariantSnapshot[];
   variantAssignmentMode?: 'pick' | 'random' | 'draft';
+  /** ISO — Sweet 16 sales closed (16 teams sold). */
+  variantBreakReadyAt?: string | null;
   listingId?: string | null;
   createdAt?: string;
 };
@@ -126,8 +129,13 @@ export function buildBuyerQueueLineupRow(
       variants: item.variants,
       status: item.status,
     });
-    const spotCopy =
-      spotStats.available > 0
+    // Sweet 16 lists 32 teams but sells 16: report "N of 16 sold" / "Sales closed", not teams open.
+    const sweet16 = isSweet16DraftMode(item.variantAssignmentMode)
+      ? sweet16SalesProgress({ variants: item.variants, breakReadyAt: item.variantBreakReadyAt })
+      : null;
+    const spotCopy = sweet16
+      ? sweet16.statusLabel
+      : spotStats.available > 0
         ? `${spotStats.available} spot${spotStats.available === 1 ? '' : 's'} open`
         : 'Sold out';
     const statusCopy = isPinned ? 'On screen' : 'Open now';

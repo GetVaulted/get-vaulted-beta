@@ -1,5 +1,10 @@
 import { syncPickBreakSpotDrafts, validateAuctionPricing, validateQuickLiveLot } from './liveAuctionPricing';
-import { buildPytVariants } from './liveBreakPresets';
+import {
+  SWEET16_MAX_SPOTS,
+  buildPytVariants,
+  buildSweet16TeamVariants,
+  isLegacySweet16SlotLabel,
+} from './liveBreakPresets';
 
 describe('validateAuctionPricing', () => {
   it('accepts quantity and starting bid', () => {
@@ -259,5 +264,46 @@ describe('validateQuickLiveLot PYP', () => {
       expect(r.values.customRandomPoolLabels).toEqual(['A', 'B', 'C', 'D']);
       expect(r.values.variants?.[0]?.quantityInitial).toBe(4);
     }
+  });
+});
+
+describe('validateQuickLiveLot Sweet 16', () => {
+  const base = {
+    title: 'Sweet 16',
+    saleType: 'sweet16' as const,
+    quantity: '1',
+    reservePrice: '',
+    buyNowPrice: '',
+  };
+
+  it('builds all 32 NFL team variants at the flat price in draft mode', () => {
+    const r = validateQuickLiveLot({ ...base, price: '20' });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.values.salesFormat).toBe('variant_selection');
+      expect(r.values.variantAssignmentMode).toBe('draft');
+      expect(r.values.variants).toHaveLength(32);
+      expect(r.values.variants?.every((v) => v.priceUsd === 20 && v.quantityInitial === 1)).toBe(true);
+      expect(r.values.variants?.some((v) => isLegacySweet16SlotLabel(v.label))).toBe(false);
+      expect(r.values.variants?.[0]?.color).toMatch(/^[A-Z]{2,3}$/);
+    }
+  });
+
+  it('keeps the 16-sale cap separate from the 32 variants', () => {
+    expect(SWEET16_MAX_SPOTS).toBe(16);
+    expect(buildSweet16TeamVariants(5)).toHaveLength(32);
+    expect(buildSweet16TeamVariants(5)).toEqual(buildPytVariants(5, 'nfl'));
+  });
+
+  it('requires a price per team', () => {
+    const r = validateQuickLiveLot({ ...base, price: '' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toBe('Enter a price per team.');
+  });
+
+  it('recognizes legacy Slot N labels only', () => {
+    expect(isLegacySweet16SlotLabel('Slot 7')).toBe(true);
+    expect(isLegacySweet16SlotLabel(' slot 12 ')).toBe(true);
+    expect(isLegacySweet16SlotLabel('Kansas City Chiefs')).toBe(false);
   });
 });

@@ -147,17 +147,20 @@ export function buildDivisionalSupplyVariants(priceUsd: number): LiveBreakVarian
   }));
 }
 
-/** Sweet 16 Break: 16 blind numbered slots — no team attached until the live draft assigns one. */
-export const SWEET16_SLOT_COUNT = 16;
+/**
+ * Sweet 16 Break: the board shows all 32 NFL teams (flat price each, one buyer per team). Sales stop
+ * automatically once SWEET16_MAX_SPOTS teams are sold; a live draft then hands the 16 unsold teams
+ * out to the buyers so each ends with 2.
+ */
+export const SWEET16_MAX_SPOTS = 16;
 
-export function buildSweet16SlotVariants(priceUsd: number): LiveBreakVariantDraft[] {
-  return Array.from({ length: SWEET16_SLOT_COUNT }, (_, i) => ({
-    label: `Slot ${i + 1}`,
-    priceUsd,
-    quantityInitial: 1,
-    sortOrder: i,
-    color: '',
-  }));
+/** Legacy Sweet 16 items sold 16 blind "Slot N" rows instead of teams. */
+export function isLegacySweet16SlotLabel(label: string): boolean {
+  return /^slot \d+$/i.test(label.trim());
+}
+
+export function buildSweet16TeamVariants(priceUsd: number): LiveBreakVariantDraft[] {
+  return buildPytVariants(priceUsd, 'nfl');
 }
 
 export function buildRandomTeamVariants(

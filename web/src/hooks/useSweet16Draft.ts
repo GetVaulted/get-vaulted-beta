@@ -4,12 +4,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { SWEET16_POLL_MS, fetchSweet16Draft, type Sweet16Draft } from "@/lib/sweet16-draft-client";
 
 /**
- * Polls the Sweet 16 draft for one lot while `enabled`. The server resolves any expired turn on
- * every read, so a poll is also what keeps a stalled draft moving. Stops polling once the draft
- * is complete (the final snapshot stays in `draft`).
+ * Keeps the Sweet 16 draft for one lot fresh while `enabled`. Realtime events bump `refreshKey`
+ * for an immediate refetch; the poll stays on as the fallback (and because the server resolves any
+ * expired turn on every read, a poll is also what keeps a stalled draft moving). Stops once the
+ * draft is complete (the final snapshot stays in `draft`).
  */
-export function useSweet16Draft(args: { liveRoomId: string; itemId: string | null; enabled: boolean }) {
-  const { liveRoomId, itemId, enabled } = args;
+export function useSweet16Draft(args: {
+  liveRoomId: string;
+  itemId: string | null;
+  enabled: boolean;
+  /** Change this (e.g. on a realtime draft event) to refetch right away. */
+  refreshKey?: number;
+}) {
+  const { liveRoomId, itemId, enabled, refreshKey = 0 } = args;
   const [draft, setDraft] = useState<Sweet16Draft | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +57,7 @@ export function useSweet16Draft(args: { liveRoomId: string; itemId: string | nul
       cancelled = true;
       clearInterval(poll);
     };
-  }, [enabled, itemId, complete, refresh]);
+  }, [enabled, itemId, complete, refresh, refreshKey]);
 
   return { draft, setDraft, loading, error, refresh };
 }
