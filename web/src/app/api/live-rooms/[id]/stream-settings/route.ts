@@ -56,6 +56,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     where: { id: liveRoomId },
     data: {
       streamPaused,
+      // Stamp when the pause began (kept if already paused); cleared on resume. Drives the
+      // "paused too long → end the show" safety net (live-paused-auto-end).
+      ...(streamPaused ? (room.streamPaused ? {} : { streamPausedAt: new Date() }) : { streamPausedAt: null }),
       ...(resumeHealth ? { streamHealth: resumeHealth, streamEndedAt: null, hostAbsentSince: null } : {}),
       roomVersion: { increment: 1 },
     },

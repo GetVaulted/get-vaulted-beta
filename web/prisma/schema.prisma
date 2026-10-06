@@ -1310,6 +1310,8 @@ model LiveRoom {
   breakPaused              Boolean         @default(false)
   /// Host paused the live video feed (room stays live; buyers see a hold screen).
   streamPaused             Boolean         @default(false)
+  /// When the host paused the video feed. Cleared on resume. Used to auto-end shows paused too long.
+  streamPausedAt           DateTime?
   /// PYT team board organization (break rooms). Set at room creation.
   teamBoardLeague          TeamBoardLeague @default(nba)
 
