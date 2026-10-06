@@ -4,6 +4,7 @@ import { syncStripeConnectFromEmailSibling } from "@/lib/link-stripe-account-fro
 import { refreshSellerStripeFromStripeApi } from "@/lib/refresh-seller-stripe-from-api";
 import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
 import { prisma } from "@/lib/prisma";
+import { CURRENT_SELLER_TERMS_VERSION } from "@/lib/seller-live-terms";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
 import { isPayoutSetupSubmitted, isRequiredSellerSetupComplete } from "@/lib/seller-setup-state";
 import { isStripeConfigured } from "@/lib/stripe";
@@ -102,6 +103,10 @@ export async function POST(req: Request) {
     data: {
       sellerSetupWizardCompletedAt: existing?.sellerSetupWizardCompletedAt ?? now,
       sellerAgreementAcceptedAt: existing?.sellerAgreementAcceptedAt ?? now,
+      // New sellers accept the current terms (including live-content responsibility, §7.1) here.
+      ...(sellerAgreementAccepted && firstCompletion
+        ? { sellerTermsVersion: CURRENT_SELLER_TERMS_VERSION, sellerTermsAcceptedAt: now }
+        : {}),
     },
     select: { sellerSetupWizardCompletedAt: true, sellerAgreementAcceptedAt: true },
   });

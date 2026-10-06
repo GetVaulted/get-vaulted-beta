@@ -4,6 +4,7 @@ import { requireLiveRoomHostAccess } from "@/lib/resolve-live-host-access";
 import { formatIvsObsIngestUrl } from "@/lib/ivs-obs-ingest-url";
 import { isIvsWhipIngestEndpoint } from "@/lib/ivs-whip-ingest";
 import { isObsDesktopBroadcastMode } from "@/lib/live-obs-channel-mode";
+import { sellerLiveTermsRequired, sellerTermsRequiredResponse } from "@/lib/seller-live-terms";
 
 /** Configured IVS channel latency mode ("LOW" = low-latency HLS), without pulling in the AWS SDK service. */
 function configuredLatencyMode(): "LOW" | "NORMAL" {
@@ -113,4 +114,20 @@ export function errorResponse(error: unknown) {
   const message = error instanceof Error ? error.message : "Unable to process stream request.";
   const status = message.includes("not configured") ? 503 : 500;
   return NextResponse.json({ error: message }, { status });
+}
+
+/**
+ * Before a seller STARTS a show, require acceptance of the current seller live-content terms
+ * (Terms §7.1). Returns a 403 response to send, or null to continue. A room that is already live is
+ * never blocked, so reconnects and token refreshes cannot cut off a running show, and admins are exempt.
+ */
+export async function requireSellerTermsToStart(
+  liveRoomId: string,
+  auth: { userId: string; access: { isAdmin: boolean } },
+): Promise<NextResponse | null> {
+  if (auth.access.isAdmin) return null;
+  const row = await getStreamRow(liveRoomId);
+  if (row?.streamStartedAt && !row.streamEndedAt) return null;
+  if (await sellerLiveTermsRequired(auth.userId)) return sellerTermsRequiredResponse();
+  return null;
 }

@@ -8,7 +8,13 @@ import {
   prepareHostStageSession,
   refreshHostStageToken,
 } from "@/services/ivs";
-import { errorResponse, getStreamRow, requireHostAccess, toHostStreamPayload } from "../_shared";
+import {
+  errorResponse,
+  getStreamRow,
+  requireHostAccess,
+  requireSellerTermsToStart,
+  toHostStreamPayload,
+} from "../_shared";
 
 /** Server kill-switch: when "false", WebRTC Stages are disabled and clients fall back to HLS. */
 function stageEnabled(): boolean {
@@ -29,6 +35,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const auth = await requireHostAccess(id, req);
   if (!auth.ok) return auth.response;
+  const termsBlock = await requireSellerTermsToStart(id, auth);
+  if (termsBlock) return termsBlock;
 
   try {
     const token = await prepareHostStageSession(id, auth.userId);

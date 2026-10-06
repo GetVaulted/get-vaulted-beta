@@ -645,6 +645,9 @@ model User {
   sellerSetupWizardCompletedAt  DateTime?
   /// Seller accepted marketplace seller agreement (Terms §5).
   sellerAgreementAcceptedAt     DateTime?
+  /// Version of the seller live-content terms (Terms §7.1) the seller last accepted; compared to CURRENT_SELLER_TERMS_VERSION.
+  sellerTermsVersion            String?
+  sellerTermsAcceptedAt         DateTime?
   /// Soft-delete — account anonymized; financial records retained.
   accountDeletedAt              DateTime?
   /// When the member last confirmed their public username (signup or profile setup). Used for the 60-day change lock.

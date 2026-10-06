@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
 import { prepareHostWebBroadcastSession } from "@/services/ivs";
-import { errorResponse, getStreamRow, requireHostAccess, toHostStreamPayload } from "../_shared";
+import {
+  errorResponse,
+  getStreamRow,
+  requireHostAccess,
+  requireSellerTermsToStart,
+  toHostStreamPayload,
+} from "../_shared";
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
@@ -9,6 +15,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const auth = await requireHostAccess(id, req);
   if (!auth.ok) return auth.response;
+  const termsBlock = await requireSellerTermsToStart(id, auth);
+  if (termsBlock) return termsBlock;
 
   try {
     const session = await prepareHostWebBroadcastSession(id);
