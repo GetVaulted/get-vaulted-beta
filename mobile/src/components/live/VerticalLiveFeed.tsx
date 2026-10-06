@@ -172,6 +172,8 @@ type WalletGateHostSnapshot = {
 type WalletGateHostActions = {
   openSheet: () => void;
   closeSheet: () => void;
+  /** Dismiss the "wallet required" popup without leaving the room. */
+  closePrompt: () => void;
   leaveRoom: () => void;
   onReadinessChange: (next: BuyerWalletReadiness) => void;
 };
@@ -318,6 +320,8 @@ function LiveSlide({
   const [breakDisclaimerReady, setBreakDisclaimerReady] = useState(false);
   const [walletReadiness, setWalletReadiness] = useState<BuyerWalletReadiness | null>(null);
   const [walletGateSheetOpen, setWalletGateSheetOpen] = useState(false);
+  /** Closable "wallet required" popup — only shown when the buyer tries to bid/buy, never on entry. */
+  const [walletPromptOpen, setWalletPromptOpen] = useState(false);
   const [paymentRecoveryToast, setPaymentRecoveryToast] = useState<string | null>(null);
   const [bidNotice, setBidNotice] = useState<LiveBidFailureDisplay | null>(null);
   const bidNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -575,7 +579,15 @@ function LiveSlide({
       !liveSession.unresolvedPaymentFailure,
   );
 
-  const showWalletGateModal = walletParticipationBlocked && !walletGateSheetOpen;
+  // Entering the room is never blocked: the popup appears only after the buyer taps a gated
+  // bid/buy control (see `openWalletPrompt`), and it can always be closed.
+  const showWalletGateModal = walletParticipationBlocked && walletPromptOpen && !walletGateSheetOpen;
+
+  const openWalletPrompt = useCallback(() => setWalletPromptOpen(true), []);
+
+  useEffect(() => {
+    if (!walletParticipationBlocked) setWalletPromptOpen(false);
+  }, [walletParticipationBlocked]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -593,8 +605,12 @@ function LiveSlide({
         accessToken,
       },
       {
-        openSheet: () => setWalletGateSheetOpen(true),
+        openSheet: () => {
+          setWalletPromptOpen(false);
+          setWalletGateSheetOpen(true);
+        },
         closeSheet: () => setWalletGateSheetOpen(false),
+        closePrompt: () => setWalletPromptOpen(false),
         leaveRoom: leaveRoomSafely,
         onReadinessChange: (next) => {
           setWalletReadiness(next);
@@ -1136,6 +1152,10 @@ function LiveSlide({
         onRequireAuth?.();
         return;
       }
+      if (walletParticipationBlocked) {
+        openWalletPrompt();
+        return;
+      }
       if (item.queueAction === 'pre_bid') {
         setPreBidItem(item);
         return;
@@ -1161,7 +1181,7 @@ function LiveSlide({
         );
       }
     },
-    [onRequireAuth, performShopBuyNow, signedIn, accessToken],
+    [onRequireAuth, openWalletPrompt, performShopBuyNow, signedIn, accessToken, walletParticipationBlocked],
   );
 
   const preBidMinUsd = useMemo(() => {
@@ -1822,6 +1842,8 @@ function LiveSlide({
             walletParticipationBlocked ||
             Boolean(liveSession.unresolvedPaymentFailure)
           }
+          walletRequired={walletParticipationBlocked}
+          onWalletRequiredTap={openWalletPrompt}
           broadcastCommerceBlocked={broadcastCommerceBlocked}
           broadcastPurchaseBlocked={broadcastPurchaseBlocked}
           broadcastCommerceBlockMessage={broadcastCommerceBlockMessage}
@@ -2178,11 +2200,6 @@ export function VerticalLiveFeed({
     setWalletOverlayActive(false);
   }, []);
 
-  const leaveWalletGateRoom = useCallback(() => {
-    setWalletGateHost((prev) => (prev ? { ...prev, showModal: false, showSheet: false } : null));
-    walletGateActionsRef.current?.leaveRoom();
-  }, []);
-
   // Only pause native paging while a wallet sheet is open or the buyer is pinch-inspecting
   // the stage — never for incomplete wallet readiness (that was freezing show-to-show scroll).
   const feedGesturesEnabled =
@@ -2434,7 +2451,7 @@ export function VerticalLiveFeed({
           visible={walletGateHost.showModal}
           readiness={walletGateHost.readiness}
           onSetupWallet={() => walletGateActionsRef.current?.openSheet()}
-          onLeaveRoom={leaveWalletGateRoom}
+          onClose={() => walletGateActionsRef.current?.closePrompt()}
         />
       ) : null}
       {walletGateHost?.showSheet ? (
