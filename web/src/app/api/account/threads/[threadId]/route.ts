@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createNotification } from "@/lib/notifications";
-import { REPLY_MESSAGE_NOTIFICATION } from "@/lib/message-notification";
+import { MESSAGE_RECEIVED_TYPE, MESSAGE_REQUESTED_TYPE, REPLY_MESSAGE_NOTIFICATION } from "@/lib/message-notification";
 import { loadMentionsForSources } from "@/lib/mentions/load-message-mentions";
 import { processMessageMentions } from "@/lib/mentions/process-message-mentions";
 import {
@@ -66,9 +66,21 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
     }
   }
 
+  const openedAt = new Date();
   await prisma.message.updateMany({
     where: { threadId, recipientId: uid, readAt: null },
-    data: { readAt: new Date() },
+    data: { readAt: openedAt },
+  });
+  // Opening the conversation also clears its "new message" notifications, otherwise the bell and
+  // app-icon badge keep showing a "1" for a message the person has already read.
+  await prisma.notification.updateMany({
+    where: {
+      userId: uid,
+      readAt: null,
+      type: { in: [MESSAGE_RECEIVED_TYPE, MESSAGE_REQUESTED_TYPE] },
+      href: `/account/messages/${encodeURIComponent(threadId)}`,
+    },
+    data: { readAt: openedAt },
   });
 
   const url = new URL(req.url);

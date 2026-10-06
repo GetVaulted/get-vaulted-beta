@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,6 +16,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchMessageThreads, patchThreadAction } from '../../api/messagesRepository';
 import { useAuth } from '../../auth/AuthContext';
+import { resolveRealtimeUserId, useCanonicalUserId } from '../../hooks/useCanonicalUserId';
+import { syncServerNotifications } from '../../platform/notificationStore';
 import { MessageThreadCard } from '../../components/messages/MessageThreadCard';
 import { SwipeableThreadRow } from '../../components/messages/SwipeableThreadRow';
 import { formatDeletedTimeLeft } from '../../lib/messageDisplay';
@@ -29,8 +32,10 @@ type Props = NativeStackScreenProps<RootStackParamList, 'MessagesInbox'>;
 
 export function MessagesInboxScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { session } = useAuth();
+  const { session, user } = useAuth();
   const token = session?.access_token;
+  const canonicalUserId = useCanonicalUserId(token);
+  const notificationUserId = resolveRealtimeUserId(canonicalUserId, user?.id);
 
   const [inbox, setInbox] = useState<'primary' | 'request' | 'deleted'>('primary');
   const [threads, setThreads] = useState<ThreadListItem[]>([]);
@@ -66,6 +71,20 @@ export function MessagesInboxScreen({ navigation }: Props) {
     setLoading(true);
     void load();
   }, [load]);
+
+  // Coming back from a conversation: refresh the list (so its unread count clears) and re-sync
+  // notifications (so the bell / app-icon badge clears too).
+  const firstFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (firstFocus.current) {
+        firstFocus.current = false;
+        return;
+      }
+      void load();
+      if (token && notificationUserId) void syncServerNotifications(notificationUserId, token);
+    }, [load, notificationUserId, token]),
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -247,7 +266,11 @@ export function MessagesInboxScreen({ navigation }: Props) {
                 thread={item}
                 showDivider={index > 0}
                 timeText={inbox === 'deleted' ? formatDeletedTimeLeft(item.purgeAt) : undefined}
-                onPress={() => openMessageThread(navigation, item.id)}
+                onPress={() => {
+                  // Opening a conversation reads it: clear its unread count right away.
+                  setThreads((prev) => prev.map((t) => (t.id === item.id ? { ...t, unreadCount: 0 } : t)));
+                  openMessageThread(navigation, item.id);
+                }}
               />
             </SwipeableThreadRow>
           )}

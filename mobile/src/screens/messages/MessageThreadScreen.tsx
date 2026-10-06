@@ -32,6 +32,8 @@ import { PremiumEmptyPanel } from '../../components/empty/PremiumEmptyPanel';
 import type { RootStackParamList } from '../../navigation/types';
 import { buildThreadRows, type ThreadListRow } from '../../lib/messageDisplay';
 import type { ThreadDetail, ThreadMessage } from '../../types/messages';
+import { resolveRealtimeUserId, useCanonicalUserId } from '../../hooks/useCanonicalUserId';
+import { syncServerNotifications } from '../../platform/notificationStore';
 import { colors, spacing } from '../../theme';
 import { vaultFonts } from '../../theme/vaultTypography';
 import { deriveMessageThreadViewState, describeThreadLoadError } from './messageThreadViewState';
@@ -53,6 +55,9 @@ export function MessageThreadScreen({ navigation, route }: Props) {
   const [pendingImageUri, setPendingImageUri] = useState<string | null>(null);
   const [pickingImage, setPickingImage] = useState(false);
   const listRef = useRef<FlatList>(null);
+  const notificationsSynced = useRef(false);
+  const canonicalUserId = useCanonicalUserId(token);
+  const notificationUserId = resolveRealtimeUserId(canonicalUserId, user?.id);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -61,12 +66,17 @@ export function MessageThreadScreen({ navigation, route }: Props) {
       setThread(data.thread);
       setMessages(data.messages);
       setLoadError(null);
+      // The server just marked this conversation (and its notification) read: refresh the badges once.
+      if (!notificationsSynced.current && notificationUserId) {
+        notificationsSynced.current = true;
+        void syncServerNotifications(notificationUserId, token);
+      }
     } catch (e) {
       setLoadError(describeThreadLoadError(e));
     } finally {
       setLoading(false);
     }
-  }, [threadId, token]);
+  }, [threadId, token, notificationUserId]);
 
   const onRetryLoad = useCallback(() => {
     setLoading(true);
