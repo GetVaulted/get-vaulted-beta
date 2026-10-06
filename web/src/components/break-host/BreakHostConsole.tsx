@@ -9,6 +9,7 @@ import { TeamBoardHostPanel } from "@/components/team-board/TeamBoardHostPanel";
 import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
 import { TeamBoardChromeButton } from "@/components/team-board/TeamBoardChromeButton";
 import { LiveSellerCommandCenter } from "@/components/break-host/LiveSellerCommandCenter";
+import { SellerLiveTermsGate } from "@/components/break-host/SellerLiveTermsGate";
 import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
 import { LiveSpotTakenCelebration } from "@/components/live-auction/LiveSpotTakenCelebration";
 import { VaultRevealOverlay } from "@/components/live-auction/VaultRevealOverlay";
@@ -2852,6 +2853,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       className={`fixed inset-x-0 bottom-0 top-[var(--site-header-offset)] z-40 flex min-h-0 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain bg-black text-sm leading-normal text-zinc-100 ${vaultModeRootClass(vaultMode)}`}
       data-seller-host-console
     >
+      <SellerLiveTermsGate />
       {hostPaymentFailures.length > 0 ? (
         <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[70] w-[min(92vw,28rem)] -translate-x-1/2 px-2">
           <div className="pointer-events-auto rounded-2xl border border-rose-500/35 bg-rose-950/70 px-3 py-2 text-[11px] leading-snug text-rose-50 shadow-lg backdrop-blur-xl ring-1 ring-rose-400/25">

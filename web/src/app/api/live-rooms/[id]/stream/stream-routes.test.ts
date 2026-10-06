@@ -23,6 +23,7 @@ const hoisted = vi.hoisted(() => ({
   cancelPausedBroadcastAwsTeardown: vi.fn(),
   reconcileStagePublisherHealth: vi.fn(async () => "skip" as const),
   ensureChannelLowLatencyMode: vi.fn(async () => true),
+  ensureChannelType: vi.fn(async () => true),
   getIvsChannelLatencyMode: vi.fn(async () => "LOW" as const),
   checkRateLimit: vi.fn(() => ({ ok: true as const, remaining: 29, resetAt: Date.now() + 60_000 })),
   userFindUnique: vi.fn(),
@@ -79,6 +80,7 @@ vi.mock("@/services/ivs", () => ({
   cancelPausedBroadcastAwsTeardown: hoisted.cancelPausedBroadcastAwsTeardown,
   reconcileStagePublisherHealth: hoisted.reconcileStagePublisherHealth,
   ensureChannelLowLatencyMode: hoisted.ensureChannelLowLatencyMode,
+  ensureChannelType: hoisted.ensureChannelType,
   getIvsChannelLatencyMode: hoisted.getIvsChannelLatencyMode,
 }));
 
@@ -86,6 +88,7 @@ vi.mock("@/lib/realtime-emit-server", () => ({
   emitStreamStatusChanged: vi.fn(),
 }));
 
+import { CURRENT_SELLER_TERMS_VERSION } from "@/lib/seller-live-terms";
 import { POST as broadcastStart } from "@/app/api/live-rooms/[id]/stream/broadcast-start/route";
 import { POST as broadcastStop } from "@/app/api/live-rooms/[id]/stream/broadcast-stop/route";
 import { GET as getStream } from "@/app/api/live-rooms/[id]/stream/route";
@@ -175,8 +178,58 @@ describe("live room stream routes", () => {
     hoisted.checkRateLimit.mockReturnValue({ ok: true as const, remaining: 29, resetAt: Date.now() + 60_000 });
     hoisted.userFindUnique.mockResolvedValue({
       id: "seller_1",
+      role: "seller",
       accountDeletedAt: null,
       suspendedAt: null,
+      sellerTermsVersion: CURRENT_SELLER_TERMS_VERSION,
+    });
+  });
+
+  describe("seller live-content terms gate", () => {
+    const staleSeller = {
+      id: "seller_1",
+      role: "seller",
+      accountDeletedAt: null,
+      suspendedAt: null,
+      sellerTermsVersion: "2026-07-03",
+    };
+    const call = (route: typeof provision) =>
+      route(new Request("http://x", { method: "POST", body: "{}" }), { params: Promise.resolve({ id: "room_1" }) });
+
+    it("blocks starting a show until the seller accepts the current terms", async () => {
+      hoisted.userFindUnique.mockResolvedValue(staleSeller);
+      for (const route of [provision, broadcastStart, stageTokenPost]) {
+        const res = await call(route);
+        expect(res.status).toBe(403);
+        const body = (await res.json()) as { code?: string };
+        expect(body.code).toBe("SELLER_TERMS_REQUIRED");
+      }
+      expect(hoisted.prepareObsWhipSession).not.toHaveBeenCalled();
+      expect(hoisted.prepareHostWebBroadcastSession).not.toHaveBeenCalled();
+      expect(hoisted.prepareHostStageSession).not.toHaveBeenCalled();
+    });
+
+    it("blocks a seller who never recorded a terms version", async () => {
+      hoisted.userFindUnique.mockResolvedValue({ ...staleSeller, sellerTermsVersion: null });
+      const res = await call(stageTokenPost);
+      expect(res.status).toBe(403);
+    });
+
+    it("never blocks a room that is already live (reconnect must not cut off a show)", async () => {
+      hoisted.userFindUnique.mockResolvedValue(staleSeller);
+      hoisted.liveRoomFindUnique.mockResolvedValue(
+        streamRow({ streamHealth: "live", streamStartedAt: new Date("2026-10-06T00:00:00.000Z") }),
+      );
+      const res = await call(stageTokenPost);
+      expect(res.status).toBe(200);
+      expect(hoisted.prepareHostStageSession).toHaveBeenCalled();
+    });
+
+    it("does not gate admins operating a room", async () => {
+      hoisted.hostAccess.mockResolvedValue({ ok: true, room: { id: "room_1", sellerId: "seller_1" }, isAdmin: true });
+      hoisted.userFindUnique.mockResolvedValue({ ...staleSeller, role: "admin" });
+      const res = await call(stageTokenPost);
+      expect(res.status).toBe(200);
     });
   });
 

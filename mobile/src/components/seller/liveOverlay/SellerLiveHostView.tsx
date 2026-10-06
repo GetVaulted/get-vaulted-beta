@@ -24,6 +24,7 @@ import { AddInventoryModal } from '../liveConsole/AddInventoryModal';
 import { EditBreakSpotsModal } from '../liveConsole/EditBreakSpotsModal';
 import { EditQueueItemPricingModal } from '../liveConsole/EditQueueItemPricingModal';
 import { AddSupplementalModal } from '../liveConsole/AddSupplementalModal';
+import { SellerLiveTermsGate } from './SellerLiveTermsGate';
 import { AddDivisionalSupplyModal } from '../liveConsole/AddDivisionalSupplyModal';
 import { LiveSweet16DraftSheet } from '../../live/LiveSweet16DraftSheet';
 import { LiveConsoleWarningBanner } from '../liveConsole/LiveConsoleWarningBanner';
@@ -1369,6 +1370,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
           console.openSweet16DraftSheet();
         }}
       />
+      <SellerLiveTermsGate accessToken={accessToken} onDecline={() => navigation.goBack()} />
       <AddSupplementalModal
         open={console.supplementalModalOpen}
         parentTitle={displayItem?.displayTitle?.trim() || displayItem?.title || 'this board'}

@@ -3,7 +3,13 @@ import { logIvsOpsServer } from "@/lib/ivs-ops-log";
 import { IVS_WHIP_SERVER_URL } from "@/lib/ivs-whip-ingest";
 import { prisma } from "@/lib/prisma";
 import { prepareObsWhipSession, provisionRoomStream } from "@/services/ivs";
-import { errorResponse, getStreamRow, requireHostAccess, toHostStreamPayload } from "../_shared";
+import {
+  errorResponse,
+  getStreamRow,
+  requireHostAccess,
+  requireSellerTermsToStart,
+  toHostStreamPayload,
+} from "../_shared";
 import { formatIvsObsIngestUrl } from "@/lib/ivs-obs-ingest-url";
 
 type ProvisionBody = {
@@ -22,6 +28,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const auth = await requireHostAccess(id, req);
   if (!auth.ok) return auth.response;
+  const termsBlock = await requireSellerTermsToStart(id, auth);
+  if (termsBlock) return termsBlock;
 
   let body: ProvisionBody = {};
   try {

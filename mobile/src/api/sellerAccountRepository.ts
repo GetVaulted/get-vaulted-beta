@@ -124,3 +124,22 @@ export async function markSellerSetupWizardCompleteOnServer(
   }
   return j;
 }
+
+/** Does this seller still need to accept the current live-content terms (Terms §7.1)? */
+export async function fetchSellerLiveTermsRequired(accessToken: string): Promise<boolean> {
+  const res = await accountFetch('/api/account/seller/live-terms', accessToken);
+  if (!res.ok) return false;
+  const j = (await res.json().catch(() => null)) as { required?: boolean } | null;
+  return j?.required === true;
+}
+
+export async function acceptSellerLiveTerms(accessToken: string): Promise<void> {
+  const res = await accountFetch('/api/account/seller/live-terms', accessToken, {
+    method: 'POST',
+    body: JSON.stringify({ accepted: true }),
+  });
+  if (!res.ok) {
+    const j = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(typeof j?.error === 'string' && j.error.trim() ? j.error.trim() : `Request failed (${res.status})`);
+  }
+}
