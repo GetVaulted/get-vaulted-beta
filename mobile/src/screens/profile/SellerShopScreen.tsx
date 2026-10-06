@@ -35,8 +35,8 @@ import {
 } from '../../lib/sellerProfileView';
 import { useMarketplaceLayout } from '../../hooks/useMarketplaceLayout';
 import { openMessageUser } from '../../navigation/openMessages';
-import { openUserProfile } from '../../navigation/openPlatform';
 import type { RootStackParamList } from '../../navigation/types';
+import { vaultFonts } from '../../theme/vaultTypography';
 import { colors, radii, spacing } from '../../theme';
 
 const GRID_COLS = 2;
@@ -175,21 +175,22 @@ export function SellerShopScreen({ navigation, route }: Props) {
     const salesCount = shop.trust?.ordersCompleted ?? shop.stats.orderCount;
     return (
       <View style={styles.headerBlock}>
-        <View style={styles.banner}>
-          {shop.seller.bannerUrl ? (
+        {shop.seller.bannerUrl ? (
+          <View style={styles.banner}>
             <Image source={{ uri: shop.seller.bannerUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
-          ) : null}
-        </View>
+          </View>
+        ) : null}
 
-        <View style={styles.hero}>
+        <View style={[styles.hero, shop.seller.bannerUrl ? styles.heroOverBanner : null]}>
           <UserAvatar
             uri={shop.seller.image ?? undefined}
             name={displayName}
             username={shop.seller.username}
-            size={84}
+            size={76}
+            cornerRadius={20}
             tone="light"
-            borderColor={colors.gold}
-            borderWidth={2}
+            borderColor="rgba(212,175,55,0.55)"
+            borderWidth={1.5}
           />
           <View style={styles.heroText}>
             <Text style={styles.name}>{handle}</Text>
@@ -231,7 +232,7 @@ export function SellerShopScreen({ navigation, route }: Props) {
         ) : null}
 
         <View style={styles.stats}>
-          <Stat label="Sales" value={String(salesCount)} />
+          <Stat first label="Sales" value={String(salesCount)} />
           <Stat label="Followers" value={String(shop.stats.followerCount)} />
           {shop.shows ? <Stat label="Shows" value={String(shop.shows.totalShows)} /> : null}
           <Stat label="Listings" value={String(shop.stats.activeListings)} />
@@ -267,9 +268,6 @@ export function SellerShopScreen({ navigation, route }: Props) {
               <Text style={styles.btnTxt}>Edit profile</Text>
             </Pressable>
           )}
-          <Pressable style={styles.profileLink} onPress={() => openUserProfile(sellerId, navigation)}>
-            <Text style={styles.profileLinkTxt}>Vault profile</Text>
-          </Pressable>
         </View>
 
         {card ? (
@@ -481,9 +479,9 @@ export function SellerShopScreen({ navigation, route }: Props) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, first }: { label: string; value: string; first?: boolean }) {
   return (
-    <View style={styles.stat}>
+    <View style={[styles.stat, !first && styles.statDivider]}>
       <Text style={styles.statVal}>{value}</Text>
       <Text style={styles.statLbl}>{label}</Text>
     </View>
@@ -502,18 +500,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  hero: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-end', marginTop: -40, paddingHorizontal: spacing.sm },
+  hero: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
+  heroOverBanner: { alignItems: 'flex-end', marginTop: -40, paddingHorizontal: spacing.sm },
   heroText: { flex: 1, gap: 6, paddingBottom: 4 },
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   levelBadge: {
+    height: 24,
+    justifyContent: 'center',
     paddingHorizontal: 9,
-    paddingVertical: 4,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.goldSoft,
+    borderColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(212,175,55,0.15)',
   },
-  levelBadgeTxt: { fontSize: 10, fontWeight: '800', color: colors.gold, textTransform: 'uppercase', letterSpacing: 0.4 },
+  levelBadgeTxt: {
+    fontFamily: vaultFonts.label,
+    fontSize: 13,
+    color: colors.gold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
   bio: { color: colors.textPrimary, fontSize: 14, lineHeight: 20 },
   links: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   linkChip: {
@@ -549,9 +555,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   showCardText: { flex: 1, gap: 2 },
-  showKicker: { fontSize: 10, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', color: colors.textMuted },
+  showKicker: {
+    fontFamily: vaultFonts.label,
+    fontSize: 12,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+    color: '#9B9B9B',
+  },
   showKickerLive: { color: colors.live },
-  showCardTitle: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
+  showCardTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
   showCardMeta: { fontSize: 12, color: colors.textMuted },
   trustCard: {
     padding: spacing.md,
@@ -560,8 +572,14 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
-  sectionKicker: { fontSize: 10, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase', color: colors.textMuted },
-  sectionTitle: { fontSize: 18, fontWeight: '800', color: colors.textPrimary },
+  sectionKicker: {
+    fontFamily: vaultFonts.label,
+    fontSize: 13,
+    letterSpacing: 1.8,
+    textTransform: 'uppercase',
+    color: '#9B9B9B',
+  },
+  sectionTitle: { fontFamily: vaultFonts.display, fontSize: 20, color: colors.textPrimary },
   trustDesc: { marginTop: spacing.xs, marginBottom: spacing.sm, fontSize: 12, lineHeight: 17, color: colors.textSecondary },
   trustRow: {
     flexDirection: 'row',
@@ -573,7 +591,7 @@ const styles = StyleSheet.create({
   },
   trustRowFirst: { borderTopWidth: StyleSheet.hairlineWidth },
   trustLabel: { fontSize: 13, color: colors.textMuted },
-  trustValue: { fontSize: 13, fontWeight: '700', color: colors.textPrimary },
+  trustValue: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
   footer: { gap: spacing.lg, marginTop: spacing.lg },
   recentBlock: { gap: spacing.sm },
   recentHead: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm },
@@ -613,48 +631,78 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     color: colors.textMuted,
   },
-  name: { fontSize: 22, fontWeight: '800', color: colors.textPrimary },
+  name: { fontFamily: vaultFonts.display, fontSize: 26, lineHeight: 28, letterSpacing: -0.26, color: colors.textPrimary },
   subName: { fontSize: 14, color: colors.textSecondary },
   credibility: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   verifiedBadge: {
-    alignSelf: 'flex-start',
-    marginTop: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    height: 24,
+    justifyContent: 'center',
+    paddingHorizontal: 9,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: 'rgba(90,200,250,0.35)',
-    backgroundColor: 'rgba(90,200,250,0.12)',
+    borderColor: 'rgba(103,190,255,0.30)',
+    backgroundColor: 'rgba(103,190,255,0.10)',
   },
-  verifiedTxt: { fontSize: 10, fontWeight: '800', color: '#9BD4FF', textTransform: 'uppercase' },
-  stats: { flexDirection: 'row', justifyContent: 'space-between' },
-  stat: { alignItems: 'center', flex: 1 },
-  statVal: { fontSize: 16, fontWeight: '800', color: colors.gold },
-  statLbl: { fontSize: 10, color: colors.textMuted, textAlign: 'center' },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center' },
+  verifiedTxt: {
+    fontFamily: vaultFonts.label,
+    fontSize: 13,
+    color: '#8FCBFF',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  stats: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.12)',
+    borderRadius: 14,
+    backgroundColor: '#0F0F0F',
+  },
+  stat: { alignItems: 'center', flex: 1, paddingVertical: 12, paddingHorizontal: 4 },
+  statDivider: { borderLeftWidth: 1, borderLeftColor: 'rgba(212,175,55,0.12)' },
+  statVal: { fontFamily: vaultFonts.display, fontSize: 22, lineHeight: 24, color: colors.textPrimary },
+  statLbl: {
+    marginTop: 5,
+    fontFamily: vaultFonts.labelSemibold,
+    fontSize: 12,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: '#9B9B9B',
+    textAlign: 'center',
+  },
+  actions: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   btn: {
-    flexGrow: 1,
-    minWidth: 120,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.md,
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
     backgroundColor: colors.gold,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   btnOn: { backgroundColor: colors.goldSoft },
-  btnTxt: { fontWeight: '800', color: colors.background },
+  btnTxt: {
+    fontFamily: vaultFonts.label,
+    fontSize: 17,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: colors.background,
+  },
   btnTxtOn: { color: colors.textPrimary },
   btnGhost: {
-    flexGrow: 1,
-    minWidth: 120,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.gold,
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(212,175,55,0.55)',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  btnGhostTxt: { fontWeight: '800', color: colors.gold },
-  profileLink: { paddingVertical: spacing.xs, paddingHorizontal: spacing.sm },
-  profileLinkTxt: { color: colors.textSecondary, fontWeight: '700', fontSize: 13 },
+  btnGhostTxt: {
+    fontFamily: vaultFonts.label,
+    fontSize: 17,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: colors.gold,
+  },
   tabs: { flexDirection: 'row', gap: spacing.sm, paddingBottom: spacing.xs },
   tab: {
     paddingHorizontal: 12,

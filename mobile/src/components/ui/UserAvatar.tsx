@@ -14,6 +14,8 @@ type Props = {
   borderWidth?: number;
   /** Dark overlay contexts (live stage) vs light cards (seller HQ). */
   tone?: 'dark' | 'light';
+  /** Override the default circle with a rounded square (corner radius in px). */
+  cornerRadius?: number;
 };
 
 export function UserAvatar({
@@ -26,10 +28,11 @@ export function UserAvatar({
   borderColor,
   borderWidth,
   tone = 'dark',
+  cornerRadius,
 }: Props) {
   const imageUri = normalizeAvatarUri(uri);
   const initial = profileDisplayInitial(name, username);
-  const radius = size / 2;
+  const radius = cornerRadius ?? size / 2;
   const ring = borderWidth ?? StyleSheet.hairlineWidth;
   const ringColor = borderColor ?? (tone === 'light' ? colors.borderStrong : 'rgba(255,255,255,0.28)');
 
