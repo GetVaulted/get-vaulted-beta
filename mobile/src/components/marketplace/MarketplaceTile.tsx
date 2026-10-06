@@ -46,15 +46,17 @@ function MarketplaceTileBase({ product, width, saved, scale, onPress, onToggleSa
         <Text style={[styles.price, { fontSize: marketplaceFontSize(15, scale) }]} numberOfLines={1} {...MARKETPLACE_TEXT_PROPS}>
           {product.listingPrice}
         </Text>
-        <Text
-          style={[styles.meta, { fontSize: marketplaceFontSize(11, scale) }]}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.85}
-          {...MARKETPLACE_TEXT_PROPS}
-        >
-          {ship}
-        </Text>
+        {ship ? (
+          <Text
+            style={[styles.meta, { fontSize: marketplaceFontSize(11, scale) }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}
+            {...MARKETPLACE_TEXT_PROPS}
+          >
+            {ship}
+          </Text>
+        ) : null}
         {product.allowOffers ? (
           <Text style={[styles.meta, { fontSize: marketplaceFontSize(11, scale) }]} numberOfLines={1} {...MARKETPLACE_TEXT_PROPS}>
             or Best Offer
