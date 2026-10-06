@@ -95,6 +95,8 @@ export type WebPublishedListingsPage = {
   page: number;
   pageSize: number;
   totalListingCount: number;
+  /** Listings matching the active category/sort filters (equals the total when unfiltered). */
+  filteredListingCount: number;
 };
 
 /**
@@ -108,6 +110,8 @@ export async function fetchPublishedListingsPageFromWeb(opts: {
   page: number;
   pageSize: number;
   category?: string;
+  /** Server sort: `recent` (default), `price-asc`, `price-desc`, `seller-level`. */
+  sort?: string;
 }): Promise<WebPublishedListingsPage> {
   let headers: HeadersInit | undefined;
   try {
@@ -122,6 +126,7 @@ export async function fetchPublishedListingsPageFromWeb(opts: {
     pageSize: String(Math.min(Math.max(1, Math.trunc(opts.pageSize)), 120)),
   });
   if (opts.category) params.set('category', opts.category);
+  if (opts.sort) params.set('sort', opts.sort);
   const res = await fetchWebApi(`/api/listings?${params.toString()}`, { headers });
   const body = (await res.json().catch(() => null)) as {
     listings?: WebMarketplaceListing[];
@@ -129,17 +134,27 @@ export async function fetchPublishedListingsPageFromWeb(opts: {
     page?: number;
     pageSize?: number;
     totalListingCount?: number;
+    filteredListingCount?: number;
   } | null;
   if (!res.ok) {
     console.warn('[fetchPublishedListingsPageFromWeb]', fetchApiErrorMessage(res, body));
-    return { listings: [], hasMore: false, page: opts.page, pageSize: opts.pageSize, totalListingCount: 0 };
+    return {
+      listings: [],
+      hasMore: false,
+      page: opts.page,
+      pageSize: opts.pageSize,
+      totalListingCount: 0,
+      filteredListingCount: 0,
+    };
   }
+  const totalListingCount = body?.totalListingCount ?? 0;
   return {
     listings: Array.isArray(body?.listings) ? body!.listings! : [],
     hasMore: Boolean(body?.hasMore),
     page: body?.page ?? opts.page,
     pageSize: body?.pageSize ?? opts.pageSize,
-    totalListingCount: body?.totalListingCount ?? 0,
+    totalListingCount,
+    filteredListingCount: body?.filteredListingCount ?? totalListingCount,
   };
 }
 

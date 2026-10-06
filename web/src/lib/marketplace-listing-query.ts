@@ -19,12 +19,32 @@ import { marketplaceCategories, type MarketplaceCategory } from "@/content/marke
 export const MARKETPLACE_BROWSE_SORTS = ["recent", "price-asc", "price-desc", "seller-level"] as const;
 export type MarketplaceBrowseSort = (typeof MARKETPLACE_BROWSE_SORTS)[number];
 
+/**
+ * Listing category labels the browse feed also accepts, beyond the web catalog's own filter list
+ * (`marketplaceCategories`). Sellers can publish under these (e.g. helmets), and the mobile
+ * marketplace offers them as chips — without this the server would ignore the filter and return
+ * every listing.
+ */
+export const MARKETPLACE_BROWSE_EXTRA_CATEGORIES = ["Helmets"] as const;
+export type MarketplaceBrowseCategory =
+  | MarketplaceCategory
+  | "All"
+  | (typeof MARKETPLACE_BROWSE_EXTRA_CATEGORIES)[number];
+
+/**
+ * Some listings carry the short label "Cards" instead of "Trading Cards". The "Trading Cards"
+ * filter matches both so a buyer sees every card listing under one category.
+ */
+const MARKETPLACE_CATEGORY_ALIASES: Partial<Record<MarketplaceBrowseCategory, string[]>> = {
+  "Trading Cards": ["Trading Cards", "Cards"],
+};
+
 export const MARKETPLACE_BROWSE_DEFAULT_PAGE_SIZE = 60;
 export const MARKETPLACE_BROWSE_MAX_PAGE_SIZE = 120;
 
 export type MarketplaceBrowseQueryParams = {
   q: string;
-  category: MarketplaceCategory | "All";
+  category: MarketplaceBrowseCategory;
   priceMin: number | null;
   priceMax: number | null;
   condition: string;
@@ -51,8 +71,10 @@ export function parseMarketplaceBrowseQueryParams(searchParams: URLSearchParams)
   const q = (searchParams.get("q") ?? "").trim().slice(0, 200);
 
   const categoryRaw = searchParams.get("category") ?? "All";
-  const category = (marketplaceCategories as string[]).includes(categoryRaw)
-    ? (categoryRaw as MarketplaceCategory | "All")
+  const category = (
+    [...marketplaceCategories, ...MARKETPLACE_BROWSE_EXTRA_CATEGORIES] as string[]
+  ).includes(categoryRaw)
+    ? (categoryRaw as MarketplaceBrowseCategory)
     : "All";
 
   const priceMin = parseNumberParam(searchParams.get("priceMin"));
@@ -86,7 +108,8 @@ export function buildMarketplaceBrowseWhere(
   };
 
   if (params.category !== "All") {
-    where.category = params.category;
+    const aliases = MARKETPLACE_CATEGORY_ALIASES[params.category];
+    where.category = aliases ? { in: aliases } : params.category;
   }
   if (params.condition !== "Any") {
     where.condition = params.condition;

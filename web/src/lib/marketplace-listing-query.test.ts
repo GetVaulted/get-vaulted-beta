@@ -56,6 +56,11 @@ describe("parseMarketplaceBrowseQueryParams", () => {
     expect(parsed.priceMin).toBeNull();
   });
 
+  it("accepts the extra Helmets category", () => {
+    const parsed = parseMarketplaceBrowseQueryParams(new URLSearchParams({ category: "Helmets" }));
+    expect(parsed.category).toBe("Helmets");
+  });
+
   it("clamps pageSize to the configured max and page to at least 1", () => {
     const parsed = parseMarketplaceBrowseQueryParams(
       new URLSearchParams({ pageSize: "999999", page: "0" }),
@@ -89,6 +94,16 @@ describe("buildMarketplaceBrowseWhere", () => {
     expect(where.category).toBe("Watches");
     expect(where.condition).toBe("Unworn");
     expect(where.priceUsd).toEqual({ gte: 100, lte: 900 });
+  });
+
+  it("matches Helmets exactly", () => {
+    expect(buildMarketplaceBrowseWhere({ ...base, category: "Helmets" }).category).toBe("Helmets");
+  });
+
+  it("treats Trading Cards as both the Trading Cards and Cards labels", () => {
+    expect(buildMarketplaceBrowseWhere({ ...base, category: "Trading Cards" }).category).toEqual({
+      in: ["Trading Cards", "Cards"],
+    });
   });
 
   it("adds a case-insensitive title/seller search OR clause", () => {

@@ -42,7 +42,10 @@ export type MarketplaceListingsPage = {
   products: Product[];
   hasMore: boolean;
   page: number;
+  /** All published listings, ignoring the active category. */
   totalListingCount: number;
+  /** Listings matching the active category (equals the total when unfiltered). */
+  filteredListingCount: number;
 };
 
 /**
@@ -55,9 +58,17 @@ export type MarketplaceListingsPage = {
 export async function fetchMarketplaceListingsPage(opts: {
   page: number;
   pageSize?: number;
+  /** Server category label (`Helmets`, `Trading Cards`, `Memorabilia`…); omit for everything. */
+  category?: string;
+  sort?: string;
 }): Promise<MarketplaceListingsPage> {
   const pageSize = Math.min(Math.max(opts.pageSize ?? 60, 1), 100);
-  const result = await fetchPublishedListingsPageFromWeb({ page: opts.page, pageSize });
+  const result = await fetchPublishedListingsPageFromWeb({
+    page: opts.page,
+    pageSize,
+    category: opts.category,
+    sort: opts.sort,
+  });
   const published = result.listings.filter((r) => isPublishedOnMarketplace(r.listingStatus));
   const products = filterBrowsableMarketplaceProducts(published.map(mapWebMarketplaceListingToProduct));
   return {
@@ -65,6 +76,7 @@ export async function fetchMarketplaceListingsPage(opts: {
     hasMore: result.hasMore,
     page: result.page,
     totalListingCount: result.totalListingCount,
+    filteredListingCount: result.filteredListingCount,
   };
 }
 
