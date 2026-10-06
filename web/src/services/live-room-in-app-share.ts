@@ -1,15 +1,13 @@
 import { createNotification } from "@/lib/notifications";
+import {
+  claimFollowerNotifySlot,
+  releaseFollowerNotifySlot,
+  type FollowerNotifySlot,
+} from "@/lib/seller-follower-notify-limit";
 import { prisma } from "@/lib/prisma";
 
 const MAX_DIRECT_RECIPIENTS = 25;
 const MAX_FOLLOWER_BLAST = 200;
-
-/**
- * How often a seller may blast "I'm live" to their entire follower list for the SAME room.
- * Without this, re-tapping "Notify followers" (once per item, once an hour, whatever) re-notifies
- * every follower every time - this is what was flooding buyers with pushes (2026-09-15 investigation).
- */
-const FOLLOWER_NOTIFY_COOLDOWN_MS = 30 * 60 * 1000;
 
 export type ShareLiveRoomInAppInput = {
   senderId: string;
@@ -71,6 +69,7 @@ export async function shareLiveRoomInApp(input: ShareLiveRoomInAppInput): Promis
     : `${showTitle} - ${actionLine}.`;
 
   let recipientIds: string[] = [...directIds];
+  let followerSlot: Extract<FollowerNotifySlot, { ok: true }> | null = null;
 
   if (input.notifyFollowers) {
     if (room.sellerId !== senderId) {
@@ -80,23 +79,6 @@ export async function shareLiveRoomInApp(input: ShareLiveRoomInAppInput): Promis
     if (room.discoveryVisibility === "private") {
       throw new Error("PRIVATE_NO_FOLLOWER_BLAST");
     }
-    // Anti-spam: one follower-wide blast per room per cooldown window, no matter how many times
-    // the host taps "Notify followers". Scoped to this room's href, not a global per-seller lock,
-    // so a host running back-to-back different shows can still notify for each one.
-    const recentBlast = await prisma.notification.findFirst({
-      where: {
-        type: "live_room_share",
-        href,
-        createdAt: { gte: new Date(Date.now() - FOLLOWER_NOTIFY_COOLDOWN_MS) },
-      },
-      select: { createdAt: true },
-      orderBy: { createdAt: "desc" },
-    });
-    if (recentBlast) {
-      const elapsedMs = Date.now() - recentBlast.createdAt.getTime();
-      const retryAfterMinutes = Math.max(1, Math.ceil((FOLLOWER_NOTIFY_COOLDOWN_MS - elapsedMs) / 60000));
-      throw new Error(`FOLLOWER_NOTIFY_COOLDOWN:${retryAfterMinutes}`);
-    }
     const followerRows = await prisma.sellerFollow.findMany({
       where: { sellerId: senderId },
       select: { followerId: true },
@@ -104,10 +86,19 @@ export async function shareLiveRoomInApp(input: ShareLiveRoomInAppInput): Promis
       orderBy: { createdAt: "desc" },
     });
     const followerIds = followerRows.map((row) => row.followerId).filter((id) => id !== senderId);
+    if (followerIds.length > 0) {
+      // Strict anti-spam: ONE follower-wide notification per seller per hour, across every show and
+      // every path (this button and the automatic go-live alert). Claimed atomically so a double tap
+      // cannot send twice. Only claimed once we know there is someone to notify.
+      const slot = await claimFollowerNotifySlot(prisma, senderId);
+      if (!slot.ok) throw new Error(`FOLLOWER_NOTIFY_COOLDOWN:${slot.retryAfterMinutes}`);
+      followerSlot = slot;
+    }
     recipientIds = uniqueIds([...recipientIds, ...followerIds]);
   }
 
   if (recipientIds.length === 0) {
+    if (followerSlot) await releaseFollowerNotifySlot(prisma, senderId, followerSlot);
     return { sent: 0, skipped: 0 };
   }
 
@@ -145,6 +136,9 @@ export async function shareLiveRoomInApp(input: ShareLiveRoomInAppInput): Promis
     if (id) sent += 1;
     else skipped += 1;
   }
+
+  // Nothing went out (every create failed): hand the hour back so the host can retry.
+  if (followerSlot && sent === 0) await releaseFollowerNotifySlot(prisma, senderId, followerSlot);
 
   return { sent, skipped };
 }

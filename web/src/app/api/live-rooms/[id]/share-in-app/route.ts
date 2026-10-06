@@ -56,7 +56,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const minutes = Number(code.split(":")[1]) || 1;
       return NextResponse.json(
         {
-          error: `You already notified your followers about this show recently. Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+          error: `You can notify your followers once an hour. Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`,
           code: "FOLLOWER_NOTIFY_COOLDOWN",
         },
         { status: 429 },
