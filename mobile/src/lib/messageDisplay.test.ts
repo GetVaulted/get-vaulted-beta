@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { ThreadMessage } from '../types/messages';
-import { buildThreadRows, formatDayLabel, formatInboxTime, inboxPreviewText } from './messageDisplay';
+import {
+  buildThreadRows,
+  formatDayLabel,
+  formatDeletedTimeLeft,
+  formatInboxTime,
+  inboxPreviewText,
+} from './messageDisplay';
 
 const NOW = new Date(2026, 9, 7, 15, 0, 0); // Oct 7 2026, 3pm local
 
@@ -92,5 +98,18 @@ describe('buildThreadRows', () => {
     expect(msgs[0].lastInGroup).toBe(true);
     expect(msgs[1].firstInGroup).toBe(true);
     expect(msgs[2].timeLabel).toBeNull();
+  });
+});
+
+describe('formatDeletedTimeLeft', () => {
+  const now = new Date('2026-10-10T12:00:00Z');
+  it('counts the days left before removal', () => {
+    expect(formatDeletedTimeLeft('2026-10-24T12:00:00Z', now)).toBe('14 days left');
+    expect(formatDeletedTimeLeft('2026-10-11T00:00:00Z', now)).toBe('1 day left');
+  });
+  it('says it removes today once the window is up', () => {
+    expect(formatDeletedTimeLeft('2026-10-10T13:00:00Z', now)).toBe('1 day left');
+    expect(formatDeletedTimeLeft('2026-10-10T11:00:00Z', now)).toBe('Removes today');
+    expect(formatDeletedTimeLeft(null, now)).toBe('');
   });
 });

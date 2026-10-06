@@ -29,7 +29,7 @@ async function msgFetch(path: string, accessToken: string, init?: RequestInit): 
 
 export async function fetchMessageThreads(
   accessToken: string,
-  inbox: 'primary' | 'request' = 'primary',
+  inbox: 'primary' | 'request' | 'deleted' = 'primary',
 ): Promise<{ threads: ThreadListItem[]; requestCount: number }> {
   const res = await msgFetch(`/api/account/threads?inbox=${inbox}`, accessToken);
   let j: { threads?: ThreadListItem[]; requestCount?: number; error?: string } = {};
@@ -135,7 +135,8 @@ export async function startConversation(
   return { threadId: j.threadId, inbox: j.inbox ?? 'primary' };
 }
 
-export type ThreadAction = 'accept_request' | 'pin' | 'star' | 'mute' | 'block';
+/** `delete` moves it to this person's Deleted area (`value: false` restores it); `purge` deletes it for good. */
+export type ThreadAction = 'accept_request' | 'pin' | 'star' | 'mute' | 'block' | 'delete' | 'purge';
 
 export async function patchThreadAction(
   accessToken: string,

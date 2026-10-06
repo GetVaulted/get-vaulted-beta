@@ -148,12 +148,42 @@ export function MessageThreadScreen({ navigation, route }: Props) {
     ]);
   };
 
+  const onDeleteConversation = () => {
+    if (!token || !thread) return;
+    Alert.alert(
+      `Delete conversation with @${thread.otherUsername}?`,
+      'It moves to Deleted for 14 days, then is removed for good. They keep their own copy, and you can restore it before then.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void patchThreadAction(token, threadId, 'delete', true)
+              .then(() => navigation.goBack())
+              .catch((e) => Alert.alert('Could not delete', e instanceof Error ? e.message : 'Try again.'));
+          },
+        },
+      ],
+    );
+  };
+
+  const onRestoreConversation = () => {
+    if (!token) return;
+    void patchThreadAction(token, threadId, 'delete', false)
+      .then(() => load())
+      .catch((e) => Alert.alert('Could not restore', e instanceof Error ? e.message : 'Try again.'));
+  };
+
   const onOpenMenu = () => {
     if (!thread) return;
     Alert.alert(`@${thread.otherUsername}`, undefined, [
       { text: thread.pinned ? 'Unpin conversation' : 'Pin conversation', onPress: () => onThreadAction('pin') },
       { text: thread.starred ? 'Remove star' : 'Star conversation', onPress: () => onThreadAction('star') },
       { text: thread.muted ? 'Unmute notifications' : 'Mute notifications', onPress: () => onThreadAction('mute') },
+      thread.deleted
+        ? { text: 'Restore conversation', onPress: onRestoreConversation }
+        : { text: 'Delete conversation', style: 'destructive', onPress: onDeleteConversation },
       { text: 'Block', style: 'destructive', onPress: onBlock },
       { text: 'Cancel', style: 'cancel' },
     ]);
@@ -232,6 +262,15 @@ export function MessageThreadScreen({ navigation, route }: Props) {
           <Ionicons name="ellipsis-horizontal" size={22} color="#9B9B9B" />
         </Pressable>
       </View>
+
+      {thread?.deleted ? (
+        <View style={styles.deletedBar}>
+          <Text style={styles.deletedBarTxt}>In Deleted. It will be removed for good after 14 days.</Text>
+          <Pressable onPress={onRestoreConversation} hitSlop={8} accessibilityRole="button" accessibilityLabel="Restore conversation">
+            <Text style={styles.deletedBarBtn}>Restore</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <FlatList<ThreadListRow>
         ref={listRef}
@@ -337,6 +376,19 @@ export function MessageThreadScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
+  deletedBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    backgroundColor: '#0F0F0F',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(212,175,55,0.10)',
+  },
+  deletedBarTxt: { flex: 1, fontSize: 13, color: '#9B9B9B', lineHeight: 18 },
+  deletedBarBtn: { fontFamily: vaultFonts.label, fontSize: 15, letterSpacing: 1, textTransform: 'uppercase', color: colors.gold },
   root: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
   backFloating: { alignSelf: 'flex-start', padding: 4, marginBottom: spacing.md },

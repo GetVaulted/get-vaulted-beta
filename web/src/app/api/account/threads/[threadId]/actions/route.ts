@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { isUserBlockError, setUserBlocked } from "@/lib/user-block";
+import { purgeAtFor } from "@/lib/message-thread-deletion";
 import { prisma } from "@/lib/prisma";
 
 type Body = {
@@ -54,6 +55,44 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ threadId: str
     create: { threadId, userId: uid },
     update: {},
   });
+
+  // Delete is per person: it only moves the conversation to THIS user's Deleted area. The other
+  // participant keeps their copy. `value: false` restores it. Cleared automatically when a newer
+  // message arrives (see threadVisibility).
+  if (action === "delete") {
+    const del = body.value !== false;
+    const now = new Date();
+    await prisma.messageThreadParticipant.update({
+      where: { id: participant.id },
+      data: del ? { deletedAt: now, purgedAt: null } : { deletedAt: null, purgedAt: null },
+    });
+    if (del) {
+      // A deleted conversation must not keep an unread badge alive.
+      await prisma.message.updateMany({
+        where: { threadId, recipientId: uid, readAt: null },
+        data: { readAt: now },
+      });
+    }
+    return NextResponse.json({
+      ok: true,
+      deleted: del,
+      deletedAt: del ? now.toISOString() : null,
+      purgeAt: del ? purgeAtFor(now).toISOString() : null,
+    });
+  }
+
+  // Permanent delete (for this person): only from the Deleted area. Everything up to now is
+  // hidden from them for good; the other participant is unaffected.
+  if (action === "purge") {
+    if (!participant.deletedAt) {
+      return NextResponse.json({ error: "Delete the conversation first." }, { status: 400 });
+    }
+    await prisma.messageThreadParticipant.update({
+      where: { id: participant.id },
+      data: { purgedAt: new Date() },
+    });
+    return NextResponse.json({ ok: true, purged: true });
+  }
 
   if (action === "pin") {
     const pin = body.value !== false;

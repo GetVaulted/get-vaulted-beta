@@ -61,7 +61,7 @@ const prismaMock = vi.hoisted(() => ({
   messageThreadParticipant: { findUnique: hoisted.participantFindUnique },
   user: { findUnique: hoisted.userFindUnique },
   offer: { findUnique: hoisted.offerFindUnique },
-  order: { findUnique: hoisted.orderFindUnique },
+  order: { findUnique: hoisted.orderFindUnique, groupBy: vi.fn().mockResolvedValue([]) },
   $transaction: async (fn: (tx: unknown) => unknown) => fn(prismaMock),
 }));
 

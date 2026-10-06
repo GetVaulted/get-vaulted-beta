@@ -10,10 +10,13 @@ export function MessageThreadCard({
   thread,
   onPress,
   showDivider,
+  timeText,
 }: {
   thread: ThreadListItem;
   onPress: () => void;
   showDivider: boolean;
+  /** Replaces the clock/date on the right (the Deleted area shows how many days are left). */
+  timeText?: string;
 }) {
   const unread = thread.unreadCount > 0;
   const preview = inboxPreviewText(thread.lastPreview) || '—';
@@ -45,7 +48,7 @@ export function MessageThreadCard({
               </Text>
             ) : null}
           </View>
-          <Text style={[styles.time, unread && styles.timeUnread]}>{formatInboxTime(thread.lastAt)}</Text>
+          <Text style={[styles.time, unread && styles.timeUnread]}>{timeText ?? formatInboxTime(thread.lastAt)}</Text>
         </View>
         <View style={styles.bottom}>
           <Text style={[styles.preview, unread && styles.previewUnread]} numberOfLines={1}>
@@ -64,6 +67,7 @@ export function MessageThreadCard({
 
 const styles = StyleSheet.create({
   row: {
+    backgroundColor: colors.background,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
@@ -71,7 +75,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   divider: { borderTopWidth: 1, borderTopColor: 'rgba(212,175,55,0.10)' },
-  pressed: { backgroundColor: 'rgba(212,175,55,0.05)' },
+  pressed: { backgroundColor: '#0C0B07' },
   body: { flex: 1, minWidth: 0, gap: 3 },
   top: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 },
   nameRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, flexShrink: 1 },

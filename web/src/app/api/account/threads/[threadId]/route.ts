@@ -12,6 +12,7 @@ import {
 import { isUserBlocked } from "@/lib/user-block";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { loadParticipantBadges } from "@/lib/message-participant-badges";
+import { threadVisibility } from "@/lib/message-thread-deletion";
 import { prisma } from "@/lib/prisma";
 
 /** Default/backward-compatible page size — short threads load in one page, unchanged. */
@@ -95,13 +96,18 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
   // same `createdAt` millisecond (e.g. a rapid system-message burst) — without it, "load earlier"
   // could skip or duplicate a message across paginated requests since the DB is free to return
   // tied rows in any order.
+  // Messages this person deleted for good stay hidden; anything newer shows normally.
+  const purgedAt = participant?.purgedAt ?? null;
   const descPage = await prisma.message.findMany({
-    where: { threadId },
+    where: { threadId, ...(purgedAt ? { createdAt: { gt: purgedAt } } : {}) },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: limit + 1,
     ...(beforeMessageId ? { cursor: { id: beforeMessageId }, skip: 1 } : {}),
     select: messageSelect,
   });
+  if (purgedAt && descPage.length === 0 && !beforeMessageId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   const hasMore = descPage.length > limit;
   const messages = descPage.slice(0, limit).reverse();
   const nextCursor = hasMore ? messages[0]?.id ?? null : null;
@@ -151,6 +157,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
       otherSellerLevelLabel: otherBadges?.sellerLevelLabel ?? null,
       otherVerified: otherBadges?.verified ?? false,
       isSeller: thread.sellerId === uid,
+      // True while this conversation sits in the person's Deleted area (so the app can offer Restore).
+      deleted: !beforeMessageId && threadVisibility(participant, descPage[0]?.createdAt ?? null) === "deleted",
       pinned: Boolean(participant?.pinnedAt),
       starred: participant?.starred ?? false,
       muted: participant?.muted ?? false,
