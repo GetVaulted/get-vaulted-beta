@@ -70,8 +70,8 @@ const MessageNewScreen = lazyScreen(
   (m) => m.MessageNewScreen,
 );
 const UserProfileScreen = lazyScreen(
-  () => import('../screens/profile/UserProfileScreen'),
-  (m) => m.UserProfileScreen,
+  () => import('../screens/profile/UserProfileRoute'),
+  (m) => m.UserProfileRoute,
 );
 const PullMediaManageScreen = lazyScreen(
   () => import('../screens/profile/PullMediaManageScreen'),
