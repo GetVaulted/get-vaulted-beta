@@ -27,7 +27,7 @@ import {
   openUserProfile,
   openWriteReview,
 } from '../../navigation/openPlatform';
-import { hasReviewedReference } from '../../platform/platformStore';
+import { hasReviewedSellerOrder } from '../../api/sellerReviewsRepository';
 import type { RootStackParamList } from '../../navigation/types';
 import { openWebCommerceUrl, webOrderPayUrl } from '../../lib/openWebCommerce';
 import { colors, radii, spacing } from '../../theme';
@@ -68,7 +68,7 @@ export function BuyerOrderDetailScreen({ navigation, route }: Props) {
       const row = await fetchBuyerOrderById(user.id, orderId, session?.access_token);
       setOrder(row);
       if (row && isOrderCompleteForReview(row.status)) {
-        setReviewed(await hasReviewedReference(user.id, row.id, 'buyer_to_seller'));
+        setReviewed(await hasReviewedSellerOrder(user.id, row.id, session?.access_token));
       }
     } finally {
       loadedOnceRef.current = true;
@@ -200,7 +200,7 @@ export function BuyerOrderDetailScreen({ navigation, route }: Props) {
             {order && isOrderCompleteForReview(order.status) && reviewed ? (
               <View style={styles.reviewedRow}>
                 <Ionicons name="checkmark-circle" size={18} color={colors.gold} />
-                <Text style={styles.reviewedText}>Review submitted — trust contribution recorded</Text>
+                <Text style={styles.reviewedText}>Review submitted — thanks for rating this seller</Text>
               </View>
             ) : null}
             <ActionBtn

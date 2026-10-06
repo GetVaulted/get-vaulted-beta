@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { REVIEW_QUICK_TAGS } from '../../data/reviewQuickTags';
+import { hasReviewedSellerOrder, submitSellerReview } from '../../api/sellerReviewsRepository';
 import { addReview, hasReviewedReference } from '../../platform/platformStore';
 import { emitNotificationBadgeChanged } from '../../platform/notificationEvents';
 import { notifyReviewReceived } from '../../platform/notificationStore';
@@ -17,7 +18,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'WriteReview'>;
 
 export function WriteReviewScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const { reviewType, referenceId, subjectUserId, subjectDisplayName } = route.params;
   const [rating, setRating] = useState(5);
   const [body, setBody] = useState('');
@@ -25,10 +26,16 @@ export function WriteReviewScreen({ navigation, route }: Props) {
   const [busy, setBusy] = useState(false);
   const [already, setAlready] = useState(false);
 
+  // Reviews of a seller are real, public, verified-buyer reviews saved on the server.
+  const serverReview = reviewType === 'buyer_to_seller';
+
   useEffect(() => {
     if (!user?.id) return;
-    void hasReviewedReference(user.id, referenceId, reviewType).then(setAlready);
-  }, [user?.id, referenceId, reviewType]);
+    const check = serverReview
+      ? hasReviewedSellerOrder(user.id, referenceId, session?.access_token)
+      : hasReviewedReference(user.id, referenceId, reviewType);
+    void check.then(setAlready);
+  }, [user?.id, referenceId, reviewType, serverReview, session?.access_token]);
 
   const toggleTag = (t: string) => {
     setTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
@@ -45,6 +52,28 @@ export function WriteReviewScreen({ navigation, route }: Props) {
     }
     setBusy(true);
     try {
+      if (serverReview) {
+        if (!session?.access_token) {
+          Alert.alert('Sign in required', 'Sign in again to leave a review.');
+          return;
+        }
+        try {
+          await submitSellerReview(session.access_token, referenceId, { rating, body: body.trim(), tags });
+        } catch (e) {
+          Alert.alert('Could not post review', e instanceof Error ? e.message : 'Try again.');
+          return;
+        }
+        Alert.alert('Review submitted', 'Your review is on their profile.', [
+          {
+            text: 'OK',
+            onPress: () => {
+              navigation.goBack();
+              if (rating >= 4) void maybeRequestStoreReview('vault_review_submitted');
+            },
+          },
+        ]);
+        return;
+      }
       await addReview({
         authorId: user.id,
         subjectUserId,

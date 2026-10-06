@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchSellerShop, type SellerShopTab } from '../../api/sellerShopRepository';
 import { fetchSellerFollowStatus, toggleSellerFollow } from '../../api/sellerFollowRepository';
+import { fetchSellerReviews, type PublicSellerReview } from '../../api/sellerReviewsRepository';
 import { setUserBlockedRemote } from '../../api/userBlockRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { MarketplaceListingCard } from '../../components/discover/DiscoverMarketplaceCard';
@@ -29,6 +30,7 @@ import {
   formatShowDate,
   profileLinkDisplay,
   profileShowCard,
+  reviewSummaryLabel,
   safeProfileLinkUrl,
 } from '../../lib/sellerProfileView';
 import { useMarketplaceLayout } from '../../hooks/useMarketplaceLayout';
@@ -62,6 +64,8 @@ export function SellerShopScreen({ navigation, route }: Props) {
   const [following, setFollowing] = useState(false);
   const [shop, setShop] = useState<Awaited<ReturnType<typeof fetchSellerShop>>>(null);
   const [reportOpen, setReportOpen] = useState(false);
+  const [allReviews, setAllReviews] = useState<PublicSellerReview[] | null>(null);
+  const [loadingReviews, setLoadingReviews] = useState(false);
 
   const load = useCallback(
     async (opts?: { refresh?: boolean }) => {
@@ -145,6 +149,13 @@ export function SellerShopScreen({ navigation, route }: Props) {
       ],
     );
   }, [handle, navigation, sellerId, session?.access_token]);
+
+  const showAllReviews = useCallback(async () => {
+    setLoadingReviews(true);
+    const page = await fetchSellerReviews(sellerId, 1);
+    if (page) setAllReviews(page.reviews);
+    setLoadingReviews(false);
+  }, [sellerId]);
 
   const openShow = useCallback(
     (streamId: string) => {
@@ -300,7 +311,7 @@ export function SellerShopScreen({ navigation, route }: Props) {
           <View style={styles.trustCard}>
             <Text style={styles.sectionKicker}>Trust</Text>
             <Text style={styles.trustDesc}>{shop.trust.sellerLevelDescription}</Text>
-            {buildTrustRows(shop.trust).map((r, i) => (
+            {buildTrustRows(shop.trust, shop.reviews?.summary ?? null).map((r, i) => (
               <View key={r.label} style={[styles.trustRow, i === 0 && styles.trustRowFirst]}>
                 <Text style={styles.trustLabel}>{r.label}</Text>
                 <Text style={styles.trustValue}>{r.value}</Text>
@@ -389,6 +400,43 @@ export function SellerShopScreen({ navigation, route }: Props) {
         )}
         ListFooterComponent={
           <View style={styles.footer}>
+            {shop.reviews ? (
+              <View style={styles.recentBlock}>
+                <View style={styles.recentHead}>
+                  <Text style={styles.sectionTitle}>Reviews</Text>
+                  {shop.reviews.summary.count > 0 ? (
+                    <Text style={styles.recentCount}>{reviewSummaryLabel(shop.reviews.summary)} · verified buyers</Text>
+                  ) : null}
+                </View>
+                {shop.reviews.summary.count === 0 ? (
+                  <Text style={styles.reviewEmpty}>No reviews yet. Buyers can review a seller after delivery.</Text>
+                ) : (
+                  <View style={styles.recentList}>
+                    {(allReviews ?? shop.reviews.recent).map((r, i) => (
+                      <View key={r.id} style={[styles.reviewRow, i > 0 && styles.recentRowDivider]}>
+                        <View style={styles.reviewHead}>
+                          <Text style={styles.reviewStars}>
+                            {'★'.repeat(r.rating)}
+                            <Text style={styles.reviewStarsOff}>{'★'.repeat(5 - r.rating)}</Text>
+                          </Text>
+                          <Text style={styles.reviewBuyer}>@{r.buyer.username}</Text>
+                          <Text style={styles.recentMeta}>{formatShowDate(r.createdAt)}</Text>
+                        </View>
+                        {r.body ? <Text style={styles.reviewBody}>{r.body}</Text> : null}
+                        {r.tags.length ? <Text style={styles.reviewTags}>{r.tags.join(' · ')}</Text> : null}
+                      </View>
+                    ))}
+                  </View>
+                )}
+                {!allReviews && shop.reviews.summary.count > shop.reviews.recent.length ? (
+                  <Pressable onPress={() => void showAllReviews()} disabled={loadingReviews} hitSlop={8}>
+                    <Text style={styles.safetyLink}>
+                      {loadingReviews ? 'Loading…' : `See all ${shop.reviews.summary.count} reviews`}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
             {shop.shows?.recent.length ? (
               <View style={styles.recentBlock}>
                 <View style={styles.recentHead}>
@@ -547,6 +595,14 @@ const styles = StyleSheet.create({
   recentRowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   recentTitle: { flex: 1, fontSize: 14, fontWeight: '600', color: colors.textPrimary },
   recentMeta: { fontSize: 12, color: colors.textMuted },
+  reviewEmpty: { fontSize: 13, color: colors.textMuted },
+  reviewRow: { paddingVertical: spacing.md, gap: 4 },
+  reviewHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  reviewStars: { fontSize: 13, color: colors.gold },
+  reviewStarsOff: { color: colors.border },
+  reviewBuyer: { flex: 1, fontSize: 12, fontWeight: '700', color: colors.textSecondary },
+  reviewBody: { fontSize: 14, lineHeight: 20, color: colors.textPrimary },
+  reviewTags: { fontSize: 11, color: colors.textMuted },
   safetyRow: { flexDirection: 'row', gap: spacing.xl, justifyContent: 'center' },
   safetyLink: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
   safetyLinkDanger: { color: colors.live, fontSize: 13, fontWeight: '600' },

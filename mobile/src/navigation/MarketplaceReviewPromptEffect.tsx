@@ -7,8 +7,8 @@ import { rootNavigationRef } from './rootNavigationRef';
 
 /** Prompts for completed marketplace orders needing reviews. */
 export function MarketplaceReviewPromptEffect() {
-  const { user } = useAuth();
-  const { pending, scan, promptNext } = useMarketplaceReviewPrompts(user?.id);
+  const { user, session } = useAuth();
+  const { pending, scan, promptNext } = useMarketplaceReviewPrompts(user?.id, session?.access_token);
 
   useEffect(() => {
     const task = deferAfterFirstPaint(() => {

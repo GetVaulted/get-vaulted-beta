@@ -6,7 +6,7 @@ import {
   type BuyerOrder,
   type BuyerOrderBucket,
 } from '../api/ordersRepository';
-import { hasReviewedReference } from '../platform/platformStore';
+import { hasReviewedSellerOrder } from '../api/sellerReviewsRepository';
 
 export function useBuyerOrders(userId: string | undefined, accessToken: string | undefined) {
   const [orders, setOrders] = useState<BuyerOrder[]>([]);
@@ -27,7 +27,7 @@ export function useBuyerOrders(userId: string | undefined, accessToken: string |
       const reviewable = rows.filter((o) => isOrderCompleteForReview(o.status));
       const entries = await Promise.all(
         reviewable.map(async (o) => {
-          const done = await hasReviewedReference(userId, o.id, 'buyer_to_seller');
+          const done = await hasReviewedSellerOrder(userId, o.id, accessToken);
           return [o.id, done] as const;
         }),
       );

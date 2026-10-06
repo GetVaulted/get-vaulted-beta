@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import {
   fetchCompletedOrdersForUser,
   isOrderCompleteForReview,
   type VaultOrderRow,
 } from '../api/ordersRepository';
+import { hasReviewedSellerOrder } from '../api/sellerReviewsRepository';
 import { hasReviewedReference } from '../platform/platformStore';
 import { markReviewReminderSent, wasReviewReminderSent } from '../platform/orderReviewStore';
 import { notifyReviewReminder } from '../platform/notificationStore';
@@ -18,8 +19,11 @@ export type PendingOrderReview = {
   subjectDisplayName: string;
 };
 
-export function useMarketplaceReviewPrompts(userId: string | undefined) {
+export function useMarketplaceReviewPrompts(userId: string | undefined, accessToken?: string | null) {
   const [pending, setPending] = useState<PendingOrderReview[]>([]);
+  // A ref so a silent token refresh doesn't re-run the scan (and re-prompt).
+  const tokenRef = useRef(accessToken);
+  tokenRef.current = accessToken;
 
   const scan = useCallback(async () => {
     if (!userId) {
@@ -35,7 +39,10 @@ export function useMarketplaceReviewPrompts(userId: string | undefined) {
       const asBuyer = order.buyerId === userId;
       const reviewType: ReviewType = asBuyer ? 'buyer_to_seller' : 'seller_to_buyer';
       const subjectUserId = asBuyer ? order.sellerId : order.buyerId;
-      const already = await hasReviewedReference(userId, order.id, reviewType);
+      const already =
+        reviewType === 'buyer_to_seller'
+          ? await hasReviewedSellerOrder(userId, order.id, tokenRef.current)
+          : await hasReviewedReference(userId, order.id, reviewType);
       if (already) continue;
 
       const subjectDisplayName = asBuyer

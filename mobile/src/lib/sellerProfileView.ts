@@ -124,11 +124,21 @@ export function profileShowCard(shows: ProfileShows | null | undefined): Profile
   return null;
 }
 
-export function buildTrustRows(trust: ProfileTrust): { label: string; value: string }[] {
+/** `4.8 ★ (12)` or `None yet`. */
+export function reviewSummaryLabel(summary: { count: number; average: number | null } | null | undefined): string {
+  if (!summary || summary.count <= 0 || summary.average == null) return 'None yet';
+  return `${summary.average.toFixed(1)} ★ (${summary.count.toLocaleString('en-US')})`;
+}
+
+export function buildTrustRows(
+  trust: ProfileTrust,
+  reviews?: { count: number; average: number | null } | null,
+): { label: string; value: string }[] {
   return [
     { label: 'Seller level', value: trust.sellerLevelLabel },
     { label: 'Orders completed', value: trust.ordersCompleted.toLocaleString('en-US') },
     { label: 'Member since', value: formatMemberSince(trust.memberSince) },
     { label: 'Email', value: trust.emailVerified ? 'Verified' : 'Not verified' },
+    ...(reviews !== undefined ? [{ label: 'Buyer reviews', value: reviewSummaryLabel(reviews) }] : []),
   ];
 }
