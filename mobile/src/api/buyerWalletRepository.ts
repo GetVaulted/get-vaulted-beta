@@ -33,7 +33,7 @@ export type BuyerWalletSummary = {
   referralCreditUsd: number;
   /** Earned but still inside the hold window — not yet spendable. */
   referralCreditPendingUsd?: number;
-  /** Referrer's own username — the referral code, and the `?ref=` value for their join link. */
+  /** Secret referral code used in `?ref=` on the join link (not the username). */
   referralCode?: string;
   /** Count of distinct friends who have earned this user a referrer credit (excludes voided). */
   referralSuccessfulReferrals?: number;
@@ -148,9 +148,13 @@ export async function createBuyerSetupIntent(
 ): Promise<BuyerSetupIntentPayload> {
   requireApiBase();
   if (!accessToken?.trim()) throw new Error('Sign in to add a payment method.');
-  const res = await fetchWebApiAuthed('/api/account/payment-methods/setup-intent', accessToken, {
-    method: 'POST',
-  });
+  // Stripe customer + SetupIntent can exceed the default 15s mobile timeout on cold API.
+  const res = await fetchWebApiAuthed(
+    '/api/account/payment-methods/setup-intent',
+    accessToken,
+    { method: 'POST' },
+    { timeoutMs: 45_000 },
+  );
   const j = (await res.json().catch(() => ({}))) as {
     clientSecret?: string;
     publishableKey?: string;
@@ -181,8 +185,90 @@ export async function createBuyerSetupIntent(
     cashAppPayEnabled: j.cashAppPayEnabled === true,
     amazonPayEnabled: j.amazonPayEnabled === true,
     paypalEnabled: j.paypalEnabled === true,
-    venmoEnabled: j.venmoEnabled === true,
+    venmoEnabled: j.venmoEnabled !== false,
     paymentMethodTypes: Array.isArray(j.paymentMethodTypes) ? j.paymentMethodTypes : ['card'],
+  };
+}
+
+/**
+ * Start Venmo linking (PayPal Orders save-during-purchase).
+ */
+export async function startBuyerVenmoSetup(accessToken: string | undefined): Promise<{
+  authorizeUrl?: string;
+  paymentMethodId?: string;
+}> {
+  requireApiBase();
+  if (!accessToken?.trim()) throw new Error('Sign in to connect Venmo.');
+  const res = await fetchWebApiAuthed('/api/account/payment-methods/venmo-setup', accessToken, {
+    method: 'POST',
+    body: JSON.stringify({ mobileReturn: true }),
+  });
+  const raw = await res.text();
+  let j: {
+    authorizeUrl?: string;
+    paymentMethodId?: string;
+    error?: string;
+    code?: string;
+    issue?: string;
+    debugId?: string;
+  } = {};
+  try {
+    j = JSON.parse(raw) as typeof j;
+  } catch {
+    /* non-JSON body */
+  }
+  if (!res.ok) {
+    const detail = [j.error, j.issue ? `(${j.issue})` : null, j.debugId ? `debug ${j.debugId}` : null]
+      .filter(Boolean)
+      .join(' ');
+    if (detail) throw new Error(detail);
+    throw new Error(
+      `Venmo linking failed (HTTP ${res.status}). ${raw.replace(/\s+/g, ' ').trim().slice(0, 180) || 'Empty response from server — redeploy may still be in progress.'}`,
+    );
+  }
+  return {
+    authorizeUrl: typeof j.authorizeUrl === 'string' ? j.authorizeUrl : undefined,
+    paymentMethodId: typeof j.paymentMethodId === 'string' ? j.paymentMethodId : undefined,
+  };
+}
+
+/** Start PayPal Wallet linking (PayPal Orders save-during-purchase). */
+export async function startBuyerPayPalSetup(accessToken: string | undefined): Promise<{
+  authorizeUrl?: string;
+  paymentMethodId?: string;
+}> {
+  requireApiBase();
+  if (!accessToken?.trim()) throw new Error('Sign in to connect PayPal.');
+  const res = await fetchWebApiAuthed('/api/account/payment-methods/paypal-setup', accessToken, {
+    method: 'POST',
+    body: JSON.stringify({ mobileReturn: true }),
+  });
+  const raw = await res.text();
+  let j: {
+    authorizeUrl?: string;
+    paymentMethodId?: string;
+    error?: string;
+    code?: string;
+    issue?: string;
+    debugId?: string;
+  } = {};
+  try {
+    j = JSON.parse(raw) as typeof j;
+  } catch {
+    /* non-JSON body */
+  }
+  if (!res.ok) {
+    const detail = [j.error, j.issue ? `(${j.issue})` : null, j.debugId ? `debug ${j.debugId}` : null]
+      .filter(Boolean)
+      .join(' ');
+    if (detail) throw new Error(detail);
+    throw new Error(
+      `PayPal linking failed (HTTP ${res.status}). ${raw.replace(/\s+/g, ' ').trim().slice(0, 180) || 'Empty response from server — redeploy may still be in progress.'}`,
+    );
+  }
+  return {
+    authorizeUrl: typeof j.authorizeUrl === 'string' ? j.authorizeUrl : undefined,
+    paymentMethodId: typeof j.paymentMethodId === 'string' ? j.paymentMethodId : undefined,
   };
 }
 
@@ -235,22 +321,27 @@ export async function updateBuyerShippingAddress(
 ): Promise<void> {
   requireApiBase();
   if (!accessToken?.trim()) throw new Error('Sign in to save your address.');
-  const res = await fetchWebApiAuthed(`/api/account/addresses/${encodeURIComponent(addressId)}`, accessToken, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      type: 'shipping',
-      name: input.name.trim(),
-      fullName: input.fullName.trim(),
-      line1: input.line1.trim(),
-      line2: input.line2?.trim() ? input.line2.trim() : null,
-      city: input.city.trim(),
-      state: input.state.trim(),
-      postalCode: input.postalCode.trim(),
-      country: input.country.trim().toUpperCase().slice(0, 2) || 'US',
-      phone: input.phone.trim(),
-      isDefault: input.isDefault !== false,
-    }),
-  });
+  const res = await fetchWebApiAuthed(
+    `/api/account/addresses/${encodeURIComponent(addressId)}`,
+    accessToken,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        type: 'shipping',
+        name: input.name.trim(),
+        fullName: input.fullName.trim(),
+        line1: input.line1.trim(),
+        line2: input.line2?.trim() ? input.line2.trim() : null,
+        city: input.city.trim(),
+        state: input.state.trim(),
+        postalCode: input.postalCode.trim(),
+        country: input.country.trim().toUpperCase().slice(0, 2) || 'US',
+        phone: input.phone.trim(),
+        isDefault: input.isDefault !== false,
+      }),
+    },
+    { timeoutMs: 45_000 },
+  );
   const j = (await res.json().catch(() => ({}))) as { error?: string; messages?: string[] };
   if (!res.ok) {
     const primary = typeof j.error === 'string' ? j.error : 'Could not update address.';
@@ -298,10 +389,15 @@ export async function finalizeBuyerPaymentMethodSetup(
     hasClientSecret: Boolean(args.clientSecret),
   });
 
-  const res = await fetchWebApiAuthed('/api/account/payment-methods/finalize', accessToken, {
-    method: 'POST',
-    body: JSON.stringify(args),
-  });
+  const res = await fetchWebApiAuthed(
+    '/api/account/payment-methods/finalize',
+    accessToken,
+    {
+      method: 'POST',
+      body: JSON.stringify(args),
+    },
+    { timeoutMs: 45_000 },
+  );
   const j = (await res.json().catch(() => ({}))) as {
     paymentMethodId?: string;
     expMonth?: number;
@@ -349,23 +445,29 @@ export async function createBuyerShippingAddress(
 ): Promise<void> {
   requireApiBase();
   if (!accessToken?.trim()) throw new Error('Sign in to save your address.');
-  const res = await fetchWebApiAuthed('/api/account/addresses', accessToken, {
-    method: 'POST',
-    body: JSON.stringify({
-      type: 'shipping',
-      name: input.name.trim(),
-      fullName: input.fullName.trim(),
-      line1: input.line1.trim(),
-      line2: input.line2?.trim() ? input.line2.trim() : null,
-      city: input.city.trim(),
-      state: input.state.trim(),
-      postalCode: input.postalCode.trim(),
-      country: input.country.trim().toUpperCase().slice(0, 2) || 'US',
-      phone: input.phone.trim(),
-      isDefault: input.isDefault !== false,
-      isVerified: false,
-    }),
-  });
+  // Address create runs Shippo validation — allow longer than the default 15s.
+  const res = await fetchWebApiAuthed(
+    '/api/account/addresses',
+    accessToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'shipping',
+        name: input.name.trim(),
+        fullName: input.fullName.trim(),
+        line1: input.line1.trim(),
+        line2: input.line2?.trim() ? input.line2.trim() : null,
+        city: input.city.trim(),
+        state: input.state.trim(),
+        postalCode: input.postalCode.trim(),
+        country: input.country.trim().toUpperCase().slice(0, 2) || 'US',
+        phone: input.phone.trim(),
+        isDefault: input.isDefault !== false,
+        isVerified: false,
+      }),
+    },
+    { timeoutMs: 45_000 },
+  );
   const j = (await res.json().catch(() => ({}))) as { error?: string; messages?: string[] };
   if (!res.ok) {
     const primary = typeof j.error === 'string' ? j.error : 'Could not save address.';

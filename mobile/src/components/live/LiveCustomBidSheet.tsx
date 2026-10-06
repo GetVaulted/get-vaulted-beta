@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  LIVE_CUSTOM_BID_DEFAULT_MODE,
   LIVE_CUSTOM_BID_MODE_COPY,
   resolveLiveCustomBidPayload,
   type LiveCustomBidMode,
@@ -47,23 +48,30 @@ export function LiveCustomBidSheet({
 }: Props) {
   const insets = useSafeAreaInsets();
   const [amountDraft, setAmountDraft] = useState('');
-  const [mode, setMode] = useState<LiveCustomBidMode>('exact');
+  const [mode, setMode] = useState<LiveCustomBidMode>(LIVE_CUSTOM_BID_DEFAULT_MODE);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) return;
     setAmountDraft('');
-    setMode('exact');
+    setMode(reserveSupported ? LIVE_CUSTOM_BID_DEFAULT_MODE : 'exact');
+    setError(null);
+  }, [visible, minNextBidUsd, reserveSupported]);
+
+  // Keep the draft/error in sync when the live min advances while the sheet is open (e.g. outbid).
+  useEffect(() => {
+    if (!visible) return;
     setError(null);
   }, [visible, minNextBidUsd]);
 
-  const modeCopy = mode === 'reserve' ? LIVE_CUSTOM_BID_MODE_COPY.reserve : LIVE_CUSTOM_BID_MODE_COPY.exact;
+  const effectiveMode: LiveCustomBidMode =
+    reserveSupported && mode === 'reserve' ? 'reserve' : 'exact';
 
   const submit = async () => {
     const entered = Number.parseFloat(amountDraft.trim());
     try {
       const payload = resolveLiveCustomBidPayload({
-        mode: reserveSupported && mode === 'reserve' ? 'reserve' : 'exact',
+        mode: effectiveMode,
         enteredUsd: entered,
         minNextBidUsd,
       });
@@ -86,8 +94,8 @@ export function LiveCustomBidSheet({
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
           <Text style={styles.helper}>
             {currentBidUsd != null && Number.isFinite(currentBidUsd)
-              ? `Current bid ${fmtUsd(currentBidUsd)} · Hold to Bid for ${fmtUsd(minNextBidUsd)} or enter a higher amount below.`
-              : `Hold to Bid for ${fmtUsd(minNextBidUsd)} or enter a custom amount below.`}
+              ? `Current bid ${fmtUsd(currentBidUsd)} · next bid ${fmtUsd(minNextBidUsd)}. Enter your max below (default), or switch to Exact to jump the hammer.`
+              : `Next bid ${fmtUsd(minNextBidUsd)}. Enter your max below (default), or switch to Exact to jump the hammer.`}
           </Text>
 
           <Text style={styles.label}>Amount</Text>
@@ -107,19 +115,30 @@ export function LiveCustomBidSheet({
 
           <View style={styles.modeRow}>
             <View style={styles.modeCopy}>
-              <Text style={styles.modeLabel}>{modeCopy.label}</Text>
-              <Text style={styles.modeDescription}>{modeCopy.description}</Text>
+              <Text style={styles.modeLabel}>{LIVE_CUSTOM_BID_MODE_COPY.exact.label}</Text>
+              <Text style={styles.modeDescription}>
+                {effectiveMode === 'exact'
+                  ? LIVE_CUSTOM_BID_MODE_COPY.exact.description
+                  : 'Off = Max bid (default). Bids the minimum now and auto-raises up to your amount.'}
+              </Text>
               {!reserveSupported ? (
                 <Text style={styles.modeNote}>Max bid is not available for marketplace listing lots.</Text>
-              ) : null}
+              ) : (
+                <Text style={styles.modeNote}>
+                  {effectiveMode === 'exact'
+                    ? 'Exact places your full amount immediately.'
+                    : 'Recommended — you only pay one increment above the competition.'}
+                </Text>
+              )}
             </View>
             <Switch
-              value={mode === 'reserve'}
-              onValueChange={(v) => setMode(v ? 'reserve' : 'exact')}
+              value={effectiveMode === 'exact'}
+              onValueChange={(v) => setMode(v ? 'exact' : 'reserve')}
               disabled={busy || !reserveSupported}
               trackColor={{ false: 'rgba(255,255,255,0.15)', true: colors.gold }}
               thumbColor="#fff"
-              accessibilityLabel="Toggle max bid mode"
+              accessibilityLabel="Exact bid"
+              accessibilityState={{ checked: effectiveMode === 'exact' }}
             />
           </View>
 
@@ -133,7 +152,9 @@ export function LiveCustomBidSheet({
             {busy ? (
               <ActivityIndicator color={colors.background} size="small" />
             ) : (
-              <Text style={styles.submitTxt}>Place bid</Text>
+              <Text style={styles.submitTxt}>
+                {effectiveMode === 'reserve' ? 'Set max bid' : 'Place exact bid'}
+              </Text>
             )}
           </Pressable>
         </ScrollView>

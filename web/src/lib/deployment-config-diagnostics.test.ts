@@ -25,10 +25,29 @@ describe("buildDeploymentConfigDiagnostics", () => {
     expect(d.stripeKeysAligned).toBe(true);
     expect(d.stripeProductionReady).toBe(true);
     expect(d.stripeConnectWebhookSecretConfigured).toBe(false);
+    expect(d.stripeConnectPublicAppUrl).toBe("https://shopgetvaulted.com");
+    expect(d.stripeConnectPublicAppUrlExplicit).toBe(false);
+    expect(d.stripeTaxEnabled).toBe(true);
+    expect(d.cronSecretConfigured).toBe(false);
     expect(d.resendEmailReady).toBe(true);
     expect(JSON.stringify(d)).not.toContain("sk_live_");
     expect(JSON.stringify(d)).not.toContain("whsec_");
     expect(JSON.stringify(d)).not.toContain("re_live_key");
+  });
+
+  it("reports connect public app URL, tax, and cron when configured", () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_live_123456789012345678901234");
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_live_123456789012345678901234");
+    vi.stubEnv("STRIPE_CONNECT_PUBLIC_APP_URL", "https://shopgetvaulted.com/");
+    vi.stubEnv("STRIPE_TAX_ENABLED", "1");
+    vi.stubEnv("CRON_SECRET", "cron-secret-value");
+
+    const d = buildDeploymentConfigDiagnostics();
+
+    expect(d.stripeConnectPublicAppUrl).toBe("https://shopgetvaulted.com");
+    expect(d.stripeConnectPublicAppUrlExplicit).toBe(true);
+    expect(d.stripeTaxEnabled).toBe(true);
+    expect(d.cronSecretConfigured).toBe(true);
   });
 
   it("reports connect webhook secret when configured", () => {

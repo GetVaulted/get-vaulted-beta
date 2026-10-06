@@ -45,5 +45,13 @@ export function configureGlobalTextScaling(): void {
   const inputDefaults = (TextInput as unknown as { defaultProps?: Partial<TextInputProps> }).defaultProps ?? {};
   inputDefaults.allowFontScaling = APP_TEXT_PROPS.allowFontScaling;
   inputDefaults.maxFontSizeMultiplier = APP_TEXT_PROPS.maxFontSizeMultiplier;
+  // Turn on the native keyboard's autocorrect, spellcheck, and sentence capitalization for every
+  // free-text field app-wide (chat, DMs, listing descriptions, reviews, etc.). Fields that must NOT
+  // autocorrect — email, password, username/handle — set `autoCorrect={false}` / `autoCapitalize="none"`
+  // on the instance, which overrides these defaults. Numeric fields use a number pad, so the keyboard
+  // never offers corrections there.
+  inputDefaults.autoCorrect = inputDefaults.autoCorrect ?? true;
+  inputDefaults.spellCheck = inputDefaults.spellCheck ?? true;
+  inputDefaults.autoCapitalize = inputDefaults.autoCapitalize ?? 'sentences';
   (TextInput as unknown as { defaultProps?: Partial<TextInputProps> }).defaultProps = inputDefaults;
 }

@@ -4,6 +4,13 @@ import { prisma } from "@/lib/prisma";
 const MAX_DIRECT_RECIPIENTS = 25;
 const MAX_FOLLOWER_BLAST = 200;
 
+/**
+ * How often a seller may blast "I'm live" to their entire follower list for the SAME room.
+ * Without this, re-tapping "Notify followers" (once per item, once an hour, whatever) re-notifies
+ * every follower every time - this is what was flooding buyers with pushes (2026-09-15 investigation).
+ */
+const FOLLOWER_NOTIFY_COOLDOWN_MS = 30 * 60 * 1000;
+
 export type ShareLiveRoomInAppInput = {
   senderId: string;
   liveRoomId: string;
@@ -44,7 +51,7 @@ export async function shareLiveRoomInApp(input: ShareLiveRoomInAppInput): Promis
   const [room, sender] = await Promise.all([
     prisma.liveRoom.findUnique({
       where: { id: liveRoomId },
-      select: { id: true, title: true, sellerId: true, status: true },
+      select: { id: true, title: true, sellerId: true, status: true, discoveryVisibility: true },
     }),
     prisma.user.findUnique({
       where: { id: senderId },
@@ -60,14 +67,35 @@ export async function shareLiveRoomInApp(input: ShareLiveRoomInAppInput): Promis
   const live = room.status === "live";
   const actionLine = live ? "Join the live show" : "Join when we go live";
   const bodyBase = note
-    ? `${showTitle} — ${actionLine}. "${note}"`
-    : `${showTitle} — ${actionLine}.`;
+    ? `${showTitle} - ${actionLine}. "${note}"`
+    : `${showTitle} - ${actionLine}.`;
 
   let recipientIds: string[] = [...directIds];
 
   if (input.notifyFollowers) {
     if (room.sellerId !== senderId) {
       throw new Error("NOT_HOST");
+    }
+    // Private shows are invite-only - never blast the full follower list.
+    if (room.discoveryVisibility === "private") {
+      throw new Error("PRIVATE_NO_FOLLOWER_BLAST");
+    }
+    // Anti-spam: one follower-wide blast per room per cooldown window, no matter how many times
+    // the host taps "Notify followers". Scoped to this room's href, not a global per-seller lock,
+    // so a host running back-to-back different shows can still notify for each one.
+    const recentBlast = await prisma.notification.findFirst({
+      where: {
+        type: "live_room_share",
+        href,
+        createdAt: { gte: new Date(Date.now() - FOLLOWER_NOTIFY_COOLDOWN_MS) },
+      },
+      select: { createdAt: true },
+      orderBy: { createdAt: "desc" },
+    });
+    if (recentBlast) {
+      const elapsedMs = Date.now() - recentBlast.createdAt.getTime();
+      const retryAfterMinutes = Math.max(1, Math.ceil((FOLLOWER_NOTIFY_COOLDOWN_MS - elapsedMs) / 60000));
+      throw new Error(`FOLLOWER_NOTIFY_COOLDOWN:${retryAfterMinutes}`);
     }
     const followerRows = await prisma.sellerFollow.findMany({
       where: { sellerId: senderId },

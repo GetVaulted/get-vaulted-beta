@@ -11,6 +11,10 @@ import { BuyerWalletReadinessBanner } from "@/components/account/BuyerWalletRead
 
 type PmRow = { id: string; brand: string; last4: string; expMonth: number; expYear: number };
 
+function isVaultedPayPalRailPm(id: string): boolean {
+  return id.startsWith("venmo_") || id.startsWith("paypal_");
+}
+
 function paymentMethodIdFromSetupIntent(
   setupIntent: { payment_method?: string | { id?: string } | null } | null | undefined,
 ): string | null {
@@ -78,6 +82,11 @@ export function AccountPaymentMethodsPage() {
   const [rows, setRows] = useState<PmRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [stripeConfigured, setStripeConfigured] = useState(true);
+  const [venmoEnabled, setVenmoEnabled] = useState(false);
+  const [paypalEnabled, setPaypalEnabled] = useState(false);
+  const [venmoBusy, setVenmoBusy] = useState(false);
+  const [paypalBusy, setPaypalBusy] = useState(false);
+  const [railError, setRailError] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ text: string; tone: "success" | "error" | "warning" } | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [formBusy, setFormBusy] = useState(false);
@@ -106,19 +115,28 @@ export function AccountPaymentMethodsPage() {
     setLoading(true);
     setBanner(null);
     try {
-      const res = await fetch("/api/account/payment-methods", { cache: "no-store", credentials: "same-origin" });
-      const j = (await res.json().catch(() => ({}))) as {
+      const [pmRes, walletRes] = await Promise.all([
+        fetch("/api/account/payment-methods", { cache: "no-store", credentials: "same-origin" }),
+        fetch("/api/account/wallet", { cache: "no-store", credentials: "same-origin" }),
+      ]);
+      const j = (await pmRes.json().catch(() => ({}))) as {
         paymentMethods?: PmRow[];
         stripeConfigured?: boolean;
         message?: string;
       };
       setStripeConfigured(j.stripeConfigured !== false);
-      if (!res.ok && typeof j.message !== "string") {
+      if (!pmRes.ok && typeof j.message !== "string") {
         setBanner({ text: "Could not load saved cards. Try again.", tone: "error" });
       } else if (typeof j.message === "string") {
         setBanner({ text: j.message, tone: "warning" });
       }
       setRows(Array.isArray(j.paymentMethods) ? j.paymentMethods : []);
+
+      const walletJson = (await walletRes.json().catch(() => ({}))) as {
+        wallet?: { capabilities?: { venmo?: boolean; paypal?: boolean } };
+      };
+      setVenmoEnabled(walletJson.wallet?.capabilities?.venmo === true);
+      setPaypalEnabled(walletJson.wallet?.capabilities?.paypal === true);
     } finally {
       setLoading(false);
     }
@@ -134,6 +152,38 @@ export function AccountPaymentMethodsPage() {
     if (status !== "authenticated") return;
     void loadList();
   }, [loadList, status]);
+
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    const paypal = searchParams?.get("paypal")?.trim();
+    const venmo = searchParams?.get("venmo")?.trim();
+    if (!paypal && !venmo) return;
+
+    const reason = searchParams?.get("reason")?.trim();
+    router.replace("/account/payment-methods");
+    void loadList().then(() => {
+      if (paypal === "connected") {
+        setBanner({ text: "PayPal connected.", tone: "success" });
+        setWalletRefreshKey((k) => k + 1);
+        return;
+      }
+      if (venmo === "connected") {
+        setBanner({ text: "Venmo connected.", tone: "success" });
+        setWalletRefreshKey((k) => k + 1);
+        return;
+      }
+      if (paypal === "cancelled" || venmo === "cancelled") {
+        setBanner({ text: "Linking cancelled.", tone: "warning" });
+        return;
+      }
+      if (paypal === "error" || venmo === "error") {
+        setBanner({
+          text: reason ? `Linking failed (${reason}).` : "Linking failed. Try again.",
+          tone: "error",
+        });
+      }
+    });
+  }, [loadList, router, searchParams, status]);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -328,6 +378,84 @@ export function AccountPaymentMethodsPage() {
     setFormBusy(false);
   };
 
+  const startVenmoSetup = useCallback(async () => {
+    setVenmoBusy(true);
+    setRailError(null);
+    try {
+      const res = await fetch("/api/account/payment-methods/venmo-setup", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const raw = await res.text();
+      let j: { authorizeUrl?: string; paymentMethodId?: string; error?: string } = {};
+      try {
+        j = JSON.parse(raw) as typeof j;
+      } catch {
+        /* non-JSON */
+      }
+      if (!res.ok) {
+        setRailError(j.error || `Venmo linking failed (HTTP ${res.status}).`);
+        return;
+      }
+      if (typeof j.authorizeUrl === "string" && j.authorizeUrl.trim()) {
+        window.location.assign(j.authorizeUrl.trim());
+        return;
+      }
+      if (typeof j.paymentMethodId === "string" && j.paymentMethodId.trim()) {
+        setBanner({ text: "Venmo connected.", tone: "success" });
+        setWalletRefreshKey((k) => k + 1);
+        void loadList();
+        return;
+      }
+      setRailError("Venmo linking did not return a next step.");
+    } catch {
+      setRailError("Could not start Venmo linking.");
+    } finally {
+      setVenmoBusy(false);
+    }
+  }, [loadList]);
+
+  const startPayPalSetup = useCallback(async () => {
+    setPaypalBusy(true);
+    setRailError(null);
+    try {
+      const res = await fetch("/api/account/payment-methods/paypal-setup", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const raw = await res.text();
+      let j: { authorizeUrl?: string; paymentMethodId?: string; error?: string } = {};
+      try {
+        j = JSON.parse(raw) as typeof j;
+      } catch {
+        /* non-JSON */
+      }
+      if (!res.ok) {
+        setRailError(j.error || `PayPal linking failed (HTTP ${res.status}).`);
+        return;
+      }
+      if (typeof j.authorizeUrl === "string" && j.authorizeUrl.trim()) {
+        window.location.assign(j.authorizeUrl.trim());
+        return;
+      }
+      if (typeof j.paymentMethodId === "string" && j.paymentMethodId.trim()) {
+        setBanner({ text: "PayPal connected.", tone: "success" });
+        setWalletRefreshKey((k) => k + 1);
+        void loadList();
+        return;
+      }
+      setRailError("PayPal linking did not return a next step.");
+    } catch {
+      setRailError("Could not start PayPal linking.");
+    } finally {
+      setPaypalBusy(false);
+    }
+  }, [loadList]);
+
   if (status === "loading" || status === "unauthenticated") {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
@@ -353,10 +481,10 @@ export function AccountPaymentMethodsPage() {
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Account</p>
           <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground">Wallet</h1>
           <p className="mt-1 max-w-2xl text-sm text-zinc-500">
-            Add a card and shipping address once — used for live shows, auction wins, and checkout.
+            Add a payment method and shipping address once — used for live shows, auction wins, and checkout.
           </p>
           <div className="mt-4">
-            <AccountOrdersNav active="payments" />
+            <AccountOrdersNav active="payments" mode="buyer" />
           </div>
         </header>
 
@@ -385,7 +513,7 @@ export function AccountPaymentMethodsPage() {
             <div className="rounded-2xl border border-white/[0.08] bg-[#0a0a0d]/80 px-6 py-12 text-center">
               <p className="text-sm font-medium text-zinc-200">No payment method added yet</p>
               <p className="mt-2 text-xs text-zinc-500">
-                Add a debit or credit card to use when you win auctions or complete purchases.
+                Add a card, PayPal, or Venmo to use when you win auctions or complete purchases.
               </p>
               {stripeConfigured ? (
                 <button
@@ -410,11 +538,41 @@ export function AccountPaymentMethodsPage() {
                   <p className="text-sm font-semibold text-zinc-100">
                     {r.brand} ···· {r.last4}
                   </p>
-                  <p className="text-[11px] text-zinc-500">Expires {formatExp(r.expMonth, r.expYear)}</p>
+                  {isVaultedPayPalRailPm(r.id) ? (
+                    <p className="text-[11px] text-zinc-500">Saved for live &amp; checkout</p>
+                  ) : (
+                    <p className="text-[11px] text-zinc-500">Expires {formatExp(r.expMonth, r.expYear)}</p>
+                  )}
                 </li>
               ))}
             </ul>
           )}
+
+          {!loading && (venmoEnabled || paypalEnabled) ? (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {venmoEnabled ? (
+                <button
+                  type="button"
+                  disabled={venmoBusy || paypalBusy}
+                  onClick={() => void startVenmoSetup()}
+                  className="inline-flex h-10 items-center justify-center rounded-full border border-white/15 px-5 text-xs font-bold uppercase tracking-wide text-zinc-100 transition hover:border-gold/40 hover:bg-gold/10 disabled:opacity-50"
+                >
+                  {venmoBusy ? "Starting Venmo…" : "Connect Venmo"}
+                </button>
+              ) : null}
+              {paypalEnabled ? (
+                <button
+                  type="button"
+                  disabled={paypalBusy || venmoBusy}
+                  onClick={() => void startPayPalSetup()}
+                  className="inline-flex h-10 items-center justify-center rounded-full border border-white/15 px-5 text-xs font-bold uppercase tracking-wide text-zinc-100 transition hover:border-gold/40 hover:bg-gold/10 disabled:opacity-50"
+                >
+                  {paypalBusy ? "Starting PayPal…" : "Connect PayPal"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {railError ? <p className="text-xs font-medium text-rose-300">{railError}</p> : null}
 
           {!loading && rows.length > 0 && stripeConfigured ? (
             <button
@@ -453,7 +611,7 @@ export function AccountPaymentMethodsPage() {
               onClick={() => void submitCard()}
               className="mt-4 flex h-11 w-full max-w-sm items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright text-sm font-bold text-zinc-950 disabled:opacity-60"
             >
-              {formBusy ? "Saving…" : "Save card"}
+              {formBusy ? "Saving…" : "Save payment method"}
             </button>
           </section>
         ) : null}
@@ -461,8 +619,8 @@ export function AccountPaymentMethodsPage() {
         {status === "authenticated" ? <AccountWalletShippingSection /> : null}
 
         <p className="mt-10 text-[11px] leading-relaxed text-zinc-600">
-          Checkout supports card, Apple Pay, Google Pay, Link, and more. Affirm and Afterpay may appear on eligible
-          marketplace orders. Seller payouts are managed separately in Seller HQ.
+          Checkout supports card, Apple Pay, Google Pay, Link, PayPal, Venmo, and more. Affirm and Afterpay may appear on
+          eligible marketplace orders. Seller payouts are managed separately in Seller HQ.
         </p>
 
         <p className="mt-6 text-center text-xs text-zinc-600">

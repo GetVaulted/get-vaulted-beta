@@ -2,6 +2,7 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import type { LiveShowCarrierPreference } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import type { ProfileInput } from "@/lib/unified-shipping-engine";
+import { suggestSellerShippingProfileSourceSlugForCategory } from "@/lib/live-show-category-shipping-profile";
 
 export type SellerShippingProfileSeed = {
   sourceSlug: string;
@@ -231,7 +232,28 @@ export async function seedSellerShippingProfiles(
   return { count };
 }
 
+/**
+ * Regression (Sept 2026): this used to call `seedSellerShippingProfiles` unconditionally on
+ * every single call. That function loops over all 16 seed rows and `upsert`s each one, so every
+ * live room page load/poll — for every viewer — fired 16 sequential write queries against a
+ * seller who was, in the overwhelming majority of calls, already fully seeded. Sentry flagged
+ * this as an N+1 query pattern on `GET /api/live-rooms/[id]` and it was a major contributor to
+ * the database hitting its connection limit (EMAXCONN) during live shows. Worse, the upsert's
+ * `update` branch re-applies the hardcoded seed defaults every time, silently clobbering any
+ * customization a seller made via PATCH /api/account/seller/shipping-profiles.
+ *
+ * Fix: read first, and only pay the seeding cost when a seed slug is actually missing (a new
+ * seller, or a seed type added to the code after this seller was created).
+ */
 export async function getActiveSellerShippingProfiles(sellerId: string, db: Db = prisma) {
+  const existing = await db.sellerShippingProfile.findMany({
+    where: { sellerId, archivedAt: null },
+    orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+  });
+  const existingSlugs = new Set(existing.map((p) => p.sourceSlug));
+  const hasAllSeeds = SELLER_SHIPPING_PROFILE_SEEDS.every((seed) => existingSlugs.has(seed.sourceSlug));
+  if (hasAllSeeds) return existing;
+
   await seedSellerShippingProfiles(sellerId, db);
   return db.sellerShippingProfile.findMany({
     where: { sellerId, archivedAt: null },
@@ -242,6 +264,8 @@ export async function getActiveSellerShippingProfiles(sellerId: string, db: Db =
 export async function resolveDefaultSellerProfileForLiveShow(args: {
   sellerId: string;
   showDefaultSellerProfileId?: string | null;
+  /** Room category (Cards / Helmets / …) — used when the show has no explicit default profile. */
+  category?: string | null;
   db?: Db;
 }) {
   const db = args.db ?? prisma;
@@ -256,6 +280,11 @@ export async function resolveDefaultSellerProfileForLiveShow(args: {
     });
     if (explicit) return explicit;
   }
+  const categorySlug = suggestSellerShippingProfileSourceSlugForCategory(args.category);
+  const byCategory = await db.sellerShippingProfile.findFirst({
+    where: { sellerId: args.sellerId, sourceSlug: categorySlug, archivedAt: null },
+  });
+  if (byCategory) return byCategory;
   return db.sellerShippingProfile.findFirst({
     where: { sellerId: args.sellerId, archivedAt: null, isDefault: true },
   });
@@ -289,15 +318,38 @@ export function sellerShippingProfileToProfileInput(profile: {
   };
 }
 
-/** Break / team / spot commerce — item profile, then show default, then seeded break mailer. */
+/** Break / team / spot commerce — item profile, then show default, then category mailer/helmet. */
 export async function resolveBreakSpotSellerProfile(args: {
   sellerId: string;
   showDefaultSellerProfileId?: string | null;
   itemSellerProfileId?: string | null;
+  /** Room category so Helmets shows do not fall back to card-mailer rates. */
+  category?: string | null;
   db?: Db;
 }) {
   const db = args.db ?? prisma;
   await seedSellerShippingProfiles(args.sellerId, db);
+  const categorySlug = suggestSellerShippingProfileSourceSlugForCategory(args.category);
+  const categoryWantsHeavyParcel =
+    categorySlug === "full_size_helmet" || categorySlug === "mini_helmet";
+
+  async function profileBySlug(sourceSlug: string) {
+    return db.sellerShippingProfile.findFirst({
+      where: { sellerId: args.sellerId, sourceSlug, archivedAt: null },
+    });
+  }
+
+  /** Card-mailer on a Helmets show is almost always a wrong default inheritance — use helmet rates. */
+  async function preferCategoryOverCardMailer<T extends { id: string; sourceSlug: string }>(
+    profile: T | null,
+  ): Promise<T | null> {
+    if (!profile) return null;
+    if (categoryWantsHeavyParcel && profile.sourceSlug === "live_break_spot") {
+      return ((await profileBySlug(categorySlug)) as T | null) ?? profile;
+    }
+    return profile;
+  }
+
   if (args.itemSellerProfileId?.trim()) {
     const byItem = await db.sellerShippingProfile.findFirst({
       where: {
@@ -306,23 +358,25 @@ export async function resolveBreakSpotSellerProfile(args: {
         archivedAt: null,
       },
     });
-    if (byItem) return byItem;
+    const preferred = await preferCategoryOverCardMailer(byItem);
+    if (preferred) return preferred;
   }
   const showDefault = await resolveDefaultSellerProfileForLiveShow({
     sellerId: args.sellerId,
     showDefaultSellerProfileId: args.showDefaultSellerProfileId,
+    category: args.category,
     db,
   });
-  if (showDefault) return showDefault;
-  return db.sellerShippingProfile.findFirst({
-    where: { sellerId: args.sellerId, sourceSlug: "live_break_spot", archivedAt: null },
-  });
+  const preferredShow = await preferCategoryOverCardMailer(showDefault);
+  if (preferredShow) return preferredShow;
+  return profileBySlug(categorySlug);
 }
 
 export async function resolveSellerProfileForLiveRoomItem(args: {
   sellerId: string;
   sellerShippingProfileId?: string | null;
   showDefaultSellerProfileId?: string | null;
+  category?: string | null;
   db?: Db;
 }) {
   const db = args.db ?? prisma;
@@ -339,6 +393,7 @@ export async function resolveSellerProfileForLiveRoomItem(args: {
   return resolveDefaultSellerProfileForLiveShow({
     sellerId: args.sellerId,
     showDefaultSellerProfileId: args.showDefaultSellerProfileId,
+    category: args.category,
     db,
   });
 }

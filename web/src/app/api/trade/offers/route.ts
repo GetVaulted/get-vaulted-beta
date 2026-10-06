@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { expireOfferIfNeeded } from "@/lib/trade-offers";
 import { notifyTradeOfferCreated } from "@/lib/trade-offer-notifications";
 import { checkRateLimit } from "@/lib/request-rate-limit";
+import { isUserBlocked } from "@/lib/user-block";
 import {
   assertTradeOfferListingAllowed,
   CommerceGuardError,
@@ -119,6 +120,12 @@ export async function POST(req: Request) {
   const recipientId = requestedRows[0].sellerId;
   if (!recipientId || recipientId === proposerId) {
     return NextResponse.json({ error: "You cannot create a trade with yourself." }, { status: 400 });
+  }
+
+  // A blocked user must not be able to bypass a block by opening a trade offer instead of a
+  // message thread (same rule as messages/route.ts — messaging security audit 2026-07).
+  if (await isUserBlocked(prisma, proposerId, recipientId)) {
+    return NextResponse.json({ error: "You cannot trade with this user." }, { status: 403 });
   }
 
   if (offeredRows.some((l) => l.sellerId !== proposerId)) {

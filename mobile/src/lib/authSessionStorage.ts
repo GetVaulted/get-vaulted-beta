@@ -21,7 +21,8 @@ function defaultRoot(): PersistRoot {
 }
 
 function storePath(): string | null {
-  const base = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+  // Prefer durable document storage — cache can be purged mid–Google OAuth and drop the PKCE verifier.
+  const base = FileSystem.documentDirectory ?? FileSystem.cacheDirectory;
   if (!base) return null;
   return `${base}gv-auth-store-v1.json`;
 }
@@ -87,6 +88,11 @@ async function useDiskPersistence(): Promise<boolean> {
   return prefCache;
 }
 
+/** PKCE code verifier must survive the Google browser hop even when “keep me logged in” is off. */
+function isPkceVerifierKey(key: string): boolean {
+  return key.includes('code-verifier');
+}
+
 /**
  * Persisted choice for “Keep me logged in”. When false, Supabase session lives in memory only
  * (lost when the app process ends).
@@ -105,12 +111,23 @@ export async function getKeepMeLoggedInPreference(): Promise<boolean> {
 /** Supabase Auth storage — disk file (native) / localStorage (web), or in-memory when “keep me logged in” is off. */
 export const supabaseAuthStorage = {
   getItem: async (key: string) => {
+    if (isPkceVerifierKey(key)) {
+      const root = await loadRoot();
+      return root.kv[key] ?? memory.get(key) ?? null;
+    }
     const disk = await useDiskPersistence();
     if (!disk) return memory.get(key) ?? null;
     const root = await loadRoot();
     return root.kv[key] ?? null;
   },
   setItem: async (key: string, value: string) => {
+    if (isPkceVerifierKey(key)) {
+      memory.set(key, value);
+      const root = await loadRoot();
+      root.kv[key] = value;
+      await saveRoot(root);
+      return;
+    }
     const disk = await useDiskPersistence();
     if (!disk) {
       memory.set(key, value);

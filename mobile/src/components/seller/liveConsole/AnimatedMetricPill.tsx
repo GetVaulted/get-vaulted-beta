@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
-import { colors, radii } from '../../../theme';
+import { colors, radii, vaultColors } from '../../../theme';
 
 export function AnimatedMetricPill({
   icon,
@@ -31,10 +31,10 @@ export function AnimatedMetricPill({
   return (
     <Animated.View style={[styles.wrap, glow && styles.wrapGlow, { transform: [{ scale }] }]}>
       <LinearGradient
-        colors={glow ? ['rgba(212,175,55,0.22)', 'rgba(8,8,10,0.9)'] : ['rgba(255,255,255,0.06)', 'rgba(8,8,10,0.88)']}
+        colors={glow ? ['rgba(203,163,92,0.22)', 'rgba(8,8,10,0.9)'] : ['rgba(255,255,255,0.06)', 'rgba(8,8,10,0.88)']}
         style={StyleSheet.absoluteFill}
       />
-      <Ionicons name={icon} size={13} color={glow ? colors.gold : colors.textMuted} />
+      <Ionicons name={icon} size={13} color={glow ? vaultColors.gold : colors.textMuted} />
       <View>
         <Text style={[styles.val, glow && styles.valGlow]}>{value}</Text>
         <Text style={styles.lbl}>{label}</Text>
@@ -57,13 +57,13 @@ const styles = StyleSheet.create({
     minWidth: 72,
   },
   wrapGlow: {
-    borderColor: 'rgba(212,175,55,0.45)',
-    shadowColor: '#D4AF37',
+    borderColor: 'rgba(203,163,92,0.45)',
+    shadowColor: '#CBA35C',
     shadowOpacity: 0.35,
     shadowRadius: 8,
     elevation: 4,
   },
   val: { fontSize: 14, fontWeight: '900', color: colors.textPrimary },
-  valGlow: { color: colors.gold },
+  valGlow: { color: vaultColors.gold },
   lbl: { fontSize: 9, fontWeight: '700', color: colors.textMuted, letterSpacing: 0.3 },
 });

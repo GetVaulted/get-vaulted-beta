@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 import { lc } from './liveConsoleTheme';
 import { QueueSaleTypePill } from './QueueSaleTypePill';
 
@@ -37,7 +37,7 @@ export function VaultQueueCarousel({
 
   if (queued.length === 0) {
     return (
-      <Text style={styles.empty}>Vault queue is empty — quick-add inventory or pull from listings.</Text>
+      <Text style={styles.empty}>Vault queue is empty — add a new lot, pull from your shop, or copy a prior show.</Text>
     );
   }
 
@@ -50,7 +50,7 @@ export function VaultQueueCarousel({
         return (
           <View key={item.id} style={styles.card}>
             <LinearGradient
-              colors={['rgba(212,175,55,0.08)', 'rgba(8,8,10,0.98)']}
+              colors={['rgba(203,163,92,0.08)', 'rgba(8,8,10,0.98)']}
               style={StyleSheet.absoluteFill}
             />
             {thumb ? (
@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
     width: 168,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.22)',
+    borderColor: 'rgba(203,163,92,0.22)',
     overflow: 'hidden',
     padding: spacing.sm,
     gap: 6,
@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
   thumb: { width: '100%', height: 92, borderRadius: radii.md, backgroundColor: 'rgba(0,0,0,0.35)' },
   thumbPh: { alignItems: 'center', justifyContent: 'center' },
   cardTitle: { fontSize: 14, fontWeight: '800', color: colors.textPrimary, minHeight: 36 },
-  bid: { fontSize: 13, fontWeight: '700', color: colors.gold },
+  bid: { fontSize: 13, fontWeight: '700', color: vaultColors.gold },
   tagRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   tag: { fontSize: 9, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase' },
   chip: {
@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 8,
     borderRadius: radii.md,
-    backgroundColor: colors.gold,
+    backgroundColor: vaultColors.gold,
   },
   pinBtnDisabled: { opacity: 0.45 },
   pinTxt: { fontWeight: '800', fontSize: 12, color: '#0a0a0a' },

@@ -81,6 +81,7 @@ export function useStageSubscribe({
     const el = videoRef.current;
     if (el && streamRef.current && el.srcObject === streamRef.current) {
       el.muted = muted;
+      el.volume = 1;
     }
   }, [muted, videoRef]);
 
@@ -131,6 +132,7 @@ export function useStageSubscribe({
       if (!el) return;
       if (el.srcObject !== stream) el.srcObject = stream;
       el.muted = mutedRef.current;
+      el.volume = 1;
       void el.play().catch(() => {
         /* autoplay may be blocked; the player's tap-for-sound UI handles it */
       });
@@ -139,6 +141,20 @@ export function useStageSubscribe({
     const fail = (reason: string) => {
       if (cancelled) return;
       logIvsWeb("stage subscribe failed", { roomId, reason, rejoinAttempts });
+      // #region agent log
+      fetch("http://127.0.0.1:7674/ingest/20fcfd2c-15bc-4e11-921b-7cb9232e12f6", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "dca6d1" },
+        body: JSON.stringify({
+          sessionId: "dca6d1",
+          hypothesisId: "H4",
+          location: "useStageSubscribe.ts:fail",
+          message: "buyer_stage_subscribe_failed",
+          data: { roomId, reason, rejoinAttempts },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       cbRef.current.onFailed(reason);
     };
 
@@ -218,6 +234,20 @@ export function useStageSubscribe({
       rejoinAttempts += 1;
       rejoinInFlight = true;
       logIvsWeb("stage subscribe rejoin", { roomId, trigger, attempt: rejoinAttempts });
+      // #region agent log
+      fetch("http://127.0.0.1:7674/ingest/20fcfd2c-15bc-4e11-921b-7cb9232e12f6", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "dca6d1" },
+        body: JSON.stringify({
+          sessionId: "dca6d1",
+          hypothesisId: "H4",
+          location: "useStageSubscribe.ts:attemptRejoin",
+          message: "buyer_stage_rejoin",
+          data: { roomId, trigger, attempt: rejoinAttempts },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       try {
         cbRef.current.onDisconnected?.();
         await teardownStage();
@@ -289,6 +319,25 @@ export function useStageSubscribe({
           ivs.StageEvents.STAGE_PARTICIPANT_STREAMS_REMOVED,
           (participant: StageParticipantInfo, streams: StageStream[]) => {
             if (participant.isLocal || cancelled) return;
+            // #region agent log
+            fetch("http://127.0.0.1:7674/ingest/20fcfd2c-15bc-4e11-921b-7cb9232e12f6", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "dca6d1" },
+              body: JSON.stringify({
+                sessionId: "dca6d1",
+                hypothesisId: "H1",
+                location: "useStageSubscribe.ts:STREAMS_REMOVED",
+                message: "host_streams_removed",
+                data: {
+                  roomId,
+                  streamCount: streams.length,
+                  hadLiveVideo: hasLiveVideoTrack(),
+                  connected,
+                },
+                timestamp: Date.now(),
+              }),
+            }).catch(() => {});
+            // #endregion
             for (const s of streams) {
               try {
                 stream.removeTrack(s.mediaStreamTrack);

@@ -59,3 +59,17 @@ export async function markVaultNotificationRead(accessToken: string, notificatio
 export async function markAllVaultNotificationsRead(accessToken: string): Promise<void> {
   await fetchWebApiAuthed('/api/notifications/read-all', accessToken, { method: 'PATCH' });
 }
+
+export async function deleteVaultNotification(accessToken: string, notificationId: string): Promise<boolean> {
+  const res = await fetchWebApiAuthed(
+    `/api/notifications/${encodeURIComponent(notificationId)}`,
+    accessToken,
+    { method: 'DELETE' },
+  );
+  return res.ok || res.status === 404;
+}
+
+export async function clearVaultNotifications(accessToken: string): Promise<boolean> {
+  const res = await fetchWebApiAuthed('/api/notifications/clear', accessToken, { method: 'DELETE' });
+  return res.ok;
+}

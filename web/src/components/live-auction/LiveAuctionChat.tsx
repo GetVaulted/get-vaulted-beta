@@ -105,27 +105,40 @@ function chatLabelClassForMessage(
   moderators: { userId: string }[] = [],
 ) {
   const fw = compact ? "font-extrabold" : "font-bold";
+  if (isStaffChatMessage(m)) return `${fw} text-sky-300/95`;
   if (hostUserId && m.senderId === hostUserId && m.messageType === "chat") return `${fw} text-amber-300/95`;
-  if (isModeratorChatMessage(m, moderators) && m.senderId !== hostUserId) return `${fw} text-violet-300/95`;
+  if (isModeratorChatMessage(m, moderators) && m.senderId !== hostUserId && m.messageType === "chat") {
+    return `${fw} text-violet-300/95`;
+  }
   if (isNamedSystemMessage(m)) return `${fw} ${colorForUser(m.senderUsername)}`;
   if (m.messageType === "system") return `${fw} text-amber-200/95`;
   if (m.messageType === "purchase") return `${fw} text-emerald-300/95`;
   return `${fw} text-zinc-100`;
 }
 
+function isStaffChatMessage(m: LiveRoomMessageDTO) {
+  return m.messageType === "staff";
+}
+
 function isHostChatMessage(m: LiveRoomMessageDTO, hostUserId: string | null) {
-  return m.messageType === "chat" && Boolean(hostUserId && m.senderId === hostUserId);
+  return (
+    (m.messageType === "chat" || m.messageType === "staff") &&
+    Boolean(hostUserId && m.senderId === hostUserId)
+  );
 }
 
 function isModeratorChatMessage(
   m: LiveRoomMessageDTO,
   moderators: { userId: string }[],
 ) {
-  return m.messageType === "chat" && moderators.some((mod) => mod.userId === m.senderId);
+  return (
+    (m.messageType === "chat" || m.messageType === "staff") &&
+    moderators.some((mod) => mod.userId === m.senderId)
+  );
 }
 
 function shouldShowChatAvatar(m: LiveRoomMessageDTO) {
-  return m.messageType === "chat" || isNamedSystemMessage(m);
+  return m.messageType === "chat" || m.messageType === "staff" || isNamedSystemMessage(m);
 }
 
 type LiveAuctionChatProps = {
@@ -176,13 +189,16 @@ export function LiveAuctionChat({
   const chatMessages = useMemo(
     () =>
       messages.filter(
-        (m) => m.messageType !== "bid" && !(m.messageType === "system" && isHostEndingLiveBody(m.body)),
+        (m) =>
+          m.messageType !== "bid" &&
+          !(m.messageType === "system" && isHostEndingLiveBody(m.body)) &&
+          !(m.messageType === "staff" && !mod.canModerate),
       ),
-    [messages],
+    [messages, mod.canModerate],
   );
   const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [staffOnly, setStaffOnly] = useState(false);
 
   const tagUserInChat = useCallback((username: string) => {
     setDraft((prev) => appendMentionToDraft(prev, username));
@@ -217,7 +233,8 @@ export function LiveAuctionChat({
   const send = useCallback(async () => {
     const text = draft.trim();
     if (!text || status !== "authenticated" || !session?.user?.id) return;
-    const pendingId = `pending:${Date.now()}`;
+    const asStaff = staffOnly && mod.canModerate;
+    const pendingId = `pending:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const senderUsername = session.user.username?.trim() || session.user.name?.trim() || "You";
     const optimistic: LiveRoomMessageDTO = {
       id: pendingId,
@@ -226,11 +243,10 @@ export function LiveAuctionChat({
       senderUsername,
       senderAvatarUrl: null,
       body: text,
-      messageType: "chat",
+      messageType: asStaff ? "staff" : "chat",
       createdAt: new Date().toISOString(),
       mentions: [],
     };
-    setSending(true);
     setSendError(null);
     setDraft("");
     onMessagesChange((prev) => appendLiveRoomMessageDedupe(prev, optimistic));
@@ -238,7 +254,7 @@ export function LiveAuctionChat({
       const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: text, messageType: "chat" }),
+        body: JSON.stringify({ body: text, staffOnly: asStaff }),
       });
       const j = (await res.json().catch(() => ({}))) as { message?: LiveRoomMessageDTO; error?: string };
       if (!res.ok) {
@@ -246,7 +262,7 @@ export function LiveAuctionChat({
         setSendError(err);
         mod.handleRestrictionError(err);
         onMessagesChange((prev) => prev.filter((m) => m.id !== pendingId));
-        setDraft(text);
+        setDraft((cur) => (cur.trim() ? cur : text));
         return;
       }
       if (j.message) {
@@ -261,15 +277,42 @@ export function LiveAuctionChat({
       } else {
         onMessagesChange((prev) => prev.filter((m) => m.id !== pendingId));
         setSendError("Message could not be sent.");
-        setDraft(text);
+        setDraft((cur) => (cur.trim() ? cur : text));
       }
-    } finally {
-      setSending(false);
+    } catch {
+      onMessagesChange((prev) => prev.filter((m) => m.id !== pendingId));
+      setSendError("Message could not be sent. Check your connection.");
+      setDraft((cur) => (cur.trim() ? cur : text));
     }
-  }, [draft, liveRoomId, mod, onMessagesChange, session?.user, status]);
+  }, [draft, liveRoomId, mod, onMessagesChange, session?.user, staffOnly, status]);
+
+  const staffModeToggle =
+    mod.canModerate && status === "authenticated" ? (
+      <div className="mb-1.5 flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setStaffOnly(false)}
+          className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${
+            !staffOnly ? "bg-white/15 text-zinc-50" : "text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          Everyone
+        </button>
+        <button
+          type="button"
+          onClick={() => setStaffOnly(true)}
+          className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${
+            staffOnly ? "bg-sky-500/30 text-sky-100" : "text-zinc-500 hover:text-zinc-300"
+          }`}
+          title="Only host and moderators see these"
+        >
+          Staff
+        </button>
+      </div>
+    ) : null;
 
   const renderMessageActions = (m: LiveRoomMessageDTO) => {
-    if (m.messageType !== "chat") return null;
+    if (m.messageType !== "chat" && m.messageType !== "staff") return null;
     if (hostUserId && m.senderId === hostUserId) return null;
     return (
       <LiveChatMessageRowActions
@@ -384,14 +427,19 @@ export function LiveAuctionChat({
                         MOD
                       </span>
                     ) : null}
+                    {isStaffChatMessage(m) ? (
+                      <span className="ml-1 text-[9px] font-black uppercase tracking-wide text-sky-300/90">
+                        STAFF
+                      </span>
+                    ) : null}
                     {inlineEvent ? (
-                      <span className={`ml-1 ${isSystem ? "text-zinc-100" : "text-zinc-50"}`}>
+                      <span className={`ml-1 ${isSystem ? "text-zinc-100" : isStaffChatMessage(m) ? "text-sky-50" : "text-zinc-50"}`}>
                         <MentionText body={m.body} mentions={m.mentions} />
                       </span>
                     ) : (
                       <>
                         <span className="text-zinc-400">: </span>
-                        <span className={`ml-1 ${isSystem ? "text-zinc-100" : "text-zinc-50"}`}>
+                        <span className={`ml-1 ${isSystem ? "text-zinc-100" : isStaffChatMessage(m) ? "text-sky-50" : "text-zinc-50"}`}>
                           <MentionText body={m.body} mentions={m.mentions} />
                         </span>
                       </>
@@ -412,7 +460,14 @@ export function LiveAuctionChat({
             />
           ) : null}
           <div className="shrink-0 bg-transparent px-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1.5">
-            <div className="flex w-full min-w-0 items-center gap-2 rounded-full border border-[color:var(--live-border)] bg-black/35 px-3 py-1 shadow-[var(--live-shadow-rail)] backdrop-blur-[var(--live-blur-xl)]">
+            {staffModeToggle}
+            <div
+              className={`flex w-full min-w-0 items-center gap-2 rounded-full border px-3 py-1 shadow-[var(--live-shadow-rail)] backdrop-blur-[var(--live-blur-xl)] ${
+                staffOnly && mod.canModerate
+                  ? "border-sky-400/40 bg-sky-950/40"
+                  : "border-[color:var(--live-border)] bg-black/35"
+              }`}
+            >
               {status === "authenticated" && !mod.myRestrictions?.muted && !mod.roomBlocked ? (
                 <>
                   <MentionComposer
@@ -427,14 +482,14 @@ export function LiveAuctionChat({
                     onKeyDown={(e) => {
                       if (e.key === "Enter") void send();
                     }}
-                    placeholder="Chat…"
+                    placeholder={staffOnly && mod.canModerate ? "Staff only…" : "Chat…"}
                     maxLength={2000}
                     className="h-8 min-w-0 flex-1 bg-transparent px-2 text-[13px] leading-none text-zinc-100 placeholder:text-zinc-500 outline-none max-[380px]:h-7 max-[380px]:text-[12px]"
                   />
                   <button
                     data-testid="live-chat-send"
                     type="button"
-                    disabled={sending || !draft.trim()}
+                    disabled={!draft.trim()}
                     onClick={() => void send()}
                     className="inline-flex h-8 shrink-0 items-center justify-center self-center rounded-full bg-[#facc15] px-3 text-[10px] font-black uppercase leading-none tracking-wide text-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.94] disabled:opacity-50 motion-reduce:active:scale-100 max-[380px]:h-7 max-[380px]:px-2.5 max-[380px]:text-[9px]"
                   >
@@ -540,20 +595,25 @@ export function LiveAuctionChat({
                       MOD
                     </span>
                   ) : null}
+                  {isStaffChatMessage(m) ? (
+                    <span className="ml-1.5 text-[10px] font-black uppercase tracking-wide text-sky-300/90">
+                      STAFF
+                    </span>
+                  ) : null}
                   {inlineEvent ? (
-                    <span className={`ml-1 ${isSystem ? "text-zinc-200" : "text-zinc-300"}`}>
+                    <span className={`ml-1 ${isSystem ? "text-zinc-200" : isStaffChatMessage(m) ? "text-sky-100" : "text-zinc-300"}`}>
                       <MentionText body={m.body} mentions={m.mentions} />
                     </span>
                   ) : (
                     <>
                       <span className="text-zinc-600">: </span>
-                      <span className={`ml-1 ${isSystem ? "text-zinc-200" : "text-zinc-300"}`}>
+                      <span className={`ml-1 ${isSystem ? "text-zinc-200" : isStaffChatMessage(m) ? "text-sky-100" : "text-zinc-300"}`}>
                         <MentionText body={m.body} mentions={m.mentions} />
                       </span>
                     </>
                   )}
                   {renderMessageActions(m)}
-                  {m.messageType !== "chat" && !isSystem && !isPurchase ? (
+                  {m.messageType !== "chat" && m.messageType !== "staff" && !isSystem && !isPurchase ? (
                     <span className="ml-2 text-[10px] uppercase tracking-wide text-zinc-600">({m.messageType})</span>
                   ) : null}
                 </div>
@@ -582,6 +642,7 @@ export function LiveAuctionChat({
           </p>
         ) : (
           <>
+            {staffModeToggle}
             <div className="flex items-center gap-2">
               <MentionComposer
                 data-testid="live-chat-input"
@@ -595,18 +656,20 @@ export function LiveAuctionChat({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void send();
                 }}
-                placeholder="Send a message…"
+                placeholder={staffOnly && mod.canModerate ? "Staff only (host & mods)…" : "Send a message…"}
                 maxLength={2000}
-                className={`h-9 min-w-0 flex-1 rounded-xl border border-zinc-800 bg-black text-zinc-100 placeholder:text-zinc-600 outline-none ring-[#facc15]/0 transition-[box-shadow,border-color] focus:border-[#facc15]/50 focus:ring-2 focus:ring-[#facc15]/20 ${compact ? "px-4 py-1.5 text-sm" : "px-5 py-1.5 text-base"}`}
+                className={`h-9 min-w-0 flex-1 rounded-xl border bg-black text-zinc-100 placeholder:text-zinc-600 outline-none ring-[#facc15]/0 transition-[box-shadow,border-color] focus:border-[#facc15]/50 focus:ring-2 focus:ring-[#facc15]/20 ${
+                  staffOnly && mod.canModerate ? "border-sky-500/40" : "border-zinc-800"
+                } ${compact ? "px-4 py-1.5 text-sm" : "px-5 py-1.5 text-base"}`}
               />
               <button
                 data-testid="live-chat-send"
                 type="button"
-                disabled={sending || !draft.trim()}
+                disabled={!draft.trim()}
                 onClick={() => void send()}
                 className={`inline-flex h-9 shrink-0 items-center justify-center rounded-xl bg-[#facc15] font-black uppercase tracking-wide text-zinc-950 transition hover:bg-[#fde047] disabled:opacity-50 ${compact ? "px-5 text-xs" : "px-7 text-sm"}`}
               >
-                {sending ? "Sending…" : "Send"}
+                Send
               </button>
             </div>
             {sendError ? <p className="mt-2 text-center text-[11px] font-medium text-rose-300">{sendError}</p> : null}

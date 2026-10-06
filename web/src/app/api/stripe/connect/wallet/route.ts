@@ -21,7 +21,8 @@ async function resolveSellerUserId(request: Request): Promise<{ userId: string }
 }
 
 /**
- * GET /api/stripe/connect/wallet — Connect balance + next payout timing for Seller HQ.
+ * GET /api/stripe/connect/wallet — Connect balance, payout history, and recent
+ * balance movements for Seller HQ Revenue.
  */
 export async function GET(request: Request) {
   try {
@@ -35,6 +36,7 @@ export async function GET(request: Request) {
           hasStripeAccount: false,
           balance: null,
           payouts: [],
+          balanceTransactions: [],
           payoutSchedule: null,
         }),
       );
@@ -70,15 +72,17 @@ export async function GET(request: Request) {
           hasStripeAccount: false,
           balance: null,
           payouts: [],
+          balanceTransactions: [],
           payoutSchedule: null,
         }),
       );
     }
 
     const stripe = getStripe();
-    const [balance, payoutsList, account] = await Promise.all([
+    const [balance, payoutsList, activityList, account] = await Promise.all([
       stripe.balance.retrieve({}, { stripeAccount: accountId }),
-      stripe.payouts.list({ limit: 10 }, { stripeAccount: accountId }),
+      stripe.payouts.list({ limit: 15 }, { stripeAccount: accountId }),
+      stripe.balanceTransactions.list({ limit: 20 }, { stripeAccount: accountId }),
       stripe.accounts.retrieve(accountId),
     ]);
 
@@ -87,6 +91,7 @@ export async function GET(request: Request) {
       hasStripeAccount: true,
       balance,
       payouts: payoutsList.data,
+      balanceTransactions: activityList.data,
       payoutSchedule: account.settings?.payouts?.schedule ?? null,
     });
 

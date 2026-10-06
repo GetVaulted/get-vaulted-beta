@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import {
   availableVariantCount,
+  evaluateFreshVariantsForBatchCheckout,
   evaluateFreshVariantsForCheckout,
   isActiveVariantBuyerItem,
+  isBuyerVariantRosterClosed,
   isVariantSalesFormat,
   sortVariantsForBuyerDisplay,
   summarizeVariantSpots,
@@ -15,6 +17,7 @@ describe('isVariantSalesFormat', () => {
   it('matches team break formats', () => {
     expect(isVariantSalesFormat('team_break')).toBe(true);
     expect(isVariantSalesFormat('variant_selection')).toBe(true);
+    expect(isVariantSalesFormat('player_selection')).toBe(true);
     expect(isVariantSalesFormat('auction')).toBe(false);
   });
 });
@@ -26,6 +29,15 @@ describe('isActiveVariantBuyerItem', () => {
       activeItemId: 'item-1',
       activeItemSalesFormat: 'team_break',
       activeItemVariants: [{ id: 'v1', label: 'AFC East', priceUsd: 35, quantityRemaining: 1, soldCount: 0, isHot: false, sortOrder: 0, status: 'available', buyerUsername: null }],
+    } as LiveRoomBuyerSnapshot;
+    expect(isActiveVariantBuyerItem(snap)).toBe(true);
+  });
+
+  it('true for team_break even before variants hydrate', () => {
+    const snap = {
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemSalesFormat: 'team_break',
     } as LiveRoomBuyerSnapshot;
     expect(isActiveVariantBuyerItem(snap)).toBe(true);
   });
@@ -67,6 +79,8 @@ describe('variantSelectSpotLabel', () => {
   it('uses team label for team_break', () => {
     expect(variantSelectSpotLabel('team_break')).toBe('Pick Your Division');
     expect(variantSelectSpotLabel('variant_selection')).toBe('Pick Your Team');
+    expect(variantSelectSpotLabel('player_selection')).toBe('Pick Your Player');
+    expect(variantSelectSpotLabel('player_selection', true)).toBe('Random Player');
   });
 });
 
@@ -137,6 +151,31 @@ describe('evaluateFreshVariantsForCheckout', () => {
     const decision = evaluateFreshVariantsForCheckout({ status: 'not_tracked' }, 'v1');
     expect(decision).toEqual({ proceed: true });
   });
+
+  it('batch checkout requires every selected id to still be open', () => {
+    const availableVariant = {
+      id: 'v1',
+      label: 'Bengals',
+      priceUsd: 10,
+      quantityRemaining: 1,
+      soldCount: 0,
+      isHot: false,
+      sortOrder: 0,
+      status: 'available',
+      buyerUsername: null,
+    };
+    const ok = evaluateFreshVariantsForBatchCheckout(
+      { status: 'fresh', variants: [availableVariant, { ...availableVariant, id: 'v2', label: 'Chiefs' }] },
+      ['v1', 'v2'],
+    );
+    expect(ok).toEqual({ proceed: true });
+
+    const missing = evaluateFreshVariantsForBatchCheckout(
+      { status: 'fresh', variants: [availableVariant] },
+      ['v1', 'v2'],
+    );
+    expect(missing.proceed).toBe(false);
+  });
 });
 
 describe('resolvePinnedLotOverlayPrice', () => {
@@ -147,5 +186,44 @@ describe('resolvePinnedLotOverlayPrice', () => {
         variants: [{ priceUsd: 35, quantityRemaining: 32, status: 'available' }],
       }),
     ).toMatchObject({ label: 'From', amountUsd: 35 });
+  });
+});
+
+describe('isBuyerVariantRosterClosed (Sweet 16)', () => {
+  const variant = (i: number, sold: boolean) => ({
+    id: `v${i}`,
+    label: `Team ${i}`,
+    priceUsd: 20,
+    quantityRemaining: sold ? 0 : 1,
+    soldCount: sold ? 1 : 0,
+    isHot: false,
+    sortOrder: i,
+    status: sold ? 'sold_out' : 'available',
+    buyerUsername: null,
+  });
+  const snap = (soldCount: number, extra: Partial<LiveRoomBuyerSnapshot> = {}) =>
+    ({
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemSalesFormat: 'variant_selection',
+      activeItemVariantAssignmentMode: 'draft',
+      activeItemVariants: Array.from({ length: 32 }, (_, i) => variant(i, i < soldCount)),
+      ...extra,
+    }) as LiveRoomBuyerSnapshot;
+
+  it('stays open below 16 sold even though most of the 32 are unsold', () => {
+    expect(isBuyerVariantRosterClosed(snap(15))).toBe(false);
+  });
+
+  it('closes at 16 sold although 16 tiles are still unsold', () => {
+    expect(isBuyerVariantRosterClosed(snap(16))).toBe(true);
+  });
+
+  it('closes when the server flag is set', () => {
+    expect(isBuyerVariantRosterClosed(snap(10, { activeItemVariantBreakReadyAt: '2026-10-06T00:00:00.000Z' }))).toBe(true);
+  });
+
+  it('does not change normal pick boards', () => {
+    expect(isBuyerVariantRosterClosed(snap(16, { activeItemVariantAssignmentMode: 'pick' }))).toBe(false);
   });
 });

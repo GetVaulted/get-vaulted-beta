@@ -27,6 +27,7 @@ import {
 } from '../../api/tradeOffersRepository';
 import type { ListingLite, ShippingWeightTier } from '../../types/tradeOffers';
 import { listingToTradeItem } from '../../trade/listingToTradeItem';
+import { TRADE_CASH_SETTLEMENT_NOTE } from '../../data/tradeTrustCopy';
 import { navigateAuthLogin, navigateAuthSignUp } from '../../navigation/rootNavigationRef';
 
 type Nav = NativeStackNavigationProp<TradeCenterStackParamList>;
@@ -240,6 +241,7 @@ export function InitiateTradeScreen() {
         ))}
 
         <Text style={styles.section}>Optional cash difference (USD you add)</Text>
+        <Text style={styles.cashHint}>{TRADE_CASH_SETTLEMENT_NOTE}</Text>
         <TextInput
           style={styles.input}
           placeholder="e.g. 150"
@@ -314,6 +316,7 @@ const styles = StyleSheet.create({
   inputTall: { minHeight: 100, textAlignVertical: 'top' },
   previewLabel: { ...typography.micro, color: colors.textMuted, marginBottom: spacing.sm },
   hint: { color: colors.textMuted, fontSize: 12, marginTop: spacing.sm },
+  cashHint: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: spacing.xs },
   primary: {
     marginTop: spacing.xl,
     backgroundColor: colors.gold,

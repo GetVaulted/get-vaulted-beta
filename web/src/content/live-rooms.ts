@@ -12,7 +12,7 @@ export type LiveNowFilter = (typeof liveNowFilters)[number];
 export type LiveRoomKind = "break_room" | "live_sale_room";
 export type LiveRoomFormatBadge = "PYT Break" | "Random Break" | "Live Sale" | "Auction" | "Buy Now";
 export type LiveShowStatus = "live_now" | "scheduled";
-export type VaultBreakCategory = "Cards" | "Helmets";
+export type VaultBreakCategory = "Cards" | "Helmets" | "Jersey";
 
 type LiveNowRoomBase = {
   id: string;
@@ -24,6 +24,8 @@ type LiveNowRoomBase = {
   breakVaultCategory?: VaultBreakCategory;
   status: LiveShowStatus;
   scheduledFor?: string;
+  /** ISO start time for sorting (matches mobile `scheduledStartAtIso`). */
+  scheduledStartAtIso?: string | null;
   viewers: number;
   imageSeed: string;
   /** When set (e.g. DB-backed room), card uses this image instead of placeholder seed. */

@@ -16,10 +16,16 @@ export async function syncPrismaEmailVerifiedFromSupabase(
   const verifiedAt = emailVerifiedAtFromSupabaseUser(supabaseUser);
   if (!verifiedAt) return null;
 
-  await prisma.user.updateMany({
+  const updated = await prisma.user.updateMany({
     where: { id: prismaUserId, emailVerified: null },
     data: { emailVerified: verifiedAt },
   });
+
+  if (updated.count > 0) {
+    void import("@/lib/giveaway/entries")
+      .then(({ onUserEmailVerifiedForGiveaways }) => onUserEmailVerifiedForGiveaways(prismaUserId))
+      .catch((e) => console.warn("[sync-email-verified] giveaway entry hook failed", e));
+  }
 
   return verifiedAt;
 }

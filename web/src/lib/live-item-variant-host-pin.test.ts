@@ -103,6 +103,13 @@ describe("PYT team pinning", () => {
 
   it("selling pinned team marks only that team sold", () => {
     const item = pytItem({
+      quantity: 32,
+      quantityInitial: 32,
+      soldQuantity: 0,
+      remainingQuantity: 32,
+      currentUnitNumber: 1,
+      displayTitle: "PYT Break #1",
+      progressLabel: "0 / 32 sold",
       variants: [
         { ...pytVariants[0], isHot: true, quantityInitial: 1, sortOrder: 0 },
         { ...pytVariants[1], quantityInitial: 1, sortOrder: 1 },
@@ -121,5 +128,8 @@ describe("PYT team pinning", () => {
     expect(chiefs?.isHot).toBe(false);
     expect(bills?.status).toBe("available");
     expect(bills?.quantityRemaining).toBe(1);
+    expect(next[0]?.displayTitle).toBe("PYT Break #2");
+    expect(next[0]?.soldQuantity).toBe(1);
+    expect(next[0]?.progressLabel).toBe("1 / 32 sold");
   });
 });

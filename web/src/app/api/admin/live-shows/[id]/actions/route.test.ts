@@ -16,6 +16,7 @@ vi.mock("@/lib/trust/live-replay-service", () => ({
 }));
 vi.mock("@/services/ivs", () => ({
   endHostStageSession: vi.fn().mockResolvedValue(undefined),
+  ensureStageHlsCompositionActive: vi.fn().mockResolvedValue(undefined),
 }));
 
 const prismaMock = vi.hoisted(() => ({

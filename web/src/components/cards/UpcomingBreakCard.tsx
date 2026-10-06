@@ -11,6 +11,8 @@ type UpcomingBreakCardProps = {
   /** When set, shown instead of a formatted dollar amount (e.g. scheduled rooms without a single spot price). */
   priceLabel?: string;
   seed: string;
+  /** Host-uploaded room cover; when present it replaces the generated placeholder tile. */
+  imageUrl?: string;
   href?: string;
 };
 
@@ -23,6 +25,7 @@ export function UpcomingBreakCard({
   price,
   priceLabel,
   seed,
+  imageUrl,
   href = "#upcoming",
 }: UpcomingBreakCardProps) {
   return (
@@ -35,7 +38,12 @@ export function UpcomingBreakCard({
         <span className="mt-0.5 text-[8px] text-zinc-500">{day.split(/\s+/)[0] ?? ""}</span>
       </div>
       <div className="relative h-[68px] w-[68px] shrink-0 overflow-hidden rounded-xl border border-white/10">
-        <CardImagePlaceholder seed={seed} variant="product" className="h-full w-full" />
+        {imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element -- host-uploaded room cover
+          <img src={imageUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <CardImagePlaceholder seed={seed} variant="product" className="h-full w-full" />
+        )}
       </div>
       <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5 py-0.5">
         <div>

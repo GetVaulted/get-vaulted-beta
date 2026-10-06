@@ -4,14 +4,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { SellerLayawayCounts } from '../../../api/layawayRepository';
 import type { LiveRoomApiRow } from '../../../api/liveRoomsRepository';
+import type { SellerLiveShippingDashboard } from '../../../api/sellerLiveShippingRepository';
 import type { SellerSalesOrderRow } from '../../../api/sellerSalesRepository';
-import { SellerHQLayawaysCard } from './SellerHQLayawaysCard';
 import { formatLiveOrderPaymentStatus } from '../../../lib/sellerLiveOrders';
 import { openSellerOrderDetail } from '../../../navigation/openSellerOrderDetail';
 import type { RootStackParamList } from '../../../navigation/types';
 import { colors, radii, spacing } from '../../../theme';
+import { SellerHQLayawaysCard } from './SellerHQLayawaysCard';
+import { SellerShipQueuePanel } from './SellerShipQueuePanel';
 
-type OrdersSubTab = 'live' | 'all';
+type OrdersSubTab = 'queue' | 'live' | 'all';
 
 function fulfillmentLabel(o: SellerSalesOrderRow) {
   const fs = o.fulfillmentStatus ?? '';
@@ -40,7 +42,9 @@ function OrderRow({
         <Text style={styles.orderItem}>{order.listingTitle}</Text>
         <Text style={styles.orderBuyer}>
           {order.buyerUsername ? `@${order.buyerUsername}` : 'Buyer'}
-          {showPayment ? ` · ${formatLiveOrderPaymentStatus(order.paymentStatus)}` : ` · ${fulfillmentLabel(order)}`}
+          {showPayment
+            ? ` · ${formatLiveOrderPaymentStatus(order.paymentStatus)}`
+            : ` · ${fulfillmentLabel(order)}`}
         </Text>
       </Pressable>
       <View style={styles.orderRowActions}>
@@ -56,9 +60,14 @@ function OrderRow({
 }
 
 export function SellerHQOrdersPanel({
+  accessToken,
   orders,
   ordersLoading,
   ordersLoadedOnce,
+  liveShipping,
+  liveShippingLoading,
+  liveShippingLoadedOnce,
+  onReloadShipQueue,
   liveOrders,
   liveOrdersLoading,
   liveOrdersLoadedOnce,
@@ -70,9 +79,14 @@ export function SellerHQOrdersPanel({
   onOpenLayaways,
   navigation,
 }: {
+  accessToken?: string;
   orders: SellerSalesOrderRow[];
   ordersLoading: boolean;
   ordersLoadedOnce: boolean;
+  liveShipping: SellerLiveShippingDashboard;
+  liveShippingLoading: boolean;
+  liveShippingLoadedOnce: boolean;
+  onReloadShipQueue: () => void | Promise<void>;
   liveOrders: SellerSalesOrderRow[];
   liveOrdersLoading: boolean;
   liveOrdersLoadedOnce: boolean;
@@ -84,7 +98,7 @@ export function SellerHQOrdersPanel({
   onOpenLayaways: (filter?: 'active' | 'ready' | 'overdue') => void;
   navigation: NativeStackNavigationProp<RootStackParamList>;
 }) {
-  const [subTab, setSubTab] = useState<OrdersSubTab>(liveRoom ? 'live' : 'all');
+  const [subTab, setSubTab] = useState<OrdersSubTab>('queue');
 
   useEffect(() => {
     if (liveRoom) setSubTab('live');
@@ -98,25 +112,46 @@ export function SellerHQOrdersPanel({
   const showAllEmpty =
     subTab === 'all' && ordersLoadedOnce && !orders.length && !hasLayaways && layawaysLoadedOnce;
 
+  const queueLoading =
+    (ordersLoading || liveShippingLoading) && !(ordersLoadedOnce && liveShippingLoadedOnce);
+
   return (
     <View style={{ gap: spacing.md }}>
       <View style={styles.subTabRow}>
+        <Pressable
+          style={[styles.subTab, subTab === 'queue' && styles.subTabActive]}
+          onPress={() => setSubTab('queue')}
+        >
+          <Text style={[styles.subTabTxt, subTab === 'queue' && styles.subTabTxtActive]}>Ship queue</Text>
+        </Pressable>
         <Pressable
           style={[styles.subTab, subTab === 'live' && styles.subTabActive]}
           onPress={() => setSubTab('live')}
         >
           <View style={styles.subTabInner}>
             {liveRoom ? <View style={styles.liveDot} /> : null}
-            <Text style={[styles.subTabTxt, subTab === 'live' && styles.subTabTxtActive]}>Live orders</Text>
+            <Text style={[styles.subTabTxt, subTab === 'live' && styles.subTabTxtActive]}>Live</Text>
           </View>
         </Pressable>
         <Pressable
           style={[styles.subTab, subTab === 'all' && styles.subTabActive]}
           onPress={() => setSubTab('all')}
         >
-          <Text style={[styles.subTabTxt, subTab === 'all' && styles.subTabTxtActive]}>All orders</Text>
+          <Text style={[styles.subTabTxt, subTab === 'all' && styles.subTabTxtActive]}>All</Text>
         </Pressable>
       </View>
+
+      {subTab === 'queue' ? (
+        <SellerShipQueuePanel
+          accessToken={accessToken}
+          orders={orders}
+          liveShipping={liveShipping}
+          loading={queueLoading}
+          loadedOnce={ordersLoadedOnce && liveShippingLoadedOnce}
+          onReload={onReloadShipQueue}
+          navigation={navigation}
+        />
+      ) : null}
 
       {subTab === 'live' ? (
         <>
@@ -152,7 +187,9 @@ export function SellerHQOrdersPanel({
             ))
           )}
         </>
-      ) : (
+      ) : null}
+
+      {subTab === 'all' ? (
         <>
           <SellerHQLayawaysCard
             counts={layawayCounts}
@@ -171,7 +208,7 @@ export function SellerHQOrdersPanel({
             orders.map((o) => <OrderRow key={o.id} order={o} navigation={navigation} />)
           )}
         </>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -228,11 +265,11 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceElevated,
   },
-  orderItem: { color: colors.textPrimary, fontSize: 15, fontWeight: '700' },
-  orderBuyer: { color: colors.textSecondary, fontSize: 12, marginTop: 4 },
+  orderItem: { color: colors.textPrimary, fontSize: 14, fontWeight: '700' },
+  orderBuyer: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
   orderRowActions: { alignItems: 'flex-end', gap: 4 },
-  orderTrackLink: { color: colors.gold, fontSize: 12, fontWeight: '700' },
-  orderAmt: { color: colors.gold, fontSize: 15, fontWeight: '800' },
+  orderTrackLink: { color: colors.gold, fontSize: 11, fontWeight: '700' },
+  orderAmt: { color: colors.textPrimary, fontSize: 13, fontWeight: '800' },
 });

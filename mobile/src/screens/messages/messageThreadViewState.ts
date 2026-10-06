@@ -1,3 +1,5 @@
+import { friendlyErrorText } from '../../lib/friendlyErrorText';
+
 export type MessageThreadViewState = 'loading' | 'error' | 'ready';
 
 /**
@@ -19,6 +21,5 @@ export function deriveMessageThreadViewState(params: {
 
 /** Friendly copy for the inline error state — falls back when the thrown error has no message. */
 export function describeThreadLoadError(e: unknown): string {
-  if (e instanceof Error && e.message.trim()) return e.message.trim();
-  return "Couldn't load this conversation.";
+  return friendlyErrorText(e, "Couldn't load this conversation.");
 }

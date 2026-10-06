@@ -16,41 +16,42 @@ export function inventoryBucketForPreviewStatus(status: ListingPreview['status']
   return 'active';
 }
 
-/** Classify a seller listing row into marketplace vs live show inventory. */
+/**
+ * Classify a seller listing into marketplace vs live show inventory.
+ *
+ * Prefer the explicit channel marker. Marketplace timed auctions are gone, so auction-format
+ * rows without marketplace commerce flags belong in Live show — never dump them into Marketplace.
+ */
 export function resolveListingInventoryChannel(row: WebStoredListing): ListingChannel {
   if (row.inventoryChannel === 'marketplace' || row.inventoryChannel === 'live_show') {
     return row.inventoryChannel;
   }
 
   const status = row.status ?? 'draft';
+  const marketplaceCommerce = Boolean(row.allowOffers || row.allowLayaway);
+  const isAuction = row.buyingFormat === 'auction';
 
-  if (
-    status === 'active' ||
-    status === 'auction_live' ||
-    status === 'ended' ||
-    status === 'awaiting_auction_payment' ||
-    status === 'auction_ended_unpaid' ||
-    status === 'layaway_reserved'
-  ) {
-    return 'marketplace';
+  // Live-show inventory is published as draft + auction (or live auction type).
+  if (isAuction && !marketplaceCommerce) {
+    return 'live_show';
   }
 
   if (status === 'draft') {
-    if (row.allowOffers || row.allowLayaway || row.inventoryChannel === 'marketplace') {
-      return 'marketplace';
-    }
-    if (row.inventoryChannel === 'live_show') return 'live_show';
+    if (marketplaceCommerce) return 'marketplace';
+    // Ambiguous drafts without channel: live-show lane is the safer default for queue inventory.
     return 'live_show';
   }
 
   if (status === 'sold') {
-    if (row.inventoryChannel === 'live_show') return 'live_show';
-    if (row.inventoryChannel === 'marketplace') return 'marketplace';
-    if (row.allowOffers || row.allowLayaway) return 'marketplace';
+    if (isAuction && !marketplaceCommerce) return 'live_show';
     return 'marketplace';
   }
 
-  return 'marketplace';
+  // active / auction_live / ended / payment states without a marker
+  if (marketplaceCommerce || !isAuction) {
+    return 'marketplace';
+  }
+  return 'live_show';
 }
 
 export function bucketListings(
@@ -69,4 +70,9 @@ export function countBucket(
   bucket: InventoryBucket,
 ): number {
   return bucketListings(listings, channel, bucket).length;
+}
+
+/** Live-show inventory is mostly drafts — open that bucket when switching lanes. */
+export function defaultInventoryBucketForChannel(channel: ListingChannel): InventoryBucket {
+  return channel === 'live_show' ? 'drafts' : 'active';
 }

@@ -29,6 +29,8 @@ const EMPTY: LiveRoomModerationSnapshot = {
   viewers: [],
   tips: [],
   tipSummary: null,
+  recentSales: [],
+  paymentFailures: [],
   myRestrictions: null,
 };
 
@@ -80,6 +82,8 @@ export function useLiveRoomModeration(args: {
         viewers: snap.viewers ?? [],
         tips: snap.tips ?? [],
         tipSummary: snap.tipSummary ?? null,
+        recentSales: Array.isArray(snap.recentSales) ? snap.recentSales : [],
+        paymentFailures: Array.isArray(snap.paymentFailures) ? snap.paymentFailures : [],
       };
     });
     const r = snap.myRestrictions;

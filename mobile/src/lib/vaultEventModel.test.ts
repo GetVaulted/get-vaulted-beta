@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveRoomApiRow } from '../api/liveRoomsRepository';
-import { vaultEventDisplayStatus, vaultEventSection, canCancelVaultEvent } from './vaultEventModel';
+import { vaultEventDisplayStatus, vaultEventSection, canCancelVaultEvent, primaryCta } from './vaultEventModel';
 
 function room(overrides: Partial<LiveRoomApiRow> = {}): LiveRoomApiRow {
   return {
@@ -51,5 +51,16 @@ describe('vaultEventModel', () => {
     expect(canCancelVaultEvent(room({ status: 'scheduled' }))).toBe(true);
     expect(canCancelVaultEvent(room({ status: 'live' }))).toBe(true);
     expect(canCancelVaultEvent(room({ status: 'ended' }))).toBe(false);
+  });
+
+  it('routes past shows to Finish team sales (command center), not recap-only', () => {
+    expect(primaryCta('processing_recap')).toEqual({
+      label: 'Finish team sales',
+      action: 'console',
+    });
+    expect(primaryCta('ended')).toEqual({
+      label: 'Finish team sales',
+      action: 'console',
+    });
   });
 });

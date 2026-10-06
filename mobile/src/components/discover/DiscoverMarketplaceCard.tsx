@@ -48,15 +48,19 @@ export function MarketplaceListingCard({
   onPress,
   pulseBid,
   imagePriority = 'normal',
+  width,
 }: {
   product: Product;
   onPress: () => void;
   pulseBid?: boolean;
   imagePriority?: 'low' | 'normal' | 'high';
+  /** Override width to fill a grid column. When set, the card drops its rail right-margin. */
+  width?: number;
 }) {
   const layout = useMarketplaceLayout();
-  const cardW = layout.listingCardWidth;
-  const cardH = layout.listingCardHeight;
+  const gridMode = width != null;
+  const cardW = width ?? layout.listingCardWidth;
+  const cardH = gridMode ? Math.round(cardW * (208 / 152)) : layout.listingCardHeight;
   const pulse = useRef(new Animated.Value(1)).current;
   const badge = badgeFor(product);
 
@@ -73,7 +77,14 @@ export function MarketplaceListingCard({
   }, [pulse, pulseBid]);
 
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.shell, { width: cardW }, pressed && styles.pressed]}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.shell,
+        { width: cardW, marginRight: gridMode ? 0 : spacing.sm },
+        pressed && styles.pressed,
+      ]}
+    >
       <Animated.View style={[styles.card, { width: cardW, height: cardH }, pulseBid && { transform: [{ scale: pulse }] }]}>
         <View style={[styles.mediaSlot, { width: cardW, height: cardH }]} pointerEvents="none">
           {product.imageUrl ? (
@@ -138,7 +149,7 @@ export function MarketplaceListingCard({
 }
 
 const styles = StyleSheet.create({
-  shell: { marginRight: spacing.sm, flexShrink: 0 },
+  shell: { flexShrink: 0 },
   pressed: { opacity: 0.94 },
   card: {
     borderRadius: radii.md,

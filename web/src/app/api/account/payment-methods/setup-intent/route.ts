@@ -2,13 +2,17 @@ import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { ensureStripeCustomerIdForUser } from "@/lib/stripe-customer";
 import { getStripe, getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
+import { isWalletPayPalEnabled, isWalletVenmoEnabled } from "@/lib/payment-processor";
+import { isBuyerPayPalWalletConfigured, isBuyerVenmoPayConfigured } from "@/lib/paypal-auth";
 import { stripeSetupIntentPaymentOptions } from "@/lib/stripe-payment-method-config";
 
 /**
- * Creates a SetupIntent so the buyer can add a card to their Stripe Customer (off-session usage for wins).
+ * Creates a SetupIntent so the buyer can add a card / Cash App / other wallet PM
+ * to their Stripe Customer (off-session usage for live wins).
  */
 export async function POST(req: Request) {
-  const auth = await resolveAccountUserId(req);
+  // Buyer wallet setup — skip Connect sibling sync (extra DB work on every mobile auth).
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
 
   if (!isStripeConfigured()) {
@@ -29,11 +33,24 @@ export async function POST(req: Request) {
   try {
     const customerId = await ensureStripeCustomerIdForUser(auth.userId);
     const stripe = getStripe();
-    const setupIntent = await stripe.setupIntents.create({
-      customer: customerId,
-      ...stripeSetupIntentPaymentOptions(),
-      usage: "off_session",
-    });
+    let setupIntent;
+    try {
+      setupIntent = await stripe.setupIntents.create({
+        customer: customerId,
+        ...stripeSetupIntentPaymentOptions(),
+        usage: "off_session",
+      });
+    } catch (firstErr) {
+      // Dashboard may not have Cash App / Link / Amazon Pay enabled yet — still allow card + Apple Pay.
+      console.warn("[setup-intent] optional wallet methods rejected; falling back to card", {
+        error: firstErr instanceof Error ? firstErr.message : String(firstErr),
+      });
+      setupIntent = await stripe.setupIntents.create({
+        customer: customerId,
+        payment_method_types: ["card"],
+        usage: "off_session",
+      });
+    }
     const clientSecret = setupIntent.client_secret;
     if (!clientSecret) {
       return NextResponse.json({ error: "Could not start card setup." }, { status: 500 });
@@ -50,8 +67,8 @@ export async function POST(req: Request) {
       linkEnabled: paymentMethodTypes.includes("link"),
       cashAppPayEnabled: paymentMethodTypes.includes("cashapp"),
       amazonPayEnabled: paymentMethodTypes.includes("amazon_pay"),
-      paypalEnabled: false,
-      venmoEnabled: false,
+      paypalEnabled: isWalletPayPalEnabled() && isBuyerPayPalWalletConfigured(),
+      venmoEnabled: isWalletVenmoEnabled() && isBuyerVenmoPayConfigured(),
       paymentMethodTypes,
     });
   } catch (e) {

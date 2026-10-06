@@ -6,6 +6,8 @@ import { sellerPreviewMirror } from '../../../lib/sellerHostCamera';
 type Props = {
   active: boolean;
   cameraFacing?: SellerCameraFacing;
+  /** Seller's quick "fix mirrored video" toggle — kept in sync with the actual broadcast mirror. */
+  mirrorOverride?: boolean | null;
   contentFit?: 'cover' | 'contain';
 };
 
@@ -13,6 +15,7 @@ type Props = {
 export function StageHostPreviewVideo({
   active,
   cameraFacing = 'back',
+  mirrorOverride = null,
   contentFit = 'cover',
 }: Props) {
   if (!active) return null;
@@ -21,7 +24,7 @@ export function StageHostPreviewVideo({
     <View style={styles.root} pointerEvents="none">
       <ExpoIVSStagePreviewView
         style={styles.video}
-        mirror={sellerPreviewMirror(cameraFacing)}
+        mirror={sellerPreviewMirror(cameraFacing, mirrorOverride)}
         scaleMode={contentFit === 'cover' ? 'fill' : 'fit'}
       />
     </View>

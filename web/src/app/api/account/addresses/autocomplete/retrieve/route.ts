@@ -4,7 +4,7 @@ import { resolveShippoAutocompleteAddress } from "@/lib/shippo-address-autocompl
 import { isShippoConfigured } from "@/lib/shippo";
 
 export async function GET(req: Request) {
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
 
   const url = new URL(req.url);

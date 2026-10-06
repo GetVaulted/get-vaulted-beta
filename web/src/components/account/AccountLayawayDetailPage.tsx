@@ -116,7 +116,7 @@ export function AccountLayawayDetailPage({ layawayId }: { layawayId: string }) {
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
       <div className="relative mx-auto w-full max-w-3xl px-3 pb-20 pt-6 sm:px-4 lg:px-10">
-        <AccountOrdersNav active="layaways" />
+        <AccountOrdersNav active="layaways" mode="buyer" />
         <Link href="/account/layaways" className="mt-4 inline-flex text-[11px] font-semibold uppercase tracking-wider text-gold-bright/90 hover:text-gold-bright">
           ← All layaways
         </Link>

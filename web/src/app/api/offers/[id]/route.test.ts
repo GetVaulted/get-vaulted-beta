@@ -1,8 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/auth", () => ({
-  authOptions: {},
-  getServerSessionSafe: vi.fn().mockResolvedValue({ user: { id: "seller_1" } }),
+vi.mock("@/lib/resolve-listings-auth", () => ({
+  resolveListingsUserId: vi.fn().mockResolvedValue({ userId: "seller_1" }),
 }));
 
 const createOrderFromAcceptedOffer = vi.hoisted(() => vi.fn().mockResolvedValue({ orderId: "ord_1" }));
@@ -31,7 +30,7 @@ const prismaMock = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
-import { getServerSessionSafe } from "@/lib/auth";
+import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { PATCH } from "@/app/api/offers/[id]/route";
 
 function buildRequest(body: unknown) {
@@ -61,7 +60,7 @@ const baseOffer = {
 describe("PATCH /api/offers/[id] — atomic compare-and-swap on state transitions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getServerSessionSafe).mockResolvedValue({ user: { id: "seller_1" } } as never);
+    vi.mocked(resolveListingsUserId).mockResolvedValue({ userId: "seller_1" });
     prismaMock.offer.findUnique.mockResolvedValue(baseOffer);
     prismaMock.order.findUnique.mockResolvedValue(null);
   });
@@ -116,7 +115,7 @@ describe("PATCH /api/offers/[id] — atomic compare-and-swap on state transition
   });
 
   it("regression: rejects accept_counter with 409 when a concurrent request already resolved the counter", async () => {
-    vi.mocked(getServerSessionSafe).mockResolvedValue({ user: { id: "buyer_1" } } as never);
+    vi.mocked(resolveListingsUserId).mockResolvedValue({ userId: "buyer_1" });
     prismaMock.offer.findUnique.mockResolvedValue({ ...baseOffer, status: "countered", counterAmountUsd: 90 });
     prismaMock.offer.updateMany.mockResolvedValue({ count: 0 });
 
@@ -131,7 +130,7 @@ describe("PATCH /api/offers/[id] — atomic compare-and-swap on state transition
   });
 
   it("regression: rejects decline_counter with 409 when a concurrent request already resolved the counter", async () => {
-    vi.mocked(getServerSessionSafe).mockResolvedValue({ user: { id: "buyer_1" } } as never);
+    vi.mocked(resolveListingsUserId).mockResolvedValue({ userId: "buyer_1" });
     prismaMock.offer.findUnique.mockResolvedValue({ ...baseOffer, status: "countered", counterAmountUsd: 90 });
     prismaMock.offer.updateMany.mockResolvedValue({ count: 0 });
 
@@ -147,7 +146,7 @@ describe("PATCH /api/offers/[id] — atomic compare-and-swap on state transition
   // Regression: sellers manage offers in the listing studio, not the buyer-facing
   // "/account/offers" page — the notification must deep-link somewhere the seller can act on it.
   it("links the counter-declined notification to the seller's listing studio with the offer id", async () => {
-    vi.mocked(getServerSessionSafe).mockResolvedValue({ user: { id: "buyer_1" } } as never);
+    vi.mocked(resolveListingsUserId).mockResolvedValue({ userId: "buyer_1" });
     prismaMock.offer.findUnique.mockResolvedValue({ ...baseOffer, status: "countered", counterAmountUsd: 90 });
     prismaMock.offer.updateMany.mockResolvedValue({ count: 1 });
 

@@ -66,24 +66,40 @@ export function segmentMessageWithMentions(
   const re = new RegExp(MENTION_BODY_PATTERN.source, 'gi');
   let last = 0;
   let match: RegExpExecArray | null;
+
+  const pushText = (value: string) => {
+    if (!value) return;
+    const prev = segments[segments.length - 1];
+    if (prev?.type === 'text') {
+      prev.value += value;
+      return;
+    }
+    segments.push({ type: 'text', value });
+  };
+
   while ((match = re.exec(body)) !== null) {
     const at = match.index;
     const prev = at > 0 ? body[at - 1] : ' ';
     if (prev && !/[\s([{]/.test(prev)) continue;
     if (match.index > last) {
-      segments.push({ type: 'text', value: body.slice(last, match.index) });
+      pushText(body.slice(last, match.index));
     }
     const username = match[1];
     const resolved = byUsername.get(username.toLowerCase());
-    segments.push({
-      type: 'mention',
-      username: resolved?.username ?? username,
-      userId: resolved?.userId,
-    });
+    // Only treat resolved @handles as tags — unknown / self (never persisted) stay plain text.
+    if (resolved) {
+      segments.push({
+        type: 'mention',
+        username: resolved.username,
+        userId: resolved.userId,
+      });
+    } else {
+      pushText(match[0]);
+    }
     last = match.index + match[0].length;
   }
   if (last < body.length) {
-    segments.push({ type: 'text', value: body.slice(last) });
+    pushText(body.slice(last));
   }
   return segments.length ? segments : [{ type: 'text', value: body }];
 }

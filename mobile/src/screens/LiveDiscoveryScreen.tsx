@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -32,18 +32,18 @@ import {
   loadHomeFeedCache,
   saveHomeFeedCache,
 } from '../lib/homeFeedCache';
-import { orderLiveDiscoveryRooms } from '../lib/liveDiscoveryOrder';
+import {
+  orderLiveDiscoveryRooms,
+  orderScheduledStreamsByStartTime,
+  stabilizeLiveDiscoveryOrder,
+} from '../lib/liveDiscoveryOrder';
 import {
   markLiveDiscoveryFetchAttempt,
   markLiveDiscoveryFetchResult,
   shouldThrottleLiveDiscoveryFetch,
 } from '../lib/liveDiscoveryFetchPolicy';
 import { isSupabaseConfigured } from '../lib/supabase';
-import {
-  formatLiveDiscoveryMetaLine,
-  getLiveDiscoveryMeta,
-  subscribeLiveDiscoveryMeta,
-} from '../lib/liveDiscoveryMeta';
+import { prefetchLiveStreamRooms } from '../lib/liveStreamPrefetchCache';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { useAuth } from '../auth/AuthContext';
 import { useLiveEventReminders } from '../hooks/useLiveEventReminders';
@@ -122,7 +122,7 @@ export function LiveDiscoveryScreen() {
     gap: gridGap,
   } = useMemo(() => computeLiveDiscoveryGrid(windowWidth), [windowWidth]);
   const navigation = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
-  const { guestExploreMode } = useAuth();
+  const { guestExploreMode, session } = useAuth();
   const { remind, isReminderSet } = useLiveEventReminders();
   const [chip, setChip] = useState<string>('All');
   const seed = initialDiscoveryState();
@@ -131,7 +131,9 @@ export function LiveDiscoveryScreen() {
   const [liveAll, setLiveAll] = useState<LiveStream[]>(seed.live);
   const [scheduledAll, setScheduledAll] = useState<ScheduledStream[]>(seed.scheduled);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
-  const [discoveryMetaLine, setDiscoveryMetaLine] = useState(() => formatLiveDiscoveryMetaLine());
+  // Card order is locked between explicit refreshes so background polling/realtime viewer-count
+  // updates never reshuffle the grid under a scrolling/tapping finger — see stabilizeLiveDiscoveryOrder.
+  const stableOrderRef = useRef<{ chip: string; orderIds: string[] } | null>(null);
 
   const load = useCallback(async (opts?: { hadCache?: boolean; bustCache?: boolean; force?: boolean }) => {
     if (!isSupabaseConfigured() && !getWebApiBaseUrl()) {
@@ -141,13 +143,14 @@ export function LiveDiscoveryScreen() {
     }
     const force = Boolean(opts?.force || opts?.bustCache);
     if (shouldThrottleLiveDiscoveryFetch({ force })) return;
+    // Explicit pull-to-refresh (bustCache) is the one moment a re-shuffle is expected/welcome.
+    if (opts?.bustCache) stableOrderRef.current = null;
 
     markLiveDiscoveryFetchAttempt();
     if (opts?.hadCache) setRefreshing(true);
     if (opts?.bustCache) await clearHomeFeedCache();
     try {
       const pack = await fetchLiveShowsForDiscovery();
-      setDiscoveryMetaLine(formatLiveDiscoveryMetaLine(getLiveDiscoveryMeta()));
       if (!pack.meta.success) {
         setDiscoveryError(pack.meta.error);
         markLiveDiscoveryFetchResult(false, pack.meta.error);
@@ -192,20 +195,24 @@ export function LiveDiscoveryScreen() {
 
   useLiveDiscoverySync((opts) => load({ hadCache: opts?.hadCache, bustCache: opts?.bustCache, force: opts?.force }));
 
-  useEffect(() => {
-    return subscribeLiveDiscoveryMeta(() => {
-      setDiscoveryMetaLine(formatLiveDiscoveryMetaLine());
-    });
-  }, []);
-
   const filteredLive = useMemo(() => filterShowsByChip(liveAll, chip), [liveAll, chip]);
   const filteredScheduled = useMemo(
     () => filterScheduledByChip(scheduledAll, chip),
     [scheduledAll, chip],
   );
-  const orderedRooms = useMemo(() => orderLiveDiscoveryRooms(filteredLive), [filteredLive]);
+  const orderedRooms = useMemo(() => {
+    const fresh = orderLiveDiscoveryRooms(filteredLive);
+    const prevIds = stableOrderRef.current?.chip === chip ? stableOrderRef.current.orderIds : null;
+    const { result, nextOrderIds } = stabilizeLiveDiscoveryOrder(fresh, prevIds);
+    stableOrderRef.current = { chip, orderIds: nextOrderIds };
+    return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stableOrderRef is intentionally mutated, not a dep
+  }, [filteredLive, chip]);
   const scheduledTiles = useMemo(
-    () => filteredScheduled.map((event) => scheduledStreamToLiveStream(event)),
+    () =>
+      orderScheduledStreamsByStartTime(filteredScheduled).map((event) =>
+        scheduledStreamToLiveStream(event),
+      ),
     [filteredScheduled],
   );
   const gridTiles = useMemo(
@@ -229,6 +236,11 @@ export function LiveDiscoveryScreen() {
       alertGuestLiveRestricted();
       return;
     }
+    // Kick off the same warm-up the pager uses for its neighbor pages, but for the room the buyer
+    // is about to land on directly from a cold tap (no pager, no neighbors already warmed) — the
+    // screen transition takes real time on its own, so this overlaps free background work with it
+    // instead of only starting the stream/token fetch once LiveRoomScreen has already mounted.
+    prefetchLiveStreamRooms([streamId], session?.access_token);
     navigation.navigate('LiveRoom', { streamId });
   };
 
@@ -297,7 +309,6 @@ export function LiveDiscoveryScreen() {
           </Text>
         </View>
       ) : null}
-      <Text style={styles.syncHint}>{discoveryMetaLine}</Text>
       {refreshing && gridTiles.length > 0 ? (
         <Text style={styles.syncHint}>Updating vault events…</Text>
       ) : null}

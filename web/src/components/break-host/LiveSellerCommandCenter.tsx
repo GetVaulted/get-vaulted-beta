@@ -3,6 +3,8 @@
 import { useState, type ReactNode } from "react";
 import { HostRecentSalesTile } from "@/components/break-host/HostRecentSalesTile";
 import { LiveShowFeeTierTile } from "@/components/break-host/LiveShowFeeTierTile";
+import { LiveShowSalesTile } from "@/components/break-host/LiveShowSalesTile";
+import type { LiveShowSellerSummaryDTO } from "@/lib/live-show-seller-summary-shared";
 import { VaultQueueCarousel, type VaultQueueRow } from "@/components/break-host/vault/VaultQueueCarousel";
 import { LiveHostRoomGovernance } from "@/components/trust/LiveHostRoomGovernance";
 import type { HostRecentSaleRowDTO } from "@/lib/live-room-recent-sales";
@@ -14,6 +16,7 @@ import type { LiveGiveawayDTO } from "@/lib/live-giveaway";
 import type { SellerQueueTab } from "@/lib/seller-queue-tabs";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { isVariantPurchaseItem, summarizeVariantSpots } from "@/lib/live-item-variant-presets";
+import { sweet16SalesStatus } from "@/lib/sweet16-draft-client";
 import { HOST_PIN_BLOCKED_AUCTION_LIVE_MSG } from "@/lib/host-queue-selection";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
@@ -56,6 +59,7 @@ export type LiveSellerCommandCenterProps = {
   onPostItem: (id: string) => void;
   onSkipItem?: (id: string) => void;
   onDeleteItem: (id: string) => void;
+  onEditItem?: (id: string) => void;
   onAddAuction: () => void;
   onAddGiveaway?: () => void;
   onGiveawayOpenEntries?: (id: string) => void;
@@ -71,6 +75,9 @@ export type LiveSellerCommandCenterProps = {
   onCopyPublic: () => void;
   recentSales: HostRecentSaleRowDTO[];
   feeTier?: LiveShowFeeTierSnapshot | null;
+  sellerSummary?: LiveShowSellerSummaryDTO | null;
+  sellerSummaryLoading?: boolean;
+  sellerSummaryRefreshError?: boolean;
   vaultMode?: VaultMode;
   onVaultModeChange?: (mode: VaultMode) => void;
   roomEnergyScore?: number;
@@ -196,6 +203,7 @@ export function LiveSellerCommandCenter({
   onPostItem,
   onSkipItem,
   onDeleteItem,
+  onEditItem,
   onAddAuction,
   onAddGiveaway,
   onGiveawayOpenEntries,
@@ -210,6 +218,9 @@ export function LiveSellerCommandCenter({
   onCopyPublic,
   recentSales,
   feeTier,
+  sellerSummary,
+  sellerSummaryLoading,
+  sellerSummaryRefreshError,
   vaultMode = "auction_night",
   onVaultModeChange,
   roomEnergyScore,
@@ -229,9 +240,12 @@ export function LiveSellerCommandCenter({
   const commerceItem = item;
   const isVariantItem = isVariantPurchaseItem(commerceItem);
   const spotStats = isVariantItem ? summarizeVariantSpots(commerceItem?.variants) : null;
+  // Sweet 16: "N of 16 sold" (the board lists 32 teams, only 16 are ever sold).
+  const sweet16Sales = isVariantItem ? sweet16SalesStatus(commerceItem) : null;
   const leaderLine = item
     ? isVariantItem && spotStats
-      ? `${spotStats.available} spots open · ${spotStats.sold} sold`
+      ? (sweet16Sales?.label ??
+        `${spotStats.available} of ${spotStats.available + spotStats.sold} spots open · ${spotStats.sold} sold`)
       : formatAuctionLeaderLine({
           lastHighBidderUsername: item.lastHighBidderUsername,
           lastHighBidderId: item.lastHighBidderId,
@@ -415,8 +429,15 @@ export function LiveSellerCommandCenter({
           <CollapsibleSection title="Analytics" glass defaultOpen={false}>
             <div className="space-y-2">
               <LiveRoomEnergyMeter score={panelEnergy.score} level={panelEnergy.level} compact />
-              {feeTier ? <LiveShowFeeTierTile tier={feeTier} /> : null}
               <HostRecentSalesTile rows={recentSales} />
+              <LiveShowSalesTile
+                summary={sellerSummary}
+                loading={sellerSummaryLoading}
+                refreshError={sellerSummaryRefreshError}
+              />
+              {feeTier || sellerSummary ? (
+                <LiveShowFeeTierTile tier={feeTier} summary={sellerSummary} />
+              ) : null}
             </div>
           </CollapsibleSection>
         </div>
@@ -598,6 +619,7 @@ export function LiveSellerCommandCenter({
             postDisabled={!hostPinLotEnabled}
             onSkip={onSkipItem}
             onDelete={onDeleteItem}
+            onEdit={onEditItem}
             onAddAuction={onAddAuction}
             onAddGiveaway={onAddGiveaway}
             onGiveawayOpenEntries={onGiveawayOpenEntries}
@@ -671,8 +693,15 @@ export function LiveSellerCommandCenter({
           ) : null}
           <CollapsibleSection title="Analytics" glass defaultOpen={false}>
             <div className="space-y-2">
-              {feeTier ? <LiveShowFeeTierTile tier={feeTier} /> : null}
               <HostRecentSalesTile rows={recentSales} />
+              <LiveShowSalesTile
+                summary={sellerSummary}
+                loading={sellerSummaryLoading}
+                refreshError={sellerSummaryRefreshError}
+              />
+              {feeTier || sellerSummary ? (
+                <LiveShowFeeTierTile tier={feeTier} summary={sellerSummary} />
+              ) : null}
             </div>
           </CollapsibleSection>
         </div>

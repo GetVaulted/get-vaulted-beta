@@ -20,4 +20,18 @@ describe("live-room-preview-image", () => {
       ),
     ).toBe("https://cdn.example/thumb.jpg");
   });
+
+  it("prefers host avatar over category stock art", () => {
+    expect(
+      resolveLiveRoomPreviewImage(
+        {
+          thumbnailUrl: "",
+          firstItemImageUrl: "",
+          sellerAvatarUrl: "https://cdn.example/avatar.jpg",
+          category: "Breaks",
+        },
+        "https://beta.shopgetvaulted.com",
+      ),
+    ).toBe("https://cdn.example/avatar.jpg");
+  });
 });

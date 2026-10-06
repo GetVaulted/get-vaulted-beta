@@ -13,6 +13,7 @@ import {
   type LiveSpotTakenCelebration,
 } from '../../lib/liveSpotCelebration';
 import { colors, radii, spacing } from '../../theme';
+import { vaultColors } from '../../theme/vaultColors';
 import { LIVE_CLAIM_CTA_GRADIENT } from './liveClaimCtaStyle';
 import { LiveRoomText } from './LiveRoomText';
 
@@ -150,8 +151,8 @@ const styles = StyleSheet.create({
     width: 280,
     height: 280,
     borderRadius: 140,
-    backgroundColor: 'rgba(139, 92, 246, 0.22)',
-    shadowColor: '#D946EF',
+    backgroundColor: 'rgba(203, 163, 92, 0.22)',
+    shadowColor: vaultColors.gold,
     shadowOpacity: 0.45,
     shadowRadius: 36,
     shadowOffset: { width: 0, height: 0 },
@@ -172,7 +173,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   kicker: {
-    color: colors.gold,
+    color: vaultColors.gold,
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 2.4,
@@ -186,13 +187,13 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textAlign: 'center',
     letterSpacing: 0.5,
-    textShadowColor: 'rgba(217, 70, 239, 0.35)',
+    textShadowColor: 'rgba(244, 227, 182, 0.35)',
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 16,
   },
   label: {
     marginTop: spacing.md,
-    color: colors.gold,
+    color: vaultColors.gold,
     fontSize: 22,
     fontWeight: '800',
     textAlign: 'center',

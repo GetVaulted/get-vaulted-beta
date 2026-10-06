@@ -1,21 +1,15 @@
-/** Mirrors `public.trade_fee_amount_for_tier` in Supabase (USD). */
-export function tradeFeeUsdForTier(tier: string | null | undefined): number {
-  switch (tier) {
-    case 'cards_slabs':
-      return 12;
-    case 'sneakers':
-      return 16;
-    case 'memorabilia':
-      return 22;
-    case 'watches_luxury':
-      return 28;
-    case 'oversized_custom':
-      return 45;
-    default:
-      return 15;
-  }
+/** Flat Get Vaulted platform fee charged to each trade party (USD). */
+export const GET_VAULTED_TRADE_PLATFORM_FEE_USD = 2.99;
+
+/**
+ * Platform fee for a trade party.
+ * Weight tier no longer sets the GV fee — each party pays actual outbound shipping separately.
+ * `tier` is kept for call-site compatibility.
+ */
+export function tradeFeeUsdForTier(_tier?: string | null): number {
+  return GET_VAULTED_TRADE_PLATFORM_FEE_USD;
 }
 
-export function tradeFeeCentsForTier(tier: string | null | undefined): number {
+export function tradeFeeCentsForTier(tier?: string | null): number {
   return Math.round(tradeFeeUsdForTier(tier) * 100);
 }

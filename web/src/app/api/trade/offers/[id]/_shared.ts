@@ -68,8 +68,8 @@ export async function resolveTradeListingsForTerms(
 
 export async function ensureOfferFreshForAction(
   tx: Prisma.TransactionClient,
-  offer: { id: string; status: "pending" | "countered" | "accepted" | "completed" | "declined" | "cancelled" | "expired"; expiresAt: Date | null },
-): Promise<"pending" | "countered" | "accepted" | "completed" | "declined" | "cancelled" | "expired"> {
+  offer: { id: string; status: "pending" | "countered" | "accepted" | "completed" | "disputed" | "declined" | "cancelled" | "expired"; expiresAt: Date | null },
+): Promise<"pending" | "countered" | "accepted" | "completed" | "disputed" | "declined" | "cancelled" | "expired"> {
   return expireOfferIfNeeded(tx, offer);
 }
 

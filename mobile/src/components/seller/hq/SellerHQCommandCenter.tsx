@@ -4,6 +4,7 @@ import { Alert, StyleSheet, Text, View } from 'react-native';
 import type { SellerHubTabId } from '../../../data/sellerHubMock';
 import type { useSellerCommandCenterData } from '../../../hooks/useSellerCommandCenterData';
 import { resolveSellerHQEntryPhase, type SellerHQEntryPhase } from '../../../lib/sellerHubEntry';
+import { computeSellerStudioReadinessProgress } from '../../../lib/sellerHubEntry';
 import {
   sellerConnectBadge,
 } from '../../../api/stripeConnectRepository';
@@ -90,7 +91,13 @@ export function SellerHQCommandCenter({
 
   const showSetupBanner =
     !sellerActivated &&
-    resolveSellerHQEntryPhase({ hasUser: true, connect: status }) !== 'ready';
+    resolveSellerHQEntryPhase({
+      hasUser: true,
+      connect: status,
+      sellerActivated,
+    }) !== 'ready';
+
+  const setupProgress = computeSellerStudioReadinessProgress(status, { sellerActivated });
 
   return (
     <View style={styles.wrap}>
@@ -101,7 +108,8 @@ export function SellerHQCommandCenter({
           hasUser
           connect={status}
           connectLoading={data.sellerConnect.loading && !data.sellerConnect.loadedOnce}
-          setupProgress={data.setupProgress}
+          setupProgress={setupProgress}
+          sellerActivated={sellerActivated}
           onPress={onSellerHQEntryPress}
         />
       ) : null}

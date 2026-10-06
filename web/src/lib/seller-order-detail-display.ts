@@ -68,7 +68,8 @@ export function resolveSellerOrderHeadline(order: SellerOrderDisplayFields): {
   if (fs === "exception") {
     return {
       headline: "Label could not be created",
-      subheadline: "Check the ship-to address below. If it looks wrong, ask the buyer to update Wallet → shipping address.",
+      subheadline:
+        "Check the ship-to address below. If it looks wrong, ask the buyer to open the order and tap Update from Wallet (before a label is created).",
     };
   }
   if (fs === "delivered") {

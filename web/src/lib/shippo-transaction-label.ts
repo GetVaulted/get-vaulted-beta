@@ -1,4 +1,8 @@
 import { shippoGetTransaction, type ShippoTransaction } from "@/lib/shippo";
+import {
+  isShippoPlatformBillingMessage,
+  SHIPPO_PLATFORM_BILLING_USER_MESSAGE,
+} from "@/lib/shippo-platform-billing-message";
 
 export type ResolvedShippoLabel = {
   transactionId: string;
@@ -48,7 +52,13 @@ function resolvedFromTransaction(tx: ShippoTransaction, transactionId: string): 
 }
 
 function shippoFailureMessage(tx: ShippoTransaction, fallback: string): string {
-  return formatShippoTransactionMessages(tx.messages) ?? fallback;
+  const raw = formatShippoTransactionMessages(tx.messages);
+  if (!raw) return fallback;
+  if (isShippoPlatformBillingMessage(raw)) {
+    console.error("[shippo-transaction-label] platform billing issue on Shippo account", { raw });
+    return SHIPPO_PLATFORM_BILLING_USER_MESSAGE;
+  }
+  return raw;
 }
 
 /** Poll Shippo until a transaction yields a printable label or fails. */
@@ -69,6 +79,13 @@ export async function resolveShippoTransactionLabel(
     if (isErrorShippoStatus(tx.status)) {
       throw new Error(
         shippoFailureMessage(tx, "Shippo could not create this label. Check addresses and parcel weight."),
+      );
+    }
+
+    const objectState = String((tx as { object_state?: unknown }).object_state ?? "").toUpperCase();
+    if (objectState === "INVALID") {
+      throw new Error(
+        shippoFailureMessage(tx, "Shippo returned an INVALID transaction. Label was not purchased."),
       );
     }
 
@@ -114,6 +131,18 @@ export async function resolveShippoPurchaseLabel(
       shippoFailureMessage(
         purchase,
         "Shippo rejected the label purchase. Confirm ship-from, buyer address, and parcel size.",
+      ),
+    );
+  }
+
+  const purchaseObjectState = String(
+    (purchase as { object_state?: unknown }).object_state ?? "",
+  ).toUpperCase();
+  if (purchaseObjectState === "INVALID") {
+    throw new Error(
+      shippoFailureMessage(
+        purchase,
+        "Shippo returned an INVALID transaction. Label was not purchased.",
       ),
     );
   }

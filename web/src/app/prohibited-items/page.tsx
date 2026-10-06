@@ -16,16 +16,6 @@ export default function ProhibitedItemsPage() {
       <p className="mt-2 text-xs text-zinc-500">Last updated: July 3, 2026</p>
 
       <div className="mt-10 space-y-8 text-sm leading-relaxed text-zinc-300">
-        <section className="rounded-lg border border-amber-400/30 bg-amber-400/[0.06] p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-amber-200">Owner / legal review recommended</p>
-          <p className="mt-2 text-muted">
-            This list reflects common marketplace prohibited-item standards and is a starting point, not a final,
-            attorney-reviewed policy. Some categories (e.g., firearms components, certain memorabilia with
-            right-of-publicity concerns, or jurisdiction-specific restricted goods) may need refinement for your
-            specific catalog and target states before this is treated as binding policy.
-          </p>
-        </section>
-
         <section>
           <p className="text-muted">
             This Prohibited Items Policy applies to all listings, live-show offerings, box breaks, trades, and any

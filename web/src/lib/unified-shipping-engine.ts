@@ -1,5 +1,11 @@
 /** Admin-controlled platform shipping profile defaults (seed data). */
 
+import {
+  DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS,
+  PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS,
+  standardLiveShowShippingCapIncrementCents,
+} from "../../../shared/live-show-shipping-config";
+
 export type PlatformShippingProfileSeed = {
   slug: string;
   name: string;
@@ -15,6 +21,19 @@ export type PlatformShippingProfileSeed = {
 
 export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
   {
+    slug: "letter_envelope",
+    name: "Letter Envelope",
+    /** Light #10-style envelope — First-Class letter band when weight stays low. */
+    defaultWeightOz: 2,
+    defaultLengthIn: 9.5,
+    defaultWidthIn: 4.125,
+    defaultHeightIn: 0.25,
+    packageType: "envelope",
+    bundleAllowed: true,
+    requiresSeparatePackage: false,
+    sortOrder: 0,
+  },
+  {
     slug: "trading_cards",
     name: "Trading Cards",
     defaultWeightOz: 4,
@@ -24,7 +43,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "poly_mailer",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 0,
+    sortOrder: 1,
   },
   {
     slug: "graded_card",
@@ -36,7 +55,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "bubble_mailer",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 1,
+    sortOrder: 2,
   },
   {
     slug: "card_lot",
@@ -48,7 +67,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "box",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 2,
+    sortOrder: 3,
   },
   {
     slug: "jersey",
@@ -60,7 +79,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "poly_mailer",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 3,
+    sortOrder: 4,
   },
   {
     slug: "mini_helmet",
@@ -72,7 +91,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "box",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 4,
+    sortOrder: 5,
   },
   {
     slug: "full_size_helmet",
@@ -84,7 +103,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "box",
     bundleAllowed: false,
     requiresSeparatePackage: true,
-    sortOrder: 5,
+    sortOrder: 6,
   },
   {
     slug: "speedflex_helmet",
@@ -96,7 +115,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "box",
     bundleAllowed: false,
     requiresSeparatePackage: true,
-    sortOrder: 6,
+    sortOrder: 7,
   },
   {
     slug: "sneakers",
@@ -108,7 +127,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "box",
     bundleAllowed: false,
     requiresSeparatePackage: true,
-    sortOrder: 7,
+    sortOrder: 8,
   },
   {
     slug: "watch",
@@ -120,7 +139,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "small_box",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 8,
+    sortOrder: 9,
   },
   {
     slug: "funko_collectible",
@@ -132,7 +151,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "box",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 9,
+    sortOrder: 10,
   },
   {
     slug: "custom",
@@ -144,7 +163,7 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
     packageType: "",
     bundleAllowed: true,
     requiresSeparatePackage: false,
-    sortOrder: 10,
+    sortOrder: 11,
   },
 ];
 
@@ -152,11 +171,14 @@ export const PLATFORM_SHIPPING_PROFILE_SEEDS: PlatformShippingProfileSeed[] = [
 export function suggestShippingProfileSlugForCategory(category: string | null | undefined): string {
   const c = (category ?? "").trim().toLowerCase();
   if (!c) return "trading_cards";
+  if (c.includes("letter") || c.includes("envelope") || c.includes("document")) return "letter_envelope";
   if (c.includes("graded") || c.includes("slab")) return "graded_card";
   if (c.includes("mini") && c.includes("helmet")) return "mini_helmet";
   if (c.includes("speedflex")) return "speedflex_helmet";
   if (c.includes("helmet")) return "full_size_helmet";
-  if (c.includes("lot") || (c.includes("break") && !c.includes("helmet"))) return "card_lot";
+  if (c.includes("lot")) return "card_lot";
+  // Breaks / card shows use the light mailer band (not card_lot). Matches seller `live_break_spot`.
+  if (c.includes("break") && !c.includes("helmet")) return "trading_cards";
   if (c.includes("jersey") || c.includes("apparel")) return "jersey";
   if (c.includes("sneaker") || c.includes("shoe")) return "sneakers";
   if (c.includes("watch")) return "watch";
@@ -238,13 +260,11 @@ export type PackageGroup = {
   heightIn: number;
 };
 
-/** Split line items into package groups (helmets etc. ship alone; bundle-eligible items merge by bundle group). */
-export function groupItemsIntoPackages(
-  items: Array<{ itemId: string; profile: ResolvedShippingProfile; quantity?: number }>,
-  opts?: { bundleEligiblePurchases?: boolean },
-): PackageGroup[] {
+type PackageUnit = { itemId: string; profile: ResolvedShippingProfile };
+
+function packageGroupsFromBundleOnly(units: PackageUnit[]): PackageGroup[] {
   const groups: PackageGroup[] = [];
-  const bundleBuckets = new Map<string, typeof items>();
+  const bundleBuckets = new Map<string, PackageUnit[]>();
 
   const flushBundleGroup = (groupKey: string) => {
     const bucket = bundleBuckets.get(groupKey);
@@ -257,8 +277,7 @@ export function groupItemsIntoPackages(
     const limited = maxUnits != null && maxUnits > 0 ? bucket.slice(0, maxUnits) : bucket;
     const overflow = maxUnits != null && maxUnits > 0 ? bucket.slice(maxUnits) : [];
     for (const row of limited) {
-      const qty = Math.max(1, row.quantity ?? 1);
-      weightOz += row.profile.weightOz * qty;
+      weightOz += row.profile.weightOz;
       maxL = Math.max(maxL, row.profile.lengthIn);
       maxW = Math.max(maxW, row.profile.widthIn);
       maxH = Math.max(maxH, row.profile.heightIn);
@@ -272,55 +291,84 @@ export function groupItemsIntoPackages(
       heightIn: maxH || 4,
     });
     bundleBuckets.delete(groupKey);
-    if (overflow.length > 0) {
-      for (const row of overflow) {
-        groups.push({
-          packageIndex: groups.length,
-          items: [{ itemId: row.itemId, profile: row.profile }],
-          weightOz: row.profile.weightOz,
-          lengthIn: row.profile.lengthIn,
-          widthIn: row.profile.widthIn,
-          heightIn: row.profile.heightIn,
-        });
-      }
+    for (const row of overflow) {
+      groups.push({
+        packageIndex: groups.length,
+        items: [{ itemId: row.itemId, profile: row.profile }],
+        weightOz: row.profile.weightOz,
+        lengthIn: row.profile.lengthIn,
+        widthIn: row.profile.widthIn,
+        heightIn: row.profile.heightIn,
+      });
     }
   };
 
-  const flushAllBundles = () => {
-    for (const key of [...bundleBuckets.keys()]) flushBundleGroup(key);
-  };
+  for (const unit of units) {
+    const groupKey = unit.profile.bundleGroup || "general";
+    const bucket = bundleBuckets.get(groupKey) ?? [];
+    bucket.push(unit);
+    bundleBuckets.set(groupKey, bucket);
+  }
+  for (const key of [...bundleBuckets.keys()]) flushBundleGroup(key);
+  return groups;
+}
 
+/**
+ * Split line items into package groups.
+ * - Helmets/sneakers/etc. (`requiresSeparatePackage`) each get their own host package.
+ * - Bundle-eligible items (cards, jerseys, …) nest into the largest host when one exists
+ *   so sellers can pack small items inside a helmet box and buy one label.
+ * - With no host, nestables still merge by `bundleGroup` as before.
+ */
+export function groupItemsIntoPackages(
+  items: Array<{ itemId: string; profile: ResolvedShippingProfile; quantity?: number }>,
+  opts?: { bundleEligiblePurchases?: boolean },
+): PackageGroup[] {
   const bundlingEnabled = opts?.bundleEligiblePurchases !== false;
+  const hosts: PackageUnit[] = [];
+  const nestable: PackageUnit[] = [];
 
   for (const row of items) {
     const qty = Math.max(1, row.quantity ?? 1);
-    if (
+    const isHost =
       !bundlingEnabled ||
       row.profile.requiresSeparatePackage ||
-      !row.profile.bundleAllowed
-    ) {
-      flushAllBundles();
-      for (let i = 0; i < qty; i++) {
-        groups.push({
-          packageIndex: groups.length,
-          items: [{ itemId: row.itemId, profile: row.profile }],
-          weightOz: row.profile.weightOz,
-          lengthIn: row.profile.lengthIn,
-          widthIn: row.profile.widthIn,
-          heightIn: row.profile.heightIn,
-        });
-      }
-    } else {
-      const groupKey = row.profile.bundleGroup || "general";
-      const bucket = bundleBuckets.get(groupKey) ?? [];
-      for (let i = 0; i < qty; i++) {
-        bucket.push({ itemId: row.itemId, profile: row.profile, quantity: 1 });
-      }
-      bundleBuckets.set(groupKey, bucket);
+      !row.profile.bundleAllowed;
+    for (let i = 0; i < qty; i++) {
+      const unit = { itemId: row.itemId, profile: row.profile };
+      if (isHost) hosts.push(unit);
+      else nestable.push(unit);
     }
   }
-  flushAllBundles();
-  return groups;
+
+  if (hosts.length === 0) {
+    return packageGroupsFromBundleOnly(nestable);
+  }
+
+  let nestTargetIndex = 0;
+  let bestVolume = -1;
+  for (let i = 0; i < hosts.length; i++) {
+    const p = hosts[i]!.profile;
+    const volume = p.lengthIn * p.widthIn * p.heightIn;
+    if (volume > bestVolume) {
+      bestVolume = volume;
+      nestTargetIndex = i;
+    }
+  }
+
+  return hosts.map((host, index) => {
+    const nested = index === nestTargetIndex ? nestable : [];
+    const packageItems = [host, ...nested];
+    const weightOz = packageItems.reduce((sum, unit) => sum + unit.profile.weightOz, 0);
+    return {
+      packageIndex: index,
+      items: packageItems,
+      weightOz: Math.max(1, weightOz),
+      lengthIn: host.profile.lengthIn,
+      widthIn: host.profile.widthIn,
+      heightIn: host.profile.heightIn,
+    };
+  });
 }
 
 export type LiveShowShippingConfig = {
@@ -332,7 +380,22 @@ export type LiveShowShippingConfig = {
   bundleEligiblePurchases?: boolean;
 };
 
-/** Compute buyer total and incremental charge for a live show purchase. */
+/**
+ * Compute buyer total and incremental charge for a live show purchase.
+ *
+ * Capped mode always splits the cap into roughly 3 per-item charges (see
+ * standardLiveShowShippingCapIncrementCents) instead of charging the whole remaining cap on
+ * whichever single purchase first reaches it. This is standard behavior, not a seller-configurable
+ * option — without it, a single expensive-to-ship item (e.g. a helmet whose real cost alone meets
+ * the cap) would front-load the entire charge onto that one purchase even though later items in the
+ * same show are then free.
+ *
+ * The split only kicks in once a purchase's real cumulative cost would actually reach/exceed the cap
+ * (i.e. the moment the old code would have front-loaded everything). Purchases that are comfortably
+ * under the cap still just pay their real estimated cost — the split doesn't artificially shrink
+ * charges for shows that were never going to hit the cap in the first place. Never charges more than
+ * the real cumulative estimate or the cap itself.
+ */
 export function computeBuyerLiveShippingTotals(args: {
   shippingMode: "calculated" | "capped" | "free";
   shippingCapCents: number | null;
@@ -359,15 +422,29 @@ export function computeBuyerLiveShippingTotals(args: {
     };
   }
 
-  const cap =
-    args.shippingMode === "capped" && args.shippingCapCents != null
+  // Hosts may configure a lower show cap; calculated mode still hits the platform max.
+  const configured =
+    args.shippingCapCents != null && Number.isFinite(args.shippingCapCents)
       ? Math.max(0, Math.floor(args.shippingCapCents))
-      : null;
+      : DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS;
+  const cap = Math.min(configured, PLATFORM_LIVE_BUYER_SHIPPING_MAX_CENTS);
 
-  const buyerTotalShippingCents =
-    args.shippingMode === "capped" && cap != null ? Math.min(cap, raw) : raw;
+  const increment = args.shippingMode === "capped" ? standardLiveShowShippingCapIncrementCents(cap) : null;
 
-  const shippingDueForThisPurchaseCents = Math.max(0, buyerTotalShippingCents - already);
+  const alreadyClamped = Math.min(already, cap);
+  const remainingToCap = Math.max(0, cap - alreadyClamped);
+  const remainingRaw = Math.max(0, raw - alreadyClamped);
+
+  // Only split once this purchase's real cost would actually meet/exceed what's left of the cap —
+  // otherwise just charge the real remaining cost (same as calculated mode below the cap).
+  const wouldReachCapThisPurchase = remainingRaw >= remainingToCap;
+
+  const shippingDueForThisPurchaseCents =
+    increment != null && wouldReachCapThisPurchase
+      ? Math.max(0, Math.min(increment, remainingToCap))
+      : Math.max(0, Math.min(remainingToCap, remainingRaw));
+
+  const buyerTotalShippingCents = alreadyClamped + shippingDueForThisPurchaseCents;
   const sellerShippingSubsidyCents =
     args.sellerPaysOverCap && raw > buyerTotalShippingCents ? raw - buyerTotalShippingCents : 0;
 
@@ -375,7 +452,7 @@ export function computeBuyerLiveShippingTotals(args: {
     buyerTotalShippingCents,
     shippingDueForThisPurchaseCents,
     sellerShippingSubsidyCents,
-    capReached: cap != null && buyerTotalShippingCents >= cap,
+    capReached: buyerTotalShippingCents >= cap,
     freeShippingApplied: false,
   };
 }
@@ -418,8 +495,10 @@ export function computeLiveBuyerShippingCharge(args: {
 export type ShippoRateLike = {
   object_id?: string;
   amount?: string;
+  currency?: string;
   provider?: string;
   servicelevel?: { token?: string; name?: string };
+  estimated_days?: number;
 };
 
 const ALLOWED_CARRIERS = new Set(["usps", "ups"]);
@@ -445,6 +524,42 @@ export function filterShippoRatesUspsUps(rates: ShippoRateLike[]): ShippoRateLik
       if (!Number.isFinite(bb)) return -1;
       return aa - bb;
     });
+}
+
+/**
+ * Seller quote list: cheapest USPS + cheapest UPS first (so UPS isn't buried),
+ * then remaining USPS/UPS services by price.
+ */
+export function selectShippoRatesForSellerQuote(
+  rates: ShippoRateLike[],
+  maxRates = 8,
+): ShippoRateLike[] {
+  const allowed = filterShippoRatesUspsUps(rates);
+  if (allowed.length === 0) return [];
+
+  const cheapestByCarrier = new Map<string, ShippoRateLike>();
+  for (const rate of allowed) {
+    const key = normalizeCarrierKey(rate.provider);
+    if (!cheapestByCarrier.has(key)) cheapestByCarrier.set(key, rate);
+  }
+
+  const featured = [...cheapestByCarrier.values()].sort((a, b) => {
+    const aa = Number(a.amount);
+    const bb = Number(b.amount);
+    if (!Number.isFinite(aa)) return 1;
+    if (!Number.isFinite(bb)) return -1;
+    return aa - bb;
+  });
+
+  const featuredIds = new Set(
+    featured.map((r, i) => r.object_id ?? `featured-${normalizeCarrierKey(r.provider)}-${i}`),
+  );
+  const rest = allowed.filter((r, i) => {
+    const id = r.object_id ?? `rest-${normalizeCarrierKey(r.provider)}-${i}`;
+    return !featuredIds.has(id) && !(r.object_id && featured.some((f) => f.object_id === r.object_id));
+  });
+
+  return [...featured, ...rest].slice(0, Math.max(1, maxRates));
 }
 
 export type LiveShowCarrierPreferenceFilter = "usps" | "ups" | "best_rate";

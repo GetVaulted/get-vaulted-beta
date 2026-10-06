@@ -43,7 +43,14 @@ export function buildSecurityHeaders(): { key: string; value: string }[] {
     { key: "X-Frame-Options", value: "SAMEORIGIN" },
     { key: "X-Content-Type-Options", value: "nosniff" },
     { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-    { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
+    // camera/microphone must allow 'self': the seller live-console pages call getUserMedia
+    // from this origin to broadcast. A blanket camera=() microphone=() (deny for every origin,
+    // including this site's own pages) overrides the browser's per-site permission entirely -
+    // Chrome shows the site as allowed, but this header blocks the request before that grant is
+    // ever consulted, throwing a NotAllowedError with no permission prompt at all. 'self' still
+    // blocks camera/mic for any third-party iframe embedding this site, which was the original
+    // intent here.
+    { key: "Permissions-Policy", value: "camera=(self), microphone=(self), geolocation=(), interest-cohort=()" },
     { key: "Content-Security-Policy-Report-Only", value: buildContentSecurityPolicyReportOnly() },
   ];
 }

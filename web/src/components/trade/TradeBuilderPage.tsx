@@ -4,6 +4,7 @@ import type { ListingStatus } from "@/generated/prisma/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { TRADE_BUILDER_TRUST_CALLOUT, TRADE_CASH_SETTLEMENT_NOTE } from "@/lib/trade-trust-copy";
 
 export type TradePickerListing = {
   id: string;
@@ -215,6 +216,7 @@ export function TradeBuilderPage({
           <section className="rounded-2xl border border-white/[0.08] bg-[#09090c]/85 p-4">
             <p className="text-sm font-semibold text-zinc-100">3) Optional cash adjustment</p>
             <p className="mt-1 text-xs text-zinc-500">Pick one side only so the final terms are unambiguous.</p>
+            <p className="mt-2 text-xs leading-relaxed text-zinc-500">{TRADE_CASH_SETTLEMENT_NOTE}</p>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               <ToggleCard
                 active={cashDirection === "none"}
@@ -295,11 +297,9 @@ export function TradeBuilderPage({
               ) : null}
             </dl>
           </section>
-          <section className="rounded-2xl border border-white/[0.08] bg-[#09090c]/85 p-4">
-            <p className="text-sm font-semibold text-zinc-100">Future messaging</p>
-            <p className="mt-1 text-xs text-zinc-500">
-              Trade chat is not part of MVP yet. Future messages will stay inside this trade between participants only.
-            </p>
+          <section className="rounded-2xl border border-gold/20 bg-[#0a0a0d]/90 p-4">
+            <p className="text-sm font-semibold text-zinc-100">Before you send</p>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-400">{TRADE_BUILDER_TRUST_CALLOUT}</p>
           </section>
         </section>
       </div>

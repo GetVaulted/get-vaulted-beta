@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -29,12 +29,33 @@ function statusLabel(status: string): string {
       return 'Ship item back';
     case 'return_in_transit':
       return 'Return in transit';
+    case 'refund_processing':
+      return 'Processing';
     case 'support_denied':
       return 'Support denied';
     case 'refunded':
-      return 'Refunded';
+      return 'Completed';
     default:
       return status.replace(/_/g, ' ');
+  }
+}
+
+function blockedMessage(code: string | null): string {
+  switch (code) {
+    case 'LABEL_EXISTS':
+      return 'Cancel is unavailable after a Get Vaulted shipping label is created.';
+    case 'IN_TRANSIT':
+      return 'Cancel and return requests are unavailable while the package is in transit. Wait until delivery.';
+    case 'RETURN_WINDOW_EXPIRED':
+      return 'The 2-day return window after delivery has expired.';
+    case 'NOT_PAID':
+      return 'This order is not eligible for a refund yet.';
+    case 'ALREADY_REFUNDED':
+      return 'This order has already been refunded.';
+    case 'ESCROW_NOT_SUPPORTED':
+      return 'Escrow orders must be handled through the escrow provider.';
+    default:
+      return 'This order is not eligible for a refund request right now.';
   }
 }
 
@@ -48,23 +69,29 @@ export function OrderRefundRequestSection({ accessToken, orderId, role }: Props)
   const [state, setState] = useState<OrderRefundRequestState | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [actionLabel, setActionLabel] = useState<string | null>(null);
+  const [justCompleted, setJustCompleted] = useState(false);
   const [reason, setReason] = useState('');
   const [photoUrlsText, setPhotoUrlsText] = useState('');
   const [denyReason, setDenyReason] = useState('');
   const [trackingNumber, setTrackingNumber] = useState('');
+  const busyRef = useRef(false);
 
-  const load = useCallback(async () => {
-    if (!accessToken) return;
-    setLoading(true);
-    try {
-      const row = await fetchOrderRefundRequestState(accessToken, orderId);
-      setState(row);
-    } catch {
-      setState(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [accessToken, orderId]);
+  const load = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!accessToken) return;
+      if (!opts?.silent) setLoading(true);
+      try {
+        const row = await fetchOrderRefundRequestState(accessToken, orderId);
+        setState(row);
+      } catch {
+        if (!opts?.silent) setState(null);
+      } finally {
+        if (!opts?.silent) setLoading(false);
+      }
+    },
+    [accessToken, orderId],
+  );
 
   useEffect(() => {
     void load();
@@ -74,23 +101,90 @@ export function OrderRefundRequestSection({ accessToken, orderId, role }: Props)
     return loading ? <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.md }} /> : null;
   }
 
-  if (!state?.liveShowId && !state?.request) return null;
+  if (!state) return null;
 
   const eligibility = state.eligibility;
   const request = state.request;
+  const completed =
+    justCompleted || request?.status === 'refunded' || eligibility?.blockedReason === 'ALREADY_REFUNDED';
 
-  async function runPatch(body: Record<string, unknown>, successMsg?: string) {
-    if (!accessToken) return;
+  async function runAction(
+    label: string,
+    work: () => Promise<void>,
+    opts?: { successMsg?: string; markCompleted?: boolean },
+  ) {
+    if (!accessToken || busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
+    setActionLabel(label);
     try {
-      await patchOrderRefundRequest(accessToken, orderId, body);
-      await load();
-      if (successMsg) Alert.alert('Updated', successMsg);
+      await work();
+      await load({ silent: true });
+      if (opts?.markCompleted) setJustCompleted(true);
+      if (opts?.successMsg) Alert.alert(opts.markCompleted ? 'Completed' : 'Updated', opts.successMsg);
     } catch (e) {
       Alert.alert('Could not update', e instanceof Error ? e.message : 'Try again');
     } finally {
+      busyRef.current = false;
       setBusy(false);
+      setActionLabel(null);
     }
+  }
+
+  async function runPatch(
+    body: Record<string, unknown>,
+    opts?: { successMsg?: string; markCompleted?: boolean },
+  ) {
+    await runAction('Processing', async () => {
+      await patchOrderRefundRequest(accessToken!, orderId, body);
+    }, opts);
+  }
+
+  const processingUi = busy ? (
+    <View style={[styles.statusBox, styles.statusProcessing]}>
+      <View style={styles.btnInner}>
+        <ActivityIndicator color={colors.gold} size="small" />
+        <Text style={styles.statusLabel}>Processing</Text>
+      </View>
+      <Text style={styles.sub}>Please wait — do not tap again.</Text>
+    </View>
+  ) : null;
+
+  const btnContent = (label: string, textStyle?: object) =>
+    busy && actionLabel ? (
+      <View style={styles.btnInner}>
+        <ActivityIndicator color={colors.textPrimary} size="small" />
+        <Text style={[styles.btnTxt, textStyle]}>Processing</Text>
+      </View>
+    ) : (
+      <Text style={[styles.btnTxt, textStyle]}>{label}</Text>
+    );
+
+  if (completed && role === 'seller') {
+    return (
+      <View style={styles.card}>
+        <View style={styles.headerRow}>
+          <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+          <Text style={styles.title}>Cancel & refund</Text>
+        </View>
+        <View style={[styles.statusBox, styles.statusCompleted]}>
+          <Text style={styles.statusCompletedLabel}>Completed</Text>
+          <Text style={styles.sub}>This order was cancelled and the buyer was refunded.</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (!eligibility?.kind && !request) {
+    return (
+      <View style={styles.card}>
+        <View style={styles.headerRow}>
+          <Ionicons name="return-down-back-outline" size={18} color={colors.gold} />
+          <Text style={styles.title}>Cancel & refund</Text>
+        </View>
+        <Text style={styles.sub}>{blockedMessage(eligibility?.blockedReason ?? null)}</Text>
+      </View>
+    );
   }
 
   return (
@@ -100,12 +194,20 @@ export function OrderRefundRequestSection({ accessToken, orderId, role }: Props)
         <Text style={styles.title}>Cancel & refund</Text>
       </View>
       <Text style={styles.sub}>
-        Live show orders only. Cancel before ship, or return within 2 days of delivery (shipping defect).
+        {eligibility?.kind === 'return'
+          ? 'Live show orders: return within 2 days of delivery for a shipping defect (photos required).'
+          : 'Request a cancel before the seller ships or creates a Get Vaulted label. The seller must approve before a full refund is issued.'}
       </Text>
 
-      {request ? (
-        <View style={styles.statusBox}>
-          <Text style={styles.statusLabel}>{statusLabel(request.status)}</Text>
+      {processingUi}
+
+      {request && !busy ? (
+        <View style={[styles.statusBox, request.status === 'refunded' && styles.statusCompleted]}>
+          <Text
+            style={request.status === 'refunded' ? styles.statusCompletedLabel : styles.statusLabel}
+          >
+            {statusLabel(request.status)}
+          </Text>
           <Text style={styles.reason}>{request.reason}</Text>
           {request.sellerDenyReason ? (
             <Text style={styles.denyNote}>Seller: {request.sellerDenyReason}</Text>
@@ -121,6 +223,7 @@ export function OrderRefundRequestSection({ accessToken, orderId, role }: Props)
             placeholder={eligibility.kind === 'return' ? 'Describe shipping defect…' : 'Why cancel?'}
             placeholderTextColor={colors.textMuted}
             multiline
+            editable={!busy}
             style={styles.input}
           />
           {eligibility.kind === 'return' ? (
@@ -130,40 +233,32 @@ export function OrderRefundRequestSection({ accessToken, orderId, role }: Props)
               placeholder="Photo URLs (one per line)"
               placeholderTextColor={colors.textMuted}
               multiline
+              editable={!busy}
               style={styles.input}
             />
           ) : null}
           <Pressable
             disabled={busy}
-            style={[styles.btn, styles.btnGold]}
+            style={[styles.btn, styles.btnGold, busy && styles.btnDisabled]}
             onPress={() => {
-              void (async () => {
-                if (!accessToken) return;
-                setBusy(true);
-                try {
-                  const photoUrls = photoUrlsText
-                    .split('\n')
-                    .map((s) => s.trim())
-                    .filter(Boolean);
-                  await createOrderRefundRequest(accessToken, orderId, {
-                    kind: eligibility.kind!,
-                    reason,
-                    photoUrls,
-                  });
-                  setReason('');
-                  setPhotoUrlsText('');
-                  await load();
-                } catch (e) {
-                  Alert.alert('Request failed', e instanceof Error ? e.message : 'Try again');
-                } finally {
-                  setBusy(false);
-                }
-              })();
+              void runAction('Processing', async () => {
+                const photoUrls = photoUrlsText
+                  .split('\n')
+                  .map((s) => s.trim())
+                  .filter(Boolean);
+                await createOrderRefundRequest(accessToken, orderId, {
+                  kind: eligibility.kind!,
+                  reason,
+                  photoUrls,
+                });
+                setReason('');
+                setPhotoUrlsText('');
+              });
             }}
           >
-            <Text style={styles.btnTxt}>
-              {eligibility.kind === 'cancel' ? 'Request cancel & refund' : 'Request return & refund'}
-            </Text>
+            {btnContent(
+              eligibility.kind === 'cancel' ? 'Request cancel & refund' : 'Request return & refund',
+            )}
           </Pressable>
         </View>
       ) : null}
@@ -172,47 +267,73 @@ export function OrderRefundRequestSection({ accessToken, orderId, role }: Props)
         <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
           <Pressable
             disabled={busy}
-            style={[styles.btn, styles.btnGreen]}
-            onPress={() => void runPatch({ action: 'seller_respond', approve: true }, 'Request approved')}
+            style={[styles.btn, styles.btnGreen, busy && styles.btnDisabled]}
+            onPress={() =>
+              void runPatch(
+                { action: 'seller_respond', approve: true },
+                { successMsg: 'Request approved' },
+              )
+            }
           >
-            <Text style={styles.btnTxt}>Approve</Text>
+            {btnContent('Approve')}
           </Pressable>
           <TextInput
             value={denyReason}
             onChangeText={setDenyReason}
             placeholder="Deny reason"
             placeholderTextColor={colors.textMuted}
+            editable={!busy}
             style={styles.input}
           />
           <Pressable
             disabled={busy}
-            style={[styles.btn, styles.btnMuted]}
+            style={[styles.btn, styles.btnMuted, busy && styles.btnDisabled]}
             onPress={() => void runPatch({ action: 'seller_respond', approve: false, denyReason })}
           >
-            <Text style={styles.btnTxtMuted}>Deny</Text>
+            {btnContent('Deny', styles.btnTxtMuted)}
           </Pressable>
         </View>
       ) : null}
 
       {!request && role === 'seller' && eligibility.kind === 'cancel' ? (
-        <Pressable
-          disabled={busy}
-          style={[styles.btn, styles.btnDanger, { marginTop: spacing.md }]}
-          onPress={() =>
-            void runPatch({ action: 'seller_direct_cancel', reason: 'Seller cancelled order.' }, 'Refund issued')
-          }
-        >
-          <Text style={styles.btnTxt}>Cancel & refund directly</Text>
-        </Pressable>
+        <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
+          <TextInput
+            value={reason}
+            onChangeText={setReason}
+            placeholder="Explain why you are cancelling…"
+            placeholderTextColor={colors.textMuted}
+            multiline
+            editable={!busy}
+            style={styles.input}
+          />
+          <Pressable
+            disabled={busy || reason.trim().length < 3}
+            style={[
+              styles.btn,
+              styles.btnDanger,
+              (busy || reason.trim().length < 3) && styles.btnDisabled,
+            ]}
+            onPress={() =>
+              void runPatch(
+                { action: 'seller_direct_cancel', reason },
+                { successMsg: 'Refund issued', markCompleted: true },
+              )
+            }
+          >
+            {btnContent('Cancel & refund directly')}
+          </Pressable>
+        </View>
       ) : null}
 
       {request?.status === 'seller_denied' && role === 'buyer' ? (
         <Pressable
           disabled={busy}
-          style={[styles.btn, styles.btnGold, { marginTop: spacing.md }]}
-          onPress={() => void runPatch({ action: 'buyer_escalate' }, 'Escalated to support')}
+          style={[styles.btn, styles.btnGold, { marginTop: spacing.md }, busy && styles.btnDisabled]}
+          onPress={() =>
+            void runPatch({ action: 'buyer_escalate' }, { successMsg: 'Escalated to support' })
+          }
         >
-          <Text style={styles.btnTxt}>Escalate to support</Text>
+          {btnContent('Escalate to support')}
         </Pressable>
       ) : null}
 
@@ -224,14 +345,15 @@ export function OrderRefundRequestSection({ accessToken, orderId, role }: Props)
             onChangeText={setTrackingNumber}
             placeholder="Tracking number"
             placeholderTextColor={colors.textMuted}
+            editable={!busy}
             style={styles.input}
           />
           <Pressable
             disabled={busy}
-            style={[styles.btn, styles.btnGold]}
+            style={[styles.btn, styles.btnGold, busy && styles.btnDisabled]}
             onPress={() => void runPatch({ action: 'buyer_return_tracking', trackingNumber })}
           >
-            <Text style={styles.btnTxt}>Save tracking</Text>
+            {btnContent('Save tracking')}
           </Pressable>
         </View>
       ) : null}
@@ -241,10 +363,15 @@ export function OrderRefundRequestSection({ accessToken, orderId, role }: Props)
       request.kind === 'return' ? (
         <Pressable
           disabled={busy}
-          style={[styles.btn, styles.btnGreen, { marginTop: spacing.md }]}
-          onPress={() => void runPatch({ action: 'seller_confirm_return' }, 'Refund issued')}
+          style={[styles.btn, styles.btnGreen, { marginTop: spacing.md }, busy && styles.btnDisabled]}
+          onPress={() =>
+            void runPatch(
+              { action: 'seller_confirm_return' },
+              { successMsg: 'Refund issued', markCompleted: true },
+            )
+          }
         >
-          <Text style={styles.btnTxt}>Confirm return received</Text>
+          {btnContent('Confirm return received')}
         </Pressable>
       ) : null}
     </View>
@@ -268,8 +395,20 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     borderRadius: radii.md,
     backgroundColor: colors.background,
+    gap: 4,
+  },
+  statusProcessing: {
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(212,175,55,0.08)',
+  },
+  statusCompleted: {
+    borderWidth: 1,
+    borderColor: 'rgba(52,199,89,0.35)',
+    backgroundColor: 'rgba(52,199,89,0.08)',
   },
   statusLabel: { color: colors.gold, fontWeight: '700', fontSize: 13 },
+  statusCompletedLabel: { color: colors.success, fontWeight: '800', fontSize: 14 },
   reason: { color: colors.textPrimary, fontSize: 13, marginTop: 4 },
   denyNote: { color: '#fbbf24', fontSize: 12, marginTop: 4 },
   input: {
@@ -286,6 +425,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     alignItems: 'center',
   },
+  btnInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  btnDisabled: { opacity: 0.7 },
   btnGold: { backgroundColor: 'rgba(212,175,55,0.15)', borderWidth: 1, borderColor: 'rgba(212,175,55,0.35)' },
   btnGreen: { backgroundColor: 'rgba(16,185,129,0.12)', borderWidth: 1, borderColor: 'rgba(16,185,129,0.35)' },
   btnDanger: { backgroundColor: 'rgba(244,63,94,0.12)', borderWidth: 1, borderColor: 'rgba(244,63,94,0.35)' },

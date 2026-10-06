@@ -36,10 +36,10 @@ describe("computeBundledNextItemShippingDeltaCents", () => {
     expect(
       computeBundledNextItemShippingDeltaCents({
         currentPricingWeightOz: 40,
-        currentShippingCostCents: 1199,
+        currentShippingCostCents: 999,
         capReached: true,
         incrementalWeightOz: 3,
-        listingCapCents: 1199,
+        listingCapCents: 999,
       }),
     ).toBe(0);
   });

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
-import { colors, radii } from '../../../theme';
+import { colors, radii, vaultColors } from '../../../theme';
 import type { BroadcastStatus } from './broadcastStatus';
 
 const TONE_STYLES = {
@@ -23,10 +23,10 @@ const TONE_STYLES = {
     text: '#FF8A8A',
   },
   checking: {
-    bg: 'rgba(212,175,55,0.12)',
-    border: 'rgba(212,175,55,0.35)',
-    dot: colors.gold,
-    text: colors.gold,
+    bg: 'rgba(203,163,92,0.12)',
+    border: 'rgba(203,163,92,0.35)',
+    dot: vaultColors.gold,
+    text: vaultColors.gold,
   },
 };
 

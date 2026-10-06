@@ -13,6 +13,11 @@ import {
 import { isShippoConfigured, shippoCreateShipment, shippoListRates, shippoPurchaseRate, type ShippoAddress } from "@/lib/shippo";
 import { resolveMarketplaceQuoteParcel } from "@/lib/marketplace-parcel-defaults";
 import { shippoLabelFileTypeForPrintFormat, type SellerLabelPrintFormat } from "@/lib/shippo-label-format";
+import {
+  normalizeUsernameForShippoLabel,
+  shippoLabelTrackingExtra,
+  withShippoParcelLabelTracking,
+} from "@/lib/shippo-label-references";
 import { resolveShippoPurchaseLabel } from "@/lib/shippo-transaction-label";
 
 /**
@@ -21,9 +26,17 @@ import { resolveShippoPurchaseLabel } from "@/lib/shippo-transaction-label";
  */
 export async function fulfillOrderShippingAfterPayment(
   orderId: string,
-  options?: { labelFormat?: SellerLabelPrintFormat },
+  options?: {
+    labelFormat?: SellerLabelPrintFormat;
+    manualParcel?: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
+    /** Prior Shippo transaction this purchase replaces (regenerate / replacement workflow). */
+    replacesShippoTransactionId?: string | null;
+    purpose?: "initial" | "replacement" | "additional_package";
+  },
 ): Promise<void> {
-  if (!isShippoConfigured()) return;
+  if (!isShippoConfigured()) {
+    throw new Error("SHIPPO_NOT_CONFIGURED");
+  }
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
@@ -62,7 +75,7 @@ export async function fulfillOrderShippingAfterPayment(
         },
       },
       buyer: {
-        select: { email: true },
+        select: { email: true, username: true },
       },
       buyerAddress: {
         select: { email: true, phone: true },
@@ -72,8 +85,8 @@ export async function fulfillOrderShippingAfterPayment(
       },
     },
   });
-  if (!order) return;
-  if (order.paymentStatus !== "paid") return;
+  if (!order) throw new Error("ORDER_NOT_FOUND");
+  if (order.paymentStatus !== "paid") throw new Error("ORDER_NOT_PAID");
   if (order.shippoTransactionId) {
     if (order.labelUrl?.trim()) return;
     const { enrichSellerOrderLabelFromShippo } = await import("@/lib/enrich-seller-order-label-from-shippo");
@@ -110,8 +123,7 @@ export async function fulfillOrderShippingAfterPayment(
 
   const from = order.seller;
   if (!from.shipFromStreet || !from.shipFromCity || !from.shipFromState || !from.shipFromZip || !from.shipFromCountry) {
-    console.warn(`[shippo] skip order ${orderId}: seller ship-from incomplete`);
-    return;
+    throw new Error("SELLER_SHIP_FROM_INCOMPLETE");
   }
 
   const sellerContact = resolveSellerShippoContact({
@@ -139,9 +151,11 @@ export async function fulfillOrderShippingAfterPayment(
     },
     sellerContact,
   );
+  const buyerUsernameRef = normalizeUsernameForShippoLabel(order.buyer.username);
   const addressTo: ShippoAddress = withShippoContact(
     {
       name: order.shipRecipientName,
+      ...(buyerUsernameRef ? { company: buyerUsernameRef } : {}),
       street1: order.shipAddress,
       city: order.shipCity,
       state: order.shipState,
@@ -151,13 +165,28 @@ export async function fulfillOrderShippingAfterPayment(
     buyerContact,
   );
 
-  const parcel = resolveMarketplaceQuoteParcel(order.listing);
+  const labelTracking = shippoLabelTrackingExtra({
+    username: order.buyer.username,
+    secondary: `Order ${order.id.slice(0, 12)}`,
+  });
+
+  const parcel = options?.manualParcel
+    ? {
+        weight: String(options.manualParcel.weightOz),
+        length: String(options.manualParcel.lengthIn),
+        width: String(options.manualParcel.widthIn),
+        height: String(options.manualParcel.heightIn),
+        distance_unit: "in" as const,
+        mass_unit: "oz" as const,
+      }
+    : resolveMarketplaceQuoteParcel(order.listing);
 
   try {
     const shipment = (await shippoCreateShipment({
       address_from: addressFrom,
       address_to: addressTo,
-      parcels: [parcel],
+      parcels: [withShippoParcelLabelTracking(parcel, labelTracking)],
+      extra: labelTracking,
       async: false,
     })) as { object_id?: string };
 
@@ -182,7 +211,7 @@ export async function fulfillOrderShippingAfterPayment(
 
     const tx = (await shippoPurchaseRate(
       picked.object_id,
-      shippoLabelFileTypeForPrintFormat(options?.labelFormat ?? "letter"),
+      shippoLabelFileTypeForPrintFormat(options?.labelFormat ?? "thermal_4x6"),
     )) as {
       object_id?: string;
       tracking_number?: string;
@@ -213,12 +242,36 @@ export async function fulfillOrderShippingAfterPayment(
         shippingLabelCostCents,
       },
     });
+
+    // resolveShippoPurchaseLabel above throws on ERROR — clawback only runs after SUCCESS.
+    const { chargeSellerForLabelCost, markOrderLabelCostReversalFailed } = await import(
+      "@/services/shipping/charge-seller-label-cost"
+    );
+    const replacesShippoTransactionId = options?.replacesShippoTransactionId?.trim() || null;
+    const debit = await chargeSellerForLabelCost({
+      orderId,
+      labelCostCents: shippingLabelCostCents,
+      shippoTransactionId: txId,
+      shippoShipmentId: sid,
+      purpose: options?.purpose ?? (replacesShippoTransactionId ? "replacement" : undefined),
+      replacesShippoTransactionId,
+    });
+    if (!debit.ok) {
+      await markOrderLabelCostReversalFailed(orderId);
+      console.error("[shipping] label cost debit failed after purchase", {
+        orderId,
+        code: debit.code,
+        error: debit.error,
+      });
+    }
+
     const chargedCents =
       order.shippingChargedCents ?? Math.round(Math.max(0, order.shippingPriceUsd) * 100);
     console.info("[shipping economics]", {
       orderId,
       shippingChargedCents: chargedCents,
       shippingLabelCostCents,
+      labelCostDebitOk: debit.ok,
     });
     const lt =
       order.listing.title.length > 80 ? `${order.listing.title.slice(0, 77)}...` : order.listing.title;

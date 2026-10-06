@@ -3,26 +3,24 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fetchMarketplaceListings } from '../api/listingsFeedRepository';
+import { fetchMarketplaceListingsPage } from '../api/listingsFeedRepository';
 import { touchAuctionPaymentExpiries } from '../api/touchAuctionPaymentExpiries';
 import { useAuth } from '../auth/AuthContext';
 import { PremiumEmptyPanel } from '../components/empty/PremiumEmptyPanel';
 import { MarketplaceCategoryRail, type MarketplaceLaneId } from '../components/discover/DiscoverCategoryRail';
 import { MarketplaceFeedSkeleton } from '../components/discover/DiscoverFeedSkeleton';
 import { MarketplaceHeroCarousel } from '../components/discover/DiscoverHeroCarousel';
-import { MarketplaceListingRail } from '../components/discover/DiscoverListingRail';
+import { MarketplaceListingCard } from '../components/discover/DiscoverMarketplaceCard';
 import { MarketplaceMomentumBar } from '../components/discover/DiscoverMomentumBar';
 import { MarketplaceVaultHeader } from '../components/marketplace/MarketplaceVaultHeader';
 import { SearchBar } from '../components/ui/SearchBar';
 import { useMarketplaceLayout } from '../hooks/useMarketplaceLayout';
 import { useMarketplaceCatalogSync } from '../hooks/useMarketplaceCatalogSync';
-import {
-  buildMarketplaceDiscoveryRails,
-  filterByMarketplaceLane,
-} from '../lib/marketplaceCatalog';
+import { filterByMarketplaceLane } from '../lib/marketplaceCatalog';
 import { buildMarketplaceHeroSlides } from '../lib/marketplaceHero';
+import { computeMarketplaceGrid, marketplaceFontSize, MARKETPLACE_TEXT_PROPS } from '../lib/marketplaceUiScale';
 import { hasWarmHomeFeedCache, getHomeFeedMemorySnapshot } from '../lib/homeFeedCache';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { openCreateListing } from '../navigation/openCreateListing';
@@ -44,8 +42,16 @@ export function MarketplaceScreen() {
   const [lane, setLane] = useState<MarketplaceLaneId>('all');
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [catalog, setCatalog] = useState<Product[]>(() => getHomeFeedMemorySnapshot()?.listings ?? []);
   const loadedOnceRef = useRef(Boolean(getHomeFeedMemorySnapshot()?.listings.length));
+  // Server-side page cursor for the marketplace grid (`GET /api/listings?scope=published`).
+  // Previously this screen fetched a single hard-capped batch (≤48-60 items) with no way to ask
+  // for more — anything past that cutoff was permanently unreachable once the catalog grew past
+  // it. `pageRef`/`hasMoreRef` track pagination so scrolling can page through the full catalog,
+  // the same way the web marketplace's "Load more" already does against this same endpoint.
+  const pageRef = useRef(1);
+  const hasMoreRef = useRef(true);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!isSupabaseConfigured()) {
@@ -57,12 +63,33 @@ export function MarketplaceScreen() {
     const silent = opts?.silent ?? loadedOnceRef.current;
     if (!silent) setLoading(true);
     try {
-      setCatalog(await fetchMarketplaceListings({ limit: 48 }));
+      const result = await fetchMarketplaceListingsPage({ page: 1, pageSize: 60 });
+      setCatalog(result.products);
+      pageRef.current = 1;
+      hasMoreRef.current = result.hasMore;
     } finally {
       loadedOnceRef.current = true;
       setLoading(false);
     }
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMoreRef.current || !isSupabaseConfigured()) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = pageRef.current + 1;
+      const result = await fetchMarketplaceListingsPage({ page: nextPage, pageSize: 60 });
+      pageRef.current = result.page;
+      hasMoreRef.current = result.hasMore;
+      setCatalog((prev) => {
+        const seen = new Set(prev.map((p) => p.id));
+        const additions = result.products.filter((p) => !seen.has(p.id));
+        return additions.length ? [...prev, ...additions] : prev;
+      });
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore]);
 
   useEffect(() => {
     void load();
@@ -104,15 +131,89 @@ export function MarketplaceScreen() {
     [navigation],
   );
 
-  const rails = useMemo(() => buildMarketplaceDiscoveryRails(filtered), [filtered]);
+  const grid = useMemo(() => computeMarketplaceGrid(layout.contentWidth), [layout.contentWidth]);
 
   const hasListings = filtered.length > 0;
   const showBlockingSkeleton = loading && catalog.length === 0;
   const showEmpty = !showBlockingSkeleton && !hasListings;
 
+  const renderItem = useCallback(
+    ({ item, index }: { item: Product; index: number }) => (
+      <MarketplaceListingCard
+        product={item}
+        width={grid.cardWidth}
+        onPress={() => openProduct(item)}
+        imagePriority={index < grid.cols * 2 ? 'high' : 'normal'}
+      />
+    ),
+    [grid.cardWidth, grid.cols, openProduct],
+  );
+
+  const listHeader = (
+    <View style={styles.header}>
+      <MarketplaceVaultHeader />
+      <SearchBar
+        placeholder="Search the vault — cards, sneakers, watches…"
+        onPress={() => openVaultSearch(navigation)}
+        compact={layout.compact}
+      />
+      <MarketplaceCategoryRail active={lane} onChange={setLane} bleedPadding={layout.horizontalPadding} />
+
+      {!showBlockingSkeleton && hasListings ? (
+        <>
+          <MarketplaceHeroCarousel slides={heroSlides} onSlidePress={openHeroSlide} />
+          <MarketplaceMomentumBar compact={layout.compact} />
+          <Text
+            style={[styles.sectionTitle, { fontSize: marketplaceFontSize(layout.compact ? 15 : 17, layout.scale) }]}
+            {...MARKETPLACE_TEXT_PROPS}
+          >
+            All listings
+          </Text>
+        </>
+      ) : null}
+
+      {showBlockingSkeleton ? (
+        <MarketplaceFeedSkeleton
+          heroHeight={layout.heroHeight}
+          cardHeight={layout.listingCardHeight}
+          cardWidth={layout.listingCardWidth}
+        />
+      ) : null}
+
+      {showEmpty ? (
+        <PremiumEmptyPanel
+          icon="storefront-outline"
+          kicker="The vault"
+          title="No listings in the vault yet."
+          subtitle="Be the first to list authenticated inventory — buy now with optional offers and trades."
+          actions={[
+            {
+              label: 'Create first listing',
+              onPress: () => void openCreateListing(navigation, { channel: 'marketplace' }),
+            },
+          ]}
+        />
+      ) : null}
+    </View>
+  );
+
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}>
-      <ScrollView
+      <FlatList
+        data={hasListings ? filtered : []}
+        key={`mkt-grid-${grid.cols}`}
+        numColumns={grid.cols}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        ListHeaderComponent={listHeader}
+        ListFooterComponent={
+          loadingMore ? (
+            <ActivityIndicator color={colors.gold} style={styles.loadMoreSpinner} />
+          ) : null
+        }
+        onEndReached={() => void loadMore()}
+        onEndReachedThreshold={0.6}
+        columnWrapperStyle={{ gap: grid.gap, marginBottom: grid.gap }}
         contentContainerStyle={[
           styles.body,
           {
@@ -121,133 +222,13 @@ export function MarketplaceScreen() {
           },
         ]}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews
+        initialNumToRender={grid.cols * 4}
+        windowSize={7}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.gold} />
         }
-      >
-        <MarketplaceVaultHeader />
-        <SearchBar
-          placeholder="Search the vault — cards, sneakers, watches…"
-          onPress={() => openVaultSearch(navigation)}
-          compact={layout.compact}
-        />
-
-        <MarketplaceCategoryRail active={lane} onChange={setLane} bleedPadding={layout.horizontalPadding} />
-
-        {showBlockingSkeleton ? (
-          <MarketplaceFeedSkeleton
-            heroHeight={layout.heroHeight}
-            cardHeight={layout.listingCardHeight}
-            cardWidth={layout.listingCardWidth}
-          />
-        ) : null}
-
-        {!showBlockingSkeleton && showEmpty ? (
-          <PremiumEmptyPanel
-            icon="storefront-outline"
-            kicker="The vault"
-            title="No listings in the vault yet."
-            subtitle="Be the first to list authenticated inventory — buy now with optional offers and trades."
-            actions={[
-              {
-                label: 'Create first listing',
-                onPress: () => void openCreateListing(navigation, { channel: 'marketplace' }),
-              },
-            ]}
-          />
-        ) : null}
-
-        {!showBlockingSkeleton && hasListings ? (
-          <>
-            <MarketplaceHeroCarousel slides={heroSlides} onSlidePress={openHeroSlide} />
-            <MarketplaceMomentumBar compact={layout.compact} />
-
-            {rails.featured.length ? (
-              <MarketplaceListingRail
-                title="Featured listings"
-                subtitle="Live marketplace inventory"
-                products={rails.featured}
-                onPressProduct={openProduct}
-                imagePriority="high"
-              />
-            ) : null}
-
-            {rails.trending.length ? (
-              <MarketplaceListingRail
-                title="Trending now"
-                subtitle="Popular buy-now listings"
-                products={rails.trending}
-                onPressProduct={openProduct}
-                pulseIndex={0}
-              />
-            ) : null}
-
-            {rails.recent.length ? (
-              <MarketplaceListingRail
-                title="Recently listed"
-                subtitle="Fresh buy-now inventory"
-                products={rails.recent}
-                onPressProduct={openProduct}
-              />
-            ) : null}
-
-            {rails.ending.length ? (
-              <MarketplaceListingRail
-                title="Ending soon"
-                subtitle="Auctions closing"
-                products={rails.ending}
-                onPressProduct={openProduct}
-                pulseIndex={1}
-              />
-            ) : null}
-
-            {rails.verified.length ? (
-              <MarketplaceListingRail
-                title="Vault verified"
-                subtitle="Authenticated inventory"
-                products={rails.verified}
-                onPressProduct={openProduct}
-              />
-            ) : null}
-
-            {rails.luxury.length ? (
-              <MarketplaceListingRail
-                title="Luxury lane"
-                subtitle="Watches · high jewelry · grails"
-                products={rails.luxury}
-                onPressProduct={openProduct}
-              />
-            ) : null}
-
-            {rails.collector.length ? (
-              <MarketplaceListingRail
-                title="Collector picks"
-                subtitle="Saved lanes & categories"
-                products={rails.collector}
-                onPressProduct={openProduct}
-              />
-            ) : null}
-
-            {rails.watched.length ? (
-              <MarketplaceListingRail
-                title="High attention"
-                subtitle="Listings with collector views"
-                products={rails.watched}
-                onPressProduct={openProduct}
-              />
-            ) : null}
-
-            {rails.arrivals.length ? (
-              <MarketplaceListingRail
-                title="New arrivals"
-                subtitle="Just listed in the vault"
-                products={rails.arrivals}
-                onPressProduct={openProduct}
-              />
-            ) : null}
-          </>
-        ) : null}
-      </ScrollView>
+      />
     </View>
   );
 }
@@ -259,7 +240,19 @@ const styles = StyleSheet.create({
   },
   body: {
     paddingTop: spacing.sm,
-    gap: spacing.sm,
     flexGrow: 1,
+  },
+  header: {
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  sectionTitle: {
+    fontWeight: '900',
+    color: colors.textPrimary,
+    letterSpacing: -0.3,
+    marginTop: spacing.xs,
+  },
+  loadMoreSpinner: {
+    marginVertical: spacing.lg,
   },
 });

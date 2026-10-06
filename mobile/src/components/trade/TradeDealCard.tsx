@@ -49,7 +49,7 @@ export function TradeDealCard({ partner, status, requested, offered, onPress, me
       <View style={styles.top}>
         <UserAvatar
           uri={partner.avatar_url}
-          name={partner.display_name}
+          name={partner.username ?? partner.display_name}
           username={partner.username}
           size={40}
           tone="light"

@@ -5,7 +5,8 @@ import Stripe from 'stripe';
 const TRADE_CHECKOUT_PAYMENT_METHOD_TYPES = ['card', 'link', 'cashapp', 'amazon_pay'] as const;
 
 /**
- * Stripe Checkout for bundled Get Vaulted trade fee (shipping + protection + support).
+ * Stripe Checkout for the Get Vaulted trade platform fee ($2.99/party default).
+ * Outbound shipping is billed at the actual Shippo label rate (separate from this fee).
  * Persists `payments` + auto-labels via `stripe-webhook` on `checkout.session.completed`.
  *
  * Before opening Checkout, persist on the trade row:
@@ -31,7 +32,7 @@ export const handler: Handler = async (event) => {
     return { statusCode: 400, body: 'Invalid JSON' };
   }
 
-  const amount = body.amountCents ?? 1500;
+  const amount = body.amountCents ?? 299;
   const tradeOfferId = body.tradeOfferId ?? 'unknown';
 
   const stripe = new Stripe(secret, { apiVersion: '2025-02-24.acacia' });
@@ -47,8 +48,8 @@ export const handler: Handler = async (event) => {
           currency: 'usd',
           unit_amount: amount,
           product_data: {
-            name: 'Get Vaulted — trade lane fee (placeholder)',
-            description: 'Bundled label + tracking + trade protection (fee tiers by weight in app logic).',
+            name: 'Get Vaulted — trade platform fee',
+            description: '$2.99 platform fee per party. Your outbound shipping label is charged at the actual carrier rate.',
           },
         },
         quantity: 1,

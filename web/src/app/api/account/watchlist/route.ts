@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 
-export async function GET() {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function GET(req: Request) {
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
+  if (auth instanceof NextResponse) return auth;
 
   const items = await prisma.watchlistItem.findMany({
-    where: { userId: session.user.id },
+    where: { userId: auth.userId },
     orderBy: { createdAt: "desc" },
     // Defensive cap — no pagination UI yet; bounds worst case for a power user with a very
     // large watchlist (see performance audit 2026-07).

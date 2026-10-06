@@ -49,20 +49,19 @@ export function VaultEventRecapScreen({ navigation, route }: Props) {
             <Stat label="Category" value={room.category ?? 'Collectibles'} />
           </View>
           <Text style={styles.body}>
-            Recap analytics and replay clips will deepen here. Your show data is preserved on the vault timeline.
+            Recap analytics and replay clips will deepen here. Your show data is preserved on the vault
+            timeline. If teams or supps sold after the show (or still need recording), open the command
+            center to finish Mark sold.
           </Text>
-          {displayStatus === 'processing_recap' ? (
-            <Pressable
-              style={styles.btn}
-              onPress={() => openSellerHostRoom(navigation, room.id)}
-            >
-              <Text style={styles.btnTxt}>Open command center</Text>
-            </Pressable>
-          ) : (
-            <Pressable style={styles.btnGhost} onPress={() => navigation.goBack()}>
-              <Text style={styles.btnGhostTxt}>Back to Vault Events</Text>
-            </Pressable>
-          )}
+          <Pressable
+            style={styles.btn}
+            onPress={() => openSellerHostRoom(navigation, room.id)}
+          >
+            <Text style={styles.btnTxt}>Finish team sales</Text>
+          </Pressable>
+          <Pressable style={styles.btnGhost} onPress={() => navigation.goBack()}>
+            <Text style={styles.btnGhostTxt}>Back to Vault Events</Text>
+          </Pressable>
         </ScrollView>
       ) : (
         <View style={styles.miss}>

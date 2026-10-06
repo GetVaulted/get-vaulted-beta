@@ -138,7 +138,7 @@ function ResetPasswordForm() {
             <PasswordInput
               id="reset-password-confirm"
               name="confirmPassword"
-              autoComplete="new-password"
+              autoComplete="off"
               value={confirmPassword}
               onChange={(e) => {
                 setConfirmPassword(e.target.value);

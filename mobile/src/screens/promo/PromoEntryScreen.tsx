@@ -127,6 +127,7 @@ export function PromoEntryScreen({ navigation, route }: Props) {
                   style={styles.input}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  autoCorrect={false}
                 />
                 <TextInput
                   value={mailingAddress}

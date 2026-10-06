@@ -65,8 +65,11 @@ export function useLiveImmersiveChrome({ stageWidth, enabled }: Args) {
     () =>
       Gesture.Pan()
         .enabled(enabled)
-        .activeOffsetX([-16, 16])
-        .failOffsetY([-20, 20])
+        // One finger only — two-finger pinch/pan is reserved for live stage inspect zoom.
+        .maxPointers(1)
+        // Prefer vertical show-to-show paging: fail this pan quickly on upward/downward swipes.
+        .activeOffsetX([-18, 18])
+        .failOffsetY([-12, 12])
         .onBegin(() => {
           'worklet';
           dragStartX.value = translateX.value;

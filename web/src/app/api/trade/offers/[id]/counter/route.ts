@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { prisma } from "@/lib/prisma";
 import { assertActiveForMutation, ensureOfferFreshForAction, resolveTradeListingsForTerms } from "../_shared";
+import { TRADE_ACTIVE_STATUSES } from "@/lib/trade-offers";
 import { checkRateLimit } from "@/lib/request-rate-limit";
 import { notifyTradeOfferCountered } from "@/lib/trade-offer-notifications";
 
@@ -95,6 +96,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const resolved = await resolveTradeListingsForTerms(tx, requestedListingIds, offeredListingIds, offer.proposerId);
     if ("error" in resolved) return { error: resolved.error, code: resolved.status as 400 };
 
+    // `resolveTradeListingsForTerms` derives the recipient from whoever owns the requested
+    // listings — it never checks that seller is the trade's existing counterparty. Either
+    // participant could otherwise submit `requestedListingIds` pointing at a totally uninvolved
+    // third party's listings and silently redirect the whole trade (and its notification) to them.
+    // A counter can only change item/cash terms between the two people already in this trade.
+    if (resolved.recipientId !== offer.recipientId) {
+      return { error: "Requested items must belong to the other party in this trade.", code: 400 as const };
+    }
+
     const previousTerms = {
       requestedListingIds: currentRequestedIds,
       offeredListingIds: currentOfferedIds,
@@ -102,6 +112,31 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       recipientCashUsd: offer.recipientCashUsd,
       messageToRecipient: offer.messageToRecipient,
     };
+
+    // CAS guard, done BEFORE the item delete/recreate below: the checks above can pass for two
+    // concurrent requests (e.g. accept + counter) before either commits. Gating the status
+    // transition here — and bailing out before touching `tradeOfferItem` rows — prevents a losing
+    // request from clobbering the winner's items even though its own status write is a no-op
+    // (see accept/route.ts for the general race; this route additionally rewrites items, so the
+    // guard has to run before those writes, not after).
+    const transitioned = await tx.tradeOffer.updateMany({
+      where: { id: offer.id, status: { in: TRADE_ACTIVE_STATUSES } },
+      data: {
+        targetListingId: resolved.requestedRows[0].id,
+        recipientId: resolved.recipientId,
+        status: "countered",
+        proposerCashUsd,
+        recipientCashUsd,
+        messageToRecipient:
+          typeof body.messageToRecipient === "string" && body.messageToRecipient.trim().length > 0
+            ? body.messageToRecipient.trim().slice(0, 500)
+            : offer.messageToRecipient,
+        expiresAt,
+      },
+    });
+    if (transitioned.count === 0) {
+      return { error: "This offer is no longer active.", code: 409 as const };
+    }
 
     await tx.tradeOfferItem.deleteMany({ where: { tradeOfferId: offer.id } });
     await tx.tradeOfferItem.createMany({
@@ -133,21 +168,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       ],
     });
 
-    await tx.tradeOffer.update({
-      where: { id: offer.id },
-      data: {
-        targetListingId: resolved.requestedRows[0].id,
-        recipientId: resolved.recipientId,
-        status: "countered",
-        proposerCashUsd,
-        recipientCashUsd,
-        messageToRecipient:
-          typeof body.messageToRecipient === "string" && body.messageToRecipient.trim().length > 0
-            ? body.messageToRecipient.trim().slice(0, 500)
-            : offer.messageToRecipient,
-        expiresAt,
-      },
-    });
     await tx.tradeOfferEvent.create({
       data: {
         tradeOfferId: offer.id,

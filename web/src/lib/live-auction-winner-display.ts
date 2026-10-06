@@ -45,6 +45,14 @@ export function formatLiveWinnerAnnouncement(username: string, itemLabel: string
   return `@${handle} won (${label})`;
 }
 
+/** Stable key for dismiss timers — parent re-renders must not restart the auto-clear. */
+export function soldCelebrationDismissKey(c: Extract<LiveAuctionCloseCelebration, { kind: "sold" }>): string {
+  return `sold|${c.itemId}|${c.winnerId ?? ""}|${c.winnerUsername}|${c.winningAmountUsd}`;
+}
+
+/** Auto-dismiss duration for the room-wide "@user won" flash. */
+export const SOLD_CELEBRATION_DISPLAY_MS = 2800;
+
 export function parsePurchaseCompletedCelebration(
   payload: {
     itemId?: string;

@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { fetchBuyerLiveStream } from '../api/liveRoomStreamRepository';
 import {
   clearLiveStreamPrefetchCache,
+  invalidateBuyerLiveStreamCache,
   peekCachedBuyerLiveStream,
   prefetchLiveStreamRooms,
   peekPrefetchedViewerStageToken,
@@ -17,6 +18,7 @@ vi.mock('../api/liveRoomStreamRepository', () => ({
     lastStatusSyncAt: null,
     streamMode: 'stage_webrtc',
     stageAvailable: true,
+    isObsDesktopSource: false,
   })),
   fetchViewerStageToken: vi.fn(async () => ({
     token: 'viewer-token',
@@ -48,6 +50,7 @@ describe('liveStreamPrefetchCache', () => {
       lastStatusSyncAt: null,
       streamMode: 'channel_hls',
       stageAvailable: false,
+      isObsDesktopSource: true,
     });
     prefetchLiveStreamRooms(['room_b'], 'token');
     await vi.waitFor(() => {
@@ -66,5 +69,16 @@ describe('liveStreamPrefetchCache', () => {
 
     expect(peekCachedBuyerLiveStream('room_c')).toBeNull();
     expect(peekPrefetchedViewerStageToken('room_c')).toBeNull();
+  });
+
+  it('invalidateBuyerLiveStreamCache drops stale pause/resume metadata for hard refresh', async () => {
+    prefetchLiveStreamRooms(['room_pause'], 'token');
+    await vi.waitFor(() => {
+      expect(peekCachedBuyerLiveStream('room_pause')?.streamPaused).toBe(false);
+    });
+
+    invalidateBuyerLiveStreamCache('room_pause');
+
+    expect(peekCachedBuyerLiveStream('room_pause')).toBeNull();
   });
 });

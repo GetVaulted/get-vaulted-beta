@@ -2,25 +2,42 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const hoisted = vi.hoisted(() => ({
   userBlockFindFirst: vi.fn(),
+  userBlockFindMany: vi.fn(),
   userBlockUpsert: vi.fn(),
   userBlockDeleteMany: vi.fn(),
   participantFindFirst: vi.fn(),
+  userFindUnique: vi.fn(),
+  sellerFollowDeleteMany: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     userBlock: {
       findFirst: hoisted.userBlockFindFirst,
+      findMany: hoisted.userBlockFindMany,
       upsert: hoisted.userBlockUpsert,
       deleteMany: hoisted.userBlockDeleteMany,
     },
     messageThreadParticipant: {
       findFirst: hoisted.participantFindFirst,
     },
+    user: {
+      findUnique: hoisted.userFindUnique,
+    },
+    sellerFollow: {
+      deleteMany: hoisted.sellerFollowDeleteMany,
+    },
   },
 }));
 
-import { isUserBlocked, setUserBlocked } from "@/lib/user-block";
+import {
+  assertCanBlockUser,
+  isUserBlocked,
+  listHiddenPeerIdsForViewer,
+  setUserBlocked,
+  viewerCanSeeUser,
+  UserBlockError,
+} from "@/lib/user-block";
 import { prisma } from "@/lib/prisma";
 
 describe("isUserBlocked", () => {
@@ -50,7 +67,6 @@ describe("isUserBlocked", () => {
         },
       }),
     );
-    // Short-circuits — no need to fall back to the legacy per-thread scan.
     expect(hoisted.participantFindFirst).not.toHaveBeenCalled();
   });
 
@@ -61,14 +77,6 @@ describe("isUserBlocked", () => {
     const result = await isUserBlocked(prisma, "buyer_1", "seller_1");
 
     expect(result).toBe(true);
-    expect(hoisted.participantFindFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          blocked: true,
-          userId: { in: ["buyer_1", "seller_1"] },
-        }),
-      }),
-    );
   });
 
   it("returns false when neither a UserBlock row nor a legacy thread block exists", async () => {
@@ -81,12 +89,20 @@ describe("isUserBlocked", () => {
   });
 });
 
-describe("setUserBlocked", () => {
+describe("assertCanBlockUser / setUserBlocked", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("upserts a UserBlock row when blocking", async () => {
+  it("rejects blocking an admin", async () => {
+    hoisted.userFindUnique.mockResolvedValue({ id: "admin_1", role: "admin" });
+    await expect(
+      assertCanBlockUser(prisma, { blockerId: "user_1", blockedId: "admin_1" }),
+    ).rejects.toMatchObject({ code: "CANNOT_BLOCK_ADMIN" });
+  });
+
+  it("upserts a UserBlock row when blocking a normal user and drops follows", async () => {
+    hoisted.userFindUnique.mockResolvedValue({ id: "seller_1", role: "user" });
     await setUserBlocked(prisma, { blockerId: "buyer_1", blockedId: "seller_1", blocked: true });
 
     expect(hoisted.userBlockUpsert).toHaveBeenCalledWith(
@@ -95,7 +111,16 @@ describe("setUserBlocked", () => {
         create: { blockerId: "buyer_1", blockedId: "seller_1" },
       }),
     );
+    expect(hoisted.sellerFollowDeleteMany).toHaveBeenCalled();
     expect(hoisted.userBlockDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it("throws when trying to block an admin via setUserBlocked", async () => {
+    hoisted.userFindUnique.mockResolvedValue({ id: "admin_1", role: "admin" });
+    await expect(
+      setUserBlocked(prisma, { blockerId: "buyer_1", blockedId: "admin_1", blocked: true }),
+    ).rejects.toBeInstanceOf(UserBlockError);
+    expect(hoisted.userBlockUpsert).not.toHaveBeenCalled();
   });
 
   it("deletes the UserBlock row when unblocking", async () => {
@@ -112,5 +137,53 @@ describe("setUserBlocked", () => {
 
     expect(hoisted.userBlockUpsert).not.toHaveBeenCalled();
     expect(hoisted.userBlockDeleteMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("viewerCanSeeUser / listHiddenPeerIdsForViewer", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("always lets viewers see admins", async () => {
+    hoisted.userFindUnique
+      .mockResolvedValueOnce({ role: "user" })
+      .mockResolvedValueOnce({ role: "admin" });
+    await expect(viewerCanSeeUser(prisma, "user_1", "admin_1")).resolves.toBe(true);
+    expect(hoisted.userBlockFindFirst).not.toHaveBeenCalled();
+  });
+
+  it("hides peers in either block direction for normal viewers", async () => {
+    hoisted.userFindUnique.mockResolvedValue({ role: "user" });
+    hoisted.userBlockFindMany.mockResolvedValue([
+      {
+        blockerId: "me",
+        blockedId: "them",
+        blocker: { role: "user" },
+        blockedUser: { role: "user" },
+      },
+      {
+        blockerId: "other",
+        blockedId: "me",
+        blocker: { role: "user" },
+        blockedUser: { role: "user" },
+      },
+      {
+        blockerId: "me",
+        blockedId: "admin_1",
+        blocker: { role: "user" },
+        blockedUser: { role: "admin" },
+      },
+    ]);
+
+    const hidden = await listHiddenPeerIdsForViewer(prisma, "me");
+    expect(hidden.sort()).toEqual(["other", "them"]);
+  });
+
+  it("returns no hidden peers for admin viewers", async () => {
+    hoisted.userFindUnique.mockResolvedValue({ role: "admin" });
+    const hidden = await listHiddenPeerIdsForViewer(prisma, "admin_1");
+    expect(hidden).toEqual([]);
+    expect(hoisted.userBlockFindMany).not.toHaveBeenCalled();
   });
 });

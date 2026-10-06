@@ -1,6 +1,10 @@
 import Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
-import { ensureStripeCustomerIdForUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
+import {
+  ensureStripeCustomerIdForUser,
+  getBuyerDefaultCardPaymentMethodId,
+  setBuyerDefaultPaymentMethod,
+} from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { syncBuyerDefaultShippingToPendingOrder } from "@/lib/live-buy-now-purchase";
@@ -91,15 +95,36 @@ export async function finalizeBuyerPaymentMethod(args: {
     detachExpiredCards: true,
   });
 
-  const brandRaw = pm.card?.brand ?? pm.type ?? "card";
-  const brand = brandRaw.slice(0, 1).toUpperCase() + brandRaw.slice(1);
+  // Keep User.buyerDefaultWalletPaymentMethodId in sync — recovery retries prefer this over Stripe's
+  // customer default, so a newly saved card must become the app default or Retry keeps the old PM.
+  await setBuyerDefaultPaymentMethod(args.userId, pm.id);
+
+  const brandRaw =
+    pm.type === "cashapp"
+      ? "Cash App"
+      : pm.type === "link"
+        ? "Link"
+        : pm.type === "amazon_pay"
+          ? "Amazon Pay"
+          : (pm.card?.brand ?? pm.type ?? "card");
+  const brand =
+    pm.type === "cashapp" || pm.type === "link" || pm.type === "amazon_pay"
+      ? brandRaw
+      : brandRaw.slice(0, 1).toUpperCase() + brandRaw.slice(1);
+
+  const last4 =
+    pm.type === "cashapp"
+      ? pm.cashapp?.cashtag?.replace("$", "").slice(-4) || "····"
+      : pm.type === "link"
+        ? pm.link?.email?.slice(-4) || "····"
+        : (pm.card?.last4 ?? "0000");
 
   return {
     paymentMethodId: pm.id,
     expMonth: pm.card?.exp_month ?? 0,
     expYear: pm.card?.exp_year ?? 0,
     brand,
-    last4: pm.card?.last4 ?? "0000",
+    last4,
   };
 }
 

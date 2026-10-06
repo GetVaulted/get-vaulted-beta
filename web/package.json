@@ -49,6 +49,7 @@
     "configure:production-auth-urls": "tsx scripts/configure-production-auth-urls.ts",
     "fix:supabase-apple-auth": "tsx scripts/fix-supabase-apple-auth.ts",
     "check:production-deployment": "tsx scripts/check-production-deployment.ts",
+    "check:stripe-setup": "tsx scripts/verify-stripe-setup.ts",
     "qa:verify-beta-clean": "node scripts/verify-beta-marketplace-clean.mjs",
     "qa:purge-beta-catalog-api": "node scripts/purge-beta-catalog-via-api.mjs",
     "qa:purge-beta-integration": "tsx scripts/purge-beta-integration-fixtures.ts",
@@ -66,6 +67,9 @@
   "dependencies": {
     "@aws-sdk/client-ivs": "^3.1045.0",
     "@aws-sdk/client-ivs-realtime": "^3.1057.0",
+    "@aws-sdk/client-s3": "^3.1091.0",
+    "@aws-sdk/lib-storage": "^3.1091.0",
+    "@aws-sdk/s3-request-presigner": "^3.1091.0",
     "@next-auth/prisma-adapter": "^1.0.7",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.57.2",
@@ -80,6 +84,7 @@
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.105.1",
     "amazon-ivs-web-broadcast": "^1.35.0",
+    "archiver": "^8.0.0",
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
     "expo-server-sdk": "^3.15.0",
@@ -96,6 +101,7 @@
   "devDependencies": {
     "@playwright/test": "^1.55.1",
     "@tailwindcss/postcss": "^4",
+    "@types/archiver": "^8.0.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",

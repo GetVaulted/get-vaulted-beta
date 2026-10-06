@@ -1,0 +1,799 @@
+diff --git a/node_modules/expo-video/.eslintrc.js b/node_modules/expo-video/.eslintrc.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/CHANGELOG.md b/node_modules/expo-video/CHANGELOG.md
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/README.md b/node_modules/expo-video/README.md
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/build.gradle b/node_modules/expo-video/android/build.gradle
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/AndroidManifest.xml b/node_modules/expo-video/android/src/main/AndroidManifest.xml
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/AudioFocusManager.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/AudioFocusManager.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/FullscreenPlayerActivity.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/FullscreenPlayerActivity.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/IntervalUpdateClock.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/IntervalUpdateClock.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/MediaMetadataRetriever.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/MediaMetadataRetriever.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/PictureInPictureHelperFragment.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/PictureInPictureHelperFragment.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/PlayerViewExtension.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/PlayerViewExtension.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoCache.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoCache.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoExceptions.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoExceptions.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoManager.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoManager.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoModule.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoModule.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoThumbnail.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoThumbnail.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoView.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoView.kt
+old mode 100644
+new mode 100755
+index 20a603d..9b8370f
+--- a/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoView.kt
++++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/VideoView.kt
+@@ -261,6 +261,15 @@ open class VideoView(context: Context, appContext: AppContext, useTextureView: B
+    * hides all children of the root view and makes the player the only visible child of the rootView.
+    */
+   fun layoutForPiPEnter() {
++    // GET-VAULTED-MOBILE-F: PictureInPictureHelperFragment forwards the Activity's
++    // onPictureInPictureModeChanged straight into this call with no de-duplication, and a
++    // fragment left attached after this VideoView has been recycled/reparented by the
++    // live-feed pager (see the pager-view race this same audit flagged separately) can deliver
++    // it more than once, or after we're already laid out for PiP. Re-running the body would
++    // walk rootView's children again and append a second, stale batch of visibility entries on
++    // top of the ones already recorded - corrupting layoutForPiPExit()'s restore - so make entry
++    // idempotent instead of assuming exactly one call per transition.
++    if (playerView.parent === rootView) return
+     playerView.useController = false
+     (playerView.parent as? ViewGroup)?.removeView(playerView)
+     for (i in 0 until rootView.childCount) {
+@@ -274,11 +283,34 @@ open class VideoView(context: Context, appContext: AppContext, useTextureView: B
+ 
+   fun layoutForPiPExit() {
+     playerView.useController = useNativeControls
+-    rootView.removeView(playerView)
++    // Detach playerView from whatever parent it actually has right now, not just rootView
++    // specifically. A duplicate/overlapping enter call, or this VideoView being recycled by
++    // the live-feed pager mid-transition, can leave playerView parented somewhere other than
++    // rootView by the time exit runs; rootView.removeView() on a view it doesn't actually own
++    // is a silent no-op, so the addView() below then throws "The specified child already has
++    // a parent" (GET-VAULTED-MOBILE-F) because playerView was never actually detached. Mirror
++    // layoutForPiPEnter()'s own defensive detach instead of assuming rootView is the parent.
++    (playerView.parent as? ViewGroup)?.removeView(playerView)
++    // rootView's children can change while PiP is active (navigation, overlays, etc. can add or
++    // remove views elsewhere in the same root while this video is pinned in PiP) - the recorded
++    // list only covers the children present at layoutForPiPEnter() time. Bounds-check the index
++    // instead of assuming child count is unchanged, so an added child doesn't crash with
++    // IndexOutOfBoundsException; skip restoring visibility for indices we didn't record.
++    //
++    // Snapshot into a local, private copy (and clear the shared field immediately) instead of
++    // reading rootViewChildrenOriginalVisibility.size and then indexing the shared field across
++    // the whole loop: a fast PiP re-entry on the same view (rapid swipe through a live feed can
++    // recycle this VideoView and call layoutForPiPEnter()/layoutForPiPExit() again before this
++    // exit finishes) mutates that shared field mid-loop, which is exactly how "index N out of
++    // bounds for length N" showed up in production even with the count check above - the guard
++    // was reading a list whose size had already changed since recordedCount was captured.
++    val recordedVisibility = ArrayList(rootViewChildrenOriginalVisibility)
++    rootViewChildrenOriginalVisibility.clear()
+     for (i in 0 until rootView.childCount) {
+-      rootView.getChildAt(i).visibility = rootViewChildrenOriginalVisibility[i]
++      if (i < recordedVisibility.size) {
++        rootView.getChildAt(i).visibility = recordedVisibility[i]
++      }
+     }
+-    rootViewChildrenOriginalVisibility.clear()
+     this.addView(playerView)
+   }
+ 
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/delegates/IgnoreSameSet.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/delegates/IgnoreSameSet.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/drawing/OutlineProvider.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/drawing/OutlineProvider.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/enums/AudioMixingMode.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/enums/AudioMixingMode.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/enums/ContentFit.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/enums/ContentFit.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/enums/ContentType.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/enums/ContentType.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/enums/DRMType.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/enums/DRMType.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/enums/FullscreenOrientation.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/enums/FullscreenOrientation.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/enums/PlayerStatus.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/enums/PlayerStatus.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/playbackService/ExpoVideoPlaybackService.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/playbackService/ExpoVideoPlaybackService.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/playbackService/PlaybackServiceConnection.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/playbackService/PlaybackServiceConnection.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/playbackService/VideoMediaSessionCallback.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/playbackService/VideoMediaSessionCallback.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/DefaultLoadControl.java b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/DefaultLoadControl.java
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/FirstFrameEventGenerator.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/FirstFrameEventGenerator.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/PlayerEvent.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/PlayerEvent.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayer.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayer.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerAudioTracks.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerKeepAwake.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerKeepAwake.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerListener.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerListener.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerLoadControl.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerLoadControl.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerSubtitles.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/player/VideoPlayerSubtitles.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/BufferOptions.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/BufferOptions.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/DRMOptions.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/DRMOptions.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/FullscreenOptions.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/FullscreenOptions.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/PlaybackError.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/PlaybackError.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/Tracks.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/VideoEventPayloads.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/VideoEventPayloads.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/VideoMetadata.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/VideoMetadata.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/VideoSize.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/VideoSize.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/VideoSource.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/VideoSource.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/VideoThumbnailOptions.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/VideoThumbnailOptions.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/EventDispatcherUtils.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/EventDispatcherUtils.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/FullscreenActivityOrientationHelper.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/FullscreenActivityOrientationHelper.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/MutableWeakReference.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/MutableWeakReference.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/PictureInPictureUtils.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/PictureInPictureUtils.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/SubtitleUtils.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/SubtitleUtils.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/WeakMutableSet.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/WeakMutableSet.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/YogaUtils.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/utils/YogaUtils.kt
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/res/drawable/seek_backwards_10s.xml b/node_modules/expo-video/android/src/main/res/drawable/seek_backwards_10s.xml
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/res/drawable/seek_backwards_15s.xml b/node_modules/expo-video/android/src/main/res/drawable/seek_backwards_15s.xml
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/res/drawable/seek_backwards_5s.xml b/node_modules/expo-video/android/src/main/res/drawable/seek_backwards_5s.xml
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/res/drawable/seek_forwards_10s.xml b/node_modules/expo-video/android/src/main/res/drawable/seek_forwards_10s.xml
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/res/drawable/seek_forwards_15s.xml b/node_modules/expo-video/android/src/main/res/drawable/seek_forwards_15s.xml
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/res/drawable/seek_forwards_5s.xml b/node_modules/expo-video/android/src/main/res/drawable/seek_forwards_5s.xml
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/res/layout/fullscreen_player_activity.xml b/node_modules/expo-video/android/src/main/res/layout/fullscreen_player_activity.xml
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/res/layout/surface_player_view.xml b/node_modules/expo-video/android/src/main/res/layout/surface_player_view.xml
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/res/layout/texture_player_view.xml b/node_modules/expo-video/android/src/main/res/layout/texture_player_view.xml
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/android/src/main/res/values/styles.xml b/node_modules/expo-video/android/src/main/res/values/styles.xml
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/app.plugin.js b/node_modules/expo-video/app.plugin.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoAirPlayButtonView.d.ts b/node_modules/expo-video/build/NativeVideoAirPlayButtonView.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoAirPlayButtonView.d.ts.map b/node_modules/expo-video/build/NativeVideoAirPlayButtonView.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoAirPlayButtonView.js b/node_modules/expo-video/build/NativeVideoAirPlayButtonView.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoAirPlayButtonView.js.map b/node_modules/expo-video/build/NativeVideoAirPlayButtonView.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoModule.d.ts b/node_modules/expo-video/build/NativeVideoModule.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoModule.d.ts.map b/node_modules/expo-video/build/NativeVideoModule.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoModule.js b/node_modules/expo-video/build/NativeVideoModule.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoModule.js.map b/node_modules/expo-video/build/NativeVideoModule.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoModule.web.d.ts b/node_modules/expo-video/build/NativeVideoModule.web.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoModule.web.d.ts.map b/node_modules/expo-video/build/NativeVideoModule.web.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoModule.web.js b/node_modules/expo-video/build/NativeVideoModule.web.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoModule.web.js.map b/node_modules/expo-video/build/NativeVideoModule.web.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoView.d.ts b/node_modules/expo-video/build/NativeVideoView.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoView.d.ts.map b/node_modules/expo-video/build/NativeVideoView.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoView.js b/node_modules/expo-video/build/NativeVideoView.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/NativeVideoView.js.map b/node_modules/expo-video/build/NativeVideoView.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoAirPlayButton.d.ts b/node_modules/expo-video/build/VideoAirPlayButton.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoAirPlayButton.d.ts.map b/node_modules/expo-video/build/VideoAirPlayButton.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoAirPlayButton.ios.d.ts b/node_modules/expo-video/build/VideoAirPlayButton.ios.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoAirPlayButton.ios.d.ts.map b/node_modules/expo-video/build/VideoAirPlayButton.ios.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoAirPlayButton.ios.js b/node_modules/expo-video/build/VideoAirPlayButton.ios.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoAirPlayButton.ios.js.map b/node_modules/expo-video/build/VideoAirPlayButton.ios.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoAirPlayButton.js b/node_modules/expo-video/build/VideoAirPlayButton.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoAirPlayButton.js.map b/node_modules/expo-video/build/VideoAirPlayButton.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoAirPlayButton.types.d.ts b/node_modules/expo-video/build/VideoAirPlayButton.types.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoAirPlayButton.types.d.ts.map b/node_modules/expo-video/build/VideoAirPlayButton.types.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoAirPlayButton.types.js b/node_modules/expo-video/build/VideoAirPlayButton.types.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoAirPlayButton.types.js.map b/node_modules/expo-video/build/VideoAirPlayButton.types.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoModule.d.ts b/node_modules/expo-video/build/VideoModule.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoModule.d.ts.map b/node_modules/expo-video/build/VideoModule.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoModule.js b/node_modules/expo-video/build/VideoModule.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoModule.js.map b/node_modules/expo-video/build/VideoModule.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayer.d.ts b/node_modules/expo-video/build/VideoPlayer.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayer.d.ts.map b/node_modules/expo-video/build/VideoPlayer.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayer.js b/node_modules/expo-video/build/VideoPlayer.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayer.js.map b/node_modules/expo-video/build/VideoPlayer.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayer.types.d.ts b/node_modules/expo-video/build/VideoPlayer.types.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayer.types.d.ts.map b/node_modules/expo-video/build/VideoPlayer.types.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayer.types.js b/node_modules/expo-video/build/VideoPlayer.types.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayer.types.js.map b/node_modules/expo-video/build/VideoPlayer.types.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayer.web.d.ts b/node_modules/expo-video/build/VideoPlayer.web.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayer.web.d.ts.map b/node_modules/expo-video/build/VideoPlayer.web.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayer.web.js b/node_modules/expo-video/build/VideoPlayer.web.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayer.web.js.map b/node_modules/expo-video/build/VideoPlayer.web.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayerEvents.types.d.ts b/node_modules/expo-video/build/VideoPlayerEvents.types.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayerEvents.types.d.ts.map b/node_modules/expo-video/build/VideoPlayerEvents.types.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayerEvents.types.js b/node_modules/expo-video/build/VideoPlayerEvents.types.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoPlayerEvents.types.js.map b/node_modules/expo-video/build/VideoPlayerEvents.types.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoThumbnail.d.ts b/node_modules/expo-video/build/VideoThumbnail.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoThumbnail.d.ts.map b/node_modules/expo-video/build/VideoThumbnail.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoThumbnail.js b/node_modules/expo-video/build/VideoThumbnail.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoThumbnail.js.map b/node_modules/expo-video/build/VideoThumbnail.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoView.d.ts b/node_modules/expo-video/build/VideoView.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoView.d.ts.map b/node_modules/expo-video/build/VideoView.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoView.js b/node_modules/expo-video/build/VideoView.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoView.js.map b/node_modules/expo-video/build/VideoView.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoView.types.d.ts b/node_modules/expo-video/build/VideoView.types.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoView.types.d.ts.map b/node_modules/expo-video/build/VideoView.types.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoView.types.js b/node_modules/expo-video/build/VideoView.types.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoView.types.js.map b/node_modules/expo-video/build/VideoView.types.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoView.web.d.ts b/node_modules/expo-video/build/VideoView.web.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoView.web.d.ts.map b/node_modules/expo-video/build/VideoView.web.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoView.web.js b/node_modules/expo-video/build/VideoView.web.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/VideoView.web.js.map b/node_modules/expo-video/build/VideoView.web.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/index.d.ts b/node_modules/expo-video/build/index.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/index.d.ts.map b/node_modules/expo-video/build/index.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/index.js b/node_modules/expo-video/build/index.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/index.js.map b/node_modules/expo-video/build/index.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/resolveAssetSource.d.ts b/node_modules/expo-video/build/resolveAssetSource.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/resolveAssetSource.d.ts.map b/node_modules/expo-video/build/resolveAssetSource.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/resolveAssetSource.js b/node_modules/expo-video/build/resolveAssetSource.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/resolveAssetSource.js.map b/node_modules/expo-video/build/resolveAssetSource.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/resolveAssetSource.web.d.ts b/node_modules/expo-video/build/resolveAssetSource.web.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/resolveAssetSource.web.d.ts.map b/node_modules/expo-video/build/resolveAssetSource.web.d.ts.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/resolveAssetSource.web.js b/node_modules/expo-video/build/resolveAssetSource.web.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/build/resolveAssetSource.web.js.map b/node_modules/expo-video/build/resolveAssetSource.web.js.map
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/expo-module.config.json b/node_modules/expo-video/expo-module.config.json
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Cache/CachableRequest.swift b/node_modules/expo-video/ios/Cache/CachableRequest.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Cache/CachedResource.swift b/node_modules/expo-video/ios/Cache/CachedResource.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Cache/CachingHelpers.swift b/node_modules/expo-video/ios/Cache/CachingHelpers.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Cache/MediaFileHandle.swift b/node_modules/expo-video/ios/Cache/MediaFileHandle.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Cache/MediaInfo.swift b/node_modules/expo-video/ios/Cache/MediaInfo.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Cache/ResourceLoaderDelegate.swift b/node_modules/expo-video/ios/Cache/ResourceLoaderDelegate.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Cache/SynchronizedHashTable.swift b/node_modules/expo-video/ios/Cache/SynchronizedHashTable.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Cache/VideoCacheManager.swift b/node_modules/expo-video/ios/Cache/VideoCacheManager.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/ContentKeyDelegate.swift b/node_modules/expo-video/ios/ContentKeyDelegate.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/ContentKeyManager.swift b/node_modules/expo-video/ios/ContentKeyManager.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Enums/AudioMixingMode.swift b/node_modules/expo-video/ios/Enums/AudioMixingMode.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Enums/ContentType.swift b/node_modules/expo-video/ios/Enums/ContentType.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Enums/DRMType.swift b/node_modules/expo-video/ios/Enums/DRMType.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Enums/FullscreenOrientation.swift b/node_modules/expo-video/ios/Enums/FullscreenOrientation.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Enums/PlayerStatus.swift b/node_modules/expo-video/ios/Enums/PlayerStatus.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Enums/VideoContentFit.swift b/node_modules/expo-video/ios/Enums/VideoContentFit.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/ExpoVideo.podspec b/node_modules/expo-video/ios/ExpoVideo.podspec
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/NowPlayingManager.swift b/node_modules/expo-video/ios/NowPlayingManager.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/OrientationAVPlayerViewController.swift b/node_modules/expo-video/ios/OrientationAVPlayerViewController.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Records/BufferOptions.swift b/node_modules/expo-video/ios/Records/BufferOptions.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Records/DRMOptions.swift b/node_modules/expo-video/ios/Records/DRMOptions.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Records/FullscreenOptions.swift b/node_modules/expo-video/ios/Records/FullscreenOptions.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Records/PlaybackError.swift b/node_modules/expo-video/ios/Records/PlaybackError.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Records/Tracks.swift b/node_modules/expo-video/ios/Records/Tracks.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Records/VideoEventPayloads.swift b/node_modules/expo-video/ios/Records/VideoEventPayloads.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Records/VideoMetadata.swift b/node_modules/expo-video/ios/Records/VideoMetadata.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Records/VideoSize.swift b/node_modules/expo-video/ios/Records/VideoSize.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Records/VideoSource.swift b/node_modules/expo-video/ios/Records/VideoSource.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Thumbnails/VideoThumbnail.swift b/node_modules/expo-video/ios/Thumbnails/VideoThumbnail.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Thumbnails/VideoThumbnailGenerator.swift b/node_modules/expo-video/ios/Thumbnails/VideoThumbnailGenerator.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Thumbnails/VideoThumbnailOptions.swift b/node_modules/expo-video/ios/Thumbnails/VideoThumbnailOptions.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/Utils/URL+MediaLibraryAssets.swift b/node_modules/expo-video/ios/Utils/URL+MediaLibraryAssets.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoAirPlayButtonView.swift b/node_modules/expo-video/ios/VideoAirPlayButtonView.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoAsset.swift b/node_modules/expo-video/ios/VideoAsset.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoExceptions.swift b/node_modules/expo-video/ios/VideoExceptions.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoItem.swift b/node_modules/expo-video/ios/VideoItem.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoManager.swift b/node_modules/expo-video/ios/VideoManager.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoModule.swift b/node_modules/expo-video/ios/VideoModule.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoPlayer.swift b/node_modules/expo-video/ios/VideoPlayer.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoPlayer/DangerousPropertiesStore.swift b/node_modules/expo-video/ios/VideoPlayer/DangerousPropertiesStore.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoPlayerAudioTracks.swift b/node_modules/expo-video/ios/VideoPlayerAudioTracks.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoPlayerItem.swift b/node_modules/expo-video/ios/VideoPlayerItem.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoPlayerObserver.swift b/node_modules/expo-video/ios/VideoPlayerObserver.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoPlayerSubtitles.swift b/node_modules/expo-video/ios/VideoPlayerSubtitles.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoSourceLoader.swift b/node_modules/expo-video/ios/VideoSourceLoader.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoSourceLoaderListener.swift b/node_modules/expo-video/ios/VideoSourceLoaderListener.swift
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/ios/VideoView.swift b/node_modules/expo-video/ios/VideoView.swift
+old mode 100644
+new mode 100755
+index 3f285fb..f80f503
+--- a/node_modules/expo-video/ios/VideoView.swift
++++ b/node_modules/expo-video/ios/VideoView.swift
+@@ -168,6 +168,15 @@ public final class VideoView: ExpoView, AVPlayerViewControllerDelegate {
+     // TV is doing a normal view controller present, so we should not execute
+     // this code
+     #if !os(tvOS)
++    // PiP from inline requires the AVPlayerViewController to be a real child VC.
++    // addSubview alone is not enough for canStartPictureInPictureAutomaticallyFromInline.
++    if window != nil, let parentVC = reactViewController(), playerViewController.parent == nil {
++      parentVC.addChild(playerViewController)
++      playerViewController.didMove(toParent: parentVC)
++    } else if window == nil, playerViewController.parent != nil {
++      playerViewController.willMove(toParent: nil)
++      playerViewController.removeFromParent()
++    }
+     playerViewController.beginAppearanceTransition(self.window != nil, animated: true)
+     #endif
+   }
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16-sources.jar b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16-sources.jar
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16-sources.jar.md5 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16-sources.jar.md5
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16-sources.jar.sha1 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16-sources.jar.sha1
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16-sources.jar.sha256 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16-sources.jar.sha256
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16-sources.jar.sha512 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16-sources.jar.sha512
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.aar b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.aar
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.aar.md5 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.aar.md5
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.aar.sha1 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.aar.sha1
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.aar.sha256 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.aar.sha256
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.aar.sha512 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.aar.sha512
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.module b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.module
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.module.md5 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.module.md5
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.module.sha1 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.module.sha1
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.module.sha256 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.module.sha256
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.module.sha512 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.module.sha512
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.pom b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.pom
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.pom.md5 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.pom.md5
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.pom.sha1 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.pom.sha1
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.pom.sha256 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.pom.sha256
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.pom.sha512 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/3.0.16/expo.modules.video-3.0.16.pom.sha512
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/maven-metadata.xml b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/maven-metadata.xml
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/maven-metadata.xml.md5 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/maven-metadata.xml.md5
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/maven-metadata.xml.sha1 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/maven-metadata.xml.sha1
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/maven-metadata.xml.sha256 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/maven-metadata.xml.sha256
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/maven-metadata.xml.sha512 b/node_modules/expo-video/local-maven-repo/host/exp/exponent/expo.modules.video/maven-metadata.xml.sha512
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/plugin/build/withExpoVideo.d.ts b/node_modules/expo-video/plugin/build/withExpoVideo.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/plugin/build/withExpoVideo.js b/node_modules/expo-video/plugin/build/withExpoVideo.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/plugin/jest.config.js b/node_modules/expo-video/plugin/jest.config.js
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/plugin/src/withExpoVideo.ts b/node_modules/expo-video/plugin/src/withExpoVideo.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/plugin/tsconfig.json b/node_modules/expo-video/plugin/tsconfig.json
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/NativeVideoAirPlayButtonView.ts b/node_modules/expo-video/src/NativeVideoAirPlayButtonView.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/NativeVideoModule.ts b/node_modules/expo-video/src/NativeVideoModule.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/NativeVideoModule.web.ts b/node_modules/expo-video/src/NativeVideoModule.web.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/NativeVideoView.ts b/node_modules/expo-video/src/NativeVideoView.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/VideoAirPlayButton.ios.tsx b/node_modules/expo-video/src/VideoAirPlayButton.ios.tsx
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/VideoAirPlayButton.tsx b/node_modules/expo-video/src/VideoAirPlayButton.tsx
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/VideoAirPlayButton.types.ts b/node_modules/expo-video/src/VideoAirPlayButton.types.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/VideoModule.ts b/node_modules/expo-video/src/VideoModule.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/VideoPlayer.tsx b/node_modules/expo-video/src/VideoPlayer.tsx
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/VideoPlayer.types.ts b/node_modules/expo-video/src/VideoPlayer.types.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/VideoPlayer.web.tsx b/node_modules/expo-video/src/VideoPlayer.web.tsx
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/VideoPlayerEvents.types.ts b/node_modules/expo-video/src/VideoPlayerEvents.types.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/VideoThumbnail.ts b/node_modules/expo-video/src/VideoThumbnail.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/VideoView.tsx b/node_modules/expo-video/src/VideoView.tsx
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/VideoView.types.ts b/node_modules/expo-video/src/VideoView.types.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/VideoView.web.tsx b/node_modules/expo-video/src/VideoView.web.tsx
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/index.ts b/node_modules/expo-video/src/index.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/resolveAssetSource.ts b/node_modules/expo-video/src/resolveAssetSource.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/resolveAssetSource.web.ts b/node_modules/expo-video/src/resolveAssetSource.web.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/src/ts-declarations/react-native-assets.d.ts b/node_modules/expo-video/src/ts-declarations/react-native-assets.d.ts
+old mode 100644
+new mode 100755
+diff --git a/node_modules/expo-video/tsconfig.json b/node_modules/expo-video/tsconfig.json
+old mode 100644
+new mode 100755

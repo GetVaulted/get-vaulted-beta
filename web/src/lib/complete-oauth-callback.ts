@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import {
   clearOAuthReturnToCookie,
   createSupabaseRouteHandlerAuthClient,
+  publicRequestOrigin,
   redirectWithForwardedHost,
   signInRedirect,
 } from "@/lib/supabase-server-auth-client";
@@ -21,7 +22,9 @@ export function isBenignOAuthExchangeError(message: string): boolean {
     m.includes("code has expired") ||
     m.includes("code verifier") ||
     m.includes("auth code") ||
-    m.includes("pkce")
+    m.includes("pkce") ||
+    m.includes("flow state") ||
+    m.includes("flow_state")
   );
 }
 
@@ -34,7 +37,12 @@ async function redirectIfNextAuthSessionExists(
     secret: process.env.NEXTAUTH_SECRET,
   });
   if (!token?.sub) return null;
-  return redirectWithForwardedHost(request, returnTo);
+  const row = await prisma.user.findUnique({
+    where: { id: token.sub },
+    select: { usernameChosenAt: true },
+  });
+  const dest = row?.usernameChosenAt == null ? profileSetupReturnTo(returnTo) : returnTo;
+  return redirectWithForwardedHost(request, dest);
 }
 
 function profileSetupReturnTo(returnTo: string): string {
@@ -67,7 +75,7 @@ export async function completeOAuthCallback(
   request: NextRequest,
   returnTo: string,
 ): Promise<NextResponse> {
-  const { origin } = new URL(request.url);
+  const origin = publicRequestOrigin(request);
   const { searchParams } = request.nextUrl;
 
   const existingSessionRedirect = await redirectIfNextAuthSessionExists(request, returnTo);
@@ -101,7 +109,7 @@ export async function completeOAuthCallback(
     if (sessionRedirect) return sessionRedirect;
 
     const message = isBenignOAuthExchangeError(error.message)
-      ? "That sign-in link was already used. Please try again."
+      ? "That sign-in link was already used or expired. Please try Continue with Google again."
       : error.message;
     return signInRedirect(origin, returnTo, message);
   }

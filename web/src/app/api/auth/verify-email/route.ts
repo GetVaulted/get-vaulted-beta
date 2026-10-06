@@ -190,6 +190,10 @@ export async function POST(req: Request) {
       );
     }
 
+    void import("@/lib/giveaway/entries")
+      .then(({ onUserEmailVerifiedForGiveaways }) => onUserEmailVerifiedForGiveaways(user.id))
+      .catch((e) => console.warn("[verify-email] giveaway entry hook failed", e));
+
     return NextResponse.json({ ok: true as const });
   } catch (e) {
     devVerifyLog("unhandled error", e);

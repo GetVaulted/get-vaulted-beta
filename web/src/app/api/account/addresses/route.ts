@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { validateAddressCreateInput, type AddressInput } from "@/lib/address-book";
 import { verifyAddressCreateData } from "@/lib/apply-address-verification";
 import { ensureBuyerShippingFromSellerShipFrom } from "@/lib/ensure-buyer-shipping-from-seller-ship-from";
+import { syncBuyerWalletShippingToOpenOrders } from "@/lib/live-buy-now-purchase";
 
 async function enrichShippingAddressForLabels<T extends { type: string; email: string | null }>(
   userId: string,
@@ -21,7 +22,7 @@ async function enrichShippingAddressForLabels<T extends { type: string; email: s
 }
 
 export async function GET(req: Request) {
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
   await ensureBuyerShippingFromSellerShipFrom(auth.userId);
   const addresses = await prisma.address.findMany({
@@ -32,7 +33,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
   let body: AddressInput;
   try {
@@ -61,11 +62,21 @@ export async function POST(req: Request) {
       },
     });
   });
+  let syncedOpenOrders = 0;
+  if (data.type === "shipping") {
+    try {
+      const sync = await syncBuyerWalletShippingToOpenOrders(auth.userId);
+      syncedOpenOrders = sync.updatedOrderIds.length;
+    } catch (e) {
+      console.error("[api/account/addresses POST] sync open order shipping", e);
+    }
+  }
   return NextResponse.json(
     {
       address,
       verified: data.isVerified,
       corrected: verified.corrected,
+      syncedOpenOrders,
     },
     { status: 201 },
   );

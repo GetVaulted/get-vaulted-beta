@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  PLATFORM_FEE_PERCENT_MAX,
+  clampPlatformFeePercent,
   completedLiveShowGmvBeforeSale,
   liveShowPlatformFeePercent,
   marketplacePlatformFeePercent,
@@ -11,21 +13,21 @@ import { estimateSellerOrderPayoutUsd } from "@/lib/seller-payout-estimate";
 
 describe("Fee application structure (QA lock)", () => {
   describe("Marketplace", () => {
-    it("calculates 8% platform fee on item price only", () => {
-      expect(marketplacePlatformFeePercent()).toBe(8);
+    it("calculates 6.75% platform fee on item price only", () => {
+      expect(marketplacePlatformFeePercent()).toBe(6.75);
       expect(
         resolveCheckoutApplicationFeeCentsSync({
           saleAmountUsd: 100,
           isCompanyListing: false,
         }),
-      ).toBe(800);
+      ).toBe(675);
       // Shipping must not inflate platform fee
       expect(
         resolveCheckoutApplicationFeeCentsSync({
           saleAmountUsd: 100,
           isCompanyListing: false,
         }),
-      ).toBe(800);
+      ).toBe(675);
     });
 
     it("Stripe application_fee_amount is platform fee only (not processing)", () => {
@@ -33,15 +35,27 @@ describe("Fee application structure (QA lock)", () => {
         saleAmountUsd: 250,
         isCompanyListing: false,
       });
-      expect(platformFee).toBe(2000);
+      expect(platformFee).toBe(1688);
       expect(liveTipApplicationFeeCents()).toBe(0);
+    });
+
+    it("never allows a platform fee above 6.75%", () => {
+      expect(PLATFORM_FEE_PERCENT_MAX).toBe(6.75);
+      expect(clampPlatformFeePercent(8)).toBe(6.75);
+      expect(clampPlatformFeePercent(99)).toBe(6.75);
+      expect(
+        resolvePlatformFeePercentForCheckout({
+          isCompanyListing: false,
+          sellerPlatformFeePercentOverride: 10,
+        }),
+      ).toBe(6.75);
     });
   });
 
   describe("Live show tiers (per show session GMV)", () => {
-    it("under $1,000 show GMV uses 8%", () => {
-      expect(liveShowPlatformFeePercent(0)).toBe(8);
-      expect(liveShowPlatformFeePercent(999.99)).toBe(8);
+    it("under $3,000 show GMV uses 6.75%", () => {
+      expect(liveShowPlatformFeePercent(0)).toBe(6.75);
+      expect(liveShowPlatformFeePercent(2999.99)).toBe(6.75);
       expect(
         resolveCheckoutApplicationFeeCentsSync({
           saleAmountUsd: 100,
@@ -49,31 +63,31 @@ describe("Fee application structure (QA lock)", () => {
           liveRoomId: "room_1",
           completedLiveShowGmvUsd: 500,
         }),
-      ).toBe(800);
+      ).toBe(675);
     });
 
-    it("after $1,000 show GMV uses 7.25%", () => {
-      expect(liveShowPlatformFeePercent(1000)).toBe(7.25);
+    it("after $3,000 show GMV uses 5.75%", () => {
+      expect(liveShowPlatformFeePercent(3000)).toBe(5.75);
       expect(
         resolveCheckoutApplicationFeeCentsSync({
           saleAmountUsd: 100,
           isCompanyListing: false,
           liveRoomId: "room_1",
-          completedLiveShowGmvUsd: 1500,
+          completedLiveShowGmvUsd: 3500,
         }),
-      ).toBe(725);
+      ).toBe(575);
     });
 
-    it("after $3,000 show GMV uses 6.5%", () => {
-      expect(liveShowPlatformFeePercent(3000)).toBe(6.5);
+    it("after $5,500 show GMV uses 5%", () => {
+      expect(liveShowPlatformFeePercent(5500)).toBe(5);
       expect(
         resolveCheckoutApplicationFeeCentsSync({
           saleAmountUsd: 100,
           isCompanyListing: false,
           liveRoomId: "room_1",
-          completedLiveShowGmvUsd: 4000,
+          completedLiveShowGmvUsd: 6000,
         }),
-      ).toBe(650);
+      ).toBe(500);
     });
 
     it("marketplace fee percent ignores live GMV context", () => {
@@ -83,27 +97,27 @@ describe("Fee application structure (QA lock)", () => {
           liveRoomId: null,
           completedLiveShowGmvUsd: 5000,
         }),
-      ).toBe(8);
+      ).toBe(6.75);
     });
 
-    it("seller override replaces tiered live fee", () => {
+    it("seller override replaces tiered live fee (still capped at 6.75)", () => {
       expect(
         resolvePlatformFeePercentForCheckout({
           isCompanyListing: false,
           liveRoomId: "room_1",
-          completedLiveShowGmvUsd: 4000,
+          completedLiveShowGmvUsd: 6000,
           sellerPlatformFeePercentOverride: 5,
         }),
       ).toBe(5);
     });
 
     it("reconstructs GMV before sale for completed order estimate", () => {
-      expect(completedLiveShowGmvBeforeSale(1500, 100)).toBe(1400);
-      expect(liveShowPlatformFeePercent(1400)).toBe(7.25);
+      expect(completedLiveShowGmvBeforeSale(3500, 100)).toBe(3400);
+      expect(liveShowPlatformFeePercent(3400)).toBe(5.75);
     });
 
     it("ended show GMV reads as 0 for tier lookup (tier resets when show ends)", () => {
-      expect(liveShowPlatformFeePercent(0)).toBe(8);
+      expect(liveShowPlatformFeePercent(0)).toBe(6.75);
     });
   });
 
@@ -119,16 +133,16 @@ describe("Fee application structure (QA lock)", () => {
         estimateSellerOrderPayoutUsd({
           itemPriceUsd: 100,
           payoutReserveAmountCents: 0,
-          platformFeePercent: 8,
+          platformFeePercent: 6.75,
         }),
-      ).toBe(92);
+      ).toBe(93.25);
       expect(
         estimateSellerOrderPayoutUsd({
           itemPriceUsd: 100,
           payoutReserveAmountCents: 500,
-          platformFeePercent: 7.25,
+          platformFeePercent: 5.75,
         }),
-      ).toBe(87.75);
+      ).toBe(89.25);
     });
   });
 });

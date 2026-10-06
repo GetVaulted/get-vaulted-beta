@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  connectPaymentIntentTransferData,
   fullRefundAmountCents,
   proratedRefundAmountCents,
 } from "@/lib/sales-tax-charge";
@@ -32,6 +33,49 @@ describe("sales-tax-charge", () => {
     expect(fields.taxTaxableSubtotalCents).toBe(10000);
     expect(fields.taxShippingTaxableCents).toBe(1000);
     expect(fields.taxJurisdictionState).toBe("TX");
+  });
+});
+
+describe("connectPaymentIntentTransferData — seller absorbs Stripe processing", () => {
+  it("adds the processing fee to application_fee_amount on untaxed charges", () => {
+    const data = connectPaymentIntentTransferData({
+      destinationAccountId: "acct_seller",
+      applicationFeeCents: 675,
+      sellerTransferCents: null,
+      processingFeeCents: 320,
+    });
+    expect(data.application_fee_amount).toBe(995);
+    expect(data.transfer_data).toEqual({ destination: "acct_seller" });
+  });
+
+  it("subtracts the processing fee from the seller transfer on taxed charges", () => {
+    const data = connectPaymentIntentTransferData({
+      destinationAccountId: "acct_seller",
+      applicationFeeCents: 675,
+      sellerTransferCents: 9325,
+      processingFeeCents: 320,
+    });
+    expect(data.application_fee_amount).toBeUndefined();
+    expect(data.transfer_data).toEqual({ destination: "acct_seller", amount: 9005 });
+  });
+
+  it("absorbs nothing when processingFeeCents is 0 or omitted (e.g. tips)", () => {
+    const data = connectPaymentIntentTransferData({
+      destinationAccountId: "acct_seller",
+      applicationFeeCents: 0,
+      sellerTransferCents: null,
+    });
+    expect(data.application_fee_amount).toBe(0);
+  });
+
+  it("never drives the seller transfer negative", () => {
+    const data = connectPaymentIntentTransferData({
+      destinationAccountId: "acct_seller",
+      applicationFeeCents: 0,
+      sellerTransferCents: 100,
+      processingFeeCents: 500,
+    });
+    expect(data.transfer_data).toEqual({ destination: "acct_seller", amount: 0 });
   });
 });
 

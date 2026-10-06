@@ -58,6 +58,41 @@ function sellerStripeBusinessProfileUrl(user: Pick<UserStripeRow, "username">): 
 }
 
 const stripeConnectBusinessUrlHealAttempted = new Set<string>();
+const stripeConnectManualPayoutHealAttempted = new Set<string>();
+
+/**
+ * Keep seller Connect balances held until Get Vaulted creates a bank payout after ship + label clawback.
+ * Automatic Stripe payouts were paying the bank before labels, then transfer reversals went negative.
+ */
+export async function ensureSellerStripeManualPayouts(
+  stripe: Stripe,
+  accountId: string,
+): Promise<void> {
+  if (stripeConnectManualPayoutHealAttempted.has(accountId)) return;
+  try {
+    const acct = await stripe.accounts.retrieve(accountId);
+    const interval = acct.settings?.payouts?.schedule?.interval;
+    if (interval === "manual") {
+      stripeConnectManualPayoutHealAttempted.add(accountId);
+      return;
+    }
+    await stripe.accounts.update(accountId, {
+      settings: {
+        payouts: {
+          schedule: { interval: "manual" },
+        },
+      },
+    });
+    stripeConnectManualPayoutHealAttempted.add(accountId);
+    console.info("[ensureSellerStripeManualPayouts] set Connect payouts to manual", { accountId });
+  } catch (e) {
+    console.warn("[ensureSellerStripeManualPayouts] failed", {
+      accountId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    throw e;
+  }
+}
 
 async function maybeHealStripeConnectBusinessProfileUrl(
   stripe: Stripe,
@@ -122,6 +157,11 @@ export async function ensureSellerStripeExpressAccountId(
           card_payments: { requested: true as const },
           transfers: { requested: true as const },
         },
+        settings: {
+          payouts: {
+            schedule: { interval: "manual" as const },
+          },
+        },
         metadata: { userId: user.id },
       }) satisfies Stripe.AccountCreateParams;
 
@@ -140,6 +180,7 @@ export async function ensureSellerStripeExpressAccountId(
       where: { id: user.id },
       data: { stripeAccountId: accountId },
     });
+    stripeConnectManualPayoutHealAttempted.add(accountId);
     console.info("[ensureSellerStripeExpressAccountId] connected account created", {
       sellerId: user.id,
       stripeAccountId: accountId,
@@ -152,5 +193,10 @@ export async function ensureSellerStripeExpressAccountId(
     stripeAccountId: accountId,
   });
   await maybeHealStripeConnectBusinessProfileUrl(stripe, accountId, user);
+  try {
+    await ensureSellerStripeManualPayouts(stripe, accountId);
+  } catch {
+    /* logged inside ensureSellerStripeManualPayouts — onboarding can continue */
+  }
   return accountId;
 }

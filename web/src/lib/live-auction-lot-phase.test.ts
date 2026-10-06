@@ -24,7 +24,7 @@ describe("resolveLiveAuctionLotBidPhase", () => {
     ).toBe("bidding_open");
   });
 
-  it("returns timer_ended_unsettled after grace (no auto-settle)", () => {
+  it("returns timer_ended_unsettled after grace (brief window before auto-settle)", () => {
     const ends = new Date(now - 5_000).toISOString();
     expect(
       resolveLiveAuctionLotBidPhase({ status: "active", biddingOpen: true, auctionEndsAt: ends }, now),
@@ -35,8 +35,8 @@ describe("resolveLiveAuctionLotBidPhase", () => {
     expect(resolveLiveAuctionLotBidPhase({ status: "sold", biddingOpen: false }, now)).toBe("settled");
   });
 
-  it("exposes beta guardrail copy constants", () => {
-    expect(LIVE_AUCTION_HOST_TIMER_ENDED_COPY).toContain("mark sold");
-    expect(LIVE_AUCTION_BUYER_TIMER_ENDED_COPY).not.toMatch(/payment complete|auto/i);
+  it("exposes timer-ended settling copy", () => {
+    expect(LIVE_AUCTION_HOST_TIMER_ENDED_COPY.toLowerCase()).toContain("settling");
+    expect(LIVE_AUCTION_BUYER_TIMER_ENDED_COPY.toLowerCase()).toContain("settling");
   });
 });

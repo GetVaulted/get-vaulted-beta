@@ -26,10 +26,12 @@ beforeEach(() => {
 
 describe("generateReferralCode", () => {
   it("returns a fixed-length unambiguous alphanumeric code", () => {
-    const code = generateReferralCode();
-    expect(code).toHaveLength(REFERRAL_CODE_LENGTH);
-    expect(code).toMatch(/^[A-Z2-9]+$/);
-    expect(code).not.toMatch(/[01ILO]/);
+    for (let i = 0; i < 50; i++) {
+      const code = generateReferralCode();
+      expect(code).toHaveLength(REFERRAL_CODE_LENGTH);
+      expect(code).toMatch(/^[A-HJ-NP-Z2-9]+$/);
+      expect(code).not.toMatch(/[01IO]/);
+    }
   });
 });
 

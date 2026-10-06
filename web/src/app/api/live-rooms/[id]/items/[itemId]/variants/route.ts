@@ -6,6 +6,7 @@ import {
   defaultActiveSpotModeForPin,
   idleVariantSpotCommerceReset,
 } from "@/lib/live-variant-spot-commerce";
+import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
 import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server";
 import { emitActiveItemChangedAwait, emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 
@@ -100,7 +101,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
     return NextResponse.json({ error: "Add at least one spot/division." }, { status: 400 });
   }
 
-  const toCreate: { label: string; priceUsd: number; quantityInitial: number; sortOrder: number }[] = [];
+  const toCreate: { label: string; priceUsd: number; quantityInitial: number; sortOrder: number; color: string }[] = [];
   for (const d of drafts) {
     let label = d.label.trim().slice(0, 120);
     if (!label) continue;
@@ -115,6 +116,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       priceUsd: d.priceUsd,
       quantityInitial: d.quantityInitial ?? 1,
       sortOrder: d.sortOrder ?? maxSort + 1 + toCreate.length,
+      color: d.color ?? "",
     });
   }
 
@@ -132,6 +134,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
           quantityInitial: row.quantityInitial,
           quantityRemaining: row.quantityInitial,
           sortOrder: row.sortOrder,
+          color: row.color,
         },
       });
     }
@@ -236,6 +239,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
           itemVersion: { increment: 1 },
         },
       });
+      // Pinning a new spot must not inherit standing/proxy bids left over from the previous
+      // spot auctioned on this same lot — those bids are keyed by liveRoomItemId, not by which
+      // variant they were for, so without this an uninvolved bidder from the prior spot could be
+      // auto-applied as the leader (and auto-win) the next spot the host opens.
+      await clearLiveAuctionProxyBidsForItem(tx, { liveRoomId, itemId });
     }
     for (const row of updates) {
       const id = typeof row.id === "string" ? row.id.trim() : "";

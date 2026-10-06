@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { buildPresenceChannelKey } from '../lib/liveRoomPresenceKey';
 import { releaseLiveRoomChannel, retainLiveRoomChannel, subscribeLiveRoomChannel } from '../lib/liveRoomSharedChannel';
-import { ensureSupabaseReady, getSupabase, isSupabaseConfigured } from '../lib/supabase';
+import { ensureSupabaseReady, getSupabase } from '../lib/supabase';
 import { RT_EVENT, RT_EVENT_ALIASES, type RoomBroadcastPayload } from '../lib/realtimeChannels';
 
 export type LiveRoomChatBroadcastMessage = {
@@ -18,6 +18,8 @@ export type LiveRoomChatBroadcastMessage = {
 export function useRealtimeRoomSubscription(opts: {
   liveRoomId: string | null;
   enabled?: boolean;
+  /** When true, also receive host/mod staff chat (never enable for buyers). */
+  includeStaffChat?: boolean;
   onLiveRoomMessage: (message: LiveRoomChatBroadcastMessage) => void;
   onMessagesRefreshMerge: () => void | Promise<void>;
   onQueueItemsChange?: () => void | Promise<void>;
@@ -39,6 +41,9 @@ export function useRealtimeRoomSubscription(opts: {
   onTeamBreakBegan?: () => void | Promise<void>;
   onModerationChanged?: () => void | Promise<void>;
   onVariantPurchased?: (payload: RoomBroadcastPayload) => void | Promise<void>;
+  onSweet16DraftStarted?: (payload: RoomBroadcastPayload) => void | Promise<void>;
+  onSweet16DraftPickMade?: (payload: RoomBroadcastPayload) => void | Promise<void>;
+  onSweet16DraftComplete?: (payload: RoomBroadcastPayload) => void | Promise<void>;
   onReconnect?: () => void | Promise<void>;
   onConnectionStateChange?: (state: { status: string; reconnectCount: number }) => void;
 }): void {
@@ -48,7 +53,7 @@ export function useRealtimeRoomSubscription(opts: {
   });
 
   useEffect(() => {
-    if (!opts.enabled || !opts.liveRoomId || !isSupabaseConfigured()) return undefined;
+    if (!opts.enabled || !opts.liveRoomId) return undefined;
 
     let cancelled = false;
     let channel: ReturnType<typeof retainLiveRoomChannel> | null = null;
@@ -65,7 +70,17 @@ export function useRealtimeRoomSubscription(opts: {
       for (const eventName of chatEvents) {
         channel.on('broadcast', { event: eventName }, ({ payload }) => {
           const m = (payload as { message?: LiveRoomChatBroadcastMessage } | null)?.message;
-          if (m && typeof m.id === 'string') refs.current.onLiveRoomMessage(m);
+          if (m && typeof m.id === 'string' && m.messageType !== 'staff') {
+            refs.current.onLiveRoomMessage(m);
+          }
+        });
+      }
+      if (opts.includeStaffChat) {
+        channel.on('broadcast', { event: RT_EVENT.staffChatMessage }, ({ payload }) => {
+          const m = (payload as { message?: LiveRoomChatBroadcastMessage } | null)?.message;
+          if (m && typeof m.id === 'string' && m.messageType === 'staff') {
+            refs.current.onLiveRoomMessage(m);
+          }
         });
       }
 
@@ -117,6 +132,15 @@ export function useRealtimeRoomSubscription(opts: {
         })
         .on('broadcast', { event: RT_EVENT.teamBreakReady }, () => void refs.current.onTeamBreakReady?.())
         .on('broadcast', { event: RT_EVENT.teamBreakBegan }, () => void refs.current.onTeamBreakBegan?.())
+        .on('broadcast', { event: RT_EVENT.sweet16DraftStarted }, ({ payload }) => {
+          void refs.current.onSweet16DraftStarted?.((payload as RoomBroadcastPayload | null) ?? {});
+        })
+        .on('broadcast', { event: RT_EVENT.sweet16DraftPickMade }, ({ payload }) => {
+          void refs.current.onSweet16DraftPickMade?.((payload as RoomBroadcastPayload | null) ?? {});
+        })
+        .on('broadcast', { event: RT_EVENT.sweet16DraftComplete }, ({ payload }) => {
+          void refs.current.onSweet16DraftComplete?.((payload as RoomBroadcastPayload | null) ?? {});
+        })
         .on('broadcast', { event: RT_EVENT.moderationChanged }, () => void refs.current.onModerationChanged?.())
         .on('broadcast', { event: RT_EVENT.breakSpots }, () => void refs.current.onBreakSpotsChange?.())
         .on('broadcast', { event: RT_EVENT.listingBid }, ({ payload }) => {
@@ -162,5 +186,5 @@ export function useRealtimeRoomSubscription(opts: {
         releaseLiveRoomChannel(supabase, liveRoomId);
       }
     };
-  }, [opts.enabled, opts.liveRoomId]);
+  }, [opts.enabled, opts.liveRoomId, opts.includeStaffChat]);
 }

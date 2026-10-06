@@ -78,6 +78,10 @@ export function mapWebMarketplaceListingToProduct(listing: WebMarketplaceListing
     handlingTimeLabel: listing.handlingTimeLabel,
     signatureRequired: listing.signatureRequired,
     shipsFromRegion: listing.shipsFromRegion,
+    sellerCompletedOrderCount:
+      typeof listing.sellerCompletedOrderCount === 'number' && Number.isFinite(listing.sellerCompletedOrderCount)
+        ? Math.max(0, Math.floor(listing.sellerCompletedOrderCount))
+        : undefined,
   };
 }
 

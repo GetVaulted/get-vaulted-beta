@@ -3,7 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, radii, spacing } from '../../../theme';
+import { colors, radii, spacing, vaultColors } from '../../../theme';
 
 export type QuickAddAction = 'marketplace' | 'quick_lot' | 'scan' | 'inventory';
 
@@ -37,7 +37,7 @@ export function QuickAddInventoryFab({
                 onAction(o.id);
               }}
             >
-              <Ionicons name={o.icon} size={20} color={colors.gold} />
+              <Ionicons name={o.icon} size={20} color={vaultColors.gold} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.menuLbl}>{o.label}</Text>
                 <Text style={styles.menuSub}>{o.sub}</Text>
@@ -51,7 +51,7 @@ export function QuickAddInventoryFab({
         onPress={() => setOpen((v) => !v)}
         accessibilityLabel={open ? 'Close quick add' : 'Quick add inventory'}
       >
-        <LinearGradient colors={['#F0D56A', colors.gold, '#9A7B2C']} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={['#F4E3B6', vaultColors.gold, '#8A6A34']} style={StyleSheet.absoluteFill} />
         <Ionicons name={open ? 'close' : 'add'} size={26} color="#0a0a0a" />
       </Pressable>
     </View>
@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
     minWidth: 220,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.35)',
+    borderColor: 'rgba(203,163,92,0.35)',
     backgroundColor: 'rgba(10,10,12,0.96)',
     paddingVertical: spacing.xs,
   },
@@ -85,7 +85,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#D4AF37',
+    shadowColor: '#CBA35C',
     shadowOpacity: 0.4,
     shadowRadius: 12,
     elevation: 10,

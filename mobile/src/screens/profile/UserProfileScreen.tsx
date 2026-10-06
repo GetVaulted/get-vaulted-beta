@@ -12,11 +12,14 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchLiveShowsByHostId } from '../../api/liveShowsDiscoveryRepository';
 import { fetchProfileById } from '../../api/profilesRepository';
+import { fetchSellerShop } from '../../api/sellerShopRepository';
 import { fetchCompletedTradesForUser } from '../../api/tradeOffersRepository';
 import { fetchSellerFollowStatus, fetchAccountFollows, toggleSellerFollow } from '../../api/sellerFollowRepository';
+import { setUserBlockedRemote } from '../../api/userBlockRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { ProfileSellerShopPanel } from '../../components/profile/ProfileSellerShopPanel';
+import { ProfilePullsGallery } from '../../components/profile/ProfilePullsGallery';
 import { ReportSheet } from '../../components/trust/ReportSheet';
 import { UserAvatar } from '../../components/ui/UserAvatar';
 import { openDispute, openFollowersFollowing } from '../../navigation/openPlatform';
@@ -34,13 +37,14 @@ import type { TradeOfferVM } from '../../types/tradeOffers';
 import type { LiveStream, ScheduledStream } from '../../types';
 import { colors, radii, spacing } from '../../theme';
 
-type Tab = 'shop' | 'live' | 'trades' | 'reviews' | 'about';
+type Tab = 'shop' | 'live' | 'trades' | 'reviews' | 'about' | 'pulls';
 
-const TABS: Tab[] = ['shop', 'live', 'trades', 'reviews', 'about'];
+const TABS: Tab[] = ['shop', 'live', 'trades', 'reviews', 'about', 'pulls'];
 
 function tabLabel(t: Tab): string {
   if (t === 'live') return 'Live shows';
   if (t === 'shop') return 'Shop';
+  if (t === 'pulls') return 'Pulls';
   return t;
 }
 
@@ -76,6 +80,19 @@ export function UserProfileScreen({ navigation, route }: Props) {
       setLoading(false);
       return;
     }
+    const isSelf = user?.id === userId;
+    if (!isSelf && session?.access_token) {
+      const visibleShop = await fetchSellerShop({
+        sellerId: userId,
+        accessToken: session.access_token,
+      });
+      if (!visibleShop) {
+        setProfile(null);
+        setDeleted(true);
+        setLoading(false);
+        return;
+      }
+    }
     const p = await fetchProfileById(userId);
     setProfile(p);
     const [followStatus, stats, revs, shows, trades] = await Promise.all([
@@ -85,7 +102,6 @@ export function UserProfileScreen({ navigation, route }: Props) {
       fetchLiveShowsByHostId(userId),
       fetchCompletedTradesForUser(userId),
     ]);
-    const isSelf = user?.id === userId;
     let followingTotal = 0;
     if (isSelf && session?.access_token) {
       const accountFollows = await fetchAccountFollows(session.access_token);
@@ -120,7 +136,7 @@ export function UserProfileScreen({ navigation, route }: Props) {
     void load();
   }, [load]);
 
-  const displayName = profile?.display_name?.trim() || profile?.username?.trim() || 'Collector';
+  const displayName = profile?.username?.trim() || profile?.display_name?.trim() || 'Collector';
   const handle = profile?.username ? `@${profile.username}` : '@vaulted';
 
   const isOwnProfile = user?.id === userId;
@@ -147,6 +163,34 @@ export function UserProfileScreen({ navigation, route }: Props) {
   };
 
   const reportUser = () => setReportOpen(true);
+
+  const blockUser = () => {
+    if (!session?.access_token) {
+      Alert.alert('Sign in', 'Sign in to block this user.');
+      return;
+    }
+    Alert.alert(
+      'Block user',
+      `Block ${handle}? They won’t be able to find you or see your listings, shows, or profile — and you won’t see theirs.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: () => {
+            void setUserBlockedRemote(session.access_token!, userId, true)
+              .then(() => {
+                Alert.alert('Blocked', `${handle} is blocked.`);
+                navigation.goBack();
+              })
+              .catch((e) =>
+                Alert.alert('Could not block', e instanceof Error ? e.message : 'Try again.'),
+              );
+          },
+        },
+      ],
+    );
+  };
 
   if (loading) {
     return (
@@ -281,6 +325,10 @@ export function UserProfileScreen({ navigation, route }: Props) {
           />
         ) : null}
 
+        {tab === 'pulls' ? (
+          <ProfilePullsGallery sellerId={userId} viewerAccessToken={session?.access_token} />
+        ) : null}
+
         {tab === 'live' ? (
           <View style={styles.section}>
             {liveNow.map((s) => (
@@ -360,6 +408,11 @@ export function UserProfileScreen({ navigation, route }: Props) {
             <Pressable onPress={reportUser}>
               <Text style={styles.link}>Report user</Text>
             </Pressable>
+            {!isOwnProfile ? (
+              <Pressable onPress={blockUser}>
+                <Text style={styles.linkDanger}>Block user</Text>
+              </Pressable>
+            ) : null}
             <Pressable onPress={() => openDispute({ contextType: 'trade', referenceId: userId }, navigation)}>
               <Text style={styles.linkDanger}>Open dispute (serious issue)</Text>
             </Pressable>

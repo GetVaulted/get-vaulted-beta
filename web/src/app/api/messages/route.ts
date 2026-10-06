@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createNotification } from "@/lib/notifications";
+import { firstMessageNotification } from "@/lib/message-notification";
 import { processMessageMentions } from "@/lib/mentions/process-message-mentions";
 import {
   ensureThreadParticipants,
@@ -24,12 +25,21 @@ type Body = {
   orderId?: string;
   conversationKind?: string;
   body?: unknown;
+  imageUrl?: unknown;
 };
 
 function trimBody(s: unknown, max = 8000): string | null {
   if (typeof s !== "string") return null;
   const t = s.trim().slice(0, max);
   return t.length ? t : null;
+}
+
+/** Photo attachment must be an https URL from our own upload endpoint's response. */
+function trimImageUrl(s: unknown, max = 2000): string | null {
+  if (typeof s !== "string") return null;
+  const t = s.trim().slice(0, max);
+  if (!t || !/^https:\/\//i.test(t)) return null;
+  return t;
 }
 
 const KINDS = new Set<MessageConversationKind>([
@@ -59,7 +69,8 @@ export async function POST(req: Request) {
     (typeof body.sellerUserId === "string" ? body.sellerUserId.trim() : "");
   const offerId = typeof body.offerId === "string" ? body.offerId.trim() : "";
   const orderId = typeof body.orderId === "string" ? body.orderId.trim() : "";
-  const text = trimBody(body.body, 8000);
+  const text = trimBody(body.body, 8000) ?? "";
+  const imageUrl = trimImageUrl(body.imageUrl);
   const conversationKind =
     typeof body.conversationKind === "string" && KINDS.has(body.conversationKind as MessageConversationKind)
       ? (body.conversationKind as MessageConversationKind)
@@ -71,145 +82,158 @@ export async function POST(req: Request) {
             ? "order_support"
             : "buyer_seller";
 
-  if (!text) return NextResponse.json({ error: "Enter a message." }, { status: 400 });
+  if (!text && !imageUrl) {
+    return NextResponse.json({ error: "Enter a message or attach a photo." }, { status: 400 });
+  }
   if (!listingId && !liveRoomId && !recipientUserId) {
     return NextResponse.json({ error: "Missing recipient, listing, or live show." }, { status: 400 });
   }
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      let resolvedListingId = listingId;
-      let sellerId: string;
-      let anchorKey: string;
-      let resolvedLiveRoomId: string | null = liveRoomId || null;
-      let listingTitle = "";
+    // Resolve listing/seller/inbox OUTSIDE the interactive transaction. Doing follow/order/block
+    // lookups + listing anchor upserts inside the default 5s Prisma transaction was timing out
+    // in production (P2028) and surfacing as "Could not send message."
+    let resolvedListingId = listingId;
+    let sellerId: string;
+    let anchorKey: string;
+    let resolvedLiveRoomId: string | null = liveRoomId || null;
+    let listingTitle = "";
 
-      if (liveRoomId) {
-        const room = await tx.liveRoom.findUnique({
-          where: { id: liveRoomId },
-          select: { id: true, sellerId: true, title: true },
-        });
-        if (!room) throw new Error("NOT_FOUND");
-        sellerId = room.sellerId;
-        anchorKey = liveAnchorKey(room.id);
-        listingTitle = room.title;
-        resolvedLiveRoomId = room.id;
-        const anchor = await resolveLiveNetworkingListingAnchor(tx, {
-          liveRoomId: room.id,
-          sellerId: room.sellerId,
-          roomTitle: room.title,
-        });
-        resolvedListingId = anchor.listingId;
-        if (!listingTitle.trim()) listingTitle = anchor.listingTitle;
-      } else if (recipientUserId && !listingId) {
-        const profileUser = await tx.user.findUnique({
-          where: { id: recipientUserId },
-          select: { id: true, username: true },
-        });
-        if (!profileUser) throw new Error("NOT_FOUND");
-        sellerId = profileUser.id;
-        anchorKey = profileAnchorKey(profileUser.id);
-        const profileLabel = profileUser.username ? `@${profileUser.username}` : "Direct message";
-        const anchor = await resolveProfileMessagingListingAnchor(tx, {
-          profileUserId: profileUser.id,
-          profileLabel,
-        });
-        resolvedListingId = anchor.listingId;
-        listingTitle = anchor.listingTitle;
-      } else {
-        const listing = await tx.listing.findUnique({
-          where: { id: listingId },
-          select: { id: true, title: true, sellerId: true, status: true, moderationRemovedAt: true },
-        });
-        if (!listing) throw new Error("NOT_FOUND");
-        if (listing.moderationRemovedAt) throw new Error("NOT_PUBLIC");
-        if (listing.status !== "active" && listing.status !== "auction_live") {
-          throw new Error("NOT_PUBLIC");
-        }
-        sellerId = listing.sellerId;
-        resolvedListingId = listing.id;
-        listingTitle = listing.title;
-        anchorKey = listingAnchorKey(listing.id);
+    if (liveRoomId) {
+      const room = await prisma.liveRoom.findUnique({
+        where: { id: liveRoomId },
+        select: { id: true, sellerId: true, title: true },
+      });
+      if (!room) throw new Error("NOT_FOUND");
+      sellerId = room.sellerId;
+      anchorKey = liveAnchorKey(room.id);
+      listingTitle = room.title;
+      resolvedLiveRoomId = room.id;
+      const anchor = await resolveLiveNetworkingListingAnchor(prisma, {
+        liveRoomId: room.id,
+        sellerId: room.sellerId,
+        roomTitle: room.title,
+      });
+      resolvedListingId = anchor.listingId;
+      if (!listingTitle.trim()) listingTitle = anchor.listingTitle;
+    } else if (recipientUserId && !listingId) {
+      const profileUser = await prisma.user.findUnique({
+        where: { id: recipientUserId },
+        select: { id: true, username: true },
+      });
+      if (!profileUser) throw new Error("NOT_FOUND");
+      sellerId = profileUser.id;
+      anchorKey = profileAnchorKey(profileUser.id);
+      const profileLabel = profileUser.username ? `@${profileUser.username}` : "Direct message";
+      const anchor = await resolveProfileMessagingListingAnchor(prisma, {
+        profileUserId: profileUser.id,
+        profileLabel,
+      });
+      resolvedListingId = anchor.listingId;
+      listingTitle = anchor.listingTitle;
+    } else {
+      const listing = await prisma.listing.findUnique({
+        where: { id: listingId },
+        select: { id: true, title: true, sellerId: true, status: true, moderationRemovedAt: true },
+      });
+      if (!listing) throw new Error("NOT_FOUND");
+      if (listing.moderationRemovedAt) throw new Error("NOT_PUBLIC");
+      if (listing.status !== "active" && listing.status !== "auction_live") {
+        throw new Error("NOT_PUBLIC");
       }
+      sellerId = listing.sellerId;
+      resolvedListingId = listing.id;
+      listingTitle = listing.title;
+      anchorKey = listingAnchorKey(listing.id);
+    }
 
-      if (sellerId === buyerId) throw new Error("SELF");
+    if (sellerId === buyerId) throw new Error("SELF");
 
-      // A blocked user must not be able to bypass the block by starting a NEW thread via a
-      // different listing/live/profile entry point (messaging security audit 2026-07).
-      if (await isUserBlocked(tx, buyerId, sellerId)) throw new Error("BLOCKED");
+    // A blocked user must not be able to bypass the block by starting a NEW thread via a
+    // different listing/live/profile entry point (messaging security audit 2026-07).
+    if (await isUserBlocked(prisma, buyerId, sellerId)) throw new Error("BLOCKED");
 
-      const inbox = await resolveInboxForNewThread(buyerId, sellerId);
+    const inbox = await resolveInboxForNewThread(buyerId, sellerId);
 
-      const thread = await tx.messageThread.upsert({
-        where: {
-          buyerId_sellerId_anchorKey: {
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const thread = await tx.messageThread.upsert({
+          where: {
+            buyerId_sellerId_anchorKey: {
+              buyerId,
+              sellerId,
+              anchorKey,
+            },
+          },
+          create: {
             buyerId,
             sellerId,
+            listingId: resolvedListingId,
             anchorKey,
+            conversationKind,
+            inbox,
+            offerId: offerId || null,
+            orderId: orderId || null,
+            liveRoomId: resolvedLiveRoomId,
           },
-        },
-        create: {
-          buyerId,
-          sellerId,
-          listingId: resolvedListingId,
-          anchorKey,
-          conversationKind,
-          inbox,
-          offerId: offerId || null,
-          orderId: orderId || null,
-          liveRoomId: resolvedLiveRoomId,
-        },
-        update: {
-          updatedAt: new Date(),
-          offerId: offerId || undefined,
-          orderId: orderId || undefined,
-          liveRoomId: resolvedLiveRoomId || undefined,
-        },
-      });
-
-      await ensureThreadParticipants(tx, thread.id, buyerId, sellerId);
-
-      const created = await tx.message.create({
-        data: {
-          threadId: thread.id,
-          senderId: buyerId,
-          recipientId: sellerId,
-          listingId: resolvedListingId,
-          body: text,
-          kind: "user",
-        },
-        select: { id: true },
-      });
-
-      await tx.messageThread.update({
-        where: { id: thread.id },
-        data: { updatedAt: new Date() },
-      });
-
-      const recipientParticipant = await tx.messageThreadParticipant.findUnique({
-        where: { threadId_userId: { threadId: thread.id, userId: sellerId } },
-        select: { muted: true },
-      });
-
-      if (!recipientParticipant?.muted) {
-        const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
-        const lt = listingTitle.length > 60 ? `${listingTitle.slice(0, 57)}…` : listingTitle;
-        const notifyTitle = inbox === "request" ? "Message request" : "New message";
-        const notifyBody =
-          anchorKey.startsWith("profile:") || lt === "Direct message"
-            ? preview
-            : `Regarding “${lt}”: ${preview}`;
-        await createNotification(tx, {
-          userId: sellerId,
-          type: "message_received",
-          title: notifyTitle,
-          body: notifyBody,
-          href: `/account/messages/${encodeURIComponent(thread.id)}`,
+          update: {
+            updatedAt: new Date(),
+            offerId: offerId || undefined,
+            orderId: orderId || undefined,
+            liveRoomId: resolvedLiveRoomId || undefined,
+          },
         });
-      }
 
-      return { threadId: thread.id, inbox: thread.inbox, messageId: created.id };
+        await ensureThreadParticipants(tx, thread.id, buyerId, sellerId);
+
+        const created = await tx.message.create({
+          data: {
+            threadId: thread.id,
+            senderId: buyerId,
+            recipientId: sellerId,
+            listingId: resolvedListingId,
+            body: text,
+            imageUrl,
+            kind: "user",
+          },
+          select: { id: true },
+        });
+
+        await tx.messageThread.update({
+          where: { id: thread.id },
+          data: { updatedAt: new Date() },
+        });
+
+        return { threadId: thread.id, inbox: thread.inbox, messageId: created.id };
+      },
+      { timeout: 15_000 },
+    );
+
+    const recipientParticipant = await prisma.messageThreadParticipant.findUnique({
+      where: { threadId_userId: { threadId: result.threadId, userId: sellerId } },
+      select: { muted: true },
     });
+
+    if (!recipientParticipant?.muted) {
+      const preview = text
+        ? text.length > 120
+          ? `${text.slice(0, 117)}…`
+          : text
+        : "📷 Sent a photo";
+      const lt = listingTitle.length > 60 ? `${listingTitle.slice(0, 57)}…` : listingTitle;
+      const notify = firstMessageNotification(result.inbox);
+      const notifyBody =
+        anchorKey.startsWith("profile:") || lt === "Direct message"
+          ? preview
+          : `Regarding “${lt}”: ${preview}`;
+      void createNotification(prisma, {
+        userId: sellerId,
+        type: notify.type,
+        title: notify.title,
+        body: notifyBody,
+        href: `/account/messages/${encodeURIComponent(result.threadId)}`,
+      });
+    }
 
     const buyer = await prisma.user.findUnique({ where: { id: buyerId }, select: { username: true } });
     await processMessageMentions({

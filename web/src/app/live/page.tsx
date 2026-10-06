@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LiveNowRoomCard } from "@/components/cards/LiveNowRoomCard";
 import { liveNowFilters, type LiveNowRoom } from "@/content/live-rooms";
+import { orderLiveDirectoryRooms } from "@/lib/live-discovery-order";
 import { mapApiRowToLiveNowRoom, type LiveRoomListApiRow } from "@/lib/live-room-directory-mapper";
 import { getLiveCardSignals, getSignalScore } from "@/lib/live-signals";
 
@@ -62,10 +63,8 @@ export default function LivePage() {
     if (sort === "viewers") return [...rooms].sort((a, b) => b.viewers - a.viewers);
     if (sort === "activity") return [...rooms].sort((a, b) => getSignalScore(b) - getSignalScore(a));
     if (sort === "new") return [...rooms].reverse();
-    return [...rooms].sort((a, b) => {
-      if (a.status !== b.status) return a.status === "live_now" ? -1 : 1;
-      return getSignalScore(b) - getSignalScore(a);
-    });
+    // Default "trending" matches mobile Live discovery: live (by viewers), then soonest scheduled.
+    return orderLiveDirectoryRooms(rooms);
   }, [activeFilter, query, sort, toggles, liveShows]);
 
   /** Only truly live rooms — scheduled streams belong in the main grid, not under “Live right now”. */

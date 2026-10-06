@@ -55,11 +55,11 @@ export const COLLAPSE_END_P = 0.7;
 export const VIGNETTE_START_P = 0.58;
 export const VIGNETTE_PEAK_P = 0.7;
 export const VIGNETTE_END_P = 0.78;
-export const LOGO_ENTER_P = 0.78;
-export const LOGO_SETTLE_P = 0.93;
+export const LOGO_ENTER_P = 0.14;
+export const LOGO_SETTLE_P = 0.55;
 
-/** Longer runway = bigger build without cheap “clip spam”. */
-export const INTRO_TOTAL_MS = 4800;
+/** Short + confident: black, then the logo hits and holds — no montage runway. */
+export const INTRO_TOTAL_MS = 1050;
 
 export async function prefetchIntroMontageAssets(maxWaitMs = 650): Promise<void> {
   const tasks = [

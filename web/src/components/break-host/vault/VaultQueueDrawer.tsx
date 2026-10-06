@@ -18,6 +18,7 @@ type VaultQueueDrawerProps = {
   onPost: (id: string) => void;
   onSkip?: (id: string) => void;
   onDelete: (id: string) => void;
+  onEdit?: (id: string) => void;
   onAddAuction: () => void;
   onAddGiveaway?: () => void;
   onGiveawayOpenEntries?: (id: string) => void;
@@ -42,6 +43,7 @@ export function VaultQueueDrawer({
   onPost,
   onSkip,
   onDelete,
+  onEdit,
   onAddAuction,
   onAddGiveaway,
   onGiveawayOpenEntries,
@@ -88,6 +90,7 @@ export function VaultQueueDrawer({
             onPost={onPost}
             onSkip={onSkip}
             onDelete={onDelete}
+            onEdit={onEdit}
             onAddAuction={onAddAuction}
             onAddGiveaway={onAddGiveaway}
             onGiveawayOpenEntries={onGiveawayOpenEntries}

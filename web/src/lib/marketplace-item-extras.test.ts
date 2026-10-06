@@ -50,4 +50,21 @@ describe("buildItemPageExtras", () => {
     expect(extras.description.toLowerCase()).not.toContain("verified get vaulted seller");
     expect(extras.description.toLowerCase()).not.toContain("insurance");
   });
+
+  it("does not present $0 listing shipping as Buyer pays $0.00", () => {
+    const extras = buildItemPageExtras(
+      baseListing({ shippingPriceUsd: 0, handlingTimeLabel: "1–2 business days" }),
+    );
+    expect(extras.shippingSummary.toLowerCase()).not.toContain("buyer pays $0.00");
+    expect(extras.estimatedShippingDisplay).toBe("Estimated at checkout");
+  });
+
+  it("explains trade label purchase instead of free buyer shipping", () => {
+    const extras = buildItemPageExtras(
+      baseListing({ tradeOnly: true, shippingPriceUsd: 0, handlingTimeLabel: "1–2 business days" }),
+    );
+    expect(extras.shippingSummary.toLowerCase()).toContain("each party buys their own");
+    expect(extras.estimatedShippingDisplay.toLowerCase()).toContain("own label");
+    expect(extras.shippingSummary).not.toMatch(/Buyer pays \$0\.00/i);
+  });
 });

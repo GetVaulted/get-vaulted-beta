@@ -11,22 +11,25 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
+  type LayoutChangeEvent,
 } from 'react-native';
 import PagerView from 'react-native-pager-view';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { runOnJS } from 'react-native-reanimated';
+import { Gesture, GestureDetector, Pressable as GHPressable } from 'react-native-gesture-handler';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../theme';
+import { vaultColors } from '../../theme/vaultColors';
+import { vaultFonts } from '../../theme/vaultTypography';
 import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
 import { fetchProfileById } from '../../api/profilesRepository';
 import { resolveCanonicalProfileAvatar } from '../../lib/profileAvatarSync';
 import { applyLiveModerationAction } from '../../api/trustRepository';
 import { fetchLiveBuyerPaymentSession } from '../../api/liveBuyerPaymentRepository';
+import { createAndShareHitClip } from '../../api/hitClipRepository';
 import { fetchSellerFollowStatus, toggleSellerFollow } from '../../api/sellerFollowRepository';
 import type { LiveStream, ChatMessage } from '../../types';
 import type { LiveStackParamList } from '../../navigation/types';
@@ -34,10 +37,12 @@ import { rootNavigationRef } from '../../navigation/rootNavigationRef';
 import { openLiveHostProfile, openUserProfile } from '../../navigation/openPlatform';
 import { UserAvatar } from '../ui/UserAvatar';
 import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
+import { LiveImmersiveRestoreHint } from './LiveImmersiveRestoreHint';
 import { LiveSpotTakenCelebration } from './LiveSpotTakenCelebration';
 import { VaultRevealOverlay } from './VaultRevealOverlay';
 import { LiveGiveawaySideTab } from './LiveGiveawaySideTab';
 import { useLiveImmersiveChrome } from '../../hooks/useLiveImmersiveChrome';
+import { useLiveStageInspectZoom } from '../../hooks/useLiveStageInspectZoom';
 import {
   CHAT_ABOVE_COMPOSER_GAP,
   COMPOSER_BAR_HEIGHT,
@@ -77,6 +82,7 @@ import { LivePaymentFailureModal } from './LivePaymentFailureModal';
 import { LiveBuyerWalletGateModal } from './LiveBuyerWalletGateModal';
 import { WalletSheet } from '../wallet/WalletSheet';
 import { PAYMENT_RECOVERY_SUCCESS_TOAST } from '../../lib/livePaymentFailureCopy';
+import { resolveSellerAccessToken } from '../../lib/resolveSellerAccessToken';
 import {
   isWalletIncompleteReadiness,
   walletReadinessFromSnapshot,
@@ -86,6 +92,8 @@ import { buyerWalletGatePromptBody } from '../../lib/buyerWalletReadinessDisplay
 import { LiveEmptyBroadcastBlock } from './LiveEmptyBroadcastBlock';
 import { LiveStagePlayback } from './LiveStagePlayback';
 import { LiveRoomText } from './LiveRoomText';
+import { LiveShowNotesSheet } from './LiveShowNotesSheet';
+import { hasLiveShowNotes, normalizeLiveShowNotes } from '../../lib/liveShowNotes';
 import { LiveBadge } from '../ui/LiveBadge';
 import { KeyboardDismissStageShield } from '../ui/KeyboardDismissStageShield';
 import {
@@ -95,25 +103,30 @@ import {
   computeLiveStageSafeInsets,
   computeLiveTopReserve,
   computeGiveawaySideTabTop,
-  LIVE_STAGE_CONTENT_FIT,
+  liveStageContentFitForPlayback,
   logLiveStageLayoutDebug,
   type LiveStageContainer,
 } from '../../lib/liveRoomViewport';
 import { isCompactLiveRoomLayout, liveRoomOverlayScale } from '../../lib/liveRoomUiScale';
-import { scaledComposerBarHeight } from '../../lib/liveRoomBottomLayout';
 import { LiveRoomShareSheet } from './LiveRoomShareSheet';
-import { prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
+import { invalidateBuyerLiveStreamCache, prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
+import { reconcilePolledStreamPaused, WARM_NEIGHBOR_RADIUS } from '../../lib/liveStreamPlayback';
+import { resolveLiveFeedPageCorrection } from '../../lib/pinSelectedLiveStream';
 import type { LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import type { LiveRoomLineupItemSnapshot } from '../../lib/liveBuyerQueueProjection';
 import { liveAuctionMinBidUsd } from '../../lib/liveAuctionPricing';
 import { placeLiveRoomPreBid } from '../../api/liveRoomBuyerRepository';
 import { purchaseLiveBuyNow, syncLiveBuyNowPurchase } from '../../api/liveBuyNowRepository';
 import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
+import { useLiveConfirmPayment } from './LiveStripeProvider';
+import { withLivePlaybackCommerceHold } from '../../lib/livePlaybackCommerceHold';
 import { LiveBidNoticeToast } from './LiveBidNoticeToast';
 import type { LiveBidFailureDisplay } from '../../lib/liveBidUserErrors';
 import {
   isLiveBroadcastCommerceBlocked,
+  isLiveBroadcastPurchaseBlocked,
   liveBroadcastCommerceBlockMessage,
+  liveBroadcastPurchaseBlockMessage,
   type LiveRoomBroadcastGate,
 } from '../../lib/liveRoomBroadcastOnAir';
 import { isVariantSpotAuctionLive } from '../../lib/liveVariantSpotCommerce';
@@ -135,6 +148,12 @@ type Props = {
   onRequireAuth?: () => void;
   accessToken?: string;
   userId?: string;
+  /**
+   * False when the live room screen is not the focused screen (backed out, switched tabs, or a
+   * screen pushed on top). Drives a full playback teardown so a buyer stops hearing/seeing the
+   * show the moment they leave — the show stays live server-side and restores on refocus.
+   */
+  screenFocused?: boolean;
 };
 
 function formatViewers(n: number) {
@@ -153,6 +172,8 @@ type WalletGateHostSnapshot = {
 type WalletGateHostActions = {
   openSheet: () => void;
   closeSheet: () => void;
+  /** Dismiss the "wallet required" popup without leaving the room. */
+  closePrompt: () => void;
   leaveRoom: () => void;
   onReadinessChange: (next: BuyerWalletReadiness) => void;
 };
@@ -183,6 +204,7 @@ function LiveSlide({
   stream,
   isActive,
   playbackMode,
+  screenFocused = true,
   stageContainer,
   screenHeight,
   onBack,
@@ -193,12 +215,14 @@ function LiveSlide({
   onWalletOverlayChange,
   onPaymentBlockerChange,
   onWalletGateHostChange,
+  onInspectZoomChange,
   roomVisitNonce = 0,
   onSpotCelebrationHostChange,
 }: {
   stream: LiveStream;
   isActive: boolean;
   playbackMode: LivePlaybackMode;
+  screenFocused?: boolean;
   stageContainer: LiveStageContainer;
   screenHeight: number;
   onBack?: () => void;
@@ -212,6 +236,7 @@ function LiveSlide({
     snapshot: WalletGateHostSnapshot | null,
     actions: WalletGateHostActions | null,
   ) => void;
+  onInspectZoomChange?: (active: boolean) => void;
   roomVisitNonce?: number;
   onSpotCelebrationHostChange?: (host: LiveSpotCelebrationHost | null) => void;
 }) {
@@ -232,12 +257,22 @@ function LiveSlide({
   const [shopSpotItem, setShopSpotItem] = useState<LiveRoomLineupItemSnapshot | null>(null);
   const [tipOpen, setTipOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
+  const [showNotesOpen, setShowNotesOpen] = useState(false);
+  const [showNotes, setShowNotes] = useState(() => normalizeLiveShowNotes(''));
   const [roomPaymentMethodId, setRoomPaymentMethodId] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportChatMessage, setReportChatMessage] = useState<ChatMessage | null>(null);
   const [chatDraft, setChatDraft] = useState('');
+  const [chatSendError, setChatSendError] = useState<string | null>(null);
+  const [staffChatOnly, setStaffChatOnly] = useState(false);
   const [streamMuted, setStreamMuted] = useState(false);
   const [streamRefreshNonce, setStreamRefreshNonce] = useState(0);
+  const [clipBusy, setClipBusy] = useState(false);
+  const [clipProgress, setClipProgress] = useState<string | null>(null);
+  /** Quick-actions dial (Vault Console Redesign) — fanned-out menu behind the FAB in the rail. */
+  const [dialOpen, setDialOpen] = useState(false);
+  /** Immediate pause from realtime — applied before GET /stream catches up. */
+  const [realtimeStreamPaused, setRealtimeStreamPaused] = useState<boolean | null>(null);
   const [roomStatus, setRoomStatus] = useState(stream.roomStatus);
   const [broadcastGate, setBroadcastGate] = useState<LiveRoomBroadcastGate>({
     status: stream.roomStatus,
@@ -250,12 +285,33 @@ function LiveSlide({
   const handleBroadcastGateChange = useCallback((gate: LiveRoomBroadcastGate) => {
     setBroadcastGate(gate);
   }, []);
+  // Reconciliation for a stale `realtimeStreamPaused` latch: `onStreamPausedHint` is the only
+  // thing that normally sets it, and the hard-refresh handler above deliberately never clears it
+  // (see that comment) to avoid self-clobbering the SAME stream_status event that just set it.
+  // But if the matching "unpaused" broadcast is ever missed entirely — a realtime resubscribe
+  // race is quite plausible right around a host crash + reconnect, which is exactly when this
+  // matters most — nothing else was clearing it, and the buyer stayed on the "Host paused"
+  // overlay indefinitely even once playback had genuinely resumed (GET /stream self-heals on its
+  // own poll cadence regardless of realtime delivery). Only reconcile true -> null (defer back to
+  // the poll) here; a poll that still says paused must never override a fresher realtime
+  // "unpaused" hint that just hasn't been re-polled yet.
+  const handlePolledStreamPausedChange = useCallback((paused: boolean) => {
+    setRealtimeStreamPaused((prev) => reconcilePolledStreamPaused(prev, paused));
+  }, []);
   const broadcastCommerceBlocked = useMemo(
     () => isLiveBroadcastCommerceBlocked({ ...broadcastGate, status: roomStatus }),
     [broadcastGate, roomStatus],
   );
+  const broadcastPurchaseBlocked = useMemo(
+    () => isLiveBroadcastPurchaseBlocked({ ...broadcastGate, status: roomStatus }),
+    [broadcastGate, roomStatus],
+  );
   const broadcastCommerceBlockMessage = useMemo(
     () => liveBroadcastCommerceBlockMessage({ ...broadcastGate, status: roomStatus }),
+    [broadcastGate, roomStatus],
+  );
+  const broadcastPurchaseBlockMessage = useMemo(
+    () => liveBroadcastPurchaseBlockMessage({ ...broadcastGate, status: roomStatus }),
     [broadcastGate, roomStatus],
   );
   const [commerceHeight, setCommerceHeight] = useState(DEFAULT_COMMERCE_OVERLAY_HEIGHT);
@@ -264,6 +320,8 @@ function LiveSlide({
   const [breakDisclaimerReady, setBreakDisclaimerReady] = useState(false);
   const [walletReadiness, setWalletReadiness] = useState<BuyerWalletReadiness | null>(null);
   const [walletGateSheetOpen, setWalletGateSheetOpen] = useState(false);
+  /** Closable "wallet required" popup — only shown when the buyer tries to bid/buy, never on entry. */
+  const [walletPromptOpen, setWalletPromptOpen] = useState(false);
   const [paymentRecoveryToast, setPaymentRecoveryToast] = useState<string | null>(null);
   const [bidNotice, setBidNotice] = useState<LiveBidFailureDisplay | null>(null);
   const bidNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -279,17 +337,17 @@ function LiveSlide({
     setWalletReadiness(null);
   }, [isActive, roomVisitNonce, stream.id]);
 
+  /** Leave the live room. OS PiP is home-swipe only — no in-app mini float. */
   const leaveRoomSafely = useCallback(() => {
     setWalletGateSheetOpen(false);
     onPaymentBlockerChange?.(false);
     onWalletGateHostChange?.(null, null);
-    requestAnimationFrame(() => {
-      if (stackNav.canGoBack()) {
-        stackNav.goBack();
-        return;
-      }
-      onBack?.();
-    });
+    if (stackNav.canGoBack()) {
+      stackNav.goBack();
+      return;
+    }
+    stackNav.navigate('LiveDiscovery');
+    onBack?.();
   }, [onBack, onPaymentBlockerChange, onWalletGateHostChange, stackNav]);
 
   const moderation = useLiveRoomModeration({
@@ -403,27 +461,37 @@ function LiveSlide({
     exempt: modActor.canModerate,
   });
 
+  // Realtime must follow screen focus — `isActive` stays true for the pager page even when the
+  // LiveRoom screen is blurred/covered, which previously left channels open without a clean resubscribe.
   const liveSession = useLiveRoomRealtimeSession({
     roomId: stream.id,
     accessToken,
     userId,
-    enabled: isActive,
+    enabled: isActive && screenFocused,
     hostUsername: stream.host.handle.replace(/^@/, '') || stream.host.name,
     viewerDisplayName: myChatSender.username ?? null,
+    includeStaffChat: modActor.canModerate,
     onModerationChanged: () => void moderation.reload(),
     onChatBroadcast: (message) => {
       if (!message.id) {
         void liveChat.reload();
         return;
       }
+      if (message.messageType === 'staff' && !modActor.canModerate) return;
       liveChat.appendBroadcast(message);
     },
     onStreamRefresh: () => {
       setRoomStatus((prev) => (prev === 'ended' ? prev : 'live'));
     },
+    onStreamPausedHint: (paused) => {
+      setRealtimeStreamPaused(paused);
+    },
     onStreamHardRefresh: () => {
+      invalidateBuyerLiveStreamCache(stream.id);
       setStreamRefreshNonce((n) => n + 1);
       setRoomStatus((prev) => (prev === 'ended' ? prev : 'live'));
+      // Do NOT clear realtimeStreamPaused here. Pause/resume ownership is onStreamPausedHint only.
+      // Clearing true→null on the pause hard-refresh wiped "Host paused" and let Stage thrash.
     },
   });
   const fetchLiveSnapshot = liveSession.fetchSnapshot;
@@ -475,7 +543,12 @@ function LiveSlide({
 
     let cancelled = false;
     void fetchLiveBuyerPaymentSession(accessToken, stream.id).then((session) => {
-      if (cancelled || !session) return;
+      if (cancelled) return;
+      if (!session) {
+        // Fail closed for bidding chrome — unknown readiness must not look "ready".
+        setWalletReadiness({ paymentReady: false, shippingReady: false });
+        return;
+      }
       setWalletReadiness({
         paymentReady: session.paymentReady,
         shippingReady: session.shippingReady,
@@ -506,7 +579,15 @@ function LiveSlide({
       !liveSession.unresolvedPaymentFailure,
   );
 
-  const showWalletGateModal = walletParticipationBlocked && !walletGateSheetOpen;
+  // Entering the room is never blocked: the popup appears only after the buyer taps a gated
+  // bid/buy control (see `openWalletPrompt`), and it can always be closed.
+  const showWalletGateModal = walletParticipationBlocked && walletPromptOpen && !walletGateSheetOpen;
+
+  const openWalletPrompt = useCallback(() => setWalletPromptOpen(true), []);
+
+  useEffect(() => {
+    if (!walletParticipationBlocked) setWalletPromptOpen(false);
+  }, [walletParticipationBlocked]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -524,8 +605,12 @@ function LiveSlide({
         accessToken,
       },
       {
-        openSheet: () => setWalletGateSheetOpen(true),
+        openSheet: () => {
+          setWalletPromptOpen(false);
+          setWalletGateSheetOpen(true);
+        },
         closeSheet: () => setWalletGateSheetOpen(false),
+        closePrompt: () => setWalletPromptOpen(false),
         leaveRoom: leaveRoomSafely,
         onReadinessChange: (next) => {
           setWalletReadiness(next);
@@ -551,22 +636,20 @@ function LiveSlide({
 
   useEffect(() => {
     if (!isActive || liveSession.unresolvedPaymentFailure) return;
-    onPaymentBlockerChange?.(walletParticipationBlocked || walletGateSheetOpen);
+    // Only block feed gestures while a wallet sheet/modal is open — incomplete
+    // wallet readiness must not freeze vertical show-to-show scrolling.
+    onPaymentBlockerChange?.(walletGateSheetOpen);
     return () => onPaymentBlockerChange?.(false);
   }, [
     isActive,
     liveSession.unresolvedPaymentFailure,
     onPaymentBlockerChange,
     walletGateSheetOpen,
-    walletParticipationBlocked,
   ]);
 
   const participationBlockMessage = useMemo(() => {
     if (breakParticipationBlocked) {
       return 'Accept the live break notice before bidding or buying.';
-    }
-    if (broadcastCommerceBlockMessage) {
-      return broadcastCommerceBlockMessage;
     }
     if (walletParticipationBlocked && walletReadiness) {
       return buyerWalletGatePromptBody(walletReadiness);
@@ -577,7 +660,6 @@ function LiveSlide({
     return 'Complete setup in this show before bidding or buying.';
   }, [
     breakParticipationBlocked,
-    broadcastCommerceBlockMessage,
     liveSession.unresolvedPaymentFailure,
     walletParticipationBlocked,
     walletReadiness,
@@ -588,6 +670,10 @@ function LiveSlide({
   }, [stream.id, stream.roomStatus]);
 
   useEffect(() => {
+    setShowNotes(normalizeLiveShowNotes(''));
+  }, [stream.id]);
+
+  useEffect(() => {
     if (liveSession.roomSnap?.status === 'ended') setRoomStatus('ended');
   }, [liveSession.roomSnap?.status]);
 
@@ -596,14 +682,17 @@ function LiveSlide({
   }, [roomStatus]);
 
   useEffect(() => {
-    if (!isActive || roomStatus === 'live' || roomStatus === 'ended') return undefined;
+    if (!isActive || roomStatus === 'ended') return undefined;
     const id = setInterval(() => {
       void fetchLiveRoomPublicById(stream.id).then((row) => {
-        if (!row?.status || row.status === roomStatus) return;
-        setRoomStatus(row.status);
-        if (row.status === 'live') setStreamRefreshNonce((n) => n + 1);
+        if (!row) return;
+        if (row.status && row.status !== roomStatus) {
+          setRoomStatus(row.status);
+          if (row.status === 'live') setStreamRefreshNonce((n) => n + 1);
+        }
+        setShowNotes(normalizeLiveShowNotes(row.showNotes));
       });
-    }, 15_000);
+    }, 20_000);
     return () => clearInterval(id);
   }, [isActive, roomStatus, stream.id]);
 
@@ -645,9 +734,12 @@ function LiveSlide({
       layoutHeight: stageContainer.layoutHeight,
       offsetLeft: stageContainer.offsetLeft,
       offsetTop: stageContainer.offsetTop,
-      contentFit: LIVE_STAGE_CONTENT_FIT,
+      contentFit: liveStageContentFitForPlayback({
+        streamMode: broadcastGate.streamMode,
+        transport: broadcastGate.streamMode === 'channel_hls' ? 'hls' : 'webrtc',
+      }),
     });
-  }, [isActive, stream.id, stageContainer, screenHeight]);
+  }, [isActive, stream.id, stageContainer, screenHeight, broadcastGate.streamMode]);
 
   useEffect(() => {
     if (isActive) return undefined;
@@ -663,7 +755,13 @@ function LiveSlide({
     };
   }, [signedIn, accessToken, liveChat.announceLeave]);
 
-  const chatPool = liveChat.messages;
+  const chatPool = useMemo(
+    () =>
+      modActor.canModerate
+        ? liveChat.messages
+        : liveChat.messages.filter((m) => m.messageType !== 'staff'),
+    [liveChat.messages, modActor.canModerate],
+  );
 
   const pinnedModerator = useMemo(() => {
     if (!moderation.pinnedMessageActive) return null;
@@ -707,6 +805,8 @@ function LiveSlide({
     keyboardOffset: keyboardOffset / Math.max(0.001, stageContainer.uniformScale),
     compact,
     pinnedModeratorActive: Boolean(pinnedModerator),
+    slowModeActive: slowMode.slowModeActive,
+    staffChatToggleActive: modActor.canModerate,
     overlayScale,
   });
   const chatMaxHeight = computeChatStackMaxHeight({
@@ -717,11 +817,21 @@ function LiveSlide({
     expanded: chatExpanded,
   });
   const giveawayTabTop = computeGiveawaySideTabTop(stageInsets.top, layoutWidth);
-  const composerBarHeight = scaledComposerBarHeight(overlayScale);
-  const slowModeTimerBottom = bottomStack.composerBottom + composerBarHeight + 8;
+  const slowModeTimerBottom = bottomStack.slowModeBottom;
+
+  const [inspectZoomActive, setInspectZoomActive] = useState(false);
+
+  const handleInspectZoomActiveChange = useCallback(
+    (active: boolean) => {
+      setInspectZoomActive(active);
+      onInspectZoomChange?.(active);
+    },
+    [onInspectZoomChange],
+  );
 
   const immersiveGestureEnabled =
     isActive &&
+    !inspectZoomActive &&
     !shopOpen &&
     !tipOpen &&
     !modDrawerOpen &&
@@ -734,14 +844,47 @@ function LiveSlide({
     !walletParticipationBlocked &&
     !(liveSession.unresolvedPaymentFailure && signedIn && accessToken);
 
+  const inspectZoomEnabled =
+    isActive &&
+    !shopOpen &&
+    !tipOpen &&
+    !modDrawerOpen &&
+    !reportOpen &&
+    !modActionMessage &&
+    !preBidItem &&
+    !chatExpanded &&
+    keyboardOffset <= 0 &&
+    breakDisclaimerAccepted;
+
   const immersiveChrome = useLiveImmersiveChrome({
     stageWidth: layoutWidth,
     enabled: immersiveGestureEnabled,
   });
 
+  const inspectZoom = useLiveStageInspectZoom({
+    enabled: inspectZoomEnabled,
+    onActiveChange: handleInspectZoomActiveChange,
+  });
+
+  const stageGestures = useMemo(
+    () => Gesture.Simultaneous(immersiveChrome.pan, inspectZoom.gesture),
+    [immersiveChrome.pan, inspectZoom.gesture],
+  );
+
+  const onStageVideoLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { width, height } = event.nativeEvent.layout;
+      inspectZoom.onLayout(width, height);
+    },
+    [inspectZoom],
+  );
+
   useEffect(() => {
-    if (!isActive) immersiveChrome.restore();
-  }, [isActive, immersiveChrome.restore]);
+    if (!isActive) {
+      immersiveChrome.restore();
+      inspectZoom.reset();
+    }
+  }, [isActive, immersiveChrome.restore, inspectZoom.reset]);
 
   useEffect(() => {
     setChatExpanded(false);
@@ -871,8 +1014,13 @@ function LiveSlide({
 
   const sendFloatingChat = useCallback(async () => {
     if (!signedIn) {
-      onRequireAuth?.();
-      return;
+      // Last-chance: React auth can briefly look signed-out during token refresh.
+      try {
+        await resolveSellerAccessToken(accessToken);
+      } catch {
+        onRequireAuth?.();
+        return;
+      }
     }
     if (breakParticipationBlocked) {
       Alert.alert('Accept notice', 'Accept the live break notice before chatting.');
@@ -880,34 +1028,40 @@ function LiveSlide({
     }
     if (slowMode.chatBlocked) return;
     const t = chatDraft.trim();
-    if (!t || liveChat.sending) return;
+    if (!t) return;
     chatComposerRef.current?.dismissSuggestions();
+    setChatSendError(null);
+    // iMessage feel: the draft clears and the bubble appears instantly, the keyboard stays up for
+    // the next message, and sends are never blocked by one still in flight. The draft is only put
+    // back (if the box is still empty) when the server rejects the message.
     setChatDraft('');
+    const staffOnlySend = staffChatOnly && modActor.canModerate;
     try {
-      const ok = await liveChat.send(t);
-      if (ok) {
+      const ok = await liveChat.send(t, { staffOnly: staffOnlySend });
+      if (ok && !staffOnlySend) {
         slowMode.recordSuccessfulSend();
-        chatComposerRef.current?.blur();
-        Keyboard.dismiss();
       }
     } catch (e) {
-      setChatDraft(t);
       const msg = e instanceof Error ? e.message : String(e);
+      setChatDraft((cur) => (cur.trim() ? cur : t));
+      setChatSendError(msg);
       slowMode.syncFromSendError(msg);
       moderation.handleRestrictionError(msg);
       if (__DEV__) console.warn('[liveRoom chat] send failed', msg);
     }
   }, [
     signedIn,
+    accessToken,
     onRequireAuth,
     breakParticipationBlocked,
     slowMode.chatBlocked,
     slowMode.recordSuccessfulSend,
     slowMode.syncFromSendError,
     chatDraft,
-    liveChat.sending,
     liveChat.send,
     moderation.handleRestrictionError,
+    staffChatOnly,
+    modActor.canModerate,
   ]);
 
   const openHostProfile = useCallback(() => {
@@ -925,17 +1079,81 @@ function LiveSlide({
     setShareSheetOpen(true);
   };
 
+  const shopConfirmPayment = useLiveConfirmPayment();
+
   const shopWalletReady = useMemo(() => {
     const fromSnap = walletReadinessFromSnapshot(liveSession.roomSnap);
     const r = walletReadiness ?? fromSnap;
     return Boolean(r && r.paymentReady && r.shippingReady);
   }, [liveSession.roomSnap, walletReadiness]);
 
+  const performShopBuyNow = useCallback(
+    async (item: LiveRoomLineupItemSnapshot) => {
+      if (!accessToken) {
+        onRequireAuth?.();
+        return;
+      }
+      try {
+        const paymentSession = await fetchLiveBuyerPaymentSession(accessToken, stream.id);
+        const res = await purchaseLiveBuyNow({
+          accessToken,
+          liveRoomId: stream.id,
+          itemId: item.id,
+          paymentMethodId: paymentSession?.activePaymentMethodId ?? undefined,
+        });
+        if (!res.ok) {
+          if (res.walletIncomplete) {
+            openWalletRef.current('shop_buy_now');
+            return;
+          }
+          Alert.alert('Could not buy', mapLivePaymentFailureMessage(res.error, res.code));
+          return;
+        }
+        if ('requiresAction' in res && res.requiresAction && res.clientSecret && res.orderId) {
+          // SCA/3D-Secure step-up is required — the PaymentIntent is not actually paid until the
+          // client confirms it with Stripe. Previously this jumped straight to `syncLiveBuyNowPurchase`
+          // without ever calling `confirmPayment`, so a card requiring 3DS never completed
+          // authentication (mirrors the LivePinnedActionBar.tsx / LiveBreakSpotGridSheet.tsx flow).
+          if (!shopConfirmPayment) {
+            Alert.alert('Payment loading', 'Payments are still starting up — try again in a moment.');
+            return;
+          }
+          const conf = await withLivePlaybackCommerceHold(() =>
+            shopConfirmPayment(res.clientSecret, { paymentMethodType: 'Card' }),
+          );
+          if (conf.error) {
+            Alert.alert('Payment verification failed', mapLivePaymentFailureMessage(conf.error.message, conf.error.code));
+            return;
+          }
+          const synced = await syncLiveBuyNowPurchase({
+            accessToken,
+            liveRoomId: stream.id,
+            itemId: item.id,
+            orderId: res.orderId,
+          });
+          if (!synced.ok) {
+            Alert.alert('Payment incomplete', mapLivePaymentFailureMessage(synced.error, synced.code));
+            return;
+          }
+        }
+        void liveSession.fetchSnapshot();
+        Alert.alert('Purchased', 'Your buy-now order is confirmed.');
+      } catch (e) {
+        Alert.alert('Could not buy', e instanceof Error ? e.message : 'Try again.');
+      }
+    },
+    [accessToken, liveSession, onRequireAuth, shopConfirmPayment, stream.id],
+  );
+
   const handleShopItemPress = useCallback(
     async (item: LiveRoomLineupItemSnapshot) => {
       setShopOpen(false);
       if (!signedIn || !accessToken) {
         onRequireAuth?.();
+        return;
+      }
+      if (walletParticipationBlocked) {
+        openWalletPrompt();
         return;
       }
       if (item.queueAction === 'pre_bid') {
@@ -948,54 +1166,22 @@ function LiveSlide({
         return;
       }
       if (item.queueAction === 'buy_now') {
-        if (!item.isPinned || liveSession.roomSnap?.activeItemId !== item.id) {
-          Alert.alert('Not on screen yet', 'Buy now unlocks when the host shows this item live.');
-          return;
-        }
-        if (liveSession.roomSnap?.roomType !== 'sale') {
-          Alert.alert('Not available', 'Buy now is only available in sale rooms.');
-          return;
-        }
-        if (!item.listingId) {
-          Alert.alert('Checkout unavailable', 'This item is not linked to checkout yet.');
-          return;
-        }
-        try {
-          const paymentSession = await fetchLiveBuyerPaymentSession(accessToken, stream.id);
-          const res = await purchaseLiveBuyNow({
-            accessToken,
-            liveRoomId: stream.id,
-            itemId: item.id,
-            paymentMethodId: paymentSession?.activePaymentMethodId ?? undefined,
-          });
-          if (!res.ok) {
-            if (res.walletIncomplete) {
-              openWalletRef.current('shop_buy_now');
-              return;
-            }
-            Alert.alert('Could not buy', mapLivePaymentFailureMessage(res.error, res.code));
-            return;
-          }
-          if ('requiresAction' in res && res.requiresAction && res.clientSecret && res.orderId) {
-            const synced = await syncLiveBuyNowPurchase({
-              accessToken,
-              liveRoomId: stream.id,
-              itemId: item.id,
-              orderId: res.orderId,
-            });
-            if (!synced.ok) {
-              Alert.alert('Payment incomplete', mapLivePaymentFailureMessage(synced.error, synced.code));
-              return;
-            }
-          }
-          void liveSession.fetchSnapshot();
-          Alert.alert('Purchased', 'Your buy-now order is confirmed.');
-        } catch (e) {
-          Alert.alert('Could not buy', e instanceof Error ? e.message : 'Try again.');
-        }
+        // Buy Now items are shoppable from the lineup anytime and in any room type — a host can pin
+        // a fixed-price item during a PYT/PYD break or auction show, not just a sale room. Pinning a
+        // lot only spotlights it on screen; it does not gate purchasing other listed Buy Now items.
+        // Missing listingId is healed server-side on purchase (host "New lot" without From my shop).
+        const priceLabel = item.metaLine.replace(/^Buy now\s*·?\s*/i, '').trim();
+        Alert.alert(
+          'Confirm purchase',
+          `Buy "${item.displayTitle}"${priceLabel ? ` for ${priceLabel}` : ''}? Your saved card will be charged right away.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Buy Now', onPress: () => void performShopBuyNow(item) },
+          ],
+        );
       }
     },
-    [accessToken, liveSession, onRequireAuth, signedIn, stream.id],
+    [onRequireAuth, openWalletPrompt, performShopBuyNow, signedIn, accessToken, walletParticipationBlocked],
   );
 
   const preBidMinUsd = useMemo(() => {
@@ -1008,12 +1194,34 @@ function LiveSlide({
   }, [preBidItem]);
 
   const shareClipFromRoom = async () => {
+    if (!accessToken?.trim()) {
+      onRequireAuth?.();
+      return;
+    }
+    if (clipBusy) return;
+    setClipBusy(true);
+    setClipProgress('Starting Hit Clip…');
     try {
-      await Share.share({
-        message: `Clip from “${stream.title}” on Get Vaulted`,
+      const activeId = liveSession.roomSnap?.activeItemId ?? null;
+      const activeItem =
+        liveSession.roomSnap?.lineupItems?.find((it) => it.id === activeId) ??
+        liveSession.roomSnap?.lineupItems?.find((it) => it.status === 'active') ??
+        null;
+      await createAndShareHitClip({
+        accessToken,
+        roomId: stream.id,
+        showTitle: stream.title,
+        hostUsername: hostHandle,
+        activeItemId: activeItem?.id ?? activeId,
+        activeItemTitle: activeItem?.displayTitle ?? null,
+        thumbnailUrl: activeItem?.imageUrl ?? stream.previewImageUrl ?? null,
+        onProgress: setClipProgress,
       });
-    } catch {
-      /* cancelled */
+    } catch (e) {
+      Alert.alert('Could not make Hit Clip', e instanceof Error ? e.message : 'Try again.');
+    } finally {
+      setClipBusy(false);
+      setClipProgress(null);
     }
   };
 
@@ -1022,6 +1230,11 @@ function LiveSlide({
       {liveSession.connectionBanner ? (
         <View style={styles.connectionBanner} pointerEvents="none">
           <Text style={styles.connectionBannerTxt}>{liveSession.connectionBanner}</Text>
+        </View>
+      ) : null}
+      {clipProgress ? (
+        <View style={styles.connectionBanner} pointerEvents="none">
+          <Text style={styles.connectionBannerTxt}>{clipProgress}</Text>
         </View>
       ) : null}
       {bidNotice ? (
@@ -1055,22 +1268,38 @@ function LiveSlide({
       <View style={styles.slide}>
         <KeyboardDismissStageShield active={keyboardOffset > 0} />
         <View style={computeLiveStageHostStyle(stageContainer)}>
-          <View style={[styles.stageRoot, computeLiveStageRootStyle(stageContainer)]}>
-            <GestureDetector gesture={immersiveChrome.pan}>
+          <View
+            style={[
+              styles.stageRoot,
+              computeLiveStageRootStyle(stageContainer),
+            ]}
+          >
+            <GestureDetector gesture={stageGestures}>
               <View style={styles.stageGestureRoot}>
-            <View style={styles.stageVideoFrame} pointerEvents="box-none">
-              <LiveStagePlayback
-                roomId={stream.id}
-                roomStatus={roomStatus}
-                scheduledStartAtIso={stream.scheduledStartAtIso}
-                thumbnailUrl={stream.previewImageUrl}
-                playbackMode={playbackMode}
-                accessToken={accessToken}
-                refreshNonce={streamRefreshNonce}
-                muted={isActive ? streamMuted : true}
-                onMutedChange={setStreamMuted}
-                onBroadcastGateChange={handleBroadcastGateChange}
-              />
+            <View
+              style={styles.stageVideoFrame}
+              pointerEvents="box-none"
+              onLayout={onStageVideoLayout}
+            >
+              <Animated.View style={[StyleSheet.absoluteFill, inspectZoom.videoStyle]}>
+                <LiveStagePlayback
+                  roomId={stream.id}
+                  roomStatus={roomStatus}
+                  scheduledStartAtIso={stream.scheduledStartAtIso}
+                  thumbnailUrl={stream.previewImageUrl}
+                  teaserVideoUrl={stream.teaserVideoUrl}
+                  playbackMode={playbackMode}
+                  accessToken={accessToken}
+                  // roomVisitNonce: focus re-entry must refetch/reload even when showId is unchanged.
+                  refreshNonce={streamRefreshNonce + roomVisitNonce}
+                  roomVisitNonce={roomVisitNonce}
+                  realtimeStreamPaused={realtimeStreamPaused}
+                  muted={isActive && screenFocused ? streamMuted : true}
+                  onMutedChange={setStreamMuted}
+                  onBroadcastGateChange={handleBroadcastGateChange}
+                  onPolledStreamPausedChange={handlePolledStreamPausedChange}
+                />
+              </Animated.View>
               <LinearGradient
                 colors={stream.thumbnailGradient}
                 start={{ x: 0.1, y: 0 }}
@@ -1099,7 +1328,7 @@ function LiveSlide({
           <View style={styles.topBarLeft}>
             {onBack ? (
               <Pressable
-                onPress={onBack}
+                onPress={leaveRoomSafely}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 style={styles.backIconOnly}
                 accessibilityRole="button"
@@ -1147,20 +1376,49 @@ function LiveSlide({
                 <LiveRoomText style={styles.endedBadge}>ENDED</LiveRoomText>
               )}
               <LiveRoomText style={[styles.viewersTopRight, compact && styles.viewersTopRightCompact]}>
-                {formatViewers(liveSession.viewerCount ?? 0)}
+                {liveSession.viewerCount == null ? '—' : formatViewers(liveSession.viewerCount)}
               </LiveRoomText>
             </View>
-            <Pressable
+            {!moderation.isHost ? (
+              <Pressable
+                style={[styles.followPillTop, following && styles.followPillTopActive]}
+                onPress={() => {
+                  if (!signedIn || !accessToken) {
+                    onRequireAuth?.();
+                    return;
+                  }
+                  const prev = following;
+                  setFollowing(!prev);
+                  void toggleSellerFollow(showHostUserId ?? stream.host.id, prev, accessToken).then(({ following: next, error }) => {
+                    if (error) {
+                      setFollowing(prev);
+                      Alert.alert('Follow', error);
+                      return;
+                    }
+                    setFollowing(next);
+                  });
+                }}
+                accessibilityLabel={following ? 'Unfollow host' : 'Follow host'}
+              >
+                <LiveRoomText
+                  style={[styles.followPillTopText, following && styles.followPillTopTextActive]}
+                >
+                  {following ? 'Following' : 'Follow'}
+                </LiveRoomText>
+              </Pressable>
+            ) : null}
+            <GHPressable
               style={styles.iconTopBare}
               onPress={() => setStreamMuted((m) => !m)}
               accessibilityLabel={streamMuted ? 'Unmute stream' : 'Mute stream'}
+              hitSlop={10}
             >
               <Ionicons
                 name={streamMuted ? 'volume-mute-outline' : 'volume-high-outline'}
                 size={20}
                 color="rgba(255,255,255,0.88)"
               />
-            </Pressable>
+            </GHPressable>
             <Pressable
               style={styles.iconTopBare}
               onPress={openProfileSettings}
@@ -1185,153 +1443,172 @@ function LiveSlide({
         </View>
       </View>
 
-      {/* RIGHT — creator actions (commerce via Shop modal, not a bottom sheet). */}
+      {/* RIGHT — consolidated quick-actions dial (Vault Console Redesign): a single FAB
+          fans out into Message, Tip, Wallet, Shop, Clip, Notes and Share, each reusing the
+          exact handler it used as a standalone rail button. Follow moved to the header above
+          since it reads as a persistent state, not a one-off action; Giveaway stays as its own
+          always-visible LiveGiveawaySideTab rather than being folded in here. */}
+      {dialOpen ? (
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => setDialOpen(false)}
+          accessibilityLabel="Close quick actions"
+        />
+      ) : null}
       <View
         style={[
-          styles.rightRail,
-          compact && styles.rightRailCompact,
+          styles.dial,
+          compact && styles.dialCompact,
           {
             bottom: bottomStack.commerceTop + spacing.sm,
           },
         ]}
       >
-        {!moderation.isHost ? (
-          <Pressable
-            style={styles.railBtn}
-            onPress={() => {
-              if (!signedIn || !accessToken) {
-                onRequireAuth?.();
-                return;
-              }
-              const prev = following;
-              setFollowing(!prev);
-              void toggleSellerFollow(showHostUserId ?? stream.host.id, prev, accessToken).then(({ following: next, error }) => {
-                if (error) {
-                  setFollowing(prev);
-                  Alert.alert('Follow', error);
+        {dialOpen ? (
+          <View style={styles.dialMenu}>
+            {!moderation.isHost ? (
+              <Pressable
+                style={styles.dialItem}
+                onPress={() => {
+                  setDialOpen(false);
+                  if (!signedIn) {
+                    onRequireAuth?.();
+                    return;
+                  }
+                  if (rootNavigationRef.isReady()) {
+                    rootNavigationRef.navigate('MessageCompose', {
+                      liveRoomId: stream.id,
+                      sellerUserId: stream.host.id,
+                      sellerUsername: stream.host.handle || stream.host.name,
+                    });
+                  }
+                }}
+                accessibilityLabel="Message seller privately"
+              >
+                <Ionicons name="chatbubble-ellipses-outline" size={railIconSize} color={vaultColors.gold} />
+                <LiveRoomText style={[styles.dialItemLabel, { fontSize: railLabelSize, color: vaultColors.gold }]}>Message</LiveRoomText>
+              </Pressable>
+            ) : null}
+            {!moderation.isHost ? (
+              <Pressable
+                style={styles.dialItem}
+                onPress={() => {
+                  setDialOpen(false);
+                  if (!signedIn) {
+                    onRequireAuth?.();
+                    return;
+                  }
+                  if (!accessToken) {
+                    Alert.alert('Sign in required', 'Log in to send a tip.');
+                    return;
+                  }
+                  if (liveSession.unresolvedPaymentFailure) {
+                    Alert.alert(
+                      'Payment required',
+                      'Fix your failed payment before tipping in this show.',
+                    );
+                    return;
+                  }
+                  setTipOpen(true);
+                }}
+                accessibilityLabel="Send a tip"
+              >
+                <Ionicons name="cash-outline" size={railIconSize} color={vaultColors.gold} />
+                <LiveRoomText style={[styles.dialItemLabel, { fontSize: railLabelSize, color: vaultColors.gold }]}>Tip</LiveRoomText>
+              </Pressable>
+            ) : null}
+            <Pressable
+              style={styles.dialItem}
+              onPress={() => {
+                setDialOpen(false);
+                if (!signedIn) {
+                  onRequireAuth?.();
                   return;
                 }
-                setFollowing(next);
-              });
-            }}
-            accessibilityLabel={following ? 'Unfollow host' : 'Follow host'}
-          >
-            <Ionicons
-              name={following ? 'checkmark-circle-outline' : 'person-add-outline'}
-              size={railIconSize}
-              color={following ? colors.gold : 'rgba(255,255,255,0.92)'}
-            />
-            <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>
-              {following ? 'Following' : 'Follow'}
-            </LiveRoomText>
-          </Pressable>
+                openWalletRef.current('rail_wallet');
+              }}
+              accessibilityLabel="Vault Wallet"
+            >
+              <Ionicons name="wallet-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
+              <LiveRoomText style={[styles.dialItemLabel, { fontSize: railLabelSize }]}>Wallet</LiveRoomText>
+            </Pressable>
+            <Pressable
+              style={styles.dialItem}
+              onPress={() => {
+                setDialOpen(false);
+                if (!signedIn) {
+                  onRequireAuth?.();
+                  return;
+                }
+                setShopOpen(true);
+              }}
+              accessibilityLabel="Shop this room"
+            >
+              <Ionicons name="bag-handle-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
+              <LiveRoomText style={[styles.dialItemLabel, { fontSize: railLabelSize }]}>Shop</LiveRoomText>
+            </Pressable>
+            <Pressable
+              style={[styles.dialItem, clipBusy && { opacity: 0.55 }]}
+              disabled={clipBusy}
+              onPress={() => {
+                setDialOpen(false);
+                if (!signedIn) {
+                  onRequireAuth?.();
+                  return;
+                }
+                void shareClipFromRoom();
+              }}
+              accessibilityLabel={clipBusy ? clipProgress ?? 'Capturing hit clip' : 'Make Hit Clip'}
+            >
+              <Ionicons
+                name={clipBusy ? 'hourglass-outline' : 'cut-outline'}
+                size={railIconSize}
+                color="rgba(255,255,255,0.92)"
+              />
+              <LiveRoomText style={[styles.dialItemLabel, { fontSize: railLabelSize }]}>{clipBusy ? '…' : 'Clip'}</LiveRoomText>
+            </Pressable>
+            <Pressable
+              style={styles.dialItem}
+              onPress={() => {
+                setDialOpen(false);
+                setShowNotesOpen(true);
+              }}
+              accessibilityLabel={hasLiveShowNotes(showNotes) ? 'Read show notes' : 'Show notes'}
+            >
+              <View>
+                <Ionicons
+                  name="document-text-outline"
+                  size={railIconSize}
+                  color={hasLiveShowNotes(showNotes) ? vaultColors.gold : 'rgba(255,255,255,0.92)'}
+                />
+                {hasLiveShowNotes(showNotes) ? <View style={styles.notesDot} /> : null}
+              </View>
+              <LiveRoomText
+                style={[styles.dialItemLabel, { fontSize: railLabelSize }, hasLiveShowNotes(showNotes) ? { color: vaultColors.gold } : null]}
+              >
+                Notes
+              </LiveRoomText>
+            </Pressable>
+            <Pressable
+              style={styles.dialItem}
+              onPress={() => {
+                setDialOpen(false);
+                openShareSheet();
+              }}
+              accessibilityLabel="Share"
+            >
+              <Ionicons name="share-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
+              <LiveRoomText style={[styles.dialItemLabel, { fontSize: railLabelSize }]}>Share</LiveRoomText>
+            </Pressable>
+          </View>
         ) : null}
-        {!moderation.isHost ? (
         <Pressable
-          style={styles.railBtn}
-          onPress={() => {
-            if (!signedIn) {
-              onRequireAuth?.();
-              return;
-            }
-            if (rootNavigationRef.isReady()) {
-              rootNavigationRef.navigate('MessageCompose', {
-                liveRoomId: stream.id,
-                sellerUserId: stream.host.id,
-                sellerUsername: stream.host.handle || stream.host.name,
-              });
-            }
-          }}
-          accessibilityLabel="Message seller privately"
+          style={styles.dialFab}
+          onPress={() => setDialOpen((open) => !open)}
+          accessibilityLabel={dialOpen ? 'Close quick actions' : 'Open quick actions'}
+          accessibilityState={{ expanded: dialOpen }}
         >
-          <Ionicons name="chatbubble-ellipses-outline" size={railIconSize} color={colors.gold} />
-          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize, color: colors.gold }]}>
-            Message
-          </LiveRoomText>
-        </Pressable>
-        ) : null}
-        {!moderation.isHost ? (
-          <Pressable
-            style={styles.railBtn}
-            onPress={() => {
-              if (!signedIn) {
-                onRequireAuth?.();
-                return;
-              }
-              if (!accessToken) {
-                Alert.alert('Sign in required', 'Log in to send a tip.');
-                return;
-              }
-              if (liveSession.unresolvedPaymentFailure) {
-                Alert.alert(
-                  'Payment required',
-                  'Fix your failed payment before tipping in this show.',
-                );
-                return;
-              }
-              setTipOpen(true);
-            }}
-            accessibilityLabel="Send a tip"
-          >
-            <Ionicons name="cash-outline" size={railIconSize} color={colors.gold} />
-            <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize, color: colors.gold }]}>
-              Tip
-            </LiveRoomText>
-          </Pressable>
-        ) : null}
-        <Pressable
-          style={[styles.railBtn, compact && styles.railBtnCompact]}
-          onPress={() => {
-            if (!signedIn) {
-              onRequireAuth?.();
-              return;
-            }
-            openWalletRef.current('rail_wallet');
-          }}
-          accessibilityLabel="Vault Wallet"
-        >
-          <Ionicons
-            name="wallet-outline"
-            size={compact ? Math.max(20, railIconSize - 2) : railIconSize}
-            color="rgba(255,255,255,0.92)"
-          />
-          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>Wallet</LiveRoomText>
-        </Pressable>
-        <Pressable
-          style={styles.railBtn}
-          onPress={() => {
-            if (!signedIn) {
-              onRequireAuth?.();
-              return;
-            }
-            setShopOpen(true);
-          }}
-          accessibilityLabel="Shop this room"
-        >
-          <Ionicons name="bag-handle-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
-          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>Shop</LiveRoomText>
-        </Pressable>
-        <Pressable
-          style={styles.railBtn}
-          onPress={() => {
-            if (!signedIn) {
-              onRequireAuth?.();
-              return;
-            }
-            void shareClipFromRoom();
-          }}
-        >
-          <Ionicons name="cut-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
-          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>Clip</LiveRoomText>
-        </Pressable>
-        <Pressable
-          style={styles.railBtn}
-          onPress={() => {
-            openShareSheet();
-          }}
-        >
-          <Ionicons name="share-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
-          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>Share</LiveRoomText>
+          <Ionicons name={dialOpen ? 'close' : 'ellipsis-horizontal'} size={22} color="#100e0b" />
         </Pressable>
       </View>
 
@@ -1437,7 +1714,7 @@ function LiveSlide({
             You cannot participate in this room.
           </LiveRoomText>
           {onBack ? (
-            <Pressable onPress={onBack} style={styles.blockedBannerBtn}>
+            <Pressable onPress={leaveRoomSafely} style={styles.blockedBannerBtn}>
               <LiveRoomText style={styles.blockedBannerBtnText}>Leave show</LiveRoomText>
             </Pressable>
           ) : null}
@@ -1447,6 +1724,14 @@ function LiveSlide({
       {(moderation.myRestrictions?.muted || liveChat.error?.includes('muted')) && !moderation.roomBlocked ? (
         <View style={[styles.mutedBanner, { bottom: bottomStack.composerBottom + COMPOSER_BAR_HEIGHT + 8 }]}>
           <LiveRoomText style={styles.mutedBannerText}>You are muted in this room.</LiveRoomText>
+        </View>
+      ) : null}
+
+      {chatSendError &&
+      !(moderation.myRestrictions?.muted || liveChat.error?.includes('muted')) &&
+      !moderation.roomBlocked ? (
+        <View style={[styles.mutedBanner, { bottom: bottomStack.composerBottom + COMPOSER_BAR_HEIGHT + 8 }]}>
+          <LiveRoomText style={styles.mutedBannerText}>{chatSendError}</LiveRoomText>
         </View>
       ) : null}
 
@@ -1467,18 +1752,29 @@ function LiveSlide({
         left={spacing.lg}
         rightEdge={chatRightEdge}
         value={chatDraft}
-        onChangeText={setChatDraft}
+        onChangeText={(t) => {
+          setChatDraft(t);
+          if (chatSendError) setChatSendError(null);
+        }}
         onSend={sendFloatingChat}
-        placeholder={chatComposerPlaceholder}
+        placeholder={
+          staffChatOnly && modActor.canModerate ? 'Staff only…' : chatComposerPlaceholder
+        }
         inputDisabled={
-          slowMode.chatBlocked ||
+          (slowMode.chatBlocked && !(staffChatOnly && modActor.canModerate)) ||
           Boolean(moderation.myRestrictions?.muted || liveChat.error?.includes('muted'))
         }
-        sendDisabled={liveChat.sending || breakParticipationBlocked || slowMode.chatBlocked}
+        sendDisabled={
+          breakParticipationBlocked ||
+          (slowMode.chatBlocked && !(staffChatOnly && modActor.canModerate))
+        }
         accessToken={accessToken}
         liveRoomId={stream.id}
         inputRef={chatComposerRef}
         overlayScale={overlayScale}
+        canUseStaffChat={modActor.canModerate}
+        staffOnly={staffChatOnly}
+        onStaffOnlyChange={setStaffChatOnly}
         leadingAccessory={
           showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) ? (
             <ModeratorToolsButton onPress={() => setModDrawerOpen(true)} />
@@ -1537,15 +1833,21 @@ function LiveSlide({
           onRefreshSnapshot={liveSession.fetchSnapshot}
           clockSkewMs={liveSession.clockSkewMs}
           mergeBidAck={liveSession.mergeBidAck}
+          applyOptimisticBid={liveSession.applyOptimisticBid}
+          replaceRoomSnap={liveSession.replaceRoomSnap}
           onBidPlaced={(amount) => liveSession.setMyHighBidUsd(amount)}
           onBidNotice={showBidNotice}
           participationBlocked={
             breakParticipationBlocked ||
-            broadcastCommerceBlocked ||
             walletParticipationBlocked ||
             Boolean(liveSession.unresolvedPaymentFailure)
           }
+          walletRequired={walletParticipationBlocked}
+          onWalletRequiredTap={openWalletPrompt}
           broadcastCommerceBlocked={broadcastCommerceBlocked}
+          broadcastPurchaseBlocked={broadcastPurchaseBlocked}
+          broadcastCommerceBlockMessage={broadcastCommerceBlockMessage}
+          broadcastPurchaseBlockMessage={broadcastPurchaseBlockMessage}
           participationBlockMessage={participationBlockMessage}
           onWalletOverlayChange={
             isActive
@@ -1562,12 +1864,30 @@ function LiveSlide({
           staffCommerceBlocked={staffCommerceBlocked}
           onSpotCelebration={liveSession.showSpotCelebration}
           viewerUsername={myChatSender.username}
+          viewerUserId={userId ?? null}
           commerceActive={isActive}
           vaultRevealActive={Boolean(liveSession.vaultRevealSpin)}
+          sweet16DraftSignal={liveSession.sweet16DraftSignal}
         />
       </View>
       ) : null}
                 </Animated.View>
+                <LiveImmersiveRestoreHint
+                  visible={isActive && immersiveChrome.immersive}
+                  onPress={immersiveChrome.restore}
+                  topInset={stageInsets.top}
+                />
+                {isActive && immersiveChrome.immersive && onBack ? (
+                  <Pressable
+                    onPress={leaveRoomSafely}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    style={[styles.immersiveBack, { top: stageInsets.top + 6 }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Back"
+                  >
+                    <Ionicons name="chevron-back" size={22} color="rgba(255,255,255,0.92)" />
+                  </Pressable>
+                ) : null}
               </View>
             </GestureDetector>
 
@@ -1718,6 +2038,14 @@ function LiveSlide({
         }}
         onToast={(msg) => Alert.alert('Share', msg)}
       />
+      <LiveShowNotesSheet
+        visible={showNotesOpen}
+        onClose={() => setShowNotesOpen(false)}
+        roomId={stream.id}
+        mode="read"
+        initialNotes={showNotes}
+        onNotesLoaded={(next) => setShowNotes(next)}
+      />
       <ReportSheet
         visible={reportOpen}
         onClose={() => setReportOpen(false)}
@@ -1753,6 +2081,46 @@ function LiveSlide({
   );
 }
 
+/**
+ * Rendered instead of `LiveSlide` for every pager page outside the warm radius (see
+ * `warmPageIndices` below). `LiveSlide` mounts a full show -- video player(s), chat, moderation,
+ * realtime session, wallet gating, gesture handlers -- and the pager previously mounted one for
+ * *every* item in the discovery list (up to 120) the instant the feed rendered, regardless of how
+ * far off-screen it was. Network polling for those off-screen slides was already gated off
+ * (`enabled`/`playbackMode` checks throughout), but the component trees themselves stayed fully
+ * mounted in memory for the entire session -- real, avoidable memory/CPU cost that scales with how
+ * many shows are running at once, compounding the more successful the platform's concurrent-show
+ * goal is. This placeholder keeps the pager's page count/swipe behavior intact (PagerView needs a
+ * child per page) while paying none of that cost: just a static thumbnail, no hooks beyond style.
+ *
+ * Restored 2026-09-22: this was added in 4b672f62 ("mobile: fix cold-start and live-feed
+ * performance") and accidentally reverted 40 minutes later by 1df9b4d3 (an unrelated inbox/
+ * messaging commit that appears to have been built from a stale branch and clobbered this file).
+ * The regression sat live in production for ~2 weeks and is the root cause of a Sentry-confirmed
+ * OOM crash cluster (GET-VAULTED-MOBILE-T/V/W): with N shows in the discovery feed, up to 2*N real
+ * ExoPlayer instances (plus every other per-slide subsystem) stayed mounted for the whole session,
+ * none of it released as the buyer scrolled, until the app's Java heap limit was exhausted.
+ */
+function LiveSlidePlaceholder({ stream }: { stream: LiveStream }) {
+  return (
+    <View style={styles.placeholderRoot}>
+      <Image
+        source={{ uri: stream.previewImageUrl }}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+      />
+      <LinearGradient
+        colors={stream.thumbnailGradient}
+        start={{ x: 0.1, y: 0 }}
+        end={{ x: 0.9, y: 1 }}
+        style={[StyleSheet.absoluteFill, { opacity: 0.08 }]}
+        pointerEvents="none"
+      />
+    </View>
+  );
+}
+
 export function VerticalLiveFeed({
   streams,
   initialStreamId,
@@ -1762,6 +2130,7 @@ export function VerticalLiveFeed({
   onRequireAuth,
   accessToken,
   userId,
+  screenFocused = true,
 }: Props) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [layoutSize, setLayoutSize] = useState<{ width: number; height: number } | null>(null);
@@ -1796,11 +2165,18 @@ export function VerticalLiveFeed({
   const [page, setPage] = useState(startIndex);
   const [peekPage, setPeekPage] = useState<number | null>(null);
   const [walletOverlayActive, setWalletOverlayActive] = useState(false);
+  const [inspectZoomActive, setInspectZoomActive] = useState(false);
   const [paymentBlockerActive, setPaymentBlockerActive] = useState(false);
   const [walletGateHost, setWalletGateHost] = useState<WalletGateHostSnapshot | null>(null);
   const [spotCelebrationHost, setSpotCelebrationHost] = useState<LiveSpotCelebrationHost | null>(null);
   const walletGateActionsRef = useRef<WalletGateHostActions | null>(null);
   const pagerRef = useRef<PagerView>(null);
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  /** Room the buyer is actually watching — survive discovery reorder (index alone drifts). */
+  const activeStreamIdRef = useRef<string | null>(
+    streams[startIndex]?.id ?? initialStreamId ?? null,
+  );
 
   const handleSpotCelebrationHostChange = useCallback((host: LiveSpotCelebrationHost | null) => {
     setSpotCelebrationHost(host);
@@ -1824,41 +2200,19 @@ export function VerticalLiveFeed({
     setWalletOverlayActive(false);
   }, []);
 
-  const leaveWalletGateRoom = useCallback(() => {
-    setWalletGateHost((prev) => (prev ? { ...prev, showModal: false, showSheet: false } : null));
-    walletGateActionsRef.current?.leaveRoom();
-  }, []);
-
-  const feedGesturesEnabled = !walletOverlayActive && !paymentBlockerActive && streams.length > 1;
-
-  const goToRelativePage = useCallback(
-    (delta: number) => {
-      const next = page + delta;
-      if (next < 0 || next >= streams.length) return;
-      pagerRef.current?.setPage(next);
-      setPage(next);
-      setPeekPage(null);
-    },
-    [page, streams.length],
-  );
-
-  const showSwipeGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .enabled(feedGesturesEnabled)
-        .activeOffsetY([-28, 28])
-        .failOffsetX([-22, 22])
-        .onEnd((event) => {
-          if (event.translationY <= -72) runOnJS(goToRelativePage)(1);
-          else if (event.translationY >= 72) runOnJS(goToRelativePage)(-1);
-        }),
-    [feedGesturesEnabled, goToRelativePage],
-  );
+  // Only pause native paging while a wallet sheet is open or the buyer is pinch-inspecting
+  // the stage — never for incomplete wallet readiness (that was freezing show-to-show scroll).
+  const feedGesturesEnabled =
+    streams.length > 1 && !walletOverlayActive && !paymentBlockerActive && !inspectZoomActive;
 
   const warmPageIndices = useMemo(() => {
     const indices = new Set<number>([page]);
-    if (page > 0) indices.add(page - 1);
-    if (page < streams.length - 1) indices.add(page + 1);
+    // Pre-buffer WARM_NEIGHBOR_RADIUS shows on each side over HLS so switching between them is
+    // instant (their LiveStagePlayback runs in 'prefetch' mode: muted, hidden, buffering).
+    for (let offset = 1; offset <= WARM_NEIGHBOR_RADIUS; offset += 1) {
+      if (page - offset >= 0) indices.add(page - offset);
+      if (page + offset < streams.length) indices.add(page + offset);
+    }
     if (peekPage != null && peekPage >= 0 && peekPage < streams.length) {
       indices.add(peekPage);
     }
@@ -1875,16 +2229,44 @@ export function VerticalLiveFeed({
 
   const resolvePlaybackMode = useCallback(
     (index: number): LivePlaybackMode => {
+      // Soft keep on blur (profile/DM/Settings push): warm the current page as prefetch instead
+      // of tearing Stage/HLS to `off`. Tab switch still unfocuses the screen — mute below.
+      if (!screenFocused) {
+        if (index === page) return 'prefetch';
+        return 'off';
+      }
       if (index === page) return 'active';
       if (warmPageIndices.has(index)) return 'prefetch';
       return 'off';
     },
-    [page, warmPageIndices],
+    [page, warmPageIndices, screenFocused],
   );
 
+  // New deep-link / home tap — snap to the requested room (PagerView only honors initialPage once).
   useEffect(() => {
+    activeStreamIdRef.current = initialStreamId ?? streams[startIndex]?.id ?? null;
     setPage(startIndex);
-  }, [startIndex]);
+    requestAnimationFrame(() => {
+      pagerRef.current?.setPageWithoutAnimation(startIndex);
+    });
+  }, [initialStreamId]); // eslint-disable-line react-hooks/exhaustive-deps -- startIndex/streams follow initialStreamId
+
+  // If a rare list replace left the wrong room on the current page, snap back to the
+  // room the buyer was watching. Do nothing when already correct — calling
+  // setPageWithoutAnimation on every discovery refresh felt like a random swipe.
+  useEffect(() => {
+    const keepId = activeStreamIdRef.current ?? initialStreamId ?? null;
+    const target = resolveLiveFeedPageCorrection({
+      streams,
+      currentPage: pageRef.current,
+      keepStreamId: keepId,
+    });
+    if (target == null) return;
+    setPage(target);
+    requestAnimationFrame(() => {
+      pagerRef.current?.setPageWithoutAnimation(target);
+    });
+  }, [streams, initialStreamId]);
 
   useEffect(() => {
     if (!walletOverlayActive) return;
@@ -1998,46 +2380,51 @@ export function VerticalLiveFeed({
 
   return (
     <>
-      <GestureDetector gesture={showSwipeGesture}>
-        <View
-          style={styles.feedRoot}
-          onLayout={(e) => {
-            const { width, height } = e.nativeEvent.layout;
-            if (width > 0 && height > 0) {
-              setLayoutSize((prev) =>
-                prev?.width === width && prev?.height === height ? prev : { width, height },
-              );
+      <View
+        style={styles.feedRoot}
+        onLayout={(e) => {
+          const { width, height } = e.nativeEvent.layout;
+          if (width > 0 && height > 0) {
+            setLayoutSize((prev) =>
+              prev?.width === width && prev?.height === height ? prev : { width, height },
+            );
+          }
+        }}
+      >
+        <PagerView
+          ref={pagerRef}
+          key={initialStreamId ?? 'default'}
+          style={styles.feedPager}
+          initialPage={startIndex}
+          orientation="vertical"
+          offscreenPageLimit={WARM_NEIGHBOR_RADIUS}
+          scrollEnabled={feedGesturesEnabled}
+          onPageScroll={(e) => {
+            const { position, offset } = e.nativeEvent;
+            if (offset > 0.06 && position + 1 < streams.length) {
+              setPeekPage(position + 1);
+            } else if (offset < -0.06 && position > 0) {
+              setPeekPage(position - 1);
+            } else {
+              setPeekPage(null);
             }
           }}
+          onPageSelected={(e) => {
+            const nextPage = e.nativeEvent.position;
+            const nextId = streams[nextPage]?.id ?? null;
+            if (nextId) activeStreamIdRef.current = nextId;
+            setPage(nextPage);
+            setPeekPage(null);
+          }}
         >
-          <PagerView
-            ref={pagerRef}
-            key={initialStreamId ?? 'default'}
-            style={styles.feedPager}
-            initialPage={startIndex}
-            orientation="vertical"
-            scrollEnabled={feedGesturesEnabled}
-            onPageScroll={(e) => {
-              const { position, offset } = e.nativeEvent;
-              if (offset > 0.06 && position + 1 < streams.length) {
-                setPeekPage(position + 1);
-              } else if (offset < -0.06 && position > 0) {
-                setPeekPage(position - 1);
-              } else {
-                setPeekPage(null);
-              }
-            }}
-            onPageSelected={(e) => {
-              setPage(e.nativeEvent.position);
-              setPeekPage(null);
-            }}
-          >
-            {streams.map((stream, index) => (
-              <View key={stream.id} style={styles.page} collapsable={false}>
+          {streams.map((stream, index) => (
+            <View key={stream.id} style={styles.page} collapsable={false}>
+              {warmPageIndices.has(index) ? (
                 <LiveSlide
                   stream={stream}
                   isActive={index === page}
                   playbackMode={resolvePlaybackMode(index)}
+                  screenFocused={screenFocused}
                   stageContainer={stageContainer}
                   screenHeight={viewportHeight}
                   onBack={onBack}
@@ -2048,20 +2435,23 @@ export function VerticalLiveFeed({
                   onWalletOverlayChange={setWalletOverlayActive}
                   onPaymentBlockerChange={setPaymentBlockerActive}
                   onWalletGateHostChange={handleWalletGateHostChange}
+                  onInspectZoomChange={setInspectZoomActive}
                   roomVisitNonce={roomVisitNonce}
                   onSpotCelebrationHostChange={handleSpotCelebrationHostChange}
                 />
-              </View>
-            ))}
-          </PagerView>
-        </View>
-      </GestureDetector>
+              ) : (
+                <LiveSlidePlaceholder stream={stream} />
+              )}
+            </View>
+          ))}
+        </PagerView>
+      </View>
       {walletGateHost ? (
         <LiveBuyerWalletGateModal
           visible={walletGateHost.showModal}
           readiness={walletGateHost.readiness}
           onSetupWallet={() => walletGateActionsRef.current?.openSheet()}
-          onLeaveRoom={leaveWalletGateRoom}
+          onClose={() => walletGateActionsRef.current?.closePrompt()}
         />
       ) : null}
       {walletGateHost?.showSheet ? (
@@ -2100,10 +2490,28 @@ const styles = StyleSheet.create({
   page: {
     flex: 1,
   },
+  placeholderRoot: {
+    flex: 1,
+    backgroundColor: '#050505',
+  },
+  immersiveBack: {
+    position: 'absolute',
+    left: spacing.md,
+    zIndex: 26,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
   slide: {
     flex: 1,
     overflow: 'hidden',
     backgroundColor: '#000',
+  },
+  slideHosted: {
+    backgroundColor: 'transparent',
   },
   connectionBanner: {
     position: 'absolute',
@@ -2149,6 +2557,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     overflow: 'hidden',
   },
+  stageRootHosted: {
+    backgroundColor: 'transparent',
+  },
   stageGestureRoot: {
     ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
@@ -2162,6 +2573,9 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
     backgroundColor: '#000',
+  },
+  stageVideoFrameHosted: {
+    backgroundColor: 'transparent',
   },
   topBar: {
     position: 'absolute',
@@ -2315,6 +2729,78 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '600',
     letterSpacing: 0.15,
+  },
+  notesDot: {
+    position: 'absolute',
+    top: -1,
+    right: -3,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.gold,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.45)',
+  },
+  followPillTop: {
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: vaultColors.gold,
+  },
+  followPillTopActive: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  followPillTopText: {
+    fontFamily: vaultFonts.label,
+    fontSize: 11,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+    color: '#100e0b',
+  },
+  followPillTopTextActive: {
+    color: 'rgba(255,255,255,0.92)',
+  },
+  dial: {
+    position: 'absolute',
+    right: spacing.sm,
+    alignItems: 'center',
+    gap: 10,
+    zIndex: 5,
+  },
+  dialCompact: {
+    gap: 8,
+  },
+  dialMenu: {
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 2,
+  },
+  dialItem: {
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 2,
+    minWidth: 48,
+  },
+  dialItemLabel: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 0.15,
+  },
+  dialFab: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: vaultColors.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
   },
   commerceOverlayHost: {
     position: 'absolute',

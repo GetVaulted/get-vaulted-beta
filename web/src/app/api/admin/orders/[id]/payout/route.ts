@@ -51,6 +51,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       paymentMethod: true,
       fulfillmentStatus: true,
       payoutStatus: true,
+      sellerPayoutProcessor: true,
+      shippedAt: true,
       escrowStatus: true,
       escrowTransactionId: true,
       escrowProvider: true,
@@ -59,6 +61,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       deliveryConfirmedAt: true,
       seller: {
         select: {
+          suspendedAt: true,
           stripeAccountId: true,
           stripeOnboardingComplete: true,
           stripePayoutsEnabled: true,
@@ -76,15 +79,46 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (order.paymentStatus !== "paid") {
       return NextResponse.json({ error: "Order is not paid." }, { status: 400 });
     }
-    if (!order.seller.stripeAccountId || !order.seller.stripeOnboardingComplete) {
+
+    // Same risk gate the automated instant-payout pipeline enforces (see
+    // evaluateSellerInstantPayoutEligibility's "seller_account_flagged" disqualifier) — a manual
+    // admin release must not be able to pay out a suspended seller just because the automated
+    // path never got the chance to check.
+    if (order.seller.suspendedAt) {
       return NextResponse.json(
-        { error: "Cannot release payout — seller has no verified Stripe payout account." },
-        { status: 400 },
+        { error: "Cannot release payout — seller account is suspended." },
+        { status: 409 },
       );
     }
-    if (order.fulfillmentStatus !== "delivered" && !order.deliveryConfirmedAt) {
+
+    const isPaypalRail = order.sellerPayoutProcessor === "PAYPAL";
+    if (!isPaypalRail) {
+      if (!order.seller.stripeAccountId || !order.seller.stripeOnboardingComplete) {
+        return NextResponse.json(
+          { error: "Cannot release payout — seller has no verified Stripe payout account." },
+          { status: 400 },
+        );
+      }
+    }
+
+    // Hold-until-shipped model: bank payout after ship + label clawback (or delivered).
+    // Do not require delivery when the order is already marked shipped / carrier-accepted.
+    const {
+      orderLooksShippedForBankPayout,
+      orderLabelClawbackSettledForBankPayout,
+    } = await import("@/services/payout/stripe-seller-payout");
+    const shippedOk =
+      orderLooksShippedForBankPayout({
+        shippedAt: order.shippedAt,
+        carrierAcceptedAt: null,
+        fulfillmentStatus: order.fulfillmentStatus,
+        status: null,
+      }) ||
+      order.fulfillmentStatus === "delivered" ||
+      Boolean(order.deliveryConfirmedAt);
+    if (!shippedOk) {
       return NextResponse.json(
-        { error: "Delivery must be confirmed before releasing payout." },
+        { error: "Order must be shipped (or delivery confirmed) before releasing payout." },
         { status: 400 },
       );
     }
@@ -107,11 +141,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       if (!order.escrowTransactionId) {
         return NextResponse.json({ error: "No escrow transaction on order." }, { status: 400 });
       }
+      // Escrow release can be paused by risk/fraud review (admin escrow controls' `pause_release`
+      // action — see api/admin/orders/[id]/escrow/route.ts, which itself refuses to release funds
+      // while paused). That pause is a deliberate hold someone has to lift on purpose; this action
+      // must not clear it as a side effect of an unrelated "release payout" click, or a risk hold
+      // gets silently defeated by whoever next tries to pay the seller out.
       if (order.escrowReleasePaused) {
-        await prisma.order.update({
-          where: { id: orderId },
-          data: { escrowReleasePaused: false },
-        });
+        return NextResponse.json(
+          {
+            error:
+              "Escrow release is paused for this order. Lift the pause via admin escrow controls before releasing payout.",
+          },
+          { status: 409 },
+        );
       }
       let escrowStatus = order.escrowStatus;
       if (escrowStatus !== EscrowStatus.approved && escrowStatus !== EscrowStatus.funds_released) {
@@ -144,6 +186,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
             },
             auditSource: "admin",
           });
+          escrowStatus = EscrowStatus.funds_released;
         } catch (e) {
           if (e instanceof EscrowReleaseAlreadyInFlightError) {
             return NextResponse.json(
@@ -156,6 +199,52 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           }
           throw e;
         }
+      }
+
+      // Previously this fell through silently: an escrow order stuck in `disputed` or `cancelled`
+      // (neither transitionable to `approved` above, nor already `funds_released`) hit none of the
+      // branches above, so nothing was ever actually released — yet execution continued straight
+      // to the unconditional `payoutStatus: paid_out` update below, recording money as paid out
+      // that never moved. Require confirmed release before that update runs.
+      if (escrowStatus !== EscrowStatus.funds_released) {
+        return NextResponse.json(
+          { error: `Cannot release payout — escrow status is '${escrowStatus}', not resolvable to a release.` },
+          { status: 409 },
+        );
+      }
+    } else if (isPaypalRail) {
+      const { releaseSellerPayPalPayout } = await import("@/services/payout/paypal-seller-payout");
+      const paypal = await releaseSellerPayPalPayout(orderId);
+      if (!paypal.ok && paypal.reason !== "already_paid_out" && paypal.reason !== "zero_net") {
+        return NextResponse.json(
+          { error: `PayPal payout failed: ${paypal.reason ?? "unknown"}` },
+          { status: 502 },
+        );
+      }
+    } else {
+      // Stripe Connect: clawback must be settled before bank payout (unless force already passed ship).
+      const full = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: {
+          shippoTransactionId: true,
+          labelUrl: true,
+          shippingLabelCostCents: true,
+          shippingLabelCostReversedCents: true,
+        },
+      });
+      if (full && !orderLabelClawbackSettledForBankPayout(full)) {
+        return NextResponse.json(
+          { error: "Label clawback must complete before releasing Stripe bank payout." },
+          { status: 409 },
+        );
+      }
+      const { releaseSellerStripePayout } = await import("@/services/payout/stripe-seller-payout");
+      const stripePay = await releaseSellerStripePayout(orderId, { force: true });
+      if (!stripePay.ok && stripePay.reason !== "already_paid_out" && stripePay.reason !== "zero_net") {
+        return NextResponse.json(
+          { error: `Stripe bank payout failed: ${stripePay.reason ?? "unknown"}` },
+          { status: 502 },
+        );
       }
     }
 
@@ -226,6 +315,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ ok: true, payoutStatus: OrderPayoutStatus.manual_review });
   }
 
+  if (action === "mark_already_paid") {
+    const { markOrderBankPayoutAlreadyPaid } = await import("@/lib/admin/reconcile-stripe-bank-payouts");
+    const marked = await markOrderBankPayoutAlreadyPaid({
+      orderId,
+      adminId: gate.userId,
+      reason,
+    });
+    if (!marked.ok) {
+      return NextResponse.json({ error: marked.error }, { status: 400 });
+    }
+    return NextResponse.json({ ok: true, payoutStatus: OrderPayoutStatus.paid_out });
+  }
+
   if (action === "reevaluate") {
     await processDeliveryPayoutEvaluation(orderId);
     const fresh = await prisma.order.findUnique({
@@ -236,7 +338,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   return NextResponse.json(
-    { error: "Invalid action. Use release_payout, block_payout, manual_review, or reevaluate." },
+    {
+      error:
+        "Invalid action. Use release_payout, block_payout, manual_review, mark_already_paid, or reevaluate.",
+    },
     { status: 400 },
   );
 }

@@ -26,7 +26,7 @@ export function TradeStartDealCta({ onPress }: { onPress: () => void }) {
         </View>
         <View style={styles.copy}>
           <Text style={styles.title}>Start a trade</Text>
-          <Text style={styles.sub}>Open a deal room — send a protected offer across the vault.</Text>
+          <Text style={styles.sub}>Build a structured offer — clear terms, then tracked shipping labels after accept.</Text>
         </View>
         <View style={styles.arrow}>
           <Ionicons name="arrow-forward" size={20} color={colors.gold} />

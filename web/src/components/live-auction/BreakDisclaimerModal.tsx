@@ -49,16 +49,16 @@ export function BreakDisclaimerModal({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={bodyId}
-        className="relative z-[1] flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-[#0a0a0d] shadow-[0_24px_64px_-20px_rgba(0,0,0,0.95)]"
+        className="relative z-[1] flex max-h-[min(88dvh,36rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-[#0a0a0d] shadow-[0_24px_64px_-20px_rgba(0,0,0,0.95)]"
       >
-        <div className="border-b border-white/[0.06] px-5 pb-3 pt-4 sm:px-6">
+        <div className="shrink-0 border-b border-white/[0.06] px-5 pb-3 pt-4 sm:px-6">
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-200/90">Required</p>
           <h2 id={titleId} className="mt-1 font-display text-lg font-bold text-foreground">
             Live Break Notice
           </h2>
         </div>
 
-        <div className="px-5 pb-4 pt-3 sm:px-6">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-4 pt-3 sm:px-6">
           <p id={bodyId} className="text-sm leading-relaxed text-zinc-300">
             By clicking <span className="font-semibold text-foreground">OK</span> and participating in this break, you
             acknowledge that a live break is being conducted, that results are random or event-based, that no specific
@@ -76,12 +76,12 @@ export function BreakDisclaimerModal({
           </p>
         </div>
 
-        <div className="flex flex-col-reverse gap-2.5 border-t border-white/[0.06] px-5 pb-5 pt-4 sm:flex-row sm:justify-end sm:px-6">
+        <div className="shrink-0 flex flex-col-reverse gap-2.5 border-t border-white/[0.06] px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 sm:flex-row sm:justify-end sm:px-6">
           <button
             type="button"
             onClick={onDecline}
             data-testid="break-disclaimer-leave"
-            className="inline-flex h-11 items-center justify-center rounded-full border border-white/[0.14] px-6 text-sm font-semibold text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.04] sm:min-w-[7rem]"
+            className="inline-flex h-11 min-h-11 items-center justify-center rounded-full border border-white/[0.14] px-6 text-sm font-semibold text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.04] sm:min-w-[7rem]"
           >
             Leave room
           </button>
@@ -90,7 +90,7 @@ export function BreakDisclaimerModal({
             onClick={onAccept}
             autoFocus
             data-testid="break-disclaimer-accept"
-            className="inline-flex h-11 items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright px-8 text-sm font-bold text-zinc-950 shadow-[0_0_24px_-6px_rgba(201,162,39,0.45)] transition hover:brightness-110 sm:min-w-[8rem]"
+            className="inline-flex h-11 min-h-11 items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright px-8 text-sm font-bold text-zinc-950 shadow-[0_0_24px_-6px_rgba(201,162,39,0.45)] transition hover:brightness-110 sm:min-w-[8rem]"
           >
             OK, I agree
           </button>

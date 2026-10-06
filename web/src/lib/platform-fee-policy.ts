@@ -1,15 +1,26 @@
 import { getCachedMarketplacePlatformFeePercent } from "@/services/platform-fee-settings";
 import { getCachedLiveShowFeeConfig } from "@/services/live-show-fee-settings";
+import {
+  LIVE_SHOW_FEE_TIER_2_THRESHOLD_USD,
+  LIVE_SHOW_FEE_TIER_3_THRESHOLD_USD,
+  LIVE_SHOW_TIER_1_FEE_PERCENT,
+  LIVE_SHOW_TIER_2_FEE_PERCENT,
+  LIVE_SHOW_TIER_3_FEE_PERCENT,
+  MARKETPLACE_PLATFORM_FEE_PERCENT,
+  PLATFORM_FEE_PERCENT_MAX,
+  clampPlatformFeePercent,
+} from "@/lib/platform-fee-defaults";
 
-/** Fixed marketplace listing platform fee default (Stripe processing is separate). Admin may override in DB. */
-export const MARKETPLACE_PLATFORM_FEE_PERCENT = 8;
-
-export const LIVE_SHOW_FEE_TIER_2_THRESHOLD_USD = 1000;
-export const LIVE_SHOW_FEE_TIER_3_THRESHOLD_USD = 3000;
-
-export const LIVE_SHOW_TIER_1_FEE_PERCENT = 8;
-export const LIVE_SHOW_TIER_2_FEE_PERCENT = 7.25;
-export const LIVE_SHOW_TIER_3_FEE_PERCENT = 6.5;
+export {
+  LIVE_SHOW_FEE_TIER_2_THRESHOLD_USD,
+  LIVE_SHOW_FEE_TIER_3_THRESHOLD_USD,
+  LIVE_SHOW_TIER_1_FEE_PERCENT,
+  LIVE_SHOW_TIER_2_FEE_PERCENT,
+  LIVE_SHOW_TIER_3_FEE_PERCENT,
+  MARKETPLACE_PLATFORM_FEE_PERCENT,
+  PLATFORM_FEE_PERCENT_MAX,
+  clampPlatformFeePercent,
+};
 
 /**
  * Platform fee applies to item/sale price only.
@@ -111,12 +122,12 @@ export function resolvePlatformFeePercentForCheckout(args: {
 }): number {
   if (args.isCompanyListing) return 0;
   if (args.sellerPlatformFeePercentOverride != null) {
-    return args.sellerPlatformFeePercentOverride;
+    return clampPlatformFeePercent(args.sellerPlatformFeePercentOverride);
   }
   if (args.liveRoomId) {
-    return liveShowPlatformFeePercent(args.completedLiveShowGmvUsd ?? 0);
+    return clampPlatformFeePercent(liveShowPlatformFeePercent(args.completedLiveShowGmvUsd ?? 0));
   }
-  return marketplacePlatformFeePercent();
+  return clampPlatformFeePercent(marketplacePlatformFeePercent());
 }
 
 /** Stripe Connect `application_fee_amount` — platform fee only, never processing. */

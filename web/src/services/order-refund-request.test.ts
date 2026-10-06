@@ -2,8 +2,15 @@ import Stripe from "stripe";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/notifications", () => ({ createNotification: vi.fn().mockResolvedValue(undefined) }));
+const scheduleNotifyAdmins = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/admin/notify-admins", () => ({ scheduleNotifyAdmins }));
 vi.mock("@/lib/seller-commerce-event", () => ({
-  SELLER_COMMERCE_KIND: { orderRefunded: "order_refunded" },
+  SELLER_COMMERCE_KIND: {
+    orderRefunded: "order_refunded",
+    orderRefundRequested: "order_refund_requested",
+    orderRefundApproved: "order_refund_approved",
+    orderRefundDenied: "order_refund_denied",
+  },
   logSellerCommerceEvent: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@/lib/marketplace/ecosystem-sync", () => ({ emitOrderLifecycleSync: vi.fn() }));
@@ -14,6 +21,10 @@ vi.mock("@/lib/live-show-gmv", () => ({ reverseLiveShowCompletedSaleTx: vi.fn().
 vi.mock("@/services/payments", () => ({ PAYMENT_REFUNDED: "refunded" }));
 const logPayoutEligibilityDecision = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock("@/lib/payout-audit-log", () => ({ logPayoutEligibilityDecision }));
+const reportUrgentPaymentAnomaly = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/cron-anomaly-alert", () => ({ reportUrgentPaymentAnomaly }));
+const refundPayPalRailCapture = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/paypal-buyer-rail", () => ({ refundPayPalRailCapture }));
 
 const stripeRefundsCreate = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/stripe", () => ({
@@ -46,9 +57,12 @@ vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
 import { createNotification } from "@/lib/notifications";
 import {
+  buyerEscalateRefundRequest,
   createBuyerRefundRequest,
   executeOrderRefund,
   sellerConfirmReturnReceived,
+  sellerDirectCancelRefund,
+  sellerRespondToRefundRequest,
 } from "@/services/order-refund-request";
 
 const createNotificationMock = vi.mocked(createNotification);
@@ -101,6 +115,7 @@ function returnEligibleOrder(overrides: Record<string, unknown> = {}) {
     shippingPriceUsd: 10,
     taxAmountCents: 0,
     payoutStatus: "pending",
+    seller: { stripeAccountId: null },
     liveShippingSession: { liveShowId: "room_1" },
     listing: { title: "Return Card" },
     ...overrides,
@@ -122,10 +137,27 @@ function cancelEligibleOrder(overrides: Record<string, unknown> = {}) {
     deliveryConfirmedAt: null,
     stripePaymentIntentId: "pi_cancel_1",
     totalUsd: 50,
+    itemPriceUsd: 40,
+    shippingPriceUsd: 10,
+    taxAmountCents: 0,
+    labelUrl: null,
+    shippoTransactionId: null,
+    seller: { stripeAccountId: null },
     liveShippingSession: { liveShowId: "room_2" },
     listing: { title: "Cancel Card" },
     ...overrides,
   };
+}
+
+/** Marketplace Buy Now order eligible for cancel (no live show, no label). */
+function marketplaceCancelEligibleOrder(overrides: Record<string, unknown> = {}) {
+  return cancelEligibleOrder({
+    id: "ord_mkt_1",
+    stripePaymentIntentId: "pi_mkt_1",
+    liveShippingSession: null,
+    listing: { title: "Marketplace Card" },
+    ...overrides,
+  });
 }
 
 describe("executeOrderRefund", () => {
@@ -151,6 +183,7 @@ describe("executeOrderRefund", () => {
       itemPriceUsd: 100,
       shippingPriceUsd: 10,
       taxAmountCents: 800,
+      seller: { stripeAccountId: null },
       listing: { title: "Test Card" },
     });
     stripeRefundsCreate.mockResolvedValue({ id: "re_123" });
@@ -181,6 +214,7 @@ describe("executeOrderRefund", () => {
       itemPriceUsd: 50,
       shippingPriceUsd: 0,
       taxAmountCents: 0,
+      seller: { stripeAccountId: null },
       listing: { title: "Another Card" },
     });
     stripeRefundsCreate.mockResolvedValue({ id: "re_456" });
@@ -255,6 +289,7 @@ describe("executeOrderRefund", () => {
       shippingPriceUsd: 0,
       taxAmountCents: 0,
       payoutStatus: "paid_out",
+      seller: { stripeAccountId: null },
       listing: { title: "Already Paid Out Card" },
     });
     stripeRefundsCreate.mockResolvedValue({ id: "re_789" });
@@ -284,6 +319,7 @@ describe("executeOrderRefund", () => {
       shippingPriceUsd: 0,
       taxAmountCents: 0,
       payoutStatus: "pending",
+      seller: { stripeAccountId: null },
       listing: { title: "Normal Card" },
     });
     stripeRefundsCreate.mockResolvedValue({ id: "re_101" });
@@ -424,6 +460,136 @@ describe("executeOrderRefund", () => {
     });
 
     expect(prismaMock.orderRefundRequest.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  // financial-reconciliation-audit-2026-08 bug #18 follow-up: refunds must route by the processor
+  // that actually took the buyer's money, not always assume Stripe.
+  describe("payment-processor routing (bug #18 follow-up)", () => {
+    it("refunds a Stripe order exactly as before (paymentProcessor=STRIPE)", async () => {
+      const order = returnEligibleOrder({ id: "ord_stripe_route", paymentProcessor: "STRIPE" });
+      prismaMock.order.findUnique.mockResolvedValue(order);
+      stripeRefundsCreate.mockResolvedValue({ id: "re_stripe_route" });
+
+      await executeOrderRefund("ord_stripe_route", "req_stripe_route");
+
+      expect(stripeRefundsCreate).toHaveBeenCalledTimes(1);
+      expect(refundPayPalRailCapture).not.toHaveBeenCalled();
+      expect(prismaMock.orderRefundRequest.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ stripeRefundId: "re_stripe_route", processorRefundId: "re_stripe_route" }),
+        }),
+      );
+    });
+
+    it("refunds a PayPal/Venmo order via refundPayPalRailCapture using processorPaymentId, never Stripe", async () => {
+      const order = returnEligibleOrder({
+        id: "ord_paypal_route",
+        paymentProcessor: "PAYPAL_VENMO",
+        processorPaymentId: "CAPTURE123",
+        stripePaymentIntentId: null,
+      });
+      prismaMock.order.findUnique.mockResolvedValue(order);
+      refundPayPalRailCapture.mockResolvedValue({ outcome: "refunded", refundId: "PAYPAL_REFUND_1" });
+
+      await executeOrderRefund("ord_paypal_route", "req_paypal_route");
+
+      expect(stripeRefundsCreate).not.toHaveBeenCalled();
+      expect(refundPayPalRailCapture).toHaveBeenCalledWith(
+        expect.objectContaining({ processorPaymentId: "CAPTURE123" }),
+      );
+      expect(prismaMock.orderRefundRequest.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          // stripeRefundId must stay null for a non-Stripe refund — never mislabeled (bug #18).
+          data: expect.objectContaining({ stripeRefundId: null, processorRefundId: "PAYPAL_REFUND_1" }),
+        }),
+      );
+    });
+
+    it("fails safely and raises an urgent anomaly for a PayPal/Venmo order missing processorPaymentId", async () => {
+      const order = returnEligibleOrder({
+        id: "ord_paypal_missing_id",
+        paymentProcessor: "PAYPAL_VENMO",
+        processorPaymentId: null,
+        stripePaymentIntentId: null,
+      });
+      prismaMock.order.findUnique.mockResolvedValue(order);
+
+      await expect(executeOrderRefund("ord_paypal_missing_id", "req_paypal_missing_id")).rejects.toMatchObject({
+        code: "NO_PROCESSOR_PAYMENT_ID",
+      });
+
+      expect(refundPayPalRailCapture).not.toHaveBeenCalled();
+      expect(stripeRefundsCreate).not.toHaveBeenCalled();
+      expect(reportUrgentPaymentAnomaly).toHaveBeenCalledWith(
+        "refund_missing_processor_payment_id",
+        expect.stringContaining("ord_paypal_missing_id"),
+      );
+    });
+
+    it("fails safely and raises an urgent anomaly instead of guessing a rail for an unrecognized payment processor", async () => {
+      const order = returnEligibleOrder({
+        id: "ord_unknown_processor",
+        paymentProcessor: "SOME_FUTURE_RAIL",
+      });
+      prismaMock.order.findUnique.mockResolvedValue(order);
+
+      await expect(executeOrderRefund("ord_unknown_processor", "req_unknown_processor")).rejects.toMatchObject({
+        code: "UNKNOWN_PAYMENT_PROCESSOR",
+      });
+
+      expect(refundPayPalRailCapture).not.toHaveBeenCalled();
+      expect(stripeRefundsCreate).not.toHaveBeenCalled();
+      expect(reportUrgentPaymentAnomaly).toHaveBeenCalledWith(
+        "refund_unknown_payment_processor",
+        expect.stringContaining("SOME_FUTURE_RAIL"),
+      );
+    });
+
+    // The exact historical bug (#18): a PayPal capture id sitting in stripePaymentIntentId must
+    // never be treated as a refundable Stripe id, even if paymentProcessor were somehow still
+    // reported as STRIPE — the shape check is a second independent guard, not just a label check.
+    it("refuses a Stripe-labeled refund when stripePaymentIntentId is not Stripe-shaped, and raises an urgent anomaly", async () => {
+      const order = returnEligibleOrder({
+        id: "ord_mislabeled",
+        paymentProcessor: "STRIPE",
+        stripePaymentIntentId: "21V88625P2888003D", // PayPal capture id shape, not "pi_…"
+      });
+      prismaMock.order.findUnique.mockResolvedValue(order);
+
+      await expect(executeOrderRefund("ord_mislabeled", "req_mislabeled")).rejects.toMatchObject({
+        code: "NO_PAYMENT_INTENT",
+      });
+
+      expect(stripeRefundsCreate).not.toHaveBeenCalled();
+      expect(reportUrgentPaymentAnomaly).toHaveBeenCalledWith(
+        "refund_missing_or_invalid_stripe_payment_intent",
+        expect.stringContaining("ord_mislabeled"),
+      );
+    });
+
+    it("leaves the request in refund_processing (no rollback) on an ambiguous PayPal API failure", async () => {
+      const order = returnEligibleOrder({
+        id: "ord_paypal_ambiguous",
+        paymentProcessor: "PAYPAL_VENMO",
+        processorPaymentId: "CAPTURE_AMBIGUOUS",
+        stripePaymentIntentId: null,
+      });
+      prismaMock.order.findUnique.mockResolvedValue(order);
+      prismaMock.orderRefundRequest.findUnique.mockResolvedValue({ status: "return_in_transit" });
+      refundPayPalRailCapture.mockResolvedValue({
+        outcome: "error",
+        code: "PAYPAL_RAIL_REFUND_FAILED",
+        message: "network blip",
+      });
+
+      await expect(executeOrderRefund("ord_paypal_ambiguous", "req_paypal_ambiguous")).rejects.toMatchObject({
+        code: "PAYPAL_REFUND_FAILED",
+      });
+
+      // Only the initial pre-call write (flipping to `refund_processing`) happened — no rollback,
+      // since the PayPal API was actually reached and its failure is ambiguous.
+      expect(prismaMock.orderRefundRequest.updateMany).toHaveBeenCalledTimes(1);
+    });
   });
 });
 
@@ -679,5 +845,173 @@ describe("adminRetryStuckRefund", () => {
 
     expect(stripeRefundsCreate).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("refunded");
+  });
+});
+
+describe("marketplace cancel request", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(prismaMock));
+    prismaMock.orderRefundRequest.count.mockResolvedValue(0);
+    prismaMock.orderRefundRequest.findFirst.mockResolvedValue(null);
+    prismaMock.orderRefundRequest.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.orderRefundRequest.findUnique.mockResolvedValue({ status: "pending_seller" });
+    prismaMock.orderRefundRequest.create.mockImplementation((args: { data: Record<string, unknown> }) =>
+      Promise.resolve(fullRefundRequestRow({ ...args.data, kind: "cancel" })),
+    );
+    prismaMock.orderRefundRequest.findUniqueOrThrow.mockResolvedValue(
+      fullRefundRequestRow({ kind: "cancel", status: "refunded" }),
+    );
+    stripeRefundsCreate.mockResolvedValue({ id: "re_mkt_1" });
+  });
+
+  it("allows a buyer to request cancel on a paid marketplace order with no label", async () => {
+    const order = marketplaceCancelEligibleOrder();
+    prismaMock.order.findUnique.mockResolvedValue(order);
+
+    const result = await createBuyerRefundRequest({
+      orderId: order.id,
+      buyerId: order.buyerId,
+      kind: "cancel",
+      reason: "changed my mind",
+    });
+
+    expect(result.kind).toBe("cancel");
+    expect(prismaMock.orderRefundRequest.create).toHaveBeenCalled();
+  });
+
+  it("blocks marketplace cancel when a Get Vaulted label exists", async () => {
+    const order = marketplaceCancelEligibleOrder({ labelUrl: "https://shippo.example/label.pdf" });
+    prismaMock.order.findUnique.mockResolvedValue(order);
+
+    await expect(
+      createBuyerRefundRequest({
+        orderId: order.id,
+        buyerId: order.buyerId,
+        kind: "cancel",
+        reason: "changed my mind",
+      }),
+    ).rejects.toMatchObject({ code: "LABEL_EXISTS" });
+  });
+
+  it("blocks marketplace cancel when the order has shipped", async () => {
+    const order = marketplaceCancelEligibleOrder({
+      status: "shipped",
+      fulfillmentStatus: "in_transit",
+    });
+    prismaMock.order.findUnique.mockResolvedValue(order);
+
+    await expect(
+      createBuyerRefundRequest({
+        orderId: order.id,
+        buyerId: order.buyerId,
+        kind: "cancel",
+        reason: "changed my mind",
+      }),
+    ).rejects.toMatchObject({ code: "IN_TRANSIT" });
+  });
+
+  it("refunds on seller approve when still cancel-eligible", async () => {
+    const order = marketplaceCancelEligibleOrder();
+    prismaMock.order.findUnique.mockResolvedValue(order);
+    prismaMock.orderRefundRequest.findFirst.mockResolvedValue(
+      fullRefundRequestRow({ id: "req_mkt_approve", kind: "cancel", status: "pending_seller" }),
+    );
+
+    await sellerRespondToRefundRequest({
+      orderId: order.id,
+      sellerId: order.sellerId,
+      approve: true,
+    });
+
+    expect(stripeRefundsCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects seller approve when a label was created while the request was pending", async () => {
+    const order = marketplaceCancelEligibleOrder({ shippoTransactionId: "txn_late" });
+    prismaMock.order.findUnique.mockResolvedValue(order);
+    prismaMock.orderRefundRequest.findFirst.mockResolvedValue(
+      fullRefundRequestRow({ id: "req_mkt_late", kind: "cancel", status: "pending_seller" }),
+    );
+
+    await expect(
+      sellerRespondToRefundRequest({
+        orderId: order.id,
+        sellerId: order.sellerId,
+        approve: true,
+      }),
+    ).rejects.toMatchObject({ code: "LABEL_EXISTS" });
+    expect(stripeRefundsCreate).not.toHaveBeenCalled();
+  });
+
+  it("allows seller direct cancel when marketplace cancel-eligible", async () => {
+    const order = marketplaceCancelEligibleOrder();
+    prismaMock.order.findUnique.mockResolvedValue(order);
+
+    await sellerDirectCancelRefund({
+      orderId: order.id,
+      sellerId: order.sellerId,
+      reason: "Item no longer available.",
+    });
+
+    expect(stripeRefundsCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires a cancellation reason for seller direct cancel", async () => {
+    const order = marketplaceCancelEligibleOrder();
+    prismaMock.order.findUnique.mockResolvedValue(order);
+
+    await expect(
+      sellerDirectCancelRefund({
+        orderId: order.id,
+        sellerId: order.sellerId,
+        reason: "  ",
+      }),
+    ).rejects.toMatchObject({ code: "REASON_REQUIRED" });
+    expect(stripeRefundsCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("buyerEscalateRefundRequest", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("notifies the seller and admins when a denied refund is escalated", async () => {
+    const order = returnEligibleOrder();
+    prismaMock.order.findUnique.mockResolvedValue(order);
+    prismaMock.orderRefundRequest.findFirst.mockResolvedValue(
+      fullRefundRequestRow({
+        id: "req_esc_1",
+        orderId: order.id,
+        kind: "return",
+        status: "seller_denied",
+      }),
+    );
+    prismaMock.orderRefundRequest.findUniqueOrThrow.mockResolvedValue(
+      fullRefundRequestRow({
+        id: "req_esc_1",
+        orderId: order.id,
+        kind: "return",
+        status: "escalated",
+      }),
+    );
+
+    await buyerEscalateRefundRequest({ orderId: order.id, buyerId: order.buyerId });
+
+    expect(createNotificationMock).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({
+        userId: order.sellerId,
+        type: "order_refund_escalated",
+      }),
+    );
+    expect(scheduleNotifyAdmins).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "admin_refund_escalated",
+        href: "/admin/refund-requests",
+        dedupeKey: "refund-escalated:req_esc_1",
+      }),
+    );
   });
 });

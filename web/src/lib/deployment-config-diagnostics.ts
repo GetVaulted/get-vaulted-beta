@@ -9,6 +9,7 @@ import {
 import { supabaseProjectRefFromUrl } from "@/lib/resolve-database-url";
 import { getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
 import { stripeKeyMode, stripeKeysAligned } from "@/lib/stripe-key-mode";
+import { isStripeTaxFeatureEnabled } from "@/lib/stripe-tax";
 
 export type DeploymentConfigDiagnostics = {
   appUrl: string | null;
@@ -39,6 +40,13 @@ export type DeploymentConfigDiagnostics = {
   stripeConnectWebhookSecretConfigured: boolean;
   /** True when Stripe is live-mode with matching keys and webhook secret set. */
   stripeProductionReady: boolean;
+  /** Public Connect return/refresh base (`STRIPE_CONNECT_PUBLIC_APP_URL` or site URL fallback). */
+  stripeConnectPublicAppUrl: string | null;
+  stripeConnectPublicAppUrlExplicit: boolean;
+  /** Stripe Tax feature flag (defaults on when Stripe is configured). */
+  stripeTaxEnabled: boolean;
+  /** Protects `POST /api/cron/stripe-reconcile`. */
+  cronSecretConfigured: boolean;
   /** Resend OTP path + resend-verification API. Supabase-link signup uses Supabase email instead. */
   resendEmailReady: boolean;
   /** Client Stripe.js / mobile wallet needs the publishable key (safe to expose). */
@@ -85,6 +93,12 @@ export function buildDeploymentConfigDiagnostics(): DeploymentConfigDiagnostics 
     secretMode === "live" &&
     keysAligned === true &&
     webhookConfigured;
+  const connectExplicit = Boolean(process.env.STRIPE_CONNECT_PUBLIC_APP_URL?.trim());
+  const connectPublicAppUrl =
+    process.env.STRIPE_CONNECT_PUBLIC_APP_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    process.env.NEXTAUTH_URL?.trim() ||
+    null;
 
   return {
     appUrl: resolvePublicAppUrl(),
@@ -111,6 +125,10 @@ export function buildDeploymentConfigDiagnostics(): DeploymentConfigDiagnostics 
     stripeWebhookSecretConfigured: webhookConfigured,
     stripeConnectWebhookSecretConfigured: connectWebhookConfigured,
     stripeProductionReady,
+    stripeConnectPublicAppUrl: connectPublicAppUrl ? connectPublicAppUrl.replace(/\/+$/, "") : null,
+    stripeConnectPublicAppUrlExplicit: connectExplicit,
+    stripeTaxEnabled: isStripeTaxFeatureEnabled(),
+    cronSecretConfigured: Boolean(process.env.CRON_SECRET?.trim()),
     resendEmailReady: resendConfigured && resendFromConfigured,
     stripePublishableKey: publishableKey || null,
     usesSupabaseAuthSignup: isBetaDeployment(),

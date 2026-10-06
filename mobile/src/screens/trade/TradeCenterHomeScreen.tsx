@@ -22,16 +22,11 @@ import { navigateAuthLogin, navigateAuthSignUp } from '../../navigation/rootNavi
 import { useAuth } from '../../auth/AuthContext';
 import { useTradeCenterDiagnostics } from '../../trade/TradeCenterDiagnosticsContext';
 import type { TradeOfferVM } from '../../types/tradeOffers';
+import { TRADE_HOW_IT_WORKS_STEPS } from '../../data/tradeTrustCopy';
 import { colors, radii, spacing } from '../../theme';
 import { useMarketplaceLayout } from '../../hooks/useMarketplaceLayout';
 
 type Nav = NativeStackNavigationProp<TradeCenterStackParamList>;
-
-const START_STEPS = [
-  'Pick your card from the vault',
-  'Choose what you want in return',
-  'Send a protected offer',
-] as const;
 
 function profileHandle(p: { username: string | null; display_name: string | null }): string {
   if (p.username) return `@${p.username}`;
@@ -120,7 +115,7 @@ export function TradeCenterHomeScreen() {
             <Ionicons name="cloud-offline-outline" size={22} color={colors.gold} />
             <Text style={styles.warnTitle}>Trade network unavailable</Text>
             <Text style={styles.warnBody}>
-              Connect your vault to sync offers, negotiations, and protected shipping labels.
+              Connect your account to sync offers, negotiations, and shipping labels.
             </Text>
             {areDevToolsEnabled() ? (
               <Pressable style={styles.qaLink} onPress={() => navigation.navigate('TradeCenterQa', undefined)}>
@@ -132,9 +127,10 @@ export function TradeCenterHomeScreen() {
           <Text style={styles.syncHint}>Loading your collector account…</Text>
         ) : !user ? (
           <View style={styles.gateCard}>
-            <Text style={styles.gateTitle}>Join the collector network</Text>
+            <Text style={styles.gateTitle}>Sign in to trade</Text>
             <Text style={styles.gateBody}>
-              Send protected offers, negotiate privately, and trade premium inventory with verified collectors.
+              Build structured offers, negotiate in Trade Center, then each side pays a fee plus a shipping label and
+              ships with tracking.
             </Text>
             <Pressable style={styles.authCta} onPress={navigateAuthSignUp}>
               <Text style={styles.authCtaTxt}>Create account</Text>
@@ -169,7 +165,7 @@ export function TradeCenterHomeScreen() {
                 <TradeTrustStrip />
                 <View style={styles.stepsCard}>
                   <Text style={styles.stepsTitle}>How it works</Text>
-                  {START_STEPS.map((step, idx) => (
+                  {TRADE_HOW_IT_WORKS_STEPS.map((step, idx) => (
                     <View key={step} style={styles.stepRow}>
                       <View style={styles.stepNum}>
                         <Text style={styles.stepNumTxt}>{idx + 1}</Text>
@@ -217,7 +213,7 @@ export function TradeCenterHomeScreen() {
                   <PremiumEmptyPanel
                     icon="swap-horizontal-outline"
                     title="No active collector deals."
-                    subtitle="Send a protected offer from Start a trade — negotiations and shipping labels sync here."
+                    subtitle="Start a trade to send a structured offer — negotiations and shipping labels sync here."
                     actions={[{ label: 'Start a trade', onPress: () => setDeskTab('start') }]}
                   />
                 ) : null}
@@ -230,7 +226,7 @@ export function TradeCenterHomeScreen() {
                   title="Incoming offers"
                   count={sections.incoming.length}
                   emptyTitle="No incoming offers yet."
-                  emptyHint="Protected offers from collectors appear here."
+                  emptyHint="Offers from other collectors appear here."
                 >
                   {uid ? sections.incoming.map((o) => renderOffer(o, uid)) : null}
                 </TradeSectionBlock>
@@ -270,8 +266,8 @@ export function TradeCenterHomeScreen() {
                 <View style={styles.inboxNote}>
                   <Ionicons name="chatbubbles-outline" size={18} color={colors.gold} />
                   <Text style={styles.inboxNoteTxt}>
-                    Offers and negotiation threads live in your trade block — your private collector inbox for protected
-                    trades.
+                    Offers and counters live in your trade block. The offer record is the source of truth for terms —
+                    coordinate packing details with your counterparty.
                   </Text>
                 </View>
               </TradeBlockPanel>

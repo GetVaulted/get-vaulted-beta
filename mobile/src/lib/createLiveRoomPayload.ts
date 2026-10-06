@@ -1,5 +1,5 @@
 export type BreakPricingMode = 'fixed' | 'auction' | 'hybrid';
-export type TeamBoardLeague = 'nfl' | 'nba' | 'mlb';
+export type TeamBoardLeague = 'nfl' | 'nba' | 'mlb' | 'nhl';
 export type CreateScheduleMode = 'now' | 'later';
 
 /** Mirrors `SellerLivePage.tsx` POST /api/live-rooms body assembly. */
@@ -11,6 +11,8 @@ export type BuildCreateLiveRoomPayloadInput = {
   scheduleMode: CreateScheduleMode;
   scheduledStartAt?: string | null;
   thumbnailUrl?: string | null;
+  teaserVideoUrl?: string | null;
+  teaserVideoDurationMs?: number | null;
   teamBoardLeague?: TeamBoardLeague;
   breakTotalSpots?: string | number;
   breakPricingMode?: BreakPricingMode;
@@ -31,6 +33,12 @@ export type BuildCreateLiveRoomPayloadInput = {
   recurringEnabled?: boolean;
   /** `public` (default) lists on Live Shows; `private` is link-only. */
   discoveryVisibility?: 'public' | 'private';
+  /**
+   * Seller-confirmed via the "continue from a show you ended recently?" toggle. Always
+   * re-validated server-side (same seller/roomType, ended within 24h) — a stale/expired id is
+   * ignored. See `fetchLiveRoomContinuationCandidate` in `liveRoomsRepository.ts`.
+   */
+  continuationOfLiveRoomId?: string | null;
 };
 
 export function buildCreateLiveRoomPayload(
@@ -46,6 +54,14 @@ export function buildCreateLiveRoomPayload(
     description: (input.description ?? '').trim(),
     roomType: input.roomType,
     thumbnailUrl: input.thumbnailUrl?.trim() || undefined,
+    ...(input.teaserVideoUrl?.trim() &&
+    typeof input.teaserVideoDurationMs === 'number' &&
+    Number.isFinite(input.teaserVideoDurationMs)
+      ? {
+          teaserVideoUrl: input.teaserVideoUrl.trim(),
+          teaserVideoDurationMs: Math.round(input.teaserVideoDurationMs),
+        }
+      : {}),
     ...(scheduledStartAtIso ? { scheduledStartAt: scheduledStartAtIso } : {}),
   };
 
@@ -103,6 +119,10 @@ export function buildCreateLiveRoomPayload(
 
   if (input.discoveryVisibility === 'private') {
     body.discoveryVisibility = 'private';
+  }
+
+  if (input.continuationOfLiveRoomId?.trim()) {
+    body.continuationOfLiveRoomId = input.continuationOfLiveRoomId.trim();
   }
 
   return body;

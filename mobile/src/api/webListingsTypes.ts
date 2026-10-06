@@ -27,4 +27,6 @@ export type WebMarketplaceListing = {
   handlingTimeLabel?: string;
   signatureRequired?: boolean;
   shipsFromRegion?: string;
+  /** Real completed seller order count (listing detail). */
+  sellerCompletedOrderCount?: number;
 };

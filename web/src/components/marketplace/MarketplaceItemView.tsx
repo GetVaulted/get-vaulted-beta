@@ -164,15 +164,11 @@ export function MarketplaceItemView({
 
       <ListingLiveRooms listingId={listing.id} />
 
-      <div className="mt-12 grid gap-10 border-t border-white/[0.07] pt-10 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="mt-12 border-t border-white/[0.07] pt-10">
         <MarketplaceItemDetailTabs listing={listing} extras={extras} variant="stacked" />
-        <MarketplaceItemRecommendations
-          similar={similar}
-          sameSeller={sameSeller}
-          related={related}
-          layout="sidebar"
-        />
       </div>
+
+      <MarketplaceItemRecommendations similar={similar} sameSeller={sameSeller} related={related} />
 
       {!legacyAuction && !listing.tradeOnly ? (
         <MarketplaceItemStickyBuyBar
