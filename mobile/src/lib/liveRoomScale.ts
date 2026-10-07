@@ -10,7 +10,9 @@
  */
 
 /** Rooms with more viewers than this switch to sampled presence and spread-out refetching. */
-export const BIG_ROOM_VIEWERS = 150;
+export const BIG_ROOM_VIEWERS = 40;
+/** A room that was big stays big until it falls below this fraction of the threshold (stops flip-flopping at the edge). */
+export const BIG_ROOM_EXIT_RATIO = 0.7;
 /** In a big room roughly this many viewers track presence (each carries a weight so the count stays right). */
 export const PRESENCE_SAMPLE_TARGET = 100;
 /** In a big room roughly this many viewers (when no host is broadcasting) report the count to the API. */
@@ -25,8 +27,15 @@ export function normalizeRoomSizeHint(hint: number | null | undefined): number {
   return Math.floor(hint);
 }
 
-export function isBigRoom(hint: number | null | undefined): boolean {
-  return normalizeRoomSizeHint(hint) > BIG_ROOM_VIEWERS;
+/**
+ * Is this room big? Pass `wasBig` (what we decided last time) to get hysteresis: a big room only goes back to
+ * 'normal' once it drops under BIG_ROOM_EXIT_RATIO of the threshold, so a room hovering near the line does not
+ * make every viewer re-announce presence over and over.
+ */
+export function isBigRoom(hint: number | null | undefined, wasBig = false): boolean {
+  const size = normalizeRoomSizeHint(hint);
+  if (wasBig) return size > Math.floor(BIG_ROOM_VIEWERS * BIG_ROOM_EXIT_RATIO);
+  return size > BIG_ROOM_VIEWERS;
 }
 
 /** One random number per viewer session. Reused for every sampling decision so sampling is stable. */
@@ -36,9 +45,9 @@ export function newSessionDraw(rand: () => number = Math.random): number {
 }
 
 /** Probability a viewer tracks presence. 1 in a normal room; PRESENCE_SAMPLE_TARGET / size in a big one. */
-export function presenceInclusionProbability(hint: number | null | undefined): number {
+export function presenceInclusionProbability(hint: number | null | undefined, wasBig = false): number {
   const size = normalizeRoomSizeHint(hint);
-  if (size <= BIG_ROOM_VIEWERS) return 1;
+  if (!isBigRoom(size, wasBig)) return 1;
   return Math.min(1, PRESENCE_SAMPLE_TARGET / size);
 }
 
@@ -56,9 +65,9 @@ export type PresencePlan = { track: boolean; weight: number; quiet: boolean };
  * - `weight`: how many viewers this entry represents (1 in normal rooms).
  * - `quiet`: big room — do NOT re-send presence on a heartbeat (each re-send is a broadcast to everyone).
  */
-export function planPresence(draw: number, hint: number | null | undefined): PresencePlan {
-  const p = presenceInclusionProbability(hint);
-  const quiet = isBigRoom(hint);
+export function planPresence(draw: number, hint: number | null | undefined, wasQuiet = false): PresencePlan {
+  const p = presenceInclusionProbability(hint, wasQuiet);
+  const quiet = isBigRoom(hint, wasQuiet);
   if (p >= 1) return { track: true, weight: 1, quiet };
   return { track: draw < p, weight: presenceWeightFor(p), quiet };
 }
@@ -142,4 +151,41 @@ export function smoothWeightedCount(prev: number | null, raw: number, alpha = 0.
   const r = Math.max(0, raw);
   if (prev == null || !Number.isFinite(prev)) return Math.round(r);
   return Math.round(prev + (r - prev) * alpha);
+}
+
+/**
+ * How often the host console broadcasts the viewer count to the room. Every broadcast is delivered to EVERY viewer,
+ * so a 1,000 viewer room costs 1,000 messages per broadcast. Normal rooms keep the old cadence (4-5s keep-alive,
+ * 750ms on change). Big rooms spread it out in proportion to the crowd (about 33ms per viewer: 1,000 viewers = 30s,
+ * capped at 30s, never faster than 5s) so a growing crowd does not make the count broadcast the biggest cost.
+ */
+export const HOST_COUNT_NORMAL_UNCHANGED_MS = 5_000;
+export const HOST_COUNT_NORMAL_CHANGED_MS = 750;
+export const HOST_COUNT_BIG_MIN_MS = 5_000;
+export const HOST_COUNT_BIG_MAX_MS = 30_000;
+export const HOST_COUNT_MS_PER_VIEWER = 33;
+/** Viewers keep trusting a host count for this many publish intervals before falling back to their own estimate. */
+export const HOST_COUNT_FRESH_INTERVALS = 2.5;
+export const HOST_COUNT_NORMAL_FRESH_MS = 12_000;
+
+export function hostCountPublishPlan(hint: number | null | undefined): { unchangedMs: number; changedMs: number } {
+  const size = normalizeRoomSizeHint(hint);
+  if (!isBigRoom(size)) {
+    return { unchangedMs: HOST_COUNT_NORMAL_UNCHANGED_MS, changedMs: HOST_COUNT_NORMAL_CHANGED_MS };
+  }
+  const ms = Math.min(
+    HOST_COUNT_BIG_MAX_MS,
+    Math.max(HOST_COUNT_BIG_MIN_MS, Math.round(size * HOST_COUNT_MS_PER_VIEWER)),
+  );
+  return { unchangedMs: ms, changedMs: ms };
+}
+
+/**
+ * How long a viewer trusts the last host count broadcast. Must stay comfortably longer than the host's publish
+ * interval for a room of that size, otherwise viewers would keep thinking the host went quiet.
+ */
+export function hostCountFreshMs(lastBroadcastCount: number | null | undefined): number {
+  if (!isBigRoom(lastBroadcastCount)) return HOST_COUNT_NORMAL_FRESH_MS;
+  const { unchangedMs } = hostCountPublishPlan(lastBroadcastCount);
+  return Math.max(HOST_COUNT_NORMAL_FRESH_MS, Math.round(unchangedMs * HOST_COUNT_FRESH_INTERVALS));
 }

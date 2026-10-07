@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   BIG_ROOM_VIEWERS,
+  HOST_COUNT_BIG_MAX_MS,
+  HOST_COUNT_BIG_MIN_MS,
   bigRoomPollMs,
+  hostCountFreshMs,
+  hostCountPublishPlan,
   isBigRoom,
   jitteredDelayMs,
   planPresence,
@@ -162,7 +166,7 @@ describe("refetch spreading", () => {
 
 describe("poll stretching", () => {
   it("does not change small rooms and caps the stretch in big ones", () => {
-    expect(bigRoomPollMs(12_000, 50, 8)).toBe(12_000);
+    expect(bigRoomPollMs(12_000, 30, 8)).toBe(12_000);
     expect(bigRoomPollMs(12_000, 1000, 8)).toBe(Math.round(12_000 * (1 + 1000 / 150)));
     expect(bigRoomPollMs(12_000, 100_000, 8)).toBe(96_000);
     expect(bigRoomPollMs(30_000, 100_000, 4)).toBe(120_000);
@@ -179,5 +183,55 @@ describe("smoothing", () => {
     expect(smoothWeightedCount(null, 900)).toBe(900);
     expect(smoothWeightedCount(1000, 900)).toBe(965);
     expect(smoothWeightedCount(1000, 1000)).toBe(1000);
+  });
+});
+
+describe("message diet: threshold and hysteresis", () => {
+  it("treats 40 viewers as the line between normal and big rooms", () => {
+    expect(BIG_ROOM_VIEWERS).toBe(40);
+    expect(planPresence(0.9, 40)).toEqual({ track: true, weight: 1, quiet: false });
+    expect(planPresence(0.9, 41)).toEqual({ track: true, weight: 1, quiet: true });
+  });
+
+  it("tracks everyone but sends no heartbeat in a mid-size room (41 to 100 viewers)", () => {
+    for (const size of [41, 70, 100]) {
+      expect(planPresence(0.999, size)).toEqual({ track: true, weight: 1, quiet: true });
+    }
+    expect(planPresence(0.5, 200)).toEqual({ track: false, weight: 2, quiet: true });
+  });
+
+  it("keeps a big room big until it drops well under the line", () => {
+    expect(isBigRoom(30, true)).toBe(true);
+    expect(isBigRoom(28, true)).toBe(false);
+    expect(isBigRoom(30, false)).toBe(false);
+    expect(planPresence(0.5, 30, true).quiet).toBe(true);
+    expect(planPresence(0.5, 28, true).quiet).toBe(false);
+  });
+});
+
+describe("message diet: host viewer-count broadcast", () => {
+  it("keeps the old cadence in normal rooms", () => {
+    expect(hostCountPublishPlan(0)).toEqual({ unchangedMs: 5_000, changedMs: 750 });
+    expect(hostCountPublishPlan(40)).toEqual({ unchangedMs: 5_000, changedMs: 750 });
+    expect(hostCountFreshMs(12)).toBe(12_000);
+  });
+
+  it("slows down as a big room grows, never faster than 5s and never slower than 30s", () => {
+    expect(hostCountPublishPlan(60).unchangedMs).toBe(HOST_COUNT_BIG_MIN_MS);
+    expect(hostCountPublishPlan(300)).toEqual({ unchangedMs: 9_900, changedMs: 9_900 });
+    expect(hostCountPublishPlan(1_000).unchangedMs).toBe(HOST_COUNT_BIG_MAX_MS);
+    expect(hostCountPublishPlan(50_000).unchangedMs).toBe(HOST_COUNT_BIG_MAX_MS);
+  });
+
+  it("makes viewers trust a host count for longer than the host publish interval", () => {
+    for (const size of [10, 60, 300, 1_000, 10_000]) {
+      expect(hostCountFreshMs(size)).toBeGreaterThanOrEqual(hostCountPublishPlan(size).unchangedMs * 2);
+    }
+    expect(hostCountFreshMs(1_000)).toBe(75_000);
+  });
+
+  it("caps the count-broadcast load at 100 rooms of 1,000 viewers to a few thousand deliveries per second", () => {
+    const perRoomPerSecond = (1_000 / (hostCountPublishPlan(1_000).unchangedMs / 1000));
+    expect(perRoomPerSecond * 100).toBeLessThan(4_000);
   });
 });
