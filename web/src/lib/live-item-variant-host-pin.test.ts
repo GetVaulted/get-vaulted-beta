@@ -3,6 +3,7 @@ import {
   buildExclusiveHostPinUpdates,
   hostPinnedBuyerVariant,
   hostSpotBoardPinEnabled,
+  nextHostPinnedVariantId,
   pinnedVariantBuyerPrimaryLabel,
   variantIsAvailable,
 } from "@/lib/live-item-variant-presets";
@@ -131,5 +132,37 @@ describe("PYT team pinning", () => {
     expect(next[0]?.displayTitle).toBe("PYT Break #2");
     expect(next[0]?.soldQuantity).toBe(1);
     expect(next[0]?.progressLabel).toBe("1 / 32 sold");
+  });
+});
+
+describe("host pin toggle (unpin)", () => {
+  const ids = [{ id: "a" }, { id: "b" }, { id: "c" }];
+
+  it("pins exactly one variant when given an id", () => {
+    expect(buildExclusiveHostPinUpdates(ids, "b")).toEqual([
+      { id: "a", isHot: false },
+      { id: "b", isHot: true },
+      { id: "c", isHot: false },
+    ]);
+  });
+
+  it("clears every pin when given null", () => {
+    expect(buildExclusiveHostPinUpdates(ids, null).every((u) => u.isHot === false)).toBe(true);
+  });
+
+  it("tapping an already-pinned variant unpins it", () => {
+    const vs = [
+      { id: "a", isHot: false },
+      { id: "b", isHot: true },
+    ];
+    expect(nextHostPinnedVariantId(vs, "b")).toBeNull();
+  });
+
+  it("tapping an unpinned variant pins it (moving the pin)", () => {
+    const vs = [
+      { id: "a", isHot: false },
+      { id: "b", isHot: true },
+    ];
+    expect(nextHostPinnedVariantId(vs, "a")).toBe("a");
   });
 });

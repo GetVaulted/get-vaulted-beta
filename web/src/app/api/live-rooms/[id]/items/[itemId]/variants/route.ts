@@ -214,6 +214,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
   });
   const byId = new Map(variantRows.map((v) => [v.id, v]));
   let changed = 0;
+  let unpinned = false;
 
   const pinVariantIds = updates
     .filter((row) => row.isHot === true && typeof row.id === "string" && row.id.trim())
@@ -271,8 +272,25 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     if (changed > 0) {
       const refreshedVariants = await tx.liveItemVariant.findMany({
         where: { liveRoomItemId: itemId },
-        select: { priceUsd: true, quantityRemaining: true, status: true },
+        select: { priceUsd: true, quantityRemaining: true, status: true, isHot: true },
       });
+      // Host cleared the pin (no spot left pinned): the board goes back to showing every spot.
+      // Drop the leftover "pinned spot" commerce state so it cannot linger and make clients keep
+      // treating a spot as pinned. A timed auction already running is left alone — it keeps its
+      // own variant id and must finish.
+      if (pinVariantIds.length === 0 && !refreshedVariants.some((v) => v.isHot)) {
+        const itemState = await tx.liveRoomItem.findUnique({
+          where: { id: itemId },
+          select: { biddingOpen: true, activeSpotCommerceMode: true },
+        });
+        if (itemState && !itemState.biddingOpen && itemState.activeSpotCommerceMode != null) {
+          await tx.liveRoomItem.update({
+            where: { id: itemId },
+            data: { activeSpotCommerceMode: null, auctionVariantId: null },
+          });
+        }
+        unpinned = true;
+      }
       const openPrices = refreshedVariants
         .filter((v) => v.quantityRemaining > 0 && v.status !== "sold_out")
         .map((v) => v.priceUsd)
@@ -298,7 +316,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
   }
 
   let syncVersions: { roomVersion: number; itemVersion: number } | null = null;
-  if (pinVariantIds.length > 0) {
+  if (pinVariantIds.length > 0 || unpinned) {
     const [roomNext, itemNext] = await Promise.all([
       prisma.liveRoom.findUnique({ where: { id: liveRoomId }, select: { roomVersion: true } }),
       prisma.liveRoomItem.findUnique({ where: { id: itemId }, select: { itemVersion: true } }),
@@ -314,6 +332,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       itemVersion: syncVersions.itemVersion,
       biddingOpen: false,
       auctionEndsAt: null,
+    }).catch(() => null);
+  } else if (unpinned && syncVersions) {
+    // Tell every viewer the pin is gone (versions only: an unpin must not touch a running auction).
+    await emitActiveItemChangedAwait(liveRoomId, itemId, {
+      roomVersion: syncVersions.roomVersion,
+      itemVersion: syncVersions.itemVersion,
     }).catch(() => null);
   }
   emitLiveRoomQueueItemsChanged(liveRoomId);

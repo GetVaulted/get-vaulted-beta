@@ -61,7 +61,7 @@ import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { LiveRoomShareSheet } from "@/components/live-auction/LiveRoomShareSheet";
 import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 import type { VariantPurchasedMergePayload } from "@/lib/live-room-variant-merge";
-import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
+import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates, nextHostPinnedVariantId } from "@/lib/live-item-variant-presets";
 import { sweet16SalesStatus } from "@/lib/sweet16-draft-client";
 import {
   isVariantSpotAuctionArmed,
@@ -727,7 +727,10 @@ export function LiveSaleRoom({
       setPinVariantBusy(true);
       setActionError(null);
       try {
-        const updates = buildExclusiveHostPinUpdates(activeDb.variants, variantId);
+        const updates = buildExclusiveHostPinUpdates(
+          activeDb.variants,
+          nextHostPinnedVariantId(activeDb.variants, variantId),
+        );
         const res = await patchLiveItemVariants(liveRoomId, activeDb.id, updates);
         if (!res.ok) {
           setActionError(res.error);

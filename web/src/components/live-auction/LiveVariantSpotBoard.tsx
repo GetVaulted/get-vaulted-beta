@@ -408,9 +408,9 @@ export function LiveVariantSpotBoard({
                           ? "border-amber-300/55 bg-amber-500/20 text-amber-100"
                           : "border-white/15 bg-black/35 text-zinc-200 hover:border-amber-300/45"
                       }`}
-                      aria-label={`Pin ${r.label} for buyers`}
+                      aria-label={pinned ? `Unpin ${r.label}` : `Pin ${r.label} for buyers`}
                     >
-                      {pinned ? "Pinned" : "Pin"}
+                      {pinned ? "Unpin" : "Pin"}
                     </button>
                   ) : null}
                   {canMarkSold ? (
