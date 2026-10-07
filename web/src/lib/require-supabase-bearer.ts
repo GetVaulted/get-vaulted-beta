@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { isAccountDeleted } from "@/lib/account-deletion";
+import { getCachedBearerAuth, setCachedBearerAuth } from "@/lib/bearer-auth-cache";
 import { ensurePrismaUserForSupabaseAuth } from "@/lib/ensure-prisma-user-from-supabase-auth";
 import { syncStripeConnectFromEmailSibling } from "@/lib/link-stripe-account-from-email-sibling";
 import { getSupabaseBearerJwt } from "@/lib/mobile-supabase-bearer";
@@ -24,6 +25,9 @@ export async function requireUserIdFromSupabaseBearer(
   if (!jwt) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const cached = getCachedBearerAuth(jwt);
+  if (cached) return cached;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
@@ -86,5 +90,7 @@ export async function requireUserIdFromSupabaseBearer(
     }
   }
 
-  return { userId: prismaUserId, supabaseAuthUserId: data.user.id };
+  const resolved = { userId: prismaUserId, supabaseAuthUserId: data.user.id };
+  setCachedBearerAuth(jwt, resolved);
+  return resolved;
 }

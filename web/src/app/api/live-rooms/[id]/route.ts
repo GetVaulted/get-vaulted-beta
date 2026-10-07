@@ -17,7 +17,7 @@ import {
 } from "@/lib/live-room-payment-failure";
 import { notifyFollowersSellerWentLive } from "@/lib/seller-follow-notify";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
-import { processAuctionPaymentExpiries } from "@/services/payments";
+import { processAuctionPaymentExpiriesThrottled } from "@/lib/throttled-expiry-sweep";
 import {
   finalizeOverdueLiveAuctionLotsForRoom,
   LIVE_AUCTION_AUTO_CLOSE_GRACE_MS,
@@ -40,7 +40,7 @@ import { parseLiveTeaserFieldsFromBody } from "@/lib/live-room-teaser";
 import { ensureLiveBuyNowItemCheckoutListingTx } from "@/lib/live-buy-now-checkout-listing";
 import {
   filterStaffMessagesForViewer,
-  viewerCanAccessStaffChat,
+  viewerCanAccessStaffChatCached,
 } from "@/lib/live-room-staff-chat";
 
 const includeDetail = {
@@ -72,7 +72,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   try {
   if (viewerId) {
     try {
-      await processAuctionPaymentExpiries();
+      await processAuctionPaymentExpiriesThrottled();
     } catch (e) {
       console.error("[api/live-rooms/[id]] processAuctionPaymentExpiries", e);
     }
@@ -281,7 +281,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     serverNowMs,
     extra: { viewerId: viewerId ?? null, isHost },
   });
-  const canSeeStaffChat = await viewerCanAccessStaffChat({ liveRoomId: id, userId: viewerId });
+  const canSeeStaffChat = await viewerCanAccessStaffChatCached({ liveRoomId: id, userId: viewerId });
   enriched.messages = filterStaffMessagesForViewer(enriched.messages, canSeeStaffChat);
 
   return NextResponse.json({ room: enriched, serverNowMs });

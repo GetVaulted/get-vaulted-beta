@@ -20,7 +20,7 @@ import {
   liveRoomShippingPatchFromMode,
   resolveLiveShowShippingCapCents,
 } from "@/lib/live-show-shipping-terms";
-import { seedSellerShippingProfiles } from "@/services/shipping/seller-shipping-profiles";
+import { ensureSellerShippingProfilesSeeded } from "@/services/shipping/seller-shipping-profiles";
 import { resolveSellerShippingProfileIdForCategory } from "@/lib/live-show-category-shipping-profile";
 import {
   resolveDefaultProfileForLiveShow,
@@ -453,7 +453,7 @@ export async function POST(req: Request) {
   await seedPlatformShippingProfiles().catch(() => {
     /* profiles table may not exist until migration runs */
   });
-  await seedSellerShippingProfiles(sellerId).catch(() => {});
+  await ensureSellerShippingProfilesSeeded(sellerId).catch(() => {});
 
   const defaultSellerProfiles = await prisma.sellerShippingProfile.findMany({
     where: { sellerId, archivedAt: null },

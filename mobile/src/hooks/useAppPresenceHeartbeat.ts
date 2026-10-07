@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { AppState, type AppStateStatus, Platform } from 'react-native';
 import { useAuth } from '../auth/AuthContext';
 import { fetchWebApiAuthed } from '../lib/fetchWebApiAuthed';
+import { jitteredMs } from '../lib/pollBackoff';
 
 const HEARTBEAT_MS = 45_000;
 
@@ -41,7 +42,7 @@ export function useAppPresenceHeartbeat() {
     const start = () => {
       ping();
       if (intervalId != null) clearInterval(intervalId);
-      intervalId = setInterval(ping, HEARTBEAT_MS);
+      intervalId = setInterval(ping, jitteredMs(HEARTBEAT_MS));
     };
 
     const stop = () => {

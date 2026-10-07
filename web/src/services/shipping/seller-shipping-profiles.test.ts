@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ensureSellerShippingProfilesSeeded,
   getActiveSellerShippingProfiles,
   SELLER_SHIPPING_PROFILE_SEEDS,
 } from "@/services/shipping/seller-shipping-profiles";
@@ -91,6 +92,39 @@ describe("getActiveSellerShippingProfiles", () => {
     const { db, upsert } = makeFakeDb(existing);
 
     await getActiveSellerShippingProfiles("seller-1", db);
+
+    expect(upsert).toHaveBeenCalledTimes(SELLER_SHIPPING_PROFILE_SEEDS.length);
+  });
+});
+
+describe("ensureSellerShippingProfilesSeeded", () => {
+  it("does zero writes for a fully seeded seller and skips even the read on the next call", async () => {
+    const existing = SELLER_SHIPPING_PROFILE_SEEDS.map((seed) => fakeProfileRow(seed.sourceSlug));
+    const { db, findMany, upsert } = makeFakeDb(existing);
+
+    await ensureSellerShippingProfilesSeeded("seller-ensure-full", db);
+    await ensureSellerShippingProfilesSeeded("seller-ensure-full", db);
+
+    expect(upsert).not.toHaveBeenCalled();
+    expect(findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts archived seeds as present so they never trigger reseeding", async () => {
+    const existing = SELLER_SHIPPING_PROFILE_SEEDS.map((seed, i) =>
+      fakeProfileRow(seed.sourceSlug, i === 0 ? { archivedAt: new Date() } : {}),
+    );
+    const { db, upsert } = makeFakeDb(existing);
+
+    await ensureSellerShippingProfilesSeeded("seller-ensure-archived", db);
+
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("seeds once when a seed slug is missing", async () => {
+    const existing = SELLER_SHIPPING_PROFILE_SEEDS.slice(1).map((seed) => fakeProfileRow(seed.sourceSlug));
+    const { db, upsert } = makeFakeDb(existing);
+
+    await ensureSellerShippingProfilesSeeded("seller-ensure-missing", db);
 
     expect(upsert).toHaveBeenCalledTimes(SELLER_SHIPPING_PROFILE_SEEDS.length);
   });

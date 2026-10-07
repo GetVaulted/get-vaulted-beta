@@ -4,6 +4,7 @@ import { subscribeHomeFeedInvalidation } from '../lib/homeFeedCache';
 import { shouldThrottleLiveDiscoveryFetch } from '../lib/liveDiscoveryFetchPolicy';
 import { LIVE_DISCOVERY_CHANNEL, LIVE_DISCOVERY_EVENT } from '../lib/liveDiscoveryRealtime';
 import { getSupabase } from '../lib/supabase';
+import { jitteredMs } from '../lib/pollBackoff';
 
 const DISCOVERY_POLL_MS = 45_000;
 
@@ -33,7 +34,7 @@ export function useLiveDiscoverySync(
   useFocusEffect(
     useCallback(() => {
       tick({ hadCache: true });
-      const id = setInterval(() => tick({ hadCache: true }), DISCOVERY_POLL_MS);
+      const id = setInterval(() => tick({ hadCache: true }), jitteredMs(DISCOVERY_POLL_MS));
       return () => clearInterval(id);
     }, [tick]),
   );

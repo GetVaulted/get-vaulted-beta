@@ -13,6 +13,7 @@ import {
 import { resolveSellerAccessToken } from '../lib/resolveSellerAccessToken';
 import type { LiveRoomChatBroadcastMessage } from './useRealtimeRoomSubscription';
 import type { ChatMessage, ChatMessageKind } from '../types';
+import { jitteredMs } from '../lib/pollBackoff';
 
 const joinCooldownByRoom = new Map<string, number>();
 
@@ -155,7 +156,7 @@ export function useLiveRoomChat(args: {
     const pollMs = args.realtimePrimary ? 30_000 : 4000;
     const id = setInterval(() => {
       void reload();
-    }, pollMs);
+    }, jitteredMs(pollMs));
     return () => clearInterval(id);
   }, [args.enabled, args.realtimePrimary, reload]);
 

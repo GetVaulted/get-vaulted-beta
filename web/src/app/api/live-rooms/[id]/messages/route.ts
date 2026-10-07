@@ -4,6 +4,7 @@ import { loadMentionsForSources, loadMentionsForSource } from "@/lib/mentions/lo
 import { processMessageMentions } from "@/lib/mentions/process-message-mentions";
 import { serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { prisma } from "@/lib/prisma";
+import { createTtlCache } from "@/lib/ttl-cache";
 import { resolveChatSenderId } from "@/lib/live-room-chat-auth";
 import { resolveOptionalLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { emitLiveRoomMessageDtoAndWait } from "@/lib/realtime-emit-server";
@@ -11,7 +12,7 @@ import { parseMentionUsernames } from "@/lib/mentions/parse-mentions";
 import { LIVE_ROOM_CHAT_HISTORY_MAX, liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import {
   filterStaffMessagesForViewer,
-  viewerCanAccessStaffChat,
+  viewerCanAccessStaffChatCached,
 } from "@/lib/live-room-staff-chat";
 import {
   getLastChatAt,
@@ -19,39 +20,54 @@ import {
   getLiveRoomUserRestrictions,
 } from "@/lib/trust/live-room-moderation";
 
+/**
+ * Chat history is the heaviest read in a live room: every viewer reloads it on a timer (and on any
+ * reconnect), and each load is a 300-row join plus mention lookups. New messages reach viewers over
+ * realtime, so this endpoint is the catch-up path and can be a second or two stale. One load is shared
+ * by every viewer on a server instance for CHAT_HISTORY_CACHE_MS.
+ */
+const CHAT_HISTORY_CACHE_MS = 1_500;
+const chatHistoryCache = createTtlCache<
+  { notFound: true } | { notFound: false; messages: ReturnType<typeof serializeLiveRoomMessage>[] }
+>();
+
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
   const liveRoomId = decodeURIComponent(raw);
 
-  const exists = await prisma.liveRoom.findUnique({ where: { id: liveRoomId }, select: { id: true } });
-  if (!exists) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
   const viewerId = await resolveOptionalLiveRoomsUserId(req);
-  const canSeeStaff = await viewerCanAccessStaffChat({ liveRoomId, userId: viewerId });
+  const canSeeStaff = await viewerCanAccessStaffChatCached({ liveRoomId, userId: viewerId });
 
-  const rows = await prisma.liveRoomMessage.findMany({
-    where: {
-      liveRoomId,
-      deletedAt: null,
-      ...(canSeeStaff ? {} : { messageType: { not: "staff" } }),
-    },
-    orderBy: { createdAt: "desc" },
-    take: LIVE_ROOM_CHAT_HISTORY_MAX,
-    include: { sender: { select: { username: true, image: true } } },
+  const result = await chatHistoryCache.get(`${liveRoomId}:${canSeeStaff ? "staff" : "public"}`, CHAT_HISTORY_CACHE_MS, async () => {
+    const exists = await prisma.liveRoom.findUnique({ where: { id: liveRoomId }, select: { id: true } });
+    if (!exists) return { notFound: true as const };
+
+    const rows = await prisma.liveRoomMessage.findMany({
+      where: {
+        liveRoomId,
+        deletedAt: null,
+        ...(canSeeStaff ? {} : { messageType: { not: "staff" } }),
+      },
+      orderBy: { createdAt: "desc" },
+      take: LIVE_ROOM_CHAT_HISTORY_MAX,
+      include: { sender: { select: { username: true, image: true } } },
+    });
+    rows.reverse();
+
+    const mentionMap = await loadMentionsForSources(
+      "live_room_message",
+      rows.map((r) => r.id),
+    );
+
+    const messages = filterStaffMessagesForViewer(
+      rows.map((r) => serializeLiveRoomMessage(r, mentionMap.get(r.id))),
+      canSeeStaff,
+    );
+    return { notFound: false as const, messages };
   });
-  rows.reverse();
 
-  const mentionMap = await loadMentionsForSources(
-    "live_room_message",
-    rows.map((r) => r.id),
-  );
-
-  const messages = filterStaffMessagesForViewer(
-    rows.map((r) => serializeLiveRoomMessage(r, mentionMap.get(r.id))),
-    canSeeStaff,
-  );
-
-  return NextResponse.json({ messages });
+  if (result.notFound) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json({ messages: result.messages });
 }
 
 type PostBody = {

@@ -40,6 +40,7 @@ import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
 import { useRealtimeRoomSubscription, type LiveRoomChatBroadcastMessage } from './useRealtimeRoomSubscription';
 import { useRealtimeRoomPresence } from './useRealtimeRoomPresence';
 import { syncLiveRoomViewerCount } from '../lib/syncLiveRoomViewerCount';
+import { jitteredMs, nextFallbackPollDelayMs } from '../lib/pollBackoff';
 
 const FALLBACK_POLL_CONNECTED_MS = 30_000;
 const FALLBACK_POLL_DISCONNECTED_MS = 5000;
@@ -560,21 +561,36 @@ export function useLiveRoomRealtimeSession(args: {
     guardRef.current = createRealtimeEventGuard();
     void fetchSnapshot();
     void refreshSkewFromTimeEndpoint();
-    const pollId = setInterval(() => {
-      const disconnected = !realtimeConnectedRef.current || !isSupabaseConfigured();
-      if (!disconnected) return;
-      setConnectionState('polling');
-      void fetchSnapshot();
-    }, FALLBACK_POLL_DISCONNECTED_MS);
+    // Disconnected fallback poll: backs off (5s -> 20s, jittered) while realtime stays down so a
+    // realtime outage or connection cap never turns every viewer into a 5s snapshot poller.
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    let pollStopped = false;
+    let disconnectedPolls = 0;
+    const schedulePoll = () => {
+      if (pollStopped) return;
+      pollTimer = setTimeout(() => {
+        const disconnected = !realtimeConnectedRef.current || !isSupabaseConfigured();
+        if (disconnected) {
+          disconnectedPolls += 1;
+          setConnectionState('polling');
+          void fetchSnapshot();
+        } else {
+          disconnectedPolls = 0;
+        }
+        schedulePoll();
+      }, nextFallbackPollDelayMs(disconnectedPolls, FALLBACK_POLL_DISCONNECTED_MS));
+    };
+    schedulePoll();
     const reconcileId = setInterval(() => {
       if (!realtimeConnectedRef.current || !isSupabaseConfigured()) return;
       void fetchSnapshot();
-    }, FALLBACK_POLL_CONNECTED_MS);
+    }, jitteredMs(FALLBACK_POLL_CONNECTED_MS));
     const skewId = setInterval(() => {
       void refreshSkewFromTimeEndpoint();
     }, SKEW_REFRESH_MS);
     return () => {
-      clearInterval(pollId);
+      pollStopped = true;
+      if (pollTimer != null) clearTimeout(pollTimer);
       clearInterval(reconcileId);
       clearInterval(skewId);
     };

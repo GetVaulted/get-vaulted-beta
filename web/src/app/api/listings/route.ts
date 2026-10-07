@@ -6,6 +6,7 @@ import { auctionBidCountsByListingIds } from "@/lib/listing-bid-counts";
 import { hasCompleteParcel } from "@/lib/listing-publish";
 import { prisma } from "@/lib/prisma";
 import { processAuctionPaymentExpiries } from "@/services/payments";
+import { processAuctionPaymentExpiriesThrottled } from "@/lib/throttled-expiry-sweep";
 import { assertSellerCanPublishListing } from "@/lib/seller-publish-readiness";
 import { embedListingInventoryChannel, parseInventoryChannelFromBody } from "@/lib/listing-inventory-channel";
 import { dbListingToMarketplace, dbListingToStored, type ListingWithSellerImages } from "@/lib/listing-mapper";
@@ -256,7 +257,7 @@ export async function GET(req: Request) {
 
   if (scope === "published") {
     try {
-      await processAuctionPaymentExpiries();
+      await processAuctionPaymentExpiriesThrottled();
     } catch (e) {
       console.error("[GET /api/listings] processAuctionPaymentExpiries", e);
     }
