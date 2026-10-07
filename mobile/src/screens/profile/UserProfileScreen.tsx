@@ -18,6 +18,7 @@ import { fetchCompletedTradesForUser } from '../../api/tradeOffersRepository';
 import { fetchSellerFollowStatus, fetchAccountFollows, toggleSellerFollow } from '../../api/sellerFollowRepository';
 import { setUserBlockedRemote } from '../../api/userBlockRepository';
 import { useAuth } from '../../auth/AuthContext';
+import { profileLiteFromShopSeller } from '../../lib/sellerProfileView';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { ProfileSellerShopPanel } from '../../components/profile/ProfileSellerShopPanel';
 import { ProfilePullsGallery } from '../../components/profile/ProfilePullsGallery';
@@ -81,19 +82,25 @@ export function UserProfileScreen({ navigation, route }: Props) {
       return;
     }
     const isSelf = user?.id === userId;
+    let shopSeller: Awaited<ReturnType<typeof fetchSellerShop>> = null;
     if (!isSelf && session?.access_token) {
-      const visibleShop = await fetchSellerShop({
+      shopSeller = await fetchSellerShop({
         sellerId: userId,
         accessToken: session.access_token,
       });
-      if (!visibleShop) {
+      if (!shopSeller) {
         setProfile(null);
         setDeleted(true);
         setLoading(false);
         return;
       }
     }
-    const p = await fetchProfileById(userId);
+    // Some accounts have a different id in `profiles` than in the store; fall back to the shop's seller card.
+    let p = await fetchProfileById(userId);
+    if (!p && !isSelf) {
+      shopSeller ??= await fetchSellerShop({ sellerId: userId, accessToken: session?.access_token });
+      p = profileLiteFromShopSeller(userId, shopSeller?.seller);
+    }
     setProfile(p);
     const [followStatus, stats, serverReviews, shows, trades] = await Promise.all([
       fetchSellerFollowStatus(userId, session?.access_token),

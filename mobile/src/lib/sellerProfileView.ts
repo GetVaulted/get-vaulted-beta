@@ -142,3 +142,25 @@ export function buildTrustRows(
     ...(reviews !== undefined ? [{ label: 'Buyer reviews', value: reviewSummaryLabel(reviews) }] : []),
   ];
 }
+
+/**
+ * A basic profile card built from the seller shop payload.
+ *
+ * The profile screen normally reads the Supabase `profiles` row by id, but a few accounts have two different ids
+ * (the store's `User.id` that listings and shows use, and the Supabase sign-in id that `profiles` uses), so that
+ * lookup finds nothing and the screen said "This profile is no longer available" for a live seller. The shop
+ * response always carries the seller's name and photo, so use it when the `profiles` row cannot be found by this id.
+ */
+export function profileLiteFromShopSeller(
+  userId: string,
+  seller: { username?: string | null; name?: string | null; image?: string | null } | null | undefined,
+): { id: string; username: string | null; display_name: string | null; avatar_url: string | null } | null {
+  const username = seller?.username?.trim() || null;
+  if (!seller || !username) return null;
+  return {
+    id: userId,
+    username,
+    display_name: seller.name?.trim() || username,
+    avatar_url: seller.image?.trim() || null,
+  };
+}

@@ -3,6 +3,7 @@ import {
   buildTrustRows,
   formatMemberSince,
   profileLinkDisplay,
+  profileLiteFromShopSeller,
   profileShowCard,
   reviewSummaryLabel,
   safeProfileLinkUrl,
@@ -108,5 +109,23 @@ describe('reviews in the trust card', () => {
     };
     expect(buildTrustRows(trust)).toHaveLength(4);
     expect(buildTrustRows(trust, { count: 3, average: 5 }).at(-1)).toEqual({ label: 'Buyer reviews', value: '5.0 ★ (3)' });
+  });
+});
+
+describe('profileLiteFromShopSeller', () => {
+  it('builds a profile card from the shop seller when the profiles row is missing', () => {
+    expect(
+      profileLiteFromShopSeller('store-id', { username: ' bigdawgbreakers ', name: null, image: 'https://x/a.jpg' }),
+    ).toEqual({
+      id: 'store-id',
+      username: 'bigdawgbreakers',
+      display_name: 'bigdawgbreakers',
+      avatar_url: 'https://x/a.jpg',
+    });
+  });
+
+  it('returns null when there is no usable seller', () => {
+    expect(profileLiteFromShopSeller('id', null)).toBeNull();
+    expect(profileLiteFromShopSeller('id', { username: '  ' })).toBeNull();
   });
 });
