@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Cormorant_Garamond, Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { KeyboardDismissProvider } from "@/components/providers/KeyboardDismissProvider";
@@ -15,20 +15,30 @@ import {
 } from "@/lib/site-seo";
 import "./globals.css";
 
-const geistSans = Geist({
+// Fonts are bundled in ./fonts (Geist and Geist Mono: SIL OFL, Vercel; Cormorant Garamond: SIL OFL) instead of
+// being downloaded from Google during `next build`. A Google Fonts hiccup used to fail the whole production deploy.
+const geistSans = localFont({
+  src: "./fonts/Geist-Variable.woff2",
   variable: "--font-geist-sans",
-  subsets: ["latin"],
+  weight: "100 900",
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
+  src: "./fonts/GeistMono-Variable.woff2",
   variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: "100 900",
+  display: "swap",
 });
 
-const displaySerif = Cormorant_Garamond({
+const displaySerif = localFont({
+  src: [
+    { path: "./fonts/CormorantGaramond-500.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/CormorantGaramond-600.woff2", weight: "600", style: "normal" },
+    { path: "./fonts/CormorantGaramond-700.woff2", weight: "700", style: "normal" },
+  ],
   variable: "--font-display-serif",
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
