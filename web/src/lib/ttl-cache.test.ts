@@ -39,3 +39,15 @@ describe("createTtlCache", () => {
     expect(cache.size()).toBeLessThanOrEqual(3);
   });
 });
+
+describe("createTtlCache.delete", () => {
+  it("forces the next get to load fresh", async () => {
+    const cache = createTtlCache<number>(10, () => 0);
+    let n = 0;
+    const load = async () => ++n;
+    expect(await cache.get("k", 1000, load)).toBe(1);
+    expect(await cache.get("k", 1000, load)).toBe(1);
+    cache.delete("k");
+    expect(await cache.get("k", 1000, load)).toBe(2);
+  });
+});

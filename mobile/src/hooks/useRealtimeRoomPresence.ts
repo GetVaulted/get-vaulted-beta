@@ -1,6 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { countRoomPresenceViewers } from '../lib/liveRoomPresenceCount';
+import { summarizeRoomPresence } from '../lib/liveRoomPresenceCount';
+import {
+  newSessionDraw,
+  planPresence,
+  resolveRoomSizeHint,
+  smoothWeightedCount,
+  weightDriftExceeds,
+} from '../lib/liveRoomScale';
 import { buildPresenceChannelKey, warmPresenceSlot } from '../lib/liveRoomPresenceKey';
 import { isLiveStagePipKeepAliveActive } from '../lib/liveStagePipKeepAlive';
 import {
@@ -11,6 +18,7 @@ import {
   createViewerCountStabilizerState,
   nextStabilizedViewerCount,
   resolveDisplayedViewerCount,
+  VIEWER_COUNT_BROADCAST_FRESH_MS,
   VIEWER_COUNT_DECREASE_HOLD_MS,
 } from '../lib/liveRoomViewerCountStabilize';
 import { RT_EVENT } from '../lib/realtimeChannels';
@@ -32,19 +40,42 @@ const HOST_UNCHANGED_PUBLISH_MS = 5_000;
  * Buyers track themselves; host consoles pass `trackSelf: false` to observe only and
  * broadcast the room-wide viewer count so every client shows the same number.
  */
-export function useRealtimeRoomPresence(opts: {
+export type RoomPresenceStats = {
+  /** Displayed viewer count (same number `useRealtimeRoomPresence` returns). */
+  count: number | null;
+  /** Best guess of room size (fresh host broadcast, else the `roomSizeHint` option). */
+  roomSizeHint: number;
+  /** A host console is broadcasting the count right now — viewers need not report it to the API. */
+  hostBroadcastFresh: boolean;
+  /** This viewer's stable random draw, used for all sampling decisions. */
+  draw: number;
+};
+
+export type RoomPresenceOptions = {
   liveRoomId: string | null;
   enabled?: boolean;
   userId?: string | null;
   viewerDisplayName?: string | null;
   trackSelf?: boolean;
-}): number | null {
+  /**
+   * Last known room size (e.g. `viewerCount` from the room snapshot). Big rooms switch to sampled presence
+   * so a 1,000-viewer show does not make every viewer announce itself to every other viewer.
+   */
+  roomSizeHint?: number | null;
+};
+
+export function useRealtimeRoomPresence(opts: RoomPresenceOptions): number | null {
+  return useRealtimeRoomPresenceStats(opts).count;
+}
+
+export function useRealtimeRoomPresenceStats(opts: RoomPresenceOptions): RoomPresenceStats {
   const {
     liveRoomId,
     enabled = true,
     userId = null,
     viewerDisplayName = null,
     trackSelf = true,
+    roomSizeHint = null,
   } = opts;
   const [localCount, setLocalCount] = useState<number | null>(null);
   const [broadcastCount, setBroadcastCount] = useState<number | null>(null);
@@ -54,6 +85,14 @@ export function useRealtimeRoomPresence(opts: {
   const userIdRef = useRef(userId);
   viewerDisplayNameRef.current = viewerDisplayName;
   userIdRef.current = userId;
+  const roomSizeHintRef = useRef<number | null>(roomSizeHint);
+  useEffect(() => {
+    roomSizeHintRef.current = roomSizeHint;
+  }, [roomSizeHint]);
+  /** One stable random number per viewer session — every sampling decision uses it. */
+  const [draw] = useState(() => newSessionDraw());
+  const broadcastRef = useRef<{ count: number | null; at: number | null }>({ count: null, at: null });
+  const smoothedRef = useRef<number | null>(null);
 
   const presenceKeyRef = useRef<string>('');
   const lastBroadcastRef = useRef<{ count: number | null; at: number }>({ count: null, at: 0 });
@@ -80,6 +119,8 @@ export function useRealtimeRoomPresence(opts: {
       setLocalCount(null);
       setBroadcastCount(null);
       setBroadcastAtMs(null);
+      broadcastRef.current = { count: null, at: null };
+      smoothedRef.current = null;
       stabilizerRef.current = createViewerCountStabilizerState();
       return undefined;
     }
@@ -95,6 +136,7 @@ export function useRealtimeRoomPresence(opts: {
     let hostPublishId: ReturnType<typeof setInterval> | null = null;
     let decreaseFlushId: ReturnType<typeof setTimeout> | null = null;
     let broadcastFreshId: ReturnType<typeof setInterval> | null = null;
+    let settleId: ReturnType<typeof setTimeout> | null = null;
     let appStateSub: { remove: () => void } | null = null;
     let channel: ReturnType<typeof retainLiveRoomChannel> | null = null;
     let supabase = getSupabase();
@@ -129,9 +171,22 @@ export function useRealtimeRoomPresence(opts: {
         });
       };
 
+      const currentHint = () => {
+        const b = broadcastRef.current;
+        return resolveRoomSizeHint({
+          broadcastCount: b.count,
+          broadcastFresh: b.at != null && Date.now() - b.at <= VIEWER_COUNT_BROADCAST_FRESH_MS,
+          snapshotHint: roomSizeHintRef.current,
+        });
+      };
+
       const updateCount = () => {
         if (!channel) return;
-        const raw = countRoomPresenceViewers(channel.presenceState());
+        const summary = summarizeRoomPresence(channel.presenceState());
+        // Sampled (weighted) counts are estimates — smooth them so the number does not twitch, and so the
+        // "increases apply immediately" stabilizer cannot ratchet up on noise.
+        const raw = summary.weighted ? smoothWeightedCount(smoothedRef.current, summary.count) : summary.count;
+        smoothedRef.current = summary.weighted ? raw : null;
         const now = Date.now();
         const next = nextStabilizedViewerCount(stabilizerRef.current, raw, now);
         stabilizerRef.current = next;
@@ -151,8 +206,31 @@ export function useRealtimeRoomPresence(opts: {
         }
       };
 
-      const trackPresence = async () => {
+      /** What we last announced for this connection (null until tracked). */
+      let announced: { weight: number; quiet: boolean } | null = null;
+
+      /**
+       * Decide whether this viewer should be in the presence list and announce / withdraw accordingly.
+       * Normal rooms: everyone tracks and `force` re-sends on the 45s heartbeat (unchanged behaviour).
+       * Big rooms: only a sample tracks (each carries a weight) and nothing is re-sent on a heartbeat —
+       * presence changes are broadcast to the whole room, so every avoided re-send is multiplied by the crowd.
+       */
+      const trackPresence = async (force = true) => {
         if (!channel || !trackSelf) return;
+        const plan = planPresence(draw, currentHint());
+        if (!plan.track) {
+          if (announced) {
+            announced = null;
+            await channel.untrack();
+            updateCount();
+          }
+          return;
+        }
+        const changed =
+          announced == null ||
+          announced.quiet !== plan.quiet ||
+          weightDriftExceeds(announced.weight, plan.weight);
+        if (!changed && !(force && !plan.quiet)) return;
         const uid = userIdRef.current;
         const username =
           typeof viewerDisplayNameRef.current === 'string' && viewerDisplayNameRef.current.trim().length > 0
@@ -160,12 +238,15 @@ export function useRealtimeRoomPresence(opts: {
             : uid
               ? 'Member'
               : 'Guest';
+        announced = { weight: plan.weight, quiet: plan.quiet };
         await channel.track({
           tabKey: presenceKey,
           userId: uid,
           username,
           liveRoomId,
           at: new Date().toISOString(),
+          w: plan.weight,
+          nohb: plan.quiet,
         });
         updateCount();
       };
@@ -179,6 +260,7 @@ export function useRealtimeRoomPresence(opts: {
       const untrackPresence = async () => {
         if (!channel || !trackSelf) return;
         if (isLiveStagePipKeepAliveActive()) return;
+        announced = null;
         await channel.untrack();
       };
 
@@ -190,14 +272,16 @@ export function useRealtimeRoomPresence(opts: {
       unbindViewerCount = bindLiveRoomViewerCountHandler(liveRoomId, (payload) => {
         const n = parseViewerCountBroadcast(payload);
         if (n == null) return;
+        const at = Date.now();
+        broadcastRef.current = { count: n, at };
         setBroadcastCount(n);
-        setBroadcastAtMs(Date.now());
+        setBroadcastAtMs(at);
       });
 
       if (trackSelf) {
         broadcastFreshId = setInterval(() => setTick((t) => t + 1), 2_000);
         appStateSub = AppState.addEventListener('change', (next: AppStateStatus) => {
-          if (next === 'active') void trackPresence();
+          if (next === 'active') void trackPresence(true);
           else if (next === 'background') void untrackPresence();
         });
       }
@@ -205,9 +289,15 @@ export function useRealtimeRoomPresence(opts: {
       unsubscribeStatus = subscribeLiveRoomChannel(liveRoomId, async (status) => {
         if (status !== 'SUBSCRIBED') return;
         if (trackSelf) {
-          await trackPresence();
+          // A new socket has no presence on the server yet — forget what we announced on the old one.
+          announced = null;
+          await trackPresence(true);
           if (heartbeatId != null) clearInterval(heartbeatId);
-          heartbeatId = setInterval(() => void trackPresence(), PRESENCE_HEARTBEAT_MS);
+          heartbeatId = setInterval(() => void trackPresence(true), PRESENCE_HEARTBEAT_MS);
+          // Re-check the plan soon after joining: the room-size hint is often stale (or 0) at join time,
+          // and the first host broadcast arrives within a few seconds.
+          if (settleId != null) clearTimeout(settleId);
+          settleId = setTimeout(() => void trackPresence(false), 8_000 + Math.round(Math.random() * 4_000));
         } else {
           updateCount();
           if (hostPublishId != null) clearInterval(hostPublishId);
@@ -245,6 +335,7 @@ export function useRealtimeRoomPresence(opts: {
       if (hostPublishId != null) clearInterval(hostPublishId);
       if (decreaseFlushId != null) clearTimeout(decreaseFlushId);
       if (broadcastFreshId != null) clearInterval(broadcastFreshId);
+      if (settleId != null) clearTimeout(settleId);
       unsubscribeStatus?.();
       unbindPresence?.();
       unbindViewerCount?.();
@@ -256,12 +347,21 @@ export function useRealtimeRoomPresence(opts: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, liveRoomId, trackSelf]);
 
-  if (!trackSelf) return localCount;
-
-  return resolveDisplayedViewerCount({
+  const nowMs = Date.now();
+  const hostBroadcastFresh =
+    broadcastAtMs != null && nowMs - broadcastAtMs <= VIEWER_COUNT_BROADCAST_FRESH_MS;
+  const roomSizeHintNow = resolveRoomSizeHint({
     broadcastCount,
-    broadcastAtMs,
-    localCount,
-    nowMs: Date.now(),
+    broadcastFresh: hostBroadcastFresh,
+    snapshotHint: roomSizeHint,
   });
+
+  if (!trackSelf) return { count: localCount, roomSizeHint: roomSizeHintNow, hostBroadcastFresh, draw };
+
+  return {
+    count: resolveDisplayedViewerCount({ broadcastCount, broadcastAtMs, localCount, nowMs }),
+    roomSizeHint: roomSizeHintNow,
+    hostBroadcastFresh,
+    draw,
+  };
 }
