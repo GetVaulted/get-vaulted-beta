@@ -241,10 +241,10 @@ function SpotTile({
               style={[styles.pinActionBtn, pinned && styles.pinActionBtnActive]}
               onPress={() => onPinTeam?.(row.variantId!)}
               disabled={pinBusy}
-              accessibilityLabel={`Pin ${row.label} for buyers`}
+              accessibilityLabel={pinned ? `Unpin ${row.label}` : `Pin ${row.label} for buyers`}
             >
               <LiveRoomText style={[styles.pinActionBtnText, pinned && styles.pinActionBtnTextActive]}>
-                {pinned ? 'Pinned' : 'Pin'}
+                {pinned ? 'Unpin' : 'Pin'}
               </LiveRoomText>
             </Pressable>
           ) : null}

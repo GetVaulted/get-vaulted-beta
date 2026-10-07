@@ -68,7 +68,7 @@ import { LiveRoomShareSheet } from "@/components/live-auction/LiveRoomShareSheet
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import { toUserFacingErrorMessage } from "@/lib/user-facing-error-message";
-import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
+import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates, nextHostPinnedVariantId } from "@/lib/live-item-variant-presets";
 import { sweet16SalesStatus } from "@/lib/sweet16-draft-client";
 import {
   isVariantSpotAuctionArmed,
@@ -1102,7 +1102,10 @@ export function LiveAuctionRoom({
       setPinVariantBusy(true);
       setActionError(null);
       try {
-        const updates = buildExclusiveHostPinUpdates(activeDbItem.variants, variantId);
+        const updates = buildExclusiveHostPinUpdates(
+          activeDbItem.variants,
+          nextHostPinnedVariantId(activeDbItem.variants, variantId),
+        );
         const res = await patchLiveItemVariants(liveRoomId, activeDbItem.id, updates);
         if (!res.ok) {
           setActionError(res.error);

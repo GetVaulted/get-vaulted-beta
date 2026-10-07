@@ -40,7 +40,12 @@ import {
   type LotPricingValues,
   type LotSaleType,
 } from "@/components/break-host/HostEditLotPricingModal";
-import { buildExclusiveHostPinUpdates, hostPinnedBuyerVariant, isVariantSalesFormat } from "@/lib/live-item-variant-presets";
+import {
+  buildExclusiveHostPinUpdates,
+  hostPinnedBuyerVariant,
+  isVariantSalesFormat,
+  nextHostPinnedVariantId,
+} from "@/lib/live-item-variant-presets";
 import { HOST_PIN_BLOCKED_AUCTION_LIVE_MSG, hostPinLotBlocked } from "@/lib/host-queue-selection";
 import {
   canHostStartLiveAuction,
@@ -2521,7 +2526,9 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     setPinVariantBusy(true);
     setToast(null);
     try {
-      const updates = buildExclusiveHostPinUpdates(variants, variantId);
+      // Tapping the already-pinned spot unpins it (back to the whole board).
+      const nextPinned = nextHostPinnedVariantId(variants, variantId);
+      const updates = buildExclusiveHostPinUpdates(variants, nextPinned);
       const res = await patchLiveItemVariants(roomId, itemId, updates);
       if (!res.ok) {
         setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
@@ -2529,7 +2536,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       }
       await load();
       router.refresh();
-      setToast("Team open for buyers — they can claim or buy now.");
+      setToast(nextPinned ? "Team open for buyers — they can claim or buy now." : "Unpinned — buyers see the whole board.");
     } finally {
       setPinVariantBusy(false);
     }

@@ -278,11 +278,24 @@ export function hostPinnedBuyerVariant(
   return pinned[0] ?? null;
 }
 
+/**
+ * `pinnedVariantId: null` clears every pin — how the host un-pins a spot and returns the board to
+ * showing every spot, not just a way to swap which spot is pinned.
+ */
 export function buildExclusiveHostPinUpdates(
   variants: Array<{ id: string }>,
-  pinnedVariantId: string,
+  pinnedVariantId: string | null,
 ): Array<{ id: string; isHot: boolean }> {
-  return variants.map((v) => ({ id: v.id, isHot: v.id === pinnedVariantId }));
+  return variants.map((v) => ({ id: v.id, isHot: pinnedVariantId != null && v.id === pinnedVariantId }));
+}
+
+/** Tapping the already-pinned spot unpins it; tapping any other spot pins that one. */
+export function nextHostPinnedVariantId(
+  variants: Array<{ id: string; isHot?: boolean }>,
+  tappedVariantId: string,
+): string | null {
+  const tapped = variants.find((v) => v.id === tappedVariantId);
+  return tapped?.isHot ? null : tappedVariantId;
 }
 
 /** Buyer CTA on pinned PYT/PYD/PYP break — opens the spot picker sheet. */
