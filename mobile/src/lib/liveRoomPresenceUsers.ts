@@ -48,3 +48,19 @@ export function parseRoomPresenceUsers(
 
   return [...byKey.values()].sort((a, b) => a.username.localeCompare(b.username, undefined, { sensitivity: 'base' }));
 }
+
+/**
+ * True when two rosters list the same people in the same order. Rosters come back sorted, so a
+ * positional compare is enough. Used to skip state updates (and the re-render that follows) when a
+ * poll finds nothing changed — in a busy room that is nearly every poll.
+ */
+export function sameRoomPresenceRoster(a: RoomPresenceUser[], b: RoomPresenceUser[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i].userId !== b[i].userId || a[i].username !== b[i].username || a[i].tabKey !== b[i].tabKey) {
+      return false;
+    }
+  }
+  return true;
+}

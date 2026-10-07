@@ -232,6 +232,33 @@ export async function seedSellerShippingProfiles(
   return { count };
 }
 
+/** Sellers already known (this server instance) to have every seed slug — seeds only ever grow. */
+const fullySeededSellers = new Set<string>();
+const FULLY_SEEDED_CACHE_MAX = 5000;
+
+/**
+ * Cheap guard for hot paths (live room reads, spot-profile resolution): one indexed read of the
+ * seller's slugs, and the 16 upserts in {@link seedSellerShippingProfiles} only run when a seed
+ * slug is actually missing. Archived rows count as present so an archived seed never re-triggers
+ * seeding. Once a seller is confirmed fully seeded, later calls skip even the read.
+ */
+export async function ensureSellerShippingProfilesSeeded(
+  sellerId: string,
+  db: Db = prisma,
+): Promise<void> {
+  if (fullySeededSellers.has(sellerId)) return;
+  const rows = await db.sellerShippingProfile.findMany({
+    where: { sellerId },
+    select: { sourceSlug: true },
+  });
+  const have = new Set(rows.map((r) => r.sourceSlug));
+  if (!SELLER_SHIPPING_PROFILE_SEEDS.every((seed) => have.has(seed.sourceSlug))) {
+    await seedSellerShippingProfiles(sellerId, db);
+  }
+  if (fullySeededSellers.size >= FULLY_SEEDED_CACHE_MAX) fullySeededSellers.clear();
+  fullySeededSellers.add(sellerId);
+}
+
 /**
  * Regression (Sept 2026): this used to call `seedSellerShippingProfiles` unconditionally on
  * every single call. That function loops over all 16 seed rows and `upsert`s each one, so every
@@ -269,7 +296,7 @@ export async function resolveDefaultSellerProfileForLiveShow(args: {
   db?: Db;
 }) {
   const db = args.db ?? prisma;
-  await seedSellerShippingProfiles(args.sellerId, db);
+  await ensureSellerShippingProfilesSeeded(args.sellerId, db);
   if (args.showDefaultSellerProfileId?.trim()) {
     const explicit = await db.sellerShippingProfile.findFirst({
       where: {
@@ -328,7 +355,7 @@ export async function resolveBreakSpotSellerProfile(args: {
   db?: Db;
 }) {
   const db = args.db ?? prisma;
-  await seedSellerShippingProfiles(args.sellerId, db);
+  await ensureSellerShippingProfilesSeeded(args.sellerId, db);
   const categorySlug = suggestSellerShippingProfileSourceSlugForCategory(args.category);
   const categoryWantsHeavyParcel =
     categorySlug === "full_size_helmet" || categorySlug === "mini_helmet";
