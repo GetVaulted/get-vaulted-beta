@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { countRoomPresenceViewers, parseRoomPresenceUsers, PRESENCE_STALE_MS } from "./live-room-presence-count";
+import {
+  countRoomPresenceViewers,
+  parseRoomPresenceUsers,
+  PRESENCE_STALE_MS,
+  summarizeRoomPresence,
+} from "./live-room-presence-count";
 
 describe("countRoomPresenceViewers", () => {
   it("counts unique viewers", () => {
@@ -107,5 +112,53 @@ describe("parseRoomPresenceUsers", () => {
         now,
       ),
     ).toEqual([{ userId: null, username: "viewer", tabKey: "g1" }]);
+  });
+});
+
+describe("weighted (sampled) presence", () => {
+  it("sums per-connection weights", () => {
+    expect(
+      countRoomPresenceViewers({
+        a: [{ tabKey: "a", w: 10, nohb: true }],
+        b: [{ tabKey: "b", w: 10, nohb: true }],
+        c: [{ tabKey: "c" }],
+      }),
+    ).toBe(21);
+  });
+
+  it("ignores nonsense weights and uses 1", () => {
+    expect(
+      countRoomPresenceViewers({
+        a: [{ tabKey: "a", w: -4 }],
+        b: [{ tabKey: "b", w: "x" }],
+        c: [{ tabKey: "c", w: Number.NaN }],
+      }),
+    ).toBe(3);
+  });
+
+  it("uses the larger weight when one connection has two metas", () => {
+    expect(
+      countRoomPresenceViewers({
+        a: [
+          { tabKey: "a", w: 10, nohb: true },
+          { tabKey: "a", w: 20, nohb: true },
+        ],
+      }),
+    ).toBe(20);
+  });
+
+  it("keeps quiet (no-heartbeat) entries past the stale window but still drops stale heartbeat entries", () => {
+    const old = "2000-01-01T00:00:00.000Z";
+    expect(
+      countRoomPresenceViewers({
+        quiet: [{ tabKey: "q", at: old, nohb: true }],
+        stale: [{ tabKey: "s", at: old }],
+      }),
+    ).toBe(1);
+  });
+
+  it("reports whether the count is an estimate", () => {
+    expect(summarizeRoomPresence({ a: [{ tabKey: "a" }] }).weighted).toBe(false);
+    expect(summarizeRoomPresence({ a: [{ tabKey: "a", w: 5 }] })).toEqual({ count: 5, weighted: true, connections: 1 });
   });
 });

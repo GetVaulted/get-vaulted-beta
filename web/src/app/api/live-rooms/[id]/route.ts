@@ -42,6 +42,9 @@ import {
   filterStaffMessagesForViewer,
   viewerCanAccessStaffChatCached,
 } from "@/lib/live-room-staff-chat";
+import { createTtlCache } from "@/lib/ttl-cache";
+import { effectiveLiveRoomViewerCount } from "@/lib/live-room-viewer-count-freshness";
+import { isBigRoom } from "@/lib/live-room-scale";
 
 const includeDetail = {
   seller: { select: { id: true, username: true, image: true } as const },
@@ -64,6 +67,41 @@ const includeDetail = {
   },
 } as const;
 
+const loadRoomForDetail = (roomId: string) =>
+  prisma.liveRoom.findUnique({ where: { id: roomId }, include: includeDetail });
+
+/**
+ * Big-show read shield. The room row with all its includes (lots + variants, 200 chat rows, spots, hits)
+ * is identical for every viewer and is the heaviest query of the snapshot. Once a room is known to be big
+ * (more than ~150 viewers, remembered per server instance for a minute), concurrent viewers share one load
+ * per second instead of each running their own. Clients already ignore older snapshots (roomVersion /
+ * itemVersion / auctionEventSeq merge guards) and realtime events carry the immediate state, so a
+ * one-second-old read is safe. Small rooms never use the cache. The host, and any request that needs to
+ * write (overdue lot sweep, Buy Now checkout healing), always re-read fresh.
+ */
+const ROOM_READ_SHARE_MS = 1_000;
+const BIG_ROOM_MARK_MS = 60_000;
+const roomReadCache = createTtlCache<Awaited<ReturnType<typeof loadRoomForDetail>>>(500);
+const bigRoomUntilMs = new Map<string, number>();
+
+function markBigRoom(roomId: string, room: { viewerCount: number; viewerCountUpdatedAt: Date | null }) {
+  const big = isBigRoom(
+    effectiveLiveRoomViewerCount({
+      viewerCount: room.viewerCount,
+      viewerCountUpdatedAt: room.viewerCountUpdatedAt,
+    }),
+  );
+  if (big) {
+    if (bigRoomUntilMs.size > 500 && !bigRoomUntilMs.has(roomId)) {
+      const oldest = bigRoomUntilMs.keys().next().value;
+      if (oldest !== undefined) bigRoomUntilMs.delete(oldest);
+    }
+    bigRoomUntilMs.set(roomId, Date.now() + BIG_ROOM_MARK_MS);
+  } else {
+    bigRoomUntilMs.delete(roomId);
+  }
+}
+
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
   const id = safeDecodeRouteSegment(raw ?? "");
@@ -78,10 +116,18 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     }
   }
 
-  let room = await prisma.liveRoom.findUnique({
-    where: { id },
-    include: includeDetail,
-  });
+  const sharedUntil = bigRoomUntilMs.get(id);
+  let readFromShared = sharedUntil != null && sharedUntil > Date.now();
+  let room = readFromShared
+    ? await roomReadCache.get(id, ROOM_READ_SHARE_MS, () => loadRoomForDetail(id))
+    : await loadRoomForDetail(id);
+  /** Replace a shared (possibly up to 1s old) read with a fresh one. */
+  const readFresh = async () => {
+    roomReadCache.delete(id);
+    const fresh = await loadRoomForDetail(id);
+    readFromShared = false;
+    return fresh;
+  };
   if (!room) {
     logLiveLoaderDebug("api_live_rooms_get_not_found", {
       liveRoomId: id,
@@ -96,10 +142,20 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   // host pressing Close or on any client countdown. Idempotent; only fires when a lot is overdue.
   if (room.status === "live" && (room.roomType === "auction" || room.roomType === "break" || room.roomType === "sale")) {
     const nowMs = Date.now();
-    const hasOverdue = room.items.some(
-      (it) => it.status === "active" && it.biddingOpen && it.auctionEndsAt != null
-        && it.auctionEndsAt.getTime() <= nowMs - LIVE_AUCTION_AUTO_CLOSE_GRACE_MS,
-    );
+    const isOverdue = (r: NonNullable<typeof room>) =>
+      r.items.some(
+        (it) => it.status === "active" && it.biddingOpen && it.auctionEndsAt != null
+          && it.auctionEndsAt.getTime() <= nowMs - LIVE_AUCTION_AUTO_CLOSE_GRACE_MS,
+      );
+    let hasOverdue = isOverdue(room);
+    if (hasOverdue && readFromShared) {
+      // The shared read may predate a sweep another request just finished — confirm on fresh data.
+      const fresh = await readFresh();
+      if (fresh) {
+        room = fresh;
+        hasOverdue = isOverdue(room);
+      }
+    }
     if (hasOverdue) {
       try {
         await finalizeOverdueLiveAuctionLotsForRoom({
@@ -130,6 +186,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
           it.priceUsd > 0,
       )
       .slice(0, 20);
+    if (needsCheckoutLink.length > 0 && readFromShared) {
+      const fresh = await readFresh();
+      if (fresh) room = fresh;
+    }
     if (needsCheckoutLink.length > 0) {
       let healed = false;
       for (const it of needsCheckoutLink) {
@@ -168,6 +228,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const sellerEmail = seller?.email?.trim().toLowerCase();
     isHost = Boolean(actorEmail && sellerEmail && actorEmail === sellerEmail);
   }
+  if (isHost && readFromShared) {
+    // The host must always see their own latest state.
+    const fresh = await readFresh();
+    if (fresh) room = fresh;
+  }
   if (isHiddenFixtureSellerEmail(seller?.email) && !isHost && !isAdmin) {
     logLiveLoaderDebug("api_live_rooms_get_hidden_fixture", {
       liveRoomId: id,
@@ -178,6 +243,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  markBigRoom(id, room);
   const serverNowMs = Date.now();
   const detail = buildLiveRoomDetail(room);
   if (isHost) {

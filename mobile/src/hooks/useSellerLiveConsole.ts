@@ -86,6 +86,12 @@ export function useSellerLiveConsole({
   useEffect(() => {
     if (liveViewerCount == null || roomStatus !== 'live') return;
     void syncLiveRoomViewerCount({ liveRoomId: roomId, viewerCount: liveViewerCount, accessToken });
+    // Keep-alive: discovery treats the persisted count as expired after 90s without a write, and an
+    // unchanged count would otherwise never be re-sent (viewers no longer report it in big rooms).
+    const keepAliveId = setInterval(() => {
+      void syncLiveRoomViewerCount({ liveRoomId: roomId, viewerCount: liveViewerCount, accessToken });
+    }, 30_000);
+    return () => clearInterval(keepAliveId);
   }, [accessToken, liveViewerCount, roomId, roomStatus]);
   const [serverNowMs, setServerNowMs] = useState(Date.now());
   const [loading, setLoading] = useState(true);

@@ -11,6 +11,8 @@ type Entry<T> = { value: T; expiresAtMs: number };
 
 export type TtlCache<T> = {
   get(key: string, ttlMs: number, load: () => Promise<T>): Promise<T>;
+  /** Drop one key (and any in-flight load, so the next `get` loads fresh). */
+  delete(key: string): void;
   clear(): void;
   size(): number;
 };
@@ -48,6 +50,10 @@ export function createTtlCache<T>(maxEntries = 2_000, now: () => number = Date.n
         });
       inflight.set(key, p);
       return p;
+    },
+    delete(key) {
+      entries.delete(key);
+      inflight.delete(key);
     },
     clear() {
       entries.clear();

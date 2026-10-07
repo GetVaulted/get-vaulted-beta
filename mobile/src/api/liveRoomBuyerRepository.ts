@@ -76,6 +76,8 @@ export type LiveRoomBuyerSnapshot = {
   serverNowMs?: number;
   /** Monotonic auction event counter from GET (bid_placed dedupe seed). */
   auctionEventSeq?: number;
+  /** Concurrent viewers from the server's last presence sync — used only to size load-shedding. */
+  viewerCount?: number;
   /** Break rooms — from API `room.break` when present. */
   breakPhase?: 'not_started' | 'filling' | 'randomizing' | 'ready' | 'in_progress' | 'complete' | null;
   breakLockPurchases?: boolean;
@@ -299,6 +301,7 @@ export async function fetchLiveRoomBuyerSnapshot(
       status?: string;
       roomType?: string;
       auctionEventSeq?: number;
+      viewerCount?: number;
       buyerLiveBidPaymentReady?: boolean;
       buyerLiveShippingReady?: boolean;
       buyerUnresolvedPaymentFailure?: unknown;
@@ -449,6 +452,10 @@ export async function fetchLiveRoomBuyerSnapshot(
     auctionEventSeq:
       typeof detail?.auctionEventSeq === 'number' && Number.isFinite(detail.auctionEventSeq)
         ? Math.max(0, Math.floor(detail.auctionEventSeq))
+        : undefined,
+    viewerCount:
+      typeof detail?.viewerCount === 'number' && Number.isFinite(detail.viewerCount)
+        ? Math.max(0, Math.floor(detail.viewerCount))
         : undefined,
     variantCheckoutPreview:
       detail?.variantCheckoutPreview != null

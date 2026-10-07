@@ -16,7 +16,13 @@ export type RoomPresenceUser = {
  */
 export const PRESENCE_STALE_MS = 120_000;
 
-function isFreshPresenceEntry(p: Record<string, unknown>, nowMs: number, staleMs: number): boolean {
+/**
+ * Entries from big rooms are tracked once and NOT re-sent on a heartbeat (every re-send is a broadcast to
+ * the whole room). They are marked `nohb: true`, and for those we trust Supabase's own disconnect cleanup
+ * instead of the `at` freshness gate.
+ */
+export function isFreshPresenceEntry(p: Record<string, unknown>, nowMs: number, staleMs: number): boolean {
+  if (p.nohb === true) return true;
   const at = typeof p.at === "string" ? Date.parse(p.at) : NaN;
   if (!Number.isFinite(at)) return true; // no timestamp on this entry — don't penalize it
   return nowMs - at <= staleMs;
@@ -36,14 +42,29 @@ function normalizePresenceUsername(username: unknown, userId: string | null): st
  * as two. This is deliberately NOT the same as the roster (`parseRoomPresenceUsers`), which dedupes
  * by account. The host console tracks nothing (observe-only), so the host is never counted.
  */
-export function countRoomPresenceViewers(
+export type RoomPresenceSummary = {
+  /** Estimated viewers: sum of per-connection weights (1 each unless the room is sampled). */
+  count: number;
+  /** True when any entry stands for more than one viewer (big-room sampling is active). */
+  weighted: boolean;
+  /** Distinct tracked connections (the sample size). */
+  connections: number;
+};
+
+function presenceEntryWeight(p: Record<string, unknown>): number {
+  const w = p.w;
+  if (typeof w !== "number" || !Number.isFinite(w) || w < 1) return 1;
+  return Math.min(w, 1000);
+}
+
+export function summarizeRoomPresence(
   state: Record<string, unknown> | null | undefined,
   nowMs: number = Date.now(),
   staleMs: number = PRESENCE_STALE_MS,
-): number {
-  if (!state || typeof state !== "object") return 0;
+): RoomPresenceSummary {
+  if (!state || typeof state !== "object") return { count: 0, weighted: false, connections: 0 };
 
-  const connections = new Set<string>();
+  const weights = new Map<string, number>();
   for (const [stateKey, entries] of Object.entries(state)) {
     const list = Array.isArray(entries) ? entries : entries != null ? [entries] : [];
     for (const raw of list) {
@@ -51,10 +72,34 @@ export function countRoomPresenceViewers(
       const p = raw as Record<string, unknown>;
       if (!isFreshPresenceEntry(p, nowMs, staleMs)) continue;
       const tabKey = typeof p.tabKey === "string" && p.tabKey.trim() ? p.tabKey.trim() : undefined;
-      connections.add(tabKey ?? stateKey);
+      const key = tabKey ?? stateKey;
+      const w = presenceEntryWeight(p);
+      const prev = weights.get(key);
+      if (prev == null || w > prev) weights.set(key, w);
     }
   }
-  return connections.size;
+  let total = 0;
+  let weighted = false;
+  for (const w of weights.values()) {
+    total += w;
+    if (w > 1) weighted = true;
+  }
+  return { count: Math.round(total), weighted, connections: weights.size };
+}
+
+/**
+ * Live viewer count = per-connection headcount (one per device/session): +1 when someone enters,
+ * -1 when they leave. Each distinct presence slot counts, so the same account on two devices shows
+ * as two. This is deliberately NOT the same as the roster (`parseRoomPresenceUsers`), which dedupes
+ * by account. The host console tracks nothing (observe-only), so the host is never counted.
+ * In a big (sampled) room each tracked connection carries a weight `w` and the count is their sum.
+ */
+export function countRoomPresenceViewers(
+  state: Record<string, unknown> | null | undefined,
+  nowMs: number = Date.now(),
+  staleMs: number = PRESENCE_STALE_MS,
+): number {
+  return summarizeRoomPresence(state, nowMs, staleMs).count;
 }
 
 /**

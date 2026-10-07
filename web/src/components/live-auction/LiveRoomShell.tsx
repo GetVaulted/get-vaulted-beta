@@ -6,7 +6,14 @@ import { useSession } from "next-auth/react";
 import { LiveAuctionRoom } from "@/components/live-auction/LiveAuctionRoom";
 import { LiveSaleRoom } from "@/components/live-auction/LiveSaleRoom";
 import { LiveSweet16Draft } from "@/components/live-auction/LiveSweet16Draft";
-import { useRealtimeRoomPresence } from "@/hooks/useRealtimeRoomPresence";
+import { useRealtimeRoomPresenceStats } from "@/hooks/useRealtimeRoomPresence";
+import {
+  bigRoomPollMs,
+  isBigRoom,
+  jitteredDelayMs,
+  reconcileDelayForRoom,
+  shouldReportViewerCount,
+} from "@/lib/live-room-scale";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { logLiveDebugEvent } from "@/lib/live-debug";
@@ -137,14 +144,19 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     });
   }, [roomId]);
 
+  /** True while the shared realtime channel is SUBSCRIBED. Polls only stretch for big rooms while this holds. */
+  const realtimeConnectedRef = useRef(false);
+
   // Saved / scheduled / ended shows are not live rooms — do not mount presence (or crash the page
   // trying to attach presence callbacks on a channel already subscribed for moderation/chat).
-  const presenceCount = useRealtimeRoomPresence({
+  const presenceStats = useRealtimeRoomPresenceStats({
     liveRoomId: roomId,
     enabled: Boolean(roomId) && detail?.status === "live",
+    roomSizeHint: detail?.viewerCount ?? null,
     userId: session?.user?.id ?? null,
     viewerDisplayName: session?.user?.username?.trim() ? session.user.username : null,
     onPresenceStateChange: ({ status, reconnectCount }) => {
+      realtimeConnectedRef.current = status === "SUBSCRIBED";
       if (reconnectCount > reconnectCountRef.current) reconnectCountRef.current = reconnectCount;
       logLiveDebugEvent({
         event: "presence_state",
@@ -155,9 +167,25 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     },
   });
 
-  // Keep discovery / feed in sync with live presence (not a stale DB snapshot).
+  const presenceCount = presenceStats.count;
+  const presenceStatsRef = useRef(presenceStats);
+  presenceStatsRef.current = presenceStats;
+
+  // Keep discovery / feed in sync with live presence (not a stale DB snapshot). The host console is the
+  // main writer; a viewer only reports as a backup when no host is broadcasting the count, and in a big
+  // room only a handful of viewers do (otherwise every viewer would write the same row every few seconds).
   useEffect(() => {
     if (presenceCount == null || detail?.status !== "live" || !session?.user?.id) return;
+    const stats = presenceStatsRef.current;
+    if (
+      !shouldReportViewerCount({
+        hint: stats.roomSizeHint,
+        draw: stats.draw,
+        hostBroadcastFresh: stats.hostBroadcastFresh,
+      })
+    ) {
+      return;
+    }
     void syncLiveRoomViewerCount({ liveRoomId: roomId, viewerCount: presenceCount });
   }, [detail?.status, presenceCount, roomId, session?.user?.id]);
 
@@ -170,7 +198,11 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   }, [detail?.activeItem?.id]);
 
   const scheduleFallbackRefresh = useCallback(
-    (reason: string, delayMs = 700) => {
+    (reason: string, baseDelayMs = 700, opts?: { sampleable?: boolean }) => {
+      // Big rooms: spread refetches over a window (and, for high-frequency events whose payload already
+      // carries the new state, only a sample of viewers refetch) so one bid is not 1,000 simultaneous GETs.
+      const delayMs = reconcileDelayForRoom(baseDelayMs, presenceStatsRef.current.roomSizeHint, opts);
+      if (delayMs == null) return;
       if (fallbackRefreshTimerRef.current != null) {
         window.clearTimeout(fallbackRefreshTimerRef.current);
       }
@@ -433,26 +465,37 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const roomSnapshotFlushRef = useRef<number | null>(null);
   const requestRoomSnapshotSync = useCallback(() => {
     if (roomSnapshotFlushRef.current != null) return;
-    roomSnapshotFlushRef.current = window.requestAnimationFrame(() => {
+    const delayMs = reconcileDelayForRoom(0, presenceStatsRef.current.roomSizeHint, { sampleable: true });
+    if (delayMs == null) return;
+    if (delayMs === 0) {
+      roomSnapshotFlushRef.current = window.requestAnimationFrame(() => {
+        roomSnapshotFlushRef.current = null;
+        void load();
+      });
+      return;
+    }
+    roomSnapshotFlushRef.current = window.setTimeout(() => {
       roomSnapshotFlushRef.current = null;
       void load();
-    });
+    }, delayMs);
   }, [load]);
 
   /** Coalesce `queue_items` → GET so it does not race `active_item_changed` + replica lag on host Start. */
   const queueSnapshotDebounceRef = useRef<number | null>(null);
   const requestQueueSnapshotSyncDebounced = useCallback(() => {
     if (queueSnapshotDebounceRef.current != null) window.clearTimeout(queueSnapshotDebounceRef.current);
+    const delayMs = reconcileDelayForRoom(100, presenceStatsRef.current.roomSizeHint) ?? 100;
     queueSnapshotDebounceRef.current = window.setTimeout(() => {
       queueSnapshotDebounceRef.current = null;
       void load();
-    }, 100);
+    }, delayMs);
   }, [load]);
 
   useEffect(() => {
     return () => {
       if (roomSnapshotFlushRef.current != null) {
         window.cancelAnimationFrame(roomSnapshotFlushRef.current);
+        window.clearTimeout(roomSnapshotFlushRef.current);
         roomSnapshotFlushRef.current = null;
       }
       if (queueSnapshotDebounceRef.current != null) {
@@ -499,8 +542,24 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     const wantsTightRoomPoll = liveStatus || openLot;
     /** Realtime is primary; HTTP reconcile catches missed frames without hammering Netlify. */
     const fallbackMs = liveRoomReconcilePollMs({ hasRealtime, wantsTightPoll: wantsTightRoomPoll });
-    const id = window.setInterval(() => void load(), fallbackMs);
-    return () => window.clearInterval(id);
+    // Self-rescheduling so each tick re-reads the room size: a big room stretches this safety-net poll
+    // (only while realtime is connected) and every viewer is jittered so they do not poll in lockstep.
+    let stopped = false;
+    let timer: number | null = null;
+    const arm = () => {
+      if (stopped) return;
+      const stats = presenceStatsRef.current;
+      const baseMs = realtimeConnectedRef.current ? bigRoomPollMs(fallbackMs, stats.roomSizeHint, 8) : fallbackMs;
+      timer = window.setTimeout(() => {
+        void load();
+        arm();
+      }, jitteredDelayMs(baseMs));
+    };
+    arm();
+    return () => {
+      stopped = true;
+      if (timer != null) window.clearTimeout(timer);
+    };
   }, [load, detail?.status, detail?.activeItem?.id, detail?.activeItem?.status, detail?.activeItem?.biddingOpen]);
 
   /** Mid-session skew refresh so clock drift does not accumulate during long streams. */
@@ -543,9 +602,24 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   useEffect(() => {
     if (!chatPollActive) return;
     const hasRealtime = Boolean(getSupabaseBrowserClient());
-    const pollMs = liveChatFallbackPollMs(hasRealtime);
-    const id = window.setInterval(() => void mergeMessagesFromApi(), pollMs);
-    return () => window.clearInterval(id);
+    const basePollMs = liveChatFallbackPollMs(hasRealtime);
+    let stopped = false;
+    let timer: number | null = null;
+    const arm = () => {
+      if (stopped) return;
+      const ms = realtimeConnectedRef.current
+        ? bigRoomPollMs(basePollMs, presenceStatsRef.current.roomSizeHint, 6)
+        : basePollMs;
+      timer = window.setTimeout(() => {
+        void mergeMessagesFromApi();
+        arm();
+      }, jitteredDelayMs(ms));
+    };
+    arm();
+    return () => {
+      stopped = true;
+      if (timer != null) window.clearTimeout(timer);
+    };
   }, [chatPollActive, mergeMessagesFromApi]);
 
   useEffect(() => {
@@ -597,6 +671,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   /** Announce join as soon as auth is ready — do not wait for the full room snapshot. */
   useEffect(() => {
     if (status !== "authenticated" || !session?.user?.id || !roomId) return;
+    // Big rooms: no "joined" chat line per viewer (the server also skips the write for older clients).
+    if (isBigRoom(presenceStatsRef.current.roomSizeHint)) return;
     const username = session.user.username?.trim() || "You";
     const pendingId = `pending:join:${roomId}`;
     setMessages((prev) =>
@@ -700,7 +776,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       });
       setTeamBoardTick((n) => n + 1);
       requestRoomSnapshotSync();
-      scheduleFallbackRefresh("break_spots", 450);
+      scheduleFallbackRefresh("break_spots", 450, { sampleable: true });
     },
     onVariantPurchased: (payload) => {
       if (!shouldProcessRealtimePayload("variant_purchased", payload)) return;
@@ -720,8 +796,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           return { ...prev, items, activeItem: prev.activeItem?.id === itemId ? items.find((it) => it.id === itemId) ?? prev.activeItem : prev.activeItem };
         });
       }
-      void load();
-      scheduleFallbackRefresh("variant_purchased", 250);
+      requestRoomSnapshotSync();
+      scheduleFallbackRefresh("variant_purchased", 250, { sampleable: true });
     },
     onListingBid: () => {
       logLiveDebugEvent({
@@ -731,7 +807,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         extra: { type: "listing_bid" },
       });
       requestRoomSnapshotSync();
-      scheduleFallbackRefresh("listing_bid", 450);
+      scheduleFallbackRefresh("listing_bid", 450, { sampleable: true });
     },
     onTeamBoardChange: () => {
       logLiveDebugEvent({
@@ -786,7 +862,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         };
       });
       refreshSkewFromRealtimePayload(payload.serverNowMs);
-      scheduleFallbackRefresh("bid_placed", 80);
+      scheduleFallbackRefresh("bid_placed", 80, { sampleable: true });
     },
     onActiveItemChanged: (payload) => {
       logLiveDebugEvent({

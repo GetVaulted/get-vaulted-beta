@@ -19,6 +19,8 @@ const JOIN_DEDUPE_WINDOW_MS = VIEWER_JOIN_DEDUPE_WINDOW_MS;
 const SHARE_DEDUPE_WINDOW_MS = 30 * 1000;
 
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
+import { effectiveLiveRoomViewerCount } from "@/lib/live-room-viewer-count-freshness";
+import { isBigRoom } from "@/lib/live-room-scale";
 import { getLiveRoomUserRestrictions } from "@/lib/trust/live-room-moderation";
 
 type PostBody = { kind?: string };
@@ -34,7 +36,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: liveRoomId },
-    select: { id: true, status: true },
+    select: { id: true, status: true, viewerCount: true, viewerCountUpdatedAt: true },
   });
   if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (room.status === "ended") {
@@ -60,6 +62,40 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   if (!liveRoomChatOpen(room.status)) {
     return NextResponse.json({ error: "Room is not open for chat." }, { status: 409 });
+  }
+
+  // Big shows: a persisted "joined" line (a DB read + write plus a broadcast to every viewer) per join
+  // would flood both the database and the chat. Skip the write and the broadcast, keep the giveaway
+  // presence side effect, and answer with a non-persisted message so older app builds (which expect a
+  // message back) keep working — it only ever shows on the joining viewer's own screen.
+  if (
+    kind === "join" &&
+    isBigRoom(
+      effectiveLiveRoomViewerCount({
+        viewerCount: room.viewerCount,
+        viewerCountUpdatedAt: room.viewerCountUpdatedAt,
+      }),
+    )
+  ) {
+    void resumeOpenGiveawayPresence(liveRoomId, auth.userId);
+    const sender = await prisma.user.findUnique({
+      where: { id: auth.userId },
+      select: { username: true, image: true },
+    });
+    return NextResponse.json({
+      skipped: true,
+      message: {
+        id: `skipped:join:${liveRoomId}:${auth.userId}`,
+        liveRoomId,
+        senderId: auth.userId,
+        senderUsername: sender?.username?.trim() || "Member",
+        senderAvatarUrl: sender?.image?.trim() || null,
+        body: VIEWER_EVENT_JOIN_BODY,
+        messageType: "system",
+        createdAt: new Date().toISOString(),
+        mentions: [],
+      },
+    });
   }
 
   const restrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId: auth.userId });

@@ -273,6 +273,12 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   useEffect(() => {
     if (!roomId || liveViewerCount == null) return;
     void syncLiveRoomViewerCount({ liveRoomId: roomId, viewerCount: liveViewerCount });
+    // Keep-alive: discovery treats the persisted count as expired after 90s without a write, and an
+    // unchanged count would otherwise never be re-sent (viewers no longer report it in big rooms).
+    const keepAliveId = window.setInterval(() => {
+      void syncLiveRoomViewerCount({ liveRoomId: roomId, viewerCount: liveViewerCount });
+    }, 30_000);
+    return () => window.clearInterval(keepAliveId);
   }, [roomId, liveViewerCount]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null);

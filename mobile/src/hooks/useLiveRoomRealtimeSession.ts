@@ -38,9 +38,15 @@ import { isSupabaseConfigured } from '../lib/supabase';
 import { parseVaultRevealSpinPayload, VAULT_REVEAL_TOTAL_DISPLAY_MS, vaultRevealDisplayMs, type VaultRevealSpinPayload } from '../lib/vaultRevealSpin';
 import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
 import { useRealtimeRoomSubscription, type LiveRoomChatBroadcastMessage } from './useRealtimeRoomSubscription';
-import { useRealtimeRoomPresence } from './useRealtimeRoomPresence';
+import { useRealtimeRoomPresenceStats } from './useRealtimeRoomPresence';
+import {
+  bigRoomPollMs,
+  jitteredDelayMs,
+  reconcileDelayForRoom,
+  shouldReportViewerCount,
+} from '../lib/liveRoomScale';
 import { syncLiveRoomViewerCount } from '../lib/syncLiveRoomViewerCount';
-import { jitteredMs, nextFallbackPollDelayMs } from '../lib/pollBackoff';
+import { nextFallbackPollDelayMs } from '../lib/pollBackoff';
 
 const FALLBACK_POLL_CONNECTED_MS = 30_000;
 const FALLBACK_POLL_DISCONNECTED_MS = 5000;
@@ -94,16 +100,33 @@ export function useLiveRoomRealtimeSession(args: {
     vaultRevealSpinRef.current = vaultRevealSpin;
   }, [vaultRevealSpin]);
 
-  const viewerCount = useRealtimeRoomPresence({
+  const presenceStats = useRealtimeRoomPresenceStats({
     liveRoomId: args.roomId,
     enabled: args.enabled,
     userId: args.userId ?? null,
     viewerDisplayName: args.viewerDisplayName ?? null,
     trackSelf: true,
+    roomSizeHint: roomSnap?.viewerCount ?? null,
   });
+  const viewerCount = presenceStats.count;
+  const presenceStatsRef = useRef(presenceStats);
+  presenceStatsRef.current = presenceStats;
 
+  // The host console is the main writer of the persisted count. A viewer only reports as a backup when no
+  // host is broadcasting it, and in a big room only a handful of viewers do — otherwise every viewer would
+  // write the same row every few seconds.
   useEffect(() => {
     if (viewerCount == null || !args.enabled || !args.accessToken) return;
+    const stats = presenceStatsRef.current;
+    if (
+      !shouldReportViewerCount({
+        hint: stats.roomSizeHint,
+        draw: stats.draw,
+        hostBroadcastFresh: stats.hostBroadcastFresh,
+      })
+    ) {
+      return;
+    }
     void syncLiveRoomViewerCount({
       liveRoomId: args.roomId,
       viewerCount,
@@ -252,7 +275,11 @@ export function useLiveRoomRealtimeSession(args: {
   );
 
   const scheduleReconcile = useCallback(
-    (delayMs = RECONCILE_DEBOUNCE_MS) => {
+    (baseDelayMs = RECONCILE_DEBOUNCE_MS, opts?: { sampleable?: boolean }) => {
+      // Big rooms: spread refetches over a window (and, for high-frequency events whose payload already
+      // carries the new state, only a sample of viewers refetch) so one bid is not 1,000 simultaneous GETs.
+      const delayMs = reconcileDelayForRoom(baseDelayMs, presenceStatsRef.current.roomSizeHint, opts);
+      if (delayMs == null) return;
       if (reconcileTimerRef.current) clearTimeout(reconcileTimerRef.current);
       reconcileTimerRef.current = setTimeout(() => {
         reconcileTimerRef.current = null;
@@ -345,7 +372,7 @@ export function useLiveRoomRealtimeSession(args: {
         }
         return merged ?? prev;
       });
-      scheduleReconcile(250);
+      scheduleReconcile(250, { sampleable: true });
     },
     [clockSkewMs, maybeShowOutbid, refreshSkewFromRealtime, scheduleReconcile],
   );
@@ -402,7 +429,7 @@ export function useLiveRoomRealtimeSession(args: {
     onSweet16DraftPickMade: bumpSweet16DraftSignal,
     onSweet16DraftComplete: bumpSweet16DraftSignal,
     onModerationChanged: () => void args.onModerationChanged?.(),
-    onGiveawaysChange: () => scheduleReconcile(250),
+    onGiveawaysChange: () => scheduleReconcile(250, { sampleable: true }),
     onVaultRevealSpin: (payload) => {
       const spin = parseVaultRevealSpinPayload(payload);
       if (!spin || seenVaultRevealSpinIdsRef.current.has(spin.spinId)) return;
@@ -411,7 +438,7 @@ export function useLiveRoomRealtimeSession(args: {
       setVaultRevealSpin(spin);
       scheduleReconcile(250);
     },
-    onBreakSpotsChange: () => scheduleReconcile(450),
+    onBreakSpotsChange: () => scheduleReconcile(450, { sampleable: true }),
     onVariantPurchased: (payload) => {
       if (!shouldProcessRealtimeEvent(guardRef.current, 'variant_purchased', payload)) return;
       const taken = parseVariantPurchasedCelebration(payload);
@@ -422,10 +449,10 @@ export function useLiveRoomRealtimeSession(args: {
           showSpotCelebration(taken);
         }
       }
-      scheduleReconcile(250);
+      scheduleReconcile(250, { sampleable: true });
     },
-    onListingBid: () => scheduleReconcile(450),
-    onTeamBoardChange: () => scheduleReconcile(450),
+    onListingBid: () => scheduleReconcile(450, { sampleable: true }),
+    onTeamBoardChange: () => scheduleReconcile(450, { sampleable: true }),
     onBidPlaced,
     onActiveItemChanged,
     onAuctionStarted: (payload) => {
@@ -581,17 +608,25 @@ export function useLiveRoomRealtimeSession(args: {
       }, nextFallbackPollDelayMs(disconnectedPolls, FALLBACK_POLL_DISCONNECTED_MS));
     };
     schedulePoll();
-    const reconcileId = setInterval(() => {
-      if (!realtimeConnectedRef.current || !isSupabaseConfigured()) return;
-      void fetchSnapshot();
-    }, jitteredMs(FALLBACK_POLL_CONNECTED_MS));
+    // Connected safety-net reconcile: stretches in big rooms (realtime carries the changes) and is jittered
+    // per viewer so they do not all poll on the same beat.
+    let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
+    const armReconcile = () => {
+      if (pollStopped) return;
+      const ms = bigRoomPollMs(FALLBACK_POLL_CONNECTED_MS, presenceStatsRef.current.roomSizeHint, 4);
+      reconcileTimer = setTimeout(() => {
+        if (realtimeConnectedRef.current && isSupabaseConfigured()) void fetchSnapshot();
+        armReconcile();
+      }, jitteredDelayMs(ms));
+    };
+    armReconcile();
     const skewId = setInterval(() => {
       void refreshSkewFromTimeEndpoint();
     }, SKEW_REFRESH_MS);
     return () => {
       pollStopped = true;
       if (pollTimer != null) clearTimeout(pollTimer);
-      clearInterval(reconcileId);
+      if (reconcileTimer != null) clearTimeout(reconcileTimer);
       clearInterval(skewId);
     };
   }, [args.enabled, fetchSnapshot, refreshSkewFromTimeEndpoint]);
