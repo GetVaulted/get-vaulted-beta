@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useState } from "react";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
+import { SellerInitiatePayoutCard } from "@/components/account/SellerInitiatePayoutCard";
 import type { SellerFinancialsSummary } from "@/lib/seller-financials";
 import type { SellerWalletSummary } from "@/lib/stripe-connect-wallet-summary";
 
@@ -134,6 +135,7 @@ export function AccountSellerFinancialsPage() {
           </div>
         ) : data ? (
           <>
+            <SellerInitiatePayoutCard onPaidOut={() => void load()} />
             {wallet ? (
               <section className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-950/20 px-4 py-4 sm:px-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">

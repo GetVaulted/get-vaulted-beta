@@ -19,8 +19,14 @@ function usdBalanceCents(
  */
 export async function releaseSellerReadyBankPayouts(args: {
   sellerId: string;
-  adminId: string;
+  /** Admin who pushed the release; null when the seller started it themselves. */
+  adminId: string | null;
   reason: string;
+  /**
+   * Admins may force past the "not shipped" and "rest of the live show not shipped yet" checks (default).
+   * Seller-initiated payouts pass `false` so those checks always apply.
+   */
+  force?: boolean;
 }): Promise<{
   ok: true;
   pushed: number;
@@ -91,9 +97,7 @@ export async function releaseSellerReadyBankPayouts(args: {
   const balance = await stripe.balance.retrieve({ stripeAccount: accountId });
   let remainingCents = usdBalanceCents(balance.available);
 
-  const allReady = await listOrdersReadyForAdminBankPayout(1000);
-  const sellerOrders = allReady
-    .filter((o) => o.sellerId === sellerId)
+  const sellerOrders = (await listOrdersReadyForAdminBankPayout(1000, { sellerId }))
     .sort((a, b) => {
       const aT = a.shippedAt ? Date.parse(a.shippedAt) : Date.parse(a.createdAt);
       const bT = b.shippedAt ? Date.parse(b.shippedAt) : Date.parse(b.createdAt);
@@ -168,7 +172,7 @@ export async function releaseSellerReadyBankPayouts(args: {
       continue;
     }
 
-    const stripePay = await releaseSellerStripePayout(order.orderId, { force: true });
+    const stripePay = await releaseSellerStripePayout(order.orderId, { force: args.force !== false });
     if (!stripePay.ok && stripePay.reason !== "already_paid_out" && stripePay.reason !== "zero_net") {
       failed += 1;
       results.push({
