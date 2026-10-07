@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   BEARER_AUTH_CACHE_TTL_MS,
+  BEARER_AUTH_STALE_TTL_MS,
   clearBearerAuthCache,
   getCachedBearerAuth,
+  getStaleBearerAuth,
   setCachedBearerAuth,
 } from "@/lib/bearer-auth-cache";
 
@@ -45,5 +47,27 @@ describe("bearer auth cache", () => {
     const b = fakeJwt(Math.floor(now / 1000) + 7200);
     setCachedBearerAuth(a, value, now);
     expect(getCachedBearerAuth(b, now)).toBeNull();
+  });
+
+  it("keeps a verified session for outage cover after the normal window, but not forever", () => {
+    const now = 3_000_000;
+    const jwt = fakeJwt(Math.floor(now / 1000) + 3600);
+    setCachedBearerAuth(jwt, value, now);
+    const afterNormal = now + BEARER_AUTH_CACHE_TTL_MS + 1;
+    expect(getCachedBearerAuth(jwt, afterNormal)).toBeNull();
+    expect(getStaleBearerAuth(jwt, afterNormal)).toEqual(value);
+    expect(getStaleBearerAuth(jwt, now + BEARER_AUTH_STALE_TTL_MS + 1)).toBeNull();
+  });
+
+  it("never serves a stale session past the token's own expiry", () => {
+    const now = 4_000_000;
+    const jwt = fakeJwt(Math.floor(now / 1000) + 60);
+    setCachedBearerAuth(jwt, value, now);
+    expect(getStaleBearerAuth(jwt, now + 59_000)).toEqual(value);
+    expect(getStaleBearerAuth(jwt, now + 61_000)).toBeNull();
+  });
+
+  it("has nothing stale for a token that was never verified", () => {
+    expect(getStaleBearerAuth(fakeJwt(9_999_999_999), 1)).toBeNull();
   });
 });
