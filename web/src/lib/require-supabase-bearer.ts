@@ -1,11 +1,12 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { isAccountDeleted } from "@/lib/account-deletion";
-import { getCachedBearerAuth, setCachedBearerAuth } from "@/lib/bearer-auth-cache";
+import { getCachedBearerAuth, getStaleBearerAuth, setCachedBearerAuth } from "@/lib/bearer-auth-cache";
 import { ensurePrismaUserForSupabaseAuth } from "@/lib/ensure-prisma-user-from-supabase-auth";
 import { syncStripeConnectFromEmailSibling } from "@/lib/link-stripe-account-from-email-sibling";
 import { getSupabaseBearerJwt } from "@/lib/mobile-supabase-bearer";
 import { prisma } from "@/lib/prisma";
+import { syncPrismaEmailVerifiedFromSupabase } from "@/lib/sync-prisma-email-verified";
+import { verifySupabaseAccessToken, verifyViaAuthServer } from "@/lib/verify-supabase-access-token";
 
 export type RequireSupabaseBearerOptions = {
   /** Skip Stripe Connect sibling sync (background endpoints like push-token registration). */
@@ -29,23 +30,26 @@ export async function requireUserIdFromSupabaseBearer(
   const cached = getCachedBearerAuth(jwt);
   if (cached) return cached;
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
-  if (!url?.trim() || !anonKey?.trim()) {
-    return NextResponse.json({ error: "Server misconfigured (Supabase URL/key)." }, { status: 500 });
-  }
-
-  const supabase = createClient(url, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data, error } = await supabase.auth.getUser(jwt);
-  if (error || !data.user?.id) {
+  const verified = await verifySupabaseAccessToken(jwt);
+  if (!verified.ok) {
+    if (verified.reason === "unavailable") {
+      // Sign-in service unreachable: keep people who were already verified working, and fail fast (not 401,
+      // which would make the app think the session expired) for everyone else.
+      const stale = getStaleBearerAuth(jwt);
+      if (stale) return stale;
+      console.warn("[requireUserIdFromSupabaseBearer] auth verification unavailable");
+      return NextResponse.json(
+        { error: "Sign-in check is busy. Please try again in a moment.", code: "AUTH_UNAVAILABLE" },
+        { status: 503, headers: { "Retry-After": "3" } },
+      );
+    }
     return NextResponse.json({ error: "Invalid or expired session" }, { status: 401 });
   }
+  const supabaseUser = verified.user;
 
   let prismaUserId: string | null;
   try {
-    prismaUserId = await ensurePrismaUserForSupabaseAuth(data.user);
+    prismaUserId = await ensurePrismaUserForSupabaseAuth(supabaseUser);
   } catch (e) {
     console.error("[requireUserIdFromSupabaseBearer] ensurePrismaUser failed", e);
     return NextResponse.json(
@@ -62,7 +66,7 @@ export async function requireUserIdFromSupabaseBearer(
 
   const accountRow = await prisma.user.findUnique({
     where: { id: prismaUserId },
-    select: { accountDeletedAt: true, suspendedAt: true },
+    select: { accountDeletedAt: true, suspendedAt: true, emailVerified: true },
   });
   if (accountRow && isAccountDeleted(accountRow)) {
     console.warn("[requireUserIdFromSupabaseBearer] account deleted", { prismaUserId });
@@ -79,6 +83,22 @@ export async function requireUserIdFromSupabaseBearer(
     );
   }
 
+  // Locally verified tokens do not say whether Supabase has confirmed the email. If our record is not marked
+  // verified yet, ask Supabase once (time-limited, best effort) so the flag still gets synced.
+  if (verified.source === "local" && accountRow && !accountRow.emailVerified) {
+    const full = await verifyViaAuthServer(jwt);
+    if (full.ok) {
+      try {
+        await syncPrismaEmailVerifiedFromSupabase(prismaUserId, full.user);
+      } catch (e) {
+        console.warn("[requireUserIdFromSupabaseBearer] email verified sync failed", {
+          userId: prismaUserId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+  }
+
   if (!options.skipStripeSiblingSync) {
     try {
       await syncStripeConnectFromEmailSibling(prismaUserId);
@@ -90,7 +110,7 @@ export async function requireUserIdFromSupabaseBearer(
     }
   }
 
-  const resolved = { userId: prismaUserId, supabaseAuthUserId: data.user.id };
+  const resolved = { userId: prismaUserId, supabaseAuthUserId: supabaseUser.id };
   setCachedBearerAuth(jwt, resolved);
   return resolved;
 }

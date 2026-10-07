@@ -11,13 +11,18 @@ import { createHash } from "node:crypto";
  *
  * Trade-off: a suspension, deletion or token revocation takes effect within {@link BEARER_AUTH_CACHE_TTL_MS}
  * instead of instantly. Only successful verifications are cached — failures always re-check.
+ *
+ * Outage cover: a verified identity is also remembered for {@link BEARER_AUTH_STALE_TTL_MS}. It is NOT used for
+ * normal requests — only when the sign-in service cannot be reached (see {@link getStaleBearerAuth}), so a
+ * short Supabase Auth outage does not log everyone out or fail every request. It never outlives the token itself.
  */
 export const BEARER_AUTH_CACHE_TTL_MS = 30_000;
+export const BEARER_AUTH_STALE_TTL_MS = 15 * 60_000;
 const BEARER_AUTH_CACHE_MAX_ENTRIES = 5_000;
 
 export type CachedBearerAuth = { userId: string; supabaseAuthUserId: string };
 
-type Entry = { value: CachedBearerAuth; expiresAtMs: number };
+type Entry = { value: CachedBearerAuth; expiresAtMs: number; staleUntilMs: number };
 
 const cache = new Map<string, Entry>();
 
@@ -43,6 +48,22 @@ export function getCachedBearerAuth(jwt: string, nowMs: number = Date.now()): Ca
   const hit = cache.get(key);
   if (!hit) return null;
   if (hit.expiresAtMs <= nowMs) {
+    // Keep it around for outage cover; drop it once even the stale window has passed.
+    if (hit.staleUntilMs <= nowMs) cache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+/**
+ * A previously verified identity for this exact token, even if the normal 30s window has passed. Only call this
+ * when the sign-in service is unreachable. Still bounded by the token's own expiry.
+ */
+export function getStaleBearerAuth(jwt: string, nowMs: number = Date.now()): CachedBearerAuth | null {
+  const key = keyFor(jwt);
+  const hit = cache.get(key);
+  if (!hit) return null;
+  if (hit.staleUntilMs <= nowMs) {
     cache.delete(key);
     return null;
   }
@@ -57,15 +78,16 @@ export function setCachedBearerAuth(
   const jwtExp = jwtExpiryMs(jwt);
   const expiresAtMs = Math.min(nowMs + BEARER_AUTH_CACHE_TTL_MS, jwtExp ?? Number.POSITIVE_INFINITY);
   if (expiresAtMs <= nowMs) return;
+  const staleUntilMs = Math.min(nowMs + BEARER_AUTH_STALE_TTL_MS, jwtExp ?? Number.POSITIVE_INFINITY);
   if (cache.size >= BEARER_AUTH_CACHE_MAX_ENTRIES) {
-    // Drop expired entries first; if still full, drop the oldest insertion.
-    for (const [k, e] of cache) if (e.expiresAtMs <= nowMs) cache.delete(k);
+    // Drop entries past even the stale window first; if still full, drop the oldest insertion.
+    for (const [k, e] of cache) if (e.staleUntilMs <= nowMs) cache.delete(k);
     if (cache.size >= BEARER_AUTH_CACHE_MAX_ENTRIES) {
       const oldest = cache.keys().next().value;
       if (oldest !== undefined) cache.delete(oldest);
     }
   }
-  cache.set(keyFor(jwt), { value, expiresAtMs });
+  cache.set(keyFor(jwt), { value, expiresAtMs, staleUntilMs });
 }
 
 export function clearBearerAuthCache(): void {
