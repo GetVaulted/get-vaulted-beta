@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { summarizeRoomPresence } from '../lib/liveRoomPresenceCount';
 import {
+  hostCountFreshMs,
+  hostCountPublishPlan,
   newSessionDraw,
   planPresence,
   resolveRoomSizeHint,
@@ -18,7 +20,6 @@ import {
   createViewerCountStabilizerState,
   nextStabilizedViewerCount,
   resolveDisplayedViewerCount,
-  VIEWER_COUNT_BROADCAST_FRESH_MS,
   VIEWER_COUNT_DECREASE_HOLD_MS,
 } from '../lib/liveRoomViewerCountStabilize';
 import { RT_EVENT } from '../lib/realtimeChannels';
@@ -152,13 +153,15 @@ export function useRealtimeRoomPresenceStats(opts: RoomPresenceOptions): RoomPre
         if (trackSelf || !channel) return;
         const now = Date.now();
         const prev = lastBroadcastRef.current;
+        const publishPlan = hostCountPublishPlan(count);
         if (
           !shouldPublishViewerCountBroadcast({
             nextCount: count,
             lastCount: prev.count,
             lastPublishedAtMs: prev.at,
             nowMs: now,
-            unchangedIntervalMs: HOST_UNCHANGED_PUBLISH_MS,
+            unchangedIntervalMs: publishPlan.unchangedMs,
+            changedIntervalMs: publishPlan.changedMs,
           })
         ) {
           return;
@@ -175,7 +178,7 @@ export function useRealtimeRoomPresenceStats(opts: RoomPresenceOptions): RoomPre
         const b = broadcastRef.current;
         return resolveRoomSizeHint({
           broadcastCount: b.count,
-          broadcastFresh: b.at != null && Date.now() - b.at <= VIEWER_COUNT_BROADCAST_FRESH_MS,
+          broadcastFresh: b.at != null && Date.now() - b.at <= hostCountFreshMs(b.count),
           snapshotHint: roomSizeHintRef.current,
         });
       };
@@ -217,7 +220,7 @@ export function useRealtimeRoomPresenceStats(opts: RoomPresenceOptions): RoomPre
        */
       const trackPresence = async (force = true) => {
         if (!channel || !trackSelf) return;
-        const plan = planPresence(draw, currentHint());
+        const plan = planPresence(draw, currentHint(), announced?.quiet ?? false);
         if (!plan.track) {
           if (announced) {
             announced = null;
@@ -349,7 +352,7 @@ export function useRealtimeRoomPresenceStats(opts: RoomPresenceOptions): RoomPre
 
   const nowMs = Date.now();
   const hostBroadcastFresh =
-    broadcastAtMs != null && nowMs - broadcastAtMs <= VIEWER_COUNT_BROADCAST_FRESH_MS;
+    broadcastAtMs != null && nowMs - broadcastAtMs <= hostCountFreshMs(broadcastCount);
   const roomSizeHintNow = resolveRoomSizeHint({
     broadcastCount,
     broadcastFresh: hostBroadcastFresh,
@@ -359,7 +362,13 @@ export function useRealtimeRoomPresenceStats(opts: RoomPresenceOptions): RoomPre
   if (!trackSelf) return { count: localCount, roomSizeHint: roomSizeHintNow, hostBroadcastFresh, draw };
 
   return {
-    count: resolveDisplayedViewerCount({ broadcastCount, broadcastAtMs, localCount, nowMs }),
+    count: resolveDisplayedViewerCount({
+      broadcastCount,
+      broadcastAtMs,
+      localCount,
+      nowMs,
+      broadcastFreshMs: hostCountFreshMs(broadcastCount),
+    }),
     roomSizeHint: roomSizeHintNow,
     hostBroadcastFresh,
     draw,
