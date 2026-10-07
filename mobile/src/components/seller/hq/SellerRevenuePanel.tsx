@@ -20,6 +20,7 @@ import type { SellerReloadOptions } from '../../../hooks/sellerReloadOptions';
 import { openStripeConnectDashboard } from '../../../lib/openStripeConnectDashboard';
 import { colors, radii, spacing } from '../../../theme';
 import { hq } from './hqStyles';
+import { SellerInitiatePayoutCard } from './SellerInitiatePayoutCard';
 import { SellerPayoutPreferenceCard } from './SellerPayoutPreferenceCard';
 import { SellerPayoutTierCard } from './SellerPayoutTierCard';
 import {
@@ -138,6 +139,8 @@ export function SellerRevenuePanel({
 
   return (
     <View style={styles.wrap}>
+      <SellerInitiatePayoutCard accessToken={accessToken} onPaidOut={() => void onRefresh()} />
+
       <SellerPayoutPreferenceCard accessToken={accessToken} />
 
       <Text style={styles.intro}>

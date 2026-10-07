@@ -56,9 +56,12 @@ export async function countOrdersReadyForAdminBankPayout(): Promise<number> {
   return prisma.order.count({ where: readyBaseWhere });
 }
 
-export async function listOrdersReadyForAdminBankPayout(limit = 100): Promise<AdminBankPayoutReadyRow[]> {
+export async function listOrdersReadyForAdminBankPayout(
+  limit = 100,
+  opts: { sellerId?: string } = {},
+): Promise<AdminBankPayoutReadyRow[]> {
   const rows = await prisma.order.findMany({
-    where: readyBaseWhere,
+    where: opts.sellerId ? { ...readyBaseWhere, sellerId: opts.sellerId } : readyBaseWhere,
     orderBy: [{ shippedAt: "asc" }, { createdAt: "asc" }],
     take: Math.min(1000, Math.max(1, limit)),
     select: {
