@@ -1774,8 +1774,12 @@ export async function cleanupOrphanedIvsCompositions(): Promise<IvsCompositionCl
       // app that keeps publishing after "end show" keeps the ~$2.30/hr composition running.
       const roomRows = await prisma.liveRoom.findMany({
         where: { OR: [{ ivsCompositionArn: comp.arn }, { ivsStageArn: comp.stageArn }] },
-        select: { status: true, endedAt: true },
+        select: { status: true, endedAt: true, streamPaused: true },
       });
+      // A paused show has no host publisher on purpose. Pausing is the host's choice, and a paused
+      // show that stays paused too long is ended by the 60-minute paused-show safety net instead
+      // (live-paused-auto-end), so this sweep must never treat the pause as an abandoned stage.
+      if (roomRows.some((r) => r.status === "live" && r.streamPaused === true)) continue;
       const decision = decideOrphanCompositionStop({
         ageMs,
         nowMs: now,
@@ -1841,6 +1845,8 @@ export async function closeStaleOpenLiveRooms(): Promise<{ scanned: number; clos
   const rooms = await prisma.liveRoom.findMany({
     where: {
       status: "live",
+      // Paused shows are expected to have no publisher; the paused-show safety net owns them.
+      streamPaused: false,
       streamStartedAt: { lt: cutoff },
     },
     select: { id: true, ivsStageArn: true, ivsChannelArn: true, ivsCompositionArn: true },

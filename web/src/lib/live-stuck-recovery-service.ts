@@ -107,6 +107,11 @@ export async function recoverStuckLiveRooms(): Promise<StuckLiveRecoverySummary>
   for (const room of rooms) {
     summary.scanned += 1;
     if (!room.ivsStageArn) continue;
+    // A paused show has no host publisher on purpose; the 60-minute paused-show safety net owns it.
+    if (room.streamPaused === true) {
+      summary.warmingOrWaiting += 1;
+      continue;
+    }
 
     try {
       const now = Date.now();
@@ -127,8 +132,8 @@ export async function recoverStuckLiveRooms(): Promise<StuckLiveRecoverySummary>
         await commitStagePublisherDerivedHealth(room.id, "live").catch(() => {});
         // Host is on air but Stage→HLS mirror missing (pause billing cut, failed start, etc.).
         // Without this, guests/share-links/mini-player stay frozen while WebRTC buyers are fine.
-        const missingComposition =
-          room.streamPaused !== true && !(room.ivsCompositionArn?.trim());
+        // (Paused rooms were skipped above, so a missing composition here is never a pause.)
+        const missingComposition = !(room.ivsCompositionArn?.trim());
         if (missingComposition) {
           try {
             await ensureStageHlsCompositionActive(room.id);
