@@ -42,6 +42,8 @@ export type SellerSelfPayoutSummary = {
   availableUsd: number | null;
   /** Exactly what a tap would send now (oldest orders first, within the available balance). */
   payableUsd: number;
+  /** Stripe balance that is NOT sendable yet (e.g. its order hasn't shipped). Zero when unknown. */
+  waitingUsd: number;
   payableOrderCount: number;
   minimumUsd: number;
   cooldownEndsAt: string | null;
@@ -152,6 +154,7 @@ export async function getSellerSelfPayoutSummary(
     readyUsd: 0,
     availableUsd: null,
     payableUsd: 0,
+    waitingUsd: 0,
     payableOrderCount: 0,
     minimumUsd: SELLER_SELF_PAYOUT_MIN_USD,
     cooldownEndsAt: null,
@@ -205,16 +208,19 @@ export async function getSellerSelfPayoutSummary(
   });
 
   const payableUsd = plan.payableCents / 100;
+  const waitingUsd = Math.max(0, Math.round(availableCents - plan.payableCents)) / 100;
+  const waitingNote =
+    waitingUsd >= 0.01 ? ` ${money(waitingUsd)} more is in your Stripe balance and unlocks as those orders ship.` : "";
   const message =
     state === "ready"
       ? `${money(payableUsd)} will be sent to your bank. Banks usually show it in 1-2 business days.`
       : state === "cooldown"
         ? "You can take one payout per day, and you already took one in the last 24 hours."
         : state === "below_minimum"
-          ? `Payouts start at ${money(SELLER_SELF_PAYOUT_MIN_USD)}. You have ${money(payableUsd)} ready.`
+          ? `Payouts start at ${money(SELLER_SELF_PAYOUT_MIN_USD)}. You have ${money(payableUsd)} ready.${waitingNote}`
           : orders.length > 0
             ? "Your earnings are still clearing into your Stripe balance. Check back soon."
-            : "Nothing is ready yet. Money becomes available once an order has shipped.";
+            : `Nothing is ready to send yet. Money can be sent once its order has shipped.${waitingNote}`;
 
   return {
     ...base,
@@ -225,6 +231,7 @@ export async function getSellerSelfPayoutSummary(
     readyUsd,
     availableUsd: availableCents / 100,
     payableUsd,
+    waitingUsd,
     payableOrderCount: plan.payableOrderIds.length,
     cooldownEndsAt: cooldownEndsAt?.toISOString() ?? null,
   };
@@ -250,7 +257,7 @@ async function claimSelfPayoutSlot(
   now: Date,
 ): Promise<{ claimId: string } | { cooldownEndsAt: Date }> {
   return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`seller_self_payout:${sellerId}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seller_self_payout:${sellerId}`}))`;
     const since = new Date(now.getTime() - SELLER_SELF_PAYOUT_COOLDOWN_MS);
     const recent = await tx.payoutEligibilityAuditLog.findFirst({
       where: { sellerId, action: SELLER_SELF_PAYOUT_AUDIT_ACTION, createdAt: { gt: since } },

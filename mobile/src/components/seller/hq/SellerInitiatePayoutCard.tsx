@@ -70,8 +70,18 @@ export function SellerInitiatePayoutCard({
   return (
     <StudioSection title="Initiate payout" subtitle="Send your shipped earnings to your bank whenever you want.">
       <View style={[styles.card, hq.goldCard]}>
-        <Text style={styles.eyebrow}>Ready to pay out</Text>
-        <Text style={styles.amount}>{usd(summary.payableUsd)}</Text>
+        <Text style={styles.eyebrow}>Available in your Stripe balance</Text>
+        <Text style={styles.amount}>{usd(summary.availableUsd ?? summary.payableUsd)}</Text>
+        <View style={styles.row}>
+          <Text style={styles.rowLabel}>Ready to send to your bank</Text>
+          <Text style={styles.rowValue}>{usd(summary.payableUsd)}</Text>
+        </View>
+        {(summary.waitingUsd ?? 0) >= 0.01 ? (
+          <View style={styles.row}>
+            <Text style={styles.rowLabelMuted}>Unlocks when orders ship</Text>
+            <Text style={styles.rowLabelMuted}>{usd(summary.waitingUsd ?? 0)}</Text>
+          </View>
+        ) : null}
         <Text style={[styles.msg, notice && !notice.ok && styles.msgError, notice?.ok && styles.msgOk]}>
           {notice ? notice.text : summary.message}
         </Text>
@@ -96,6 +106,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   amount: { color: colors.gold, fontSize: 30, fontWeight: '800' },
+  row: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm },
+  rowLabel: { color: colors.textSecondary, fontSize: 13 },
+  rowValue: { color: colors.textPrimary, fontSize: 13, fontWeight: '700' },
+  rowLabelMuted: { color: colors.textMuted, fontSize: 12 },
   msg: { color: colors.textSecondary, fontSize: 12, lineHeight: 17 },
   msgError: { color: '#FCA5A5' },
   msgOk: { color: '#A7F3D0' },

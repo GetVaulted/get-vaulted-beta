@@ -11,7 +11,7 @@ const hoisted = vi.hoisted(() => ({
       delete: vi.fn(),
     },
     $transaction: vi.fn(),
-    $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
   },
   listReady: vi.fn(),
   release: vi.fn(),
@@ -108,7 +108,7 @@ describe("seller payout flow", () => {
     hoisted.prisma.payoutEligibilityAuditLog.create.mockResolvedValue({ id: "claim1" });
     hoisted.prisma.payoutEligibilityAuditLog.update.mockResolvedValue({});
     hoisted.prisma.payoutEligibilityAuditLog.delete.mockResolvedValue({});
-    hoisted.prisma.$queryRaw.mockResolvedValue([]);
+    hoisted.prisma.$executeRaw.mockResolvedValue(0);
     hoisted.prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(hoisted.prisma));
     hoisted.listReady.mockResolvedValue([readyRow("o1", 70), readyRow("o2", 50)]);
     hoisted.balance.mockResolvedValue({ available: [{ amount: 20_000, currency: "usd" }] });
@@ -121,6 +121,23 @@ describe("seller payout flow", () => {
     expect(s.payableUsd).toBe(120);
     expect(s.payableOrderCount).toBe(2);
     expect(hoisted.listReady).toHaveBeenCalledWith(1000, { sellerId: "s1" });
+  });
+
+  it("reports Stripe money that is not sendable yet (order not shipped)", async () => {
+    hoisted.balance.mockResolvedValue({ available: [{ amount: 50_000, currency: "usd" }] });
+    const s = await getSellerSelfPayoutSummary("s1", NOW);
+    expect(s.availableUsd).toBe(500);
+    expect(s.payableUsd).toBe(120);
+    expect(s.waitingUsd).toBe(380);
+  });
+
+  it("explains money sitting in Stripe when nothing has shipped", async () => {
+    hoisted.listReady.mockResolvedValue([]);
+    hoisted.balance.mockResolvedValue({ available: [{ amount: 25_000, currency: "usd" }] });
+    const s = await getSellerSelfPayoutSummary("s1", NOW);
+    expect(s.state).toBe("nothing_ready");
+    expect(s.waitingUsd).toBe(250);
+    expect(s.message).toContain("$250.00");
   });
 
   it("holds back orders from a live show whose other orders have not shipped", async () => {
