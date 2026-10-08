@@ -12,6 +12,7 @@ export type SellerSelfPayoutSummaryDTO = {
   readyUsd: number;
   availableUsd: number | null;
   payableUsd: number;
+  waitingUsd?: number;
   payableOrderCount: number;
   minimumUsd: number;
   cooldownEndsAt: string | null;

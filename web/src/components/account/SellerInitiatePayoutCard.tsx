@@ -65,16 +65,23 @@ export function SellerInitiatePayoutCard({ onPaidOut }: { onPaidOut?: () => void
     <section className="mt-4 rounded-2xl border border-gold/25 bg-gold/[0.06] px-4 py-4 sm:px-5">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gold-bright/80">Ready to pay out</p>
-          <p className="mt-1 font-display text-3xl font-black tabular-nums text-gold-bright">
-            {formatMoney(summary.payableUsd)}
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gold-bright/80">
+            Available in your Stripe balance
           </p>
-          <p className="mt-1 max-w-md text-xs text-zinc-400">{notice ? notice.text : summary.message}</p>
-          {notice ? null : summary.state === "ready" && summary.readyUsd > summary.payableUsd + 0.004 ? (
-            <p className="mt-0.5 text-[11px] text-zinc-600">
-              {formatMoney(summary.readyUsd)} is shipped in total. The rest is still clearing into your balance.
-            </p>
-          ) : null}
+          <p className="mt-1 font-display text-3xl font-black tabular-nums text-gold-bright">
+            {formatMoney(summary.availableUsd ?? summary.payableUsd)}
+          </p>
+          <dl className="mt-2 grid max-w-xs grid-cols-[1fr_auto] gap-x-6 gap-y-0.5 text-xs tabular-nums">
+            <dt className="text-zinc-300">Ready to send to your bank</dt>
+            <dd className="text-right font-bold text-zinc-100">{formatMoney(summary.payableUsd)}</dd>
+            {(summary.waitingUsd ?? 0) >= 0.01 ? (
+              <>
+                <dt className="text-zinc-500">Unlocks when orders ship</dt>
+                <dd className="text-right text-zinc-400">{formatMoney(summary.waitingUsd ?? 0)}</dd>
+              </>
+            ) : null}
+          </dl>
+          <p className="mt-2 max-w-md text-xs text-zinc-400">{notice ? notice.text : summary.message}</p>
         </div>
         <div className="flex flex-col items-stretch gap-2 sm:items-end">
           {confirming ? (
