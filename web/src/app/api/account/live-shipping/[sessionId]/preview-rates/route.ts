@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { previewBundledShippoRatesForSession } from "@/services/shipping/bundled-labels";
 import { SELLER_SHIPPO_CONTACT_MISSING, BUYER_SHIPPO_CONTACT_MISSING } from "@/lib/shippo-label-contacts";
 
@@ -7,10 +7,9 @@ export const runtime = "nodejs";
 
 /** Seller: quote Shippo rates for a bundled session parcel without purchasing. */
 export async function POST(req: Request, ctx: { params: Promise<{ sessionId: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
+  const sellerId = auth.userId;
 
   const { sessionId: raw } = await ctx.params;
   const sessionId = decodeURIComponent(raw);
@@ -30,7 +29,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ sessionId: str
       return NextResponse.json({ error: "Enter a valid weight and dimensions." }, { status: 400 });
     }
 
-    const result = await previewBundledShippoRatesForSession(sessionId, session.user.id, {
+    const result = await previewBundledShippoRatesForSession(sessionId, sellerId, {
       weightOz: Math.max(0.1, weightOz),
       lengthIn: Math.max(0.1, lengthIn),
       widthIn: Math.max(0.1, widthIn),

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 import { hasCompleteSellerShipFrom, sellerNeedsShipFromPhoneOnly } from "@/lib/seller-shipping-readiness";
 import { isShippoConfigured, probeShippoApi, shippoTokenKind } from "@/lib/shippo";
@@ -8,18 +8,18 @@ import { processAuctionPaymentExpiries } from "@/services/payments";
 
 export const runtime = "nodejs";
 
-export async function GET() {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function GET(req: Request) {
+  // Web cookie session OR the app's Supabase bearer token (the app was getting 401 here and showing no bundles).
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
+  const sellerId = auth.userId;
 
   await processAuctionPaymentExpiries();
 
   const [data, seller, shippoProbe] = await Promise.all([
-    getSellerLiveShippingDashboard(session.user.id),
+    getSellerLiveShippingDashboard(sellerId),
     prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: sellerId },
       select: {
         shipFromStreet: true,
         shipFromCity: true,
