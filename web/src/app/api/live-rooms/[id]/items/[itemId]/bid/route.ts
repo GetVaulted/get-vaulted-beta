@@ -91,7 +91,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   }
 
   const bidderId = auth.userId;
-  const [room, item, commerceBlock, modRestrictions, wallet, cachedIdem, paymentFailure] = await Promise.all([
+  const [room, item, commerceBlock, modRestrictions, wallet, cachedIdem, paymentFailure, bidderRow] = await Promise.all([
     prisma.liveRoom.findUnique({
       where: { id: liveRoomId },
       select: { id: true, sellerId: true, roomType: true, status: true, streamHealth: true, streamPaused: true, streamMode: true, streamStartedAt: true, streamEndedAt: true },
@@ -123,7 +123,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
         })
       : Promise.resolve(null),
     getUnresolvedPaymentFailureForBuyer(liveRoomId, bidderId),
+    // Looked up here (in parallel) instead of one more serial query inside the bid transaction.
+    prisma.user.findUnique({ where: { id: bidderId }, select: { username: true } }),
   ]);
+  const bidderUsername = bidderRow?.username ?? null;
   if (paymentFailure) {
     return NextResponse.json(
       {
@@ -403,7 +406,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
         currentHighUsd: lockedHigh,
       });
       const nextEndsAt = computeNextAuctionEndsAtAfterBid(now, locked.clutchTimeEnabled, locked.auctionEndsAt);
-      await tx.liveRoomItem.update({
+      const itemState = await tx.liveRoomItem.update({
         where: { id: itemId },
         data: {
           currentBidUsd: amountUsd,
@@ -411,17 +414,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
           ...(nextEndsAt ? { auctionEndsAt: nextEndsAt } : {}),
           itemVersion: { increment: 1 },
         },
+        select: { itemVersion: true, auctionEndsAt: true },
       });
       const roomWrite = await tx.liveRoom.update({
         where: { id: liveRoomId },
         data: { roomVersion: { increment: 1 }, auctionEventSeq: { increment: 1 } },
         select: { roomVersion: true, auctionEventSeq: true },
       });
-      const itemState = await tx.liveRoomItem.findUnique({
-        where: { id: itemId },
-        select: { itemVersion: true, auctionEndsAt: true },
-      });
-      const bidder = await tx.user.findUnique({ where: { id: bidderId }, select: { username: true } });
       const endsIso = itemState?.auctionEndsAt?.toISOString() ?? null;
       const emitActiveItemChanged = !locked.clutchTimeEnabled && Boolean(endsIso);
       const payload: LiveAuctionBidPlacedPayloadV1 = {
@@ -436,7 +435,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
         auctionEndsAt: endsIso,
         biddingOpen: true,
         leadingBidderId: bidderId,
-        leadingBidderUsername: bidder?.username ?? null,
+        leadingBidderUsername: bidderUsername,
         clutchTimeEnabled: locked.clutchTimeEnabled,
         emitActiveItemChanged,
       };
@@ -485,10 +484,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
         select: { itemVersion: true, auctionEndsAt: true, lastHighBidderId: true, currentBidUsd: true },
       });
       const leaderIdFinal = itemFinal?.lastHighBidderId ?? bidderId;
-      const leaderUserFinal = await tx.user.findUnique({
-        where: { id: leaderIdFinal },
-        select: { username: true },
-      });
+      // Usual case: the bidder is still the leader (no proxy bid overtook them) — no extra lookup.
+      const leaderUserFinal =
+        leaderIdFinal === bidderId
+          ? { username: bidderUsername }
+          : await tx.user.findUnique({ where: { id: leaderIdFinal }, select: { username: true } });
       const endsIsoFinal = itemFinal?.auctionEndsAt?.toISOString() ?? null;
       return {
         roomVersion: roomFinal.roomVersion,
@@ -531,6 +531,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       bidderId,
     });
     scheduleAuctionFanout(liveRoomId);
+    console.info("[bid timing]", {
+      liveRoomId,
+      itemId,
+      auctionSeq: state.auctionSeq,
+      handlerMs: Date.now() - receivedAt.getTime(),
+    });
     const itemDto = buildLiveBidAckItem({
       itemId,
       itemVersion: state.itemVersion,

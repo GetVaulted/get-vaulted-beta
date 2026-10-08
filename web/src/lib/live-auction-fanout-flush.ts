@@ -12,7 +12,8 @@ import { emitActiveItemChangedAwait, emitBidPlacedAwait } from "@/lib/realtime-e
  * Redis/Kafka sidecars are **fire-and-forget** (never awaited before compat emit) so slow brokers
  * cannot delay realtime. See `docs/production-live-auction/CANONICAL-FANOUT.md`.
  */
-export async function flushPendingLiveAuctionFanout(opts?: { liveRoomId?: string; limit?: number }): Promise<number> {
+async function flushPendingLiveAuctionFanoutOnce(opts?: { liveRoomId?: string; limit?: number }): Promise<number> {
+  const startedAtMs = Date.now();
   const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 200);
   return runLiveAuctionSpan(
     "live_auction.fanout.flush",
@@ -32,6 +33,8 @@ export async function flushPendingLiveAuctionFanout(opts?: { liveRoomId?: string
   });
 
   let published = 0;
+  // "Sent" marks are written in the background so the next event's broadcast never waits on a DB write.
+  const marks: Array<Promise<unknown>> = [];
   for (const row of rows) {
     /** Canonical row is already committed; optional sidecars must not block Supabase compat emit. */
     let compatDelivered = row.eventType !== "bid_placed";
@@ -76,17 +79,48 @@ export async function flushPendingLiveAuctionFanout(opts?: { liveRoomId?: string
         });
       }
       if (compatDelivered) {
-        await prisma.liveAuctionEvent.update({
-          where: { id: row.id },
-          data: { publishedAt: new Date() },
-        });
+        marks.push(
+          prisma.liveAuctionEvent
+            .update({ where: { id: row.id }, data: { publishedAt: new Date() } })
+            .catch((e) => console.error("[flushPendingLiveAuctionFanout] mark published", row.id, e)),
+        );
         published += 1;
       }
     } catch (e) {
       console.error("[flushPendingLiveAuctionFanout]", row.id, e);
     }
   }
+  await Promise.all(marks);
+  if (rows.length > 0) {
+    console.info("[bid fanout timing]", {
+      liveRoomId: opts?.liveRoomId ?? "all",
+      events: rows.length,
+      published,
+      flushMs: Date.now() - startedAtMs,
+    });
+  }
   return published;
     },
   );
+}
+
+/**
+ * Callers: the bid route (immediately, and again after the response). Two overlapping flushes of the
+ * same room would read the same unpublished rows and broadcast them twice, so within one server
+ * instance a flush for a room waits for the one already running, then does a final pass.
+ */
+const flushInFlight = new Map<string, Promise<number>>();
+
+export function flushPendingLiveAuctionFanout(opts?: { liveRoomId?: string; limit?: number }): Promise<number> {
+  const key = opts?.liveRoomId ?? "*";
+  const running = flushInFlight.get(key);
+  const next = running
+    ? running.catch(() => 0).then(() => flushPendingLiveAuctionFanoutOnce(opts))
+    : flushPendingLiveAuctionFanoutOnce(opts);
+  flushInFlight.set(key, next);
+  const clear = () => {
+    if (flushInFlight.get(key) === next) flushInFlight.delete(key);
+  };
+  next.then(clear, clear);
+  return next;
 }
