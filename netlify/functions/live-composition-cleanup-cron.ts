@@ -1,4 +1,4 @@
-import type { Config, Handler } from '@netlify/functions';
+import { schedule } from '@netlify/functions';
 
 /**
  * Every 10 minutes: stop any IVS composition still billing after its stage has gone idle (or is
@@ -6,11 +6,7 @@ import type { Config, Handler } from '@netlify/functions';
  * it. See web/src/services/ivs.ts `cleanupOrphanedIvsCompositions` / `closeStaleOpenLiveRooms`.
  * Requires Netlify env: CRON_SECRET, and SITE_URL or URL (shopgetvaulted.com).
  */
-export const config: Config = {
-  schedule: '*/10 * * * *',
-};
-
-export const handler: Handler = async () => {
+export const handler = schedule('*/10 * * * *', async () => {
   const secret = process.env.CRON_SECRET?.trim();
   const site =
     process.env.URL?.trim().replace(/\/+$/, '') ||
@@ -40,10 +36,11 @@ export const handler: Handler = async () => {
       console.error('[live-composition-cleanup-cron] upstream failed', res.status, text.slice(0, 300));
       return { statusCode: res.status, body: text.slice(0, 500) };
     }
+    console.info('[live-composition-cleanup-cron] ok', text.slice(0, 300));
     return { statusCode: 200, body: text };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[live-composition-cleanup-cron] fetch failed', msg);
     return { statusCode: 500, body: msg };
   }
-};
+});

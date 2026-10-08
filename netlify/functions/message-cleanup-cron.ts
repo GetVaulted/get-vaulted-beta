@@ -1,15 +1,11 @@
-import type { Config, Handler } from '@netlify/functions';
+import { schedule } from '@netlify/functions';
 
 /**
  * Daily (08:17 UTC): removes deleted conversations for good after their 14-day window and frees
  * conversations both people have deleted. See web/src/lib/message-thread-cleanup.ts.
  * Requires Netlify env: CRON_SECRET, and SITE_URL or URL (shopgetvaulted.com).
  */
-export const config: Config = {
-  schedule: '17 8 * * *',
-};
-
-export const handler: Handler = async () => {
+export const handler = schedule('17 8 * * *', async () => {
   const secret = process.env.CRON_SECRET?.trim();
   const site =
     process.env.URL?.trim().replace(/\/+$/, '') ||
@@ -39,10 +35,11 @@ export const handler: Handler = async () => {
       console.error('[message-cleanup-cron] upstream failed', res.status, text.slice(0, 300));
       return { statusCode: res.status, body: text.slice(0, 500) };
     }
+    console.info('[message-cleanup-cron] ok', text.slice(0, 300));
     return { statusCode: 200, body: text };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[message-cleanup-cron] fetch failed', msg);
     return { statusCode: 500, body: msg };
   }
-};
+});
