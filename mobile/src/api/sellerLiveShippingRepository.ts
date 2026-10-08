@@ -16,6 +16,7 @@ export type SellerLiveShippingOrderRow = {
   id: string;
   listingTitle: string;
   shipAlone: boolean;
+  orderStatus: string;
   paymentStatus: string;
   fulfillmentStatus: string;
   hasLabel: boolean;
@@ -76,6 +77,7 @@ function normalizeOrder(raw: Record<string, unknown>): SellerLiveShippingOrderRo
     id,
     listingTitle: asString(raw.listingTitle, 'Order'),
     shipAlone: raw.shipAlone === true,
+    orderStatus: asString(raw.orderStatus, 'unknown'),
     paymentStatus: asString(raw.paymentStatus, 'unknown'),
     fulfillmentStatus: asString(raw.fulfillmentStatus, 'unknown'),
     hasLabel: raw.hasLabel === true,
@@ -133,7 +135,12 @@ export async function fetchSellerLiveShippingDashboard(
 ): Promise<SellerLiveShippingDashboard> {
   const res = await fetchWebApiAuthed('/api/account/live-shipping', accessToken);
   const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!res.ok || !body) return { sessions: [] };
+  // Throw (don't return an empty list) so a failed load never looks like "no bundles".
+  if (!res.ok || !body) {
+    throw new Error(
+      typeof body?.error === 'string' ? body.error : `Could not load live shipping (${res.status}).`,
+    );
+  }
 
   const sessions = Array.isArray(body.sessions)
     ? body.sessions
@@ -207,6 +214,7 @@ export async function createBundledShippingLabel(
       trackingUrl: string | null;
       orderIds: string[];
       warning?: string;
+      alreadyExisted?: boolean;
     }
   | { ok: false; error: string; code?: string }
 > {
@@ -226,6 +234,7 @@ export async function createBundledShippingLabel(
     error?: string;
     code?: string;
     warning?: string;
+    alreadyExisted?: boolean;
     labelUrl?: string | null;
     trackingNumber?: string | null;
     trackingUrl?: string | null;
@@ -241,5 +250,6 @@ export async function createBundledShippingLabel(
     trackingUrl: body?.trackingUrl ?? null,
     orderIds: Array.isArray(body?.orderIds) ? body!.orderIds : [],
     warning: body?.warning,
+    alreadyExisted: body?.alreadyExisted === true,
   };
 }

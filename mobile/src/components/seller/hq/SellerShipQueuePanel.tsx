@@ -23,11 +23,18 @@ import {
   type SellerSalesOrderRow,
 } from '../../../api/sellerSalesRepository';
 import {
+  bundleIsAwaitingPrintOrShip,
+  bundleOrdersReadyToShip,
   orderIdsAwaitingBundledLabel,
   sellerShipQueueEligible,
   sellerShipQueuePhase,
   type SellerShipQueuePhase,
 } from '../../../lib/sellerShipQueue';
+import {
+  bundledLabelSuccessFeedback,
+  formatBundledLabelError,
+  type BundleFeedback,
+} from '../../../lib/bundledLabelMessages';
 import { openSellerOrderDetail } from '../../../navigation/openSellerOrderDetail';
 import type { RootStackParamList } from '../../../navigation/types';
 import { colors, radii, spacing } from '../../../theme';
@@ -151,11 +158,13 @@ function OrderCard({
 function BundleCard({
   session,
   busy,
+  feedback,
   onCreateLabel,
   onShipOwnCarrier,
 }: {
   session: SellerLiveShippingSessionRow;
   busy: boolean;
+  feedback?: BundleFeedback;
   onCreateLabel: () => void;
   onShipOwnCarrier?: () => void;
 }) {
@@ -192,6 +201,20 @@ function BundleCard({
           </Pressable>
         ) : null}
       </View>
+      {feedback ? (
+        <Text
+          style={[
+            styles.bundleFeedback,
+            feedback.tone === 'error'
+              ? styles.bundleFeedbackError
+              : feedback.tone === 'warning'
+                ? styles.bundleFeedbackWarning
+                : styles.bundleFeedbackSuccess,
+          ]}
+        >
+          {feedback.message}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -215,7 +238,7 @@ export function SellerShipQueuePanel({
 }) {
   const [labelTarget, setLabelTarget] = useState<LabelTarget | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [bundleFeedback, setBundleFeedback] = useState<Record<string, BundleFeedback>>({});
   const [shipOwnTarget, setShipOwnTarget] = useState<SellerSalesOrderRow | null>(null);
   const [bundleShipOwnTarget, setBundleShipOwnTarget] = useState<SellerLiveShippingSessionRow | null>(
     null,
@@ -227,9 +250,10 @@ export function SellerShipQueuePanel({
   );
 
   const buckets = useMemo(() => {
-    const needsLabel: SellerSalesOrderRow[] = [];
-    const pendingShipment: Array<{ order: SellerSalesOrderRow; phase: 'print_and_ship' | 'awaiting_carrier' }> =
-      [];
+    // Mirrors the web tabs: "print and ship" (label exists, still to print + drop off) stays under
+    // Needs label; Pending shipment is only orders already dropped off, waiting on a carrier scan.
+    const needsLabel: Array<{ order: SellerSalesOrderRow; phase: 'needs_label' | 'print_and_ship' }> = [];
+    const pendingShipment: Array<{ order: SellerSalesOrderRow; phase: 'awaiting_carrier' }> = [];
     const shipped: SellerSalesOrderRow[] = [];
     const complete: SellerSalesOrderRow[] = [];
     const waitPayment: SellerSalesOrderRow[] = [];
@@ -247,8 +271,10 @@ export function SellerShipQueuePanel({
       if (!sellerShipQueueEligible(q)) continue;
       const phase = sellerShipQueuePhase(q);
       if (phase === 'needs_label') {
-        if (!awaitingBundleIds.has(order.id)) needsLabel.push(order);
-      } else if (phase === 'print_and_ship' || phase === 'awaiting_carrier') {
+        if (!awaitingBundleIds.has(order.id)) needsLabel.push({ order, phase });
+      } else if (phase === 'print_and_ship') {
+        needsLabel.push({ order, phase });
+      } else if (phase === 'awaiting_carrier') {
         pendingShipment.push({ order, phase });
       } else if (phase === 'in_transit') {
         shipped.push(order);
@@ -259,11 +285,15 @@ export function SellerShipQueuePanel({
       }
     }
 
-    complete.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    const newestFirst = (a: SellerSalesOrderRow, b: SellerSalesOrderRow) =>
+      Date.parse(b.createdAt) - Date.parse(a.createdAt);
+    needsLabel.sort((a, b) => newestFirst(a.order, b.order));
+    complete.sort(newestFirst);
     return {
       needsLabel,
       pendingShipment,
       shipped,
+      completeTotal: complete.length,
       complete: complete.slice(0, 40),
       waitPayment,
     };
@@ -273,14 +303,14 @@ export function SellerShipQueuePanel({
     () => liveShipping.sessions.filter((s) => s.canCreateBundledLabel),
     [liveShipping.sessions],
   );
+  // Same rule as web: a labeled bundle stays until every order in it has been marked shipped.
   const printBundles = useMemo(
-    () =>
-      liveShipping.sessions.filter((s) => Boolean(s.bundledLabel?.labelUrl) && !s.canCreateBundledLabel),
+    () => liveShipping.sessions.filter(bundleIsAwaitingPrintOrShip),
     [liveShipping.sessions],
   );
 
-  const needsLabelCount = buckets.needsLabel.length + createBundles.length;
-  const pendingShipmentCount = buckets.pendingShipment.length + printBundles.length;
+  const needsLabelCount = buckets.needsLabel.length + createBundles.length + printBundles.length;
+  const pendingShipmentCount = buckets.pendingShipment.length;
   const setup = liveShipping.labelSetup;
 
   const confirmCreate = async (
@@ -292,7 +322,14 @@ export function SellerShipQueuePanel({
     const id =
       labelTarget.kind === 'order' ? labelTarget.order.id : labelTarget.session.sessionId;
     setBusyId(id);
-    setFeedback(null);
+    if (labelTarget.kind === 'bundle') {
+      const sessionId = labelTarget.session.sessionId;
+      setBundleFeedback((prev) => {
+        const next = { ...prev };
+        delete next[sessionId];
+        return next;
+      });
+    }
     try {
       if (labelTarget.kind === 'order') {
         const result = await createSellerShippingLabel(accessToken, labelTarget.order.id, {
@@ -310,11 +347,21 @@ export function SellerShipQueuePanel({
           labelFormat,
           selectedRateObjectId,
         });
+        const sessionId = labelTarget.session.sessionId;
         if (!result.ok) {
-          Alert.alert('Bundle label failed', result.error);
+          const message = formatBundledLabelError(result.error, result.code);
+          setBundleFeedback((prev) => ({ ...prev, [sessionId]: { tone: 'error', message } }));
+          Alert.alert('Bundle label failed', message);
           return;
         }
-        if (result.warning) setFeedback(result.warning);
+        setBundleFeedback((prev) => ({
+          ...prev,
+          [sessionId]: bundledLabelSuccessFeedback({
+            warning: result.warning,
+            alreadyExisted: result.alreadyExisted,
+            labelUrl: result.labelUrl,
+          }),
+        }));
         if (result.labelUrl) openUrl(result.labelUrl);
       }
       setLabelTarget(null);
@@ -372,11 +419,11 @@ export function SellerShipQueuePanel({
 
   const confirmBundleShipOwnCarrier = async (trackingNumber: string | null) => {
     if (!accessToken || !bundleShipOwnTarget) return;
-    const eligibleOrderIds = bundleShipOwnTarget.orders
-      .filter((o) => o.paymentStatus === 'paid')
-      .map((o) => o.id);
+    // Only orders that are paid and not already shipped (same rule as web). A bundle can include
+    // an order still waiting on payment, or orders already marked shipped.
+    const eligibleOrderIds = bundleOrdersReadyToShip(bundleShipOwnTarget.orders).map((o) => o.id);
     if (eligibleOrderIds.length === 0) {
-      Alert.alert('Nothing to ship', 'No paid orders were found in this bundle.');
+      Alert.alert('Nothing to ship', 'No orders in this bundle are ready to be marked shipped.');
       return;
     }
     setBusyId(bundleShipOwnTarget.sessionId);
@@ -404,7 +451,7 @@ export function SellerShipQueuePanel({
     needsLabelCount === 0 &&
     pendingShipmentCount === 0 &&
     buckets.shipped.length === 0 &&
-    buckets.complete.length === 0 &&
+    buckets.completeTotal === 0 &&
     buckets.waitPayment.length === 0;
 
   return (
@@ -426,10 +473,8 @@ export function SellerShipQueuePanel({
         <StagePill label="Needs label" count={needsLabelCount} tone="sky" />
         <StagePill label="Pending shipment" count={pendingShipmentCount} tone="gold" />
         <StagePill label="Shipped" count={buckets.shipped.length} tone="amber" />
-        <StagePill label="Complete" count={buckets.complete.length} tone="emerald" />
+        <StagePill label="Complete" count={buckets.completeTotal} tone="emerald" />
       </View>
-
-      {feedback ? <Text style={styles.feedback}>{feedback}</Text> : null}
 
       {empty ? (
         <Text style={styles.empty}>
@@ -440,26 +485,36 @@ export function SellerShipQueuePanel({
       <SectionHeader
         label="Needs label"
         count={needsLabelCount}
-        hint="Buy a label for each package. Live bundles combine orders to the same buyer."
+        hint="Create a label, then print it and drop off the package. Live bundles combine orders to the same buyer."
       />
       {createBundles.map((session) => (
         <BundleCard
           key={`create-${session.sessionId}`}
           session={session}
           busy={busyId === session.sessionId}
+          feedback={bundleFeedback[session.sessionId]}
           onCreateLabel={() => setLabelTarget({ kind: 'bundle', session })}
           onShipOwnCarrier={() => setBundleShipOwnTarget(session)}
         />
       ))}
-      {buckets.needsLabel.map((order) => (
+      {printBundles.map((session) => (
+        <BundleCard
+          key={`print-${session.sessionId}`}
+          session={session}
+          busy={busyId === session.sessionId}
+          feedback={bundleFeedback[session.sessionId]}
+          onCreateLabel={() => setLabelTarget({ kind: 'bundle', session })}
+        />
+      ))}
+      {buckets.needsLabel.map(({ order, phase }) => (
         <OrderCard
           key={order.id}
           order={order}
-          phase="needs_label"
+          phase={phase}
           busy={busyId === order.id}
           onCreateLabel={() => setLabelTarget({ kind: 'order', order })}
           onMarkShipped={() => markShipped(order)}
-          onShipOwnCarrier={() => setShipOwnTarget(order)}
+          onShipOwnCarrier={phase === 'needs_label' ? () => setShipOwnTarget(order) : undefined}
           onOpen={() => openSellerOrderDetail(navigation, order.id)}
         />
       ))}
@@ -467,16 +522,8 @@ export function SellerShipQueuePanel({
       <SectionHeader
         label="Pending shipment"
         count={pendingShipmentCount}
-        hint="Print labels, pack, then mark Dropped off when handed to the carrier."
+        hint="Dropped off — nothing to do here. Moves to Shipped automatically once the carrier scans it in."
       />
-      {printBundles.map((session) => (
-        <BundleCard
-          key={`print-${session.sessionId}`}
-          session={session}
-          busy={busyId === session.sessionId}
-          onCreateLabel={() => setLabelTarget({ kind: 'bundle', session })}
-        />
-      ))}
       {buckets.pendingShipment.map(({ order, phase }) => (
         <OrderCard
           key={order.id}
@@ -502,7 +549,7 @@ export function SellerShipQueuePanel({
         />
       ))}
 
-      <SectionHeader label="Complete" count={buckets.complete.length} />
+      <SectionHeader label="Complete" count={buckets.completeTotal} />
       {buckets.complete.map((order) => (
         <OrderCard
           key={order.id}
@@ -607,7 +654,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(120,53,15,0.22)',
   },
   setupTxt: { flex: 1, color: '#FFE4B5', fontSize: 12, lineHeight: 17 },
-  feedback: { color: '#6EE7B7', fontSize: 12 },
+  bundleFeedback: { fontSize: 12, lineHeight: 17, marginTop: 2 },
+  bundleFeedbackError: { color: '#FCA5A5' },
+  bundleFeedbackWarning: { color: '#FCD34D' },
+  bundleFeedbackSuccess: { color: '#6EE7B7' },
   card: {
     borderRadius: radii.lg,
     borderWidth: 1,
