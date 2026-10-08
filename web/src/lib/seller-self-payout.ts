@@ -257,7 +257,7 @@ async function claimSelfPayoutSlot(
   now: Date,
 ): Promise<{ claimId: string } | { cooldownEndsAt: Date }> {
   return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`seller_self_payout:${sellerId}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seller_self_payout:${sellerId}`}))`;
     const since = new Date(now.getTime() - SELLER_SELF_PAYOUT_COOLDOWN_MS);
     const recent = await tx.payoutEligibilityAuditLog.findFirst({
       where: { sellerId, action: SELLER_SELF_PAYOUT_AUDIT_ACTION, createdAt: { gt: since } },

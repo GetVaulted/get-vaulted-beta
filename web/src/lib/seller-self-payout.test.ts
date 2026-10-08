@@ -11,7 +11,7 @@ const hoisted = vi.hoisted(() => ({
       delete: vi.fn(),
     },
     $transaction: vi.fn(),
-    $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
   },
   listReady: vi.fn(),
   release: vi.fn(),
@@ -108,7 +108,7 @@ describe("seller payout flow", () => {
     hoisted.prisma.payoutEligibilityAuditLog.create.mockResolvedValue({ id: "claim1" });
     hoisted.prisma.payoutEligibilityAuditLog.update.mockResolvedValue({});
     hoisted.prisma.payoutEligibilityAuditLog.delete.mockResolvedValue({});
-    hoisted.prisma.$queryRaw.mockResolvedValue([]);
+    hoisted.prisma.$executeRaw.mockResolvedValue(0);
     hoisted.prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(hoisted.prisma));
     hoisted.listReady.mockResolvedValue([readyRow("o1", 70), readyRow("o2", 50)]);
     hoisted.balance.mockResolvedValue({ available: [{ amount: 20_000, currency: "usd" }] });
