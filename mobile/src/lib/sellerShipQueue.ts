@@ -83,6 +83,50 @@ export function orderIdsAwaitingBundledLabel(
   return ids;
 }
 
+/** Order lifecycle statuses that still need a first fulfillment action. Mirrors web order-shipping-guards. */
+const ORDER_AWAITING_FULFILLMENT = new Set(['pending', 'paid']);
+
+/**
+ * Orders in a live bundle that can still be marked shipped ("Ship it yourself"): paid AND not
+ * already shipped. Mirrors the web bundle modal. Without the status check, an order that already
+ * shipped is sent again and the server rejects it, failing the whole bundle.
+ */
+export function bundleOrdersReadyToShip<T extends { paymentStatus: string; orderStatus: string }>(
+  orders: T[],
+): T[] {
+  return orders.filter((o) => o.paymentStatus === 'paid' && ORDER_AWAITING_FULFILLMENT.has(o.orderStatus));
+}
+
+/**
+ * A live bundle that already has a label but still has at least one order not yet marked shipped.
+ * Mirrors web `printBundles`: once every order in the bundle has shipped, the bundle card goes away
+ * (its orders move on individually).
+ */
+export function bundleIsAwaitingPrintOrShip(session: {
+  canCreateBundledLabel: boolean;
+  bundledLabel: { labelUrl: string | null } | null;
+  orders: { orderStatus: string }[];
+}): boolean {
+  return (
+    Boolean(session.bundledLabel?.labelUrl) &&
+    !session.canCreateBundledLabel &&
+    session.orders.some((o) => ORDER_AWAITING_FULFILLMENT.has(o.orderStatus))
+  );
+}
+
+/**
+ * Which queue stage a phase is shown under in the app. Mirrors web `tabForShipQueuePhase`:
+ * "print_and_ship" (label exists, seller still prints + drops off) stays under Needs label.
+ */
+export type SellerShipQueueTab = 'needs_label' | 'pending_shipment' | 'shipped' | 'complete';
+export function tabForShipQueuePhase(phase: SellerShipQueuePhase): SellerShipQueueTab | null {
+  if (phase === 'needs_label' || phase === 'print_and_ship') return 'needs_label';
+  if (phase === 'awaiting_carrier') return 'pending_shipment';
+  if (phase === 'in_transit') return 'shipped';
+  if (phase === 'done') return 'complete';
+  return null;
+}
+
 export function countShipQueueActions(
   orders: SellerShipQueueOrder[],
   opts?: { skipOrderIds?: Set<string> },

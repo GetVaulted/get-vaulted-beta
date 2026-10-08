@@ -45,6 +45,10 @@ type Props = {
   onConfirm: (parcel: ManualParcel, labelFormat: SellerLabelPrintFormat, selectedRateObjectId?: string) => void;
 };
 
+function fmtMargin(cents: number): string {
+  return `${cents < 0 ? '-' : ''}$${Math.abs(cents / 100).toFixed(2)}`;
+}
+
 function Field({
   label,
   value,
@@ -234,8 +238,12 @@ export function SellerCreateLabelSheet({
                   : null}
                 {selectedRate && chargedCents > 0 ? (
                   <Text style={styles.marginHint}>
-                    Buyer paid ${(chargedCents / 100).toFixed(2)} shipping · you pay $
-                    {(selectedRate.amountCents / 100).toFixed(2)}
+                    Buyer paid ${(chargedCents / 100).toFixed(2)} for shipping ·{' '}
+                    <Text
+                      style={chargedCents - selectedRate.amountCents < 0 ? styles.marginNegative : styles.marginPositive}
+                    >
+                      {fmtMargin(chargedCents - selectedRate.amountCents)} margin
+                    </Text>
                   </Text>
                 ) : null}
               </View>
@@ -344,6 +352,8 @@ const styles = StyleSheet.create({
   rateDays: { color: colors.textMuted, fontSize: 11 },
   rateAmt: { color: colors.gold, fontSize: 14, fontWeight: '800' },
   marginHint: { color: colors.textMuted, fontSize: 11, lineHeight: 15 },
+  marginPositive: { color: '#6EE7B7', fontWeight: '700' },
+  marginNegative: { color: '#FCA5A5', fontWeight: '700' },
   error: { color: '#FCA5A5', fontSize: 12 },
   confirm: {
     marginTop: spacing.sm,
