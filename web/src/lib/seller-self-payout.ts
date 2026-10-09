@@ -1,16 +1,16 @@
-import { selectFifoOrdersWithinAvailable } from "@/lib/admin/bank-payout-pushable";
+import { planLumpPayoutCents } from "@/lib/admin/bank-payout-pushable";
 import { scheduleNotifyAdmins } from "@/lib/admin/notify-admins";
 import { listOrdersReadyForAdminBankPayout } from "@/lib/admin/orders-ready-for-bank-payout";
-import { releaseSellerReadyBankPayouts } from "@/lib/admin/release-seller-bank-payouts";
+import { releaseSellerLumpBankPayout } from "@/lib/admin/release-seller-lump-payout";
 import { prisma } from "@/lib/prisma";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { orderLooksShippedForBankPayout } from "@/services/payout/stripe-seller-payout";
 
 /**
  * Seller-initiated "Initiate Payout": the seller pushes their own Stripe Connect -> bank payout instead of
- * waiting for an admin to do it by hand. It runs the SAME release code the admin button runs, with the same
- * money-safety rules (shipped, label cost already recovered, oldest first, never more than the live Connect
- * available balance, one Stripe payout per order via idempotency key), plus:
+ * waiting for an admin to do it by hand. It sends ONE lump-sum Stripe payout for the seller's whole sendable
+ * balance (not one small payout per order), with the same money-safety rules as the admin path (shipped, label
+ * cost already recovered, oldest first, never more than the live Connect available balance, idempotent), plus:
  *  - the rest of a live show must have shipped (admins can override that, sellers cannot),
  *  - a minimum amount ($100),
  *  - one payout per seller per 24 hours,
@@ -58,22 +58,22 @@ function money(usd: number): string {
   return `$${usd.toFixed(2)}`;
 }
 
-/** Pure: what would go out for these orders (oldest first) within this available balance. */
+/**
+ * Pure: what one lump payout would send for these orders (oldest first) within this available balance:
+ * every order that fully fits plus the leftover balance up to the next order.
+ */
 export function planSelfPayout(args: {
   ordersOldestFirst: Array<{ orderId: string; estimatedNetUsd: number }>;
   availableUsdCents: number;
 }): { payableOrderIds: string[]; payableCents: number } {
-  const fifo = selectFifoOrdersWithinAvailable({
+  const lump = planLumpPayoutCents({
     ordersOldestFirst: args.ordersOldestFirst.map((o) => ({
       orderId: o.orderId,
       estimatedNetUsdCents: Math.round(o.estimatedNetUsd * 100),
     })),
     availableUsdCents: args.availableUsdCents,
   });
-  return {
-    payableOrderIds: fifo.selected.map((o) => o.orderId),
-    payableCents: fifo.selected.reduce((sum, o) => sum + Math.max(0, o.estimatedNetUsdCents), 0),
-  };
+  return { payableOrderIds: lump.coveredOrderIds, payableCents: lump.lumpCents };
 }
 
 /** Pure: the button state from the numbers. Order of checks is the order a seller should fix things in. */
@@ -294,9 +294,9 @@ export async function initiateSellerSelfPayout(sellerId: string): Promise<Seller
     };
   }
 
-  let release: Awaited<ReturnType<typeof releaseSellerReadyBankPayouts>>;
+  let release: Awaited<ReturnType<typeof releaseSellerLumpBankPayout>>;
   try {
-    release = await releaseSellerReadyBankPayouts({
+    release = await releaseSellerLumpBankPayout({
       sellerId,
       adminId: null,
       reason: "Seller-initiated payout",
@@ -308,7 +308,7 @@ export async function initiateSellerSelfPayout(sellerId: string): Promise<Seller
     return { ok: false, code: "failed", message: "We couldn't start your payout. Please try again in a few minutes." };
   }
 
-  if (release.pushed === 0) {
+  if (release.totalPaidUsd <= 0 && release.pushed === 0) {
     // Nothing left the platform, so don't burn the seller's cooldown.
     await prisma.payoutEligibilityAuditLog.delete({ where: { id: claim.claimId } }).catch(() => undefined);
     return {
@@ -325,7 +325,7 @@ export async function initiateSellerSelfPayout(sellerId: string): Promise<Seller
     .update({
       where: { id: claim.claimId },
       data: {
-        reason: `Seller-initiated payout: ${release.pushed} order(s), ${money(release.totalPaidUsd)}`,
+        reason: `Seller-initiated lump payout: ${money(release.totalPaidUsd)} (${release.pushed} order(s) settled)${release.payoutId ? `, ${release.payoutId}` : ""}`,
       },
     })
     .catch(() => undefined);
@@ -336,7 +336,7 @@ export async function initiateSellerSelfPayout(sellerId: string): Promise<Seller
   scheduleNotifyAdmins({
     type: "admin_seller_self_payout",
     title: `Seller payout · @${handle?.trim() || sellerId.slice(0, 8)}`,
-    body: `${handle?.trim() ? `@${handle.trim()}` : "A seller"} took their own payout: ${money(release.totalPaidUsd)} across ${release.pushed} order(s).`,
+    body: `${handle?.trim() ? `@${handle.trim()}` : "A seller"} took their own payout: ${money(release.totalPaidUsd)} in one payout (${release.pushed} order(s) settled).`,
     href: `/admin/payouts`,
     dedupeKey: `admin_seller_self_payout:${claim.claimId}`,
   });

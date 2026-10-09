@@ -62,10 +62,19 @@ export function orderLabelClawbackSettledForBankPayout(order: {
  */
 export async function releaseSellerStripePayout(
   orderId: string,
-  opts?: { force?: boolean },
+  opts?: {
+    force?: boolean;
+    /**
+     * Run every safety check and work out the net, but do NOT create a Stripe payout or touch liability
+     * recovery. Used by the lump-sum payout, which sends one payout for many orders. Returns
+     * `reason: "planned"` with `amountCents`.
+     */
+    planOnly?: boolean;
+  },
 ): Promise<{
   ok: boolean;
   reason?: string;
+  amountCents?: number;
 }> {
   if (!isStripeConfigured()) {
     return { ok: false, reason: "stripe_not_configured" };
@@ -240,6 +249,10 @@ export async function releaseSellerStripePayout(
       data: { processorTransferId: `zero-net:${orderId}` },
     });
     return { ok: true, reason: "zero_net" };
+  }
+
+  if (opts?.planOnly) {
+    return { ok: true, reason: "planned", amountCents };
   }
 
   try {

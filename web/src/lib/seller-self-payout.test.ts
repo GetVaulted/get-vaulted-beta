@@ -23,8 +23,8 @@ vi.mock("@/lib/prisma", () => ({ prisma: hoisted.prisma }));
 vi.mock("@/lib/admin/orders-ready-for-bank-payout", () => ({
   listOrdersReadyForAdminBankPayout: hoisted.listReady,
 }));
-vi.mock("@/lib/admin/release-seller-bank-payouts", () => ({
-  releaseSellerReadyBankPayouts: hoisted.release,
+vi.mock("@/lib/admin/release-seller-lump-payout", () => ({
+  releaseSellerLumpBankPayout: hoisted.release,
 }));
 vi.mock("@/lib/admin/notify-admins", () => ({ scheduleNotifyAdmins: hoisted.notify }));
 vi.mock("@/lib/stripe", () => ({
@@ -54,7 +54,7 @@ function readyRow(orderId: string, net: number, shippedAt = "2026-10-01T00:00:00
 }
 
 describe("planSelfPayout", () => {
-  it("never plans more than the available balance and stops at the first order that does not fit", () => {
+  it("sends the whole balance as one lump: orders that fit, plus the leftover up to the next order", () => {
     const plan = planSelfPayout({
       ordersOldestFirst: [
         { orderId: "a", estimatedNetUsd: 40 },
@@ -64,6 +64,14 @@ describe("planSelfPayout", () => {
       availableUsdCents: 10_000,
     });
     expect(plan.payableOrderIds).toEqual(["a"]);
+    expect(plan.payableCents).toBe(10_000);
+  });
+
+  it("does not sweep past the ready orders: balance for unshipped orders stays held", () => {
+    const plan = planSelfPayout({
+      ordersOldestFirst: [{ orderId: "a", estimatedNetUsd: 40 }],
+      availableUsdCents: 23_514,
+    });
     expect(plan.payableCents).toBe(4000);
   });
 
