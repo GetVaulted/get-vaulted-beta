@@ -34,3 +34,6 @@ export const LAYAWAY_TERMS_COPY = [
   "Remaining balance must be paid within your selected term",
   "Failure to complete payment will result in forfeiture of deposit",
 ] as const;
+
+/** Full layaway terms (Terms of Service §4.1). Linked from the layaway checkout acknowledgment. */
+export const LAYAWAY_TERMS_PATH = "/terms#layaway-terms";
