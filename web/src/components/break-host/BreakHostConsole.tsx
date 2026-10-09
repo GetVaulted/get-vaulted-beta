@@ -33,6 +33,7 @@ import { LiveSweet16Draft } from "@/components/live-auction/LiveSweet16Draft";
 import { HostRecentSalesTile } from "@/components/break-host/HostRecentSalesTile";
 import { LiveShowSalesTile } from "@/components/break-host/LiveShowSalesTile";
 import { HostAddSupplementalModal } from "@/components/break-host/HostAddSupplementalModal";
+import { HostShowNotesModal } from "@/components/break-host/HostShowNotesModal";
 import { HostEditBreakSpotsModal, variantItemForSpotEditor } from "@/components/break-host/HostEditBreakSpotsModal";
 import {
   HostEditLotPricingModal,
@@ -136,6 +137,8 @@ type RoomPayload = {
   id: string;
   sellerId: string;
   title: string;
+  /** In-room show notes (seller-authored); empty string when none. */
+  showNotes?: string | null;
   status: string;
   discoveryVisibility?: "public" | "private";
   roomVersion: number;
@@ -300,6 +303,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
 
   const [queueAddModal, setQueueAddModal] = useState<SellerQueueAddModalMode>(null);
   const [obsSetupModalOpen, setObsSetupModalOpen] = useState(false);
+  const [showNotesModalOpen, setShowNotesModalOpen] = useState(false);
   // Seller can close the go-live camera/mic setup panel to see the stage/queue behind it
   // before they are ready, then reopen it from the action bar's "Camera setup" button.
   const [goLiveSetupDismissed, setGoLiveSetupDismissed] = useState(false);
@@ -2610,6 +2614,11 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       setVaultCommandOpen(false);
       setObsSetupModalOpen(true);
     },
+    onOpenNotes: () => {
+      setVaultCommandOpen(false);
+      setShowNotesModalOpen(true);
+    },
+    hasNotes: Boolean(data.room.showNotes?.trim()),
     onCopyPublic: () => void copyPublic(),
     recentSales: data.recentSales ?? [],
     feeTier: data.feeTier ?? null,
@@ -2834,6 +2843,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         onShare={() => void handleShareRoom()}
         onOpenCommandCenter={() => setVaultCommandOpen(true)}
         onOpenObs={() => setObsSetupModalOpen(true)}
+        onOpenNotes={() => setShowNotesModalOpen(true)}
       />
     ),
     sellerHostRail: (
@@ -2843,6 +2853,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         onOpenLineup={() => setHostLineupOpen((open) => !open)}
         lineupCount={lineupCount}
         onOpenObs={() => setObsSetupModalOpen(true)}
+        onOpenNotes={() => setShowNotesModalOpen(true)}
+        hasNotes={Boolean(data.room.showNotes?.trim())}
         disabled={busy}
       />
     ),
@@ -3225,6 +3237,14 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
           </div>
         </div>
       ) : null}
+
+      <HostShowNotesModal
+        open={showNotesModalOpen}
+        onClose={() => setShowNotesModalOpen(false)}
+        roomId={roomId}
+        initialNotes={data.room.showNotes ?? ""}
+        onSaved={(notes) => setData((prev) => (prev ? { ...prev, room: { ...prev.room, showNotes: notes } } : prev))}
+      />
 
       {activeBoardRow && isVariantSalesFormat(activeBoardRow.item.salesFormat) ? (
         <HostAddSupplementalModal
