@@ -19,6 +19,7 @@ import {
   patchLiveRoomAction,
   patchLiveRoomItemStatus,
 } from "@/lib/live-room-control-client";
+import { EditScheduledShowModal } from "@/components/seller/EditScheduledShowModal";
 import { LiveShowTipModeratorSettings, patchLiveRoomTipSettings } from "@/components/seller/LiveShowTipModeratorSettings";
 import {
   LiveShowShippingSettingsFields,
@@ -207,6 +208,7 @@ export function SellerLivePage() {
   const { data: session, status } = useSession();
   const { ready: sellerReady, loading: sellerGateLoading } = useRequireSellerActivation();
   const [rooms, setRooms] = useState<LiveRoomListApiRow[]>([]);
+  const [editShow, setEditShow] = useState<LiveRoomListApiRow | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [items, setItems] = useState<LiveRoomItemDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1200,6 +1202,15 @@ export function SellerLivePage() {
                                 </span>
                               </button>
                               <div className="flex items-center gap-2">
+                                {r.status === "scheduled" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditShow(r)}
+                                    className="rounded-lg border border-white/12 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-zinc-200 hover:bg-white/[0.06]"
+                                  >
+                                    Edit
+                                  </button>
+                                ) : null}
                                 <Link
                                   href={`/live/${encodeURIComponent(r.id)}`}
                                   className="rounded-lg border border-white/12 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-zinc-200 hover:bg-white/[0.06]"
@@ -1940,6 +1951,16 @@ export function SellerLivePage() {
                 ) : null}
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+                {selected.status === "scheduled" ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setEditShow(selected)}
+                    className="inline-flex min-h-11 w-full items-center justify-center rounded-[var(--live-radius-chrome)] border border-white/15 px-4 py-2.5 text-xs font-bold text-zinc-100 transition-[transform,background-color,opacity] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] hover:bg-white/[0.05] active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40 sm:w-auto sm:min-h-10 sm:py-2"
+                  >
+                    Edit show
+                  </button>
+                ) : null}
                 <button
                   data-testid="seller-start-live"
                   type="button"
@@ -2216,6 +2237,14 @@ export function SellerLivePage() {
         ) : null}
         </div>
       </div>
+    {editShow ? (
+        <EditScheduledShowModal
+          key={editShow.id}
+          room={editShow}
+          onClose={() => setEditShow(null)}
+          onSaved={() => void loadRooms()}
+        />
+      ) : null}
     </main>
   );
 }
