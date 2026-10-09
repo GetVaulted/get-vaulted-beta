@@ -28,6 +28,8 @@ const TAP_NUDGE_MAX_PROGRESS = 0.12;
 const THUMB_SIZE = 40;
 const THUMB_SIZE_COMPACT = 26;
 const TRACK_INSET = 3;
+/** After a commit, wait for the handle's slide-to-end animation (120ms) plus a beat, then re-arm. */
+const REARM_AFTER_COMMIT_MS = 400;
 
 /** Bid ACK in flight — not payment. Settlement charges when the auction timer ends. */
 const PROCESSING_LABEL = 'Placing bid…';
@@ -68,6 +70,7 @@ export function SlideToBidButton({
   const dragStartX = useSharedValue(0);
   const gateOk = useSharedValue(false);
   const committedRef = useRef(false);
+  const rearmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showProcessing = busy && !disabled;
 
@@ -94,6 +97,13 @@ export function SlideToBidButton({
     }
   }, [disabled, busy, translateX]);
 
+  useEffect(
+    () => () => {
+      if (rearmTimerRef.current) clearTimeout(rearmTimerRef.current);
+    },
+    [],
+  );
+
   const checkGate = useCallback(() => {
     gateOk.value = false;
     if (disabled || busy || committedRef.current) return;
@@ -113,7 +123,18 @@ export function SlideToBidButton({
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     logBidControl('commit', { label });
     onCommit();
-  }, [label, onCommit]);
+    // Hold-to-Bid is fire-and-forget: it never flips `busy` or `disabled`, so nothing else would
+    // ever clear `committedRef` or bring the handle back. The slider then refused every swipe after
+    // the first bid ("works once, then never again"). Re-arm shortly after the commit animation so
+    // the buyer can bid again straight away (e.g. after being outbid).
+    if (rearmTimerRef.current) clearTimeout(rearmTimerRef.current);
+    rearmTimerRef.current = setTimeout(() => {
+      rearmTimerRef.current = null;
+      committedRef.current = false;
+      translateX.value = withTiming(0, { duration: 180 });
+      logBidControl('reset', { reason: 'rearm_after_commit' });
+    }, REARM_AFTER_COMMIT_MS);
+  }, [label, onCommit, translateX]);
 
   const pan = Gesture.Pan()
     .enabled(!disabled && !busy)
