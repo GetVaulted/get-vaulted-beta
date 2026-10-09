@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import {
   archiveSellerShippingProfile,
   getActiveSellerShippingProfiles,
+  listArchivedSellerShippingProfiles,
+  restoreSellerShippingProfile,
   seedSellerShippingProfiles,
 } from "@/services/shipping/seller-shipping-profiles";
 
@@ -19,7 +21,10 @@ export async function GET(req: Request) {
   if (resolved instanceof NextResponse) return resolved;
   const sellerId = resolved.userId;
 
-  const profiles = await getActiveSellerShippingProfiles(sellerId);
+  const wantsArchived = new URL(req.url).searchParams.get("archived") === "1";
+  const profiles = wantsArchived
+    ? await listArchivedSellerShippingProfiles(sellerId)
+    : await getActiveSellerShippingProfiles(sellerId);
   return NextResponse.json({
     profiles: profiles.map((p) => ({
       id: p.id,
@@ -38,12 +43,13 @@ export async function GET(req: Request) {
       carrierPreference: p.carrierPreference,
       defaultServicePreference: p.defaultServicePreference,
       isDefault: p.isDefault,
+      archivedAt: p.archivedAt ? p.archivedAt.toISOString() : null,
     })),
   });
 }
 
 type PostBody = {
-  action?: "duplicate" | "archive" | "set_default";
+  action?: "duplicate" | "archive" | "restore" | "set_default";
   sourceProfileId?: string;
   profileId?: string;
   name?: string;
@@ -80,6 +86,15 @@ export async function POST(req: Request) {
       sellerId,
       profileId: body.profileId.trim(),
     });
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status ?? 400 });
+    }
+    const profiles = await getActiveSellerShippingProfiles(sellerId);
+    return NextResponse.json({ ok: true, profiles });
+  }
+
+  if (body.action === "restore" && body.profileId?.trim()) {
+    const result = await restoreSellerShippingProfile({ sellerId, profileId: body.profileId.trim() });
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status ?? 400 });
     }

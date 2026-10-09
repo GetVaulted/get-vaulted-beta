@@ -42,3 +42,31 @@ export function selectFifoOrdersWithinAvailable(args: {
 
   return { selected, remainingUsdCents: remaining, stoppedOnOrderId };
 }
+
+/**
+ * One lump-sum payout: the oldest orders that fully fit, PLUS the leftover balance up to (never past) the
+ * next order that did not fit. So a seller with $235.14 available and shipped orders waiting gets exactly
+ * $235.14 in one payout, not a handful of smaller ones. When every ready order fits, nothing extra is swept:
+ * whatever else sits in the balance belongs to orders that have not shipped yet and stays held.
+ */
+export function planLumpPayoutCents(args: {
+  ordersOldestFirst: FifoPayoutOrder[];
+  availableUsdCents: number;
+}): {
+  coveredOrderIds: string[];
+  coveredCents: number;
+  sweepCents: number;
+  lumpCents: number;
+  stoppedOnOrderId: string | null;
+} {
+  const fifo = selectFifoOrdersWithinAvailable(args);
+  const coveredCents = fifo.selected.reduce((sum, o) => sum + Math.max(0, Math.floor(o.estimatedNetUsdCents)), 0);
+  const sweepCents = fifo.stoppedOnOrderId ? fifo.remainingUsdCents : 0;
+  return {
+    coveredOrderIds: fifo.selected.map((o) => o.orderId),
+    coveredCents,
+    sweepCents,
+    lumpCents: coveredCents + sweepCents,
+    stoppedOnOrderId: fifo.stoppedOnOrderId,
+  };
+}

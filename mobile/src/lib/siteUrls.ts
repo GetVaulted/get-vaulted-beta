@@ -8,6 +8,7 @@ export function getSiteBaseUrl(): string {
 export const siteUrls = {
   privacy: () => `${getSiteBaseUrl()}/privacy`,
   terms: () => `${getSiteBaseUrl()}/terms`,
+  termsLayaway: () => `${getSiteBaseUrl()}/terms#layaway-terms`,
   termsSellerObligations: () => `${getSiteBaseUrl()}/terms#seller-obligations`,
   communityGuidelines: () => `${getSiteBaseUrl()}/community-guidelines`,
   reportingSafety: () => `${getSiteBaseUrl()}/reporting-safety`,

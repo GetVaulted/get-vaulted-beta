@@ -13,7 +13,7 @@ export default function TermsPage() {
         ← Back to Join
       </Link>
       <h1 className="font-display mt-6 text-2xl font-bold text-foreground">Terms of Service</h1>
-      <p className="mt-2 text-xs text-zinc-500">Last updated: October 6, 2026</p>
+      <p className="mt-2 text-xs text-zinc-500">Last updated: October 8, 2026</p>
 
       <div className="mt-10 space-y-8 text-sm leading-relaxed text-zinc-300">
         <section>
@@ -81,7 +81,11 @@ export default function TermsPage() {
             Marketplace listings may support Buy Now checkout, buyer offers, trade offers, and layaway on eligible
             items. Timed bidding auctions currently occur only in Vault Events / live rooms (see Section 7), not on
             standalone marketplace listings. Layaway terms (including non-refundable deposits and payment schedules)
-            are shown at checkout and must be accepted before a layaway begins. Items reserved on layaway are not
+            are set out in{" "}
+            <a href="#layaway-terms" className="font-medium text-gold-bright underline-offset-2 hover:underline">
+              Section 4.1
+            </a>
+            , are shown at checkout, and must be accepted before a layaway begins. Items reserved on layaway are not
             shipped until paid in full unless we state otherwise in writing.
           </p>
           <p className="mt-3 text-muted">
@@ -104,6 +108,56 @@ export default function TermsPage() {
             subjective grading, condition, provenance, and market value. We do not guarantee investment value, resale
             value, appreciation, rarity, or future demand.
           </p>
+
+          <h3 id="layaway-terms" className="mt-6 scroll-mt-24 font-semibold text-zinc-100">
+            4.1 Layaway Terms
+          </h3>
+          <p className="mt-3 text-muted">
+            These terms apply whenever you start a layaway. You agree to them by checking the layaway acknowledgment box
+            at checkout; we record the date and time you did.
+          </p>
+          <ul className="mt-3 list-disc space-y-2 pl-5 text-muted">
+            <li>
+              <strong className="text-zinc-200">Eligibility.</strong> Layaway is available only on marketplace Buy Now
+              listings priced at $500 or more where the seller has turned layaway on. You may have one active layaway at
+              a time, and you cannot start a layaway on your own listing.
+            </li>
+            <li>
+              <strong className="text-zinc-200">Deposit.</strong> To start, you pay a deposit of 25% of the item price
+              (shipping and sales tax are not part of the deposit). The deposit is non-refundable, except as stated
+              below. The item is reserved for you once the deposit is paid and is not available to other buyers while your
+              layaway is active.
+            </li>
+            <li>
+              <strong className="text-zinc-200">Plan length.</strong> You choose a 30-day or 60-day plan when you start.
+              The plan starts when you start your layaway at checkout, and the full balance is due by the end of the plan.
+            </li>
+            <li>
+              <strong className="text-zinc-200">Balance.</strong> The balance is the remaining 75% of the item price plus
+              shipping. You can pay the balance in one payment or in smaller payments at any time before the plan ends.
+              Sales tax, if any applies, is calculated once and collected in full with the deposit; later payments do not
+              add more tax. We send payment reminders during your plan, including a final warning on the day it ends.
+            </li>
+            <li>
+              <strong className="text-zinc-200">Shipping.</strong> The seller will not ship until the item is paid in full.
+            </li>
+            <li>
+              <strong className="text-zinc-200">If you do not pay in full.</strong> If the balance is not paid in full by
+              the end of your plan, the layaway ends automatically. You forfeit the deposit, which is paid to the seller
+              (less platform fees); any amount you paid above the deposit is refunded to the payment method you used; any
+              sales tax collected is refunded; and the item becomes available to other buyers again. Choosing not to
+              continue a layaway does not entitle you to a refund of the deposit.
+            </li>
+            <li>
+              <strong className="text-zinc-200">If the item is sold elsewhere.</strong> If your layaway is closed because
+              another buyer purchased the item outright, everything you paid on the layaway is refunded in full.
+            </li>
+            <li>
+              <strong className="text-zinc-200">Paid in full.</strong> When you pay the balance in full, the layaway
+              becomes a normal paid order and the seller ships it under the shipping and returns terms of these Terms of
+              Service.
+            </li>
+          </ul>
         </section>
 
         <section id="seller-obligations">

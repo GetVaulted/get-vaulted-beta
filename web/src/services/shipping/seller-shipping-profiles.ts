@@ -460,3 +460,27 @@ export async function archiveSellerShippingProfile(args: {
   });
   return { ok: true };
 }
+
+/** Profiles the seller archived. They are hidden from every picker, so this is how they find them again. */
+export async function listArchivedSellerShippingProfiles(sellerId: string, db: Db = prisma) {
+  return db.sellerShippingProfile.findMany({
+    where: { sellerId, archivedAt: { not: null } },
+    orderBy: [{ archivedAt: "desc" }, { name: "asc" }],
+  });
+}
+
+/** Undo an archive. The profile comes back exactly as it was (settings are never touched by archiving). */
+export async function restoreSellerShippingProfile(args: {
+  sellerId: string;
+  profileId: string;
+  db?: Db;
+}): Promise<{ ok: boolean; error?: string; status?: number }> {
+  const db = args.db ?? prisma;
+  const profile = await db.sellerShippingProfile.findFirst({
+    where: { id: args.profileId, sellerId: args.sellerId, archivedAt: { not: null } },
+    select: { id: true },
+  });
+  if (!profile) return { ok: false, error: "Archived profile not found.", status: 404 };
+  await db.sellerShippingProfile.update({ where: { id: profile.id }, data: { archivedAt: null } });
+  return { ok: true };
+}

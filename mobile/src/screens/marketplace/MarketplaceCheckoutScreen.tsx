@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -56,6 +57,7 @@ import { formatListingRatePrice, listingRateLabel } from '../../createListing/sh
 import { openStripeCheckoutSession } from '../../lib/openStripeCheckoutSession';
 import { MARKETPLACE_TEXT_PROPS } from '../../lib/marketplaceUiScale';
 import { maybeRequestStoreReview } from '../../lib/storeReview';
+import { siteUrls } from '../../lib/siteUrls';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 
@@ -400,7 +402,7 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
         return;
       }
       if (!termsAcknowledged) {
-        setError('Acknowledge layaway terms to continue.');
+        setError('Check the box to agree to the layaway terms and continue.');
         return;
       }
     }
@@ -826,7 +828,11 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
                 color={colors.gold}
               />
               <Text style={styles.termsTxt} {...MARKETPLACE_TEXT_PROPS}>
-                I acknowledge layaway terms — deposit is non-refundable.
+                I have read and agree to the{' '}
+                <Text style={styles.termsLink} onPress={() => void Linking.openURL(siteUrls.termsLayaway())}>
+                  layaway terms
+                </Text>{' '}
+                — deposit is non-refundable.
               </Text>
             </Pressable>
           </View>
@@ -1048,6 +1054,7 @@ const styles = StyleSheet.create({
   planTxt: { fontWeight: '800', color: colors.textPrimary },
   termsRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginTop: spacing.xs },
   termsTxt: { flex: 1, color: colors.textSecondary, fontSize: 13, lineHeight: 18 },
+  termsLink: { color: colors.gold, fontWeight: '700', textDecorationLine: 'underline' },
   summaryLine: { color: colors.textSecondary, fontSize: 14 },
   totalLine: { color: colors.gold, fontSize: 18, fontWeight: '900', marginTop: spacing.xs },
   error: { color: '#FF8A80', fontSize: 13, fontWeight: '600' },

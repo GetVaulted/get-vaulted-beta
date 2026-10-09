@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ensureSellerShippingProfilesSeeded,
   getActiveSellerShippingProfiles,
+  restoreSellerShippingProfile,
   SELLER_SHIPPING_PROFILE_SEEDS,
 } from "@/services/shipping/seller-shipping-profiles";
 
@@ -127,5 +128,33 @@ describe("ensureSellerShippingProfilesSeeded", () => {
     await ensureSellerShippingProfilesSeeded("seller-ensure-missing", db);
 
     expect(upsert).toHaveBeenCalledTimes(SELLER_SHIPPING_PROFILE_SEEDS.length);
+  });
+});
+
+describe("restoreSellerShippingProfile", () => {
+  it("clears archivedAt on the seller's own archived profile", async () => {
+    const findFirst = vi.fn().mockResolvedValue({ id: "p1" });
+    const update = vi.fn().mockResolvedValue({});
+    const db = { sellerShippingProfile: { findFirst, update } } as unknown as Parameters<
+      typeof restoreSellerShippingProfile
+    >[0]["db"];
+
+    const r = await restoreSellerShippingProfile({ sellerId: "s1", profileId: "p1", db });
+
+    expect(r.ok).toBe(true);
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "p1", sellerId: "s1", archivedAt: { not: null } } }),
+    );
+    expect(update).toHaveBeenCalledWith({ where: { id: "p1" }, data: { archivedAt: null } });
+  });
+
+  it("refuses a profile that is not archived or belongs to someone else", async () => {
+    const db = {
+      sellerShippingProfile: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() },
+    } as unknown as Parameters<typeof restoreSellerShippingProfile>[0]["db"];
+
+    const r = await restoreSellerShippingProfile({ sellerId: "s1", profileId: "nope", db });
+
+    expect(r).toMatchObject({ ok: false, status: 404 });
   });
 });

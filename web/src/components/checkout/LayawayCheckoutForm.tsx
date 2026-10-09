@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CheckoutListingSnapshot } from "@/components/checkout/BuyNowCheckoutForm";
 import { AddressAutocompleteFields } from "@/components/address/AddressAutocompleteFields";
-import { LAYAWAY_TERMS_COPY } from "@/lib/layaway/constants";
+import { LAYAWAY_TERMS_COPY, LAYAWAY_TERMS_PATH } from "@/lib/layaway/constants";
 import { layawayDepositUsd, layawayRemainingBalanceUsd } from "@/lib/layaway/math";
 import { toUserFacingErrorMessage } from "@/lib/user-facing-error-message";
 
@@ -92,7 +92,7 @@ export function LayawayCheckoutForm({ listing }: { listing: CheckoutListingSnaps
       return;
     }
     if (!termsAcknowledged) {
-      setError("Acknowledge layaway terms to continue.");
+      setError("Check the box to agree to the layaway terms and continue.");
       return;
     }
     setSubmitting(true);
@@ -213,7 +213,18 @@ export function LayawayCheckoutForm({ listing }: { listing: CheckoutListingSnaps
               onChange={(e) => setTermsAcknowledged(e.target.checked)}
               className="mt-0.5 size-4 rounded border-white/20 bg-[#0c0c10] accent-gold"
             />
-            <span className="text-sm text-zinc-300">I acknowledge the layaway terms and understand the deposit is non-refundable.</span>
+            <span className="text-sm text-zinc-300">
+              I have read and agree to the{" "}
+              <a
+                href={LAYAWAY_TERMS_PATH}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-gold-bright underline underline-offset-2 hover:text-gold"
+              >
+                layaway terms
+              </a>{" "}
+              and understand the deposit is non-refundable.
+            </span>
           </label>
         </div>
 

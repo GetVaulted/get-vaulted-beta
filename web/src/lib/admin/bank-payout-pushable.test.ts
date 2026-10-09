@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   bankPayoutPushableUsd,
+  planLumpPayoutCents,
   selectFifoOrdersWithinAvailable,
 } from "@/lib/admin/bank-payout-pushable";
 
@@ -57,5 +58,39 @@ describe("selectFifoOrdersWithinAvailable", () => {
     });
     expect(result.selected.map((o) => o.orderId)).toEqual(["z", "a"]);
     expect(result.remainingUsdCents).toBe(0);
+  });
+});
+
+describe("planLumpPayoutCents", () => {
+  it("sends the entire available balance in one lump when more shipped orders are waiting than it covers", () => {
+    const plan = planLumpPayoutCents({
+      availableUsdCents: 23_514,
+      ordersOldestFirst: [
+        { orderId: "a", estimatedNetUsdCents: 10_000 },
+        { orderId: "b", estimatedNetUsdCents: 10_000 },
+        { orderId: "c", estimatedNetUsdCents: 10_000 },
+      ],
+    });
+    expect(plan.coveredOrderIds).toEqual(["a", "b"]);
+    expect(plan.coveredCents).toBe(20_000);
+    expect(plan.sweepCents).toBe(3_514);
+    expect(plan.lumpCents).toBe(23_514);
+  });
+
+  it("never sweeps beyond the ready orders (the rest of the balance belongs to unshipped orders)", () => {
+    const plan = planLumpPayoutCents({
+      availableUsdCents: 50_000,
+      ordersOldestFirst: [{ orderId: "a", estimatedNetUsdCents: 10_000 }],
+    });
+    expect(plan.lumpCents).toBe(10_000);
+    expect(plan.sweepCents).toBe(0);
+  });
+
+  it("is zero with no ready orders or no balance", () => {
+    expect(planLumpPayoutCents({ availableUsdCents: 9_999, ordersOldestFirst: [] }).lumpCents).toBe(0);
+    expect(
+      planLumpPayoutCents({ availableUsdCents: 0, ordersOldestFirst: [{ orderId: "a", estimatedNetUsdCents: 500 }] })
+        .lumpCents,
+    ).toBe(0);
   });
 });
