@@ -45,9 +45,11 @@ type Props = {
   busy?: boolean;
   onClose: () => void;
   onSave: (itemId: string, updates: Array<{ id: string; priceUsd?: number; isHot?: boolean }>) => void;
+  /** Fix the buyer on a spot the host marked sold (typed the wrong username). */
+  onChangeBuyer?: (variantId: string, username: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
-export function HostEditBreakSpotsModal({ open, item, busy = false, onClose, onSave }: Props) {
+export function HostEditBreakSpotsModal({ open, item, busy = false, onClose, onSave, onChangeBuyer }: Props) {
   const [spots, setSpots] = useState<SpotDraft[]>([]);
   const [basePrice, setBasePrice] = useState("");
 
@@ -160,7 +162,7 @@ export function HostEditBreakSpotsModal({ open, item, busy = false, onClose, onS
               </button>
             </div>
           ) : (
-            <p className="mb-3 text-sm text-rose-300">This break is sold — spot pricing is locked.</p>
+            <p className="mb-3 text-sm text-rose-300">This break is sold — spot pricing is locked. You can still correct a buyer.</p>
           )}
 
           <div className="flex flex-wrap gap-2">
@@ -171,6 +173,7 @@ export function HostEditBreakSpotsModal({ open, item, busy = false, onClose, onS
                 disabled={busy || locked}
                 onToggleHot={() => toggleHot(spot.id)}
                 onPriceBlur={(raw) => setSpotPrice(spot.id, raw)}
+                onChangeBuyer={onChangeBuyer ? (username) => onChangeBuyer(spot.id, username) : undefined}
               />
             ))}
           </div>
@@ -206,13 +209,45 @@ function SpotEditorPill({
   disabled,
   onToggleHot,
   onPriceBlur,
+  onChangeBuyer,
 }: {
   spot: SpotDraft;
   disabled?: boolean;
   onToggleHot: () => void;
   onPriceBlur: (raw: string) => void;
+  onChangeBuyer?: (username: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const [editingBuyer, setEditingBuyer] = useState(false);
+  const [buyerDraft, setBuyerDraft] = useState("");
+  const [buyerSaving, setBuyerSaving] = useState(false);
+  const [buyerError, setBuyerError] = useState<string | null>(null);
+
+  const startBuyerEdit = () => {
+    setBuyerDraft(spot.buyerUsername ?? "");
+    setBuyerError(null);
+    setEditingBuyer(true);
+  };
+  const saveBuyer = async () => {
+    if (!onChangeBuyer) return;
+    const next = buyerDraft.trim().replace(/^@+/, "");
+    if (next.length < 3) {
+      setBuyerError("Enter the buyer’s username.");
+      return;
+    }
+    setBuyerSaving(true);
+    setBuyerError(null);
+    try {
+      const res = await onChangeBuyer(next);
+      if (!res.ok) {
+        setBuyerError(res.error ?? "Could not change the buyer.");
+        return;
+      }
+      setEditingBuyer(false);
+    } finally {
+      setBuyerSaving(false);
+    }
+  };
   const display = draft ?? fmtUsd(spot.priceUsd);
 
   useEffect(() => {
@@ -223,7 +258,7 @@ function SpotEditorPill({
     <div
       className={`relative min-w-[7rem] max-w-[48%] flex-grow rounded-2xl border px-2.5 py-2 ${
         spot.sold
-          ? "border-dashed border-white/15 bg-white/[0.02] opacity-70"
+          ? "border-dashed border-white/15 bg-white/[0.02]"
           : spot.isHot
             ? "border-amber-400/45 bg-amber-500/10"
             : "border-white/15 bg-white/[0.03]"
@@ -246,9 +281,57 @@ function SpotEditorPill({
         {spot.label}
       </p>
       {spot.sold ? (
-        <p className="mt-1 truncate text-[10px] font-semibold text-emerald-300/80">
-          {formatSoldSpotBuyerLabel(spot.buyerUsername)}
-        </p>
+        editingBuyer ? (
+          <div className="mt-1 space-y-1">
+            <input
+              autoFocus
+              value={buyerDraft}
+              disabled={buyerSaving}
+              onChange={(e) => setBuyerDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void saveBuyer();
+                if (e.key === "Escape") setEditingBuyer(false);
+              }}
+              placeholder="@username"
+              aria-label={`Correct buyer for ${spot.label}`}
+              className="w-full rounded-md border border-amber-400/40 bg-black/50 px-1.5 py-1 text-[11px] font-bold text-zinc-100 outline-none"
+            />
+            <div className="flex gap-1">
+              <button
+                type="button"
+                disabled={buyerSaving}
+                onClick={() => void saveBuyer()}
+                className="flex-1 rounded-md bg-amber-500 px-1.5 py-1 text-[10px] font-black uppercase text-zinc-950 disabled:opacity-50"
+              >
+                {buyerSaving ? "Saving…" : "Save"}
+              </button>
+              <button
+                type="button"
+                disabled={buyerSaving}
+                onClick={() => setEditingBuyer(false)}
+                className="rounded-md border border-white/15 px-1.5 py-1 text-[10px] font-bold text-zinc-300"
+              >
+                Cancel
+              </button>
+            </div>
+            {buyerError ? <p className="text-[10px] font-semibold text-rose-300">{buyerError}</p> : null}
+          </div>
+        ) : (
+          <div className="mt-1 flex items-center justify-between gap-1">
+            <p className="min-w-0 truncate text-[10px] font-semibold text-emerald-300/80">
+              {formatSoldSpotBuyerLabel(spot.buyerUsername)}
+            </p>
+            {onChangeBuyer ? (
+              <button
+                type="button"
+                onClick={startBuyerEdit}
+                className="shrink-0 rounded-md border border-amber-400/40 px-1.5 py-0.5 text-[9px] font-black uppercase text-amber-200 hover:bg-amber-400/10"
+              >
+                Change
+              </button>
+            ) : null}
+          </div>
+        )
       ) : (
         <div className="relative mt-1">
           <span className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-zinc-500">
