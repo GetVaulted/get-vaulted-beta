@@ -202,6 +202,11 @@ export function LiveStagePlayback({
   // audio case below) — kept current every render so `useHlsLiveEdgeSeek`'s poll loop can
   // re-assert it (see that hook's own comment for why this redundancy is needed on Android).
   const desiredHlsMutedRef = useRef(true);
+  const hlsAudioAppliedRef = useRef<{
+    player: VideoPlayer;
+    silent: boolean;
+    mixing: 'doNotMix' | 'mixWithOthers';
+  } | null>(null);
   // Tracks whether THIS page instance was ever the one actually joined to Stage — see the
   // redundant-leave-on-unmount effect further down for why this guard matters (every pager page,
   // including neighbors that never joined, mounts its own LiveStagePlayback).
@@ -575,6 +580,7 @@ export function LiveStagePlayback({
     didCommitSuspendRef.current = true;
     setStageMediaSuspended(true);
     setStageAudioDismissed(true);
+    hlsAudioAppliedRef.current = null;
     try {
       player.pause();
       player.muted = true;
@@ -622,13 +628,34 @@ export function LiveStagePlayback({
       pipDismissedWhileBackgrounded: dismissedWhileBackgrounded,
       usingStagePip,
     });
-    desiredHlsMutedRef.current = muted || muteForWebrtcAudio;
+    const hlsSilent = muted || muteForWebrtcAudio;
+    desiredHlsMutedRef.current = hlsSilent;
+    // Exclusive ('doNotMix') audio focus is only for when HLS is the path the buyer actually
+    // hears, or for the old expo-video HLS PiP surface (which needs a moviePlayback session). A
+    // silent HLS companion running under live Stage audio must NOT take exclusive focus: on iOS
+    // each assignment/`play()` re-asserts the AVAudioSession category and fights the IVS Stage
+    // session, and this effect re-runs several times in one PiP-enter / PiP-return gesture —
+    // audible as choppy Stage audio after returning from PiP. On Android it re-requested audio
+    // focus from every warm neighbor on every swipe.
+    const hlsMixingMode: 'doNotMix' | 'mixWithOthers' =
+      pipSurfaceActive || pipActive || (!hlsSilent && (isForeground || appBackgrounded))
+        ? 'doNotMix'
+        : 'mixWithOthers';
+    // Only write to the native player when a value actually changed for this player instance —
+    // redundant native audio writes are what churn the shared audio session. (The live-edge timer
+    // still re-asserts mute every tick, so a native-side reset self-heals either way.)
+    const applied = hlsAudioAppliedRef.current;
+    const samePlayer = applied != null && applied.player === player;
     try {
-      player.muted = muted || muteForWebrtcAudio;
-      player.volume = muted || muteForWebrtcAudio ? 0 : 1;
+      if (!samePlayer || applied.silent !== hlsSilent) {
+        player.muted = hlsSilent;
+        player.volume = hlsSilent ? 0 : 1;
+      }
       // PiP / home-swipe needs exclusive playback audio session (moviePlayback).
-      player.audioMixingMode =
-        isForeground || pipSurfaceActive || pipActive || appBackgrounded ? 'doNotMix' : 'mixWithOthers';
+      if (!samePlayer || applied.mixing !== hlsMixingMode) {
+        player.audioMixingMode = hlsMixingMode;
+      }
+      hlsAudioAppliedRef.current = { player, silent: hlsSilent, mixing: hlsMixingMode };
       player.staysActiveInBackground = LIVE_PICTURE_IN_PICTURE_ENABLED;
       if (dismissedWhileBackgrounded) {
         player.pause();
@@ -784,6 +811,7 @@ export function LiveStagePlayback({
       return;
     }
     hlsLoadedUrlRef.current = null;
+    hlsAudioAppliedRef.current = null;
     try {
       player.pause();
       player.muted = true;
@@ -842,6 +870,7 @@ export function LiveStagePlayback({
       try {
         const p = playerRef.current;
         const userMuted = mutedRef.current;
+        hlsAudioAppliedRef.current = null;
         p.muted = userMuted;
         p.volume = userMuted ? 0 : 1;
         p.play();

@@ -21,6 +21,24 @@ import { isLivePlaybackCommerceHoldActive } from '../lib/livePlaybackCommerceHol
 import { viewerLifecycleLog } from '../lib/viewerLifecycleLog';
 
 /**
+ * The native Stage PiP controller is a process-wide singleton (`enablePictureInPicture` /
+ * `disablePictureInPicture` have no room argument). Every mounted pager page — the active show AND
+ * each warm neighbor — runs this hook, and every instance whose `enabled` is false used to call
+ * `disablePictureInPicture()` on mount / on every re-render where `enabled` flipped, and again in
+ * its cleanup. A neighbor mounting (or an old page cleaning up after a swipe) therefore tore down
+ * or unbound the controller that the NEW active show had just armed: PiP errors, PiP bound to the
+ * wrong room, and the previous room's Stage audio/window lingering. Track which instance armed the
+ * controller and only let that instance disable it.
+ */
+let stagePipOwner: symbol | null = null;
+
+function releaseStagePipIfOwner(token: symbol): void {
+  if (stagePipOwner !== token) return;
+  stagePipOwner = null;
+  void disablePictureInPicture().catch(() => {});
+}
+
+/**
  * Whatnot-style home-swipe PiP for IVS Stage (WebRTC) buyers.
  *
  * This uses the native remote-stream PiP built into expo-realtime-ivs-broadcast.
@@ -36,6 +54,7 @@ export function useStageRemotePictureInPicture(args: {
   // never true for a tap-to-return. See `isStagePipUserDismissal`. Consumers must react by
   // stopping playback/audio, then call `clearStagePipDismissed()`.
   const [stagePipDismissed, setStagePipDismissed] = useState(false);
+  const ownerTokenRef = useRef<symbol>(Symbol('stage-pip-owner'));
   const enabledRef = useRef(args.enabled);
   enabledRef.current = args.enabled;
   const roomIdRef = useRef(args.roomId);
@@ -94,10 +113,17 @@ export function useStageRemotePictureInPicture(args: {
       setStagePipReady(false);
       setStagePipActive(false);
       setStagePipDismissed(false);
-      void disablePictureInPicture().catch(() => {});
+      // Only the instance that armed the singleton controller may disable it — a warm neighbor
+      // (never enabled) must leave the active show's PiP alone.
+      releaseStagePipIfOwner(ownerTokenRef.current);
       return undefined;
     }
 
+    const ownerToken = ownerTokenRef.current;
+    // Claim the singleton synchronously (before the async enable) so a stale cleanup from the
+    // previous show, which runs before this effect in the same commit or lands just after, sees
+    // it no longer owns the controller and leaves it alone.
+    stagePipOwner = ownerToken;
     let cancelled = false;
     void (async () => {
       try {
@@ -214,7 +240,7 @@ export function useStageRemotePictureInPicture(args: {
       setStagePipReady(false);
       setStagePipActive(false);
       setStagePipDismissed(false);
-      void disablePictureInPicture().catch(() => {});
+      releaseStagePipIfOwner(ownerToken);
     };
   }, [args.enabled, args.roomId, clearAndroidPendingStopTimer]);
 
