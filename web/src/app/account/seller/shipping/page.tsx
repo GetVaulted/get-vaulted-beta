@@ -17,10 +17,12 @@ type ProfileRow = {
   canJoinBuyerShowShipment: boolean;
   carrierPreference: string;
   isDefault: boolean;
+  archivedAt?: string | null;
 };
 
 export default function SellerShippingProfilesPage() {
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
+  const [archivedProfiles, setArchivedProfiles] = useState<ProfileRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +39,11 @@ export default function SellerShippingProfilesPage() {
       }
       const j = (await res.json()) as { profiles?: ProfileRow[] };
       setProfiles(Array.isArray(j.profiles) ? j.profiles : []);
+      const archivedRes = await fetch("/api/account/seller/shipping-profiles?archived=1", { cache: "no-store" });
+      if (archivedRes.ok) {
+        const a = (await archivedRes.json()) as { profiles?: ProfileRow[] };
+        setArchivedProfiles(Array.isArray(a.profiles) ? a.profiles : []);
+      }
     } finally {
       setLoading(false);
     }
@@ -82,6 +89,28 @@ export default function SellerShippingProfilesPage() {
         return;
       }
       setMessage("Profile archived.");
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const restore = async (profileId: string) => {
+    setBusy(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/account/seller/shipping-profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "restore", profileId }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(typeof j.error === "string" ? j.error : "Could not restore profile.");
+        return;
+      }
+      setMessage("Profile restored. It will show up again when you add items.");
       await load();
     } finally {
       setBusy(false);
@@ -181,6 +210,38 @@ export default function SellerShippingProfilesPage() {
           </div>
         ))}
       </div>
+
+      {archivedProfiles.length > 0 ? (
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-sm font-black uppercase tracking-[0.16em] text-zinc-400">Archived</h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              These are hidden when you add items or schedule shows. Restore one to use it again.
+            </p>
+          </div>
+          {archivedProfiles.map((p) => (
+            <div
+              key={p.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/[0.06] bg-zinc-950/40 p-4"
+            >
+              <div>
+                <p className="font-semibold text-zinc-300">{p.name}</p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  {p.defaultWeightOz} oz · {p.defaultLengthIn}×{p.defaultWidthIn}×{p.defaultHeightIn} in
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void restore(p.id)}
+                className="rounded-lg border border-gold/40 px-3 py-1.5 text-xs font-semibold text-gold-bright"
+              >
+                Restore
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
