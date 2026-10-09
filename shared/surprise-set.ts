@@ -47,7 +47,12 @@ function cleanName(raw: unknown): string {
 }
 
 /** Validate a raw payload (client form or API body) and merge duplicate names. */
-export function validateSurpriseSetItems(raw: unknown, title?: string): SurpriseSetValidation {
+export function validateSurpriseSetItems(
+  raw: unknown,
+  title?: string,
+  /** Price the buyer pays per unit. When given, it may not exceed the lowest retail price in the set. */
+  unitPriceUsd?: number | null,
+): SurpriseSetValidation {
   if (!Array.isArray(raw)) return { ok: false, message: 'Add the items in this set.' };
 
   const byKey = new Map<string, SurpriseSetItem>();
@@ -111,6 +116,17 @@ export function validateSurpriseSetItems(raw: unknown, title?: string): Surprise
       ok: false,
       message: `The highest-value item must have at least a ${Math.round(SURPRISE_SET_MIN_TOP_ITEM_ODDS * 100)}% chance. Add more of it (at least ${needed} of ${totalUnits} units) or remove some other units.`,
     };
+  }
+
+  // Price floor: a buyer must never pay more than the retail value of the least valuable unit.
+  if (typeof unitPriceUsd === 'number' && Number.isFinite(unitPriceUsd)) {
+    const lowest = items.reduce((a, b) => (b.msrpUsd < a.msrpUsd ? b : a));
+    if (Math.round(unitPriceUsd * 100) > Math.round(lowest.msrpUsd * 100)) {
+      return {
+        ok: false,
+        message: `The price per unit ($${unitPriceUsd.toFixed(2)}) can’t be higher than the retail price of the lowest-value item, “${lowest.name}” ($${lowest.msrpUsd.toFixed(2)}). Lower the price or remove that item, so every buyer gets at least what they paid for.`,
+      };
+    }
   }
 
   if (title) {

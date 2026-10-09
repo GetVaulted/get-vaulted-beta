@@ -68,6 +68,24 @@ describe("validateSurpriseSetItems", () => {
   });
 });
 
+describe("price floor", () => {
+  it("allows a unit price at or below the lowest retail price", () => {
+    expect(validateSurpriseSetItems(goodItems, "Set", 8).ok).toBe(true);
+    expect(validateSurpriseSetItems(goodItems, "Set", 5.5).ok).toBe(true);
+  });
+
+  it("rejects a unit price above the lowest retail price", () => {
+    const r = validateSurpriseSetItems(goodItems, "Set", 8.01);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toMatch(/lowest-value item/);
+  });
+
+  it("is skipped when no price is given", () => {
+    expect(validateSurpriseSetItems(goodItems, "Set").ok).toBe(true);
+    expect(validateSurpriseSetItems(goodItems, "Set", null).ok).toBe(true);
+  });
+});
+
 describe("labels and odds", () => {
   it("expands to one unique label per unit", () => {
     const labels = expandSurpriseSetLabels([

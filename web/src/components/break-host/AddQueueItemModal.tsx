@@ -570,7 +570,7 @@ export function AddQueueItemModal({
         setFormError("Enter a price per unit.");
         return;
       }
-      const check = validateSurpriseRows(surpriseRows, trimmedTitle);
+      const check = validateSurpriseRows(surpriseRows, trimmedTitle, parsedPrice);
       if (!check.ok) {
         setFormError(check.message);
         return;
@@ -1126,7 +1126,12 @@ export function AddQueueItemModal({
           </div>
 
           {saleCategory === "surprise_set" ? (
-            <SurpriseSetFields rows={surpriseRows} onChange={setSurpriseRows} title={title} />
+            <SurpriseSetFields
+              rows={surpriseRows}
+              onChange={setSurpriseRows}
+              title={title}
+              unitPriceUsd={parseUsd(price)}
+            />
           ) : null}
 
           {saleCategory === "teams_divisions" ? (

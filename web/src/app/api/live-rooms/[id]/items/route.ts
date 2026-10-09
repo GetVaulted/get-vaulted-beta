@@ -212,7 +212,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (salesFormat !== "player_selection" || variantAssignmentMode !== "random") {
       return NextResponse.json({ error: "Surprise Sets must be a random reveal item." }, { status: 400 });
     }
-    const check = validateSurpriseSetItems(body.surpriseSetItems, title);
+    const check = validateSurpriseSetItems(body.surpriseSetItems, title, variantDrafts[0]?.priceUsd ?? null);
     if (!check.ok) return NextResponse.json({ error: check.message }, { status: 400 });
     const draftUnits = variantDrafts.reduce((sum, v) => sum + Math.max(1, Math.floor(v.quantityInitial ?? 1)), 0);
     if (variantDrafts.length !== 1 || draftUnits !== check.totalUnits) {

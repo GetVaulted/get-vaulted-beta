@@ -29,21 +29,27 @@ export function surpriseRowsToItems(rows: SurpriseSetRow[]) {
     }));
 }
 
-export function validateSurpriseRows(rows: SurpriseSetRow[], title: string): SurpriseSetValidation {
-  return validateSurpriseSetItems(surpriseRowsToItems(rows), title);
+export function validateSurpriseRows(
+  rows: SurpriseSetRow[],
+  title: string,
+  unitPriceUsd?: number | null,
+): SurpriseSetValidation {
+  return validateSurpriseSetItems(surpriseRowsToItems(rows), title, unitPriceUsd);
 }
 
 type Props = {
   rows: SurpriseSetRow[];
   onChange: (rows: SurpriseSetRow[]) => void;
   title: string;
+  /** Price per unit the seller entered (checked against the lowest retail price). */
+  unitPriceUsd?: number | null;
 };
 
 const inputClass =
   "w-full rounded-lg border border-white/10 bg-[#0c0c10] px-2.5 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600";
 
-export function SurpriseSetFields({ rows, onChange, title }: Props) {
-  const result = useMemo(() => validateSurpriseRows(rows, title), [rows, title]);
+export function SurpriseSetFields({ rows, onChange, title, unitPriceUsd }: Props) {
+  const result = useMemo(() => validateSurpriseRows(rows, title, unitPriceUsd), [rows, title, unitPriceUsd]);
   const anyFilled = rows.some((r) => r.name.trim());
   const totalUnits = rows.reduce((sum, r) => {
     const q = Number(r.quantity);
@@ -131,6 +137,7 @@ export function SurpriseSetFields({ rows, onChange, title }: Props) {
       ) : null}
 
       <ul className="mt-3 list-disc space-y-0.5 pl-4 text-[10px] text-zinc-500">
+        <li>The price per unit can’t be higher than the retail price of your cheapest item, so every buyer gets at least what they paid for.</li>
         <li>Every item must be sealed, new, and in your hands now. Don’t sell more units than you have.</li>
         <li>Show each item to the camera for a couple of seconds as it’s drawn.</li>
         <li>Don’t promise a minimum value or call it a jackpot — buyers must know it’s a random draw.</li>
