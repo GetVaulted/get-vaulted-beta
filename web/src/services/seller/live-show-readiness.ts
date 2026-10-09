@@ -9,6 +9,7 @@ import {
 } from "@/lib/seller-payout-rail";
 import { hasCompleteSellerShipFrom, sellerNeedsShipFromPhoneOnly } from "@/lib/seller-shipping-readiness";
 import { isShippoConfigured } from "@/lib/shippo";
+import { getSellerApprovalIssue } from "@/lib/seller-approval";
 import { isStripeConfigured } from "@/lib/stripe";
 import { isPayPalSellerPayoutsEnabled } from "@/lib/paypal";
 import { parseRequirementsDue } from "@/lib/stripe-connect-status-response";
@@ -50,6 +51,8 @@ export async function getSellerLiveReadiness(
   db: ReadinessDb = prisma,
 ): Promise<LiveShowReadiness> {
   const issues: string[] = [];
+  const approvalIssue = await getSellerApprovalIssue(sellerId);
+  if (approvalIssue) issues.push(approvalIssue);
 
   const user = await db.user.findUnique({
     where: { id: sellerId },

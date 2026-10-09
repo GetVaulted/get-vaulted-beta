@@ -11,6 +11,7 @@ import { useSellerSetupState } from "@/hooks/useSellerSetupState";
 import { SellerPayoutPreferenceCard } from "@/components/account/SellerPayoutPreferenceCard";
 import { SELLER_OBS_PATH } from "@/lib/obs-seller-paths";
 import { hasCompleteSellerShipFrom } from "@/lib/seller-shipping-readiness";
+import { SELLER_APPLY_PATH } from "@/lib/seller-application";
 import { SELLER_SETUP_PATH } from "@/lib/seller-setup-state";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 
@@ -292,6 +293,7 @@ export function SellerHubPage() {
         return;
       }
       const j = (await res.json()) as {
+        sellerApproval?: { enforced?: boolean; status?: string };
         seller?: SellerPayload;
         stripeEmbedOnboardingAvailable?: boolean;
         readiness?: LiveReadiness;
@@ -300,6 +302,10 @@ export function SellerHubPage() {
         partialErrors?: string[];
         provisioned?: boolean;
       };
+      if (j.sellerApproval?.enforced && j.sellerApproval.status !== "approved") {
+        router.replace(SELLER_APPLY_PATH);
+        return;
+      }
       if (Array.isArray(j.partialErrors) && j.partialErrors.length) {
         setLoadWarnings(j.partialErrors);
       }

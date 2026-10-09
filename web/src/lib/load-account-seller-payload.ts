@@ -2,6 +2,8 @@ import type { Prisma } from "@/generated/prisma/client";
 import { sellerPrimaryNextAction } from "@/lib/seller-fulfillment-next-action";
 import { serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
 import { prisma } from "@/lib/prisma";
+import { getSellerApprovalState, isSellerApplicationsEnforced } from "@/lib/seller-approval";
+import type { SellerApprovalState } from "@/lib/seller-application";
 import { isRequiredSellerSetupComplete } from "@/lib/seller-setup-state";
 import { isStripeConfigured } from "@/lib/stripe";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
@@ -35,6 +37,8 @@ async function safe<T>(label: string, fn: () => Promise<T>, fallback: T): Promis
 }
 
 export type AccountSellerPayload = {
+  /** Seller-application gate. When `enforced` is false nothing is blocked. */
+  sellerApproval: { enforced: boolean; status: SellerApprovalState };
   setupWizardComplete: boolean;
   sellerSetupWizardCompletedAt: string | null;
   sellerAgreementAcceptedAt: string | null;
@@ -151,6 +155,11 @@ export async function loadAccountSellerPayload(userId: string, opts?: { provisio
   const recentSales = recentSalesResult.value;
 
   const fulfillmentNextAction = sellerPrimaryNextAction(user, recentSales).label;
+
+  const sellerApprovalEnforced = isSellerApplicationsEnforced();
+  const approvalResult = sellerApprovalEnforced
+    ? await safe("sellerApproval", () => getSellerApprovalState(userId), "approved" as SellerApprovalState)
+    : { value: "approved" as SellerApprovalState };
 
   const [
     auctionEndedUnpaidCountR,
@@ -393,6 +402,7 @@ export async function loadAccountSellerPayload(userId: string, opts?: { provisio
   }
 
   return {
+    sellerApproval: { enforced: sellerApprovalEnforced, status: approvalResult.value },
     setupWizardComplete,
     sellerSetupWizardCompletedAt,
     sellerAgreementAcceptedAt,

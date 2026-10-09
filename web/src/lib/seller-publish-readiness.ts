@@ -2,6 +2,7 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { hasCompleteSellerShipFrom } from "@/lib/seller-shipping-readiness";
 import { isShippoConfigured } from "@/lib/shippo";
+import { getSellerApprovalIssue } from "@/lib/seller-approval";
 
 type Db = Pick<PrismaClient, "user">;
 
@@ -36,6 +37,8 @@ export async function getSellerPublishListingIssues(
   profile: ListingShippingProfile,
 ): Promise<string[]> {
   const issues: string[] = [];
+  const approvalIssue = await getSellerApprovalIssue(sellerId);
+  if (approvalIssue) issues.push(approvalIssue);
   const stripeRequired = isStripeConfigured();
   const shippoConfigured = isShippoConfigured();
 
