@@ -97,6 +97,7 @@ import {
   appendLiveItemSupplementalVariants,
   importLiveRoomItemsFromRoom,
   manualAssignLiveItemVariant,
+  changeLiveVariantBuyer,
   patchLiveItemVariants,
   patchLiveRoomAction,
   patchLiveRoomItemStatus,
@@ -2519,6 +2520,20 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     }
   };
 
+  const handleChangeVariantBuyer = async (
+    variantId: string,
+    username: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const itemId = variantSpotEditItem?.id;
+    if (!itemId) return { ok: false, error: "No lot selected." };
+    const res = await changeLiveVariantBuyer(roomId, itemId, variantId, username);
+    if (!res.ok) return { ok: false, error: res.error };
+    await load();
+    router.refresh();
+    setToast(`Buyer changed to @${res.data.buyerUsername}.`);
+    return { ok: true };
+  };
+
   const handlePinLiveVariant = async (variantId: string) => {
     const itemId = activeBoardRow?.item.id;
     const variants = activeBoardRow?.item.variants;
@@ -3239,6 +3254,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
         busy={busy}
         onClose={() => setVariantSpotEditOpen(false)}
         onSave={(itemId, updates) => void handleSaveVariantSpots(itemId, updates)}
+        onChangeBuyer={handleChangeVariantBuyer}
       />
 
       <HostEditLotPricingModal

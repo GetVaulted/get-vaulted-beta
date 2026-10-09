@@ -289,3 +289,144 @@ export async function POST(
     return NextResponse.json({ error: "Could not mark team sold." }, { status: 500 });
   }
 }
+
+/**
+ * Host fixes the buyer on a spot they already marked sold off-platform (typed the wrong username).
+ * Only the buyer changes: amount, payment method, note and platform fee stay exactly as recorded.
+ */
+export async function PATCH(
+  req: Request,
+  ctx: { params: Promise<{ id: string; itemId: string; variantId: string }> },
+) {
+  const { id: rawRoom, itemId, variantId } = await ctx.params;
+  const liveRoomId = decodeURIComponent(rawRoom);
+
+  const hostAuth = await requireLiveRoomHostUser(liveRoomId, req);
+  if (hostAuth instanceof NextResponse) return hostAuth;
+
+  let body: { username?: string };
+  try {
+    body = (await req.json()) as { username?: string };
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const username = normalizeUsernameForStorage(
+    typeof body.username === "string" ? body.username.replace(/^@+/, "") : "",
+  );
+  if (username.length < 3) {
+    return NextResponse.json({ error: "Enter the buyer’s username." }, { status: 400 });
+  }
+
+  const buyer = await prisma.user.findFirst({
+    where: { username: { equals: username, mode: "insensitive" }, suspendedAt: null },
+    select: { id: true, username: true },
+  });
+  if (!buyer?.username) {
+    return NextResponse.json(
+      { error: `No account found for @${username}. They must have a Get Vaulted username.` },
+      { status: 404 },
+    );
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const room = await tx.liveRoom.findUnique({
+        where: { id: liveRoomId },
+        select: { id: true, status: true },
+      });
+      if (!room || !isRoomOpenForHostOffPlatformMarkSold(room.status)) {
+        throw Object.assign(new Error("ROOM_NOT_SETTLEABLE"), { code: "ROOM_NOT_SETTLEABLE" });
+      }
+
+      const purchase = await tx.liveItemVariantPurchase.findFirst({
+        where: {
+          liveRoomId,
+          liveRoomItemId: itemId,
+          variantId,
+          settlementChannel: "off_platform",
+          paymentStatus: "paid",
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          buyerId: true,
+          fulfillmentOrderId: true,
+          sweet16DraftPick: { select: { id: true } },
+          buyer: { select: { username: true } },
+        },
+      });
+      if (!purchase) throw Object.assign(new Error("NOT_OFF_PLATFORM"), { code: "NOT_OFF_PLATFORM" });
+      if (purchase.fulfillmentOrderId) {
+        throw Object.assign(new Error("ALREADY_FULFILLED"), { code: "ALREADY_FULFILLED" });
+      }
+      if (purchase.sweet16DraftPick) {
+        throw Object.assign(new Error("DRAFT_PICKED"), { code: "DRAFT_PICKED" });
+      }
+
+      const previousUsername = purchase.buyer?.username ?? null;
+      if (purchase.buyerId !== buyer.id) {
+        await tx.liveItemVariantPurchase.update({
+          where: { id: purchase.id },
+          data: { buyerId: buyer.id },
+        });
+        await tx.liveRoomItem.update({
+          where: { id: itemId },
+          data: { itemVersion: { increment: 1 } },
+        });
+      }
+      const roomWrite = await tx.liveRoom.update({
+        where: { id: liveRoomId },
+        data: { roomVersion: { increment: 1 } },
+        select: { roomVersion: true },
+      });
+      return { purchaseId: purchase.id, previousUsername, roomVersion: roomWrite.roomVersion };
+    });
+
+    console.info("[variants/manual-assign] buyer corrected", {
+      liveRoomId,
+      itemId,
+      variantId,
+      purchaseId: result.purchaseId,
+      from: result.previousUsername,
+      to: buyer.username,
+    });
+    emitLiveRoomQueueItemsChanged(liveRoomId);
+
+    return NextResponse.json({
+      ok: true,
+      purchaseId: result.purchaseId,
+      buyerUsername: buyer.username,
+      previousUsername: result.previousUsername,
+    });
+  } catch (e) {
+    const code =
+      typeof e === "object" && e !== null && "code" in e ? String((e as { code: unknown }).code) : "";
+    if (code === "ROOM_NOT_SETTLEABLE") {
+      return NextResponse.json(
+        { error: "Room must be scheduled, live, or ended to change a buyer." },
+        { status: 409 },
+      );
+    }
+    if (code === "NOT_OFF_PLATFORM") {
+      return NextResponse.json(
+        { error: "Only spots you marked sold yourself can be changed. This one was paid for in the app." },
+        { status: 409 },
+      );
+    }
+    if (code === "ALREADY_FULFILLED") {
+      return NextResponse.json(
+        { error: "This sale is already attached to an order, so the buyer can’t be changed here." },
+        { status: 409 },
+      );
+    }
+    if (code === "DRAFT_PICKED") {
+      return NextResponse.json(
+        { error: "This spot already made a draft pick, so the buyer can’t be changed." },
+        { status: 409 },
+      );
+    }
+    console.error("[variants/manual-assign] change buyer", e);
+    return NextResponse.json({ error: "Could not change the buyer." }, { status: 500 });
+  }
+}
