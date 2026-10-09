@@ -9,6 +9,8 @@ type VaultHostRightRailProps = {
   onOpenLineup?: () => void;
   lineupCount?: number;
   onOpenObs: () => void;
+  onOpenNotes?: () => void;
+  hasNotes?: boolean;
   disabled?: boolean;
 };
 
@@ -45,6 +47,8 @@ export function VaultHostRightRail({
   onOpenLineup,
   lineupCount = 0,
   onOpenObs,
+  onOpenNotes,
+  hasNotes = false,
   disabled,
 }: VaultHostRightRailProps) {
   return (
@@ -71,6 +75,14 @@ export function VaultHostRightRail({
           <path d="M9.5 9.5v5L12 16l2.5-1.5v-5L12 8l-2.5 1.5z" stroke="currentColor" strokeWidth="1.5" />
         </svg>
       </RailBtn>
+      {onOpenNotes ? (
+        <RailBtn label={hasNotes ? "Notes •" : "Notes"} onClick={onOpenNotes}>
+          <svg viewBox="0 0 24 24" fill="none" className="size-[18px] md:size-5" aria-hidden>
+            <path d="M7 3h7l5 5v13H7V3z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+            <path d="M14 3v5h5M10 13h6M10 17h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </RailBtn>
+      ) : null}
       <Link
         href={`/live/${encodeURIComponent(roomId)}`}
         target="_blank"

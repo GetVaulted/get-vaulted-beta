@@ -68,6 +68,9 @@ export type LiveSellerCommandCenterProps = {
   onGiveawayCancel?: (id: string) => void;
   onGiveawayDelete?: (id: string) => void;
   onOpenObs: () => void;
+  /** Open the Show notes editor (same notes as the app). */
+  onOpenNotes?: () => void;
+  hasNotes?: boolean;
   /** Go Live: patch room live AND auto-start the default webcam broadcast (no Tools required). */
   onGoLive: () => void;
   onToggleTeamBoard?: () => void;
@@ -212,6 +215,8 @@ export function LiveSellerCommandCenter({
   onGiveawayCancel,
   onGiveawayDelete,
   onOpenObs,
+  onOpenNotes,
+  hasNotes = false,
   onGoLive,
   onToggleTeamBoard,
   teamBoardPanelOpen = false,
@@ -386,10 +391,15 @@ export function LiveSellerCommandCenter({
                 Teams
               </PrimaryBtn>
             ) : null}
-            <div className="mt-1.5 grid grid-cols-2 gap-1">
+            <div className={`mt-1.5 grid gap-1 ${onOpenNotes ? "grid-cols-3" : "grid-cols-2"}`}>
               <PrimaryBtn compact onClick={onOpenObs} disabled={busy} tone="ghost">
                 OBS
               </PrimaryBtn>
+              {onOpenNotes ? (
+                <PrimaryBtn compact onClick={onOpenNotes} tone={hasNotes ? "gold" : "ghost"}>
+                  Notes
+                </PrimaryBtn>
+              ) : null}
               <PrimaryBtn compact onClick={onCopyPublic} disabled={busy} tone="ghost">
                 Share
               </PrimaryBtn>
@@ -676,10 +686,15 @@ export function LiveSellerCommandCenter({
                 Teams
               </PrimaryBtn>
             ) : null}
-            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+            <div className={`mt-1.5 grid gap-1.5 ${onOpenNotes ? "grid-cols-3" : "grid-cols-2"}`}>
               <PrimaryBtn compact onClick={onOpenObs} disabled={busy} tone="ghost">
                 OBS
               </PrimaryBtn>
+              {onOpenNotes ? (
+                <PrimaryBtn compact onClick={onOpenNotes} tone={hasNotes ? "gold" : "ghost"}>
+                  Notes
+                </PrimaryBtn>
+              ) : null}
               <PrimaryBtn compact onClick={onCopyPublic} disabled={busy} tone="ghost">
                 Share link
               </PrimaryBtn>

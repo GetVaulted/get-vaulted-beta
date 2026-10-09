@@ -39,6 +39,7 @@ type VaultHostStageEdgeRailProps = {
   disabled?: boolean;
   onOpenCommandCenter: () => void;
   onOpenObs: () => void;
+  onOpenNotes?: () => void;
   onShare: () => void;
   onToggleMute: () => void;
   muted: boolean;
@@ -49,6 +50,7 @@ export function VaultHostStageEdgeRail({
   disabled,
   onOpenCommandCenter,
   onOpenObs,
+  onOpenNotes,
   onShare,
   onToggleMute,
   muted,
@@ -84,6 +86,14 @@ export function VaultHostStageEdgeRail({
           <path d="M4 8.5L12 4l8 4.5v7L12 20l-8-4.5v-7z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
         </svg>
       </EdgeBtn>
+      {onOpenNotes ? (
+        <EdgeBtn label="Show notes" onClick={onOpenNotes} disabled={disabled}>
+          <svg viewBox="0 0 24 24" fill="none" className="size-[18px]" aria-hidden>
+            <path d="M7 3h7l5 5v13H7V3z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+            <path d="M14 3v5h5M10 13h6M10 17h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </EdgeBtn>
+      ) : null}
       <EdgeBtn label="Open public room" href={`/live/${encodeURIComponent(roomId)}`}>
         <svg viewBox="0 0 24 24" fill="none" className="size-[18px]" aria-hidden>
           <path
