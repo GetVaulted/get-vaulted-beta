@@ -18,6 +18,7 @@ const hoisted = vi.hoisted(() => ({
   liveWalletIncompleteOrNull: vi.fn().mockResolvedValue(null),
   resolveBuyerDefaultShippingForOrder: vi.fn().mockResolvedValue({}),
   isBetaDeployment: vi.fn().mockReturnValue(false),
+  assertRandomPurchaseAllowedInTx: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/lib/resolve-live-rooms-auth", () => ({ resolveLiveRoomsUserId: hoisted.resolveLiveRoomsUserId }));
@@ -57,6 +58,13 @@ vi.mock("@/lib/live-buy-now-purchase", () => ({
   resolveBuyerDefaultShippingForOrder: hoisted.resolveBuyerDefaultShippingForOrder,
 }));
 vi.mock("@/lib/is-beta-deployment", () => ({ isBetaDeployment: hoisted.isBetaDeployment }));
+vi.mock("@/lib/trust/live-room-moderation", () => ({
+  getLiveRoomUserRestrictions: vi.fn().mockResolvedValue({ roomBanned: false, kickedUntil: null }),
+}));
+vi.mock("@/lib/random-purchase-guard", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/random-purchase-guard")>("@/lib/random-purchase-guard");
+  return { ...actual, assertRandomPurchaseAllowedInTx: hoisted.assertRandomPurchaseAllowedInTx };
+});
 
 function variantRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -130,6 +138,7 @@ describe("variant purchase route — random-reveal validation", () => {
     hoisted.isRandomVariantAssignment.mockReturnValue(true);
     hoisted.remainingRandomPoolCount.mockResolvedValue(32);
     hoisted.finalizeLiveItemVariantPurchasePaid.mockResolvedValue(undefined);
+    hoisted.assertRandomPurchaseAllowedInTx.mockResolvedValue(undefined);
     prismaMock.liveRoom.findUnique.mockResolvedValue({
       id: "room_1",
       sellerId: "seller_1",
@@ -175,5 +184,37 @@ describe("variant purchase route — random-reveal validation", () => {
     hoisted.remainingRandomPoolCount.mockResolvedValue(1);
     const res = await POST(postRequest({ quantity: 1 }), postParams());
     expect(res.status).toBe(200);
+  });
+
+  it("requires the 18+ confirmation before a random-reveal purchase", async () => {
+    hoisted.assertRandomPurchaseAllowedInTx.mockRejectedValue(
+      Object.assign(new Error("Confirm you are 18 or older to buy a random reveal."), {
+        code: "ADULT_CONFIRMATION_REQUIRED",
+      }),
+    );
+    const res = await POST(postRequest({ quantity: 1 }), postParams());
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).toBe("ADULT_CONFIRMATION_REQUIRED");
+  });
+
+  it("returns 429 with a retry time when the buyer hits the random purchase limit", async () => {
+    hoisted.assertRandomPurchaseAllowedInTx.mockRejectedValue(
+      Object.assign(new Error("Take a short break."), {
+        code: "RANDOM_PURCHASE_COOLING_OFF",
+        retryAt: new Date("2026-10-09T12:15:00Z"),
+      }),
+    );
+    const res = await POST(postRequest({ quantity: 1 }), postParams());
+    expect(res.status).toBe(429);
+    const body = (await res.json()) as { code?: string; retryAt?: string };
+    expect(body.code).toBe("RANDOM_PURCHASE_COOLING_OFF");
+    expect(body.retryAt).toBe("2026-10-09T12:15:00.000Z");
+  });
+
+  it("does not run the 18+ / limit check for pick (non-random) variants", async () => {
+    hoisted.isRandomVariantAssignment.mockReturnValue(false);
+    await POST(postRequest({ quantity: 1 }), postParams());
+    expect(hoisted.assertRandomPurchaseAllowedInTx).not.toHaveBeenCalled();
   });
 });

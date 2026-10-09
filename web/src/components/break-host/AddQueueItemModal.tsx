@@ -30,7 +30,13 @@ import {
   type LiveShopInventoryListing,
   type PriorLiveRoomOption,
 } from "@/lib/live-room-control-client";
-import { RANDOM_BREAK_SALE_TYPES_ENABLED } from "../../../../shared/live-break-feature-flags";
+import { RANDOM_BREAK_SALE_TYPES_ENABLED, SURPRISE_SET_SALE_TYPE_ENABLED } from "../../../../shared/live-break-feature-flags";
+import {
+  SurpriseSetFields,
+  initialSurpriseSetRows,
+  validateSurpriseRows,
+  type SurpriseSetRow,
+} from "./SurpriseSetFields";
 import {
   buildPlayerPickVariants,
   buildRandomPlayerVariant,
@@ -52,6 +58,8 @@ export type AddQueueItemAuctionPayload = {
   teamBoardMisc: boolean;
   teamBoardNcaa: boolean;
   customRandomPoolLabels?: string[] | null;
+  /** Surprise Set contents (random player_selection). Server re-validates and expands to unit labels. */
+  surpriseSetItems?: Array<{ name: string; quantity: number; msrpUsd: number }>;
   sellerShippingProfileId?: string | null;
   shippingProfileId?: string | null;
 };
@@ -87,9 +95,9 @@ const ALLOWED_CLOSE: AddQueueItemCloseReason[] = ["cancel", "success", "escape"]
 const THUMBNAIL_UPLOAD_ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
 const THUMBNAIL_MAX_FILE_BYTES = 20 * 1024 * 1024;
 
-type SaleCategory = "teams_divisions" | "auction" | "buy_now";
+type SaleCategory = "teams_divisions" | "auction" | "buy_now" | "surprise_set";
 type BreakSaleType = "pyt" | "pyd" | "pyp" | "random_pyt" | "random_pyd" | "random_pyp";
-type SaleType = "auction" | "buy_now" | BreakSaleType;
+type SaleType = "auction" | "buy_now" | "surprise_set" | BreakSaleType;
 type AddSourceTab = "new" | "shop" | "copy";
 
 const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
@@ -100,6 +108,9 @@ const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
   },
   { id: "auction", label: SELLER_CONSOLE.saleCategoryAuction, sub: "Timed bidding" },
   { id: "buy_now", label: SELLER_CONSOLE.saleCategoryBuyNow, sub: "Fixed price" },
+  ...(SURPRISE_SET_SALE_TYPE_ENABLED
+    ? [{ id: "surprise_set" as const, label: "Surprise Set", sub: "Sealed items · random draw" }]
+    : []),
 ];
 
 const BREAK_VARIANTS: { id: BreakSaleType; label: string; sub: string }[] = [
@@ -123,6 +134,7 @@ function visibleBreakVariants(boardPack: LiveBoardPackId) {
 function saleTypeForCategory(category: SaleCategory, breakVariant: BreakSaleType): SaleType {
   if (category === "auction") return "auction";
   if (category === "buy_now") return "buy_now";
+  if (category === "surprise_set") return "surprise_set";
   return breakVariant;
 }
 
@@ -167,6 +179,7 @@ export function AddQueueItemModal({
   const [queueDraftMisc, setQueueDraftMisc] = useState(false);
   const [queueDraftNcaa, setQueueDraftNcaa] = useState(false);
   const [playerListText, setPlayerListText] = useState("");
+  const [surpriseRows, setSurpriseRows] = useState<SurpriseSetRow[]>(initialSurpriseSetRows);
   const [rulesText, setRulesText] = useState("");
   const [prizeDescription, setPrizeDescription] = useState("");
   const [openEntriesOnCreate, setOpenEntriesOnCreate] = useState(true);
@@ -196,6 +209,7 @@ export function AddQueueItemModal({
     if (open && !wasOpenRef.current) {
       setAddSource("new");
       setTitle("");
+      setSurpriseRows(initialSurpriseSetRows());
       setImageUrl("");
       setImageUploading(false);
       setImageError(null);
@@ -551,6 +565,34 @@ export function AddQueueItemModal({
       return;
     }
 
+    if (saleType === "surprise_set") {
+      if (parsedPrice == null) {
+        setFormError("Enter a price per unit.");
+        return;
+      }
+      const check = validateSurpriseRows(surpriseRows, trimmedTitle);
+      if (!check.ok) {
+        setFormError(check.message);
+        return;
+      }
+      const ok = await onSubmitAuction({
+        title: trimmedTitle,
+        imageUrl: imageUrl.trim(),
+        priceUsd: parsedPrice,
+        startingBidUsd: 1,
+        quantity: 1,
+        salesFormat: "player_selection",
+        variantAssignmentMode: "random",
+        variants: [{ ...buildRandomPlayerVariant(parsedPrice, check.totalUnits), label: "Surprise unit" }],
+        teamBoardMisc: false,
+        teamBoardNcaa: false,
+        surpriseSetItems: check.items,
+        ...profilePayload,
+      });
+      if (ok) requestClose("success", onRequestClose);
+      return;
+    }
+
     if (saleType === "buy_now") {
       if (parsedPrice == null) {
         setFormError("Enter a buy-it-now price.");
@@ -586,7 +628,7 @@ export function AddQueueItemModal({
       ...profilePayload,
     });
     if (ok) requestClose("success", onRequestClose);
-  }, [boardPack, imageUrl, onRequestClose, onSubmitAuction, playerListText, price, profileOptionsAreSeller, quantity, queueDraftMisc, queueDraftNcaa, saleType, selectedProfileId, spotVariants, title]);
+  }, [boardPack, imageUrl, onRequestClose, onSubmitAuction, playerListText, price, profileOptionsAreSeller, quantity, queueDraftMisc, queueDraftNcaa, saleType, selectedProfileId, spotVariants, surpriseRows, title]);
 
   const handleSubmitGiveaway = useCallback(async () => {
     if (!onSubmitGiveaway || (mode !== "giveaway" && mode !== "buyers_giveaway")) return;
@@ -762,7 +804,9 @@ export function AddQueueItemModal({
   }
 
   const priceLabel =
-    saleType === "auction"
+    saleType === "surprise_set"
+      ? "Price per unit"
+      : saleType === "auction"
       ? "Starting bid"
       : saleType === "pyt" || saleType === "random_pyt"
         ? "Price per team"
@@ -1054,7 +1098,7 @@ export function AddQueueItemModal({
           {imageError ? <p className="mt-1 text-xs text-rose-300">{imageError}</p> : null}
 
           <span className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Sale type</span>
-          <div className="mt-2 grid grid-cols-3 gap-2">
+          <div className={`mt-2 grid gap-2 ${SALE_CATEGORIES.length > 3 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
             {SALE_CATEGORIES.map((type) => {
               const active = saleCategory === type.id;
               return (
@@ -1080,6 +1124,10 @@ export function AddQueueItemModal({
               );
             })}
           </div>
+
+          {saleCategory === "surprise_set" ? (
+            <SurpriseSetFields rows={surpriseRows} onChange={setSurpriseRows} title={title} />
+          ) : null}
 
           {saleCategory === "teams_divisions" ? (
             <>
@@ -1246,10 +1294,10 @@ export function AddQueueItemModal({
           <input
             inputMode="numeric"
             min={1}
-            value={isBreakSale ? "1" : quantity}
+            value={isBreakSale || saleType === "surprise_set" ? "1" : quantity}
             onChange={(e) => setQuantity(e.target.value.replace(/[^\d]/g, ""))}
             placeholder="1"
-            disabled={isBreakSale}
+            disabled={isBreakSale || saleType === "surprise_set"}
             className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100 disabled:opacity-45"
             aria-label="Quantity"
           />

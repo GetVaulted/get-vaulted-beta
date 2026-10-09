@@ -13,6 +13,7 @@ import { ensureLiveBuyNowItemCheckoutListingTx } from "@/lib/live-buy-now-checko
 import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
 import { resolveDefaultSellerProfileForLiveShow } from "@/services/shipping/seller-shipping-profiles";
 import { normalizeCustomRandomPoolLabels } from "../../../../../../../shared/live-player-spot-list";
+import { expandSurpriseSetLabels, validateSurpriseSetItems } from "../../../../../../../shared/surprise-set";
 
 type PostBody = {
   title?: string;
@@ -27,6 +28,8 @@ type PostBody = {
   teamBoardNcaa?: boolean;
   /** Custom player names for random player_selection reveal pool. */
   customRandomPoolLabels?: string[] | null;
+  /** Surprise Set contents: [{ name, quantity, msrpUsd }] (random player_selection only). */
+  surpriseSetItems?: unknown;
   /** Units on this single queue row (one tile). Max 512. */
   quantity?: number | string;
   salesFormat?: string;
@@ -202,10 +205,32 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: "Add at least one selectable option for variant items." }, { status: 400 });
   }
 
+  // Surprise Set: a random Player pool where every physical unit is its own pool label.
+  let surpriseSetItems: Array<{ name: string; quantity: number; msrpUsd: number }> | null = null;
+  let surpriseSetLabels: string[] | null = null;
+  if (body.surpriseSetItems != null) {
+    if (salesFormat !== "player_selection" || variantAssignmentMode !== "random") {
+      return NextResponse.json({ error: "Surprise Sets must be a random reveal item." }, { status: 400 });
+    }
+    const check = validateSurpriseSetItems(body.surpriseSetItems, title);
+    if (!check.ok) return NextResponse.json({ error: check.message }, { status: 400 });
+    const draftUnits = variantDrafts.reduce((sum, v) => sum + Math.max(1, Math.floor(v.quantityInitial ?? 1)), 0);
+    if (variantDrafts.length !== 1 || draftUnits !== check.totalUnits) {
+      return NextResponse.json(
+        { error: "A Surprise Set sells one price per unit — the unit count must match the items you listed." },
+        { status: 400 },
+      );
+    }
+    surpriseSetItems = check.items;
+    surpriseSetLabels = expandSurpriseSetLabels(check.items);
+  }
   const customRandomPoolLabels =
     salesFormat === "player_selection" && variantAssignmentMode === "random"
-      ? normalizeCustomRandomPoolLabels(body.customRandomPoolLabels)
+      ? normalizeCustomRandomPoolLabels(surpriseSetLabels ?? body.customRandomPoolLabels)
       : null;
+  if (surpriseSetLabels && customRandomPoolLabels?.length !== surpriseSetLabels.length) {
+    return NextResponse.json({ error: "Each item in a Surprise Set needs a unique name." }, { status: 400 });
+  }
   if (salesFormat === "player_selection" && variantAssignmentMode === "random" && !customRandomPoolLabels) {
     return NextResponse.json(
       { error: "Add at least 2 player names for a random player break." },
@@ -269,6 +294,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     teamBoardMisc,
     teamBoardNcaa,
     customRandomPoolLabels: customRandomPoolLabels ?? undefined,
+    surpriseSetItems: surpriseSetItems ?? undefined,
     quantity: isVariantSalesFormat(salesFormat)
       ? Math.max(1, variantDrafts.reduce((sum, v) => sum + Math.max(1, Math.floor(v.quantityInitial ?? 1)), 0))
       : quantity,

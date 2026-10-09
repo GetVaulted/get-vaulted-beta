@@ -592,6 +592,8 @@ model User {
   emailVerified                 DateTime?
   role                          UserRole                    @default(user)
   suspendedAt                   DateTime?
+  /// Buyer self-confirmed they are 18+ (required before any random-reveal / Surprise Set purchase).
+  adultConfirmedAt              DateTime?
   /// Stripe Connect Express / Standard connected account id (`acct_...`).
   stripeAccountId               String?
   /// Seller preference: Stripe Connect (default) vs PayPal Payouts at release.
@@ -1541,6 +1543,8 @@ model LiveRoomItem {
   teamBoardNcaa               Boolean                        @default(false)
   /// Custom random-reveal pool labels (Pick Your Player random). JSON string array.
   customRandomPoolLabels      Json?
+  /// Surprise Set contents: [{ name, quantity, msrpUsd }]. MSRP is seller/admin only.
+  surpriseSetItems            Json?
   /// Monotonic item-state version for realtime ordering/reconciliation.
   itemVersion                 Int                            @default(0)
   /// When the lot is `active`, host must set this true (via Start) before buyers can bid / claim for timed window.

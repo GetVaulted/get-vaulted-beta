@@ -1936,6 +1936,8 @@ function LiveSlide({
           salesFormat={shopSpotItem.salesFormat}
           variantAssignmentMode={shopSpotItem.variantAssignmentMode ?? 'pick'}
           variants={shopSpotItem.variants ?? []}
+          surpriseSetItems={shopSpotItem.surpriseSetItems ?? null}
+          claimedLabels={shopSpotItem.claimedLabels ?? []}
           excludeVariantIds={
             shopSpotItem.id === liveSession.roomSnap?.activeItemId &&
             isVariantSpotAuctionLive(liveSession.roomSnap) &&

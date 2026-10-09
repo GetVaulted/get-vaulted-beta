@@ -24,6 +24,10 @@ export type LiveRoomLineupItemSnapshot = {
   /** PYT/PYD spot list — present so the Shop sheet can open the buyer spot board for any lineup item. */
   variants?: LiveItemVariantSnapshot[];
   variantAssignmentMode?: 'pick' | 'random' | 'draft';
+  /** Surprise Set contents (names + counts only — never prices). */
+  surpriseSetItems?: Array<{ name: string; quantity: number }> | null;
+  /** Labels of random-pool units already drawn (used to work out the remaining odds). */
+  claimedLabels?: string[];
 };
 
 type LineupItemInput = {
@@ -44,6 +48,8 @@ type LineupItemInput = {
   salesFormat?: string;
   variants?: LiveItemVariantSnapshot[];
   variantAssignmentMode?: 'pick' | 'random' | 'draft';
+  surpriseSetItems?: Array<{ name: string; quantity: number }> | null;
+  claimedLabels?: string[];
   /** ISO — Sweet 16 sales closed (16 teams sold). */
   variantBreakReadyAt?: string | null;
   listingId?: string | null;
@@ -158,6 +164,8 @@ export function buildBuyerQueueLineupRow(
       biddingOpen,
       variants: item.variants ?? [],
       variantAssignmentMode: item.variantAssignmentMode ?? 'pick',
+      surpriseSetItems: item.surpriseSetItems ?? null,
+      claimedLabels: item.claimedLabels ?? [],
     };
   }
 
