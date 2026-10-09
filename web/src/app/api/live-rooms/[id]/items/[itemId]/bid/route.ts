@@ -72,7 +72,56 @@ function persistBidIdempotency(args: {
     .catch(() => {});
 }
 
+/** Who is calling (Supabase user id from the bearer token), for the refused-bid log only. */
+function bidCallerHint(req: Request): string | null {
+  try {
+    const raw =
+      req.headers.get("x-gv-supabase-auth")?.trim() || req.headers.get("authorization")?.trim() || "";
+    const jwt = raw.startsWith("Bearer ") ? raw.slice(7).trim() : "";
+    const part = jwt.split(".")[1];
+    if (!part) return null;
+    const json = JSON.parse(Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")) as {
+      sub?: string;
+    };
+    return typeof json.sub === "string" ? json.sub : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every refused bid used to vanish without a trace. Log the reason so "I can't bid" reports can be
+ * traced to the exact refusal (which rule, which user, what amount).
+ */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string; itemId: string }> }) {
+  const startedAt = Date.now();
+  const res = await handleBid(req, ctx);
+  if (res.status >= 400) {
+    try {
+      const p = await ctx.params;
+      const detail = (await res.clone().json().catch(() => null)) as {
+        error?: string;
+        code?: string;
+        minNextBidUsd?: number;
+      } | null;
+      console.warn("[bid rejected]", {
+        status: res.status,
+        error: detail?.error ?? null,
+        code: detail?.code ?? null,
+        minNextBidUsd: detail?.minNextBidUsd ?? null,
+        liveRoomId: p.id,
+        itemId: p.itemId,
+        callerSub: bidCallerHint(req),
+        ms: Date.now() - startedAt,
+      });
+    } catch {
+      /* logging must never affect the bid response */
+    }
+  }
+  return res;
+}
+
+async function handleBid(req: Request, ctx: { params: Promise<{ id: string; itemId: string }> }) {
   /** Stamp before any await so snipes aren't killed by preflight latency. */
   const receivedAt = new Date();
   const auth = await resolveLiveRoomsUserId(req);
