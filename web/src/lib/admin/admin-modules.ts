@@ -219,6 +219,7 @@ export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
 export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[] = [
   { href: "/admin", label: "Command Center", exact: true },
   { href: "/admin/live-shows", label: "Live" },
+  { href: "/admin/live-shows/move", label: "Move show items" },
   { href: "/admin/refund-requests", label: "Refunds" },
   { href: "/admin/activity", label: "Activity log" },
   { href: "/admin/live-recordings", label: "Recordings" },
