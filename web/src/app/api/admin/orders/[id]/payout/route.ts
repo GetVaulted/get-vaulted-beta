@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { OrderRefundRequestStatus } from "@/generated/prisma/enums";
 import { EscrowStatus, OrderPaymentMethod, OrderPayoutStatus } from "@/generated/prisma/enums";
 import { ACTIVE_REFUND_REQUEST_STATUSES } from "@/lib/order-refund-eligibility";
+import { logAdminActionSafe } from "@/lib/admin/admin-audit";
 import { logPayoutEligibilityDecision } from "@/lib/payout-audit-log";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
@@ -268,6 +269,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       reason,
     });
 
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: `order.payout.${action}`,
+      targetType: "order",
+      targetId: orderId,
+      targetUserId: order.sellerId,
+      reason,
+      detail: { from: String(prevStatus) },
+    });
     return NextResponse.json({ ok: true, payoutStatus: OrderPayoutStatus.paid_out });
   }
 
@@ -290,6 +300,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       reason,
     });
 
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: `order.payout.${action}`,
+      targetType: "order",
+      targetId: orderId,
+      targetUserId: order.sellerId,
+      reason,
+      detail: { from: String(prevStatus) },
+    });
     return NextResponse.json({ ok: true, payoutStatus: OrderPayoutStatus.blocked });
   }
 
@@ -312,6 +331,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       reason,
     });
 
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: `order.payout.${action}`,
+      targetType: "order",
+      targetId: orderId,
+      targetUserId: order.sellerId,
+      reason,
+      detail: { from: String(prevStatus) },
+    });
     return NextResponse.json({ ok: true, payoutStatus: OrderPayoutStatus.manual_review });
   }
 
@@ -325,6 +353,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (!marked.ok) {
       return NextResponse.json({ error: marked.error }, { status: 400 });
     }
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: `order.payout.${action}`,
+      targetType: "order",
+      targetId: orderId,
+      targetUserId: order.sellerId,
+      reason,
+      detail: { from: String(prevStatus) },
+    });
     return NextResponse.json({ ok: true, payoutStatus: OrderPayoutStatus.paid_out });
   }
 
@@ -333,6 +370,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const fresh = await prisma.order.findUnique({
       where: { id: orderId },
       select: { payoutStatus: true },
+    });
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: `order.payout.${action}`,
+      targetType: "order",
+      targetId: orderId,
+      targetUserId: order.sellerId,
+      reason,
+      detail: { from: String(prevStatus) },
     });
     return NextResponse.json({ ok: true, payoutStatus: fresh?.payoutStatus });
   }

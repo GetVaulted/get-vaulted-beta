@@ -3347,3 +3347,28 @@ model AdminActionLog {
   @@index([targetUserId, createdAt])
   @@index([adminUserId, createdAt])
 }
+
+/// Local mirror of a Stripe dispute (chargeback). `id` is the Stripe dispute id (`dp_...`).
+/// Filled by the Stripe webhook and the admin "Sync from Stripe" button; never the source of truth for money.
+model StripeDispute {
+  id              String    @id
+  orderId         String?
+  chargeId        String
+  paymentIntentId String?
+  amountCents     Int
+  currency        String    @default("usd")
+  reason          String    @default("")
+  status          String
+  evidenceDueBy   DateTime?
+  hasEvidence     Boolean   @default(false)
+  submissionCount Int       @default(0)
+  pastDue         Boolean   @default(false)
+  openedAt        DateTime
+  closedAt        DateTime?
+  adminNote       String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status, evidenceDueBy])
+  @@index([orderId])
+}

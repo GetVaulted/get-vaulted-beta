@@ -222,6 +222,7 @@ export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[]
   { href: "/admin/live-shows/move", label: "Move show items" },
   { href: "/admin/spots", label: "Fix spots" },
   { href: "/admin/refund-requests", label: "Refunds" },
+  { href: "/admin/disputes", label: "Disputes" },
   { href: "/admin/activity", label: "Activity log" },
   { href: "/admin/live-recordings", label: "Recordings" },
   { href: "/admin/finance", label: "Finance" },

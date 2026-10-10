@@ -104,6 +104,7 @@ import { resolveMarketplaceCheckoutShipping } from "@/services/marketplace-check
 import { LayawayStatus } from "@/generated/prisma/enums";
 import { initializeOrderPayoutOnPayment } from "@/services/payout/process-delivery-payout";
 import { reverseLiveShowCompletedSaleTx } from "@/lib/live-show-gmv";
+import { recordStripeDispute } from "@/lib/admin/admin-disputes";
 import {
   addOrderToLiveShippingSessionTx,
   estimateFirstItemLiveShippingCentsForListingTx,
@@ -2987,6 +2988,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       const piId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
       if (!piId) break;
       const orderId = await resolveOrderIdForDisputedPaymentIntent(piId);
+      await recordStripeDispute(dispute, orderId);
       const order = orderId
         ? await prisma.order.findUnique({
             where: { id: orderId },
@@ -3019,6 +3021,13 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       }
       break;
     }
+    case "charge.dispute.updated": {
+      // Due dates / evidence status change after creation; keep the admin queue current.
+      const dispute = event.data.object as Stripe.Dispute;
+      const pi = typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
+      await recordStripeDispute(dispute, pi ? await resolveOrderIdForDisputedPaymentIntent(pi) : null);
+      break;
+    }
     case "charge.dispute.closed": {
       const dispute = event.data.object as Stripe.Dispute;
       const chId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id;
@@ -3027,6 +3036,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       const piId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
       if (!piId) break;
       const orderId = await resolveOrderIdForDisputedPaymentIntent(piId);
+      await recordStripeDispute(dispute, orderId);
       const order = orderId
         ? await prisma.order.findUnique({
             where: { id: orderId },
