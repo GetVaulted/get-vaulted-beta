@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { AdminGlobalSearch } from "@/components/admin/AdminGlobalSearch";
 import { ADMIN_NAV_LINKS } from "@/lib/admin/admin-modules";
 
 export function AdminNav() {
@@ -20,6 +21,7 @@ export function AdminNav() {
             <span className="text-zinc-500"> · Get Vaulted</span>
           </p>
         </div>
+        <AdminGlobalSearch />
         <nav className="flex max-w-full flex-wrap gap-1 overflow-x-auto" aria-label="Admin">
           {ADMIN_NAV_LINKS.map(({ href, label, exact }) => {
             const active = exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);

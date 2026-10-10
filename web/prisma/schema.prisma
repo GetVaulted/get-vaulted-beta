@@ -3325,3 +3325,25 @@ model SellerReview {
   @@index([sellerId, hiddenAt, createdAt])
   @@index([buyerId])
 }
+
+/// Every state-changing action taken from the admin console (who, what, on which record, why).
+/// Plain string ids (no FKs) so history survives deletes of the records it describes.
+model AdminActionLog {
+  id           String   @id @default(cuid())
+  adminUserId  String
+  /// e.g. "refund.approve", "show.move_items", "order.reassign_spot"
+  action       String
+  /// "user" | "order" | "live_room" | "refund_request" | ...
+  targetType   String
+  targetId     String
+  /// The buyer/seller this touches, so it shows on their profile.
+  targetUserId String?
+  reason       String   @default("")
+  detail       Json?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([adminUserId, createdAt])
+}

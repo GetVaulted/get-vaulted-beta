@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { logAdminActionSafe } from "@/lib/admin/admin-audit";
+import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
 import {
   adminForceRefundRequest,
@@ -23,12 +25,24 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  const buyerId =
+    (await prisma.orderRefundRequest.findUnique({ where: { id: requestId }, select: { buyerId: true } }))?.buyerId ?? null;
+
   try {
     if (body.action === "force_refund" || body.forceRefund === true) {
       const request = await adminForceRefundRequest({
         requestId,
         adminUserId: gate.userId,
         note: body.note,
+      });
+      await logAdminActionSafe({
+        adminUserId: gate.userId,
+        action: "refund.force",
+        targetType: "refund_request",
+        targetId: requestId,
+        targetUserId: buyerId,
+        reason: body.note ?? "",
+        detail: { orderId: request.orderId, status: request.status },
       });
       return NextResponse.json({ request });
     }
@@ -46,6 +60,15 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
       approve: body.approve,
       note: body.note,
       forceRefund: Boolean(body.forceRefund),
+    });
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: body.approve ? "refund.approve" : "refund.deny",
+      targetType: "refund_request",
+      targetId: requestId,
+      targetUserId: buyerId,
+      reason: body.note ?? "",
+      detail: { orderId: request.orderId, status: request.status },
     });
     return NextResponse.json({ request });
   } catch (e) {

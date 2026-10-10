@@ -27,6 +27,7 @@ const prismaMock = vi.hoisted(() => ({
     findUnique: vi.fn(),
     update: vi.fn().mockResolvedValue(undefined),
   },
+  adminActionLog: { create: vi.fn().mockResolvedValue(undefined) },
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 

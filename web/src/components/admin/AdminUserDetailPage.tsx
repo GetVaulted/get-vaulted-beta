@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { AdminUser360Panel } from "@/components/admin/AdminUser360Panel";
 
 type ChecklistItem = {
   key: string;
@@ -472,6 +473,8 @@ export function AdminUserDetailPage() {
           {usernameMessage}
         </p>
       ) : null}
+
+      <AdminUser360Panel userId={userId} />
 
       <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
         <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Addresses</h2>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { logAdminActionSafe } from "@/lib/admin/admin-audit";
 import { adminChangeUsername } from "@/lib/profile-setup";
 import { requireAdmin } from "@/lib/require-admin";
 import { endLiveRoomsForSuspendedSeller } from "@/lib/seller-suspension-live-guard";
@@ -50,6 +51,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         username: result.username,
       },
     });
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: "user.set_username",
+      targetType: "user",
+      targetId: id,
+      targetUserId: id,
+      reason,
+      detail: { from: result.previousUsername, to: result.username },
+    });
     return NextResponse.json({
       ok: true,
       username: result.username,
@@ -81,6 +91,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         liveShowsCancelled: liveShowResult.cancelled,
       },
     });
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: "user.suspend",
+      targetType: "user",
+      targetId: id,
+      targetUserId: id,
+      reason,
+      detail: { liveShowsEnded: liveShowResult.ended, liveShowsCancelled: liveShowResult.cancelled },
+    });
     return NextResponse.json({ ok: true, liveShowsEnded: liveShowResult.ended, liveShowsCancelled: liveShowResult.cancelled });
   }
   if (action === "unsuspend") {
@@ -94,6 +113,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       targetType: "user",
       targetId: id,
       detail: { reason: reason || null },
+    });
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: "user.unsuspend",
+      targetType: "user",
+      targetId: id,
+      targetUserId: id,
+      reason,
     });
     return NextResponse.json({ ok: true });
   }
