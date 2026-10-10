@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logAdminActionSafe } from "@/lib/admin/admin-audit";
 import { requireAdmin } from "@/lib/require-admin";
 import { RefundRequestError, adminRetryStuckRefund } from "@/services/order-refund-request";
 
@@ -20,6 +21,13 @@ export async function POST(_req: Request, ctx: RouteCtx) {
 
   try {
     const request = await adminRetryStuckRefund({ requestId, adminUserId: gate.userId });
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: "refund.retry_stuck",
+      targetType: "refund_request",
+      targetId: requestId,
+      detail: { orderId: request.orderId, status: request.status },
+    });
     return NextResponse.json({ request });
   } catch (e) {
     if (e instanceof RefundRequestError) {

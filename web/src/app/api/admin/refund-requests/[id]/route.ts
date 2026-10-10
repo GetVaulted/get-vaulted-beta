@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { logAdminActionSafe } from "@/lib/admin/admin-audit";
+import { logAdminActionSafe, normalizeAdminReason } from "@/lib/admin/admin-audit";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
 import {
@@ -25,6 +25,12 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  // Every admin refund decision needs a written reason (kept on the request and in the activity log).
+  const reason = normalizeAdminReason(body.note);
+  if (!reason) {
+    return NextResponse.json({ error: "REASON_REQUIRED" }, { status: 400 });
+  }
+
   const buyerId =
     (await prisma.orderRefundRequest.findUnique({ where: { id: requestId }, select: { buyerId: true } }))?.buyerId ?? null;
 
@@ -33,7 +39,7 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
       const request = await adminForceRefundRequest({
         requestId,
         adminUserId: gate.userId,
-        note: body.note,
+        note: reason,
       });
       await logAdminActionSafe({
         adminUserId: gate.userId,
@@ -41,7 +47,7 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
         targetType: "refund_request",
         targetId: requestId,
         targetUserId: buyerId,
-        reason: body.note ?? "",
+        reason,
         detail: { orderId: request.orderId, status: request.status },
       });
       return NextResponse.json({ request });
@@ -58,7 +64,7 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
       requestId,
       adminUserId: gate.userId,
       approve: body.approve,
-      note: body.note,
+      note: reason,
       forceRefund: Boolean(body.forceRefund),
     });
     await logAdminActionSafe({
@@ -67,7 +73,7 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
       targetType: "refund_request",
       targetId: requestId,
       targetUserId: buyerId,
-      reason: body.note ?? "",
+      reason,
       detail: { orderId: request.orderId, status: request.status },
     });
     return NextResponse.json({ request });
