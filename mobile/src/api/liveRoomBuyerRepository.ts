@@ -252,6 +252,30 @@ function parsePaymentFailure(raw: unknown): LiveBuyerPaymentFailureSnapshot | nu
   };
 }
 
+function parseSurpriseSetItems(raw: unknown): Array<{ name: string; quantity: number }> | null {
+  if (!Array.isArray(raw)) return null;
+  const out: Array<{ name: string; quantity: number }> = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    const name = typeof r.name === 'string' ? r.name.trim() : '';
+    const quantity = typeof r.quantity === 'number' && Number.isFinite(r.quantity) ? Math.floor(r.quantity) : 0;
+    if (name && quantity > 0) out.push({ name, quantity });
+  }
+  return out.length > 0 ? out : null;
+}
+
+function parseClaimedLabels(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const label = (row as Record<string, unknown>).label;
+    if (typeof label === 'string' && label.trim()) out.push(label.trim());
+  }
+  return out;
+}
+
 function parseRoomLineupItems(raw: unknown): Parameters<typeof projectBuyerQueueLineup>[0] {
   if (!Array.isArray(raw)) return [];
   const out: Parameters<typeof projectBuyerQueueLineup>[0] = [];
@@ -279,6 +303,8 @@ function parseRoomLineupItems(raw: unknown): Parameters<typeof projectBuyerQueue
       listingId: typeof o.listingId === 'string' ? o.listingId : null,
       variants: parseVariantSnapshots(o.variants),
       variantAssignmentMode: parseVariantAssignmentMode(o.variantAssignmentMode),
+      surpriseSetItems: parseSurpriseSetItems(o.surpriseSetItems),
+      claimedLabels: parseClaimedLabels(o.randomSpotClaims),
       variantBreakReadyAt:
         typeof o.variantBreakReadyAt === 'string' && o.variantBreakReadyAt.trim() ? o.variantBreakReadyAt : null,
       createdAt: typeof o.createdAt === 'string' ? o.createdAt : undefined,

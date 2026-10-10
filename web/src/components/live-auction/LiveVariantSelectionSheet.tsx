@@ -17,6 +17,7 @@ import {
 } from "@/lib/live-variant-purchase-client";
 import { formatBatchSpotCelebrationLabel } from "@/lib/live-spot-celebration";
 import { HoldToBuyButton } from "@/components/live-auction/HoldToBuyButton";
+import { RandomRevealDisclosure } from "@/components/live-auction/RandomRevealDisclosure";
 import {
   fetchLiveVariantCheckoutPreview,
   type LiveVariantCheckoutPreview,
@@ -83,6 +84,9 @@ export function LiveVariantSelectionSheet({
   const [checkoutPreview, setCheckoutPreview] = useState<LiveVariantCheckoutPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [spotSearch, setSpotSearch] = useState("");
+  // 18+ confirmation for random-reveal purchases. null = still asking the server.
+  const [adultConfirmed, setAdultConfirmed] = useState<boolean | null>(null);
+  const [adultChecked, setAdultChecked] = useState(false);
   // Variant ids a lost purchase race just told us are gone. `item` only refreshes on the next
   // background poll, so without this the tile kept showing "available" and a retry just failed
   // the same way — this makes the loss visible immediately instead of waiting for that poll.
@@ -207,6 +211,22 @@ export function LiveVariantSelectionSheet({
   }, [item.id, liveRoomId, open, spotPrice, walletReady]);
 
   useEffect(() => {
+    if (!open || !isRandom) return undefined;
+    let cancelled = false;
+    void fetch("/api/account/adult-confirmation", { credentials: "include" })
+      .then((r) => (r.ok ? (r.json() as Promise<{ confirmed?: boolean }>) : null))
+      .then((j) => {
+        if (!cancelled) setAdultConfirmed(j ? j.confirmed === true : false);
+      })
+      .catch(() => {
+        if (!cancelled) setAdultConfirmed(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isRandom]);
+
+  useEffect(() => {
     if (!open) return undefined;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || busy) return;
@@ -231,6 +251,28 @@ export function LiveVariantSelectionSheet({
     if (!walletReady) {
       onWalletRequired();
       return;
+    }
+    if (isRandom && adultConfirmed !== true) {
+      if (!adultChecked) {
+        setError("Check the box to confirm you’re 18 or older and understand this is a random draw.");
+        return;
+      }
+      try {
+        const r = await fetch("/api/account/adult-confirmation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ confirm: true }),
+        });
+        if (!r.ok) {
+          setError("Could not save your confirmation. Try again.");
+          return;
+        }
+        setAdultConfirmed(true);
+      } catch {
+        setError("Could not save your confirmation. Check your connection and try again.");
+        return;
+      }
     }
     setBusy(true);
     setError(null);
@@ -270,6 +312,10 @@ export function LiveVariantSelectionSheet({
         if (res.walletIncomplete) {
           onWalletRequired();
           return;
+        }
+        if (res.code === "ADULT_CONFIRMATION_REQUIRED") {
+          setAdultConfirmed(false);
+          setAdultChecked(false);
         }
         if (res.status === 409) {
           // Lost the race: the server's 409s here (sold out, item no longer available, pinned/live
@@ -499,6 +545,16 @@ export function LiveVariantSelectionSheet({
             >
               Set up wallet on this screen
             </button>
+          ) : null}
+
+          {isRandom ? (
+            <RandomRevealDisclosure
+              item={item}
+              adultConfirmed={adultConfirmed}
+              checked={adultChecked}
+              onCheckedChange={setAdultChecked}
+              spotNounSingular={spotNounSingular}
+            />
           ) : null}
 
           {error ? <p className="mt-3 text-center text-xs text-rose-300">{error}</p> : null}

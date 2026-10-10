@@ -78,6 +78,8 @@ export type LiveRoomItemDTO = {
   teamBoardNcaa: boolean;
   /** Custom random-reveal pool (player_selection random). */
   customRandomPoolLabels: string[] | null;
+  /** Surprise Set contents shown to buyers (names + unit counts only — never MSRP). */
+  surpriseSetItems?: Array<{ name: string; quantity: number }> | null;
   itemVersion: number;
   /** Host opens bidding with Start; false while lot is only posted on screen. */
   biddingOpen: boolean;
@@ -208,6 +210,19 @@ export type LiveBuyerPaymentSessionDTO = {
   paymentFailureState: { code: string; message: string } | null;
 };
 
+/** Buyer-safe view of a Surprise Set definition: item names and unit counts, never MSRP. */
+function publicSurpriseSetItems(raw: unknown): Array<{ name: string; quantity: number }> | null {
+  if (!Array.isArray(raw)) return null;
+  const out: Array<{ name: string; quantity: number }> = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as { name?: unknown; quantity?: unknown };
+    if (typeof e.name !== "string" || typeof e.quantity !== "number") continue;
+    out.push({ name: e.name, quantity: e.quantity });
+  }
+  return out.length ? out : null;
+}
+
 export function serializeLiveRoomItem(
   row: LiveRoomItem & { variants?: LiveRoomItemVariantRow[] },
   options?: { unitsClaimed?: number | null },
@@ -311,6 +326,7 @@ export function serializeLiveRoomItem(
     customRandomPoolLabels: normalizeCustomRandomPoolLabels(
       (row as { customRandomPoolLabels?: unknown }).customRandomPoolLabels,
     ),
+    surpriseSetItems: publicSurpriseSetItems((row as { surpriseSetItems?: unknown }).surpriseSetItems),
     itemVersion: row.itemVersion,
     biddingOpen,
     auctionEndsAt,

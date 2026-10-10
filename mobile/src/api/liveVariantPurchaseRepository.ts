@@ -272,3 +272,39 @@ export async function syncLiveItemVariantPurchaseBatch(args: {
 
   return mapPurchaseResponse(res, payload);
 }
+
+/** Whether this buyer has already confirmed they are 18+ (required before any random-reveal purchase). */
+export async function fetchAdultConfirmation(accessToken: string): Promise<boolean | null> {
+  try {
+    const res = await fetchWebApiMobile('/api/account/adult-confirmation', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    const j = (await res.json()) as { confirmed?: unknown };
+    return j.confirmed === true;
+  } catch {
+    return null;
+  }
+}
+
+/** Record the buyer's 18+ self-confirmation. Returns an error message on failure. */
+export async function confirmAdult(accessToken: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetchWebApiMobile('/api/account/adult-confirmation', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true }),
+    });
+    if (res.ok) return { ok: true };
+    let msg = 'Could not save your 18+ confirmation. Try again.';
+    try {
+      const j = (await res.json()) as { error?: unknown };
+      if (typeof j.error === 'string' && j.error.trim()) msg = j.error;
+    } catch {
+      /* ignore */
+    }
+    return { ok: false, error: msg };
+  } catch {
+    return { ok: false, error: 'Could not save your 18+ confirmation. Check your connection and try again.' };
+  }
+}

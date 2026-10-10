@@ -22,6 +22,8 @@ import {
   type LiveVariantCheckoutPreview,
 } from '../../api/liveVariantCheckoutPreviewRepository';
 import {
+  confirmAdult,
+  fetchAdultConfirmation,
   purchaseLiveItemVariant,
   purchaseLiveItemVariantBatch,
   syncLiveItemVariantPurchase,
@@ -58,6 +60,11 @@ import {
 import { LIVE_CLAIM_CTA_GRADIENT } from './liveClaimCtaStyle';
 import { SlideToBidButton } from './SlideToBidButton';
 import { LiveRoomText } from './LiveRoomText';
+import { computeSurpriseSetOdds, formatOddsPercent } from '../../../../shared/surprise-set';
+
+/** Shown next to every random purchase. Keep in sync with web (`RANDOM_REVEAL_DISCLOSURE`). */
+const RANDOM_REVEAL_DISCLOSURE =
+  "This is a random draw. You don't choose what you get, and what you receive can be worth more or less than what you pay.";
 
 /**
  * Buyer checkout bottom sheet for PYT (variant_selection) and PYD (team_break).
@@ -74,6 +81,10 @@ type Props = {
   salesFormat: LiveItemSalesFormat;
   variantAssignmentMode?: 'pick' | 'random' | 'draft';
   variants: LiveItemVariantSnapshot[];
+  /** Surprise Set contents (names + counts) — drives the odds table on random purchases. */
+  surpriseSetItems?: Array<{ name: string; quantity: number }> | null;
+  /** Labels of random-pool units already drawn, so the odds reflect what is left. */
+  claimedLabels?: string[];
   /** Sweet 16 only: ISO `variantBreakReadyAt` — sales closed, unsold tiles are no longer buyable. */
   salesClosedAt?: string | null;
   /** Hide teams currently in spot auction (buyers bid on those instead). */
@@ -115,6 +126,8 @@ export function LiveBreakSpotGridSheet({
   salesFormat,
   variantAssignmentMode = 'pick',
   variants,
+  surpriseSetItems = null,
+  claimedLabels,
   salesClosedAt = null,
   excludeVariantIds,
   initialVariantId,
@@ -140,11 +153,32 @@ export function LiveBreakSpotGridSheet({
   const [checkoutPreview, setCheckoutPreview] = useState<LiveVariantCheckoutPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [spotSearch, setSpotSearch] = useState('');
+  // 18+ confirmation (random reveals only): null = still loading the saved answer.
+  const [adultConfirmed, setAdultConfirmed] = useState<boolean | null>(null);
+  const [adultChecked, setAdultChecked] = useState(false);
   // FIX 3: synchronous in-flight guard — a React state update (`busy`) is not immediate, so a
   // second hold-to-commit within the same render cycle could otherwise start a second checkout.
   const checkoutInFlightRef = useRef(false);
 
   const isRandom = isRandomVariantAssignment(variantAssignmentMode);
+
+  useEffect(() => {
+    if (!visible || !isRandom || !accessToken?.trim()) return;
+    let cancelled = false;
+    setAdultChecked(false);
+    void fetchAdultConfirmation(accessToken).then((confirmed) => {
+      // null = could not tell: show the checkbox so the buyer can still confirm.
+      if (!cancelled) setAdultConfirmed(confirmed === true ? true : false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, isRandom, accessToken]);
+
+  const surpriseOdds = useMemo(
+    () => (surpriseSetItems?.length ? computeSurpriseSetOdds(surpriseSetItems, claimedLabels ?? []) : null),
+    [surpriseSetItems, claimedLabels],
+  );
   const pickerVariants = useMemo(() => {
     const exclude = new Set(excludeVariantIds ?? []);
     return variants.filter((v) => !exclude.has(v.id));
@@ -362,9 +396,23 @@ export function LiveBreakSpotGridSheet({
       onWalletRequired();
       return;
     }
+    if (isRandom && adultConfirmed !== true && !adultChecked) {
+      setError('Check the box to confirm you are 18 or older before buying a random reveal.');
+      return;
+    }
     checkoutInFlightRef.current = true;
     setBusy(true);
     setError(null);
+    if (isRandom && adultConfirmed !== true) {
+      const confirmRes = await confirmAdult(accessToken);
+      if (!confirmRes.ok) {
+        setError(confirmRes.error);
+        setBusy(false);
+        checkoutInFlightRef.current = false;
+        return;
+      }
+      setAdultConfirmed(true);
+    }
     const useBatch = !isRandom && selectedVariants.length >= 2;
     const celebrationLabel = useBatch
       ? formatBatchSpotCelebrationLabel(selectedVariants.map((v) => v.label))
@@ -440,8 +488,14 @@ export function LiveBreakSpotGridSheet({
       };
 
       if (!res.ok) {
-        const msg =
-          mapLivePaymentFailureMessage(res.error, res.code) + (res.paymentFailed ? ' Spot was not sold.' : '');
+        const guardCode =
+          res.code === 'ADULT_CONFIRMATION_REQUIRED' ||
+          res.code === 'RANDOM_PURCHASE_DAILY_CAP' ||
+          res.code === 'RANDOM_PURCHASE_COOLING_OFF';
+        if (res.code === 'ADULT_CONFIRMATION_REQUIRED') setAdultConfirmed(false);
+        const msg = guardCode
+          ? res.error
+          : mapLivePaymentFailureMessage(res.error, res.code) + (res.paymentFailed ? ' Spot was not sold.' : '');
         console.log('[variant purchase] checkout blocked', {
           code: res.code ?? null,
           status: res.status,
@@ -661,8 +715,46 @@ export function LiveBreakSpotGridSheet({
                 <View style={styles.randomRevealCard}>
                   <LiveRoomText style={styles.randomRevealKicker}>Vault Reveal</LiveRoomText>
                   <LiveRoomText style={styles.randomRevealBody}>
-                    {spotSummary.available} {spotNoun} left in the pool
+                    {spotSummary.available} {surpriseOdds ? 'units' : spotNoun} left in the pool
                   </LiveRoomText>
+                  <LiveRoomText style={styles.randomDisclosure}>{RANDOM_REVEAL_DISCLOSURE}</LiveRoomText>
+                  {surpriseOdds ? (
+                    <View style={styles.oddsTable}>
+                      <LiveRoomText style={styles.oddsHeading}>What’s left · your odds</LiveRoomText>
+                      {surpriseOdds.rows.map((r) => (
+                        <View key={r.name} style={styles.oddsRow}>
+                          <LiveRoomText style={styles.oddsName} numberOfLines={1}>
+                            {r.name}
+                          </LiveRoomText>
+                          <LiveRoomText style={styles.oddsValue}>
+                            {r.remaining} left · {formatOddsPercent(r.odds)}
+                          </LiveRoomText>
+                        </View>
+                      ))}
+                    </View>
+                  ) : spotSummary.available > 0 ? (
+                    <LiveRoomText style={styles.randomDisclosure}>
+                      Each remaining {spotNounSingular} is equally likely — 1 in {spotSummary.available}.
+                    </LiveRoomText>
+                  ) : null}
+                  {adultConfirmed !== true ? (
+                    <Pressable
+                      onPress={() => setAdultChecked((v) => !v)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: adultChecked }}
+                      style={styles.adultRow}
+                      hitSlop={6}
+                    >
+                      <Ionicons
+                        name={adultChecked ? 'checkbox' : 'square-outline'}
+                        size={22}
+                        color={adultChecked ? vaultColors.goldBright : 'rgba(255,255,255,0.6)'}
+                      />
+                      <LiveRoomText style={styles.adultText}>
+                        I’m 18 or older and I understand this is a random draw.
+                      </LiveRoomText>
+                    </Pressable>
+                  ) : null}
                 </View>
               ) : (
                 <>
@@ -1174,6 +1266,45 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     color: vaultColors.goldBright,
   },
+  randomDisclosure: {
+    marginTop: 6,
+    fontSize: 11,
+    lineHeight: 15,
+    color: 'rgba(255,255,255,0.7)',
+    textAlign: 'center',
+  },
+  oddsTable: {
+    alignSelf: 'stretch',
+    marginTop: 8,
+    paddingTop: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.15)',
+  },
+  oddsHeading: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.55)',
+    marginBottom: 4,
+  },
+  oddsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    gap: 12,
+    paddingVertical: 3,
+  },
+  oddsName: { flex: 1, fontSize: 13, fontWeight: '600', color: '#fff' },
+  oddsValue: { fontSize: 12, color: 'rgba(255,255,255,0.7)' },
+  adultRow: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 10,
+  },
+  adultText: { flex: 1, fontSize: 12, lineHeight: 16, color: '#fff' },
   randomRevealBody: {
     marginTop: 4,
     fontSize: 13,

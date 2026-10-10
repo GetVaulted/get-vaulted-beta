@@ -22,6 +22,7 @@ import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { isStripeConfigured } from "@/lib/stripe";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 import { isBetaDeployment } from "@/lib/is-beta-deployment";
+import { assertRandomPurchaseAllowedInTx, randomPurchaseGuardResponse } from "@/lib/random-purchase-guard";
 
 function signInUrl(returnPath: string) {
   return `/signin?returnTo=${encodeURIComponent(returnPath)}`;
@@ -289,6 +290,8 @@ export async function POST(
         if (remainingLabels <= 0) {
           throw Object.assign(new Error("RANDOM_REVEAL_POOL_EXHAUSTED"), { code: "RANDOM_REVEAL_POOL_EXHAUSTED" });
         }
+        // 18+ confirmation and per-buyer daily / cooling-off limits for chance-based purchases.
+        await assertRandomPurchaseAllowedInTx(tx, userId);
       }
 
       // Sweet 16: 32 teams on the board but only 16 may be sold — serialized per item.
@@ -439,6 +442,8 @@ export async function POST(
         { status: 409 },
       );
     }
+    const guard = randomPurchaseGuardResponse(e);
+    if (guard) return NextResponse.json(guard.body, { status: guard.status });
     if (code === "SOLD_OUT") return NextResponse.json({ error: "That option is sold out." }, { status: 409 });
     if (code === "SWEET16_SOLD_OUT") {
       return NextResponse.json(

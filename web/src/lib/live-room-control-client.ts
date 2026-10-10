@@ -371,6 +371,7 @@ export async function createLiveRoomItem(
     teamBoardMisc?: boolean;
     teamBoardNcaa?: boolean;
     customRandomPoolLabels?: string[] | null;
+    surpriseSetItems?: Array<{ name: string; quantity: number; msrpUsd: number }>;
     /** Units on this queue row (one tile). */
     quantity?: number;
     salesFormat?: string;

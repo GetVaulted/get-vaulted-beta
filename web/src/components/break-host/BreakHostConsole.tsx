@@ -1575,6 +1575,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             ...(payload.customRandomPoolLabels?.length
               ? { customRandomPoolLabels: payload.customRandomPoolLabels }
               : {}),
+            ...(payload.surpriseSetItems?.length ? { surpriseSetItems: payload.surpriseSetItems } : {}),
           }
         : { salesFormat: payload.salesFormat };
       setBusy(true);
