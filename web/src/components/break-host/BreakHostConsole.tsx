@@ -95,7 +95,6 @@ import {
   createLiveRoomItem,
   deleteLiveRoomItem,
   finalizeOverdueLiveAuctions,
-  appendLiveItemSupplementalVariants,
   importLiveRoomItemsFromRoom,
   manualAssignLiveItemVariant,
   changeLiveVariantBuyer,
@@ -2379,12 +2378,32 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     spotCount: number;
     feedsIntoTitle: string;
   }): Promise<boolean> => {
-    const itemId = activeBoardRow?.item.id;
-    if (!itemId || !isVariantSalesFormat(activeBoardRow.item.salesFormat)) return false;
+    const parent = activeBoardRow?.item;
+    const itemId = parent?.id;
+    if (!parent || !itemId || !isVariantSalesFormat(parent.salesFormat)) return false;
+    const base = payload.name.trim().slice(0, 80);
+    const count = Math.min(64, Math.max(1, Math.floor(payload.spotCount)));
+    const variants = Array.from({ length: count }, (_, i) => ({
+      label: count === 1 ? base : `${base} #${i + 1}`.slice(0, 120),
+      priceUsd: payload.priceUsd,
+      quantityInitial: 1,
+      sortOrder: i,
+      color: "",
+    }));
     setBusy(true);
     setToast(null);
     try {
-      const res = await appendLiveItemSupplementalVariants(roomId, itemId, payload);
+      // A supplemental is its own lot in the queue. It must never add spots to the team board
+      // (the item it "feeds into"), so it is created as a separate queue item.
+      const res = await createLiveRoomItem(roomId, {
+        title: base,
+        imageUrl: parent.imageUrl ?? "",
+        priceUsd: payload.priceUsd,
+        quantity: count,
+        salesFormat: parent.salesFormat === "team_break" ? "team_break" : "variant_selection",
+        variantAssignmentMode: "pick",
+        variants,
+      });
       if (!res.ok) {
         setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
         return false;
@@ -2392,8 +2411,12 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       setLastSupplemental({ itemId, name: payload.name, priceUsd: payload.priceUsd });
       await load();
       router.refresh();
-      setToast(`Added ${payload.spotCount} supplemental spot${payload.spotCount === 1 ? "" : "s"}.`);
+      setToast(`Added "${base}" to the lineup (${count} spot${count === 1 ? "" : "s"}) — pin it from the queue when ready.`);
       return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.trim() : "";
+      setToast(msg ? `Could not add supplemental (${msg}).` : "Could not add supplemental. Check your connection and try again.");
+      return false;
     } finally {
       setBusy(false);
     }
