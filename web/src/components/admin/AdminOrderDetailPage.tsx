@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { describeAuctionChargeSlotForAdmin } from "@/lib/auction-bid-payment-labels";
 import { AdminOrderPayoutPanel } from "@/components/admin/AdminOrderPayoutPanel";
 import { AdminOrderEvidencePanel } from "@/components/admin/AdminOrderEvidencePanel";
+import { AdminOrderRefundPanel } from "@/components/admin/AdminOrderRefundPanel";
 
 type ShippingReconciliation = {
   buyerShippingCents: number;
@@ -317,6 +318,8 @@ export function AdminOrderDetailPage() {
           ) : null}
         </section>
       ) : null}
+
+      <AdminOrderRefundPanel orderId={data.id} paymentStatus={data.paymentStatus} />
 
       <AdminOrderPayoutPanel
         orderId={data.id}
