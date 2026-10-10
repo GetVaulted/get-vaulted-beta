@@ -5,6 +5,7 @@ export type AdminModuleId =
   | "fees"
   | "shipping-profiles"
   | "seller-risk"
+  | "seller-applications"
   | "bank-payouts"
   | "paypal-payouts"
   | "moderation"
@@ -67,6 +68,13 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
     description: "Platform parcel defaults for Live, Marketplace, and Trade — weights, dims, bundle rules.",
     href: "/admin/shipping-profiles",
     accent: "sky",
+  },
+  {
+    id: "seller-applications",
+    title: "Seller Applications",
+    description: "Review who applies to sell — approve, reject, ask for more info, or revoke seller access.",
+    href: "/admin/seller-applications",
+    accent: "gold",
   },
   {
     id: "seller-risk",
@@ -218,12 +226,24 @@ export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
 
 export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[] = [
   { href: "/admin", label: "Command Center", exact: true },
+  { href: "/admin/attention", label: "Needs attention" },
   { href: "/admin/live-shows", label: "Live" },
+  { href: "/admin/live-shows/move", label: "Move show items" },
+  { href: "/admin/spots", label: "Fix spots" },
+  { href: "/admin/reviews", label: "Reviews" },
+  { href: "/admin/chat-messages", label: "Chat messages" },
+  { href: "/admin/refund-requests", label: "Refunds" },
+  { href: "/admin/disputes", label: "Disputes" },
+  { href: "/admin/activity", label: "Activity log" },
+  { href: "/admin/team", label: "Team & permissions" },
+  { href: "/admin/settings", label: "Settings" },
+  { href: "/admin/daily-report", label: "Daily report" },
   { href: "/admin/live-recordings", label: "Recordings" },
   { href: "/admin/finance", label: "Finance" },
   { href: "/admin/reconciliation", label: "Reconciliation" },
   { href: "/admin/fees", label: "Fees" },
   { href: "/admin/shipping-profiles", label: "Shipping" },
+  { href: "/admin/seller-applications", label: "Seller Applications" },
   { href: "/admin/seller-risk", label: "Seller Risk" },
   { href: "/admin/payouts", label: "Bank payouts" },
   { href: "/admin/payouts/paypal", label: "PayPal payouts" },

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/require-admin";
+import { logAdminActionSafe, normalizeAdminReason } from "@/lib/admin/admin-audit";
+import { prisma } from "@/lib/prisma";
+import { requireAdminPermission, roleCanApproveRefundAmount, roleHasPermission } from "@/lib/admin/admin-permissions";
 import {
   adminForceRefundRequest,
   RefundRequestError,
@@ -9,7 +11,7 @@ import {
 type RouteCtx = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: Request, ctx: RouteCtx) {
-  const gate = await requireAdmin();
+  const gate = await requireAdminPermission("refunds.decide");
   if (!gate.ok) return gate.response;
 
   const { id } = await ctx.params;
@@ -23,12 +25,47 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  // Every admin refund decision needs a written reason (kept on the request and in the activity log).
+  const reason = normalizeAdminReason(body.note);
+  if (!reason) {
+    return NextResponse.json({ error: "REASON_REQUIRED" }, { status: 400 });
+  }
+
+  const existing = await prisma.orderRefundRequest.findUnique({
+    where: { id: requestId },
+    select: { buyerId: true, order: { select: { totalUsd: true } } },
+  });
+  const buyerId = existing?.buyerId ?? null;
+
+  const wantsForce = body.action === "force_refund" || body.forceRefund === true;
+  if (wantsForce && !roleHasPermission(gate.role, "refunds.force")) {
+    return NextResponse.json({ error: "Your admin role cannot force a refund." }, { status: 403 });
+  }
+  if (body.approve === true || wantsForce) {
+    const cents = Math.round((existing?.order?.totalUsd ?? 0) * 100);
+    if (!roleCanApproveRefundAmount(gate.role, cents)) {
+      return NextResponse.json(
+        { error: "This refund is above your approval limit. Ask a finance or owner admin." },
+        { status: 403 },
+      );
+    }
+  }
+
   try {
     if (body.action === "force_refund" || body.forceRefund === true) {
       const request = await adminForceRefundRequest({
         requestId,
         adminUserId: gate.userId,
-        note: body.note,
+        note: reason,
+      });
+      await logAdminActionSafe({
+        adminUserId: gate.userId,
+        action: "refund.force",
+        targetType: "refund_request",
+        targetId: requestId,
+        targetUserId: buyerId,
+        reason,
+        detail: { orderId: request.orderId, status: request.status },
       });
       return NextResponse.json({ request });
     }
@@ -44,8 +81,17 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
       requestId,
       adminUserId: gate.userId,
       approve: body.approve,
-      note: body.note,
+      note: reason,
       forceRefund: Boolean(body.forceRefund),
+    });
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: body.approve ? "refund.approve" : "refund.deny",
+      targetType: "refund_request",
+      targetId: requestId,
+      targetUserId: buyerId,
+      reason,
+      detail: { orderId: request.orderId, status: request.status },
     });
     return NextResponse.json({ request });
   } catch (e) {

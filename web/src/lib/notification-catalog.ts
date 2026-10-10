@@ -47,6 +47,7 @@ const SELLING_TYPES = new Set<string>([
   "layaway_completed_seller",
   "layaway_defaulted_seller",
   "layaway_payment_seller",
+  "seller_application_decision",
 ]);
 
 export function notificationLane(type: string): NotificationLane {

@@ -170,6 +170,8 @@ async function createRefundRequestRowAtomically(
     reason: string;
     photoUrls?: string[];
     sellerDirect?: boolean;
+    escalatedAt?: Date;
+    supportNote?: string;
   },
 ) {
   try {
@@ -1198,4 +1200,35 @@ export async function adminRetryStuckRefund(args: { requestId: string; adminUser
 
   const updated = await prisma.orderRefundRequest.findUniqueOrThrow({ where: { id: req.id } });
   return serializeOrderRefundRequest(updated);
+}
+
+/**
+ * Admin opens a refund/cancel request on a buyer's behalf (support-initiated). The request lands
+ * straight in the escalated queue so an admin can then Accept or Deny it there. No money moves here.
+ */
+export async function adminOpenRefundRequest(args: {
+  orderId: string;
+  adminUserId: string;
+  kind: "cancel" | "return";
+  reason: string;
+}) {
+  const order = await loadOrderForRefund(args.orderId);
+  if (!order) throw new RefundRequestError("NOT_FOUND", 404);
+  if (order.paymentStatus === PAYMENT_REFUNDED) throw new RefundRequestError("ALREADY_REFUNDED", 409);
+  if (order.paymentStatus !== "paid") throw new RefundRequestError("ORDER_NOT_PAID", 400);
+
+  const reason = trimStr(args.reason, 2000);
+  if (reason.length < 5) throw new RefundRequestError("REASON_REQUIRED", 400);
+
+  const now = new Date();
+  const row = await createRefundRequestRowAtomically(args.orderId, {
+    kind: args.kind === "cancel" ? OrderRefundRequestKind.cancel : OrderRefundRequestKind.return,
+    status: OrderRefundRequestStatus.escalated,
+    buyerId: order.buyerId,
+    sellerId: order.sellerId,
+    reason: `Opened by support: ${reason}`,
+    escalatedAt: now,
+    supportNote: `Opened by admin ${args.adminUserId}`,
+  });
+  return serializeOrderRefundRequest(row);
 }

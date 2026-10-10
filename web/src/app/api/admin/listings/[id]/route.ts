@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/require-admin";
+import { requireAdminPermission } from "@/lib/admin/admin-permissions";
+import { logAdminActionSafe } from "@/lib/admin/admin-audit";
 import { logTrustModerationAction } from "@/lib/trust/moderation-audit-log";
 import { maybeEmitMarketplaceCatalogChanged } from "@/lib/listing-catalog-emit";
 
 type Body = { action?: string; isCompanyListing?: boolean; reason?: string };
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const gate = await requireAdmin();
+  const gate = await requireAdminPermission("content.moderate");
   if (!gate.ok) return gate.response;
 
   const { id: raw } = await ctx.params;
@@ -56,6 +57,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       targetId: id,
       detail: { reason: reason || null },
     });
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: "listing.remove",
+      targetType: "listing",
+      targetId: id,
+      targetUserId: existing.sellerId,
+      reason: reason || "",
+    });
     return NextResponse.json({ ok: true });
   }
   if (action === "restore") {
@@ -76,6 +85,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       targetType: "listing",
       targetId: id,
       detail: { reason: reason || null },
+    });
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: "listing.restore",
+      targetType: "listing",
+      targetId: id,
+      targetUserId: existing.sellerId,
+      reason: reason || "",
     });
     return NextResponse.json({ ok: true });
   }

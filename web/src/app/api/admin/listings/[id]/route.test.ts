@@ -1,5 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+vi.mock("@/lib/admin/admin-permissions", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/admin/admin-permissions")>()),
+  requireAdminPermission: vi.fn(async () => ({ ok: true, userId: "admin_1", role: "owner" })),
+}));
 vi.mock("@/lib/require-admin", () => ({
   requireAdmin: vi.fn().mockResolvedValue({ ok: true, userId: "admin_1" }),
 }));
