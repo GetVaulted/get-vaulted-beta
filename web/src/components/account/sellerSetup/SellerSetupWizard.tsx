@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { SELLER_APPLY_PATH } from "@/lib/seller-application";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CompletionStep } from "@/components/account/sellerSetup/steps/CompletionStep";
 import { PayoutStep } from "@/components/account/sellerSetup/steps/PayoutStep";
@@ -112,12 +113,17 @@ export function SellerSetupWizard() {
         return;
       }
       const j = (await res.json()) as {
+        sellerApproval?: { enforced?: boolean; status?: string };
         seller?: SellerPayload & { shipFromPhone?: string | null };
         shipFromAddresses?: { phone?: string | null; isDefault?: boolean }[];
         stripePlatformConfigured?: boolean;
         stripeEmbedOnboardingAvailable?: boolean;
         readiness?: LiveReadiness;
       };
+      if (j.sellerApproval?.enforced && j.sellerApproval.status !== "approved") {
+        router.replace(SELLER_APPLY_PATH);
+        return;
+      }
       const s = j.seller ?? null;
       setSeller(s);
       setReadiness(j.readiness ?? null);

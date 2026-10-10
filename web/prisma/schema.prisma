@@ -663,6 +663,8 @@ model User {
   /// Last time this seller's whole follower list was notified (share "Notify followers" or the
   /// automatic go-live alert). Enforces one follower-wide notification per hour.
   followerNotifiedAt            DateTime?
+  /// Seller application (one per user). Gates listing + going live when SELLER_APPLICATIONS_ENFORCED is on.
+  sellerApplication             SellerApplication?          @relation("UserSellerApplication")
   /// Verified-buyer reviews this user received as a seller / wrote as a buyer.
   sellerReviewsReceived         SellerReview[]              @relation("SellerReviewSeller")
   sellerReviewsWritten          SellerReview[]              @relation("SellerReviewBuyer")
@@ -3371,4 +3373,36 @@ model StripeDispute {
 
   @@index([status, evidenceDueBy])
   @@index([orderId])
+}
+
+enum SellerApplicationStatus {
+  pending
+  info_requested
+  approved
+  rejected
+  revoked
+}
+
+/// A member's application to sell. One row per user; resubmitting (after we ask for more info) updates it.
+model SellerApplication {
+  id               String                  @id @default(cuid())
+  userId           String                  @unique
+  user             User                    @relation("UserSellerApplication", fields: [userId], references: [id], onDelete: Cascade)
+  status           SellerApplicationStatus @default(pending)
+  whatTheySell     String                  @default("")
+  whereTheySellNow String                  @default("")
+  experience       String                  @default("")
+  /// One of SELLER_MONTHLY_VOLUME_OPTIONS values (see lib/seller-application.ts).
+  monthlyVolume    String                  @default("")
+  /// Message to the applicant: what we need (info_requested) or why (rejected / revoked).
+  adminNote        String?
+  reviewedById     String?
+  reviewedAt       DateTime?
+  /// True when auto-approved because the account was already selling before applications launched.
+  grandfathered    Boolean                 @default(false)
+  submittedAt      DateTime                @default(now())
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  @@index([status, submittedAt])
 }
