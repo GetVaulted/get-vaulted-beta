@@ -3420,3 +3420,11 @@ model AdminNote {
 
   @@index([targetType, targetId, createdAt])
 }
+
+/// Admin-controlled switches (key/value). Read with a short cache; falls back to env vars when unset.
+model AdminSetting {
+  key         String   @id
+  value       String
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}

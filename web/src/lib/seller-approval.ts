@@ -1,3 +1,4 @@
+import { getBoolAdminSetting } from "@/lib/admin/admin-settings";
 import { prisma } from "@/lib/prisma";
 import {
   sellerApprovalBlockMessage,
@@ -30,7 +31,8 @@ export async function getSellerApprovalState(userId: string): Promise<SellerAppr
  * Fails open on a database error so an outage never blocks every seller.
  */
 export async function getSellerApprovalIssue(userId: string): Promise<string | null> {
-  if (!isSellerApplicationsEnforced()) return null;
+  // Saved admin setting (Admin > Settings) wins; the env var is the fallback.
+  if (!(await getBoolAdminSetting("seller_applications_enforced"))) return null;
   try {
     return sellerApprovalBlockMessage(await getSellerApprovalState(userId));
   } catch (e) {
