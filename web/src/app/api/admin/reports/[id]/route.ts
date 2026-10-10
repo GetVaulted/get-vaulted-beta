@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logAdminActionSafe } from "@/lib/admin/admin-audit";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
 import { adminUpdateReport, serializeReport } from "@/lib/trust/report-service";
@@ -66,6 +67,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       action: action as "assign" | "reviewing" | "resolve" | "dismiss" | "note",
       assignedAdminId: body.assignedAdminId,
       moderationNotes: body.moderationNotes,
+    });
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: `report.${action}`,
+      targetType: "report",
+      targetId: reportId,
+      reason: body.moderationNotes ?? "",
     });
     return NextResponse.json({ report: serializeReport(updated) });
   } catch (e) {

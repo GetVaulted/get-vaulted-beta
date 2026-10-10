@@ -83,6 +83,18 @@ export function AdminModerationHubPage() {
               <p className="text-sm font-bold text-zinc-200">Pending & active listings</p>
               <p className="mt-1 text-xs text-zinc-500">Remove, restore, mark reviewed, company listing flag.</p>
             </Link>
+            <Link href="/admin/reviews" className={`${adminPanelClassName} p-4 hover:border-gold/20`}>
+              <p className="text-sm font-bold text-zinc-200">Reviews</p>
+              <p className="mt-1 text-xs text-zinc-500">Hide or restore seller reviews, with a reason.</p>
+            </Link>
+            <Link href="/admin/chat-messages" className={`${adminPanelClassName} p-4 hover:border-gold/20`}>
+              <p className="text-sm font-bold text-zinc-200">Chat messages</p>
+              <p className="mt-1 text-xs text-zinc-500">Find and delete live chat messages by user, show or words.</p>
+            </Link>
+            <Link href="/admin/reports" className={`${adminPanelClassName} p-4 hover:border-gold/20`}>
+              <p className="text-sm font-bold text-zinc-200">Reports</p>
+              <p className="mt-1 text-xs text-zinc-500">Work user reports: assign, review, resolve, dismiss.</p>
+            </Link>
             <Link href="/admin/listings/new" className={`${adminPanelClassName} p-4 hover:border-gold/20`}>
               <p className="text-sm font-bold text-zinc-200">Create company listing</p>
               <p className="mt-1 text-xs text-zinc-500">Official Get Vaulted merch / zero platform fee listings.</p>
