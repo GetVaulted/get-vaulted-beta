@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AdminStatusPill, adminPanelClassName } from "@/components/admin/AdminCommandShell";
+import { AdminMessageUserPanel, AdminNotesPanel } from "@/components/admin/AdminSupportPanels";
 
 type OrderRow = {
   id: string;
@@ -16,6 +17,7 @@ type OrderRow = {
   createdAt: string;
 };
 type Overview = {
+  username: string;
   totals: { boughtCount: number; boughtUsd: number; soldCount: number; soldUsd: number };
   bought: OrderRow[];
   sold: OrderRow[];
@@ -31,6 +33,7 @@ type Overview = {
     createdAt: string;
   }>;
   shows: Array<{ id: string; title: string; status: string; scheduledStartAt: string | null; gmvUsd: number }>;
+  tickets: Array<{ id: string; subject: string; status: string; category: string; createdAt: string }>;
   adminLog: Array<{ id: string; action: string; reason: string; adminUserId: string; createdAt: string }>;
 };
 
@@ -173,6 +176,31 @@ export function AdminUser360Panel({ userId }: { userId: string }) {
           )}
         </div>
       </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="space-y-4">
+          <AdminNotesPanel targetType="user" targetId={userId} />
+        </div>
+        <AdminMessageUserPanel userId={userId} username={data.username} />
+      </div>
+
+      {data.tickets.length > 0 ? (
+        <div className={`${adminPanelClassName} p-4`}>
+          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Support tickets</h2>
+          <ul className="mt-3 space-y-1.5">
+            {data.tickets.map((t) => (
+              <li key={t.id} className="flex flex-wrap items-baseline justify-between gap-2 border-b border-white/[0.05] pb-1.5">
+                <Link href="/admin/support-tickets" className="min-w-0 truncate text-zinc-200 hover:text-gold-bright">
+                  {t.subject}
+                </Link>
+                <span className="whitespace-nowrap text-zinc-500">
+                  {t.category} · {t.status.replace(/_/g, " ")} · {day(t.createdAt)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {data.adminLog.length > 0 ? (
         <div className={`${adminPanelClassName} p-4`}>

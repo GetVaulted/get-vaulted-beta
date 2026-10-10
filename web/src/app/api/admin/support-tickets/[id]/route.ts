@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { SupportTicketStatus } from "@/generated/prisma/enums";
+import { logAdminActionSafe } from "@/lib/admin/admin-audit";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
 import { SUPPORT_TICKET_STATUSES, serializeSupportTicket } from "@/lib/support-tickets";
@@ -72,6 +73,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       assignedAdmin: { select: { username: true } },
     },
   });
+
+  if (nextStatus !== existing.status || adminNotes !== existing.adminNotes) {
+    await logAdminActionSafe({
+      adminUserId: gate.userId,
+      action: nextStatus !== existing.status ? `ticket.${nextStatus}` : "ticket.notes",
+      targetType: "support_ticket",
+      targetId: id,
+      targetUserId: existing.userId,
+      detail: { from: String(existing.status), to: String(nextStatus) },
+    });
+  }
 
   return NextResponse.json({ ticket: serializeSupportTicket(row) });
 }

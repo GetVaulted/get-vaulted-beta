@@ -8,6 +8,7 @@ import { AdminOrderPayoutPanel } from "@/components/admin/AdminOrderPayoutPanel"
 import { AdminOrderEvidencePanel } from "@/components/admin/AdminOrderEvidencePanel";
 import { AdminOrderFulfillmentPanel } from "@/components/admin/AdminOrderFulfillmentPanel";
 import { AdminOrderRefundPanel } from "@/components/admin/AdminOrderRefundPanel";
+import { AdminNotesPanel } from "@/components/admin/AdminSupportPanels";
 
 type ShippingReconciliation = {
   buyerShippingCents: number;
@@ -341,6 +342,10 @@ export function AdminOrderDetailPage() {
       />
 
       <AdminOrderEvidencePanel orderId={data.id} />
+
+      <div className="mt-6">
+        <AdminNotesPanel targetType="order" targetId={data.id} />
+      </div>
     </main>
   );
 }

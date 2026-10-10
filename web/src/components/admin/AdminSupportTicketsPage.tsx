@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdminCommandShell, adminPanelClassName } from "@/components/admin/AdminCommandShell";
 import { AdminMetricStrip } from "@/components/admin/AdminMetricStrip";
+import { AdminMessageUserPanel, AdminNotesPanel } from "@/components/admin/AdminSupportPanels";
 import type { SupportTicketDto } from "@/lib/support-tickets";
 import { supportTicketCategoryLabel, supportTicketStatusLabel } from "@/lib/support-tickets";
 
@@ -140,7 +141,13 @@ export function AdminSupportTicketsPage() {
                     {t.referenceId ? (
                       <p className="mt-1 text-xs text-zinc-500">
                         Ref: {t.referenceType ? `${t.referenceType} · ` : ""}
-                        {t.referenceId}
+                        {t.referenceType === "order" ? (
+                          <Link href={`/admin/orders/${t.referenceId}`} className="text-gold-bright hover:underline">
+                            {t.referenceId}
+                          </Link>
+                        ) : (
+                          t.referenceId
+                        )}
                       </p>
                     ) : null}
                   </div>
@@ -182,11 +189,21 @@ export function AdminSupportTicketsPage() {
                         </button>
                       ))}
                       <Link
+                        href={`/admin/users/${t.userId}`}
+                        className="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:bg-white/10"
+                      >
+                        Open profile
+                      </Link>
+                      <Link
                         href={`/admin/users-management?q=${encodeURIComponent(t.username ?? t.userId)}`}
                         className="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:bg-white/10"
                       >
                         View user
                       </Link>
+                    </div>
+                    <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                      <AdminNotesPanel targetType="support_ticket" targetId={t.id} />
+                      <AdminMessageUserPanel userId={t.userId} username={t.username ?? undefined} />
                     </div>
                   </div>
                 ) : null}

@@ -30,7 +30,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     seller: { select: { username: true } },
   } as const;
 
-  const [bought, sold, boughtAgg, soldAgg, refunds, shows, adminLog] = await Promise.all([
+  const [bought, sold, boughtAgg, soldAgg, refunds, shows, adminLog, tickets] = await Promise.all([
     prisma.order.findMany({ where: { buyerId: id }, orderBy: { createdAt: "desc" }, take: 10, select: orderSelect }),
     prisma.order.findMany({ where: { sellerId: id }, orderBy: { createdAt: "desc" }, take: 10, select: orderSelect }),
     prisma.order.aggregate({ where: { buyerId: id }, _count: true, _sum: { totalUsd: true } }),
@@ -62,6 +62,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       orderBy: { createdAt: "desc" },
       take: 25,
     }),
+    prisma.supportTicket.findMany({
+      where: { userId: id },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      select: { id: true, subject: true, status: true, category: true, createdAt: true },
+    }),
   ]);
 
   const fmtOrder = (o: (typeof bought)[number]) => ({
@@ -77,6 +83,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   });
 
   return NextResponse.json({
+    username: user.username,
+    tickets: tickets.map((t) => ({ ...t, status: String(t.status), category: String(t.category), createdAt: t.createdAt.toISOString() })),
     user: { ...user, createdAt: user.createdAt.toISOString(), suspendedAt: user.suspendedAt?.toISOString() ?? null },
     totals: {
       boughtCount: boughtAgg._count,

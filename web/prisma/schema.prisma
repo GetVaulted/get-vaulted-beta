@@ -3406,3 +3406,15 @@ model SellerApplication {
 
   @@index([status, submittedAt])
 }
+
+/// Private admin-only note pinned to a user, order, live show, etc. Never shown to members.
+model AdminNote {
+  id         String   @id @default(cuid())
+  targetType String
+  targetId   String
+  authorId   String
+  body       String
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId, createdAt])
+}
