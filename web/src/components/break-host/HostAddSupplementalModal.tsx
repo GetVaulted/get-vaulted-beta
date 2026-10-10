@@ -81,7 +81,7 @@ export function HostAddSupplementalModal({ open, onClose, parentItem, busy, onSu
             <p id="host-supp-title" className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200/90">
               Add supplemental
             </p>
-            <p className="mt-1 text-sm font-bold text-white">New spots on active lot</p>
+            <p className="mt-1 text-sm font-bold text-white">New lot in your queue</p>
           </div>
           <button
             type="button"
@@ -135,7 +135,7 @@ export function HostAddSupplementalModal({ open, onClose, parentItem, busy, onSu
         </div>
 
         <p className="mt-2 text-[10px] leading-snug text-zinc-500">
-          Spots are added to the active item&apos;s board — buyers see them immediately on the same lot.
+          This creates a separate lot in your queue. It does not change the team board. Pin it from the queue when you&apos;re ready.
         </p>
 
         {error ? <p className="mt-2 text-[11px] font-semibold text-rose-300">{error}</p> : null}
