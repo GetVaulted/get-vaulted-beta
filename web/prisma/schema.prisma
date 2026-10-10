@@ -591,6 +591,8 @@ model User {
   image                         String?
   emailVerified                 DateTime?
   role                          UserRole                    @default(user)
+  /// Admin sub-role (owner|finance|support|moderator). NULL on an admin = owner (full access).
+  adminRole                     String?
   suspendedAt                   DateTime?
   /// Buyer self-confirmed they are 18+ (required before any random-reveal / Surprise Set purchase).
   adultConfirmedAt              DateTime?

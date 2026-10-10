@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { logAdminActionSafe, normalizeAdminReason } from "@/lib/admin/admin-audit";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
+import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 import { adminOpenRefundRequest, RefundRequestError } from "@/services/order-refund-request";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +34,7 @@ export async function GET(_req: Request, ctx: Ctx) {
  * nothing is refunded until an admin accepts it there.
  */
 export async function POST(req: Request, ctx: Ctx) {
-  const gate = await requireAdmin();
+  const gate = await requireAdminPermission("refunds.decide");
   if (!gate.ok) return gate.response;
   const { id: raw } = await ctx.params;
   const orderId = decodeURIComponent(raw);

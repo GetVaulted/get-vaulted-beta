@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { normalizeAdminReason } from "@/lib/admin/admin-audit";
 import { ModerationError, setReviewHidden } from "@/lib/admin/admin-content-moderation";
-import { requireAdmin } from "@/lib/require-admin";
+import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 
 /** PATCH { action: "hide" | "restore", reason } */
 export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {
-  const gate = await requireAdmin(request);
+  const gate = await requireAdminPermission("content.moderate", request);
   if (!gate.ok) return gate.response;
   const { id } = await ctx.params;
 

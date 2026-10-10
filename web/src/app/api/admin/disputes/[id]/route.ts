@@ -8,6 +8,7 @@ import {
   type DisputeEvidenceInput,
 } from "@/lib/admin/admin-disputes";
 import { requireAdmin } from "@/lib/require-admin";
+import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ export async function GET(request: Request, ctx: Ctx) {
 type Body = { action?: string; reason?: string; note?: string; evidence?: DisputeEvidenceInput };
 
 export async function PATCH(request: Request, ctx: Ctx) {
-  const gate = await requireAdmin(request);
+  const gate = await requireAdminPermission("disputes.manage", request);
   if (!gate.ok) return gate.response;
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);

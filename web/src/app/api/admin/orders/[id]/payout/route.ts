@@ -5,7 +5,7 @@ import { ACTIVE_REFUND_REQUEST_STATUSES } from "@/lib/order-refund-eligibility";
 import { logAdminActionSafe } from "@/lib/admin/admin-audit";
 import { logPayoutEligibilityDecision } from "@/lib/payout-audit-log";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/require-admin";
+import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 import {
   EscrowReleaseAlreadyInFlightError,
   releaseEscrowFundsFromApproved,
@@ -22,7 +22,7 @@ type Body = {
 
 /** Admin order-level payout controls: release, block, manual review. */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const gate = await requireAdmin();
+  const gate = await requireAdminPermission("payouts.manage");
   if (!gate.ok) return gate.response;
 
   const { id: raw } = await ctx.params;

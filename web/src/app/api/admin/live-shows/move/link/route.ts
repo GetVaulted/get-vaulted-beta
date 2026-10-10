@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { normalizeAdminReason } from "@/lib/admin/admin-audit";
 import { linkShowContinuation, ShowMoveError } from "@/lib/admin/admin-show-move";
-import { requireAdmin } from "@/lib/require-admin";
+import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 
 /** Link a new show as the continuation of an old one (shipping caps carry forward). No items move. */
 export async function POST(request: Request) {
-  const gate = await requireAdmin(request);
+  const gate = await requireAdminPermission("shows.move", request);
   if (!gate.ok) return gate.response;
 
   let body: { fromRoomId?: string; toRoomId?: string; reason?: string };

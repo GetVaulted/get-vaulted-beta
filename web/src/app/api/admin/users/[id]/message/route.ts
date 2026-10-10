@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { normalizeAdminReason } from "@/lib/admin/admin-audit";
 import { sendAdminMessage, SupportToolError } from "@/lib/admin/admin-support";
-import { requireAdmin } from "@/lib/require-admin";
+import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 
 /** POST { title, body, href?, reason } — send one member an in-app message/push from support. */
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
-  const gate = await requireAdmin(request);
+  const gate = await requireAdminPermission("users.message", request);
   if (!gate.ok) return gate.response;
   const { id } = await ctx.params;
 

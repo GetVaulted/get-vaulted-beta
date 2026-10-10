@@ -234,6 +234,7 @@ export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[]
   { href: "/admin/refund-requests", label: "Refunds" },
   { href: "/admin/disputes", label: "Disputes" },
   { href: "/admin/activity", label: "Activity log" },
+  { href: "/admin/team", label: "Team & permissions" },
   { href: "/admin/live-recordings", label: "Recordings" },
   { href: "/admin/finance", label: "Finance" },
   { href: "/admin/reconciliation", label: "Reconciliation" },

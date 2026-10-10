@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAdminActionSafe } from "@/lib/admin/admin-audit";
 import { adminChangeUsername } from "@/lib/profile-setup";
-import { requireAdmin } from "@/lib/require-admin";
+import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 import { endLiveRoomsForSuspendedSeller } from "@/lib/seller-suspension-live-guard";
 import { logTrustModerationAction } from "@/lib/trust/moderation-audit-log";
 
 type Body = { action?: string; reason?: string; username?: string };
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const gate = await requireAdmin();
+  const gate = await requireAdminPermission("users.suspend");
   if (!gate.ok) return gate.response;
 
   const { id: raw } = await ctx.params;

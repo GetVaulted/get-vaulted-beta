@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/admin/admin-permissions", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/admin/admin-permissions")>()),
+  requireAdminPermission: vi.fn(async () => ({ ok: true, userId: "admin_1", role: "owner" })),
+}));
 vi.mock("@/lib/require-admin", () => ({ requireAdmin: vi.fn().mockResolvedValue({ ok: true, userId: "admin_1" }) }));
 const svc = vi.hoisted(() => ({
   adminOpenRefundRequest: vi.fn().mockResolvedValue({ id: "r1", status: "escalated" }),

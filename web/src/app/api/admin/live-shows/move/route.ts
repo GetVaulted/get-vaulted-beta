@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { normalizeAdminReason } from "@/lib/admin/admin-audit";
 import { executeShowMove, ShowMoveError } from "@/lib/admin/admin-show-move";
-import { requireAdmin } from "@/lib/require-admin";
+import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 
 type Body = {
   fromRoomId?: string;
@@ -14,7 +14,7 @@ type Body = {
 
 /** Move lots + sold spots from one show to another, then link shipping. One transaction. */
 export async function POST(request: Request) {
-  const gate = await requireAdmin(request);
+  const gate = await requireAdminPermission("shows.move", request);
   if (!gate.ok) return gate.response;
 
   let body: Body;

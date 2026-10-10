@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { logAdminActionSafe } from "@/lib/admin/admin-audit";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/require-admin";
+import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 import {
   SELLER_APPLICATION_LIMITS,
   actionRequiresNote,
@@ -16,7 +16,7 @@ const ACTIONS: SellerApplicationAction[] = ["approve", "reject", "request_info",
 
 /** POST { action: approve | reject | request_info | revoke, note? } — decide on one application. */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const gate = await requireAdmin(req);
+  const gate = await requireAdminPermission("sellers.approve", req);
   if (!gate.ok) return gate.response;
 
   const { id } = await ctx.params;

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { logAdminActionSafe } from "@/lib/admin/admin-audit";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
+import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 import { adminUpdateReport, serializeReport } from "@/lib/trust/report-service";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -42,7 +43,7 @@ type PatchBody = {
 };
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const gate = await requireAdmin();
+  const gate = await requireAdminPermission("content.moderate");
   if (!gate.ok) return gate.response;
 
   const { id } = await ctx.params;

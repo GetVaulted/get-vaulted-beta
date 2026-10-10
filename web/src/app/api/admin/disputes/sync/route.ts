@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { syncDisputesFromStripe } from "@/lib/admin/admin-disputes";
 import { logAdminActionSafe } from "@/lib/admin/admin-audit";
-import { requireAdmin } from "@/lib/require-admin";
+import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export const maxDuration = 60;
 
 /** Pull the latest disputes from Stripe into the local queue. Read-only toward Stripe. */
 export async function POST(request: Request) {
-  const gate = await requireAdmin(request);
+  const gate = await requireAdminPermission("disputes.manage", request);
   if (!gate.ok) return gate.response;
   if (!isStripeConfigured()) return NextResponse.json({ error: "STRIPE_NOT_CONFIGURED" }, { status: 503 });
   try {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { logAdminActionSafe } from "@/lib/admin/admin-audit";
-import { requireAdmin } from "@/lib/require-admin";
+import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 import { RefundRequestError, adminRetryStuckRefund } from "@/services/order-refund-request";
 
 type RouteCtx = { params: Promise<{ id: string }> };
@@ -12,7 +12,7 @@ type RouteCtx = { params: Promise<{ id: string }> };
  * race a refund that's still genuinely in flight.
  */
 export async function POST(_req: Request, ctx: RouteCtx) {
-  const gate = await requireAdmin();
+  const gate = await requireAdminPermission("refunds.force");
   if (!gate.ok) return gate.response;
 
   const { id } = await ctx.params;
