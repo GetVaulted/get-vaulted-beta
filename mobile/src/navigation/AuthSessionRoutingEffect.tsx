@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { AuthSessionRoutingController } from '../auth/authSessionRoutingDecision';
 import { useAuth } from '../auth/AuthContext';
+import { reportAuthDiagnostic } from '../lib/authDiagnostics';
 import { navigateToAuthWelcome } from './rootNavigationRef';
 
 /**
@@ -14,8 +15,15 @@ import { navigateToAuthWelcome } from './rootNavigationRef';
 export function AuthSessionRoutingEffect() {
   const { user, loading, lastAuthEvent } = useAuth();
   const controllerRef = useRef<AuthSessionRoutingController | null>(null);
+  const lastEventRef = useRef<string | null>(null);
+  lastEventRef.current = lastAuthEvent ?? null;
   if (!controllerRef.current) {
-    controllerRef.current = new AuthSessionRoutingController({ onSignedOut: navigateToAuthWelcome });
+    controllerRef.current = new AuthSessionRoutingController({
+      onSignedOut: () => {
+        reportAuthDiagnostic('routed_to_welcome', { lastEvent: lastEventRef.current });
+        navigateToAuthWelcome();
+      },
+    });
   }
 
   useEffect(() => {

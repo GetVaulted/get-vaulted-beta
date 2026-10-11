@@ -1,6 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AppState, Platform } from 'react-native';
 import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 import { updateMyProfile } from '../api/profilesRepository';
+import { reportAuthDiagnostic } from '../lib/authDiagnostics';
 import { setKeepMeLoggedInPreference } from '../lib/authSessionStorage';
 import { warmPresenceSlot } from '../lib/liveRoomPresenceKey';
 import { resolveInitialAuthSession } from '../lib/recoverInvalidAuthSession';
@@ -45,6 +47,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [guestExploreMode, setGuestExploreMode] = useState(false);
   const [lastAuthEvent, setLastAuthEvent] = useState<AuthChangeEvent | null>(null);
+  /** True while the user themself is signing out, so only UNEXPECTED sign-outs are reported. */
+  const userInitiatedSignOutRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,6 +82,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { data: sub } = sb.auth.onAuthStateChange((event, next) => {
           setLastAuthEvent(event);
           setSession(next);
+          if (event === 'SIGNED_OUT' && !userInitiatedSignOutRef.current) {
+            reportAuthDiagnostic('unexpected_signed_out');
+          }
           // Defense-in-depth for sign-in after guest browsing: non-blocking, since login already
           // has enough network latency to make the cold-start race here vanishingly unlikely.
           void warmPresenceSlot(next?.user?.id ?? null);
@@ -102,6 +109,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (session?.user) setGuestExploreMode(false);
   }, [session?.user?.id]);
+
+  // Supabase's token-refresh timer must only run while the app is in the foreground. On Android a
+  // refresh that is mid-flight when the app is backgrounded/killed can rotate the server-side
+  // token without the new one ever being saved, which later reads as "logged out". This is the
+  // official React Native pattern: pause the timer in the background, resume (and refresh right
+  // away if needed) when the app comes back.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const apply = (state: string) => {
+      const auth = getSupabase()?.auth;
+      if (!auth) return;
+      if (state === 'active') void auth.startAutoRefresh();
+      else void auth.stopAutoRefresh();
+    };
+    const sub = AppState.addEventListener('change', apply);
+    return () => sub.remove();
+  }, []);
 
   const enterGuestExplore = useCallback(() => {
     setGuestExploreMode(true);
@@ -204,7 +228,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     setGuestExploreMode(false);
-    await getSupabase()?.auth.signOut();
+    userInitiatedSignOutRef.current = true;
+    try {
+      await getSupabase()?.auth.signOut();
+    } finally {
+      userInitiatedSignOutRef.current = false;
+    }
   }, []);
 
   const value = useMemo(
