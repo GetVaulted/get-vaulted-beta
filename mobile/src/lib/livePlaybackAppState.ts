@@ -397,3 +397,19 @@ export const ANDROID_STAGE_PIP_STOPPED_DEBOUNCE_MS = 200;
 export function isAndroidStagePipStoppedADismissal(followedByRestoreWithinWindow: boolean): boolean {
   return !followedByRestoreWithinWindow;
 }
+
+/**
+ * A native PiP `'stopped'` is ambiguous on BOTH platforms: it fires for the window's own X, but
+ * also when the buyer comes back to the app WITHOUT tapping the PiP window — iOS: tapping the app
+ * icon / app switcher card (no `restoreUserInterface` callback, so no `'restored'`); Android:
+ * `onActivityStarted` emits `'stopped'` first and `onActivityResumed` then finds PiP already
+ * inactive and never emits `'restored'`. Misreading those as a dismissal tears down Stage, audio
+ * and HLS in a foreground app and forces a cold rejoin — the buyer sees the show die / get
+ * "booted" every time they come back from PiP. A real X-dismissal leaves the app backgrounded, so
+ * the app state after a short grace (AppState lags the native callback) is the tiebreaker.
+ */
+export const STAGE_PIP_DISMISSAL_APP_STATE_GRACE_MS = 400;
+
+export function shouldCommitStagePipDismissal(appStateAfterGrace: string): boolean {
+  return appStateAfterGrace !== 'active';
+}

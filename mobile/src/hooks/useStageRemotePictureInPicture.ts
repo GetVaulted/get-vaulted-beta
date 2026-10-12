@@ -15,6 +15,8 @@ import {
   isStagePipUserDismissal,
   LIVE_PIP_RETRY_DELAYS_MS,
   shouldAttemptLivePictureInPicture,
+  shouldCommitStagePipDismissal,
+  STAGE_PIP_DISMISSAL_APP_STATE_GRACE_MS,
   shouldPrepareLivePictureInPicture,
 } from '../lib/livePlaybackAppState';
 import { isLivePlaybackCommerceHoldActive } from '../lib/livePlaybackCommerceHold';
@@ -70,6 +72,16 @@ export function useStageRemotePictureInPicture(args: {
   // this debounce timer and look forward for a following 'restored' instead.
   const androidPendingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const androidStopFollowedByRestoreRef = useRef(false);
+  // Grace timer between a candidate dismissal and committing it: if the app is active again when
+  // it fires, the buyer returned without tapping the PiP window (icon / switcher), so it's not a
+  // dismissal. See `shouldCommitStagePipDismissal`.
+  const dismissalGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearDismissalGraceTimer = useCallback(() => {
+    if (dismissalGraceTimerRef.current != null) {
+      clearTimeout(dismissalGraceTimerRef.current);
+      dismissalGraceTimerRef.current = null;
+    }
+  }, []);
 
   const clearAndroidPendingStopTimer = useCallback(() => {
     if (androidPendingStopTimerRef.current != null) {
@@ -109,6 +121,7 @@ export function useStageRemotePictureInPicture(args: {
     if (!args.enabled) {
       justRestoredRef.current = false;
       clearAndroidPendingStopTimer();
+      clearDismissalGraceTimer();
       androidStopFollowedByRestoreRef.current = false;
       setStagePipReady(false);
       setStagePipActive(false);
@@ -168,6 +181,19 @@ export function useStageRemotePictureInPicture(args: {
     // controller is confirmed torn down (or the attempt is confirmed failed) before any consumer
     // touches AVAudioSession or leaves the Stage session.
     const commitStagePipDismissal = () => {
+      clearDismissalGraceTimer();
+      dismissalGraceTimerRef.current = setTimeout(() => {
+        dismissalGraceTimerRef.current = null;
+        if (!shouldCommitStagePipDismissal(AppState.currentState)) {
+          // Buyer came back via the app icon / switcher (or Android's start/resume path) — the
+          // PiP window wasn't closed. Leave Stage, audio and HLS running.
+          viewerLifecycleLog('stage_pip_stop_ignored_app_active', { roomId: roomIdRef.current });
+          return;
+        }
+        commitStagePipDismissalNow();
+      }, STAGE_PIP_DISMISSAL_APP_STATE_GRACE_MS);
+    };
+    const commitStagePipDismissalNow = () => {
       setStagePipReady(false);
       void disablePictureInPicture()
         .catch(() => {})
@@ -182,6 +208,7 @@ export function useStageRemotePictureInPicture(args: {
       setStagePipActive(active);
       viewerLifecycleLog('stage_pip_state', { roomId: roomIdRef.current, state: event.state });
 
+      if (event.state === 'restored' || event.state === 'started') clearDismissalGraceTimer();
       if (event.state === 'restored') {
         if (Platform.OS === 'android') {
           // Android fires 'stopped' BEFORE 'restored' for a restore-tap (opposite of iOS) —
@@ -223,6 +250,9 @@ export function useStageRemotePictureInPicture(args: {
       if (!dismissed) return;
       commitStagePipDismissal();
     });
+    const appStateSub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') clearDismissalGraceTimer();
+    });
     const errorSub = addOnPiPErrorListener((event) => {
       viewerLifecycleLog('stage_pip_error', {
         roomId: roomIdRef.current,
@@ -234,15 +264,17 @@ export function useStageRemotePictureInPicture(args: {
       cancelled = true;
       stateSub.remove();
       errorSub.remove();
+      appStateSub.remove();
       justRestoredRef.current = false;
       clearAndroidPendingStopTimer();
+      clearDismissalGraceTimer();
       androidStopFollowedByRestoreRef.current = false;
       setStagePipReady(false);
       setStagePipActive(false);
       setStagePipDismissed(false);
       releaseStagePipIfOwner(ownerToken);
     };
-  }, [args.enabled, args.roomId, clearAndroidPendingStopTimer]);
+  }, [args.enabled, args.roomId, clearAndroidPendingStopTimer, clearDismissalGraceTimer]);
 
   // Home swipe: native autoEnter should fire; also manually start with retries.
   useEffect(() => {

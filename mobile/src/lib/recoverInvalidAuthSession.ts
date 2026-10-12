@@ -1,4 +1,5 @@
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
+import { reportAuthDiagnostic } from './authDiagnostics';
 import { clearAuthStore } from './authSessionStorage';
 import { clearHomeFeedCache } from './homeFeedCache';
 import { setLiveDiscoveryMeta } from './liveDiscoveryMeta';
@@ -22,6 +23,8 @@ export type RecoverStaleAuthOptions = {
  */
 export async function recoverFromStaleAuthSession(options: RecoverStaleAuthOptions = {}): Promise<void> {
   const { signOut = true, navigate = true } = options;
+  // This wipes the saved login, so always leave a trace of it.
+  reportAuthDiagnostic('recover_stale_session', { navigate });
 
   if (!recoveryInFlight) {
     recoveryInFlight = (async () => {
