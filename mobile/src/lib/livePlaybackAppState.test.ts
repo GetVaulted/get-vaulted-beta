@@ -5,6 +5,7 @@ import {
   LIVE_VIDEO_STICKY_MS,
   canAttemptHostResumeShow,
   isAndroidStagePipStoppedADismissal,
+  shouldCommitStagePipDismissal,
   isStagePipUserDismissal,
   shouldAttemptLivePictureInPicture,
   shouldClearStreamPausedAfterHostResume,
@@ -465,6 +466,12 @@ describe('livePlaybackAppState', () => {
 
   it('Android restore-tap (stopped then restored within the debounce) is not a dismissal', () => {
     expect(isAndroidStagePipStoppedADismissal(true)).toBe(false);
+  });
+
+  it('a PiP "stopped" while the app is already active again is a return, not a dismissal', () => {
+    expect(shouldCommitStagePipDismissal('active')).toBe(false);
+    expect(shouldCommitStagePipDismissal('background')).toBe(true);
+    expect(shouldCommitStagePipDismissal('inactive')).toBe(true);
   });
 
   it('Android real dismissal (no restored within the debounce) is a dismissal', () => {
