@@ -56,6 +56,11 @@ export function useStageRemotePictureInPicture(args: {
   // never true for a tap-to-return. See `isStagePipUserDismissal`. Consumers must react by
   // stopping playback/audio, then call `clearStagePipDismissed()`.
   const [stagePipDismissed, setStagePipDismissed] = useState(false);
+  // Mirrors `stagePipActive` for timers/callbacks. Once the OS PiP window is up (autoEnter or an
+  // earlier attempt), further native start calls only produce 'PiP is not possible' errors (iOS
+  // logged thousands) — skip them.
+  const stagePipActiveRef = useRef(false);
+  stagePipActiveRef.current = stagePipActive;
   const ownerTokenRef = useRef<symbol>(Symbol('stage-pip-owner'));
   const enabledRef = useRef(args.enabled);
   enabledRef.current = args.enabled;
@@ -101,6 +106,7 @@ export function useStageRemotePictureInPicture(args: {
 
   const startStagePictureInPicture = useCallback(async () => {
     if (!enabledRef.current) return;
+    if (stagePipActiveRef.current) return;
     if (isLivePlaybackCommerceHoldActive()) {
       viewerLifecycleLog('stage_pip_skip_commerce_hold', { roomId: roomIdRef.current });
       return;
@@ -205,6 +211,7 @@ export function useStageRemotePictureInPicture(args: {
 
     const stateSub = addOnPiPStateChangedListener((event) => {
       const active = event.state === 'started' || event.state === 'restored';
+      stagePipActiveRef.current = active;
       setStagePipActive(active);
       viewerLifecycleLog('stage_pip_state', { roomId: roomIdRef.current, state: event.state });
 
@@ -289,6 +296,7 @@ export function useStageRemotePictureInPicture(args: {
         const timer = setTimeout(() => {
           if (!isLivePictureInPictureAppState(prevAppStateRef.current)) return;
           if (!enabledRef.current) return;
+          if (stagePipActiveRef.current) return;
           void startStagePictureInPicture();
         }, delayMs);
         retryTimersRef.current.push(timer);
