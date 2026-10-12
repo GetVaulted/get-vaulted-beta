@@ -5,6 +5,7 @@ import {
   resolvePlatformFeePercentForSellerOrder,
 } from "@/lib/seller-payout-estimate";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import { paypalRailSellerProcessingFeeUsd } from "@/lib/paypal-rail-processing-fee";
 import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
 import {
   applyOutstandingLiabilityRecovery,
@@ -60,6 +61,8 @@ export async function markSellerPayPalOrdersAlreadyPaid(args: {
       id: true,
       itemPriceUsd: true,
       shippingPriceUsd: true,
+      totalUsd: true,
+      stripeProcessingFeeCents: true,
       referralCreditAppliedUsd: true,
       platformCreditAppliedUsd: true,
       paymentStatus: true,
@@ -101,6 +104,7 @@ export async function markSellerPayPalOrdersAlreadyPaid(args: {
       payoutReserveAmountCents: 0,
       shippingLabelCostCents: o.shippingLabelCostCents ?? 0,
       shippingLabelCostReversedCents: o.shippingLabelCostReversedCents ?? 0,
+      stripeProcessingFeeUsd: paypalRailSellerProcessingFeeUsd(o),
     });
   }
   const grossOwedCents = Math.round(grossOwedUsd * 100);
