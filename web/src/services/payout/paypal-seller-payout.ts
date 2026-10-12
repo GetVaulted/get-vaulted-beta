@@ -6,6 +6,7 @@ import {
 } from "@/lib/seller-payout-estimate";
 import { loadSellerPlatformFeePercentOverride } from "@/services/seller-platform-fee-override";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import { paypalRailSellerProcessingFeeUsd } from "@/lib/paypal-rail-processing-fee";
 import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
 import {
   OrderPayoutStatus,
@@ -40,6 +41,8 @@ export async function releaseSellerPayPalPayout(orderId: string): Promise<{
       payoutStatus: true,
       itemPriceUsd: true,
       shippingPriceUsd: true,
+      totalUsd: true,
+      stripeProcessingFeeCents: true,
       referralCreditAppliedUsd: true,
       shippingLabelCostCents: true,
       shippingLabelCostReversedCents: true,
@@ -140,6 +143,9 @@ export async function releaseSellerPayPalPayout(orderId: string): Promise<{
     payoutReserveAmountCents: 0,
     shippingLabelCostCents: order.shippingLabelCostCents,
     shippingLabelCostReversedCents: order.shippingLabelCostReversedCents,
+    // PayPal-rail orders are platform-held, so the seller's share of the processing fee must come
+    // out of the payout itself (the Stripe rail takes it at charge time via the application fee).
+    stripeProcessingFeeUsd: paypalRailSellerProcessingFeeUsd(order),
   });
 
   const amountCents = Math.round(netUsd * 100);

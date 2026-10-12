@@ -21,6 +21,13 @@ vi.mock("@/lib/paypal", () => ({
 vi.mock("@/lib/seller-payout-estimate", () => ({
   estimateSellerOrderPayoutUsd,
   resolvePlatformFeePercentForSellerOrder: () => 6.75,
+  // 2.9% + $0.30 on the buyer total, like the real policy (used by `paypal-rail-processing-fee`).
+  resolveSellerAbsorbedProcessingFeeUsd: (a: { isCompanyListing: boolean; stripeProcessingFeeCents?: number | null; buyerChargeTotalUsd: number }) =>
+    a.isCompanyListing
+      ? 0
+      : a.stripeProcessingFeeCents != null
+        ? a.stripeProcessingFeeCents / 100
+        : Math.round((a.buyerChargeTotalUsd * 0.029 + 0.3) * 100) / 100,
 }));
 vi.mock("@/lib/referral-credit-payout", () => ({
   orderItemSaleBasisUsd: (o: { itemPriceUsd: number }) => o.itemPriceUsd,
@@ -46,6 +53,8 @@ function readyOrder(overrides: Record<string, unknown> = {}) {
     payoutStatus: "held",
     itemPriceUsd: 50,
     shippingPriceUsd: 5,
+    totalUsd: 55,
+    stripeProcessingFeeCents: null,
     referralCreditAppliedUsd: 0,
     shippingLabelCostCents: 0,
     shippingLabelCostReversedCents: 0,
@@ -255,5 +264,44 @@ describe("releaseSellerPayPalPayout — order-specific label clawback hard gate"
 
     expect(result.ok).toBe(true);
     expect(createSellerPayPalPayout).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("releaseSellerPayPalPayout — seller-absorbed processing fee", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    estimateSellerOrderPayoutUsd.mockReturnValue(10);
+    planOutstandingLiabilityRecoveryForSeller.mockResolvedValue(NO_LIABILITY_PLAN);
+    applyOutstandingLiabilityRecovery.mockResolvedValue({ appliedCents: 0, skippedCount: 0 });
+    createSellerPayPalPayout.mockResolvedValue({
+      payoutItemId: "item_1",
+      feeCents: 25,
+      rawStatus: "SUCCESS",
+    });
+  });
+
+  it("subtracts the estimated processing fee (2.9% + $0.30 of the buyer total) from the payout", async () => {
+    orderStore.current = readyOrder({ totalUsd: 50 });
+    await releaseSellerPayPalPayout("ord_1");
+    // 50 * 0.029 + 0.30 = 1.75
+    expect(estimateSellerOrderPayoutUsd).toHaveBeenCalledWith(
+      expect.objectContaining({ stripeProcessingFeeUsd: 1.75 }),
+    );
+  });
+
+  it("prefers the recorded Stripe processing fee over the estimate", async () => {
+    orderStore.current = readyOrder({ totalUsd: 50, stripeProcessingFeeCents: 211 });
+    await releaseSellerPayPalPayout("ord_1");
+    expect(estimateSellerOrderPayoutUsd).toHaveBeenCalledWith(
+      expect.objectContaining({ stripeProcessingFeeUsd: 2.11 }),
+    );
+  });
+
+  it("passes no processing fee through for company/official listings", async () => {
+    orderStore.current = readyOrder({ totalUsd: 50, listing: { isCompanyListing: true } });
+    await releaseSellerPayPalPayout("ord_1");
+    expect(estimateSellerOrderPayoutUsd).toHaveBeenCalledWith(
+      expect.objectContaining({ stripeProcessingFeeUsd: 0 }),
+    );
   });
 });
