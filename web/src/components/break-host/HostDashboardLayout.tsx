@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 type Props = {
   /** Top control bar (Go Live / Pause / Stop, share, OBS, …). */
@@ -25,7 +25,13 @@ type Props = {
   lineup: ReactNode;
   /** Bottom tiles: recent sales, fee tier, shipping, moderation. */
   tiles: ReactNode;
+  /** Modals/panels that must NOT live inside the small video tile (e.g. Go Live camera check). */
+  overlays?: ReactNode;
 };
+
+/** The stage is laid out at a normal 9:16 size, then scaled down to fit the corner tile. */
+const STAGE_W = 405;
+const STAGE_H = 720;
 
 const LEFT_W = "320px";
 const RIGHT_W = "340px";
@@ -46,8 +52,31 @@ export function HostDashboardLayout({
   centerActions,
   lineup,
   tiles,
+  overlays,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const tileRef = useRef<HTMLDivElement>(null);
+  const [tile, setTile] = useState({ w: 320, h: 300 });
+  useEffect(() => {
+    const el = tileRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0]?.contentRect;
+      if (r && r.width > 0 && r.height > 0) setTile({ w: r.width, h: r.height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const scale = Math.min(tile.w / STAGE_W, tile.h / STAGE_H);
+  const compactStageStyle = {
+    position: "absolute" as const,
+    left: Math.max(0, (tile.w - STAGE_W * scale) / 2),
+    top: 0,
+    width: STAGE_W,
+    height: STAGE_H,
+    transform: `scale(${scale})`,
+    transformOrigin: "top left",
+  };
   const toggle = useCallback(() => setExpanded((v) => !v), []);
 
   useEffect(() => {
@@ -73,14 +102,17 @@ export function HostDashboardLayout({
       >
         {/* LEFT: video tile + chat */}
         <div className="flex min-h-0 min-w-0 flex-col gap-2">
-          <div className="relative h-[clamp(220px,34vh,330px)] shrink-0">
+          <div ref={tileRef} className="relative h-[clamp(200px,32vh,320px)] shrink-0">
             <div
               className={expanded ? expandedBox : compactBox}
               style={expanded ? { right: `calc(${RIGHT_W} + 1rem)` } : undefined}
               data-host-dashboard-video
               data-expanded={expanded ? "true" : "false"}
             >
-              <div className={expanded ? "absolute inset-y-0 left-0 right-[380px]" : "absolute inset-0"}>
+              <div
+                className={expanded ? "absolute inset-y-0 left-0 right-[380px]" : undefined}
+                style={expanded ? undefined : compactStageStyle}
+              >
                 {renderVideo(expanded)}
               </div>
 
@@ -135,7 +167,7 @@ export function HostDashboardLayout({
             </>
           )}
           {teamBoard ? <div className="shrink-0 rounded-xl border border-white/[0.08] bg-zinc-950/95 p-2">{teamBoard}</div> : null}
-          <div className="grid shrink-0 grid-cols-2 gap-2 xl:grid-cols-4">{tiles}</div>
+          <div className="grid shrink-0 grid-cols-2 items-start gap-2">{tiles}</div>
         </div>
 
         {/* RIGHT: lineup */}
@@ -143,6 +175,7 @@ export function HostDashboardLayout({
           {lineup}
         </aside>
       </div>
+      {overlays ? <div className="pointer-events-none fixed inset-0 z-[75]">{overlays}</div> : null}
     </div>
   );
 }
