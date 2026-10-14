@@ -321,9 +321,10 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
   const [streamPreviewMuted, setStreamPreviewMuted] = useState(true);
   // PC dashboard layout is opt-in (?layout=dashboard) until it has been proven on a live show.
-  const [dashboardLayout, setDashboardLayout] = useState(false);
+  const [dashboardLayout, setDashboardLayout] = useState(true);
   useEffect(() => {
-    setDashboardLayout(new URLSearchParams(window.location.search).get("layout") === "dashboard");
+    // Dashboard is the default on desktop; ?layout=classic restores the old layout.
+    setDashboardLayout(new URLSearchParams(window.location.search).get("layout") !== "classic");
   }, []);
   const [hostLiveItemAuctionBusy, setHostLiveItemAuctionBusy] = useState(false);
   const [teamBreakBusy, setTeamBreakBusy] = useState(false);
