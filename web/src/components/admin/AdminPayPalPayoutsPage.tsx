@@ -8,6 +8,7 @@ type OrderRow = {
   orderId: string;
   itemTitle: string;
   estimatedNetUsd: number;
+  processingFeeUsd?: number;
   createdAt: string;
   shippedAt: string | null;
   deliveryConfirmedAt: string | null;
@@ -313,7 +314,7 @@ export function AdminPayPalPayoutsPage() {
                 </p>
               </div>
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Owed (not yet paid)</p>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Owed (not yet paid, after processing fees)</p>
                 <p className="mt-1 font-display text-3xl font-black text-foreground">{money(totalOwed)}</p>
               </div>
               <div>
@@ -481,6 +482,11 @@ export function AdminPayPalPayoutsPage() {
                                       </div>
                                       <div className="flex flex-col items-end gap-1.5">
                                         <span className="font-mono text-zinc-300">{money(o.estimatedNetUsd)}</span>
+                                        {o.processingFeeUsd ? (
+                                          <span className="text-[10px] text-zinc-500">
+                                            after {money(o.processingFeeUsd)} processing
+                                          </span>
+                                        ) : null}
                                         <button
                                           type="button"
                                           disabled={!canRelease || busy}

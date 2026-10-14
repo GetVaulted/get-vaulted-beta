@@ -4,6 +4,7 @@ import {
   resolvePlatformFeePercentForSellerOrder,
 } from "@/lib/seller-payout-estimate";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import { paypalRailSellerProcessingFeeUsd } from "@/lib/paypal-rail-processing-fee";
 import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
 import { OrderPayoutStatus } from "@/generated/prisma/enums";
 import { getOutstandingLiabilityCentsBySeller } from "@/services/shipping/label-liability-recovery";
@@ -23,6 +24,8 @@ export type AdminPayPalPayoutOrderRow = {
   orderId: string;
   itemTitle: string;
   estimatedNetUsd: number;
+  /** Processing fee already subtracted from `estimatedNetUsd` (seller-absorbed). */
+  processingFeeUsd: number;
   createdAt: string;
   shippedAt: string | null;
   deliveryConfirmedAt: string | null;
@@ -86,6 +89,8 @@ export async function listPayPalPayoutQueue(limit = 300): Promise<AdminPayPalPay
       sellerId: true,
       itemPriceUsd: true,
       shippingPriceUsd: true,
+      totalUsd: true,
+      stripeProcessingFeeCents: true,
       referralCreditAppliedUsd: true,
       platformCreditAppliedUsd: true,
       paymentStatus: true,
@@ -144,6 +149,7 @@ export async function listPayPalPayoutQueue(limit = 300): Promise<AdminPayPalPay
       orderItemPriceUsd: saleBasisUsd,
       orderPaymentStatus: o.paymentStatus,
     });
+    const processingFeeUsd = paypalRailSellerProcessingFeeUsd(o);
     const estimatedNetUsd = estimateSellerOrderPayoutUsd({
       itemPriceUsd: saleBasisUsd,
       shippingPriceUsd: o.shippingPriceUsd,
@@ -151,6 +157,7 @@ export async function listPayPalPayoutQueue(limit = 300): Promise<AdminPayPalPay
       payoutReserveAmountCents: 0,
       shippingLabelCostCents: o.shippingLabelCostCents ?? 0,
       shippingLabelCostReversedCents: o.shippingLabelCostReversedCents ?? 0,
+      stripeProcessingFeeUsd: processingFeeUsd,
     });
 
     const isPaidOut =
@@ -172,6 +179,7 @@ export async function listPayPalPayoutQueue(limit = 300): Promise<AdminPayPalPay
       orderId: o.id,
       itemTitle: o.listing.title,
       estimatedNetUsd,
+      processingFeeUsd,
       createdAt: o.createdAt.toISOString(),
       shippedAt: o.shippedAt?.toISOString() ?? null,
       deliveryConfirmedAt: o.deliveryConfirmedAt?.toISOString() ?? null,
