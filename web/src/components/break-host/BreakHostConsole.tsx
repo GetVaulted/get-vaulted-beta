@@ -31,6 +31,11 @@ import { VaultQueueDrawer } from "@/components/break-host/vault/VaultQueueDrawer
 import { HostVariantCommerceStage } from "@/components/break-host/HostVariantCommerceStage";
 import { LiveSweet16Draft } from "@/components/live-auction/LiveSweet16Draft";
 import { HostRecentSalesTile } from "@/components/break-host/HostRecentSalesTile";
+import { HostDashboardKpis } from "@/components/break-host/HostDashboardKpis";
+import { HostDashboardLayout } from "@/components/break-host/HostDashboardLayout";
+import { LiveShowFeeTierTile } from "@/components/break-host/LiveShowFeeTierTile";
+import { LiveShowShippingPanel } from "@/components/break-host/LiveShowShippingPanel";
+import { LiveHostRoomGovernance } from "@/components/trust/LiveHostRoomGovernance";
 import { LiveShowSalesTile } from "@/components/break-host/LiveShowSalesTile";
 import { HostAddSupplementalModal } from "@/components/break-host/HostAddSupplementalModal";
 import { HostShowNotesModal } from "@/components/break-host/HostShowNotesModal";
@@ -315,6 +320,11 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(5);
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
   const [streamPreviewMuted, setStreamPreviewMuted] = useState(true);
+  // PC dashboard layout is opt-in (?layout=dashboard) until it has been proven on a live show.
+  const [dashboardLayout, setDashboardLayout] = useState(false);
+  useEffect(() => {
+    setDashboardLayout(new URLSearchParams(window.location.search).get("layout") === "dashboard");
+  }, []);
   const [hostLiveItemAuctionBusy, setHostLiveItemAuctionBusy] = useState(false);
   const [teamBreakBusy, setTeamBreakBusy] = useState(false);
   const [auctionTickHost, setAuctionTickHost] = useState(0);
@@ -2910,6 +2920,146 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     mobileActionOverlay: activeBoardRow ? hostMobileItemOverlay : null,
   };
 
+  // Small corner tile: same stream, none of the overlays/chrome (those return when expanded).
+  const dashboardCompactStageProps = {
+    ...hostStageProps,
+    stageOverlay: null,
+    stageEdgeRail: undefined,
+    stageBelowAudience: undefined,
+    topChromeTrailing: undefined,
+    sellerHostRail: undefined,
+    chatOverlay: undefined,
+    actionOverlay: null,
+    mobileActionOverlay: null,
+    ambientBleed: false,
+    onBack: undefined,
+  };
+  const dashboardExpandedStageProps = {
+    ...hostStageProps,
+    stageEdgeRail: undefined,
+    stageBelowAudience: undefined,
+    actionOverlay: null,
+    mobileActionOverlay: null,
+    chatOverlay: undefined,
+  };
+
+  const dashboardLayoutNode = (
+    <HostDashboardLayout
+      actionBar={
+        <SellerConsoleActionBar
+          onShare={() => void handleShareRoom()}
+          onAddItem={() => setQueueAddModal("auction")}
+          onObs={() => setObsSetupModalOpen(true)}
+          goLiveSetupHidden={goLiveSetupEligible && goLiveSetupDismissed}
+          onOpenGoLiveSetup={() => setGoLiveSetupDismissed(false)}
+          broadcastPhase={webcamBroadcast.phase}
+          roomLive={room.status === "live"}
+          companionMode={hostCompanionMode}
+          onGoLive={handleGoLive}
+          onStopStream={handleStopStream}
+          onPauseStream={handlePauseStream}
+          onResumeStream={handleResumeStream}
+          streamTimerDisplay={streamTimerDisplay}
+          viewerCount={viewerCount}
+          liteMode={webcamBroadcast.liteMode}
+          onToggleLiteMode={webcamBroadcast.setLiteMode}
+        />
+      }
+      kpis={
+        <HostDashboardKpis
+          summary={data.sellerSummary ?? null}
+          loading={!data.sellerSummary && !sellerSummaryRefreshError}
+          refreshError={sellerSummaryRefreshError}
+          viewerCount={viewerCount}
+          streamTimerDisplay={streamTimerDisplay}
+          connectionLabel={realtimeConnectionStatus}
+          connectionOk={realtimeConnectionStatus === "Connected"}
+          roomEnergyScore={roomEnergy.score}
+          roomEnergyLevel={roomEnergy.level}
+        />
+      }
+      renderVideo={(expanded) => (
+        <>
+          <LiveVideoStage {...(expanded ? dashboardExpandedStageProps : dashboardCompactStageProps)} />
+          <SellerGoLiveSetupPanel
+            visible={goLiveSetupEligible && !goLiveSetupDismissed}
+            phase={webcamBroadcast.phase}
+            error={webcamBroadcast.previewError ?? webcamBroadcast.error}
+            previewStream={webcamBroadcast.previewStream}
+            devices={webcamBroadcast.devices}
+            selectedVideoDeviceId={webcamBroadcast.selectedVideoDeviceId}
+            selectedAudioDeviceId={webcamBroadcast.selectedAudioDeviceId}
+            onVideoDevice={handlePreviewVideoDevice}
+            onAudioDevice={handlePreviewAudioDevice}
+            liteMode={webcamBroadcast.liteMode}
+            onToggleLiteMode={webcamBroadcast.setLiteMode}
+            onObs={() => setObsSetupModalOpen(true)}
+            onGoLive={handleGoLive}
+            onClose={() => setGoLiveSetupDismissed(true)}
+            busy={busy}
+          />
+        </>
+      )}
+      videoTools={
+        <>
+          <button
+            type="button"
+            onClick={toggleStreamPreviewMute}
+            aria-label={streamPreviewMuted ? "Unmute preview" : "Mute preview"}
+            title={streamPreviewMuted ? "Unmute preview" : "Mute preview"}
+            className="inline-flex h-7 items-center justify-center rounded-lg border border-white/20 bg-black/70 px-2 text-[10px] font-bold uppercase tracking-wide text-zinc-100 backdrop-blur hover:bg-white/10"
+          >
+            {streamPreviewMuted ? "Muted" : "Sound"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowNotesModalOpen(true)}
+            className="inline-flex h-7 items-center justify-center rounded-lg border border-white/20 bg-black/70 px-2 text-[10px] font-bold uppercase tracking-wide text-zinc-100 backdrop-blur hover:bg-white/10"
+          >
+            Notes
+          </button>
+        </>
+      }
+      chat={hostLiveChatPanel}
+      nowSelling={hostDesktopItemOverlay}
+      centerActions={
+        isBreak ? (
+          <TeamBoardChromeButton
+            league={teamBoardData?.state.league ?? "nba"}
+            tileCount={teamBoardData?.teams.length}
+            boardVisible={hostTeamBoardOpen}
+            disabled={!teamBoardData?.teams.length}
+            onPress={toggleHostTeamBoardPanel}
+          />
+        ) : undefined
+      }
+      teamBoard={
+        hostTeamBoardOpen ? (
+          <TeamBoardHostPanel
+            league={teamBoardData?.state.league ?? "nba"}
+            tileCount={teamBoardData?.teams.length}
+            collapsed={hostTeamBoardCollapsed}
+            disabled={teamBoardBusy || room.status === "ended"}
+            onToggleCollapsed={minimizeHostTeamBoardPanel}
+            onExpandCollapsed={expandHostTeamBoardPanel}
+            onClose={closeHostTeamBoardPanel}
+          >
+            {hostTeamBoardPanelBody}
+          </TeamBoardHostPanel>
+        ) : undefined
+      }
+      lineup={hostInventoryRail}
+      tiles={
+        <>
+          <HostRecentSalesTile rows={data.recentSales ?? []} maxRows={5} />
+          <LiveShowFeeTierTile tier={data.feeTier ?? null} summary={data.sellerSummary ?? null} />
+          <LiveShowShippingPanel liveRoomId={roomId} compact />
+          <LiveHostRoomGovernance {...commandCenterProps.roomGovernance} liveRoomId={roomId} />
+        </>
+      }
+    />
+  );
+
   const hostPaymentFailures = data?.sellerUnresolvedPaymentFailures ?? [];
 
   return (
@@ -2988,7 +3138,11 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
 
       {/* First screen: stage fills the fixed console; root overflow-y-auto scrolls to content below. */}
       <div className="relative flex h-full min-h-full w-full shrink-0 flex-col p-1 sm:p-1.5 min-[1024px]:p-0">
-        {/* Desktop — chat | stage + auction timer | shop queue */}
+        {/* Desktop dashboard layout (opt-in: ?layout=dashboard). The legacy desktop block below is NOT mounted in this mode. */}
+        {dashboardLayout ? (
+          <div className="relative hidden min-h-0 flex-1 flex-col overflow-hidden min-[1024px]:flex">{dashboardLayoutNode}</div>
+        ) : (
+        /* Desktop — chat | stage + auction timer | shop queue */
         <div className="relative hidden min-h-0 flex-1 flex-col overflow-hidden min-[1024px]:flex">
           <SellerConsoleActionBar
             onShare={() => void handleShareRoom()}
@@ -3068,6 +3222,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             </aside>
           </div>
         </div>
+        )}
 
         {/* Mobile / tablet — stage + floating controls */}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-950/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1024px]:hidden">
@@ -3119,7 +3274,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
       {/* Show sales + quick stats under the stage — fixed tile heights; list scrolls inside. */}
       <section
         data-host-console-below
-        className="relative z-[1] w-full shrink-0 border-t border-white/[0.08] bg-zinc-950 px-3 py-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] min-[1024px]:px-5"
+        className={`relative z-[1] w-full shrink-0 border-t border-white/[0.08] bg-zinc-950 px-3 py-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] min-[1024px]:px-5 ${dashboardLayout ? "min-[1024px]:hidden" : ""}`}
       >
         <div className="mx-auto grid max-w-6xl items-start gap-3 min-[800px]:grid-cols-[minmax(11rem,15rem)_minmax(0,1fr)_minmax(12rem,16rem)]">
           <LiveShowSalesTile
