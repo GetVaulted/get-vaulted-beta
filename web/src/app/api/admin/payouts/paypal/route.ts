@@ -10,7 +10,7 @@ export async function GET(req: Request) {
   if (!gate.ok) return gate.response;
 
   const url = new URL(req.url);
-  const limitRaw = Number(url.searchParams.get("limit") ?? "300");
+  const limitRaw = Number(url.searchParams.get("limit") ?? "5000");
   const limit = Number.isFinite(limitRaw) ? Math.floor(limitRaw) : 300;
 
   const payload = await listPayPalPayoutQueue(limit);

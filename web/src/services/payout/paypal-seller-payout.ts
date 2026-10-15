@@ -82,6 +82,14 @@ export async function releaseSellerPayPalPayout(orderId: string): Promise<{
     return { ok: true, reason: "already_paid_out" };
   }
 
+  // The admin already sent this seller part of their balance by hand. Releasing a full per-order
+  // payout now would pay that money twice, so fail closed until the admin settles the remainder
+  // (Mark paid on the PayPal payouts page). Deliberately does NOT touch the order's status.
+  const { sellerHasOpenPartialPayment } = await import("@/lib/admin/paypal-partial-payments");
+  if (await sellerHasOpenPartialPayment(order.sellerId)) {
+    return { ok: false, reason: "partial_payment_on_file" };
+  }
+
   // Mirrors the Stripe bank-payout rail's hard gate (see stripe-seller-payout.ts): the cross-order
   // liability offset below only recovers what a payout can cover, it doesn't guarantee THIS order's
   // own label cost is settled before money leaves the platform. Without this, PayPal payouts had one
