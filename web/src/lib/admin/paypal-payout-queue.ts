@@ -58,6 +58,13 @@ export type AdminPayPalPayoutSellerRow = {
   netOfLiabilityUsd: number;
   needsAttentionCount: number;
   blockedReason: string | null;
+  /** Orders for this seller already settled (paid out / marked paid) — shown for context only. */
+  paidOutOrderCount: number;
+  /** Open partial payments already sent to this seller (off-platform), in USD. */
+  partialPaidUsd: number;
+  /** What is still left to send: `netOfLiabilityUsd` minus open partial payments, floored at 0. */
+  remainingUsd: number;
+  partialPayments: { id: string; amountUsd: number; note: string | null; createdAt: string }[];
   orders: AdminPayPalPayoutOrderRow[];
 };
 
@@ -66,8 +73,23 @@ export type AdminPayPalPayoutQueuePayload = {
   sellerCount: number;
   orderCount: number;
   totalOwedUsd: number;
+  /** Sum of every seller's `remainingUsd` — the real amount left to send. */
+  totalRemainingUsd: number;
   needsAttentionCount: number;
 };
+
+/** Sum of each seller's open (not settled, not voided) partial payments, in cents. */
+export async function getOpenPartialPaymentCentsBySeller(sellerIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (sellerIds.length === 0) return out;
+  const rows = await prisma.sellerPayPalPartialPayment.groupBy({
+    by: ["sellerId"],
+    where: { sellerId: { in: sellerIds }, settledAt: null, voidedAt: null },
+    _sum: { amountCents: true },
+  });
+  for (const r of rows) out.set(r.sellerId, r._sum.amountCents ?? 0);
+  return out;
+}
 
 /**
  * Every order on the PayPal seller-payout rail (paid orders only), grouped by seller,
@@ -76,14 +98,22 @@ export type AdminPayPalPayoutQueuePayload = {
  * the Stripe rail, but PayPal has no live "Connect balance" concept — everything here
  * comes straight off the Order row + the seller's verified PayPal email.
  */
-export async function listPayPalPayoutQueue(limit = 300): Promise<AdminPayPalPayoutQueuePayload> {
+export async function listPayPalPayoutQueue(
+  limit = 5000,
+  opts: { sellerId?: string } = {},
+): Promise<AdminPayPalPayoutQueuePayload> {
+  // Only orders that still need paying. (This used to load the newest 300 of ALL paid orders,
+  // including already-settled ones, which silently dropped older unpaid orders from the totals.)
   const rows = await prisma.order.findMany({
     where: {
       sellerPayoutProcessor: "PAYPAL",
       paymentStatus: "paid",
+      payoutStatus: { not: OrderPayoutStatus.paid_out },
+      processorTransferId: null,
+      ...(opts.sellerId ? { sellerId: opts.sellerId } : {}),
     },
     orderBy: [{ createdAt: "desc" }],
-    take: Math.min(1000, Math.max(1, limit)),
+    take: Math.min(10000, Math.max(1, limit)),
     select: {
       id: true,
       sellerId: true,
@@ -207,7 +237,29 @@ export async function listPayPalPayoutQueue(limit = 300): Promise<AdminPayPalPay
     }
   }
 
-  const outstandingLiabilityBySeller = await getOutstandingLiabilityCentsBySeller([...bySeller.keys()]);
+  const sellerIds = [...bySeller.keys()];
+  const outstandingLiabilityBySeller = await getOutstandingLiabilityCentsBySeller(sellerIds);
+  const partialCentsBySeller = await getOpenPartialPaymentCentsBySeller(sellerIds);
+  const partialRows = sellerIds.length
+    ? await prisma.sellerPayPalPartialPayment.findMany({
+        where: { sellerId: { in: sellerIds }, settledAt: null, voidedAt: null },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, sellerId: true, amountCents: true, note: true, createdAt: true },
+      })
+    : [];
+  const paidOutCounts = sellerIds.length
+    ? await prisma.order.groupBy({
+        by: ["sellerId"],
+        where: {
+          sellerId: { in: sellerIds },
+          sellerPayoutProcessor: "PAYPAL",
+          paymentStatus: "paid",
+          OR: [{ payoutStatus: OrderPayoutStatus.paid_out }, { processorTransferId: { not: null } }],
+        },
+        _count: { _all: true },
+      })
+    : [];
+  const paidOutBySeller = new Map<string, number>(paidOutCounts.map((r) => [r.sellerId, r._count._all] as [string, number]));
 
   const sellers: AdminPayPalPayoutSellerRow[] = [...bySeller.values()].map((g) => {
     const owedUsd = g.orders
@@ -218,6 +270,8 @@ export async function listPayPalPayoutQueue(limit = 300): Promise<AdminPayPalPay
     const outstandingLiabilityUsd =
       Math.round((outstandingLiabilityBySeller.get(g.sellerId) ?? 0)) / 100;
     const netOfLiabilityUsd = Math.max(0, Math.round((owedUsdRounded - outstandingLiabilityUsd) * 100) / 100);
+    const partialPaidCents = partialCentsBySeller.get(g.sellerId) ?? 0;
+    const remainingUsd = Math.max(0, Math.round(netOfLiabilityUsd * 100 - partialPaidCents) / 100);
     return {
       sellerId: g.sellerId,
       username: g.username,
@@ -230,6 +284,17 @@ export async function listPayPalPayoutQueue(limit = 300): Promise<AdminPayPalPay
       netOfLiabilityUsd,
       needsAttentionCount: g.orders.filter((o) => o.needsAttention).length,
       blockedReason: emailReady ? null : "paypal_email_not_verified",
+      paidOutOrderCount: paidOutBySeller.get(g.sellerId) ?? 0,
+      partialPaidUsd: partialPaidCents / 100,
+      remainingUsd,
+      partialPayments: partialRows
+        .filter((r) => r.sellerId === g.sellerId)
+        .map((r) => ({
+          id: r.id,
+          amountUsd: r.amountCents / 100,
+          note: r.note,
+          createdAt: r.createdAt.toISOString(),
+        })),
       orders: g.orders,
     };
   });
@@ -241,6 +306,13 @@ export async function listPayPalPayoutQueue(limit = 300): Promise<AdminPayPalPay
     sellerCount: sellers.length,
     orderCount: rows.length,
     totalOwedUsd: Math.round(totalOwedUsd * 100) / 100,
+    totalRemainingUsd: Math.round(sellers.reduce((sum, x) => sum + x.remainingUsd, 0) * 100) / 100,
     needsAttentionCount,
   };
+}
+
+/** One seller's balance, computed exactly like the queue page (used to validate partial payments). */
+export async function getPayPalSellerBalance(sellerId: string): Promise<AdminPayPalPayoutSellerRow | null> {
+  const payload = await listPayPalPayoutQueue(5000, { sellerId });
+  return payload.sellers[0] ?? null;
 }

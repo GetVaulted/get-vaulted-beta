@@ -12,6 +12,8 @@ import {
   planOutstandingLiabilityRecoveryForSeller,
 } from "@/services/shipping/label-liability-recovery";
 import { logPayoutEligibilityDecision } from "@/lib/payout-audit-log";
+import { settleOpenPartialPayments } from "@/lib/admin/paypal-partial-payments";
+import { getOpenPartialPaymentCentsBySeller } from "@/lib/admin/paypal-payout-queue";
 
 export type MarkSellerPayPalOrdersAlreadyPaidResult =
   | {
@@ -20,6 +22,9 @@ export type MarkSellerPayPalOrdersAlreadyPaidResult =
       orderIds: string[];
       grossOwedUsd: number;
       liabilityRecoveredUsd: number;
+      /** Partial payments already sent earlier (now settled by this mark-paid). */
+      partialPaidUsd: number;
+      /** What this settlement represents going out now: gross − liability − earlier partials. */
       sentUsd: number;
     }
   | { ok: false; error: string };
@@ -81,7 +86,7 @@ export async function markSellerPayPalOrdersAlreadyPaid(args: {
   });
 
   if (orders.length === 0) {
-    return { ok: true, marked: 0, orderIds: [], grossOwedUsd: 0, liabilityRecoveredUsd: 0, sentUsd: 0 };
+    return { ok: true, marked: 0, orderIds: [], grossOwedUsd: 0, liabilityRecoveredUsd: 0, partialPaidUsd: 0, sentUsd: 0 };
   }
 
   let grossOwedUsd = 0;
@@ -144,8 +149,12 @@ export async function markSellerPayPalOrdersAlreadyPaid(args: {
     });
   }
 
+  // Partial payments already sent earlier count toward this balance — settle them with the rest.
+  const partialPaidCents = (await getOpenPartialPaymentCentsBySeller([sellerId])).get(sellerId) ?? 0;
+  await settleOpenPartialPayments(sellerId);
+
   const liabilityRecoveredUsd = Math.round(liabilityPlan.totalCents) / 100;
-  const sentUsd = Math.round((grossOwedCents - liabilityPlan.totalCents)) / 100;
+  const sentUsd = Math.max(0, Math.round(grossOwedCents - liabilityPlan.totalCents - partialPaidCents)) / 100;
 
   return {
     ok: true,
@@ -153,6 +162,7 @@ export async function markSellerPayPalOrdersAlreadyPaid(args: {
     orderIds,
     grossOwedUsd: Math.round(grossOwedCents) / 100,
     liabilityRecoveredUsd,
+    partialPaidUsd: partialPaidCents / 100,
     sentUsd,
   };
 }

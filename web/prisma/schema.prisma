@@ -3428,3 +3428,18 @@ model AdminSetting {
   updatedById String?
   updatedAt   DateTime @updatedAt
 }
+
+/// Admin-recorded partial PayPal payout to a seller (money sent off-platform). Open rows
+/// (settledAt and voidedAt both null) reduce the seller's remaining balance on the PayPal payouts page.
+model SellerPayPalPartialPayment {
+  id          String    @id @default(cuid())
+  sellerId    String
+  amountCents Int
+  note        String?
+  adminId     String
+  createdAt   DateTime  @default(now())
+  settledAt   DateTime?
+  voidedAt    DateTime?
+
+  @@index([sellerId, settledAt, voidedAt])
+}
