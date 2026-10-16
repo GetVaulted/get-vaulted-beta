@@ -21,6 +21,8 @@ import { resolvePinnedModeratorUsername } from "@/lib/trust/resolve-pinned-moder
 import { appendMentionToDraft } from "@/lib/trust/live-chat-user-actions";
 import { MentionText } from "@/components/mentions/MentionText";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
+import { TopBuyerBadge } from "@/components/live-auction/TopBuyerBadge";
+import { useTopBuyerId } from "@/hooks/useTopBuyerId";
 
 /** Oldest at top, newest at bottom — matches bottom-anchored scroll (newest near composer). */
 function tailChatHistory<T>(messages: T[]): T[] {
@@ -175,6 +177,7 @@ export function LiveAuctionChat({
   const { data: session, status } = useSession();
   const router = useRouter();
   const mod = useLiveRoomModerationState(liveRoomId, Boolean(liveRoomId));
+  const topBuyerId = useTopBuyerId();
   const [userActionTarget, setUserActionTarget] = useState<LiveChatUserActionTarget | null>(null);
   const pinnedModeratorUsername =
     resolvePinnedModeratorUsername({
@@ -432,6 +435,11 @@ export function LiveAuctionChat({
                         STAFF
                       </span>
                     ) : null}
+                    {topBuyerId && m.senderId === topBuyerId && m.messageType === "chat" ? (
+                      <span className="ml-1 inline-flex align-middle" title="Top buyer on Get Vaulted">
+                        <TopBuyerBadge size={15} />
+                      </span>
+                    ) : null}
                     {inlineEvent ? (
                       <span className={`ml-1 ${isSystem ? "text-zinc-100" : isStaffChatMessage(m) ? "text-sky-50" : "text-zinc-50"}`}>
                         <MentionText body={m.body} mentions={m.mentions} />
@@ -598,6 +606,11 @@ export function LiveAuctionChat({
                   {isStaffChatMessage(m) ? (
                     <span className="ml-1.5 text-[10px] font-black uppercase tracking-wide text-sky-300/90">
                       STAFF
+                    </span>
+                  ) : null}
+                  {topBuyerId && m.senderId === topBuyerId && m.messageType === "chat" ? (
+                    <span className="ml-1 inline-flex align-middle" title="Top buyer on Get Vaulted">
+                      <TopBuyerBadge size={15} />
                     </span>
                   ) : null}
                   {inlineEvent ? (
