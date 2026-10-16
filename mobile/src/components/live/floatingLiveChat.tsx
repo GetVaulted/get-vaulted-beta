@@ -29,6 +29,8 @@ import { MentionComposerInput, type MentionComposerInputHandle, type MentionSugg
 import { MentionSuggestionStrip } from '../mentions/MentionSuggestionStrip';
 import { MentionText } from '../mentions/MentionText';
 import { LiveRoomText } from './LiveRoomText';
+import { TopBuyerBadge } from './TopBuyerBadge';
+import { useTopBuyerId } from '../../hooks/useTopBuyerId';
 import type { LiveModeratorLevel, LiveViewerRole } from '../../api/trustRepository';
 import type { ChatMessage } from '../../types';
 
@@ -161,6 +163,8 @@ function FloatingChatRow({
 }) {
   const scale = overlayScale > 1 ? overlayScale : 1;
   const isModSender = isModeratorSender(message, hostUserId, moderatorUserIds);
+  const topBuyerId = useTopBuyerId();
+  const isTopBuyer = Boolean(topBuyerId && message.senderId === topBuyerId && message.messageType === 'chat');
   const isHostEnding = isHostEndingLiveBody(message.text);
   const isEvent = isViewerEventMessage(message);
   const isTip = message.messageType === 'tip';
@@ -250,6 +254,14 @@ function FloatingChatRow({
           ) : null}
           {message.messageType === 'staff' ? (
             <LiveRoomText style={styles.staffBadgeInline}> STAFF</LiveRoomText>
+          ) : null}
+          {isTopBuyer ? (
+            <LiveRoomText>
+              {' '}
+              <View style={styles.topBuyerBadge}>
+                <TopBuyerBadge size={Math.round(14 * scale)} />
+              </View>
+            </LiveRoomText>
           ) : null}
           {isEvent ? (
             <LiveRoomText style={styles.messageBody}> {message.text}</LiveRoomText>
@@ -857,6 +869,7 @@ const styles = StyleSheet.create({
   staffToggleTextStaff: {
     color: '#bae6fd',
   },
+  topBuyerBadge: { marginLeft: 2, transform: [{ translateY: 2 }] },
   staffBadgeInline: {
     color: '#7dd3fc',
     fontWeight: '900',
