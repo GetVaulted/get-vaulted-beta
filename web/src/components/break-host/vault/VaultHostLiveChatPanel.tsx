@@ -16,6 +16,8 @@ import { LiveChatAvatar } from "@/components/live-auction/LiveChatAvatar";
 import { MentionComposer } from "@/components/mentions/MentionComposer";
 import { MentionText } from "@/components/mentions/MentionText";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
+import { TopBuyerBadge } from "@/components/live-auction/TopBuyerBadge";
+import { useTopBuyerId } from "@/hooks/useTopBuyerId";
 import { LIVE_ROOM_CHAT_HISTORY_MAX } from "@/lib/live-room-chat-policy";
 import { isInlineViewerEventBody } from "@/lib/live-room-viewer-events";
 import { appendLiveRoomMessageDedupe } from "@/lib/realtime-merge-messages";
@@ -100,6 +102,7 @@ export function VaultHostLiveChatPanel({
   const [staffOnly, setStaffOnly] = useState(false);
   const [staffSending, setStaffSending] = useState(false);
   const mod = useLiveRoomModerationState(liveRoomId, Boolean(liveRoomId));
+  const topBuyerId = useTopBuyerId();
 
   const sendStaffChat = useCallback(async () => {
     const text = systemMsg.trim();
@@ -302,6 +305,11 @@ export function VaultHostLiveChatPanel({
                       {isStaff ? (
                         <span className="ml-1 text-[9px] font-black uppercase tracking-wide text-sky-300/90">
                           STAFF
+                        </span>
+                      ) : null}
+                      {topBuyerId && m.senderId === topBuyerId && m.messageType === "chat" ? (
+                        <span className="ml-1 inline-flex align-middle" title="Top buyer on Get Vaulted">
+                          <TopBuyerBadge size={15} />
                         </span>
                       ) : null}
                       {inlineEvent ? (
