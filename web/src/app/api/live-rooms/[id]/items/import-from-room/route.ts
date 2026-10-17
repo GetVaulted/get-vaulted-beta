@@ -106,6 +106,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           sortOrder: nextSort++,
           teamBoardMisc: item.teamBoardMisc,
           teamBoardNcaa: item.teamBoardNcaa,
+          teamBoardLeagueExtras: item.teamBoardLeagueExtras,
           customRandomPoolLabels: item.customRandomPoolLabels ?? undefined,
           quantity: isVariantSalesFormat(item.salesFormat) ? 1 : qty,
           quantityInitial: isVariantSalesFormat(item.salesFormat) ? 1 : qty,

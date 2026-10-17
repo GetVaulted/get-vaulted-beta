@@ -12,7 +12,14 @@ import {
   type LiveBoardPackId,
   type LiveBreakVariantDraft,
 } from './liveBreakPresets';
-import { stripNcaaSpotVariants, withNcaaBuyableSpot, withNcaaRandomPoolSeat } from './nflNcaaSpot';
+import {
+  stripLeagueExtraSpotVariants,
+  stripNcaaSpotVariants,
+  withLeagueExtraBuyableSpots,
+  withNcaaBuyableSpot,
+  withRandomPoolExtraSeats,
+  type LeagueExtraSpotKey,
+} from './nflNcaaSpot';
 import {
   buildPlayerPickVariants,
   buildRandomPlayerVariant,
@@ -51,6 +58,8 @@ export type QuickLiveLotInput = {
   spotDrafts?: LiveBreakVariantDraft[];
   /** NFL PYT: optional buyable NCAA spot (off by default). */
   includeNcaaSpot?: boolean;
+  /** NFL PYT: optional buyable MLB / NBA / NHL spots (off by default). */
+  includeLeagueExtras?: LeagueExtraSpotKey[];
   /** Multiline player paste for PYP / random PYP. */
   playerListText?: string;
 };
@@ -67,6 +76,7 @@ export type QuickLiveLotValues = {
   variants?: LiveBreakVariantDraft[];
   boardPack?: LiveBoardPackId;
   teamBoardNcaa?: boolean;
+  teamBoardLeagueExtras?: LeagueExtraSpotKey[];
   customRandomPoolLabels?: string[] | null;
 };
 
@@ -96,11 +106,13 @@ export function breakSpotCountForSaleType(
   boardPack: LiveBoardPackId = DEFAULT_LIVE_BOARD_PACK,
   includeNcaaSpot = false,
   playerCount = 0,
+  extraSpotCount = 0,
 ): number {
   if (saleType === 'pyp' || saleType === 'random_pyp') return playerCount;
   if (saleType === 'pyt' || saleType === 'random_pyt') {
     const n = boardPackTeamCount(boardPack);
-    return includeNcaaSpot && boardPack === 'nfl' && saleType === 'pyt' ? n + 1 : n;
+    if (boardPack !== 'nfl' || saleType !== 'pyt') return n;
+    return n + (includeNcaaSpot ? 1 : 0) + extraSpotCount;
   }
   if (saleType === 'pyd' || saleType === 'random_pyd') return 8;
   if (saleType === 'sweet16') return 32;
@@ -115,16 +127,24 @@ export function syncPickBreakSpotDrafts(args: {
   spotsCustomized: boolean;
   boardPack?: LiveBoardPackId;
   includeNcaaSpot?: boolean;
+  includeLeagueExtras?: LeagueExtraSpotKey[];
 }): LiveBreakVariantDraft[] {
   const pack = args.boardPack ?? DEFAULT_LIVE_BOARD_PACK;
   const wantNcaa = Boolean(args.includeNcaaSpot && pack === 'nfl' && args.saleType === 'pyt');
-  const expected = breakSpotCountForSaleType(args.saleType, pack, wantNcaa);
+  const wantExtras: LeagueExtraSpotKey[] =
+    pack === 'nfl' && args.saleType === 'pyt' ? (args.includeLeagueExtras ?? []) : [];
+  const expected = breakSpotCountForSaleType(args.saleType, pack, wantNcaa, 0, wantExtras.length);
+  const decorate = (list: LiveBreakVariantDraft[], price: number): LiveBreakVariantDraft[] => {
+    let out = stripLeagueExtraSpotVariants(list);
+    out = wantNcaa ? withNcaaBuyableSpot(out, price) : stripNcaaSpotVariants(out);
+    return withLeagueExtraBuyableSpots(out, wantExtras, price);
+  };
   if (args.basePrice == null) return args.prev.length === expected ? args.prev : [];
   let next: LiveBreakVariantDraft[];
   if (args.prev.length !== expected || !args.spotsCustomized) {
     next =
       args.saleType === 'pyt' ? buildPytVariants(args.basePrice, pack) : buildPydVariants(args.basePrice);
-    next = wantNcaa ? withNcaaBuyableSpot(next, args.basePrice) : stripNcaaSpotVariants(next);
+    next = decorate(next, args.basePrice);
     if (args.spotsCustomized) {
       const byKey = new Map(args.prev.map((s) => [(s.color || s.label).toUpperCase(), s.priceUsd]));
       next = next.map((s) => ({
@@ -134,9 +154,7 @@ export function syncPickBreakSpotDrafts(args: {
     }
     return next;
   }
-  next = wantNcaa
-    ? withNcaaBuyableSpot(stripNcaaSpotVariants(args.prev), args.basePrice)
-    : stripNcaaSpotVariants(args.prev);
+  next = decorate(args.prev, args.basePrice);
   if (args.spotsCustomized) return next;
   return next.map((spot) => ({ ...spot, priceUsd: args.basePrice! }));
 }
@@ -259,7 +277,15 @@ export function validateQuickLiveLot(
         message: input.saleType === 'pyt' ? 'Enter a price per team.' : 'Enter a price per division.',
       };
     }
-    const expected = breakSpotCountForSaleType(input.saleType, pack, Boolean(input.includeNcaaSpot));
+    const pytExtras: LeagueExtraSpotKey[] =
+      input.saleType === 'pyt' && pack === 'nfl' ? (input.includeLeagueExtras ?? []) : [];
+    const expected = breakSpotCountForSaleType(
+      input.saleType,
+      pack,
+      Boolean(input.includeNcaaSpot),
+      0,
+      pytExtras.length,
+    );
     let variants =
       input.spotDrafts?.length === expected
         ? input.spotDrafts
@@ -270,6 +296,9 @@ export function validateQuickLiveLot(
       variants = withNcaaBuyableSpot(stripNcaaSpotVariants(variants), spotPrice);
     } else if (input.saleType === 'pyt') {
       variants = stripNcaaSpotVariants(variants);
+    }
+    if (input.saleType === 'pyt') {
+      variants = withLeagueExtraBuyableSpots(variants, pytExtras, spotPrice);
     }
     return {
       ok: true,
@@ -285,6 +314,7 @@ export function validateQuickLiveLot(
         variants: variants.map((v) => ({ ...v, isHot: v.isHot === true })),
         boardPack: pack,
         teamBoardNcaa: pack === 'nfl' && Boolean(input.includeNcaaSpot),
+        teamBoardLeagueExtras: pytExtras,
       },
     };
   }
@@ -305,8 +335,14 @@ export function validateQuickLiveLot(
       input.saleType === 'random_pyt'
         ? buildRandomTeamVariants(spotPrice, pack)
         : buildRandomDivisionVariants(spotPrice);
-    if (input.saleType === 'random_pyt' && pack === 'nfl' && input.includeNcaaSpot) {
-      variants = withNcaaRandomPoolSeat(variants, pack);
+    const randomExtras: LeagueExtraSpotKey[] =
+      input.saleType === 'random_pyt' && pack === 'nfl' ? (input.includeLeagueExtras ?? []) : [];
+    if (input.saleType === 'random_pyt' && pack === 'nfl') {
+      variants = withRandomPoolExtraSeats(
+        variants,
+        pack,
+        (input.includeNcaaSpot ? 1 : 0) + randomExtras.length,
+      );
     }
     return {
       ok: true,
@@ -322,6 +358,7 @@ export function validateQuickLiveLot(
         variants,
         boardPack: pack,
         teamBoardNcaa: pack === 'nfl' && Boolean(input.includeNcaaSpot),
+        teamBoardLeagueExtras: randomExtras,
       },
     };
   }

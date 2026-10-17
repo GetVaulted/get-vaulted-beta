@@ -14,6 +14,7 @@ import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-s
 import { resolveDefaultSellerProfileForLiveShow } from "@/services/shipping/seller-shipping-profiles";
 import { normalizeCustomRandomPoolLabels } from "../../../../../../../shared/live-player-spot-list";
 import { expandSurpriseSetLabels, validateSurpriseSetItems } from "../../../../../../../shared/surprise-set";
+import { normalizeLeagueExtras } from "@/lib/team-board-sets";
 
 type PostBody = {
   title?: string;
@@ -26,6 +27,8 @@ type PostBody = {
   sortOrder?: number;
   teamBoardMisc?: boolean;
   teamBoardNcaa?: boolean;
+  /** NFL PYT extra spots: any of "MLB" | "NBA" | "NHL". */
+  teamBoardLeagueExtras?: string[];
   /** Custom player names for random player_selection reveal pool. */
   customRandomPoolLabels?: string[] | null;
   /** Surprise Set contents: [{ name, quantity, msrpUsd }] (random player_selection only). */
@@ -194,6 +197,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     body.teamBoardMisc === true && room.roomType === "break" && room.teamBoardLeague === "nfl";
   const teamBoardNcaa =
     body.teamBoardNcaa === true && room.roomType === "break" && room.teamBoardLeague === "nfl";
+  const teamBoardLeagueExtras =
+    room.roomType === "break" && room.teamBoardLeague === "nfl"
+      ? normalizeLeagueExtras(body.teamBoardLeagueExtras)
+      : [];
 
   const salesFormat = parseLiveItemSalesFormat(salesFormatBody);
   const variantAssignmentMode: LiveItemVariantAssignmentMode =
@@ -293,6 +300,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     sortOrder,
     teamBoardMisc,
     teamBoardNcaa,
+    teamBoardLeagueExtras,
     customRandomPoolLabels: customRandomPoolLabels ?? undefined,
     surpriseSetItems: surpriseSetItems ?? undefined,
     quantity: isVariantSalesFormat(salesFormat)
