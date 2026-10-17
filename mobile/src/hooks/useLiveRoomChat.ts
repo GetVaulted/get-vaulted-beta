@@ -69,6 +69,18 @@ function mapRows(rows: LiveRoomChatMessageRow[], hostUsername: string, hostUserI
   return out;
 }
 
+/** True when two message lists render identically — lets background polls skip a re-render. */
+function sameChatMessages(a: ChatMessage[], b: ChatMessage[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const x = a[i];
+    const y = b[i];
+    if (x.id !== y.id || x.text !== y.text || x.messageType !== y.messageType) return false;
+  }
+  return true;
+}
+
 function stripMatchingPendingMessages(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
   if (incoming.length === 0) return prev;
   return prev.filter((m) => {
@@ -121,7 +133,10 @@ export function useLiveRoomChat(args: {
     try {
       const rows = await fetchLiveRoomChatMessages(args.roomId, args.accessToken);
       const mapped = mapRows(rows, args.hostUsername, args.hostUserId);
-      setMessages((prev) => mergeChatMessagesById(prev, mapped));
+      setMessages((prev) => {
+        const merged = mergeChatMessagesById(prev, mapped);
+        return sameChatMessages(prev, merged) ? prev : merged;
+      });
       setError(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
