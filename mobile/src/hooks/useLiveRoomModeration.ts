@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import {
   fetchLiveRoomModeration,
   type LiveRoomModerationSnapshot,
@@ -41,6 +42,10 @@ export function useLiveRoomModeration(args: {
 }) {
   const [state, setState] = useState<LiveRoomModerationSnapshot>(EMPTY);
   const [roomBlocked, setRoomBlocked] = useState(false);
+  const canModerateRef = useRef(false);
+  const lastSnapJsonRef = useRef<string | null>(null);
+  const patchedSinceSnapRef = useRef(false);
+  canModerateRef.current = Boolean(state.canModerate || state.isHost || state.isModerator);
 
   const reload = useCallback(async () => {
     if (!args.roomId || args.enabled === false) return;
@@ -49,6 +54,19 @@ export function useLiveRoomModeration(args: {
       accessToken: args.accessToken,
     });
     if (!snap) return;
+    // Background polls usually return the same data — skip the state update so the whole live
+    // screen doesn't re-render every few seconds.
+    let snapJson: string | null = null;
+    try {
+      snapJson = JSON.stringify(snap);
+    } catch {
+      snapJson = null;
+    }
+    if (snapJson != null && snapJson === lastSnapJsonRef.current && !patchedSinceSnapRef.current) {
+      return;
+    }
+    lastSnapJsonRef.current = snapJson;
+    patchedSinceSnapRef.current = false;
     setState((prev) => {
       const nextPinnedMessage = snap.pinnedModeratorMessage ?? null;
       const prevPinnedAt = prev.pinnedModeratorMessageAt?.trim();
@@ -91,13 +109,22 @@ export function useLiveRoomModeration(args: {
   }, [args.accessToken, args.enabled, args.roomId]);
 
   const patch = useCallback((partial: Partial<LiveRoomModerationSnapshot>) => {
+    patchedSinceSnapRef.current = true;
     setState((prev) => ({ ...prev, ...partial }));
   }, []);
 
   useEffect(() => {
     void reload();
     if (args.enabled === false) return undefined;
-    const id = setInterval(() => void reload(), 12_000);
+    // Realtime broadcasts already push moderation changes. Moderators/hosts keep a 12s safety poll;
+    // plain viewers only need a slow one, and nobody polls while the app is in the background.
+    let tick = 0;
+    const id = setInterval(() => {
+      if (AppState.currentState !== 'active') return;
+      tick += 1;
+      if (!canModerateRef.current && tick % 5 !== 0) return;
+      void reload();
+    }, 12_000);
     return () => clearInterval(id);
   }, [args.enabled, reload]);
 

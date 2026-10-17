@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
   Image,
   Platform,
@@ -45,6 +45,8 @@ const COMPOSER_PLACEHOLDER = 'Say something';
 /** TikTok/Whatnot-style overlay: ~6 lines visible; scroll up for full session history. */
 export const MAX_FLOATING_CHAT = 6;
 export const MAX_FLOATING_CHAT_EXPANDED = 14;
+/** Only the newest rows are mounted — long shows keep up to 300 messages in memory but drawing them all froze the UI. */
+const FLOATING_CHAT_RENDER_MAX = 60;
 export const FLOATING_CHAT_SCROLL_NEAR_BOTTOM_PX = 48;
 
 /** Whatnot-style pinned mod row (avatar + username + Mod pill + body). */
@@ -130,7 +132,7 @@ function ChatAvatarBubble({
   );
 }
 
-function FloatingChatRow({
+function FloatingChatRowImpl({
   message,
   hostAvatarUrl,
   liveRoomId,
@@ -290,6 +292,8 @@ function FloatingChatRow({
   );
 }
 
+const FloatingChatRow = memo(FloatingChatRowImpl);
+
 export function PinnedModeratorBar({
   pinned,
   compact,
@@ -418,7 +422,10 @@ export function FloatingLiveChat({
   expanded?: boolean;
   onToggleExpanded?: () => void;
 }) {
-  const history = useMemo(() => prepareChatMessageHistory(pool), [pool]);
+  const history = useMemo(() => {
+    const all = prepareChatMessageHistory(pool);
+    return all.length > FLOATING_CHAT_RENDER_MAX ? all.slice(-FLOATING_CHAT_RENDER_MAX) : all;
+  }, [pool]);
   const moderatorIdSet = useMemo(() => new Set(moderatorUserIds ?? []), [moderatorUserIds]);
   const scrollRef = useRef<ScrollView>(null);
   const pinnedToBottomRef = useRef(true);
