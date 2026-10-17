@@ -185,6 +185,56 @@ describe('validateQuickLiveLot', () => {
   });
 });
 
+describe('NFL PYT league extra spots', () => {
+  it('appends MLB/NBA/NHL buyable spots alongside NCAA', () => {
+    const r = validateQuickLiveLot({
+      title: 'NFL PYT with extras',
+      saleType: 'pyt',
+      price: '40',
+      quantity: '1',
+      reservePrice: '',
+      buyNowPrice: '',
+      boardPack: 'nfl',
+      includeNcaaSpot: true,
+      includeLeagueExtras: ['MLB', 'NHL'],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.values.variants?.length).toBe(35);
+      expect(r.values.teamBoardLeagueExtras).toEqual(['MLB', 'NHL']);
+      expect(r.values.variants?.some((v) => v.color === 'MLB')).toBe(true);
+      expect(r.values.variants?.some((v) => v.color === 'NBA')).toBe(false);
+    }
+  });
+
+  it('ignores extras on non-NFL boards', () => {
+    const synced = syncPickBreakSpotDrafts({
+      prev: [],
+      saleType: 'pyt',
+      basePrice: 20,
+      spotsCustomized: false,
+      boardPack: 'nba',
+      includeLeagueExtras: ['MLB'],
+    });
+    expect(synced.some((v) => v.color === 'MLB')).toBe(false);
+  });
+
+  it('grows the random NFL pool by one seat per extra', () => {
+    const r = validateQuickLiveLot({
+      title: 'Random NFL extras',
+      saleType: 'random_pyt',
+      price: '25',
+      quantity: '1',
+      reservePrice: '',
+      buyNowPrice: '',
+      boardPack: 'nfl',
+      includeLeagueExtras: ['MLB', 'NBA', 'NHL'],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.values.variants?.[0]?.quantityInitial).toBe(35);
+  });
+});
+
 describe('syncPickBreakSpotDrafts', () => {
   it('updates all team prices when price per team changes before manual edits', () => {
     const initial = buildPytVariants(3);

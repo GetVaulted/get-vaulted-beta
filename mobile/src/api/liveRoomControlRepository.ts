@@ -116,6 +116,7 @@ export async function createLiveRoomQueueItem(
     sellerShippingProfileId?: string | null;
     shippingProfileId?: string | null;
     teamBoardNcaa?: boolean;
+    teamBoardLeagueExtras?: string[];
     customRandomPoolLabels?: string[] | null;
   },
 ): Promise<string> {
@@ -141,6 +142,9 @@ export async function createLiveRoomQueueItem(
   }
   if (input.teamBoardNcaa === true) {
     body.teamBoardNcaa = true;
+  }
+  if (input.teamBoardLeagueExtras?.length) {
+    body.teamBoardLeagueExtras = input.teamBoardLeagueExtras;
   }
   if (input.customRandomPoolLabels?.length) {
     body.customRandomPoolLabels = input.customRandomPoolLabels;

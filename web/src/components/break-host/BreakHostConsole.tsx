@@ -1575,7 +1575,11 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     async (payload: AddQueueItemAuctionPayload): Promise<boolean> => {
       const miscPayload =
         hostDataRef.current?.room.teamBoardLeague === "nfl"
-          ? { teamBoardMisc: payload.teamBoardMisc, teamBoardNcaa: payload.teamBoardNcaa }
+          ? {
+              teamBoardMisc: payload.teamBoardMisc,
+              teamBoardNcaa: payload.teamBoardNcaa,
+              teamBoardLeagueExtras: payload.teamBoardLeagueExtras,
+            }
           : {};
       const variantPayload = isVariantSalesFormat(payload.salesFormat)
         ? {

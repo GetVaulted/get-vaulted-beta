@@ -1,6 +1,6 @@
 import type { TeamBoardLeague } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { teamBoardLeagueKey, teamBoardTeamsForActiveItem } from "@/lib/team-board-sets";
+import { normalizeLeagueExtras, teamBoardLeagueKey, teamBoardTeamsForActiveItem } from "@/lib/team-board-sets";
 import type { TeamBoardPickDTO, TeamBoardPublicPayload, TeamBoardStateDTO } from "@/lib/team-board-public-dto";
 
 export type { TeamBoardPickDTO, TeamBoardPublicPayload, TeamBoardStateDTO } from "@/lib/team-board-public-dto";
@@ -47,6 +47,7 @@ export async function getTeamBoardPublicPayload(liveRoomId: string): Promise<Tea
         select: {
           teamBoardMisc: true,
           teamBoardNcaa: true,
+          teamBoardLeagueExtras: true,
           salesFormat: true,
           variantAssignmentMode: true,
           variants: {
@@ -79,6 +80,7 @@ export async function getTeamBoardPublicPayload(liveRoomId: string): Promise<Tea
   const activeNcaa = activeItem?.teamBoardNcaa === true;
   const includeMisc = league === "nfl" && activeMisc;
   const includeNcaa = league === "nfl" && activeNcaa;
+  const includeLeagueExtras = league === "nfl" ? normalizeLeagueExtras(activeItem?.teamBoardLeagueExtras) : [];
   const teams = teamBoardTeamsForActiveItem({
     league: teamBoardLeagueKey(league),
     salesFormat: activeItem?.salesFormat,
@@ -86,6 +88,7 @@ export async function getTeamBoardPublicPayload(liveRoomId: string): Promise<Tea
     variants: activeItem?.variants,
     includeMisc,
     includeNcaa,
+    includeLeagueExtras,
   });
 
   const state: TeamBoardStateDTO = {

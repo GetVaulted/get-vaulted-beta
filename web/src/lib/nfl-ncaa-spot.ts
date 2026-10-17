@@ -49,3 +49,52 @@ export function withNcaaRandomPoolSeat(
       : v,
   );
 }
+
+/** Random-team pool = core teams + every optional extra seat (NCAA, MLB, NBA, NHL). */
+export function withRandomPoolExtraSeats(
+  variants: VariantDraftInput[],
+  baseTeamCount: number,
+  extraSeats: number,
+): VariantDraftInput[] {
+  if (variants.length === 0 || extraSeats <= 0) return variants;
+  return variants.map((v, i) => (i === 0 ? { ...v, quantityInitial: baseTeamCount + extraSeats } : v));
+}
+
+/** Extra "other league" buyable spots for NFL PYT (MLB / NBA / NHL), alongside NCAA. */
+export const LEAGUE_EXTRA_SPOT_KEYS = ["MLB", "NBA", "NHL"] as const;
+export type LeagueExtraSpotKey = (typeof LEAGUE_EXTRA_SPOT_KEYS)[number];
+
+export function isLeagueExtraSpotVariant(v: { label?: string | null; color?: string | null }): boolean {
+  const color = (v.color ?? "").trim().toUpperCase();
+  const label = (v.label ?? "").trim().toUpperCase();
+  return (
+    (LEAGUE_EXTRA_SPOT_KEYS as readonly string[]).includes(color) ||
+    (LEAGUE_EXTRA_SPOT_KEYS as readonly string[]).includes(label)
+  );
+}
+
+export function stripLeagueExtraSpotVariants<T extends { label?: string | null; color?: string | null }>(
+  variants: T[],
+): T[] {
+  return variants.filter((v) => !isLeagueExtraSpotVariant(v));
+}
+
+/** Append one buyable spot per selected extra league (replaces any existing extras). */
+export function withLeagueExtraBuyableSpots(
+  variants: VariantDraftInput[],
+  extras: readonly LeagueExtraSpotKey[],
+  priceUsd: number,
+): VariantDraftInput[] {
+  const base = stripLeagueExtraSpotVariants(variants);
+  const picked = LEAGUE_EXTRA_SPOT_KEYS.filter((k) => extras.includes(k));
+  return [
+    ...base,
+    ...picked.map((k, i) => ({
+      label: k,
+      priceUsd,
+      quantityInitial: 1,
+      sortOrder: base.length + i,
+      color: k,
+    })),
+  ];
+}

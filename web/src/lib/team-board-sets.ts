@@ -182,6 +182,9 @@ export const TEAM_BOARD_DISPLAY_NAMES: Record<TeamBoardLeagueKey, Record<string,
     WAS: "Commanders",
     MISC: "Misc",
     NCAA: "NCAA",
+    MLB: "MLB",
+    NBA: "NBA",
+    NHL: "NHL",
   },
   nba: {
     ATL: "Hawks",
@@ -292,15 +295,36 @@ export function normalizeTeamAbbr(raw: string): string {
   return raw.trim().toUpperCase().slice(0, 6);
 }
 
+/** Extra buyable "other league" spots for NFL PYT (besides NCAA). */
+export const NFL_LEAGUE_EXTRA_KEYS = ["MLB", "NBA", "NHL"] as const;
+export type NflLeagueExtraKey = (typeof NFL_LEAGUE_EXTRA_KEYS)[number];
+
+/** Whitelist + de-dupe an untrusted list of extra-spot keys. */
+export function normalizeLeagueExtras(raw: unknown): NflLeagueExtraKey[] {
+  if (!Array.isArray(raw)) return [];
+  const out: NflLeagueExtraKey[] = [];
+  for (const v of raw) {
+    if (typeof v !== "string") continue;
+    const k = v.trim().toUpperCase();
+    if ((NFL_LEAGUE_EXTRA_KEYS as readonly string[]).includes(k) && !out.includes(k as NflLeagueExtraKey)) {
+      out.push(k as NflLeagueExtraKey);
+    }
+  }
+  return NFL_LEAGUE_EXTRA_KEYS.filter((k) => out.includes(k));
+}
+
 export function isValidTeamForLeague(
   league: string,
   abbr: string,
-  opts?: { allowMisc?: boolean; allowNcaa?: boolean },
+  opts?: { allowMisc?: boolean; allowNcaa?: boolean; allowLeagueExtras?: readonly string[] },
 ): boolean {
   if (league !== "nfl" && league !== "nba" && league !== "mlb" && league !== "nhl") return false;
   const a = normalizeTeamAbbr(abbr);
   if (opts?.allowMisc && league === "nfl" && a === "MISC") return true;
   if (opts?.allowNcaa && league === "nfl" && a === "NCAA") return true;
+  if (league === "nfl" && opts?.allowLeagueExtras?.includes(a) && (NFL_LEAGUE_EXTRA_KEYS as readonly string[]).includes(a)) {
+    return true;
+  }
   return TEAM_BOARD_SETS[league].includes(a);
 }
 
@@ -335,6 +359,7 @@ export function resolveTeamAbbrFromVariantLabel(
     if (!lower.endsWith("_teams") && lower !== "nfl_divisions" && lower !== "player") {
       const fromColor = normalizeTeamAbbr(raw);
       if (fromColor === "MISC" || fromColor === "NCAA") return fromColor;
+      if (league === "nfl" && (NFL_LEAGUE_EXTRA_KEYS as readonly string[]).includes(fromColor)) return fromColor;
       if (TEAM_BOARD_SETS[league].includes(fromColor)) return fromColor;
     }
   }
@@ -367,12 +392,18 @@ export function teamBoardTeamsForActiveItem(opts: {
   variants?: TeamBoardItemVariantLite[] | null;
   includeMisc?: boolean;
   includeNcaa?: boolean;
+  includeLeagueExtras?: readonly string[];
 }): string[] {
   const base = TEAM_BOARD_SETS[opts.league];
   const appendExtras = (teams: string[]): string[] => {
     const out = [...teams];
     if (opts.includeMisc && opts.league === "nfl" && !out.includes("MISC")) out.push("MISC");
     if (opts.includeNcaa && opts.league === "nfl" && !out.includes("NCAA")) out.push("NCAA");
+    if (opts.league === "nfl") {
+      for (const k of normalizeLeagueExtras(opts.includeLeagueExtras)) {
+        if (!out.includes(k)) out.push(k);
+      }
+    }
     return out;
   };
 
@@ -392,6 +423,7 @@ export function teamBoardTeamsForActiveItem(opts: {
       !isValidTeamForLeague(opts.league, abbr, {
         allowMisc: Boolean(opts.includeMisc),
         allowNcaa: Boolean(opts.includeNcaa),
+        allowLeagueExtras: opts.includeLeagueExtras,
       })
     ) {
       continue;
@@ -402,7 +434,9 @@ export function teamBoardTeamsForActiveItem(opts: {
 
   if (resolved.length === 0) return appendExtras([...base]);
 
-  const coreResolved = resolved.filter((a) => a !== "MISC" && a !== "NCAA");
+  const coreResolved = resolved.filter(
+    (a) => a !== "MISC" && a !== "NCAA" && !(NFL_LEAGUE_EXTRA_KEYS as readonly string[]).includes(a),
+  );
   if (coreResolved.length >= base.length) return appendExtras([...base]);
 
   const order = new Map(appendExtras([...base]).map((abbr, i) => [abbr, i]));

@@ -52,6 +52,7 @@ import {
   type LiveBreakVariantDraft,
 } from '../../../lib/liveBreakPresets';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
+import { LEAGUE_EXTRA_SPOT_KEYS, type LeagueExtraSpotKey } from '../../../lib/nflNcaaSpot';
 import { RANDOM_BREAK_SALE_TYPES_ENABLED } from '../../../../../shared/live-break-feature-flags';
 import {
   parsePlayerSpotList,
@@ -147,6 +148,7 @@ export function AddInventoryModal({
   const [spotsCustomized, setSpotsCustomized] = useState(false);
   const [boardPack, setBoardPack] = useState<LiveBoardPackId>(DEFAULT_LIVE_BOARD_PACK);
   const [includeNcaaSpot, setIncludeNcaaSpot] = useState(false);
+  const [leagueExtras, setLeagueExtras] = useState<LeagueExtraSpotKey[]>([]);
   const [playerListText, setPlayerListText] = useState('');
   const [profileOptions, setProfileOptions] = useState<{ id: string; name: string; isDefault?: boolean }[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('');
@@ -169,6 +171,7 @@ export function AddInventoryModal({
     setSpotsCustomized(false);
     setBoardPack(DEFAULT_LIVE_BOARD_PACK);
     setIncludeNcaaSpot(false);
+    setLeagueExtras([]);
     setPlayerListText('');
     setImageUri(null);
     setImageUrl(null);
@@ -284,9 +287,10 @@ export function AddInventoryModal({
         spotsCustomized,
         boardPack,
         includeNcaaSpot,
+        includeLeagueExtras: leagueExtras,
       }),
     );
-  }, [draft.saleType, draft.price, spotsCustomized, boardPack, includeNcaaSpot, playerListText]);
+  }, [draft.saleType, draft.price, spotsCustomized, boardPack, includeNcaaSpot, leagueExtras, playerListText]);
 
   const setSaleType = (saleType: LiveLotSaleType) => {
     setDraft((prev) => ({ ...prev, saleType }));
@@ -294,6 +298,7 @@ export function AddInventoryModal({
     setSpotsCustomized(false);
     if (saleType !== 'pyt' && saleType !== 'random_pyt') {
       setIncludeNcaaSpot(false);
+      setLeagueExtras([]);
     }
   };
 
@@ -301,7 +306,10 @@ export function AddInventoryModal({
     setBoardPack(pack);
     setSpotDrafts([]);
     setSpotsCustomized(false);
-    if (pack !== 'nfl') setIncludeNcaaSpot(false);
+    if (pack !== 'nfl') {
+      setIncludeNcaaSpot(false);
+      setLeagueExtras([]);
+    }
     if (
       !boardPackSupportsDivisions(pack) &&
       (draft.saleType === 'pyd' || draft.saleType === 'random_pyd' || draft.saleType === 'sweet16')
@@ -373,6 +381,7 @@ export function AddInventoryModal({
       spotDrafts,
       boardPack,
       includeNcaaSpot: boardPack === 'nfl' && includeNcaaSpot,
+      includeLeagueExtras: boardPack === 'nfl' ? leagueExtras : [],
       playerListText,
     });
     if (!validated.ok) {
@@ -414,6 +423,7 @@ export function AddInventoryModal({
     boardPack,
     boardPack === 'nfl' && includeNcaaSpot,
     playerListPreview.ok ? playerListPreview.names.length : 0,
+    boardPack === 'nfl' ? leagueExtras.length : 0,
   );
   const showNcaaOption =
     boardPack === 'nfl' && (draft.saleType === 'pyt' || draft.saleType === 'random_pyt');
@@ -764,6 +774,33 @@ export function AddInventoryModal({
                 <Text style={styles.ncaaTxt}>Add NCAA spot (buyable · off by default)</Text>
               </Pressable>
             ) : null}
+
+            {showNcaaOption
+              ? LEAGUE_EXTRA_SPOT_KEYS.map((key) => {
+                  const checked = leagueExtras.includes(key);
+                  return (
+                    <Pressable
+                      key={key}
+                      style={styles.ncaaRow}
+                      onPress={() =>
+                        setLeagueExtras((prev) =>
+                          prev.includes(key)
+                            ? prev.filter((k) => k !== key)
+                            : LEAGUE_EXTRA_SPOT_KEYS.filter((k) => k === key || prev.includes(k)),
+                        )
+                      }
+                      disabled={busy}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked }}
+                    >
+                      <View style={[styles.ncaaCheck, checked && styles.ncaaCheckOn]}>
+                        {checked ? <Ionicons name="checkmark" size={14} color="#0c0c0e" /> : null}
+                      </View>
+                      <Text style={styles.ncaaTxt}>Add {key} spot (buyable · off by default)</Text>
+                    </Pressable>
+                  );
+                })
+              : null}
 
             <Text style={styles.fieldLbl}>{priceLabel}</Text>
             <TextInput

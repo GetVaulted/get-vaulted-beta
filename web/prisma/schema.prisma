@@ -1545,6 +1545,8 @@ model LiveRoomItem {
   teamBoardMisc               Boolean                        @default(false)
   /// NFL PYT: when true, an NCAA buyable spot is included and NCAA appears on the team board.
   teamBoardNcaa               Boolean                        @default(false)
+  /// NFL PYT: extra buyable "other league" spots (subset of MLB, NBA, NHL) shown on the team board.
+  teamBoardLeagueExtras       String[]                       @default([])
   /// Custom random-reveal pool labels (Pick Your Player random). JSON string array.
   customRandomPoolLabels      Json?
   /// Surprise Set contents: [{ name, quantity, msrpUsd }]. MSRP is seller/admin only.

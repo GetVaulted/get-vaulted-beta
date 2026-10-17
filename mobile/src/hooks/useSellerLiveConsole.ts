@@ -342,6 +342,7 @@ export function useSellerLiveConsole({
           sellerShippingProfileId: payload.sellerShippingProfileId ?? null,
           shippingProfileId: payload.shippingProfileId ?? null,
           teamBoardNcaa: payload.teamBoardNcaa === true,
+          teamBoardLeagueExtras: payload.teamBoardLeagueExtras,
           customRandomPoolLabels: payload.customRandomPoolLabels ?? null,
         });
         setItems((prev) => {

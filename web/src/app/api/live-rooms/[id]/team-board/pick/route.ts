@@ -5,7 +5,7 @@ import { getLiveRoomBroadcastCommerceBlock } from "@/lib/live-room-commerce-guar
 import { prisma } from "@/lib/prisma";
 import { emitLiveRoomMessageById, emitTeamBoardChanged } from "@/lib/realtime-emit-server";
 import { getTeamBoardPublicPayload } from "@/lib/team-board-public-server";
-import { isValidTeamForLeague, normalizeTeamAbbr, teamBoardLeagueKey, teamBoardTeamsForActiveItem } from "@/lib/team-board-sets";
+import { isValidTeamForLeague, normalizeLeagueExtras, normalizeTeamAbbr, teamBoardLeagueKey, teamBoardTeamsForActiveItem } from "@/lib/team-board-sets";
 
 type PostBody = { teamAbbr?: string; forUserId?: string | null };
 
@@ -35,6 +35,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         select: {
           teamBoardMisc: true,
           teamBoardNcaa: true,
+          teamBoardLeagueExtras: true,
           salesFormat: true,
           variantAssignmentMode: true,
           variants: {
@@ -90,7 +91,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const activeItem = room.items[0] ?? null;
   const allowMisc = league === "nfl" && activeItem?.teamBoardMisc === true;
   const allowNcaa = league === "nfl" && activeItem?.teamBoardNcaa === true;
-  if (!isValidTeamForLeague(league, teamAbbr, { allowMisc, allowNcaa })) {
+  const allowLeagueExtras = league === "nfl" ? normalizeLeagueExtras(activeItem?.teamBoardLeagueExtras) : [];
+  if (!isValidTeamForLeague(league, teamAbbr, { allowMisc, allowNcaa, allowLeagueExtras })) {
     return NextResponse.json({ error: "Unknown team for this league." }, { status: 400 });
   }
   const allowedTeams = new Set(
@@ -101,6 +103,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       variants: activeItem?.variants,
       includeMisc: allowMisc,
       includeNcaa: allowNcaa,
+      includeLeagueExtras: allowLeagueExtras,
     }),
   );
   if (!allowedTeams.has(teamAbbr)) {
