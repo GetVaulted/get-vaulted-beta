@@ -2480,6 +2480,21 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       const orderId = pi.metadata?.orderId?.trim() || null;
       const kind = pi.metadata?.kind ?? null;
 
+      // Record Stripe's real processing fee / net / transfer on the order. Charges are created with
+      // capture_method "automatic_async", so when the order is first finalized the charge's
+      // balance_transaction and transfer do not exist yet and the ledger fetch comes back without a
+      // fee. By the time this event arrives they do. persistOrderStripeChargeLedger only fills
+      // columns that are still null, so this is safe to run on every delivery and for every kind.
+      // Best-effort: never blocks or fails the webhook.
+      if (orderId) {
+        try {
+          await persistOrderStripeChargeLedger({ orderId, paymentIntentId: pi.id });
+          await ensureOrderPlatformFeeSnapshotPersisted(orderId);
+        } catch (e) {
+          console.warn("[money-flow] webhook charge ledger persist failed", orderId, pi.id, e);
+        }
+      }
+
       if (kind === "variant_purchase_saved_pm") {
         const purchaseId = pi.metadata?.purchaseId?.trim() || null;
         const batchId = pi.metadata?.batchId?.trim() || null;
