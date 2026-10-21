@@ -56,6 +56,36 @@ const HOST_TOKEN_REFRESH_MS = 11 * 60 * 60 * 1000;
 const LITE_MODE_STORAGE_KEY = "gv:hostLiteMode";
 
 /**
+ * Persists the seller's "Vertical" choice on this device. Webcams are landscape (16:9) but buyers
+ * watch on portrait phones, where a landscape picture shows as a thin strip with black above and
+ * below. Vertical crops the capture to 9:16 so it fills the phone screen. Off by default because it
+ * trims the left/right edges of the picture - the seller should opt in and frame themselves to fit.
+ */
+const VERTICAL_MODE_STORAGE_KEY = "gv:hostVerticalMode";
+
+function readStoredVerticalMode(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(VERTICAL_MODE_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Portrait capture hint: ask the browser to crop-and-scale the camera to 9:16 (720x1280). */
+const VERTICAL_VIDEO_CONSTRAINTS = {
+  width: { ideal: 720 },
+  height: { ideal: 1280 },
+  aspectRatio: { ideal: 9 / 16 },
+  resizeMode: "crop-and-scale",
+} as MediaTrackConstraints;
+
+function trackIsPortrait(track: MediaStreamTrack | undefined): boolean {
+  const s = track?.getSettings?.();
+  return Boolean(s && typeof s.width === "number" && typeof s.height === "number" && s.height > s.width);
+}
+
+/**
  * Reduced encoder ceiling for hosts publishing from a hot/low-power device. With no config
  * passed to LocalStageStream, the SDK defaults to STAGE_MAX_BITRATE (2500 Kbps) at
  * STAGE_MAX_FRAMERATE (30fps) for every host regardless of device - sustained 720p/30fps
@@ -97,7 +127,7 @@ function buildLocalStreams(
   return streams;
 }
 
-function mediaConstraints(videoDeviceId?: string, audioDeviceId?: string): MediaStreamConstraints {
+function mediaConstraints(videoDeviceId?: string, audioDeviceId?: string, vertical = false): MediaStreamConstraints {
   const audio: MediaTrackConstraints = {
     // Keep host mic levels consistent for viewers (bare `audio: true` often captures quietly).
     autoGainControl: true,
@@ -115,9 +145,13 @@ function mediaConstraints(videoDeviceId?: string, audioDeviceId?: string): Media
     // OverconstrainedError before the browser ever showed a permission prompt - sellers with an
     // external webcam got no camera/mic permission dialog at all. Falling back to just a
     // resolution hint lets the browser use whatever default camera is available.
-    video: videoDeviceId
-      ? { deviceId: { exact: videoDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-      : { width: { ideal: 1280 }, height: { ideal: 720 } },
+    video: vertical
+      ? videoDeviceId
+        ? { deviceId: { exact: videoDeviceId }, ...VERTICAL_VIDEO_CONSTRAINTS }
+        : { ...VERTICAL_VIDEO_CONSTRAINTS }
+      : videoDeviceId
+        ? { deviceId: { exact: videoDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        : { width: { ideal: 1280 }, height: { ideal: 720 } },
     audio,
   };
 }
@@ -163,6 +197,11 @@ export function useHostStagePublish({
   const [liteMode, setLiteModeState] = useState<boolean>(() => detectDefaultLiteMode());
   const liteModeRef = useRef(liteMode);
   liteModeRef.current = liteMode;
+  const [verticalMode, setVerticalModeState] = useState<boolean>(() => readStoredVerticalMode());
+  const verticalModeRef = useRef(verticalMode);
+  verticalModeRef.current = verticalMode;
+  /** True only when the camera track really came back portrait (browsers may refuse to crop). */
+  const [verticalActive, setVerticalActive] = useState(false);
 
   const callbacksRef = useRef({ onBroadcastStarted, onStreamRefresh, onLive });
   callbacksRef.current = { onBroadcastStarted, onStreamRefresh, onLive };
@@ -215,7 +254,24 @@ export function useHostStagePublish({
       const videoId = opts?.videoDeviceId ?? selectedVideoDeviceId;
       const audioId = opts?.audioDeviceId ?? selectedAudioDeviceId;
       logIvsWeb("permission requested", { roomId, transport: "webrtc", preview: opts?.previewOnly ?? false });
-      const media = await navigator.mediaDevices.getUserMedia(mediaConstraints(videoId || undefined, audioId || undefined));
+      const wantVertical = verticalModeRef.current;
+      const media = await navigator.mediaDevices.getUserMedia(
+        mediaConstraints(videoId || undefined, audioId || undefined, wantVertical),
+      );
+      if (wantVertical) {
+        const videoTrack = media.getVideoTracks()[0];
+        if (videoTrack && !trackIsPortrait(videoTrack)) {
+          // Some browsers ignore the capture-time hint; ask again on the live track before giving up.
+          try {
+            await videoTrack.applyConstraints(VERTICAL_VIDEO_CONSTRAINTS);
+          } catch {
+            /** keep the landscape capture */
+          }
+        }
+        setVerticalActive(trackIsPortrait(videoTrack));
+      } else {
+        setVerticalActive(false);
+      }
       mediaStreamRef.current = media;
       previewOnlyRef.current = opts?.previewOnly ?? false;
       setPreviewStream(media);
@@ -537,6 +593,29 @@ export function useHostStagePublish({
     [roomId],
   );
 
+  /**
+   * Switches vertical (9:16) capture. Only allowed before Go Live: once the Stage is publishing,
+   * changing the capture shape would mean swapping the camera track mid-show. Before Go Live it
+   * re-opens the preview so the seller sees exactly what buyers will get.
+   */
+  const setVerticalMode = useCallback(
+    (next: boolean) => {
+      if (stageRef.current || wentLiveRef.current) return;
+      verticalModeRef.current = next;
+      setVerticalModeState(next);
+      try {
+        window.localStorage.setItem(VERTICAL_MODE_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        /** ignore */
+      }
+      if (previewOnlyRef.current && mediaStreamRef.current) {
+        setPreviewError(null);
+        void acquireMedia({ previewOnly: true }).catch((err) => setPreviewError(friendlyMediaError(err)));
+      }
+    },
+    [acquireMedia],
+  );
+
   return {
     phase,
     error,
@@ -549,6 +628,9 @@ export function useHostStagePublish({
     setSelectedAudioDeviceId,
     liteMode,
     setLiteMode,
+    verticalMode,
+    verticalActive,
+    setVerticalMode,
     refreshDevices,
     startPreview,
     restartPreviewWithDevices,

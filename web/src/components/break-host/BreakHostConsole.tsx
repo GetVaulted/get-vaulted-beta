@@ -3050,6 +3050,9 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
             onAudioDevice={handlePreviewAudioDevice}
             liteMode={webcamBroadcast.liteMode}
             onToggleLiteMode={webcamBroadcast.setLiteMode}
+            verticalMode={webcamBroadcast.verticalMode}
+            verticalActive={webcamBroadcast.verticalActive}
+            onToggleVerticalMode={webcamBroadcast.setVerticalMode}
             onObs={() => setObsSetupModalOpen(true)}
             onGoLive={handleGoLive}
             onClose={() => setGoLiveSetupDismissed(true)}
@@ -3190,6 +3193,9 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
                   onAudioDevice={handlePreviewAudioDevice}
                   liteMode={webcamBroadcast.liteMode}
                   onToggleLiteMode={webcamBroadcast.setLiteMode}
+                  verticalMode={webcamBroadcast.verticalMode}
+                  verticalActive={webcamBroadcast.verticalActive}
+                  onToggleVerticalMode={webcamBroadcast.setVerticalMode}
                   onObs={() => setObsSetupModalOpen(true)}
                   onGoLive={handleGoLive}
                   onClose={() => setGoLiveSetupDismissed(true)}
@@ -3270,6 +3276,9 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
               onAudioDevice={handlePreviewAudioDevice}
               liteMode={webcamBroadcast.liteMode}
               onToggleLiteMode={webcamBroadcast.setLiteMode}
+              verticalMode={webcamBroadcast.verticalMode}
+              verticalActive={webcamBroadcast.verticalActive}
+              onToggleVerticalMode={webcamBroadcast.setVerticalMode}
               onObs={() => setObsSetupModalOpen(true)}
               onGoLive={handleGoLive}
               onClose={() => setGoLiveSetupDismissed(true)}

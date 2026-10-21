@@ -16,6 +16,11 @@ type SellerGoLiveSetupPanelProps = {
   onAudioDevice: (id: string) => void;
   liteMode: boolean;
   onToggleLiteMode: (next: boolean) => void;
+  /** Vertical (9:16) capture: crops the webcam so it fills phone screens. Hidden when not provided. */
+  verticalMode?: boolean;
+  /** True when the browser actually delivered a portrait picture. */
+  verticalActive?: boolean;
+  onToggleVerticalMode?: (next: boolean) => void;
   onObs: () => void;
   onGoLive: () => void;
   /** Dismiss the panel without going live -- the seller can still see the stage/queue behind it. */
@@ -35,6 +40,9 @@ export function SellerGoLiveSetupPanel({
   onAudioDevice,
   liteMode,
   onToggleLiteMode,
+  verticalMode = false,
+  verticalActive = false,
+  onToggleVerticalMode,
   onObs,
   onGoLive,
   onClose,
@@ -77,8 +85,18 @@ export function SellerGoLiveSetupPanel({
         ) : null}
       </div>
 
-      <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-black aspect-[9/16] max-h-[220px] w-full">
-        <video ref={videoRef} playsInline muted autoPlay className="h-full w-full object-cover" />
+      <div
+        className={`mt-3 mx-auto overflow-hidden rounded-xl border border-white/10 bg-black max-h-[220px] ${
+          verticalMode && verticalActive ? "aspect-[9/16]" : "aspect-video w-full"
+        }`}
+      >
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          autoPlay
+          className={`h-full w-full ${verticalMode && verticalActive ? "object-cover" : "object-contain"}`}
+        />
         {!previewStream ? (
           <div className="flex h-full min-h-[120px] items-center justify-center text-xs text-zinc-500">Starting preview…</div>
         ) : null}
@@ -115,6 +133,30 @@ export function SellerGoLiveSetupPanel({
           ))}
         </select>
       </label>
+
+      {onToggleVerticalMode ? (
+        <label className="mt-3 flex items-start gap-2.5 rounded-lg border border-white/10 bg-black/30 px-3 py-2.5">
+          <input
+            type="checkbox"
+            checked={verticalMode}
+            onChange={(e) => onToggleVerticalMode(e.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-gold"
+          />
+          <span>
+            <span className="block text-xs font-bold text-zinc-100">Fill phone screens (vertical)</span>
+            <span className="block text-[11px] leading-relaxed text-zinc-500">
+              Crops your webcam to a tall picture so it fills a buyer&apos;s phone instead of showing as a thin
+              strip. The left and right edges are trimmed, so sit in the middle. Set this before you go live.
+            </span>
+            {verticalMode && !verticalActive && previewStream ? (
+              <span className="mt-1 block text-[11px] leading-relaxed text-amber-300">
+                This browser couldn&apos;t crop the camera to vertical, so buyers will see the wide picture. Try
+                Chrome or Edge.
+              </span>
+            ) : null}
+          </span>
+        </label>
+      ) : null}
 
       <label className="mt-3 flex items-start gap-2.5 rounded-lg border border-white/10 bg-black/30 px-3 py-2.5">
         <input
