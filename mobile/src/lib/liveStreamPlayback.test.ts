@@ -16,6 +16,8 @@ import {
   shouldEscalateHostResumeToFullRejoin,
   shouldTreatAsLocalHostAway,
   shouldUseStageWebrtcPlayback,
+  warmNeighborRadiusForMemory,
+  WARM_NEIGHBOR_RADIUS,
 } from './liveStreamPlayback';
 
 const liveStageStream = {
@@ -442,5 +444,25 @@ describe('liveStreamPlayback', () => {
   it('escalates host Play to full Stage rejoin when warm publish toggle fails', () => {
     expect(shouldEscalateHostResumeToFullRejoin(false)).toBe(true);
     expect(shouldEscalateHostResumeToFullRejoin(true)).toBe(false);
+  });
+});
+
+describe('warmNeighborRadiusForMemory', () => {
+  const GB = 1024 * 1024 * 1024;
+
+  it('pre-buffers one neighbor each side on ~3 GB phones (iPhone XR class)', () => {
+    expect(warmNeighborRadiusForMemory(2978234368)).toBe(1);
+    expect(warmNeighborRadiusForMemory(3 * GB)).toBe(1);
+  });
+
+  it('keeps the default radius on 4 GB and larger phones', () => {
+    expect(warmNeighborRadiusForMemory(4 * GB)).toBe(WARM_NEIGHBOR_RADIUS);
+    expect(warmNeighborRadiusForMemory(8 * GB)).toBe(WARM_NEIGHBOR_RADIUS);
+  });
+
+  it('keeps the default radius when memory is unknown', () => {
+    expect(warmNeighborRadiusForMemory(null)).toBe(WARM_NEIGHBOR_RADIUS);
+    expect(warmNeighborRadiusForMemory(undefined)).toBe(WARM_NEIGHBOR_RADIUS);
+    expect(warmNeighborRadiusForMemory(0)).toBe(WARM_NEIGHBOR_RADIUS);
   });
 });

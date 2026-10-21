@@ -10,6 +10,7 @@ import { PlatformFeeProvider } from './src/platform/PlatformFeeContext';
 import { prefetchStripePublishableKey } from './src/components/live/LiveStripeProvider';
 import { loadHomeFeedCache } from './src/lib/homeFeedCache';
 import { configureGlobalTextScaling } from './src/lib/appUiScale';
+import { CONNECTION_ERROR_MESSAGE } from './src/lib/friendlyErrorText';
 import {
   isInvalidRefreshTokenError,
   recoverFromStaleAuthSession,
@@ -27,6 +28,21 @@ Sentry.init({
 
   // Enable Logs
   enableLogs: true,
+
+  // A dropped connection or 15s request timeout rejects with this fixed, user-facing text. It is
+  // the phone's connection (or a slow cell tower), not a bug, and was ~900 events from 77 users
+  // (GET-VAULTED-MOBILE-C/1/1S) burying real problems. Drop only the unhandled-rejection copies of
+  // it; every other error still reports.
+  beforeSend(event) {
+    const exception = event.exception?.values?.[0];
+    if (
+      exception?.value === CONNECTION_ERROR_MESSAGE &&
+      exception.mechanism?.type === 'onunhandledrejection'
+    ) {
+      return null;
+    }
+    return event;
+  },
 
   // uncomment the line below to enable Spotlight (https://spotlightjs.com)
   // spotlight: __DEV__,

@@ -110,7 +110,8 @@ import {
 import { isCompactLiveRoomLayout, liveRoomOverlayScale } from '../../lib/liveRoomUiScale';
 import { LiveRoomShareSheet } from './LiveRoomShareSheet';
 import { invalidateBuyerLiveStreamCache, prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
-import { reconcilePolledStreamPaused, WARM_NEIGHBOR_RADIUS } from '../../lib/liveStreamPlayback';
+import * as Device from 'expo-device';
+import { reconcilePolledStreamPaused, warmNeighborRadiusForMemory } from '../../lib/liveStreamPlayback';
 import { resolveLiveFeedPageCorrection } from '../../lib/pinSelectedLiveStream';
 import type { LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import type { LiveRoomLineupItemSnapshot } from '../../lib/liveBuyerQueueProjection';
@@ -2123,8 +2124,11 @@ function LiveSlidePlaceholder({ stream }: { stream: LiveStream }) {
   );
 }
 
+// Fewer pre-buffered neighbor players on low-RAM phones (see warmNeighborRadiusForMemory).
+const WARM_NEIGHBOR_RADIUS = warmNeighborRadiusForMemory(Device.totalMemory);
+
 export function VerticalLiveFeed({
-  streams,
+  streams: streamsProp,
   initialStreamId,
   roomVisitNonce = 0,
   onBack,
@@ -2136,6 +2140,27 @@ export function VerticalLiveFeed({
 }: Props) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [layoutSize, setLayoutSize] = useState<{ width: number; height: number } | null>(null);
+
+  // Never add/remove pager pages while the buyer is mid-swipe. A discovery refresh that adds or
+  // drops a live show during a drag made UIPageViewController lose track of its direction and
+  // abort the app on iOS (GET-VAULTED-MOBILE-12 / -P: "Failed to determine navigation direction
+  // for scroll"). While the pager is dragging/settling we keep rendering the previous list and
+  // apply the newest one the moment it goes idle.
+  const pagerScrollIdleRef = useRef(true);
+  const frozenStreamsRef = useRef<LiveStream[]>(streamsProp);
+  const lastInitialStreamIdRef = useRef(initialStreamId);
+  const [, bumpStreamsSync] = useState(0);
+  if (lastInitialStreamIdRef.current !== initialStreamId) {
+    // A new deep link remounts the pager (key={initialStreamId}); its scroll state starts fresh.
+    lastInitialStreamIdRef.current = initialStreamId;
+    pagerScrollIdleRef.current = true;
+  }
+  if (pagerScrollIdleRef.current || frozenStreamsRef.current.length === 0) {
+    frozenStreamsRef.current = streamsProp;
+  }
+  const streams = frozenStreamsRef.current;
+  const latestStreamsPropRef = useRef(streamsProp);
+  latestStreamsPropRef.current = streamsProp;
 
   const layoutWidth = layoutSize?.width ?? windowWidth;
   const layoutHeight = layoutSize?.height ?? windowHeight;
@@ -2409,6 +2434,13 @@ export function VerticalLiveFeed({
               setPeekPage(position - 1);
             } else {
               setPeekPage(null);
+            }
+          }}
+          onPageScrollStateChanged={(e) => {
+            const idle = e.nativeEvent.pageScrollState === 'idle';
+            pagerScrollIdleRef.current = idle;
+            if (idle && frozenStreamsRef.current !== latestStreamsPropRef.current) {
+              bumpStreamsSync((n) => n + 1);
             }
           }}
           onPageSelected={(e) => {
