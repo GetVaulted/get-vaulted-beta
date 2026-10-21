@@ -234,6 +234,21 @@ export const WEBRTC_UPGRADE_DWELL_MS = 1_500;
 /** How many neighbor shows (each side) pre-buffer their HLS mirror for instant switching. */
 export const WARM_NEIGHBOR_RADIUS = 2;
 
+/**
+ * Phones with little RAM (iPhone XR/11-class, ~3 GB) were running out of memory mid-show with 5
+ * pages' worth of video players kept warm (GET-VAULTED-MOBILE-D/2P/2Q/2S: multi-second main-thread
+ * freezes right after iOS memory warnings). On devices at or under ~3.5 GB, pre-buffer only the one
+ * neighbor each side instead of two. Unknown memory (web, older OS) keeps the default.
+ */
+export const LOW_MEMORY_DEVICE_BYTES = 3.5 * 1024 * 1024 * 1024;
+
+export function warmNeighborRadiusForMemory(totalMemoryBytes: number | null | undefined): number {
+  if (typeof totalMemoryBytes === 'number' && totalMemoryBytes > 0 && totalMemoryBytes <= LOW_MEMORY_DEVICE_BYTES) {
+    return 1;
+  }
+  return WARM_NEIGHBOR_RADIUS;
+}
+
 export type ActiveTransportPlan =
   | { transport: 'webrtc'; armUpgrade: false }
   | { transport: 'hls'; armUpgrade: true }
