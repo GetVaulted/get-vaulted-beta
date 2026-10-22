@@ -984,13 +984,24 @@ function TeamPill({
         </View>
         <View style={styles.wideCopy}>
           <LiveRoomText
-            style={[styles.pillLabel, soldOut && styles.pillLabelSold, selected && !soldOut && styles.pillLabelSelected]}
+            style={[
+              styles.pillLabel,
+              { color: soldOut ? 'rgba(255,255,255,0.42)' : '#fff' },
+              soldOut && styles.pillLabelSold,
+              selected && !soldOut && styles.pillLabelSelected,
+            ]}
             numberOfLines={1}
           >
             {variant.label}
           </LiveRoomText>
           {!soldOut ? (
-            <LiveRoomText style={[styles.pillPrice, selected && styles.pillPriceSelected]}>
+            <LiveRoomText
+              style={[
+                styles.pillPrice,
+                { color: 'rgba(255,255,255,0.72)' },
+                selected && styles.pillPriceSelected,
+              ]}
+            >
               {fmtMoney(variant.priceUsd)}
             </LiveRoomText>
           ) : (
