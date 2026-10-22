@@ -36,7 +36,7 @@ export function recordingsBucket(): string {
   return bucket;
 }
 
-function makeS3Client(): S3Client {
+export function makeS3Client(): S3Client {
   return new S3Client({
     region: awsRegion(),
     credentials: awsCredentials(),

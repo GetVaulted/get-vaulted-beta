@@ -111,6 +111,7 @@ export type RootStackParamList = {
   VaultComms: undefined;
   BuyerOrders: { source?: 'marketplace' | 'live' } | undefined;
   BuyerOrderDetail: { orderId: string };
+  WinClips: undefined;
   BuyerLayaways: undefined;
   Watchlist: undefined;
   SellerLayaways: { filter?: 'active' | 'ready' | 'overdue' } | undefined;
