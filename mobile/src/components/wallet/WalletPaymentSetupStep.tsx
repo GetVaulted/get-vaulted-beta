@@ -54,7 +54,7 @@ import {
 const STRIPE_MERCHANT_IDENTIFIER = 'merchant.com.getvaulted.app';
 const STRIPE_URL_SCHEME = 'getvaulted';
 /** Matches app.json @stripe/stripe-react-native enableGooglePay. */
-const NATIVE_GOOGLE_PAY_ENABLED = false;
+const NATIVE_GOOGLE_PAY_ENABLED = true;
 
 /** CardForm inside a React Native Modal crashes on Android — use Stripe Payment Sheet instead. */
 function useAndroidPaymentSheetForCard(): boolean {
