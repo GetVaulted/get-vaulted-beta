@@ -37,7 +37,7 @@ function parseIvsChannelArn(arn: string): { accountId: string; channelId: string
 /** Pull the yyyy/mm/dd/HH/mm path segment IVS's default key layout embeds, as a Date (UTC). */
 function dateFromDefaultKeyPrefix(key: string, rootPrefix: string): Date | null {
   const rest = key.startsWith(rootPrefix) ? key.slice(rootPrefix.length) : key;
-  const m = /^(\d{4})\/(\d{2})\/(\d{2})\/(\d{2})\/(\d{2})\//.exec(rest);
+  const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})\/(\d{1,2})\/(\d{1,2})\//.exec(rest);
   if (!m) return null;
   const [, y, mo, d, h, mi] = m;
   return new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi)));
