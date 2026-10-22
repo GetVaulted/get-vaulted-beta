@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { AdminNav } from "@/components/admin/AdminNav";
+import { AdminNav, AdminSidebar } from "@/components/admin/AdminNav";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { NOINDEX_METADATA } from "@/lib/site-seo";
@@ -25,7 +25,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_32%,#030303_100%)] text-foreground">
       <AdminNav />
-      {children}
+      <div className="lg:flex">
+        <AdminSidebar />
+        <div className="min-w-0 flex-1">{children}</div>
+      </div>
     </div>
   );
 }

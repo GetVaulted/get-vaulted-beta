@@ -224,42 +224,107 @@ export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
   ].includes(m.id),
 );
 
-export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[] = [
+export type AdminNavLink = { href: string; label: string; exact?: boolean };
+export type AdminNavGroup = { id: string; label: string; links: AdminNavLink[] };
+
+/** Always visible at the top of the sidebar. */
+export const ADMIN_NAV_PINNED: AdminNavLink[] = [
   { href: "/admin", label: "Command Center", exact: true },
   { href: "/admin/attention", label: "Needs attention" },
-  { href: "/admin/live-shows", label: "Live" },
-  { href: "/admin/live-shows/move", label: "Move show items" },
-  { href: "/admin/spots", label: "Fix spots" },
-  { href: "/admin/reviews", label: "Reviews" },
-  { href: "/admin/chat-messages", label: "Chat messages" },
-  { href: "/admin/refund-requests", label: "Refunds" },
-  { href: "/admin/disputes", label: "Disputes" },
-  { href: "/admin/activity", label: "Activity log" },
-  { href: "/admin/team", label: "Team & permissions" },
-  { href: "/admin/settings", label: "Settings" },
-  { href: "/admin/daily-report", label: "Daily report" },
-  { href: "/admin/live-recordings", label: "Recordings" },
-  { href: "/admin/finance", label: "Finance" },
-  { href: "/admin/reconciliation", label: "Reconciliation" },
-  { href: "/admin/fees", label: "Fees" },
-  { href: "/admin/shipping-profiles", label: "Shipping" },
-  { href: "/admin/seller-applications", label: "Seller Applications" },
-  { href: "/admin/seller-risk", label: "Seller Risk" },
-  { href: "/admin/payouts", label: "Bank payouts" },
-  { href: "/admin/payouts/paypal", label: "PayPal payouts" },
-  { href: "/admin/moderation", label: "Moderation" },
-  { href: "/admin/users-management", label: "Users" },
-  { href: "/admin/fulfillment", label: "Fulfillment" },
-  { href: "/admin/trust", label: "Trust" },
-  { href: "/admin/trust/linked-accounts", label: "Linked accounts" },
-  { href: "/admin/support-tickets", label: "Support" },
-  { href: "/admin/notifications", label: "Notifications" },
-  { href: "/admin/app-banner", label: "Home banner" },
-  { href: "/admin/health", label: "Health" },
-  { href: "/admin/referrals", label: "Referrals" },
-  { href: "/admin/giveaways", label: "Giveaways" },
-  { href: "/admin/tax", label: "Tax" },
 ];
+
+/** Sidebar sections. Every admin page appears in exactly one place (see admin-modules.test.ts). */
+export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
+  {
+    id: "money",
+    label: "Money",
+    links: [
+      { href: "/admin/payouts", label: "Bank payouts" },
+      { href: "/admin/payouts/paypal", label: "PayPal payouts" },
+      { href: "/admin/finance", label: "Finance" },
+      { href: "/admin/fees", label: "Fees" },
+      { href: "/admin/reconciliation", label: "Reconciliation" },
+      { href: "/admin/refund-requests", label: "Refunds" },
+      { href: "/admin/disputes", label: "Disputes" },
+    ],
+  },
+  {
+    id: "orders",
+    label: "Orders & shipping",
+    links: [
+      { href: "/admin/fulfillment", label: "Fulfillment" },
+      { href: "/admin/shipping-profiles", label: "Shipping" },
+      { href: "/admin/live-shows/move", label: "Move show items" },
+      { href: "/admin/spots", label: "Fix spots" },
+    ],
+  },
+  {
+    id: "live",
+    label: "Live",
+    links: [
+      { href: "/admin/live-shows", label: "Live" },
+      { href: "/admin/live-recordings", label: "Recordings" },
+      { href: "/admin/moderation", label: "Moderation" },
+      { href: "/admin/chat-messages", label: "Chat messages" },
+    ],
+  },
+  {
+    id: "people",
+    label: "People",
+    links: [
+      { href: "/admin/users-management", label: "Users" },
+      { href: "/admin/seller-applications", label: "Seller Applications" },
+      { href: "/admin/seller-risk", label: "Seller Risk" },
+      { href: "/admin/trust", label: "Trust" },
+      { href: "/admin/trust/linked-accounts", label: "Linked accounts" },
+      { href: "/admin/support-tickets", label: "Support" },
+      { href: "/admin/reviews", label: "Reviews" },
+    ],
+  },
+  {
+    id: "platform",
+    label: "Platform",
+    links: [
+      { href: "/admin/daily-report", label: "Daily report" },
+      { href: "/admin/activity", label: "Activity log" },
+      { href: "/admin/team", label: "Team & permissions" },
+      { href: "/admin/settings", label: "Settings" },
+      { href: "/admin/health", label: "Health" },
+      { href: "/admin/notifications", label: "Notifications" },
+      { href: "/admin/app-banner", label: "Home banner" },
+      { href: "/admin/referrals", label: "Referrals" },
+      { href: "/admin/giveaways", label: "Giveaways" },
+      { href: "/admin/tax", label: "Tax" },
+    ],
+  },
+];
+
+/** Flat list of every nav link (pinned first), kept for callers that want one list. */
+export const ADMIN_NAV_LINKS: AdminNavLink[] = [
+  ...ADMIN_NAV_PINNED,
+  ...ADMIN_NAV_GROUPS.flatMap((g) => g.links),
+];
+
+/**
+ * The single nav link that matches this path: the most specific one, so /admin/payouts/paypal highlights
+ * "PayPal payouts" and not also "Bank payouts".
+ */
+export function activeAdminNavHref(pathname: string): string | null {
+  let best: AdminNavLink | null = null;
+  for (const link of ADMIN_NAV_LINKS) {
+    const hit = link.exact
+      ? pathname === link.href
+      : pathname === link.href || pathname.startsWith(`${link.href}/`);
+    if (hit && (!best || link.href.length > best.href.length)) best = link;
+  }
+  return best?.href ?? null;
+}
+
+/** Which sidebar section holds this path (so it opens by default). */
+export function adminNavGroupIdForHref(href: string | null): string | null {
+  if (!href) return null;
+  return ADMIN_NAV_GROUPS.find((g) => g.links.some((l) => l.href === href))?.id ?? null;
+}
 
 export function adminAccentClasses(accent: AdminModuleDef["accent"]): { ring: string; text: string; bg: string } {
   switch (accent) {
