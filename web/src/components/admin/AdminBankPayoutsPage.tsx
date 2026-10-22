@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { AdminCommandShell, adminPanelClassName, formatAdminUsd } from "@/components/admin/AdminCommandShell";
+import { AdminManualPayoutCreditCard } from "@/components/admin/AdminManualPayoutCreditCard";
 
 type SellerOrder = {
   orderId: string;
@@ -310,6 +311,7 @@ export function AdminBankPayoutsPage() {
         <p className="text-sm text-zinc-500">Loading seller payout queue…</p>
       ) : (
         <>
+          <AdminManualPayoutCreditCard />
           <div className={`${adminPanelClassName} mb-6 flex flex-wrap items-end justify-between gap-3 p-4`}>
             <div className="flex flex-wrap gap-8">
               <div>

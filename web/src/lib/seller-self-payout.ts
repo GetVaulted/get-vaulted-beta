@@ -3,6 +3,11 @@ import { scheduleNotifyAdmins } from "@/lib/admin/notify-admins";
 import { listOrdersReadyForAdminBankPayout } from "@/lib/admin/orders-ready-for-bank-payout";
 import { releaseSellerLumpBankPayout } from "@/lib/admin/release-seller-lump-payout";
 import { prisma } from "@/lib/prisma";
+import {
+  getManualCreditRemainingCents,
+  releaseManualCreditReservation,
+  reserveManualCredit,
+} from "@/lib/seller-manual-payout-credit";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { orderLooksShippedForBankPayout } from "@/services/payout/stripe-seller-payout";
 
@@ -12,7 +17,7 @@ import { orderLooksShippedForBankPayout } from "@/services/payout/stripe-seller-
  * balance (not one small payout per order), with the same money-safety rules as the admin path (shipped, label
  * cost already recovered, oldest first, never more than the live Connect available balance, idempotent), plus:
  *  - the rest of a live show must have shipped (admins can override that, sellers cannot),
- *  - a minimum amount ($100),
+ *  - a minimum amount ($100) -- waived when the payout includes manual credit an admin added to the balance,
  *  - one payout per seller per 24 hours,
  *  - an alert to admins every time one goes out.
  */
@@ -45,6 +50,8 @@ export type SellerSelfPayoutSummary = {
   /** Stripe balance that is NOT sendable yet (e.g. its order hasn't shipped). Zero when unknown. */
   waitingUsd: number;
   payableOrderCount: number;
+  /** Part of `payableUsd` that is manual credit an admin added to the seller's balance (no order behind it). */
+  creditUsd: number;
   minimumUsd: number;
   cooldownEndsAt: string | null;
 };
@@ -81,6 +88,8 @@ export function decideSelfPayoutState(args: {
   blockedReason: string | null;
   readyOrderCount: number;
   payableCents: number;
+  /** Manual credit that can go out now. Any amount above 0 waives the minimum and the "ready order" requirement. */
+  creditCents?: number;
   minimumCents: number;
   cooldownEndsAt: Date | null;
   now: Date;
@@ -89,6 +98,7 @@ export function decideSelfPayoutState(args: {
   if (args.cooldownEndsAt && args.cooldownEndsAt.getTime() > args.now.getTime()) {
     return { state: "cooldown", canInitiate: false };
   }
+  if ((args.creditCents ?? 0) > 0) return { state: "ready", canInitiate: true };
   if (args.readyOrderCount === 0 || args.payableCents <= 0) {
     return { state: "nothing_ready", canInitiate: false };
   }
@@ -156,6 +166,7 @@ export async function getSellerSelfPayoutSummary(
     payableUsd: 0,
     waitingUsd: 0,
     payableOrderCount: 0,
+    creditUsd: 0,
     minimumUsd: SELLER_SELF_PAYOUT_MIN_USD,
     cooldownEndsAt: null,
   };
@@ -196,24 +207,29 @@ export async function getSellerSelfPayoutSummary(
     return blocked("stripe_balance_error");
   }
 
-  const plan = planSelfPayout({ ordersOldestFirst: orders, availableUsdCents: availableCents });
+  // Manual credit goes out first (see initiateSellerSelfPayout), so orders are planned on what is left.
+  const creditRemainingCents = await getManualCreditRemainingCents(sellerId);
+  const creditCents = Math.max(0, Math.min(creditRemainingCents, availableCents));
+  const plan = planSelfPayout({ ordersOldestFirst: orders, availableUsdCents: availableCents - creditCents });
   const cooldownEndsAt = await findCooldownEndsAt(sellerId, now);
   const { state, canInitiate } = decideSelfPayoutState({
     blockedReason: null,
     readyOrderCount: orders.length,
     payableCents: plan.payableCents,
+    creditCents,
     minimumCents: Math.round(SELLER_SELF_PAYOUT_MIN_USD * 100),
     cooldownEndsAt,
     now,
   });
 
-  const payableUsd = plan.payableCents / 100;
-  const waitingUsd = Math.max(0, Math.round(availableCents - plan.payableCents)) / 100;
+  const payableUsd = (plan.payableCents + creditCents) / 100;
+  const waitingUsd = Math.max(0, Math.round(availableCents - plan.payableCents - creditCents)) / 100;
+  const creditNote = creditCents > 0 ? ` Includes ${money(creditCents / 100)} added to your balance by Get Vaulted.` : "";
   const waitingNote =
     waitingUsd >= 0.01 ? ` ${money(waitingUsd)} more is in your Stripe balance and unlocks as those orders ship.` : "";
   const message =
     state === "ready"
-      ? `${money(payableUsd)} will be sent to your bank. Banks usually show it in 1-2 business days.`
+      ? `${money(payableUsd)} will be sent to your bank. Banks usually show it in 1-2 business days.${creditNote}`
       : state === "cooldown"
         ? "You can take one payout per day, and you already took one in the last 24 hours."
         : state === "below_minimum"
@@ -233,6 +249,7 @@ export async function getSellerSelfPayoutSummary(
     payableUsd,
     waitingUsd,
     payableOrderCount: plan.payableOrderIds.length,
+    creditUsd: creditCents / 100,
     cooldownEndsAt: cooldownEndsAt?.toISOString() ?? null,
   };
 }
@@ -294,23 +311,86 @@ export async function initiateSellerSelfPayout(sellerId: string): Promise<Seller
     };
   }
 
-  let release: Awaited<ReturnType<typeof releaseSellerLumpBankPayout>>;
-  try {
-    release = await releaseSellerLumpBankPayout({
-      sellerId,
-      adminId: null,
-      reason: "Seller-initiated payout",
-      force: false,
-    });
-  } catch (e) {
-    console.error("[seller-self-payout] release failed", e);
-    await prisma.payoutEligibilityAuditLog.delete({ where: { id: claim.claimId } }).catch(() => undefined);
-    return { ok: false, code: "failed", message: "We couldn't start your payout. Please try again in a few minutes." };
+  const dropClaim = () => prisma.payoutEligibilityAuditLog.delete({ where: { id: claim.claimId } }).catch(() => undefined);
+
+  // 1) Manual credit first (money an admin added to the balance, no order behind it). It is reserved in our
+  //    database BEFORE Stripe is called, so a crash after the payout can never leave it spendable twice.
+  let creditPaidCents = 0;
+  let creditPayoutId: string | null = null;
+  const creditWantedCents = Math.round(summary.creditUsd * 100);
+  if (creditWantedCents > 0) {
+    let reserved: Awaited<ReturnType<typeof reserveManualCredit>> = null;
+    try {
+      const stripe = getStripe();
+      const seller = await prisma.user.findUnique({ where: { id: sellerId }, select: { stripeAccountId: true } });
+      const accountId = seller?.stripeAccountId?.trim();
+      if (!accountId) throw new Error("no_stripe_account");
+      const liveCents = usdBalanceCents((await stripe.balance.retrieve({ stripeAccount: accountId })).available);
+      const sendCents = Math.min(creditWantedCents, liveCents);
+      if (sendCents >= 1) {
+        reserved = await reserveManualCredit(sellerId, sendCents);
+        if (!reserved) throw new Error("manual_credit_changed");
+        try {
+          const payout = await stripe.payouts.create(
+            {
+              amount: sendCents,
+              currency: "usd",
+              metadata: { sellerId, source: "get_vaulted_seller_credit_payout", claimId: claim.claimId },
+              statement_descriptor: "GETVAULTED",
+            },
+            { stripeAccount: accountId, idempotencyKey: `gv_seller_credit_payout_${sellerId}_${claim.claimId}` },
+          );
+          creditPaidCents = sendCents;
+          creditPayoutId = payout.id;
+        } catch (e) {
+          await releaseManualCreditReservation(reserved).catch((err) =>
+            console.error("[seller-self-payout] could not give credit reservation back", { sellerId, err }),
+          );
+          throw e;
+        }
+      }
+    } catch (e) {
+      console.error("[seller-self-payout] credit payout failed", {
+        sellerId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      await dropClaim();
+      return { ok: false, code: "failed", message: "We couldn't start your payout. Please try again in a few minutes." };
+    }
   }
 
-  if (release.totalPaidUsd <= 0 && release.pushed === 0) {
+  // 2) Then the shipped orders, on whatever balance is left (the lump release re-reads the live balance).
+  const orderPayableCents = Math.max(0, Math.round((summary.payableUsd - summary.creditUsd) * 100));
+  let release: Awaited<ReturnType<typeof releaseSellerLumpBankPayout>> = {
+    ok: true,
+    pushed: 0,
+    skipped: 0,
+    failed: 0,
+    totalPaidUsd: 0,
+    remainingAvailableUsd: null,
+    payoutId: null,
+    results: [],
+  };
+  if (orderPayableCents > 0) {
+    try {
+      release = await releaseSellerLumpBankPayout({
+        sellerId,
+        adminId: null,
+        reason: "Seller-initiated payout",
+        force: false,
+      });
+    } catch (e) {
+      console.error("[seller-self-payout] release failed", e);
+      if (creditPaidCents <= 0) {
+        await dropClaim();
+        return { ok: false, code: "failed", message: "We couldn't start your payout. Please try again in a few minutes." };
+      }
+    }
+  }
+
+  if (release.totalPaidUsd <= 0 && release.pushed === 0 && creditPaidCents <= 0) {
     // Nothing left the platform, so don't burn the seller's cooldown.
-    await prisma.payoutEligibilityAuditLog.delete({ where: { id: claim.claimId } }).catch(() => undefined);
+    await dropClaim();
     return {
       ok: false,
       code: release.failed > 0 ? "failed" : "nothing_ready",
@@ -321,11 +401,13 @@ export async function initiateSellerSelfPayout(sellerId: string): Promise<Seller
     };
   }
 
+  const totalPaidUsd = Math.round(release.totalPaidUsd * 100 + creditPaidCents) / 100;
+
   await prisma.payoutEligibilityAuditLog
     .update({
       where: { id: claim.claimId },
       data: {
-        reason: `Seller-initiated lump payout: ${money(release.totalPaidUsd)} (${release.pushed} order(s) settled)${release.payoutId ? `, ${release.payoutId}` : ""}`,
+        reason: `Seller-initiated lump payout: ${money(totalPaidUsd)} (${release.pushed} order(s) settled${creditPaidCents > 0 ? `, ${money(creditPaidCents / 100)} manual credit ${creditPayoutId ?? ""}` : ""})${release.payoutId ? `, ${release.payoutId}` : ""}`,
       },
     })
     .catch(() => undefined);
@@ -336,7 +418,7 @@ export async function initiateSellerSelfPayout(sellerId: string): Promise<Seller
   scheduleNotifyAdmins({
     type: "admin_seller_self_payout",
     title: `Seller payout · @${handle?.trim() || sellerId.slice(0, 8)}`,
-    body: `${handle?.trim() ? `@${handle.trim()}` : "A seller"} took their own payout: ${money(release.totalPaidUsd)} in one payout (${release.pushed} order(s) settled).`,
+    body: `${handle?.trim() ? `@${handle.trim()}` : "A seller"} took their own payout: ${money(totalPaidUsd)} (${release.pushed} order(s) settled${creditPaidCents > 0 ? `, ${money(creditPaidCents / 100)} manual credit` : ""}).`,
     href: `/admin/payouts`,
     dedupeKey: `admin_seller_self_payout:${claim.claimId}`,
   });
@@ -344,11 +426,11 @@ export async function initiateSellerSelfPayout(sellerId: string): Promise<Seller
   const held = release.skipped + release.failed;
   return {
     ok: true,
-    paidUsd: release.totalPaidUsd,
+    paidUsd: totalPaidUsd,
     paidOrderCount: release.pushed,
     heldOrderCount: held,
     message:
-      `${money(release.totalPaidUsd)} is on its way to your bank.` +
+      `${money(totalPaidUsd)} is on its way to your bank.` +
       (held > 0 ? ` ${held} other order${held === 1 ? " is" : "s are"} still waiting and will be available later.` : ""),
   };
 }
