@@ -118,6 +118,17 @@ export function BuyerOrdersScreen({ navigation, route }: Props) {
             })}
           </ScrollView>
         ) : null}
+        {source === 'live' ? (
+          <Pressable
+            onPress={() => navigation.navigate('WinClips')}
+            style={styles.winBanner}
+            accessibilityRole="button"
+            accessibilityLabel="Watch your wins"
+          >
+            <Text style={styles.winBannerTitle}>Watch your wins</Text>
+            <Text style={styles.winBannerSub}>Video receipt of the moment you claimed or won</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.contentArea}>
@@ -279,6 +290,16 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary },
   emptySub: { marginTop: 8, fontSize: 13, color: colors.textMuted, lineHeight: 20 },
+  winBanner: {
+    padding: spacing.md,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    gap: 2,
+  },
+  winBannerTitle: { fontSize: 15, fontWeight: '800', color: colors.gold },
+  winBannerSub: { fontSize: 12, color: colors.textSecondary },
   tradeNote: {
     textAlign: 'center',
     fontSize: 11,
