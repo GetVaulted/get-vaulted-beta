@@ -779,6 +779,8 @@ model User {
   liveTipsReceived                   LiveTip[]                   @relation("LiveTipRecipient")
   payoutEligibilityAuditLogsAsSeller PayoutEligibilityAuditLog[] @relation("PayoutAuditSeller")
   payoutEligibilityAuditLogsAsAdmin  PayoutEligibilityAuditLog[] @relation("PayoutAuditAdmin")
+  manualPayoutCreditsAsSeller        SellerManualPayoutCredit[] @relation("ManualPayoutCreditSeller")
+  manualPayoutCreditsAsAdmin         SellerManualPayoutCredit[] @relation("ManualPayoutCreditAdmin")
   reportsFiled                       Report[]                    @relation("ReportReporter")
   reportsAssigned                    Report[]                    @relation("ReportAssignee")
   supportTicketsSubmitted            SupportTicket[]             @relation("SupportTicketUser")
@@ -2769,6 +2771,25 @@ model PayoutEligibilityAuditLog {
 
   @@index([sellerId, createdAt])
   @@index([orderId, createdAt])
+}
+
+/// Money an admin put into a seller's Stripe Connect balance by hand (not tied to any order).
+/// The seller's "Initiate Payout" button can send `amountCents - usedCents` of it to their bank.
+model SellerManualPayoutCredit {
+  id               String   @id @default(cuid())
+  sellerId         String
+  seller           User     @relation("ManualPayoutCreditSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  createdByAdminId String?
+  createdByAdmin   User?    @relation("ManualPayoutCreditAdmin", fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  amountCents      Int
+  usedCents        Int      @default(0)
+  note             String?
+  /// Stripe transfer (tr_...) that funded the balance. Unique so one transfer can't be credited twice.
+  stripeTransferId String?  @unique
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([sellerId, createdAt])
 }
 
 /// Universal user/content report — shared web + mobile intake.

@@ -17,6 +17,10 @@ const hoisted = vi.hoisted(() => ({
   release: vi.fn(),
   notify: vi.fn(),
   balance: vi.fn(),
+  payoutsCreate: vi.fn(),
+  creditRemaining: vi.fn(),
+  creditReserve: vi.fn(),
+  creditRelease: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({ prisma: hoisted.prisma }));
@@ -29,7 +33,12 @@ vi.mock("@/lib/admin/release-seller-lump-payout", () => ({
 vi.mock("@/lib/admin/notify-admins", () => ({ scheduleNotifyAdmins: hoisted.notify }));
 vi.mock("@/lib/stripe", () => ({
   isStripeConfigured: () => true,
-  getStripe: () => ({ balance: { retrieve: hoisted.balance } }),
+  getStripe: () => ({ balance: { retrieve: hoisted.balance }, payouts: { create: hoisted.payoutsCreate } }),
+}));
+vi.mock("@/lib/seller-manual-payout-credit", () => ({
+  getManualCreditRemainingCents: hoisted.creditRemaining,
+  reserveManualCredit: hoisted.creditReserve,
+  releaseManualCreditReservation: hoisted.creditRelease,
 }));
 
 import {
@@ -98,6 +107,17 @@ describe("decideSelfPayoutState", () => {
     expect(decideSelfPayoutState({ ...base, readyOrderCount: 0 }).state).toBe("nothing_ready");
     expect(decideSelfPayoutState({ ...base, payableCents: 0 }).state).toBe("nothing_ready");
   });
+  it("lets manual credit through with no orders and below the minimum", () => {
+    expect(decideSelfPayoutState({ ...base, readyOrderCount: 0, payableCents: 0, creditCents: 6_000 })).toEqual({
+      state: "ready",
+      canInitiate: true,
+    });
+  });
+  it("still applies the cooldown and account blocks to manual credit", () => {
+    const credit = { ...base, readyOrderCount: 0, payableCents: 0, creditCents: 6_000 };
+    expect(decideSelfPayoutState({ ...credit, cooldownEndsAt: new Date(NOW.getTime() + 1000) }).state).toBe("cooldown");
+    expect(decideSelfPayoutState({ ...credit, blockedReason: "stripe_payouts_disabled" }).state).toBe("blocked");
+  });
   it("lets an account problem win over everything else", () => {
     expect(decideSelfPayoutState({ ...base, blockedReason: "stripe_payouts_disabled" }).state).toBe("blocked");
   });
@@ -120,6 +140,10 @@ describe("seller payout flow", () => {
     hoisted.prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(hoisted.prisma));
     hoisted.listReady.mockResolvedValue([readyRow("o1", 70), readyRow("o2", 50)]);
     hoisted.balance.mockResolvedValue({ available: [{ amount: 20_000, currency: "usd" }] });
+    hoisted.creditRemaining.mockResolvedValue(0);
+    hoisted.creditReserve.mockResolvedValue([{ id: "c1", takeCents: 0 }]);
+    hoisted.creditRelease.mockResolvedValue(undefined);
+    hoisted.payoutsCreate.mockResolvedValue({ id: "po_credit" });
   });
 
   it("summarises exactly what a tap would send", async () => {
@@ -222,5 +246,82 @@ describe("seller payout flow", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe("below_minimum");
     expect(hoisted.release).not.toHaveBeenCalled();
+  });
+  describe("manual credit", () => {
+    it("counts credit as payable even with no shipped orders and under $100", async () => {
+      hoisted.listReady.mockResolvedValue([]);
+      hoisted.creditRemaining.mockResolvedValue(6_000);
+      const s = await getSellerSelfPayoutSummary("s1", NOW);
+      expect(s.state).toBe("ready");
+      expect(s.canInitiate).toBe(true);
+      expect(s.creditUsd).toBe(60);
+      expect(s.payableUsd).toBe(60);
+      expect(s.message).toContain("added to your balance");
+    });
+
+    it("never counts more credit than the live Stripe balance", async () => {
+      hoisted.listReady.mockResolvedValue([]);
+      hoisted.creditRemaining.mockResolvedValue(288_900);
+      hoisted.balance.mockResolvedValue({ available: [{ amount: 10_000, currency: "usd" }] });
+      const s = await getSellerSelfPayoutSummary("s1", NOW);
+      expect(s.creditUsd).toBe(100);
+    });
+
+    it("plans orders on the balance left after the credit", async () => {
+      hoisted.creditRemaining.mockResolvedValue(10_000);
+      hoisted.balance.mockResolvedValue({ available: [{ amount: 20_000, currency: "usd" }] });
+      const s = await getSellerSelfPayoutSummary("s1", NOW);
+      // 100 credit + orders (70 + 50 = 120) planned on the remaining 100 => 70 + the 30 leftover swept up to order 2
+      expect(s.creditUsd).toBe(100);
+      expect(s.payableUsd).toBe(200);
+    });
+
+    it("pays the credit as its own Stripe payout, reserved first, with no order release when no orders are ready", async () => {
+      hoisted.listReady.mockResolvedValue([]);
+      hoisted.creditRemaining.mockResolvedValue(6_000);
+      hoisted.creditReserve.mockResolvedValue([{ id: "c1", takeCents: 6_000 }]);
+      const r = await initiateSellerSelfPayout("s1");
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.paidUsd).toBe(60);
+      expect(hoisted.creditReserve).toHaveBeenCalledWith("s1", 6_000);
+      expect(hoisted.payoutsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ amount: 6_000, currency: "usd" }),
+        expect.objectContaining({ stripeAccount: "acct_1", idempotencyKey: "gv_seller_credit_payout_s1_claim1" }),
+      );
+      expect(hoisted.release).not.toHaveBeenCalled();
+      expect(hoisted.notify).toHaveBeenCalledTimes(1);
+    });
+
+    it("gives the credit back and the cooldown slot back if the Stripe payout fails", async () => {
+      hoisted.listReady.mockResolvedValue([]);
+      hoisted.creditRemaining.mockResolvedValue(6_000);
+      const reserved = [{ id: "c1", takeCents: 6_000 }];
+      hoisted.creditReserve.mockResolvedValue(reserved);
+      hoisted.payoutsCreate.mockRejectedValue(new Error("stripe down"));
+      const r = await initiateSellerSelfPayout("s1");
+      expect(r.ok).toBe(false);
+      expect(hoisted.creditRelease).toHaveBeenCalledWith(reserved);
+      expect(hoisted.prisma.payoutEligibilityAuditLog.delete).toHaveBeenCalledWith({ where: { id: "claim1" } });
+    });
+
+    it("does not send anything if the credit was spent by someone else in the meantime", async () => {
+      hoisted.listReady.mockResolvedValue([]);
+      hoisted.creditRemaining.mockResolvedValue(6_000);
+      hoisted.creditReserve.mockResolvedValue(null);
+      const r = await initiateSellerSelfPayout("s1");
+      expect(r.ok).toBe(false);
+      expect(hoisted.payoutsCreate).not.toHaveBeenCalled();
+    });
+
+    it("sends credit and shipped orders together and reports the combined total", async () => {
+      hoisted.creditRemaining.mockResolvedValue(10_000);
+      hoisted.creditReserve.mockResolvedValue([{ id: "c1", takeCents: 10_000 }]);
+      hoisted.release.mockResolvedValue({ ok: true, pushed: 2, skipped: 0, failed: 0, totalPaidUsd: 100, remainingAvailableUsd: 0, results: [] });
+      const r = await initiateSellerSelfPayout("s1");
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.paidUsd).toBe(200);
+      expect(hoisted.payoutsCreate).toHaveBeenCalledTimes(1);
+      expect(hoisted.release).toHaveBeenCalledTimes(1);
+    });
   });
 });
