@@ -45,7 +45,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ kind: string; i
     wonAt: new Date(moment.momentMs).toISOString(),
     playlistUrl: `${origin}/api/live/win-clips/playlist?token=${encodeURIComponent(token)}`,
     expiresAt,
-    momentOffsetSec: built.selection.momentOffsetSec,
-    durationSec: built.selection.durationSec,
+    momentOffsetSec: built.momentOffsetSec,
+    durationSec: built.durationSec,
   });
 }

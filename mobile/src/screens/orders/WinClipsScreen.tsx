@@ -156,7 +156,7 @@ export function WinClipsScreen({ navigation }: Props) {
             </Pressable>
           ))}
           {wins && wins.length > 0 ? (
-            <Text style={styles.hint}>Video receipts are kept for 30 days after a show.</Text>
+            <Text style={styles.hint}>Video receipts are saved to your account.</Text>
           ) : null}
         </ScrollView>
       )}
