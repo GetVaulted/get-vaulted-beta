@@ -14,6 +14,7 @@ import { UserAvatar } from '../ui/UserAvatar';
 import { VaultImage } from '../ui/VaultImage';
 import { LiveBadge } from '../ui/LiveBadge';
 import { liveRoomCategoryLine } from '../../lib/liveRoomDisplay';
+import { useTapGuard } from '../../lib/tapGuard';
 import { resolveLiveRoomPreviewImage } from '../../lib/liveRoomPreviewImage';
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream, ScheduledStream } from '../../types';
@@ -62,6 +63,7 @@ function LivePulseDot() {
 }
 
 function LiveHeroCard({ stream, onPress }: { stream: LiveStream; onPress: () => void }) {
+  const tap = useTapGuard(onPress);
   const preview =
     stream.previewImageUrl?.trim() ||
     stream.pinnedItemImageUrl?.trim() ||
@@ -71,7 +73,8 @@ function LiveHeroCard({ stream, onPress }: { stream: LiveStream; onPress: () => 
 
   return (
     <Pressable
-      onPress={onPress}
+      onPressIn={tap.onPressIn}
+      onPress={tap.onPress}
       style={({ pressed }) => [styles.cardShell, { width: CARD_W, height: CARD_H }, pressed && styles.pressed]}
       accessibilityRole="button"
       accessibilityLabel={`Watch live: ${stream.title}`}

@@ -5,6 +5,7 @@ import { UserAvatar } from '../ui/UserAvatar';
 import { VaultImage } from '../ui/VaultImage';
 import { liveRoomCardStatusLine, liveRoomCategoryLine } from '../../lib/liveRoomDisplay';
 import { resolveLiveRoomPreviewImage } from '../../lib/liveRoomPreviewImage';
+import { useTapGuard } from '../../lib/tapGuard';
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
 import { LiveBadge } from '../ui/LiveBadge';
@@ -55,6 +56,7 @@ export function LiveNowPreviewCard({
   onRemind,
   reminderSet = false,
 }: Props) {
+  const tap = useTapGuard(onPress);
   const isLive = stream.roomStatus === 'live';
   const isScheduled = stream.roomStatus === 'scheduled';
   const category = liveRoomCategoryLine(stream);
@@ -79,7 +81,8 @@ export function LiveNowPreviewCard({
 
   return (
     <Pressable
-      onPress={onPress}
+      onPressIn={tap.onPressIn}
+      onPress={tap.onPress}
       style={({ pressed }) => [
         styles.pressable,
         { width: cardWidth },

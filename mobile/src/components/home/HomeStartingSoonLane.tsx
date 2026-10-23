@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { UserAvatar } from '../ui/UserAvatar';
+import { useTapGuard } from '../../lib/tapGuard';
 import { VaultImage } from '../ui/VaultImage';
 import { categoryMeta } from '../../data/categoryTaxonomy';
 import { colors, radii, spacing } from '../../theme';
@@ -40,12 +41,14 @@ function StartingSoonCard({
   onPress: () => void;
   onRemind: () => void;
 }) {
+  const tap = useTapGuard(onPress);
   const preview = event.previewImageUrl?.trim() || event.host.avatarUrl?.trim();
   const category = categoryMeta[event.category].label;
 
   return (
     <Pressable
-      onPress={onPress}
+      onPressIn={tap.onPressIn}
+      onPress={tap.onPress}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
       accessibilityRole="button"
       accessibilityLabel={`${event.title}, ${formatCountdown(event.startsAt)}`}
