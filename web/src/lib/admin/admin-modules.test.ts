@@ -11,7 +11,7 @@ describe("admin nav", () => {
   it("lists every page exactly once", () => {
     const hrefs = ADMIN_NAV_LINKS.map((l) => l.href);
     expect(new Set(hrefs).size).toBe(hrefs.length);
-    expect(hrefs).toHaveLength(34);
+    expect(hrefs).toHaveLength(35);
   });
 
   it("pins Command Center and Needs attention outside the groups", () => {
