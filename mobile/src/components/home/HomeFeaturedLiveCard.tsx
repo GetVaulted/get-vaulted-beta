@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { UserAvatar } from '../ui/UserAvatar';
+import { useTapGuard } from '../../lib/tapGuard';
 import { VaultImage } from '../ui/VaultImage';
 import { LiveBadge } from '../ui/LiveBadge';
 import { liveRoomCategoryLine } from '../../lib/liveRoomDisplay';
@@ -53,6 +54,7 @@ export function HomeFeaturedLiveCard({
   stream: LiveStream;
   onPress: () => void;
 }) {
+  const tap = useTapGuard(onPress);
   const preview =
     stream.previewImageUrl?.trim() ||
     stream.pinnedItemImageUrl?.trim() ||
@@ -63,7 +65,8 @@ export function HomeFeaturedLiveCard({
 
   return (
     <Pressable
-      onPress={onPress}
+      onPressIn={tap.onPressIn}
+      onPress={tap.onPress}
       style={({ pressed }) => [styles.shell, { width: CARD_W, height: CARD_H }, pressed && styles.pressed]}
       accessibilityRole="button"
       accessibilityLabel={`Watch live: ${stream.title}`}
