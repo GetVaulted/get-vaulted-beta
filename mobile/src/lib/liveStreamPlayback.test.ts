@@ -450,13 +450,18 @@ describe('liveStreamPlayback', () => {
 describe('warmNeighborRadiusForMemory', () => {
   const GB = 1024 * 1024 * 1024;
 
-  it('pre-buffers one neighbor each side on ~3 GB phones (iPhone XR class)', () => {
-    expect(warmNeighborRadiusForMemory(2978234368)).toBe(1);
-    expect(warmNeighborRadiusForMemory(3 * GB)).toBe(1);
+  it('pre-buffers no neighbors on ~3 GB devices (iPhone XR / older iPad class)', () => {
+    expect(warmNeighborRadiusForMemory(2978234368)).toBe(0);
+    expect(warmNeighborRadiusForMemory(3 * GB)).toBe(0);
   });
 
-  it('keeps the default radius on 4 GB and larger phones', () => {
-    expect(warmNeighborRadiusForMemory(4 * GB)).toBe(WARM_NEIGHBOR_RADIUS);
+  it('pre-buffers one neighbor each side on ~4 GB devices', () => {
+    expect(warmNeighborRadiusForMemory(4005249024)).toBe(1);
+    expect(warmNeighborRadiusForMemory(4 * GB)).toBe(1);
+  });
+
+  it('keeps the default radius on 6 GB and larger phones', () => {
+    expect(warmNeighborRadiusForMemory(6 * GB)).toBe(WARM_NEIGHBOR_RADIUS);
     expect(warmNeighborRadiusForMemory(8 * GB)).toBe(WARM_NEIGHBOR_RADIUS);
   });
 
