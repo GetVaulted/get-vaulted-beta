@@ -78,22 +78,25 @@ export function LiveNowPreviewCard({
     }
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(glow, { toValue: 1, duration: 900, useNativeDriver: false }),
-        Animated.timing(glow, { toValue: 0.35, duration: 900, useNativeDriver: false }),
+        Animated.timing(glow, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 0.35, duration: 900, useNativeDriver: true }),
       ]),
     );
     loop.start();
     return () => loop.stop();
   }, [glow, isLive]);
 
-  const borderColor = glow.interpolate({
-    inputRange: [0.35, 1],
-    outputRange: promoted
-      ? ['rgba(212,175,55,0.35)', 'rgba(212,175,55,0.75)']
-      : isLive
-        ? ['rgba(255, 59, 48, 0.28)', 'rgba(255, 59, 48, 0.72)']
-        : ['rgba(212,175,55,0.22)', 'rgba(212,175,55,0.45)'],
-  });
+  // The pulse used to animate `borderColor` with the JS driver (useNativeDriver: false). With several
+  // live cards on screen that meant one JS-thread prop update per card per frame, forever, which
+  // production Sentry showed freezing the app (Reanimated cloning the shadow tree on every commit).
+  // Now the ring has a fixed dim colour and a bright ring of the same shape fades in over it using
+  // opacity, which runs on the native driver and never touches the JS thread.
+  const [ringDim, ringBright] = promoted
+    ? ['rgba(212,175,55,0.35)', 'rgba(212,175,55,0.75)']
+    : isLive
+      ? ['rgba(255, 59, 48, 0.28)', 'rgba(255, 59, 48, 0.72)']
+      : ['rgba(212,175,55,0.22)', 'rgba(212,175,55,0.45)'];
+  const brightOpacity = glow.interpolate({ inputRange: [0.35, 1], outputRange: [0, 1] });
 
   return (
     <Pressable
@@ -107,7 +110,13 @@ export function LiveNowPreviewCard({
       accessibilityRole="button"
       accessibilityLabel={`${stream.title}, ${category}, ${status}${isLive ? `, ${formatViewers(stream.viewers)} watching` : ''}`}
     >
-      <Animated.View style={[styles.glowRing, { borderColor }]}>
+      <View style={[styles.glowRing, { borderColor: ringDim }]}>
+        {isLive ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.glowRingBright, { borderColor: ringBright, opacity: brightOpacity }]}
+          />
+        ) : null}
         <View style={styles.card}>
           <View style={styles.hostRow}>
             <UserAvatar
@@ -198,7 +207,7 @@ export function LiveNowPreviewCard({
             ) : null}
           </View>
         </View>
-      </Animated.View>
+      </View>
     </Pressable>
   );
 }
@@ -216,6 +225,16 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg + 1,
     borderWidth: 1.5,
     padding: 1,
+  },
+  /** Bright pulse ring laid exactly over glowRing's border box (offset by its border width). */
+  glowRingBright: {
+    position: 'absolute',
+    top: -1.5,
+    left: -1.5,
+    right: -1.5,
+    bottom: -1.5,
+    borderRadius: radii.lg + 1,
+    borderWidth: 1.5,
   },
   card: {
     borderRadius: radii.lg,

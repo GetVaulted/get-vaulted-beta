@@ -237,15 +237,18 @@ export const WARM_NEIGHBOR_RADIUS = 2;
 /**
  * Phones with little RAM (iPhone XR/11-class, ~3 GB) were running out of memory mid-show with 5
  * pages' worth of video players kept warm (GET-VAULTED-MOBILE-D/2P/2Q/2S: multi-second main-thread
- * freezes right after iOS memory warnings). On devices at or under ~3.5 GB, pre-buffer only the one
- * neighbor each side instead of two. Unknown memory (web, older OS) keeps the default.
+ * freezes right after iOS memory warnings). Oct 2026 production hangs still hit ~3 GB and ~4 GB iPads
+ * with one neighbor buffered, so the tiers are now: <= ~3.5 GB pre-buffers no neighbors (the show you
+ * swipe to loads when you get there), <= ~4.5 GB pre-buffers one neighbor each side, larger phones
+ * keep the default. Unknown memory (web, older OS) keeps the default.
  */
 export const LOW_MEMORY_DEVICE_BYTES = 3.5 * 1024 * 1024 * 1024;
+export const MID_MEMORY_DEVICE_BYTES = 4.5 * 1024 * 1024 * 1024;
 
 export function warmNeighborRadiusForMemory(totalMemoryBytes: number | null | undefined): number {
-  if (typeof totalMemoryBytes === 'number' && totalMemoryBytes > 0 && totalMemoryBytes <= LOW_MEMORY_DEVICE_BYTES) {
-    return 1;
-  }
+  if (typeof totalMemoryBytes !== 'number' || !(totalMemoryBytes > 0)) return WARM_NEIGHBOR_RADIUS;
+  if (totalMemoryBytes <= LOW_MEMORY_DEVICE_BYTES) return 0;
+  if (totalMemoryBytes <= MID_MEMORY_DEVICE_BYTES) return 1;
   return WARM_NEIGHBOR_RADIUS;
 }
 

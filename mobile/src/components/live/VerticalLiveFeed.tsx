@@ -2424,7 +2424,7 @@ export function VerticalLiveFeed({
           style={styles.feedPager}
           initialPage={startIndex}
           orientation="vertical"
-          offscreenPageLimit={WARM_NEIGHBOR_RADIUS}
+          offscreenPageLimit={Math.max(1, WARM_NEIGHBOR_RADIUS)}
           scrollEnabled={feedGesturesEnabled}
           onPageScroll={(e) => {
             const { position, offset } = e.nativeEvent;
