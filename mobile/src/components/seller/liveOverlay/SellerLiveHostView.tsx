@@ -461,6 +461,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   // Sweet 16 draft realtime events -> the host draft sheet refetches immediately.
   const [sweet16DraftSignal, setSweet16DraftSignal] = useState(0);
   const bumpSweet16DraftSignal = useCallback(() => setSweet16DraftSignal((n) => n + 1), []);
+  // Item id whose "Sweet 16 draft is ready" banner the host swiped away (per item, this session).
+  const [sweet16BannerHiddenFor, setSweet16BannerHiddenFor] = useState<string | null>(null);
 
   const dismissVaultRevealSpin = useCallback(() => {
     vaultRevealActiveRef.current = false;
@@ -918,6 +920,38 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
             }}
             onOpenManage={() => setGiveawayOpen(true)}
           />
+        </View>
+      ) : null}
+
+      {displayItem &&
+      console.sweet16Eligible(displayItem) &&
+      !console.sweet16DraftSheetOpen &&
+      sweet16BannerHiddenFor !== displayItem.id ? (
+        <View
+          style={[styles.sweet16Banner, { top: hostGivvyRailTop + (activeStageGiveaway ? 76 : 0) }]}
+          pointerEvents="box-none"
+        >
+          <Pressable
+            style={styles.sweet16BannerMain}
+            onPress={() => {
+              Keyboard.dismiss();
+              console.openSweet16DraftSheet();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Open the Sweet 16 draft"
+          >
+            <Text style={styles.sweet16BannerTitle}>Sweet 16 draft is ready</Text>
+            <Text style={styles.sweet16BannerSub}>Tap to randomize the order and start the draft</Text>
+          </Pressable>
+          <Pressable
+            style={styles.sweet16BannerClose}
+            onPress={() => setSweet16BannerHiddenFor(displayItem.id)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Hide the Sweet 16 draft banner"
+          >
+            <Text style={styles.sweet16BannerCloseTxt}>{'\u00d7'}</Text>
+          </Pressable>
         </View>
       ) : null}
 
@@ -1452,6 +1486,43 @@ const styles = StyleSheet.create({
     left: spacing.md,
     right: spacing.md,
     zIndex: 12,
+  },
+  sweet16Banner: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    zIndex: 19,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(250,204,21,0.55)',
+    backgroundColor: 'rgba(40,30,4,0.92)',
+  },
+  sweet16BannerMain: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  sweet16BannerTitle: {
+    color: colors.gold,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  sweet16BannerSub: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  sweet16BannerClose: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  sweet16BannerCloseTxt: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 22,
+    lineHeight: 22,
   },
   hostGivvyRail: {
     position: 'absolute',

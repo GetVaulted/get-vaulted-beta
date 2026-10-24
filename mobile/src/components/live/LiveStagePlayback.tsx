@@ -61,6 +61,12 @@ import { StageSubscriberVideo } from './StageSubscriberVideo';
  * the Stage session — see the `stagePipDismissed` effect below.
  */
 const LIVE_PICTURE_IN_PICTURE_ENABLED = true;
+/**
+ * Keep a hidden HLS player running under a healthy WebRTC stage. OFF: the extra player made the
+ * main thread block inside iOS's video loader (GET-VAULTED-MOBILE-D). HLS still attaches when WebRTC
+ * has no video, on failover, and for background PiP.
+ */
+const LIVE_WARM_HLS_COMPANION_ENABLED = false;
 
 type Props = {
   roomId: string;
@@ -393,6 +399,7 @@ export function LiveStagePlayback({
   const webrtcUpgradeHold = useWebrtc && !webrtcReady && !streamPaused;
   const warmPipCompanion =
     LIVE_PICTURE_IN_PICTURE_ENABLED &&
+    LIVE_WARM_HLS_COMPANION_ENABLED &&
     shouldWarmLiveHlsPipCompanion({
       playbackActive,
       useWebrtc,

@@ -456,8 +456,8 @@ describe('warmNeighborRadiusForMemory', () => {
   });
 
   it('pre-buffers one neighbor each side on ~4 GB devices', () => {
-    expect(warmNeighborRadiusForMemory(4005249024)).toBe(1);
-    expect(warmNeighborRadiusForMemory(4 * GB)).toBe(1);
+    expect(warmNeighborRadiusForMemory(4005249024)).toBe(0);
+    expect(warmNeighborRadiusForMemory(4 * GB)).toBe(0);
   });
 
   it('keeps the default radius on 6 GB and larger phones', () => {

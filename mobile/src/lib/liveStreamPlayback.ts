@@ -231,8 +231,12 @@ export function isHybridLiveEnabled(): boolean {
 /** Dwell on a show before the settled page upgrades from instant HLS preview to sub-second WebRTC. */
 export const WEBRTC_UPGRADE_DWELL_MS = 1_500;
 
-/** How many neighbor shows (each side) pre-buffer their HLS mirror for instant switching. */
-export const WARM_NEIGHBOR_RADIUS = 2;
+/**
+ * How many neighbor shows (each side) pre-buffer their HLS mirror for instant switching.
+ * 0 = none: Oct 2026 freezes (GET-VAULTED-MOBILE-D) were the main thread blocked inside iOS's video
+ * player opening HLS streams, so the show you swipe to loads when you get there.
+ */
+export const WARM_NEIGHBOR_RADIUS = 0;
 
 /**
  * Phones with little RAM (iPhone XR/11-class, ~3 GB) were running out of memory mid-show with 5
@@ -248,7 +252,7 @@ export const MID_MEMORY_DEVICE_BYTES = 4.5 * 1024 * 1024 * 1024;
 export function warmNeighborRadiusForMemory(totalMemoryBytes: number | null | undefined): number {
   if (typeof totalMemoryBytes !== 'number' || !(totalMemoryBytes > 0)) return WARM_NEIGHBOR_RADIUS;
   if (totalMemoryBytes <= LOW_MEMORY_DEVICE_BYTES) return 0;
-  if (totalMemoryBytes <= MID_MEMORY_DEVICE_BYTES) return 1;
+  if (totalMemoryBytes <= MID_MEMORY_DEVICE_BYTES) return 0;
   return WARM_NEIGHBOR_RADIUS;
 }
 
