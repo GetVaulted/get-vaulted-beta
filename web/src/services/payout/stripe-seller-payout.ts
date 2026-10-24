@@ -1,6 +1,7 @@
 import { OrderPaymentMethod, OrderPayoutStatus } from "@/generated/prisma/enums";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 import { prisma } from "@/lib/prisma";
+import { SELLER_LOCKED_PAYOUT_REASON } from "@/lib/seller-lock";
 import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
 import {
   estimateSellerOrderPayoutUsd,
@@ -115,6 +116,7 @@ export async function releaseSellerStripePayout(
       },
       seller: {
         select: {
+          sellerLockedAt: true,
           stripeAccountId: true,
           stripeOnboardingComplete: true,
           stripePayoutsEnabled: true,
@@ -137,6 +139,12 @@ export async function releaseSellerStripePayout(
   }
   if (order.payoutStatus === OrderPayoutStatus.paid_out && isStripeBankPayoutId(order.processorTransferId)) {
     return { ok: true, reason: "already_paid_out" };
+  }
+
+  // Admin seller lock. NOT force-bypassable (the admin "release payout" button passes force:true) and it does
+  // not touch the order's status, so lifting the lock lets the normal payout flow pick the order straight back up.
+  if (order.seller.sellerLockedAt) {
+    return { ok: false, reason: SELLER_LOCKED_PAYOUT_REASON };
   }
 
   if (!orderLooksShippedForBankPayout(order) && !opts?.force) {

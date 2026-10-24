@@ -325,3 +325,40 @@ describe("seller payout flow", () => {
     });
   });
 });
+
+describe("seller payout flow — admin seller lock", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hoisted.prisma.user.findUnique.mockImplementation(async (args: { select: Record<string, boolean> }) =>
+      args.select.stripeAccountId
+        ? {
+            sellerLockedAt: new Date("2026-10-25T00:00:00Z"),
+            stripeAccountId: "acct_1",
+            stripeOnboardingComplete: true,
+            stripePayoutsEnabled: true,
+          }
+        : { username: "bob" },
+    );
+    hoisted.listReady.mockResolvedValue([readyRow("o1", 70), readyRow("o2", 50)]);
+    hoisted.balance.mockResolvedValue({ available: [{ amount: 20_000, currency: "usd" }] });
+    hoisted.creditRemaining.mockResolvedValue(5_000);
+  });
+
+  it("shows a locked seller a blocked state with a calm message", async () => {
+    const s = await getSellerSelfPayoutSummary("s1", NOW);
+    expect(s.state).toBe("blocked");
+    expect(s.canInitiate).toBe(false);
+    expect(s.blockedReason).toBe("seller_locked");
+    expect(s.message).toMatch(/on hold/i);
+    expect(s.message).not.toMatch(/dispute|chargeback|fraud/i);
+  });
+
+  it("a tap on Get paid sends nothing: no order payouts, no manual-credit payout, no Stripe calls", async () => {
+    const r = await initiateSellerSelfPayout("s1");
+    expect(r.ok).toBe(false);
+    expect(hoisted.payoutsCreate).not.toHaveBeenCalled();
+    expect(hoisted.release).not.toHaveBeenCalled();
+    expect(hoisted.creditReserve).not.toHaveBeenCalled();
+    expect(hoisted.balance).not.toHaveBeenCalled();
+  });
+});

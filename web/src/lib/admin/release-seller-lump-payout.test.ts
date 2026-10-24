@@ -131,3 +131,28 @@ describe("releaseSellerLumpBankPayout", () => {
     expect(hoisted.liabApply).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("releaseSellerLumpBankPayout — admin seller lock", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hoisted.prisma.user.findUnique.mockResolvedValue({
+      sellerLockedAt: new Date("2026-10-25T00:00:00Z"),
+      stripeAccountId: "acct_1",
+      stripeOnboardingComplete: true,
+      stripePayoutsEnabled: true,
+    });
+    hoisted.balance.mockResolvedValue({ available: [{ amount: 23_514, currency: "usd" }] });
+    hoisted.listReady.mockResolvedValue([row("a", 100, 1)]);
+  });
+
+  it("sends nothing for a locked seller, even when forced, and never reads the balance", async () => {
+    const r = await releaseSellerLumpBankPayout({ sellerId: "s1", adminId: "admin_1", reason: "t", force: true });
+    expect(r.totalPaidUsd).toBe(0);
+    expect(r.payoutId).toBeNull();
+    expect(r.failed).toBe(1);
+    expect(r.results[0]).toMatchObject({ ok: false, reason: "seller_locked" });
+    expect(hoisted.payoutCreate).not.toHaveBeenCalled();
+    expect(hoisted.balance).not.toHaveBeenCalled();
+    expect(hoisted.planOnly).not.toHaveBeenCalled();
+  });
+});

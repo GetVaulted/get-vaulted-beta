@@ -1,0 +1,26 @@
+
+/// Permanent copy of a buyer's "Watch your win" video clip (kept outside the 30-day recording lifecycle).
+model WinClipSave {
+  id              String   @id @default(cuid())
+  /// spot (LiveItemVariantPurchase) | order (live Order)
+  kind            String
+  refId           String
+  buyerId         String
+  liveRoomId      String
+  title           String
+  subtitle        String?
+  showTitle       String?
+  momentAt        DateTime
+  /// saved | missing (recording did not cover the moment; retried a few times)
+  status          String   @default("saved")
+  attempts        Int      @default(0)
+  s3Prefix        String?
+  momentOffsetSec Float?
+  durationSec     Float?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([kind, refId])
+  @@index([buyerId, momentAt])
+  @@index([status, updatedAt])
+}

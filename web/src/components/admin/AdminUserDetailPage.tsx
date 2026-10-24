@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AdminUser360Panel } from "@/components/admin/AdminUser360Panel";
+import { SellerLockPanel } from "@/components/admin/SellerLockPanel";
 
 type ChecklistItem = {
   key: string;
@@ -817,6 +818,8 @@ export function AdminUserDetailPage() {
       </section>
 
       <h2 className="font-display mt-10 text-lg font-black tracking-tight text-zinc-100">Seller risk & payout program</h2>
+
+      <SellerLockPanel userId={userId} />
 
       <section className="mt-4 grid gap-4 lg:grid-cols-3">
         <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs lg:col-span-1">

@@ -8,6 +8,7 @@ import { loadSellerPlatformFeePercentOverride } from "@/services/seller-platform
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 import { paypalRailSellerProcessingFeeUsd } from "@/lib/paypal-rail-processing-fee";
 import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
+import { SELLER_LOCKED_PAYOUT_REASON } from "@/lib/seller-lock";
 import {
   OrderPayoutStatus,
   OrderPaymentMethod,
@@ -59,6 +60,7 @@ export async function releaseSellerPayPalPayout(orderId: string): Promise<{
       },
       seller: {
         select: {
+          sellerLockedAt: true,
           paypalPayoutEmail: true,
           paypalPayoutVerifiedAt: true,
         },
@@ -80,6 +82,11 @@ export async function releaseSellerPayPalPayout(orderId: string): Promise<{
   }
   if (order.payoutStatus === OrderPayoutStatus.paid_out) {
     return { ok: true, reason: "already_paid_out" };
+  }
+
+  // Admin seller lock: fail closed without touching the order, so lifting the lock resumes the normal flow.
+  if (order.seller.sellerLockedAt) {
+    return { ok: false, reason: SELLER_LOCKED_PAYOUT_REASON };
   }
 
   // The admin already sent this seller part of their balance by hand. Releasing a full per-order

@@ -27,6 +27,7 @@ import { recalculateSellerPayoutTier } from "@/services/payout/recalculate-selle
 import { estimateSellerOrderPayoutUsd, resolvePlatformFeePercentForSellerOrder } from "@/lib/seller-payout-estimate";
 import { orderItemSaleBasisUsd } from "@/lib/referral-credit-payout";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
+import { getSellerLock } from "@/lib/seller-lock";
 import { loadSellerPlatformFeePercentOverride } from "@/services/seller-platform-fee-override";
 
 const orderSelect = {
@@ -256,6 +257,21 @@ async function finalizeOrderPayoutRelease(
     newStatus: readyStatus,
     reason,
   });
+
+  // Admin seller lock: nothing is released to a locked seller by the automatic evaluators (escrow, PayPal or
+  // Stripe). The order's payout status is left as the caller set it, so lifting the lock lets the next
+  // evaluation / cron pass release it normally.
+  if ((await getSellerLock(sellerId)).locked) {
+    await logPayoutEligibilityDecision({
+      sellerId,
+      orderId,
+      action: "order_payout_blocked",
+      previousStatus: prevStatus,
+      newStatus: prevStatus,
+      reason: "seller_locked",
+    });
+    return;
+  }
 
   let released = false;
   if (order.paymentMethod === OrderPaymentMethod.escrow) {

@@ -58,6 +58,8 @@ export type AdminPayPalPayoutSellerRow = {
   netOfLiabilityUsd: number;
   needsAttentionCount: number;
   blockedReason: string | null;
+  /** Admin seller lock is on: do NOT pay this seller until the lock is lifted. */
+  sellerLocked: boolean;
   /** Orders for this seller already settled (paid out / marked paid) — shown for context only. */
   paidOutOrderCount: number;
   /** Open partial payments already sent to this seller (off-platform), in USD. */
@@ -143,6 +145,7 @@ export async function listPayPalPayoutQueue(
           email: true,
           paypalPayoutEmail: true,
           paypalPayoutVerifiedAt: true,
+          sellerLockedAt: true,
         },
       },
       liveShippingSession: {
@@ -162,6 +165,7 @@ export async function listPayPalPayoutQueue(
       email: string | null;
       paypalPayoutEmail: string | null;
       paypalPayoutVerifiedAt: string | null;
+      sellerLocked: boolean;
       orders: AdminPayPalPayoutOrderRow[];
     }
   >();
@@ -230,6 +234,7 @@ export async function listPayPalPayoutQueue(
         email: o.seller.email,
         paypalPayoutEmail: o.seller.paypalPayoutEmail,
         paypalPayoutVerifiedAt: o.seller.paypalPayoutVerifiedAt?.toISOString() ?? null,
+        sellerLocked: Boolean(o.seller.sellerLockedAt),
         orders: [row],
       });
     } else {
@@ -284,6 +289,7 @@ export async function listPayPalPayoutQueue(
       netOfLiabilityUsd,
       needsAttentionCount: g.orders.filter((o) => o.needsAttention).length,
       blockedReason: emailReady ? null : "paypal_email_not_verified",
+      sellerLocked: g.sellerLocked,
       paidOutOrderCount: paidOutBySeller.get(g.sellerId) ?? 0,
       partialPaidUsd: partialPaidCents / 100,
       remainingUsd,

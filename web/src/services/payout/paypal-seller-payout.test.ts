@@ -305,3 +305,25 @@ describe("releaseSellerPayPalPayout — seller-absorbed processing fee", () => {
     );
   });
 });
+
+describe("releaseSellerPayPalPayout — admin seller lock", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    estimateSellerOrderPayoutUsd.mockReturnValue(10);
+    planOutstandingLiabilityRecoveryForSeller.mockResolvedValue(NO_LIABILITY_PLAN);
+  });
+
+  it("does not send PayPal money to a locked seller and leaves the order untouched", async () => {
+    orderStore.current = readyOrder({
+      seller: {
+        sellerLockedAt: new Date("2026-10-25T00:00:00Z"),
+        paypalPayoutEmail: "seller@example.com",
+        paypalPayoutVerifiedAt: new Date("2026-01-01"),
+      },
+    });
+    const result = await releaseSellerPayPalPayout("ord_1");
+    expect(result).toEqual({ ok: false, reason: "seller_locked" });
+    expect(createSellerPayPalPayout).not.toHaveBeenCalled();
+    expect(prismaMock.order.update).not.toHaveBeenCalled();
+  });
+});
