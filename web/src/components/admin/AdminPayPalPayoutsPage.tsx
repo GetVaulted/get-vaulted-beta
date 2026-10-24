@@ -33,6 +33,7 @@ type SellerRow = {
   netOfLiabilityUsd: number;
   needsAttentionCount: number;
   blockedReason: string | null;
+  sellerLocked?: boolean;
   paidOutOrderCount: number;
   partialPaidUsd: number;
   remainingUsd: number;
@@ -478,6 +479,11 @@ export function AdminPayPalPayoutsPage() {
                               @{handle}
                             </Link>
                             {s.email ? <p className="text-[11px] text-zinc-500">{s.email}</p> : null}
+                            {s.sellerLocked ? (
+                              <p className="mt-1 inline-block rounded border border-rose-500/50 bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-300">
+                                Locked · do not pay
+                              </p>
+                            ) : null}
                           </td>
                           <td className="px-3 py-3">
                             <p className="font-mono text-[11px] text-zinc-300">
@@ -626,7 +632,7 @@ export function AdminPayPalPayoutsPage() {
                                 {s.orders.map((o) => {
                                   const stage = payoutStageLabel(o);
                                   const alreadySent = Boolean(o.processorTransferId?.trim());
-                                  const canRelease = !alreadySent && emailReady && s.partialPaidUsd <= 0;
+                                  const canRelease = !alreadySent && emailReady && s.partialPaidUsd <= 0 && !s.sellerLocked;
                                   const busy = busyOrderId === o.orderId;
                                   return (
                                     <li key={o.orderId} className="flex flex-wrap items-start justify-between gap-3 py-3 text-xs">

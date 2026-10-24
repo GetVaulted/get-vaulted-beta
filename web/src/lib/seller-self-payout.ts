@@ -9,6 +9,7 @@ import {
   reserveManualCredit,
 } from "@/lib/seller-manual-payout-credit";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { SELLER_LOCKED_PAYOUT_REASON } from "@/lib/seller-lock";
 import { orderLooksShippedForBankPayout } from "@/services/payout/stripe-seller-payout";
 
 /**
@@ -113,6 +114,8 @@ function blockedMessage(reason: string): string {
       return "Finish connecting your bank in Seller HQ to get paid.";
     case "stripe_payouts_disabled":
       return "Stripe has paused payouts on your account. Open Seller HQ to see what Stripe needs from you.";
+    case SELLER_LOCKED_PAYOUT_REASON:
+      return "Payouts are on hold while we resolve an open issue on your account. Please contact Get Vaulted support.";
     default:
       return "Payouts are temporarily unavailable. Try again in a few minutes.";
   }
@@ -179,8 +182,9 @@ export async function getSellerSelfPayoutSummary(
 
   const seller = await prisma.user.findUnique({
     where: { id: sellerId },
-    select: { stripeAccountId: true, stripeOnboardingComplete: true, stripePayoutsEnabled: true },
+    select: { sellerLockedAt: true, stripeAccountId: true, stripeOnboardingComplete: true, stripePayoutsEnabled: true },
   });
+  if (seller?.sellerLockedAt) return blocked(SELLER_LOCKED_PAYOUT_REASON);
   const accountId = seller?.stripeAccountId?.trim();
   if (!accountId) return blocked("no_stripe_account");
   if (!seller?.stripeOnboardingComplete) return blocked("stripe_onboarding_incomplete");

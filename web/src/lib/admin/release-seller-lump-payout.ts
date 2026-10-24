@@ -6,6 +6,7 @@ import { listOrdersReadyForAdminBankPayout } from "@/lib/admin/orders-ready-for-
 import { logPayoutEligibilityDecision } from "@/lib/payout-audit-log";
 import { prisma } from "@/lib/prisma";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { SELLER_LOCKED_PAYOUT_REASON } from "@/lib/seller-lock";
 import { releaseSellerStripePayout } from "@/services/payout/stripe-seller-payout";
 import {
   applyOutstandingLiabilityRecovery,
@@ -87,8 +88,10 @@ export async function releaseSellerLumpBankPayout(args: {
 
   const seller = await prisma.user.findUnique({
     where: { id: sellerId },
-    select: { stripeAccountId: true, stripeOnboardingComplete: true, stripePayoutsEnabled: true },
+    select: { sellerLockedAt: true, stripeAccountId: true, stripeOnboardingComplete: true, stripePayoutsEnabled: true },
   });
+  // Admin seller lock: the lump sum is its own Stripe payout (not per-order), so it needs its own guard.
+  if (seller?.sellerLockedAt) return empty(1, SELLER_LOCKED_PAYOUT_REASON);
   const accountId = seller?.stripeAccountId?.trim();
   if (!accountId || !seller?.stripeOnboardingComplete) return empty(1, "stripe_not_ready");
   if (seller.stripePayoutsEnabled === false) return empty(1, "stripe_payouts_disabled");

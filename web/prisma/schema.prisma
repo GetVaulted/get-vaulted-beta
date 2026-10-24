@@ -594,6 +594,10 @@ model User {
   /// Admin sub-role (owner|finance|support|moderator). NULL on an admin = owner (full access).
   adminRole                     String?
   suspendedAt                   DateTime?
+  /// Targeted admin lock: blocks going live and every payout path (login/shipping unaffected). NULL = not locked.
+  sellerLockedAt                DateTime?
+  sellerLockReason              String?
+  sellerLockedById              String?
   /// Buyer self-confirmed they are 18+ (required before any random-reveal / Surprise Set purchase).
   adultConfirmedAt              DateTime?
   /// Stripe Connect Express / Standard connected account id (`acct_...`).
@@ -816,6 +820,7 @@ model User {
   giveawayDrawsAsAdmin               GiveawayDraw[]              @relation("GiveawayDrawAdmin")
   appPresence                        UserAppPresence[]
   ipLogs                              UserIpLog[]
+  @@index([sellerLockedAt])
 }
 
 /// Signed-in foreground heartbeat for admin “online now” (one row per user + platform).
