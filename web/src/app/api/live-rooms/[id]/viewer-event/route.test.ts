@@ -110,4 +110,52 @@ describe("POST /api/live-rooms/[id]/viewer-event", () => {
     expect(res.status).toBe(200);
     expect(hoisted.pauseOpenGiveawayPresence).toHaveBeenCalledWith("room-1", "viewer-1");
   });
+
+  it("join waits for the giveaway presence restore before answering (not fire-and-forget)", async () => {
+    hoisted.roomFindUnique.mockResolvedValue({
+      id: "room-1",
+      status: "live",
+      viewerCount: 40,
+      viewerCountUpdatedAt: new Date(),
+    });
+    let finished = false;
+    hoisted.resumeOpenGiveawayPresence.mockImplementationOnce(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      finished = true;
+      return { resumed: 1 };
+    });
+    const res = await call("join");
+    expect(res.status).toBe(200);
+    expect(finished).toBe(true);
+  });
+
+  it("big room join also waits for the presence restore", async () => {
+    hoisted.roomFindUnique.mockResolvedValue({
+      id: "room-1",
+      status: "live",
+      viewerCount: 1200,
+      viewerCountUpdatedAt: new Date(),
+    });
+    let finished = false;
+    hoisted.resumeOpenGiveawayPresence.mockImplementationOnce(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      finished = true;
+      return { resumed: 1 };
+    });
+    const res = await call("join");
+    expect(res.status).toBe(200);
+    expect(finished).toBe(true);
+  });
+
+  it("a failing presence restore never fails the join", async () => {
+    hoisted.roomFindUnique.mockResolvedValue({
+      id: "room-1",
+      status: "live",
+      viewerCount: 40,
+      viewerCountUpdatedAt: new Date(),
+    });
+    hoisted.resumeOpenGiveawayPresence.mockRejectedValueOnce(new Error("db down"));
+    const res = await call("join");
+    expect(res.status).toBe(200);
+  });
 });

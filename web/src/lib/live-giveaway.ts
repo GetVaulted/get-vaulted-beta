@@ -12,6 +12,7 @@ import { createOrderFromGiveawayWinTx } from "@/lib/live-giveaway-fulfillment";
 import {
   isGiveawayEntryEligibleForDraw,
   isWatchEnterGiveawayMethod,
+  shouldIgnoreLeaveNotice,
 } from "@/lib/live-giveaway-presence";
 import { prisma } from "@/lib/prisma";
 import { emitLiveRoomGiveawaysChanged, emitPurchaseCompleted, emitVaultRevealSpin } from "@/lib/realtime-emit-server";
@@ -541,22 +542,31 @@ export async function listLiveGiveawayEntriesForHost(giveawayId: string, liveRoo
 export async function pauseOpenGiveawayPresence(
   liveRoomId: string,
   userId: string,
-): Promise<{ paused: number }> {
+): Promise<{ paused: number; ignored: number }> {
   await processExpiredLiveGiveaways(liveRoomId);
 
   const openGiveaways = await prisma.liveGiveaway.findMany({
     where: { liveRoomId, kind: "open", status: "entries_open" },
     select: { id: true },
   });
-  if (openGiveaways.length === 0) return { paused: 0 };
+  if (openGiveaways.length === 0) return { paused: 0, ignored: 0 };
 
   let paused = 0;
+  let ignored = 0;
+  const now = new Date();
   for (const giveaway of openGiveaways) {
     const entry = await prisma.liveGiveawayEntry.findUnique({
       where: { giveawayId_userId: { giveawayId: giveaway.id, userId } },
-      select: { id: true, method: true, activeInRoom: true },
+      select: { id: true, method: true, activeInRoom: true, presenceAt: true },
     });
     if (!entry || !isWatchEnterGiveawayMethod(entry.method) || !entry.activeInRoom) continue;
+    // The viewer was confirmed present moments ago (entered / joined). A "left" this soon after is an
+    // out-of-order event from the app, not a real departure — dropping them is how people who never left
+    // were being excluded from the draw.
+    if (shouldIgnoreLeaveNotice(entry.presenceAt, now)) {
+      ignored++;
+      continue;
+    }
 
     const didPause = await prisma.$transaction(async (tx) => {
       const updated = await tx.liveGiveawayEntry.updateMany({
@@ -574,7 +584,7 @@ export async function pauseOpenGiveawayPresence(
   }
 
   if (paused > 0) emitLiveRoomGiveawaysChanged(liveRoomId);
-  return { paused };
+  return { paused, ignored };
 }
 
 export async function resumeOpenGiveawayPresence(
@@ -598,12 +608,17 @@ export async function resumeOpenGiveawayPresence(
       where: { giveawayId_userId: { giveawayId: giveaway.id, userId } },
       select: { id: true, method: true, activeInRoom: true },
     });
-    if (!entry || !isWatchEnterGiveawayMethod(entry.method) || entry.activeInRoom) continue;
+    if (!entry || !isWatchEnterGiveawayMethod(entry.method)) continue;
+    if (entry.activeInRoom) {
+      // Already counted: just confirm presence so a late/out-of-order "left" cannot pause them.
+      await prisma.liveGiveawayEntry.update({ where: { id: entry.id }, data: { presenceAt: now } });
+      continue;
+    }
 
     const didResume = await prisma.$transaction(async (tx) => {
       const updated = await tx.liveGiveawayEntry.updateMany({
         where: { id: entry.id, activeInRoom: false },
-        data: { activeInRoom: true },
+        data: { activeInRoom: true, presenceAt: now },
       });
       if (updated.count === 0) return false;
       await tx.liveGiveaway.update({
@@ -644,7 +659,7 @@ export async function enterOpenGiveaway(giveawayId: string, liveRoomId: string, 
     await prisma.$transaction(async (tx) => {
       const updated = await tx.liveGiveawayEntry.updateMany({
         where: { id: existing.id, activeInRoom: false },
-        data: { activeInRoom: true },
+        data: { activeInRoom: true, presenceAt: new Date() },
       });
       if (updated.count === 0) return;
       await tx.liveGiveaway.update({
@@ -664,6 +679,7 @@ export async function enterOpenGiveaway(giveawayId: string, liveRoomId: string, 
           userId,
           method: "watch_enter",
           activeInRoom: true,
+          presenceAt: new Date(),
         },
       });
       await tx.liveGiveaway.update({

@@ -25,6 +25,19 @@ import { getLiveRoomUserRestrictions } from "@/lib/trust/live-room-moderation";
 
 type PostBody = { kind?: string };
 
+/**
+ * Re-count the viewer in any open giveaway they entered. Awaited on purpose: this used to be fire-and-forget
+ * (`void`), and on serverless the work can be frozen once the response is sent — so a viewer's "joined" could
+ * be acknowledged but never actually restore them. Presence is best-effort: never fail the join over it.
+ */
+async function restoreGiveawayPresence(liveRoomId: string, userId: string): Promise<void> {
+  try {
+    await resumeOpenGiveawayPresence(liveRoomId, userId);
+  } catch (e) {
+    console.error("[viewer-event] giveaway presence restore failed", liveRoomId, userId, e);
+  }
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const auth = await resolveLiveRoomsUserId(req);
   if (auth instanceof NextResponse) {
@@ -77,7 +90,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       }),
     )
   ) {
-    void resumeOpenGiveawayPresence(liveRoomId, auth.userId);
+    await restoreGiveawayPresence(liveRoomId, auth.userId);
     const sender = await prisma.user.findUnique({
       where: { id: auth.userId },
       select: { username: true, image: true },
@@ -104,7 +117,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   if (kind === "join") {
-    void resumeOpenGiveawayPresence(liveRoomId, auth.userId);
+    await restoreGiveawayPresence(liveRoomId, auth.userId);
   }
 
   const text = kind === "join" ? VIEWER_EVENT_JOIN_BODY : VIEWER_EVENT_SHARE_BODY;

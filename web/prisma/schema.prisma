@@ -2923,6 +2923,9 @@ model LiveGiveawayEntry {
   amoeMeta     Json?
   /// For watch_enter rows: false when the viewer left the room (paused in drawing pool).
   activeInRoom Boolean                 @default(true)
+  /// Last time the viewer was confirmed present (entered, or joined/returned to the room). A "left" notice that
+  /// arrives within a few seconds of this is treated as a stale/out-of-order event and ignored.
+  presenceAt   DateTime?
   createdAt    DateTime                @default(now())
 
   @@unique([giveawayId, userId])
