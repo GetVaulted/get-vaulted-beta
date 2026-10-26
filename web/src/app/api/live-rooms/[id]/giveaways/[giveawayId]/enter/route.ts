@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { enterOpenGiveaway } from "@/lib/live-giveaway";
+import { getPhoneVerificationBlock } from "@/lib/phone-verification";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { emitLiveRoomGiveawaysChanged } from "@/lib/realtime-emit-server";
 
@@ -10,6 +11,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; gi
 
   const auth = await resolveLiveRoomsUserId(req);
   if (auth instanceof NextResponse) return auth;
+
+  const phoneBlock = await getPhoneVerificationBlock(auth.userId);
+  if (phoneBlock) {
+    return NextResponse.json({ error: phoneBlock.error, code: phoneBlock.code }, { status: phoneBlock.status });
+  }
 
   const result = await enterOpenGiveaway(giveawayId, liveRoomId, auth.userId);
   if (!result.ok) {

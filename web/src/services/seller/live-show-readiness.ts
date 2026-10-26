@@ -1,6 +1,8 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { isEscrowConfigured, isEscrowFeaturesEnabled } from "@/lib/escrow-config";
 import type { LiveShowReadiness, LiveShowReadinessChecks } from "@/lib/live-show-readiness-types";
+import { PHONE_VERIFICATION_REQUIRED_MESSAGE } from "@/lib/live-room-commerce-messages";
+import { isPhoneVerificationRequired } from "@/lib/phone-verification";
 import { prisma } from "@/lib/prisma";
 import { SELLER_LOCK_PUBLIC_MESSAGE } from "@/lib/seller-lock";
 import {
@@ -59,6 +61,9 @@ export async function getSellerLiveReadiness(
     where: { id: sellerId },
     select: {
       sellerLockedAt: true,
+      createdAt: true,
+      phoneVerifiedAt: true,
+      phoneVerificationRequired: true,
       stripeAccountId: true,
       stripeOnboardingComplete: true,
       stripeChargesEnabled: true,
@@ -109,6 +114,7 @@ export async function getSellerLiveReadiness(
   // Admin seller lock: no creating or starting live shows until it is lifted. Checked here because this one
   // function gates BOTH `POST /api/live-rooms` (create) and `PATCH /api/live-rooms/[id]` (start).
   if (user.sellerLockedAt) issues.push(SELLER_LOCK_PUBLIC_MESSAGE);
+  if (isPhoneVerificationRequired(user)) issues.push(PHONE_VERIFICATION_REQUIRED_MESSAGE);
 
   const preferred = effectiveSellerPayoutProcessor(user);
   const payoutRail = {

@@ -598,6 +598,11 @@ model User {
   sellerLockedAt                DateTime?
   sellerLockReason              String?
   sellerLockedById              String?
+  /// Phone number (E.164) a person verified by SMS code. Unique: one number = one account.
+  phoneE164                     String?                     @unique
+  phoneVerifiedAt               DateTime?
+  /// Admin flag: this (older) account must verify a phone before bidding, buying, entering giveaways or going live.
+  phoneVerificationRequired     Boolean                     @default(false)
   /// Buyer self-confirmed they are 18+ (required before any random-reveal / Surprise Set purchase).
   adultConfirmedAt              DateTime?
   /// Stripe Connect Express / Standard connected account id (`acct_...`).

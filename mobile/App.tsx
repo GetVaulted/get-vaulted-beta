@@ -17,6 +17,7 @@ import {
 } from './src/lib/recoverInvalidAuthSession';
 import { AppLayoutProvider } from './src/layout/AppLayoutProvider';
 import { RootNavigator } from './src/navigation/RootNavigator';
+import { PhoneVerificationGate } from './src/components/auth/PhoneVerificationGate';
 import * as Sentry from '@sentry/react-native';
 
 Sentry.init({
@@ -89,6 +90,7 @@ export default Sentry.wrap(function App() {
             <AuthProvider>
               <View style={styles.root}>
                 <RootNavigator />
+                <PhoneVerificationGate />
               </View>
             </AuthProvider>
           </PlatformFeeProvider>

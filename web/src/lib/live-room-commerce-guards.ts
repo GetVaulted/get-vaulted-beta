@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getPhoneVerificationBlock } from "@/lib/phone-verification";
 import {
   isLiveRoomBroadcastOnAir,
   isLiveRoomBroadcastPurchasable,
@@ -91,10 +92,14 @@ export async function getLiveBuyerCommerceBlock(args: {
   liveRoomId: string;
   userId: string;
 }): Promise<LiveBuyerCommerceBlock | null> {
-  const room = await prisma.liveRoom.findUnique({
-    where: { id: args.liveRoomId },
-    select: { sellerId: true },
-  });
+  const [room, phoneBlock] = await Promise.all([
+    prisma.liveRoom.findUnique({
+      where: { id: args.liveRoomId },
+      select: { sellerId: true },
+    }),
+    getPhoneVerificationBlock(args.userId),
+  ]);
+  if (phoneBlock) return phoneBlock;
   if (!room) {
     return { status: 404, error: "Room not found.", code: "ROOM_NOT_FOUND" };
   }
