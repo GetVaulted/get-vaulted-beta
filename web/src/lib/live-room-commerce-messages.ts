@@ -10,7 +10,11 @@ export const LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR =
 export const LIVE_STREAM_PAUSED_COMMERCE_ERROR =
   "The host paused the stream. Bidding is paused — Buy Now and shop are still available.";
 
+export const PHONE_VERIFICATION_REQUIRED_MESSAGE =
+  "Verify your phone number to bid, buy, enter giveaways or go live. Open the Get Vaulted app to do it — it takes under a minute.";
+
 export type LiveBuyerCommerceBlockCode =
+  | "PHONE_VERIFICATION_REQUIRED"
   | "ROOM_NOT_FOUND"
   | "LIVE_HOST_SELF_COMMERCE"
   | "LIVE_MODERATOR_COMMERCE"

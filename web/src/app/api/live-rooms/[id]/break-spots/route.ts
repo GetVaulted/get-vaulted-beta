@@ -3,6 +3,7 @@ import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { getLiveRoomBroadcastCommerceBlock, isLiveRoomOpenForSpotPurchase } from "@/lib/live-room-commerce-guards";
 import { getServerSessionSafe } from "@/lib/auth";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
+import { getPhoneVerificationBlock } from "@/lib/phone-verification";
 import { prisma } from "@/lib/prisma";
 import { isStripeConfigured } from "@/lib/stripe";
 import { refreshLiveRoomItemSoldAfterBreakSpotChange } from "@/lib/live-room-break-quantity";
@@ -72,6 +73,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (paymentBlock) return paymentBlock;
   if (room.sellerId === session.user.id) {
     return NextResponse.json({ error: "You cannot claim spots in your own break room." }, { status: 400 });
+  }
+
+  const phoneBlock = await getPhoneVerificationBlock(session.user.id);
+  if (phoneBlock) {
+    return NextResponse.json({ error: phoneBlock.error, code: phoneBlock.code }, { status: phoneBlock.status });
   }
 
   if (isStripeConfigured()) {
