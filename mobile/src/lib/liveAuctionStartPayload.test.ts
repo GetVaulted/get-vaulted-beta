@@ -8,7 +8,7 @@ import {
 
 describe('liveAuctionStartPayload', () => {
   it('exposes 15/30/45/60s presets for the host timer picker', () => {
-    expect(AUCTION_DURATION_PRESETS).toEqual([15, 30, 45, 60]);
+    expect(AUCTION_DURATION_PRESETS).toEqual([15, 30, 45, 60, 90, 120]);
     expect(DEFAULT_AUCTION_SEC).toBe(15);
   });
 

@@ -85,6 +85,7 @@ import {
   resolveLiveCustomBidPayload,
   type LiveCustomBidMode,
 } from "@/lib/live-custom-bid";
+import { DEFAULT_AUCTION_SEC } from "@/lib/live-auction-duration";
 
 type SaleItem = {
   id: string;
@@ -423,7 +424,7 @@ export function LiveAuctionRoom({
               : "Sold out"
     : "Select spot";
   const variantShopLabel = activeDbItem ? variantClaimPrimaryLabel(activeDbItem.salesFormat) : "Claim spot";
-  const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(5);
+  const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState<number>(DEFAULT_AUCTION_SEC);
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
   const [hostAuctionBusy, setHostAuctionBusy] = useState(false);
   const [pinVariantBusy, setPinVariantBusy] = useState(false);

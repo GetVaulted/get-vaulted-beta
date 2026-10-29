@@ -1,5 +1,6 @@
 export const DEFAULT_AUCTION_SEC = 15;
-export const AUCTION_DURATION_PRESETS = [15, 30, 45, 60] as const;
+/** Keep in sync with web `src/lib/live-auction-duration.ts` so phone and PC timers match. */
+export const AUCTION_DURATION_PRESETS = [15, 30, 45, 60, 90, 120] as const;
 export type AuctionDurationSec = (typeof AUCTION_DURATION_PRESETS)[number];
 
 /** Clamp host-selected duration to the live startAuction API range (3–7200s). */

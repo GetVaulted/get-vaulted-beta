@@ -12,6 +12,7 @@ import { hostQueueSwitchPinState } from "@/lib/host-queue-selection";
 import type { LiveRoomEnergyLevel } from "@/lib/live-room-energy";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import type { LiveLotTransitionPhase } from "@/components/live-stage/LiveLotTransitionBanner";
+import { AUCTION_DURATION_PRESETS } from "@/lib/live-auction-duration";
 
 export type LiveStageMotionBurst = "bid" | "bid_war" | "last_second" | "sold" | "no_bids" | null;
 
@@ -549,7 +550,7 @@ export function LiveAuctionHud({
                 className="max-w-[3rem] rounded-full border border-white/[0.08] bg-black/40 px-1 py-0.5 text-[8px] text-zinc-300"
                 aria-label="Auction clock"
               >
-                {[5, 10, 15, 20, 30].map((sec) => (
+                {AUCTION_DURATION_PRESETS.map((sec) => (
                   <option key={sec} value={sec}>
                     {sec}s
                   </option>
