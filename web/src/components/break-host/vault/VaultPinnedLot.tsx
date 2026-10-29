@@ -11,6 +11,7 @@ import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
 import { LiveAuctionHud, type LiveStageMotionBurst } from "@/components/live-stage/LiveAuctionHud";
 import type { LiveLotTransitionPhase } from "@/components/live-stage/LiveLotTransitionBanner";
 import type { LiveRoomEnergyLevel } from "@/lib/live-room-energy";
+import { AUCTION_DURATION_PRESETS } from "@/lib/live-auction-duration";
 
 type ClaimLite = { user: { username: string } } | null;
 type QueueRowLite = { item: LiveRoomItemDTO; claim: ClaimLite; claims: { user: { username: string } }[] };
@@ -440,7 +441,7 @@ export function VaultPinnedLot({
                       onChange={(e) => onHostAuctionDurationSec(Number(e.target.value))}
                       className="rounded-md border border-white/15 bg-black/55 px-2 py-1 text-[10px] font-semibold text-zinc-100"
                     >
-                      {[5, 10, 15, 20, 30].map((sec) => (
+                      {AUCTION_DURATION_PRESETS.map((sec) => (
                         <option key={sec} value={sec}>
                           {sec}s
                         </option>

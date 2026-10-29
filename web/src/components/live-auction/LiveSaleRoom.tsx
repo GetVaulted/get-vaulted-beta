@@ -77,6 +77,7 @@ import {
   type LiveCustomBidMode,
 } from "@/lib/live-custom-bid";
 import { purchaseLiveBuyNowWithSca } from "@/lib/live-buy-now-client";
+import { DEFAULT_AUCTION_SEC } from "@/lib/live-auction-duration";
 
 type SaleItem = {
   id: string;
@@ -329,7 +330,7 @@ export function LiveSaleRoom({
   const [userHighBidUsd, setUserHighBidUsd] = useState<number | null>(null);
   const [showOutbidToast, setShowOutbidToast] = useState(false);
   const [clockTick, setClockTick] = useState(0);
-  const [hostSaleAuctionDurationSec, setHostSaleAuctionDurationSec] = useState(5);
+  const [hostSaleAuctionDurationSec, setHostSaleAuctionDurationSec] = useState<number>(DEFAULT_AUCTION_SEC);
   const [hostSaleClutchTimeEnabled, setHostSaleClutchTimeEnabled] = useState(false);
   const [hostSaleAuctionBusy, setHostSaleAuctionBusy] = useState(false);
   const [hostMarkSoldBusy, setHostMarkSoldBusy] = useState(false);

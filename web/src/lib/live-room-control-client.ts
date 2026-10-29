@@ -1,3 +1,5 @@
+import { DEFAULT_AUCTION_SEC } from "@/lib/live-auction-duration";
+
 type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; issues: string[] };
 
 async function readJsonSafe<T>(res: Response): Promise<T | null> {
@@ -139,7 +141,7 @@ export async function startLiveRoomItemAuction(
 ): Promise<ApiResult<Record<string, unknown>>> {
   try {
     const durRaw = Number(auctionDurationSec);
-    const dur = Number.isFinite(durRaw) && durRaw >= 3 ? Math.floor(durRaw) : 5;
+    const dur = Number.isFinite(durRaw) && durRaw >= 3 ? Math.floor(durRaw) : DEFAULT_AUCTION_SEC;
     const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(itemId)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

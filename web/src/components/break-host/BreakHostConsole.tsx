@@ -136,6 +136,7 @@ import {
 } from "@/lib/live-spot-celebration";
 import { liveAuctionDisplayBidUsd } from "@/lib/live-auction-overlay-price";
 import { parseTeamBoardPublicPayload, type TeamBoardPublicPayload } from "@/lib/team-board-public";
+import { DEFAULT_AUCTION_SEC } from "@/lib/live-auction-duration";
 
 type RoomPayload = {
   id: string;
@@ -317,7 +318,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const [hostTeamBoardOpen, setHostTeamBoardOpen] = useState(false);
   const [hostTeamBoardCollapsed, setHostTeamBoardCollapsed] = useState(false);
   const [selectedQueueItemId, setSelectedQueueItemId] = useState("");
-  const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(5);
+  const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState<number>(DEFAULT_AUCTION_SEC);
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
   const [streamPreviewMuted, setStreamPreviewMuted] = useState(true);
   // PC dashboard layout is opt-in (?layout=dashboard) until it has been proven on a live show.
