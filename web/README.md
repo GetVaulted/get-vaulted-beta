@@ -139,3 +139,5 @@ The app uses **Supabase Realtime broadcast** from the server (service role, afte
 ## License
 
 Private project — see repository owner.
+
+<!-- Desktop setup check: 2026-10-31 -->
