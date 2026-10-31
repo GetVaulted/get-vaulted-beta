@@ -13,6 +13,8 @@ const prismaMock = vi.hoisted(() => ({
     findMany: vi.fn(async () => []),
     update: vi.fn(async ({ data }: any) => ({ ...orderStore.current, ...data })),
   },
+  // Seller fee override lookup (loadSellerPlatformFeePercentOverride): no override on these sellers.
+  user: { findUnique: vi.fn(async () => null) },
 }));
 
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));

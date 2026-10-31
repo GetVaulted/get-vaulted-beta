@@ -98,7 +98,11 @@ describe("trade offer management APIs", () => {
         },
         tradeOfferEvent: { create: hoisted.eventsCreate },
         tradeOfferItem: { deleteMany: hoisted.itemsDeleteMany, createMany: hoisted.itemsCreateMany },
-        listing: { findMany: hoisted.listingsFindMany },
+        listing: {
+          findMany: hoisted.listingsFindMany,
+          // Accept now locks every traded listing with a CAS updateMany; all still available here.
+          updateMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => ({ count: where.id.in.length })),
+        },
       }),
     );
     hoisted.offersUpdateMany.mockResolvedValue({ count: 1 });
@@ -161,7 +165,10 @@ describe("trade offer management APIs", () => {
     ]);
     const res = await acceptPost(new Request("http://x"), { params: Promise.resolve({ id: "trade_1" }) });
     expect(res.status).toBe(200);
-    expect(hoisted.offersUpdate).toHaveBeenCalled();
+    // Accept transitions via a CAS updateMany (status still active in the where clause), not a plain update.
+    expect(hoisted.offersUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: "accepted" } }),
+    );
     expect(notifyTradeOfferAccepted).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ offerId: "trade_1", proposerId: "sender" }),

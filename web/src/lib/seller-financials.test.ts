@@ -21,7 +21,9 @@ vi.mock("@/lib/live-show-gmv", () => ({
   liveShowGmvForFeeTierReconstruction: () => 0,
 }));
 
-vi.mock("@/lib/seller-payout-estimate", () => ({
+vi.mock("@/lib/seller-payout-estimate", async (importOriginal) => ({
+  // Keep real helpers this test doesn't pin (e.g. resolveSellerAbsorbedProcessingFeeUsd, added later).
+  ...(await importOriginal<typeof import("@/lib/seller-payout-estimate")>()),
   resolvePlatformFeePercentForSellerOrder: () => 10,
   estimatePlatformFeeUsd: ({ itemPriceUsd, platformFeePercent }: { itemPriceUsd: number; platformFeePercent: number }) =>
     (itemPriceUsd * platformFeePercent) / 100,

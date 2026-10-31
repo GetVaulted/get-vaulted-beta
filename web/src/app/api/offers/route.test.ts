@@ -13,18 +13,24 @@ vi.mock("@/lib/marketplace/commerce-guards", () => ({
   loadListingCommerceContext: vi.fn().mockResolvedValue({ listing: { id: "lst_1" } }),
 }));
 
-const prismaMock = vi.hoisted(() => ({
-  listing: {
-    findUnique: vi.fn(),
-  },
-  order: {
-    findUnique: vi.fn().mockResolvedValue(null),
-  },
-  offer: {
-    findFirst: vi.fn().mockResolvedValue(null),
-    create: vi.fn(),
-  },
-}));
+const prismaMock = vi.hoisted(() => {
+  const m = {
+    listing: {
+      findUnique: vi.fn(),
+    },
+    order: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
+    offer: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn(),
+    },
+    // The duplicate-offer check + create now run in one serializable transaction.
+    $transaction: vi.fn(),
+  };
+  m.$transaction.mockImplementation(async (fn: (tx: typeof m) => unknown) => fn(m));
+  return m;
+});
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
 import { createNotification } from "@/lib/notifications";

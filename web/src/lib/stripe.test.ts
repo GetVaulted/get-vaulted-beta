@@ -87,10 +87,11 @@ describe("marketplaceApplicationFeeCents", () => {
     vi.unstubAllEnvs();
   });
 
-  it("uses fixed 8% for normal (non-company) listings", () => {
+  it("uses the 6.75% platform fee for normal (non-company) listings", () => {
+    // 6.75% cap since 812c97d7 (2026-08-08, "Cap platform fees at 6.75%").
     const subtotal = 100;
     expect(marketplaceApplicationFeeCents(subtotal, false)).toBe(platformFeeCentsFromSubtotalUsd(subtotal));
-    expect(marketplaceApplicationFeeCents(subtotal, false)).toBe(800);
+    expect(marketplaceApplicationFeeCents(subtotal, false)).toBe(675);
   });
 
   it("returns 0 for company / merch listings regardless of percent", () => {

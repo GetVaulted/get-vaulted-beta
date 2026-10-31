@@ -126,10 +126,10 @@ describe("finalizeLiveItemVariantPurchasePaid GMV double-count guard", () => {
       basePurchase({ fulfillmentOrderId: "ord_1" }),
     );
 
-    await finalizeLiveItemVariantPurchasePaid("vp_1", "pi_1");
+    await finalizeLiveItemVariantPurchasePaid("vp_1", "pi_test1");
 
     // Fulfillment order path delegates GMV recording to finalizeStripeMarketplaceOrderPaid.
-    expect(finalizeStripeMarketplaceOrderPaid).toHaveBeenCalledWith("ord_1", "pi_1", null);
+    expect(finalizeStripeMarketplaceOrderPaid).toHaveBeenCalledWith("ord_1", "pi_test1", null);
     expect(recordLiveShowCompletedSaleTx).not.toHaveBeenCalled();
   });
 
@@ -141,7 +141,7 @@ describe("finalizeLiveItemVariantPurchasePaid GMV double-count guard", () => {
     // clause requires `paymentStatus: "pending_payment"`, so this caller loses the claim.
     prismaMock.liveItemVariantPurchase.updateMany.mockResolvedValueOnce({ count: 0 });
 
-    await finalizeLiveItemVariantPurchasePaid("vp_1", "pi_1");
+    await finalizeLiveItemVariantPurchasePaid("vp_1", "pi_test1");
 
     expect(finalizeStripeMarketplaceOrderPaid).toHaveBeenCalledTimes(1);
     expect(prismaMock.liveItemVariantPurchase.update).not.toHaveBeenCalled();
@@ -331,7 +331,7 @@ describe("finalizeLiveItemVariantPurchasePaid — FIX 4: loud alert on swallowed
       basePurchase({ fulfillmentOrderId: "ord_1", totalUsd: 25 }),
     );
 
-    await finalizeLiveItemVariantPurchasePaid("vp_1", "pi_1");
+    await finalizeLiveItemVariantPurchasePaid("vp_1", "pi_test1");
 
     expect(reportUrgentPaymentAnomaly).toHaveBeenCalledWith(
       "live-variant-purchase-order-finalize-failed",

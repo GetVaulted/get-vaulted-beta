@@ -139,9 +139,9 @@ describe("finalizeBreakSpotPaid GMV double-count guard", () => {
       return picked;
     });
 
-    await finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_1" });
+    await finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_test1" });
 
-    expect(finalizeStripeMarketplaceOrderPaid).toHaveBeenCalledWith("ord_1", "pi_1", null);
+    expect(finalizeStripeMarketplaceOrderPaid).toHaveBeenCalledWith("ord_1", "pi_test1", null);
     expect(recordLiveShowCompletedSaleTx).not.toHaveBeenCalled();
   });
 });
@@ -159,7 +159,7 @@ describe("finalizeBreakSpotPaid — FIX 3 atomic idempotent finalize", () => {
   });
 
   it("uses an atomic updateMany gated on not-already-paid, and proceeds to side effects when it wins", async () => {
-    const result = await finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_1" });
+    const result = await finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_test1" });
 
     expect(prismaMock.breakSpot.updateMany).toHaveBeenCalledWith({
       where: { id: "spot_1", breakPaymentStatus: { not: "paid" } },
@@ -173,7 +173,7 @@ describe("finalizeBreakSpotPaid — FIX 3 atomic idempotent finalize", () => {
   it("a losing concurrent caller (count 0) skips all paid side effects", async () => {
     prismaMock.breakSpot.updateMany.mockResolvedValueOnce({ count: 0 });
 
-    await finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_1" });
+    await finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_test1" });
 
     expect(emitBreakSpotsChanged).not.toHaveBeenCalled();
     expect(emitLiveRoomMessagesRefetch).not.toHaveBeenCalled();
@@ -189,8 +189,8 @@ describe("finalizeBreakSpotPaid — FIX 3 atomic idempotent finalize", () => {
     });
 
     await Promise.all([
-      finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_1" }),
-      finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_1" }),
+      finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_test1" }),
+      finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_test1" }),
     ]);
 
     expect(emitBreakSpotsChanged).toHaveBeenCalledTimes(1);
@@ -228,7 +228,7 @@ describe("finalizeBreakSpotPaid — FIX 4: loud alert on swallowed order finaliz
       return picked;
     });
 
-    await finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_1" });
+    await finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_test1" });
 
     expect(reportUrgentPaymentAnomaly).toHaveBeenCalledWith(
       "live-break-spot-order-finalize-failed",

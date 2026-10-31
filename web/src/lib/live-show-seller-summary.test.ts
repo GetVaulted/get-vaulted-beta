@@ -137,7 +137,7 @@ describe("buildLiveShowSellerSummaryDTO", () => {
     expect(dto.grossShowSalesCents).toBe(46_800);
     expect(dto.paidOrderCount).toBe(1);
     expect(dto.currentFeeRatePercent).toBe(LIVE_SHOW_TIER_1_FEE_PERCENT);
-    expect(dto.currentFeeRateBps).toBe(800);
+    expect(dto.currentFeeRateBps).toBe(feePercentToBps(LIVE_SHOW_TIER_1_FEE_PERCENT));
     expect(dto.nextTierRateBps).toBe(feePercentToBps(LIVE_SHOW_TIER_2_FEE_PERCENT));
     expect(dto.nextTierThresholdCents).toBe(usdToCents(LIVE_SHOW_FEE_TIER_2_THRESHOLD_USD));
     expect(dto.amountUntilNextTierCents).toBe(usdToCents(LIVE_SHOW_FEE_TIER_2_THRESHOLD_USD - 468));
@@ -149,17 +149,18 @@ describe("buildLiveShowSellerSummaryDTO", () => {
     const dto = buildLiveShowSellerSummaryDTO({
       showId: "room_1",
       status: "live",
+      // Gross ($3,100) would cross the tier-2 threshold ($3,000); fee-tier GMV ($2,900) must not.
       contributions: [
-        { id: "order:1", itemSubtotalUsd: 1000, refunded: false },
+        { id: "order:1", itemSubtotalUsd: 2900, refunded: false },
         { id: "order:2", itemSubtotalUsd: 200, refunded: true },
       ],
       // Fee counter reverses refunds mid-show (existing business rule).
-      feeTierGmvUsd: 1000,
+      feeTierGmvUsd: 2900,
     });
-    expect(dto.grossShowSalesCents).toBe(120_000);
-    expect(dto.netShowSalesCents).toBe(100_000);
-    expect(dto.feeTierGmvCents).toBe(100_000);
-    expect(dto.currentFeeRatePercent).toBe(LIVE_SHOW_TIER_2_FEE_PERCENT);
+    expect(dto.grossShowSalesCents).toBe(310_000);
+    expect(dto.netShowSalesCents).toBe(290_000);
+    expect(dto.feeTierGmvCents).toBe(290_000);
+    expect(dto.currentFeeRatePercent).toBe(LIVE_SHOW_TIER_1_FEE_PERCENT);
   });
 
   it("unlocks top tier at exact $3000 boundary", () => {

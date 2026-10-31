@@ -33,8 +33,11 @@ describe("buildSecurityHeaders", () => {
   it("restricts sensitive Permissions-Policy features by default", () => {
     const headers = headerMap();
     const policy = headers["Permissions-Policy"];
-    expect(policy).toContain("camera=()");
-    expect(policy).toContain("microphone=()");
+    // Same-origin only since a88af800 (2026-09-16): seller live console calls getUserMedia to broadcast;
+    // third-party iframes stay blocked.
+    expect(policy).toContain("camera=(self)");
+    expect(policy).toContain("microphone=(self)");
+    expect(policy).not.toMatch(/camera=\*|microphone=\*/);
     expect(policy).toContain("geolocation=()");
   });
 

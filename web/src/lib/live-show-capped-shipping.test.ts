@@ -283,23 +283,36 @@ describe("live-show capped shipping", () => {
     });
 
     it("a cap that doesn't divide evenly by 3 puts the rounding remainder on the last charge", () => {
-      const cap = 1000; // $10.00 — increment rounds to 333, leaving a 1-cent remainder
+      // Caps above the platform max ($9.99) are clamped to it, so use a lower show cap here.
+      const cap = 700; // $7.00 — increment rounds to 233, leaving a 1-cent remainder
       const increment = standardLiveShowShippingCapIncrementCents(cap);
-      expect(increment).toBe(333);
+      expect(increment).toBe(233);
       const base = { shippingMode: "capped" as const, shippingCapCents: cap, sellerPaysOverCap: true };
 
       const p1 = computeBuyerLiveShippingTotals({ ...base, estimatedEligibleBundleShippingCents: 5000, shippingAlreadyChargedCents: 0 });
-      expect(p1.shippingDueForThisPurchaseCents).toBe(333);
+      expect(p1.shippingDueForThisPurchaseCents).toBe(233);
       const p2 = computeBuyerLiveShippingTotals({ ...base, estimatedEligibleBundleShippingCents: 5000, shippingAlreadyChargedCents: p1.buyerTotalShippingCents });
-      expect(p2.shippingDueForThisPurchaseCents).toBe(333);
+      expect(p2.shippingDueForThisPurchaseCents).toBe(233);
       const p3 = computeBuyerLiveShippingTotals({ ...base, estimatedEligibleBundleShippingCents: 5000, shippingAlreadyChargedCents: p2.buyerTotalShippingCents });
-      expect(p3.shippingDueForThisPurchaseCents).toBe(333);
-      expect(p3.buyerTotalShippingCents).toBe(999);
+      expect(p3.shippingDueForThisPurchaseCents).toBe(233);
+      expect(p3.buyerTotalShippingCents).toBe(699);
       expect(p3.capReached).toBe(false); // 1 cent still left
       const p4 = computeBuyerLiveShippingTotals({ ...base, estimatedEligibleBundleShippingCents: 5000, shippingAlreadyChargedCents: p3.buyerTotalShippingCents });
       expect(p4.shippingDueForThisPurchaseCents).toBe(1);
-      expect(p4.buyerTotalShippingCents).toBe(1000);
+      expect(p4.buyerTotalShippingCents).toBe(700);
       expect(p4.capReached).toBe(true);
+    });
+
+    it("clamps a show cap above the platform max ($9.99) down to the max", () => {
+      const base = { shippingMode: "capped" as const, shippingCapCents: 1000, sellerPaysOverCap: true };
+      let charged = 0;
+      for (let i = 0; i < 3; i++) {
+        charged = computeBuyerLiveShippingTotals({ ...base, estimatedEligibleBundleShippingCents: 5000, shippingAlreadyChargedCents: charged }).buyerTotalShippingCents;
+      }
+      const last = computeBuyerLiveShippingTotals({ ...base, estimatedEligibleBundleShippingCents: 5000, shippingAlreadyChargedCents: charged });
+      expect(charged).toBe(999);
+      expect(last.shippingDueForThisPurchaseCents).toBe(0);
+      expect(last.capReached).toBe(true);
     });
 
     it("a purchase that would never reach the cap on its own just pays its real cost, uncapped", () => {

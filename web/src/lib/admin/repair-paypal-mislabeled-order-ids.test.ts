@@ -53,7 +53,7 @@ describe("repairPayPalMislabeledStripePaymentIntentIds", () => {
 
   it("never touches a real Stripe order: skips when stripePaymentIntentId is already Stripe-shaped", async () => {
     prismaMock.order.findMany.mockResolvedValue([
-      order({ id: "order_2", stripePaymentIntentId: "pi_real_stripe_id", processorPaymentId: "pi_real_stripe_id" }),
+      order({ id: "order_2", stripePaymentIntentId: "pi_3RealStripeId123", processorPaymentId: "pi_3RealStripeId123" }),
     ]);
 
     const result = await repairPayPalMislabeledStripePaymentIntentIds();
