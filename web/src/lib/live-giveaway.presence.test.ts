@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const hoisted = vi.hoisted(() => ({
   prisma: {
-    liveGiveaway: { findMany: vi.fn(), update: vi.fn() },
+    liveGiveaway: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
     liveGiveawayEntry: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), create: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -105,7 +105,7 @@ describe("giveaway presence — out-of-order leave/join", () => {
 
   it("entering stamps presence, so a stray 'left' right after tapping Enter cannot drop the entrant", async () => {
     hoisted.prisma.liveGiveaway.findMany.mockResolvedValue([]);
-    hoisted.prisma.liveGiveaway.findFirst = vi.fn().mockResolvedValue({
+    hoisted.prisma.liveGiveaway.findFirst.mockResolvedValue({
       id: "g1",
       kind: "open",
       status: "entries_open",
