@@ -40,7 +40,16 @@ describe("trade-fulfillment", () => {
     transaction.mockImplementation(async (arg: unknown) => {
       if (typeof arg === "function") {
         return arg({
-          tradeOffer: { update },
+          tradeOffer: {
+            update,
+            // Fresh in-transaction re-read (race fix in confirmTradePartyReceived): the stored offer with
+            // every update made so far in this test applied on top.
+            findUnique: async () => {
+              const base = ((await findUnique()) ?? {}) as Record<string, unknown>;
+              const applied = Object.assign({}, ...update.mock.calls.map((c) => (c[0] as { data: object }).data));
+              return { ...base, ...applied };
+            },
+          },
           tradeOfferEvent: { create: createEvent },
         });
       }

@@ -109,7 +109,7 @@ function returnEligibleOrder(overrides: Record<string, unknown> = {}) {
     fulfillmentStatus: "delivered",
     shippedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
     deliveryConfirmedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-    stripePaymentIntentId: "pi_return_1",
+    stripePaymentIntentId: "pi_return1",
     totalUsd: 100,
     itemPriceUsd: 90,
     shippingPriceUsd: 10,
@@ -135,7 +135,7 @@ function cancelEligibleOrder(overrides: Record<string, unknown> = {}) {
     fulfillmentStatus: "pending",
     shippedAt: null,
     deliveryConfirmedAt: null,
-    stripePaymentIntentId: "pi_cancel_1",
+    stripePaymentIntentId: "pi_cancel1",
     totalUsd: 50,
     itemPriceUsd: 40,
     shippingPriceUsd: 10,
@@ -153,7 +153,7 @@ function cancelEligibleOrder(overrides: Record<string, unknown> = {}) {
 function marketplaceCancelEligibleOrder(overrides: Record<string, unknown> = {}) {
   return cancelEligibleOrder({
     id: "ord_mkt_1",
-    stripePaymentIntentId: "pi_mkt_1",
+    stripePaymentIntentId: "pi_mkt1",
     liveShippingSession: null,
     listing: { title: "Marketplace Card" },
     ...overrides,

@@ -31,6 +31,9 @@ vi.mock("@/lib/prisma", () => ({
     order: { findUnique: hoisted.orderFindUnique },
     tradeOffer: { findFirst: hoisted.findFirst },
     user: { findUnique: vi.fn().mockResolvedValue({ username: "sender" }) },
+    // Blocked-user check (isUserBlocked): nobody here has blocked anybody.
+    userBlock: { findFirst: vi.fn().mockResolvedValue(null) },
+    messageThreadParticipant: { findFirst: vi.fn().mockResolvedValue(null) },
     $transaction: hoisted.transaction,
   },
 }));

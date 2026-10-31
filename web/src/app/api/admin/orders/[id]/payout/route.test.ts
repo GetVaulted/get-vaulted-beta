@@ -27,6 +27,13 @@ vi.mock("@/services/payout/process-delivery-payout", () => ({
   processDeliveryPayoutEvaluation: vi.fn().mockResolvedValue(undefined),
 }));
 
+// The Stripe rail must confirm the bank payout before the order is marked paid_out (fe229c34).
+const releaseSellerStripePayout = vi.hoisted(() => vi.fn());
+vi.mock("@/services/payout/stripe-seller-payout", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/services/payout/stripe-seller-payout")>()),
+  releaseSellerStripePayout,
+}));
+
 const prismaMock = vi.hoisted(() => ({
   order: {
     findUnique: vi.fn(),
@@ -72,6 +79,7 @@ describe("POST /api/admin/orders/[id]/payout — release_payout", () => {
 
   it("releases payout normally when there is no active refund request", async () => {
     prismaMock.order.findUnique.mockResolvedValue(baseOrder);
+    releaseSellerStripePayout.mockResolvedValue({ ok: true });
 
     const res = await POST(buildRequest({ action: "release_payout", reason: "manual release" }), {
       params: Promise.resolve({ id: "ord_1" }),
@@ -79,6 +87,20 @@ describe("POST /api/admin/orders/[id]/payout — release_payout", () => {
 
     expect(res.status).toBe(200);
     expect(prismaMock.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ payoutStatus: "paid_out" }) }),
+    );
+  });
+
+  it("does not mark the order paid out when the Stripe bank payout fails", async () => {
+    prismaMock.order.findUnique.mockResolvedValue(baseOrder);
+    releaseSellerStripePayout.mockResolvedValue({ ok: false, reason: "stripe_error" });
+
+    const res = await POST(buildRequest({ action: "release_payout", reason: "manual release" }), {
+      params: Promise.resolve({ id: "ord_1" }),
+    });
+
+    expect(res.status).toBe(502);
+    expect(prismaMock.order.update).not.toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ payoutStatus: "paid_out" }) }),
     );
   });

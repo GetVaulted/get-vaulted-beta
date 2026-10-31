@@ -11,6 +11,10 @@ const prismaMock = vi.hoisted(() => ({
     findUnique: vi.fn(async () => orderStore.current),
     update: vi.fn(async ({ data }: any) => ({ ...orderStore.current, ...data })),
   },
+  // Seller fee override lookup (loadSellerPlatformFeePercentOverride): no override on these sellers.
+  user: { findUnique: vi.fn(async () => null) },
+  // No open manual partial PayPal payment (sellerHasOpenPartialPayment).
+  sellerPayPalPartialPayment: { count: vi.fn(async () => 0) },
 }));
 
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
