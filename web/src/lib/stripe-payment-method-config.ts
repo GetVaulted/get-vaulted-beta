@@ -143,9 +143,25 @@ export function checkoutPaymentMethodTypesForLane(
   return [...INSTANT_STRIPE_PAYMENT_METHOD_TYPES];
 }
 
-export function stripeCheckoutSessionPaymentOptions(lane: CommercePaymentLane): {
+/** Subset of `BuyerRisk` (src/lib/buyer-payment-risk.ts) the Stripe option builders need. */
+export type PaymentRiskOptions = { cardOnly?: boolean; force3ds?: boolean } | null | undefined;
+
+/** Card-only purchases: Apple Pay / Google Pay still work (they are Stripe type "card"). */
+export const CARD_ONLY_STRIPE_PAYMENT_METHOD_TYPES = ["card"] as const satisfies readonly StripeCheckoutPaymentMethodType[];
+
+export function stripeCheckoutSessionPaymentOptions(
+  lane: CommercePaymentLane,
+  risk?: PaymentRiskOptions,
+): {
   payment_method_types: StripeCheckoutPaymentMethodType[];
+  payment_method_options?: Stripe.Checkout.SessionCreateParams.PaymentMethodOptions;
 } {
+  if (risk?.cardOnly) {
+    return {
+      payment_method_types: [...CARD_ONLY_STRIPE_PAYMENT_METHOD_TYPES],
+      ...(risk.force3ds ? { payment_method_options: { card: { request_three_d_secure: "any" } } } : {}),
+    };
+  }
   return { payment_method_types: checkoutPaymentMethodTypesForLane(lane) };
 }
 
@@ -181,10 +197,22 @@ export function stripeSetupIntentPaymentOptions(): {
  * Live accepts the same instant types as marketplace so saved Cash App / Link / Amazon Pay
  * can be charged on auction wins and spots (not card-only).
  */
-export function stripeOffSessionPaymentIntentOptions(lane: "live" | "marketplace"): {
+export function stripeOffSessionPaymentIntentOptions(
+  lane: "live" | "marketplace",
+  risk?: PaymentRiskOptions,
+): {
   payment_method_types: StripeCheckoutPaymentMethodType[];
+  payment_method_options?: Stripe.PaymentIntentCreateParams.PaymentMethodOptions;
 } {
   void lane;
+  if (risk?.cardOnly) {
+    return {
+      payment_method_types: [...CARD_ONLY_STRIPE_PAYMENT_METHOD_TYPES],
+      // Only pass force3ds for on-session charges (buyer present to complete the challenge). Unattended
+      // charges (auction wins) stay card-only with Stripe's default 3DS handling.
+      ...(risk.force3ds ? { payment_method_options: { card: { request_three_d_secure: "any" } } } : {}),
+    };
+  }
   return { payment_method_types: [...INSTANT_STRIPE_PAYMENT_METHOD_TYPES] };
 }
 

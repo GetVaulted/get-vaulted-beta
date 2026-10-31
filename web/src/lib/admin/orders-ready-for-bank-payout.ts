@@ -13,6 +13,7 @@ import {
   orderLooksShippedForBankPayout,
 } from "@/services/payout/stripe-seller-payout";
 import { adminBankPayoutNotAlreadyPaidWhere } from "@/lib/admin/reconcile-stripe-bank-payouts";
+import { loadRiskySalePayoutHold } from "@/lib/buyer-payment-risk";
 
 /** Orders waiting for an admin to push the Stripe bank payout. */
 export const ADMIN_BANK_PAYOUT_READY_STATUSES: OrderPayoutStatus[] = [
@@ -95,10 +96,13 @@ export async function listOrdersReadyForAdminBankPayout(
     },
   });
 
-  return rows
-    .filter((o) =>
-      orderLooksShippedForBankPayout(o) && orderLabelClawbackSettledForBankPayout(o),
-    )
+  const shippedRows = rows.filter((o) =>
+    orderLooksShippedForBankPayout(o) && orderLabelClawbackSettledForBankPayout(o),
+  );
+  const held = await riskySaleHeldOrderIds(shippedRows.map((o) => o.id));
+
+  return shippedRows
+    .filter((o) => !held.has(o.id))
     .map((o) => {
       const saleBasisUsd = orderItemSaleBasisUsd(o);
       const liveShow = o.liveShippingSession?.liveShow ?? null;
@@ -140,4 +144,23 @@ export async function listOrdersReadyForAdminBankPayout(
         processorTransferId: o.processorTransferId,
       };
     });
+}
+
+/**
+ * Orders still inside their 14-day risky-sale hold (src/lib/buyer-payment-risk.ts) are left out of every
+ * "ready for payout" list — admin bank release, lump-sum release and the seller's own Get paid button —
+ * until the hold ends. `releaseSellerStripePayout` enforces the same rule as a backstop. Fails closed.
+ */
+async function riskySaleHeldOrderIds(orderIds: string[]): Promise<Set<string>> {
+  const held = new Set<string>();
+  for (let i = 0; i < orderIds.length; i += 20) {
+    const chunk = orderIds.slice(i, i + 20);
+    const results = await Promise.all(
+      chunk.map((id) => loadRiskySalePayoutHold(id).catch(() => ({ held: true }))),
+    );
+    results.forEach((r, j) => {
+      if (r.held) held.add(chunk[j]);
+    });
+  }
+  return held;
 }

@@ -8,6 +8,13 @@
  * `preauthorizationStatus: "wallet_ready"` means saved card + shipping on file, not a Stripe hold.
  */
 
+import {
+  buyerPurchaseBlock,
+  CARD_REQUIRED_CODE,
+  CARD_REQUIRED_MESSAGE,
+  loadBuyerRisk,
+  paymentMethodTypeBlockedForCardOnly,
+} from "@/lib/buyer-payment-risk";
 import Stripe from "stripe";
 import { getBuyerLiveWalletReadiness } from "@/lib/buyer-live-wallet-readiness";
 import {
@@ -67,6 +74,31 @@ import { estimateStripeProcessingFeeCents } from "@/lib/seller-payout-estimate";
 import { orderTaxUpdateData } from "@/lib/sales-tax-order";
 import { stripeOffSessionPaymentIntentOptions } from "@/lib/stripe-payment-method-config";
 import { orderItemSaleBasisUsd, referralCreditAppliedCents } from "@/lib/referral-credit-payout";
+
+
+/**
+ * Fraud gate for unattended live saved-PM charges: locked / phone-unverified buyers are refused, and a
+ * card-only purchase may not be charged to a saved Link / Cash App method.
+ */
+async function checkLiveSavedPmChargeRisk(
+  stripe: Stripe,
+  buyerId: string,
+  amountCents: number,
+  pmId: string,
+): Promise<
+  { ok: true; cardOnly: boolean } | { ok: false; outcome: { outcome: "error"; code: string; message: string } }
+> {
+  const risk = await loadBuyerRisk(buyerId, amountCents);
+  const block = buyerPurchaseBlock(risk);
+  if (block) return { ok: false, outcome: { outcome: "error", code: block.code, message: block.error } };
+  if (risk.cardOnly) {
+    const pm = await stripe.paymentMethods.retrieve(pmId).catch(() => null);
+    if (!pm || paymentMethodTypeBlockedForCardOnly(pm.type)) {
+      return { ok: false, outcome: { outcome: "error", code: CARD_REQUIRED_CODE, message: CARD_REQUIRED_MESSAGE } };
+    }
+  }
+  return { ok: true, cardOnly: risk.cardOnly };
+}
 
 export const LIVE_VARIANT_PURCHASE_PI_KIND = "variant_purchase_saved_pm" as const;
 export const LIVE_VARIANT_BATCH_PURCHASE_PI_KIND = "variant_batch_purchase_saved_pm" as const;
@@ -675,6 +707,10 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
     if (handled.outcome) return handled.outcome;
   }
 
+  // Fraud protections (src/lib/buyer-payment-risk.ts). Unattended charge, so card-only without forced 3DS.
+  const liveRisk = await checkLiveSavedPmChargeRisk(stripe, args.buyerId, amountCents, pmId);
+  if (!liveRisk.ok) return liveRisk.outcome;
+
   try {
     const intent = await stripe.paymentIntents.create(
       {
@@ -684,7 +720,7 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
         payment_method: pmId,
         confirm: true,
         off_session: true,
-        ...stripeOffSessionPaymentIntentOptions("live"),
+        ...stripeOffSessionPaymentIntentOptions("live", { cardOnly: liveRisk.cardOnly }),
         metadata: {
           kind: LIVE_VARIANT_PURCHASE_PI_KIND,
           purchaseId: purchase.id,
@@ -1232,6 +1268,10 @@ export async function chargeLiveItemVariantPurchaseBatchWithSavedCard(args: {
     if (handled.outcome) return handled.outcome;
   }
 
+  // Fraud protections (src/lib/buyer-payment-risk.ts). Unattended charge, so card-only without forced 3DS.
+  const liveRisk = await checkLiveSavedPmChargeRisk(stripe, args.buyerId, amountCents, pmId);
+  if (!liveRisk.ok) return liveRisk.outcome;
+
   try {
     const intent = await stripe.paymentIntents.create(
       {
@@ -1241,7 +1281,7 @@ export async function chargeLiveItemVariantPurchaseBatchWithSavedCard(args: {
         payment_method: pmId,
         confirm: true,
         off_session: true,
-        ...stripeOffSessionPaymentIntentOptions("live"),
+        ...stripeOffSessionPaymentIntentOptions("live", { cardOnly: liveRisk.cardOnly }),
         metadata: {
           kind: LIVE_VARIANT_BATCH_PURCHASE_PI_KIND,
           batchId: args.batchId,
@@ -1686,6 +1726,10 @@ export async function chargeBreakSpotWithSavedCard(args: {
     if (handled.outcome) return handled.outcome;
   }
 
+  // Fraud protections (src/lib/buyer-payment-risk.ts). Unattended charge, so card-only without forced 3DS.
+  const liveRisk = await checkLiveSavedPmChargeRisk(stripe, args.buyerId, amountCents, pmId);
+  if (!liveRisk.ok) return liveRisk.outcome;
+
   try {
     const intent = await stripe.paymentIntents.create(
       {
@@ -1695,7 +1739,7 @@ export async function chargeBreakSpotWithSavedCard(args: {
         payment_method: pmId,
         confirm: true,
         off_session: true,
-        ...stripeOffSessionPaymentIntentOptions("live"),
+        ...stripeOffSessionPaymentIntentOptions("live", { cardOnly: liveRisk.cardOnly }),
         metadata: {
           kind: LIVE_BREAK_SPOT_PI_KIND,
           breakSpotId: spot.id,

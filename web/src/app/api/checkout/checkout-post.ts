@@ -18,6 +18,12 @@ import type { LayawayPlanType } from "@/generated/prisma/client";
 import { ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
 import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
 import { ensurePayoutProgramCache } from "@/services/payout/payout-program-settings";
+import {
+  CARD_REQUIRED_MESSAGE,
+  getBuyerPurchaseBlock,
+  PURCHASES_LOCKED_MESSAGE,
+} from "@/lib/buyer-payment-risk";
+import { PHONE_VERIFICATION_REQUIRED_MESSAGE } from "@/lib/live-room-commerce-messages";
 
 type Body = {
   kind?: string;
@@ -101,6 +107,16 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
     orderId: trim(body.orderId, 120) || undefined,
   });
   if (gate) return gate;
+
+  // Fraud protections (src/lib/buyer-payment-risk.ts): locked accounts and buyers who must verify a phone
+  // first are stopped here, before an order or Stripe session is created.
+  const riskBlock = await getBuyerPurchaseBlock(
+    buyerId,
+    await estimateCheckoutAmountCents(kind, trim(body.listingId, 120), trim(body.orderId, 120), buyerId),
+  );
+  if (riskBlock) {
+    return NextResponse.json({ error: riskBlock.error, code: riskBlock.code }, { status: riskBlock.status });
+  }
 
   try {
     if (kind === "buy_now") {
@@ -329,6 +345,14 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
       STRIPE_NOT_CONFIGURED: { status: 503, msg: "Payments are not configured on this site yet." },
       USER_NOT_FOUND: { status: 404, msg: "Account not found." },
       LISTING_UNAVAILABLE: { status: 409, msg: "This listing is not available for layaway.", code: "ITEM_NOT_AVAILABLE" },
+      // Fraud protections — src/lib/buyer-payment-risk.ts
+      PURCHASES_LOCKED: { status: 403, msg: PURCHASES_LOCKED_MESSAGE, code: "PURCHASES_LOCKED" },
+      PHONE_VERIFICATION_REQUIRED: {
+        status: 403,
+        msg: PHONE_VERIFICATION_REQUIRED_MESSAGE,
+        code: "PHONE_VERIFICATION_REQUIRED",
+      },
+      CARD_REQUIRED_FOR_PURCHASE: { status: 402, msg: CARD_REQUIRED_MESSAGE, code: "CARD_REQUIRED_FOR_PURCHASE" },
     };
     const hit = map[msg];
     if (hit) {
@@ -340,4 +364,32 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
     const stripeErr = stripeRouteErrorResponse("checkout", e);
     return NextResponse.json(stripeErr.body, { status: stripeErr.status });
   }
+}
+
+/**
+ * Rough buyer total (item + shipping, before tax) used only to decide whether the purchase is "high value"
+ * for the fraud gate. Null when unknown (break spots), which applies only the amount-independent rules.
+ */
+async function estimateCheckoutAmountCents(
+  kind: string,
+  listingId: string,
+  orderId: string,
+  buyerId: string,
+): Promise<number | null> {
+  try {
+    if ((kind === "buy_now" || kind === "layaway_deposit") && listingId) {
+      const l = await prisma.listing.findUnique({
+        where: { id: listingId },
+        select: { priceUsd: true, shippingPriceUsd: true },
+      });
+      return l ? Math.round(((l.priceUsd ?? 0) + (l.shippingPriceUsd ?? 0)) * 100) : null;
+    }
+    if (kind === "pay_order" && orderId) {
+      const o = await prisma.order.findFirst({ where: { id: orderId, buyerId }, select: { totalUsd: true } });
+      return o ? Math.round(o.totalUsd * 100) : null;
+    }
+  } catch (e) {
+    console.error("[checkout] could not estimate amount for fraud gate", { kind, listingId, orderId, error: e });
+  }
+  return null;
 }

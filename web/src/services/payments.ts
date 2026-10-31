@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import { loadBuyerRisk } from "@/lib/buyer-payment-risk";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { EscrowStatus, OrderPaymentMethod, OrderRefundRequestStatus } from "@/generated/prisma/enums";
 import { createNotification } from "@/lib/notifications";
@@ -1169,10 +1170,14 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
 
   const stripe = getStripe();
 
+  // Fraud protections: risky purchases are card-only with 3D Secure. Never reuse an older open session for
+  // them, since it may still offer Link / Cash App.
+  const paymentRisk = await loadBuyerRisk(args.buyerId, buyNowCheckoutSubtotalCents(order));
+
   // Prefer reusing an open session when this order already has a persisted tax calculation —
   // avoids a billable Stripe Tax Calculation API call on every "Pay" click.
   const priorTaxCents = Math.max(0, order.taxAmountCents ?? 0);
-  if (order.stripeCheckoutSessionId && order.stripeTaxCalculationId) {
+  if (!paymentRisk.cardOnly && order.stripeCheckoutSessionId && order.stripeTaxCalculationId) {
     const earlyReuse = await reuseOpenCheckoutSessionIfMatching({
       sessionId: order.stripeCheckoutSessionId,
       expectedSubtotalCents: buyNowCheckoutSubtotalCents(order) + priorTaxCents,
@@ -1203,7 +1208,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
   const expectedSubtotalCents =
     buyNowCheckoutSubtotalCents(order) + taxBundle.taxAmountCents;
   const reusedUrl = await reuseOpenCheckoutSessionIfMatching({
-    sessionId: order.stripeCheckoutSessionId,
+    sessionId: paymentRisk.cardOnly ? null : order.stripeCheckoutSessionId,
     expectedSubtotalCents,
     expectedTaxCents: taxBundle.taxAmountCents,
     collectTax: taxBundle.collectTax,
@@ -1217,7 +1222,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
         success_url: successUrl,
         cancel_url: cancelUrl,
         client_reference_id: order.id,
-        ...stripeCheckoutSessionPaymentOptions(resolveBuyNowCheckoutLane(liveRoomItemId)),
+        ...stripeCheckoutSessionPaymentOptions(resolveBuyNowCheckoutLane(liveRoomItemId), paymentRisk),
         ...taxBundle.sessionFields,
         metadata: {
           kind: "buy_now",
@@ -1529,8 +1534,9 @@ export async function createPayOrderCheckoutSession(args: {
   const payOrderMerchandiseCents =
     Math.round(order.itemPriceUsd * 100) + Math.round(shippingPriceUsd * 100);
   const expectedSubtotalCents = payOrderMerchandiseCents + taxBundle.taxAmountCents;
+  const paymentRisk = await loadBuyerRisk(args.buyerId, payOrderMerchandiseCents);
   const reusedUrl = await reuseOpenCheckoutSessionIfMatching({
-    sessionId: order.stripeCheckoutSessionId,
+    sessionId: paymentRisk.cardOnly ? null : order.stripeCheckoutSessionId,
     expectedSubtotalCents,
     expectedTaxCents: taxBundle.taxAmountCents,
     collectTax: taxBundle.collectTax,
@@ -1545,6 +1551,7 @@ export async function createPayOrderCheckoutSession(args: {
       client_reference_id: order.id,
       ...stripeCheckoutSessionPaymentOptions(
         resolveOrderCheckoutLane({ liveShippingSessionId: payOrder.liveShippingSession?.id }),
+        paymentRisk,
       ),
       ...taxBundle.sessionFields,
       metadata: {
@@ -1657,12 +1664,13 @@ export async function createBreakSpotCheckoutSession(args: {
   const sellerPayoutProcessor = resolveLiveSellerPayoutProcessor(seller);
   const destinationAccountId = resolveLiveSellerDestinationAccount(seller);
 
+  const paymentRisk = await loadBuyerRisk(args.userId, Math.round(priceUsd * 100));
   const session = await stripe.checkout.sessions.create(
     {
       mode: "payment",
       success_url: `${base}${args.successPath ?? `/live/${encodeURIComponent(spot.liveRoomId)}`}?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}${args.cancelPath ?? `/live/${encodeURIComponent(spot.liveRoomId)}`}`,
-      ...stripeCheckoutSessionPaymentOptions("live"),
+      ...stripeCheckoutSessionPaymentOptions("live", paymentRisk),
       ...taxFields,
       metadata: {
         kind: "break_spot",

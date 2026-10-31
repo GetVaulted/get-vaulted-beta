@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getPhoneVerificationBlock } from "@/lib/phone-verification";
+import { getBuyerPurchaseBlock } from "@/lib/buyer-payment-risk";
 import {
   isLiveRoomBroadcastOnAir,
   isLiveRoomBroadcastPurchasable,
@@ -92,14 +93,18 @@ export async function getLiveBuyerCommerceBlock(args: {
   liveRoomId: string;
   userId: string;
 }): Promise<LiveBuyerCommerceBlock | null> {
-  const [room, phoneBlock] = await Promise.all([
+  const [room, phoneBlock, riskBlock] = await Promise.all([
     prisma.liveRoom.findUnique({
       where: { id: args.liveRoomId },
       select: { sellerId: true },
     }),
     getPhoneVerificationBlock(args.userId),
+    // Fraud protections (src/lib/buyer-payment-risk.ts): the purchase lock. Amount-based rules ($250+ phone
+    // check, card-only) are applied at charge time, when the amount is known.
+    getBuyerPurchaseBlock(args.userId),
   ]);
   if (phoneBlock) return phoneBlock;
+  if (riskBlock) return riskBlock;
   if (!room) {
     return { status: 404, error: "Room not found.", code: "ROOM_NOT_FOUND" };
   }

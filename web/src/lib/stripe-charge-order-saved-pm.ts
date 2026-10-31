@@ -11,6 +11,14 @@ import {
 } from "@/lib/paypal-buyer-rail";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { stripeOffSessionPaymentIntentOptions } from "@/lib/stripe-payment-method-config";
+import {
+  buyerPurchaseBlock,
+  CARD_REQUIRED_CODE,
+  CARD_REQUIRED_MESSAGE,
+  loadBuyerRisk,
+  paymentMethodTypeBlockedForCardOnly,
+  type BuyerRisk,
+} from "@/lib/buyer-payment-risk";
 import { orderTaxUpdateData } from "@/lib/sales-tax-order";
 import {
   connectOrPlatformHeldPaymentIntentTransferData,
@@ -159,6 +167,28 @@ export type ChargeOrderSavedPmOutcome =
   | { outcome: "requires_action"; clientSecret: string; paymentIntentId: string }
   | { outcome: "processing"; paymentIntentId?: string }
   | { outcome: "error"; code: string; message?: string; stripeDebug?: StripeChargeErrorDebug };
+
+/**
+ * Fraud gate for saved-payment-method charges (see `src/lib/buyer-payment-risk.ts`): blocks locked /
+ * phone-unverified buyers, and refuses a non-card saved method (Link, Cash App…) on a card-only purchase.
+ */
+async function checkSavedPmChargeRisk(
+  stripe: Stripe,
+  buyerId: string,
+  amountCents: number,
+  pmId: string,
+): Promise<{ ok: true; risk: BuyerRisk } | { ok: false; outcome: ChargeOrderSavedPmOutcome }> {
+  const risk = await loadBuyerRisk(buyerId, amountCents);
+  const block = buyerPurchaseBlock(risk);
+  if (block) return { ok: false, outcome: { outcome: "error", code: block.code, message: block.error } };
+  if (risk.cardOnly) {
+    const pm = await stripe.paymentMethods.retrieve(pmId).catch(() => null);
+    if (!pm || paymentMethodTypeBlockedForCardOnly(pm.type)) {
+      return { ok: false, outcome: { outcome: "error", code: CARD_REQUIRED_CODE, message: CARD_REQUIRED_MESSAGE } };
+    }
+  }
+  return { ok: true, risk };
+}
 
 /** Extract beta/dev-safe Stripe error fields for recovery diagnostics. */
 export function buildStripeChargeErrorDebug(
@@ -453,6 +483,9 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     if (handled) return handled;
   }
 
+  const riskCheck = await checkSavedPmChargeRisk(stripe, args.buyerId, amountCents, pmId);
+  if (!riskCheck.ok) return riskCheck.outcome;
+
   try {
     const intent = await stripe.paymentIntents.create(
       {
@@ -462,7 +495,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
         payment_method: pmId,
         confirm: true,
         // In-app saved-card recovery charge: instant methods only, no BNPL/ACH redirects.
-        ...stripeOffSessionPaymentIntentOptions("marketplace"),
+        ...stripeOffSessionPaymentIntentOptions("marketplace", riskCheck.risk),
         metadata: {
           orderId: row.id,
           kind: PI_KIND,
@@ -949,6 +982,9 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
     if (handled) return handled;
   }
 
+  const riskCheck = await checkSavedPmChargeRisk(stripe, args.buyerId, amountCents, pmId);
+  if (!riskCheck.ok) return riskCheck.outcome;
+
   try {
     const intent = await stripe.paymentIntents.create(
       {
@@ -957,9 +993,11 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
         customer: customerId,
         payment_method: pmId,
         confirm: true,
-        off_session: true,
+        // Buyer tapped Buy, so they are present. Risky purchases run on-session so Stripe returns a 3D Secure
+        // challenge (requires_action, handled by the app) instead of declining with authentication_required.
+        off_session: !riskCheck.risk.force3ds,
         // Live saved-card recovery: instant methods only.
-        ...stripeOffSessionPaymentIntentOptions("live"),
+        ...stripeOffSessionPaymentIntentOptions("live", riskCheck.risk),
         metadata: {
           orderId: row.id,
           kind: LIVE_BUY_NOW_PI_KIND,
@@ -1163,6 +1201,9 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
     if (handled) return handled;
   }
 
+  const riskCheck = await checkSavedPmChargeRisk(stripe, args.buyerId, amountCents, pmId);
+  if (!riskCheck.ok) return riskCheck.outcome;
+
   try {
     const intent = await stripe.paymentIntents.create(
       {
@@ -1171,8 +1212,9 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
         customer: customerId,
         payment_method: pmId,
         confirm: true,
-        off_session: true,
-        ...stripeOffSessionPaymentIntentOptions("marketplace"),
+        // See chargeLiveBuyNowOrderWithSavedCard: on-session for risky purchases so 3D Secure can run.
+        off_session: !riskCheck.risk.force3ds,
+        ...stripeOffSessionPaymentIntentOptions("marketplace", riskCheck.risk),
         metadata: {
           orderId: row.id,
           kind: MARKETPLACE_BUY_NOW_PI_KIND,

@@ -1,4 +1,5 @@
 import { OrderPaymentMethod, OrderPayoutStatus } from "@/generated/prisma/enums";
+import { loadRiskySalePayoutHold } from "@/lib/buyer-payment-risk";
 import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 import { prisma } from "@/lib/prisma";
 import { SELLER_LOCKED_PAYOUT_REASON } from "@/lib/seller-lock";
@@ -17,6 +18,9 @@ import {
 } from "@/services/shipping/label-liability-recovery";
 
 /** Stripe Connect bank payout ids are `po_…` (distinct from charge transfers `tr_…`). */
+
+/** Payout refused because the sale is still inside its 14-day risky-sale hold. */
+export const RISKY_SALE_PAYOUT_HOLD_REASON = "risky_sale_hold";
 export function isStripeBankPayoutId(id: string | null | undefined): boolean {
   return Boolean(id?.trim().startsWith("po_"));
 }
@@ -189,6 +193,18 @@ export async function releaseSellerStripePayout(
     if (!allShipped) {
       return { ok: false, reason: "live_session_not_fully_shipped" };
     }
+  }
+
+  // Fraud protection (src/lib/buyer-payment-risk.ts): risky sales — new buyer, new seller, or a non-card
+  // payment such as bank-funded Link — stay in the seller's Connect balance for 14 days after payment, so a
+  // chargeback in that window can be recovered from the seller instead of the platform. NOT force-bypassable
+  // (admin bulk releases pass force:true by default). Fails closed: if the check errors, the payout waits.
+  const riskHold = await loadRiskySalePayoutHold(orderId).catch((e) => {
+    console.error("[releaseSellerStripePayout] risky-sale hold check failed; holding payout", { orderId, error: e });
+    return { held: true, holdUntil: null, reasons: ["risk_check_failed"] };
+  });
+  if (riskHold.held) {
+    return { ok: false, reason: RISKY_SALE_PAYOUT_HOLD_REASON };
   }
 
   const accountId = order.seller.stripeAccountId?.trim();
