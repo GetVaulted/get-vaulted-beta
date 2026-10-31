@@ -18,6 +18,10 @@ const prismaMock = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
+// Risky-sale payout hold has its own tests (stripe-seller-payout.risky-hold.test.ts); not held here.
+vi.mock("@/lib/buyer-payment-risk", () => ({
+  loadRiskySalePayoutHold: vi.fn(async () => ({ held: false, holdUntil: null, reasons: [] })),
+}));
 vi.mock("@/lib/paypal", () => ({
   isPayPalSellerPayoutsEnabled: () => true,
   createSellerPayPalPayout,

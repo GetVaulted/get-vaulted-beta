@@ -6,6 +6,12 @@ import { getStripePublishableKey } from "@/lib/stripe";
 
 type Body = { sync?: boolean; applyReferralCredit?: boolean };
 
+
+const RISK_BLOCK_STATUS: Record<string, number> = {
+  PURCHASES_LOCKED: 403,
+  PHONE_VERIFICATION_REQUIRED: 403,
+  CARD_REQUIRED_FOR_PURCHASE: 402,
+};
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const session = await getServerSessionSafe();
   if (!session?.user?.id) {
@@ -93,6 +99,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       CARD_DECLINED: { status: 402, msg: "Card was declined. Try another card via Checkout." },
       STRIPE_ERROR: { status: 502, msg: "Payment processor error. Try again or use Checkout." },
     };
+    // Fraud-protection blocks (src/lib/buyer-payment-risk.ts) carry their own buyer-facing message.
+    if (RISK_BLOCK_STATUS[result.code] && result.message) {
+      return NextResponse.json({ error: result.message, code: result.code }, { status: RISK_BLOCK_STATUS[result.code] });
+    }
     const hit = map[result.code];
     if (hit) return NextResponse.json({ error: hit.msg }, { status: hit.status });
     return NextResponse.json({ error: "Could not process payment." }, { status: 500 });

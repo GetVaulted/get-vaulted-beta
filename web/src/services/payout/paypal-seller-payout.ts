@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { loadRiskySalePayoutHold } from "@/lib/buyer-payment-risk";
 import { createSellerPayPalPayout, isPayPalSellerPayoutsEnabled } from "@/lib/paypal";
 import {
   estimateSellerOrderPayoutUsd,
@@ -88,6 +89,10 @@ export async function releaseSellerPayPalPayout(orderId: string): Promise<{
   if (order.seller.sellerLockedAt) {
     return { ok: false, reason: SELLER_LOCKED_PAYOUT_REASON };
   }
+
+  // Risky-sale hold (src/lib/buyer-payment-risk.ts) — same rule as the Stripe rail. Fails closed.
+  const riskHold = await loadRiskySalePayoutHold(orderId).catch(() => ({ held: true }));
+  if (riskHold.held) return { ok: false, reason: "risky_sale_hold" };
 
   // The admin already sent this seller part of their balance by hand. Releasing a full per-order
   // payout now would pay that money twice, so fail closed until the admin settles the remainder
