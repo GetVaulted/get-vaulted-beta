@@ -13,6 +13,7 @@ import {
 import { MarketplaceTrustStrip } from "@/components/marketplace/MarketplaceTrustStrip";
 import { shouldShowVaultPicksRail } from "@/components/marketplace/marketplace-browse-vault-picks";
 import { marketplaceCategories, type MarketplaceListing } from "@/content/marketplace-listings";
+import type { MarketplaceInitialPage } from "@/lib/marketplace-browse-ssr";
 
 const sortOptions = [
   { value: "recent", label: "Recently listed" },
@@ -38,7 +39,7 @@ type BrowseResponse = {
   hasMore?: boolean;
 };
 
-export function MarketplaceBrowse() {
+export function MarketplaceBrowse({ initial = null }: { initial?: MarketplaceInitialPage | null } = {}) {
   const searchParams = useSearchParams();
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
@@ -49,13 +50,15 @@ export function MarketplaceBrowse() {
   const [condition, setCondition] = useState<string>("Any");
   const [refineOpen, setRefineOpen] = useState(false);
 
-  const [listings, setListings] = useState<MarketplaceListing[]>([]);
+  // `initial` is the server-rendered first page (newest, unfiltered) so listing cards and their links are in
+  // the HTML for search engines; the client still refetches on mount to apply filters / the viewer's blocks.
+  const [listings, setListings] = useState<MarketplaceListing[]>(initial?.listings ?? []);
   const [page, setPage] = useState(1);
-  const [filteredListingCount, setFilteredListingCount] = useState(0);
-  const [totalListingCount, setTotalListingCount] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
+  const [filteredListingCount, setFilteredListingCount] = useState(initial?.filteredListingCount ?? 0);
+  const [totalListingCount, setTotalListingCount] = useState(initial?.totalListingCount ?? 0);
+  const [hasMore, setHasMore] = useState(initial?.hasMore ?? false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [initialLoadDone, setInitialLoadDone] = useState(false);
+  const [initialLoadDone, setInitialLoadDone] = useState(initial != null);
 
   const requestSeq = useRef(0);
 

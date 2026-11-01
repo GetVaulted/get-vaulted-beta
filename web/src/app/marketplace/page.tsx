@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { MarketplaceBrowse } from "@/components/marketplace/MarketplaceBrowse";
 import { buildIndexablePageMetadata } from "@/lib/site-seo";
+import { loadMarketplaceInitialPage } from "@/lib/marketplace-browse-ssr";
+
+// Listings change constantly; render per request so the server-built grid (what Google reads) is current.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = buildIndexablePageMetadata({
   title: "Marketplace — Get Vaulted",
@@ -10,7 +14,8 @@ export const metadata: Metadata = buildIndexablePageMetadata({
   path: "/marketplace",
 });
 
-export default function MarketplacePage() {
+export default async function MarketplacePage() {
+  const initial = await loadMarketplaceInitialPage();
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[#030303]">
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
@@ -21,7 +26,7 @@ export default function MarketplacePage() {
       </div>
       <div className="relative">
         <Suspense fallback={null}>
-          <MarketplaceBrowse />
+          <MarketplaceBrowse initial={initial} />
         </Suspense>
       </div>
     </main>
