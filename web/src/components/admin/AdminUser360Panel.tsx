@@ -48,7 +48,7 @@ function refundTone(status: string): "ok" | "warn" | "bad" | "neutral" {
 }
 
 function OrdersTable({ rows, empty }: { rows: OrderRow[]; empty: string }) {
-  if (rows.length === 0) return <p className="mt-3 text-zinc-600">{empty}</p>;
+  if (rows.length === 0) return <p className="mt-3 text-zinc-400">{empty}</p>;
   return (
     <ul className="mt-3 space-y-1.5">
       {rows.map((o) => (
@@ -65,8 +65,15 @@ function OrdersTable({ rows, empty }: { rows: OrderRow[]; empty: string }) {
   );
 }
 
-/** User 360 block: orders, refunds, shows and admin changes for one person. */
-export function AdminUser360Panel({ userId }: { userId: string }) {
+export type AdminUser360Section = "totals" | "orders" | "refunds" | "shows" | "notes" | "tickets" | "adminLog";
+const ALL_SECTIONS: AdminUser360Section[] = ["totals", "orders", "refunds", "shows", "notes", "tickets", "adminLog"];
+
+/**
+ * User 360 block: orders, refunds, shows and admin changes for one person. `sections` picks which parts to show
+ * (the profile page spreads them across its tabs); all of them by default.
+ */
+export function AdminUser360Panel({ userId, sections = ALL_SECTIONS }: { userId: string; sections?: AdminUser360Section[] }) {
+  const show = (s: AdminUser360Section) => sections.includes(s);
   const [data, setData] = useState<Overview | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -87,56 +94,62 @@ export function AdminUser360Panel({ userId }: { userId: string }) {
     };
   }, [userId]);
 
-  if (failed) return <p className="mt-6 text-xs text-rose-300">Could not load the account overview.</p>;
-  if (!data) return <p className="mt-6 text-xs text-zinc-500">Loading account overview…</p>;
+  if (failed) return <p className="text-sm text-rose-300">Could not load the account overview.</p>;
+  if (!data) return <p className="text-sm text-zinc-400">Loading…</p>;
 
   const openRefunds = data.refunds.filter((r) => ["escalated", "pending_seller", "awaiting_return", "return_in_transit", "refund_processing"].includes(r.status));
 
   return (
-    <section className="mt-6 space-y-4 text-xs">
+    <section className="space-y-4 text-[13px]">
+      {show("totals") ? (
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className={`${adminPanelClassName} p-4`}>
-          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Bought</p>
+          <p className="text-[15px] font-semibold text-zinc-100">Bought</p>
           <p className="mt-1 text-lg font-black text-zinc-100">{data.totals.boughtCount} orders</p>
           <p className="text-zinc-500">{usd(data.totals.boughtUsd)} lifetime</p>
         </div>
         <div className={`${adminPanelClassName} p-4`}>
-          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Sold</p>
+          <p className="text-[15px] font-semibold text-zinc-100">Sold</p>
           <p className="mt-1 text-lg font-black text-zinc-100">{data.totals.soldCount} orders</p>
           <p className="text-zinc-500">{usd(data.totals.soldUsd)} lifetime</p>
         </div>
         <div className={`${adminPanelClassName} p-4`}>
-          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Open refund requests</p>
+          <p className="text-[15px] font-semibold text-zinc-100">Open refund requests</p>
           <p className="mt-1 text-lg font-black text-zinc-100">{openRefunds.length}</p>
           <Link href="/admin/refund-requests" className="text-gold-bright hover:underline">
             Open refund queue
           </Link>
         </div>
         <div className={`${adminPanelClassName} p-4`}>
-          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Admin changes</p>
+          <p className="text-[15px] font-semibold text-zinc-100">Admin changes</p>
           <p className="mt-1 text-lg font-black text-zinc-100">{data.adminLog.length}</p>
           <Link href={`/admin/activity?user=${encodeURIComponent(userId)}`} className="text-gold-bright hover:underline">
             See full log
           </Link>
         </div>
       </div>
+      ) : null}
 
+      {show("orders") ? (
       <div className="grid gap-4 lg:grid-cols-2">
         <div className={`${adminPanelClassName} p-4`}>
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Recent purchases</h2>
+          <h2 className="text-[15px] font-semibold text-zinc-100">Recent purchases</h2>
           <OrdersTable rows={data.bought} empty="No purchases." />
         </div>
         <div className={`${adminPanelClassName} p-4`}>
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Recent sales</h2>
+          <h2 className="text-[15px] font-semibold text-zinc-100">Recent sales</h2>
           <OrdersTable rows={data.sold} empty="No sales." />
         </div>
       </div>
+      ) : null}
 
+      {show("refunds") || show("shows") ? (
       <div className="grid gap-4 lg:grid-cols-2">
+        {show("refunds") ? (
         <div className={`${adminPanelClassName} p-4`}>
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Refund &amp; return requests</h2>
+          <h2 className="text-[15px] font-semibold text-zinc-100">Refund &amp; return requests</h2>
           {data.refunds.length === 0 ? (
-            <p className="mt-3 text-zinc-600">None.</p>
+            <p className="mt-3 text-zinc-400">None.</p>
           ) : (
             <ul className="mt-3 space-y-2">
               {data.refunds.map((r) => (
@@ -156,10 +169,12 @@ export function AdminUser360Panel({ userId }: { userId: string }) {
             </ul>
           )}
         </div>
+        ) : null}
+        {show("shows") ? (
         <div className={`${adminPanelClassName} p-4`}>
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Shows hosted</h2>
+          <h2 className="text-[15px] font-semibold text-zinc-100">Shows hosted</h2>
           {data.shows.length === 0 ? (
-            <p className="mt-3 text-zinc-600">None.</p>
+            <p className="mt-3 text-zinc-400">None.</p>
           ) : (
             <ul className="mt-3 space-y-1.5">
               {data.shows.map((s) => (
@@ -175,18 +190,22 @@ export function AdminUser360Panel({ userId }: { userId: string }) {
             </ul>
           )}
         </div>
+        ) : null}
       </div>
+      ) : null}
 
+      {show("notes") ? (
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-4">
           <AdminNotesPanel targetType="user" targetId={userId} />
         </div>
         <AdminMessageUserPanel userId={userId} username={data.username} />
       </div>
+      ) : null}
 
-      {data.tickets.length > 0 ? (
+      {show("tickets") && data.tickets.length > 0 ? (
         <div className={`${adminPanelClassName} p-4`}>
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Support tickets</h2>
+          <h2 className="text-[15px] font-semibold text-zinc-100">Support tickets</h2>
           <ul className="mt-3 space-y-1.5">
             {data.tickets.map((t) => (
               <li key={t.id} className="flex flex-wrap items-baseline justify-between gap-2 border-b border-white/[0.05] pb-1.5">
@@ -202,9 +221,9 @@ export function AdminUser360Panel({ userId }: { userId: string }) {
         </div>
       ) : null}
 
-      {data.adminLog.length > 0 ? (
+      {show("adminLog") && data.adminLog.length > 0 ? (
         <div className={`${adminPanelClassName} p-4`}>
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Admin changes to this account</h2>
+          <h2 className="text-[15px] font-semibold text-zinc-100">Admin changes to this account</h2>
           <ul className="mt-3 space-y-1.5">
             {data.adminLog.map((l) => (
               <li key={l.id} className="border-b border-white/[0.05] pb-1.5 text-zinc-400">

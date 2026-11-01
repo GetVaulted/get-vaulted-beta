@@ -6,6 +6,21 @@ import { useCallback, useEffect, useState } from "react";
 import { AdminUser360Panel } from "@/components/admin/AdminUser360Panel";
 import { SellerLockPanel } from "@/components/admin/SellerLockPanel";
 import { BuyerPurchaseLockPanel } from "@/components/admin/BuyerPurchaseLockPanel";
+import {
+  Panel,
+  Pill,
+  UserAlerts,
+  UserRecentOrders,
+  UserSafetyChecks,
+  UserStatTiles,
+  UserTags,
+  fmtDate,
+  initialsFor,
+  useAdminUserSummary,
+} from "@/components/admin/AdminUserSummaryParts";
+
+type UserTab = "overview" | "orders" | "shows" | "money" | "seller" | "risk" | "account" | "history";
+const USER_TABS: UserTab[] = ["overview", "orders", "shows", "money", "seller", "risk", "account", "history"];
 
 type ChecklistItem = {
   key: string;
@@ -218,6 +233,19 @@ export function AdminUserDetailPage() {
   const [creditBusy, setCreditBusy] = useState(false);
   const [creditError, setCreditError] = useState<string | null>(null);
   const [creditMessage, setCreditMessage] = useState<string | null>(null);
+  const summary = useAdminUserSummary(userId || null);
+  // Tab lives in the URL hash so links like /admin/users/<id>#risk open the right section.
+  // Safe to read on the client's first render: the page shows "Loading…" until its data arrives, so the tabs
+  // are never part of the server-rendered markup.
+  const [tab, setTabState] = useState<UserTab>(() => {
+    if (typeof window === "undefined") return "overview";
+    const h = window.location.hash.replace("#", "") as UserTab;
+    return USER_TABS.includes(h) ? h : "overview";
+  });
+  const setTab = (t: UserTab) => {
+    setTabState(t);
+    window.history.replaceState(null, "", `#${t}`);
+  };
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -431,17 +459,15 @@ export function AdminUserDetailPage() {
 
   if (loading) {
     return (
-      <main className="mx-auto w-full max-w-[1920px] px-3 py-16 text-center text-sm text-zinc-500 sm:px-4 lg:px-10">
-        Loading…
-      </main>
+      <main className="mx-auto w-full max-w-[1600px] px-4 py-16 text-center text-sm text-zinc-400 lg:px-8">Loading…</main>
     );
   }
 
   if (!data) {
     return (
-      <main className="mx-auto w-full max-w-[1920px] px-3 py-16 text-center sm:px-4 lg:px-10">
-        <p className="text-sm text-zinc-500">User not found.</p>
-        <Link href="/admin/users" className="mt-4 inline-block text-xs font-semibold text-gold-bright hover:underline">
+      <main className="mx-auto w-full max-w-[1600px] px-4 py-16 text-center lg:px-8">
+        <p className="text-sm text-zinc-400">User not found.</p>
+        <Link href="/admin/users" className="mt-4 inline-block text-sm font-semibold text-gold-bright hover:underline">
           ← Users
         </Link>
       </main>
@@ -453,736 +479,631 @@ export function AdminUserDetailPage() {
   const overrides = data.seller.limitOverrides;
   const feeOverride = data.seller.platformFeeOverride;
   const effectiveFeePercent = feeOverride.effectivePercent ?? feeOverride.defaultMarketplacePercent;
+  const s = summary.summary;
+
+  const tabs: Array<{ id: UserTab; label: string; count?: number }> = [
+    { id: "overview", label: "Overview" },
+    { id: "orders", label: "Orders & refunds", count: s ? s.buyer.paidOrders + s.seller.paidSales : undefined },
+    { id: "shows", label: "Live shows" },
+    { id: "money", label: "Credit & fees" },
+    { id: "seller", label: "Seller program" },
+    { id: "risk", label: "Risk & locks", count: s ? s.alerts.length || undefined : undefined },
+    { id: "account", label: "Account & support" },
+    { id: "history", label: "History" },
+  ];
 
   return (
-    <main className="mx-auto w-full max-w-[1920px] px-3 py-8 sm:px-4 lg:px-10">
-      <Link href="/admin/users" className="text-xs font-semibold text-zinc-500 hover:text-gold-bright">
-        ← Users
-      </Link>
-      <h1 className="font-display mt-4 text-xl font-black tracking-tight">User review</h1>
-      <p className="mt-1 text-xs text-zinc-500">
-        @{data.seller.username} · {data.seller.email}
-      </p>
-      <p className="mt-1 text-[11px] text-zinc-600">
-        Recent activity and linked-account signals are review-only (first-party product data).
-      </p>
+    <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 px-4 py-6 text-sm lg:px-8">
+      <nav aria-label="Breadcrumb" className="text-[13px] text-zinc-400">
+        <Link href="/admin/users-management" className="hover:text-gold-bright">
+          Users
+        </Link>
+        <span aria-hidden className="px-1.5">
+          /
+        </span>
+        <span className="text-zinc-200">@{data.seller.username}</span>
+      </nav>
+
+      <section className="flex flex-wrap items-center gap-5 rounded-2xl border border-white/[0.08] bg-[#121216] p-6">
+        <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-gold/40 bg-gradient-to-br from-[#3a3220] to-[#1c1a14] text-xl font-semibold text-gold-bright">
+          {s ? initialsFor(s.user) : (data.seller.username[0] ?? "?").toUpperCase()}
+        </span>
+        <div className="flex min-w-[260px] flex-1 flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">@{data.seller.username}</h1>
+            {s ? <UserTags summary={s} /> : null}
+          </div>
+          <p className="text-[13px] text-zinc-300">
+            {[s?.user.name, data.seller.email, s?.user.phone].filter(Boolean).join(" · ")}
+          </p>
+          <p className="text-[13px] text-zinc-400">
+            {s ? `Joined ${fmtDate(s.user.createdAt)} · ` : ""}
+            {m ? `${m.accountAgeDays} days on platform · ` : ""}
+            <span className="font-mono text-xs">ID {userId}</span>
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setTab("account")} className={BTN}>
+            Message / notes
+          </button>
+          <button type="button" onClick={() => setTab("money")} className={BTN}>
+            Grant credit
+          </button>
+          <button type="button" onClick={() => setTab("risk")} className={BTN_DANGER}>
+            Locks
+          </button>
+        </div>
+      </section>
 
       {error ? (
-        <p className="mt-4 rounded-lg border border-rose-400/25 bg-rose-950/30 px-3 py-2 text-xs text-rose-100">{error}</p>
+        <p role="alert" className="rounded-xl border border-rose-400/30 bg-rose-950/30 px-4 py-3 text-rose-100">
+          {error}
+        </p>
       ) : null}
       {usernameMessage ? (
-        <p className="mt-4 rounded-lg border border-emerald-400/25 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-100">
+        <p role="status" className="rounded-xl border border-emerald-400/30 bg-emerald-950/30 px-4 py-3 text-emerald-100">
           {usernameMessage}
         </p>
       ) : null}
 
-      <AdminUser360Panel userId={userId} />
+      {s ? <UserAlerts summary={s} /> : null}
+      {s ? <UserStatTiles summary={s} /> : summary.error ? <p className="text-rose-300">{summary.error}</p> : null}
 
-      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-        <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Addresses</h2>
-        <p className="mt-1 text-[10px] text-zinc-600">
-          Shipping, billing, return, and ship-from addresses saved on this account.
-        </p>
-        {addressesLoading ? (
-          <p className="mt-3 text-zinc-500">Loading…</p>
-        ) : !addresses?.length ? (
-          <p className="mt-3 text-zinc-500">No addresses saved for this user.</p>
-        ) : (
-          <ul className="mt-3 grid gap-3 sm:grid-cols-2">
-            {addresses.map((a) => (
-              <li key={a.id} className="rounded-lg border border-white/[0.06] bg-[#050506] p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-gold-bright">
-                    {a.type.replace(/_/g, " ")}
-                  </span>
-                  <span className="flex gap-1">
-                    {a.isDefault ? (
-                      <span className="rounded-full border border-emerald-400/30 bg-emerald-950/30 px-2 py-0.5 text-[9px] font-bold uppercase text-emerald-200">
-                        Default
-                      </span>
-                    ) : null}
-                    {a.isVerified ? (
-                      <span className="rounded-full border border-sky-400/30 bg-sky-950/30 px-2 py-0.5 text-[9px] font-bold uppercase text-sky-200">
-                        Verified
-                      </span>
-                    ) : null}
-                  </span>
-                </div>
-                <p className="mt-2 font-semibold text-zinc-100">{a.fullName}</p>
-                {a.company ? <p className="text-zinc-400">{a.company}</p> : null}
-                <p className="mt-1 text-zinc-300">
-                  {a.line1}
-                  {a.line2 ? `, ${a.line2}` : ""}
-                </p>
-                <p className="text-zinc-300">
-                  {a.city}, {a.state} {a.postalCode} · {a.country}
-                </p>
-                {a.phone ? <p className="mt-1 text-zinc-500">{a.phone}</p> : null}
-                {a.email ? <p className="text-zinc-500">{a.email}</p> : null}
-                <p className="mt-2 text-[10px] text-zinc-600">
-                  Updated {new Date(a.updatedAt).toLocaleString()}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-        <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Change username</h2>
-        <p className="mt-1 text-[10px] text-zinc-600">
-          Fix typos or mistaken usernames. Bypasses the 60-day self-service lock; still enforces uniqueness and reserved names.
-        </p>
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <label className="flex min-w-[10rem] flex-1 flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
-            New username
-            <input
-              value={newUsername}
-              onChange={(e) => setNewUsername(e.target.value)}
-              className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
-              placeholder={`currently @${data.seller.username}`}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </label>
-          <label className="flex min-w-[14rem] flex-[2] flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
-            Reason
-            <input
-              value={usernameReason}
-              onChange={(e) => setUsernameReason(e.target.value)}
-              className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
-              placeholder="User typo / support request"
-            />
-          </label>
+      <div role="tablist" aria-label="User sections" className="flex gap-1 overflow-x-auto border-b border-white/[0.08]">
+        {tabs.map((t) => (
           <button
+            key={t.id}
             type="button"
-            disabled={usernameBusy}
-            onClick={() => void changeUsername()}
-            className="rounded-lg border border-gold/35 bg-gold/10 px-3 py-1.5 text-xs font-semibold text-gold-bright hover:bg-gold/15 disabled:opacity-50"
+            role="tab"
+            id={`user-tab-${t.id}`}
+            aria-selected={tab === t.id}
+            aria-controls={`user-panel-${t.id}`}
+            onClick={() => setTab(t.id)}
+            className={`min-h-[44px] whitespace-nowrap border-b-2 px-3.5 text-sm transition ${
+              tab === t.id
+                ? "border-gold font-semibold text-zinc-50"
+                : "border-transparent font-medium text-zinc-400 hover:text-zinc-200"
+            }`}
           >
-            {usernameBusy ? "Saving…" : "Set username"}
+            {t.label}
+            {t.count ? <span className="ml-1.5 text-xs text-zinc-500">{t.count}</span> : null}
           </button>
-        </div>
-      </section>
+        ))}
+      </div>
 
-      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Referral credits</h2>
-          <Link href="/admin/referrals" className="text-[10px] font-semibold text-gold-bright hover:underline">
-            Open referrals tracker →
-          </Link>
-        </div>
-        {referralLoading ? (
-          <p className="mt-3 text-zinc-500">Loading…</p>
-        ) : !referral ? (
-          <p className="mt-3 text-zinc-500">Could not load referral data.</p>
-        ) : (
-          <>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <p className="text-[10px] text-zinc-500">Available</p>
-                <p className="font-semibold text-emerald-300">${referral.availableUsd.toFixed(2)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-zinc-500">Pending</p>
-                <p className="font-semibold text-amber-300">${referral.pendingUsd.toFixed(2)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-zinc-500">Spent / voided</p>
-                <p className="font-semibold text-zinc-200">
-                  ${referral.spentUsd.toFixed(2)} / ${referral.voidedUsd.toFixed(2)}
-                </p>
-              </div>
-              <div>
-                <p className="text-[10px] text-zinc-500">Successful referrals</p>
-                <p className="font-semibold text-zinc-200">
-                  {referral.successfulReferrals} · {referral.referredUserCount} attributed signups
-                </p>
-              </div>
-            </div>
-            <p className="mt-3 text-[11px] text-zinc-500">
-              Code: <span className="font-mono text-zinc-300">{referral.referralCode ?? "—"}</span>
-              {referral.referredBy ? (
-                <>
-                  {" "}
-                  · Referred by{" "}
-                  <Link
-                    href={`/admin/users/${encodeURIComponent(referral.referredBy.id)}`}
-                    className="text-gold-bright hover:underline"
-                  >
-                    @{referral.referredBy.username}
-                  </Link>
-                </>
-              ) : null}
-            </p>
-            {referral.credits.length > 0 ? (
-              <ul className="mt-3 max-h-48 space-y-1.5 overflow-y-auto border-t border-white/[0.04] pt-3">
-                {referral.credits.map((c) => (
-                  <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                    <span className="text-zinc-400">
-                      {c.role} · {c.status}
-                      {c.voidReason ? ` (${c.voidReason})` : ""}
-                    </span>
-                    <span className="tabular-nums text-zinc-200">${c.amountUsd.toFixed(2)}</span>
-                    <Link
-                      href={`/admin/orders/${encodeURIComponent(c.sourceOrder.id)}`}
-                      className="text-sky-300 hover:underline"
-                    >
-                      source order
-                    </Link>
-                  </li>
+      <div role="tabpanel" id={`user-panel-${tab}`} aria-labelledby={`user-tab-${tab}`} className="flex flex-col gap-4">
+        {tab === "overview" ? (
+          <div className="grid gap-4 xl:grid-cols-3">
+            <Panel
+              title="Recent orders"
+              action={
+                <button type="button" onClick={() => setTab("orders")} className="text-[13px] text-gold-bright hover:underline">
+                  All orders →
+                </button>
+              }
+              className="xl:col-span-2"
+            >
+              {s ? <UserRecentOrders summary={s} /> : <p className="text-zinc-400">Loading…</p>}
+            </Panel>
+            <Panel title="Safety">{s ? <UserSafetyChecks summary={s} /> : <p className="text-zinc-400">Loading…</p>}</Panel>
+            <Panel
+              title="Latest activity"
+              action={
+                <button type="button" onClick={() => setTab("history")} className="text-[13px] text-gold-bright hover:underline">
+                  Full history →
+                </button>
+              }
+              className="xl:col-span-2"
+            >
+              <ActivityList loading={activityLoading} activity={activity} limit={6} />
+            </Panel>
+            <Panel title="Seller snapshot">
+              <dl className="flex flex-col text-[13px]">
+                {[
+                  ["Seller level", data.seller.sellerLevelLabel],
+                  ["Payout tier", data.seller.payoutTier],
+                  ["Instant payout", data.seller.instantPayoutApprovalLabel],
+                  ["Platform fee", `${effectiveFeePercent}%${feeOverride.effectivePercent != null ? " (override)" : ""}`],
+                  ["Stripe payouts", data.seller.hasStripeAccount ? (data.seller.stripePayoutsEnabled === false ? "Paused by Stripe" : "On") : "Not set up"],
+                ].map(([k, v]) => (
+                  <div key={k} className="flex justify-between gap-3 border-t border-white/[0.06] py-2 first:border-t-0">
+                    <dt className="text-zinc-400">{k}</dt>
+                    <dd className="text-right capitalize text-zinc-100">{v}</dd>
+                  </div>
                 ))}
-              </ul>
-            ) : (
-              <p className="mt-3 text-zinc-500">No credit ledger rows for this user.</p>
-            )}
-          </>
-        )}
-      </section>
+              </dl>
+            </Panel>
+          </div>
+        ) : null}
 
-      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-        <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Get Vaulted Credit</h2>
-        <p className="mt-1 text-[10px] text-zinc-600">
-          Spendable platform store credit (not withdrawable). Grants here are logged with your reason to this
-          user's audit trail below.
-        </p>
-        {creditError ? (
-          <p className="mt-3 rounded-lg border border-rose-400/25 bg-rose-950/30 px-3 py-2 text-rose-100">
-            {creditError}
-          </p>
-        ) : null}
-        {creditMessage ? (
-          <p className="mt-3 rounded-lg border border-emerald-400/25 bg-emerald-950/30 px-3 py-2 text-emerald-100">
-            {creditMessage}
-          </p>
-        ) : null}
-        {platformCreditLoading ? (
-          <p className="mt-3 text-zinc-500">Loading…</p>
-        ) : !platformCredit ? (
-          <p className="mt-3 text-zinc-500">Could not load credit data.</p>
-        ) : (
+        {tab === "orders" ? <AdminUser360Panel userId={userId} sections={["orders", "refunds"]} /> : null}
+        {tab === "shows" ? <AdminUser360Panel userId={userId} sections={["shows"]} /> : null}
+
+        {tab === "money" ? (
           <>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <p className="text-[10px] text-zinc-500">Available</p>
-                <p className="font-semibold text-emerald-300">${platformCredit.availableUsd.toFixed(2)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-zinc-500">Pending (in checkout)</p>
-                <p className="font-semibold text-amber-300">${platformCredit.pendingUsd.toFixed(2)}</p>
-                {platformCredit.pendingUsd > 0 ? (
-                  <button
-                    type="button"
-                    disabled={creditBusy}
-                    onClick={() => void releaseStuckCredit()}
-                    className="mt-1 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[10px] font-semibold text-amber-100/90 disabled:opacity-40"
-                    title="If this has been sitting here longer than a checkout normally takes, it's likely stuck from an interrupted attempt — not lost, just not spendable until released."
-                  >
-                    {creditBusy ? "Releasing…" : "Release stuck reservations"}
-                  </button>
+            <Panel title="Get Vaulted Credit">
+              <p className="text-[13px] text-zinc-400">
+                Spendable store credit (not withdrawable). Grants are logged with your reason to this user&apos;s history.
+              </p>
+              {creditError ? <p role="alert" className="mt-3 rounded-lg border border-rose-400/30 bg-rose-950/30 px-3 py-2 text-rose-100">{creditError}</p> : null}
+              {creditMessage ? <p role="status" className="mt-3 rounded-lg border border-emerald-400/30 bg-emerald-950/30 px-3 py-2 text-emerald-100">{creditMessage}</p> : null}
+              {platformCreditLoading ? (
+                <p className="mt-3 text-zinc-400">Loading…</p>
+              ) : !platformCredit ? (
+                <p className="mt-3 text-zinc-400">Could not load credit data.</p>
+              ) : (
+                <>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <Figure label="Available" value={`$${platformCredit.availableUsd.toFixed(2)}`} tone="text-teal-300" />
+                    <div>
+                      <Figure label="Pending (in checkout)" value={`$${platformCredit.pendingUsd.toFixed(2)}`} tone="text-amber-300" />
+                      {platformCredit.pendingUsd > 0 ? (
+                        <button
+                          type="button"
+                          disabled={creditBusy}
+                          onClick={() => void releaseStuckCredit()}
+                          className="mt-1.5 min-h-[36px] rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 text-xs font-semibold text-amber-100 disabled:opacity-40"
+                          title="If this has been sitting here longer than a checkout normally takes, it's likely stuck from an interrupted attempt — not lost, just not spendable until released."
+                        >
+                          {creditBusy ? "Releasing…" : "Release stuck reservations"}
+                        </button>
+                      ) : null}
+                    </div>
+                    <Figure label="Spent" value={`$${platformCredit.spentUsd.toFixed(2)}`} />
+                    <Figure label="Voided" value={`$${platformCredit.voidedUsd.toFixed(2)}`} />
+                  </div>
+                  <div className="mt-5 flex flex-wrap items-end gap-3 border-t border-white/[0.06] pt-5">
+                    <label className="flex w-36 flex-col gap-1.5 text-xs text-zinc-400">
+                      Amount (USD)
+                      <input type="number" min={0.01} step={0.01} value={creditAmount} onChange={(e) => setCreditAmount(e.target.value)} placeholder="25.00" className={INPUT} />
+                    </label>
+                    <label className="flex min-w-[16rem] flex-1 flex-col gap-1.5 text-xs text-zinc-400">
+                      Reason (required)
+                      <input value={creditReason} onChange={(e) => setCreditReason(e.target.value)} placeholder="Goodwill credit for delayed shipment, promo, testing…" className={INPUT} />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={creditBusy || !creditAmount.trim() || !creditReason.trim()}
+                      onClick={() => void grantCredit()}
+                      className="min-h-[40px] rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 disabled:opacity-40"
+                    >
+                      {creditBusy ? "Granting…" : "Grant credit"}
+                    </button>
+                  </div>
+                  <Ledger
+                    empty="No credit ledger rows for this user."
+                    rows={platformCredit.credits.map((c) => ({
+                      id: c.id,
+                      left: `${c.sourceType.replace(/_/g, " ")} · ${c.status}${c.voidReason ? ` (${c.voidReason})` : ""}`,
+                      amount: c.amountUsd,
+                      right: new Date(c.createdAt).toLocaleString(),
+                    }))}
+                  />
+                </>
+              )}
+            </Panel>
+
+            <Panel title="Referral credits" action={<Link href="/admin/referrals" className="text-[13px] text-gold-bright hover:underline">Referrals tracker →</Link>}>
+              {referralLoading ? (
+                <p className="text-zinc-400">Loading…</p>
+              ) : !referral ? (
+                <p className="text-zinc-400">Could not load referral data.</p>
+              ) : (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <Figure label="Available" value={`$${referral.availableUsd.toFixed(2)}`} tone="text-teal-300" />
+                    <Figure label="Pending" value={`$${referral.pendingUsd.toFixed(2)}`} tone="text-amber-300" />
+                    <Figure label="Spent / voided" value={`$${referral.spentUsd.toFixed(2)} / $${referral.voidedUsd.toFixed(2)}`} />
+                    <Figure label="Successful referrals" value={`${referral.successfulReferrals}`} sub={`${referral.referredUserCount} attributed signups`} />
+                  </div>
+                  <p className="mt-4 text-[13px] text-zinc-400">
+                    Code: <span className="font-mono text-zinc-200">{referral.referralCode ?? "—"}</span>
+                    {referral.referredBy ? (
+                      <>
+                        {" "}· Referred by{" "}
+                        <Link href={`/admin/users/${encodeURIComponent(referral.referredBy.id)}`} className="text-gold-bright hover:underline">
+                          @{referral.referredBy.username}
+                        </Link>
+                      </>
+                    ) : null}
+                  </p>
+                  <Ledger
+                    empty="No referral credit rows for this user."
+                    rows={referral.credits.map((c) => ({
+                      id: c.id,
+                      left: `${c.role} · ${c.status}${c.voidReason ? ` (${c.voidReason})` : ""}`,
+                      amount: c.amountUsd,
+                      right: (
+                        <Link href={`/admin/orders/${encodeURIComponent(c.sourceOrder.id)}`} className="text-sky-300 hover:underline">
+                          source order
+                        </Link>
+                      ),
+                    }))}
+                  />
+                </>
+              )}
+            </Panel>
+
+            <Panel title="Launch promo fee (this seller only)">
+              <p className="text-[13px] text-zinc-400">Only sellers you enroll here get a reduced fee; everyone else keeps the platform default.</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <Figure
+                  label="Effective fee"
+                  value={`${effectiveFeePercent}%`}
+                  tone="text-gold-bright"
+                  sub={feeOverride.effectivePercent != null ? "Override active" : `Platform default ${feeOverride.defaultMarketplacePercent}%`}
+                />
+                <Figure label="Launch promo slots" value={`${feeOverride.launchPromoSlotsUsed}/${feeOverride.launchPromoSlotsMax}`} sub="active" />
+                {feeOverride.effectivePercent != null ? (
+                  <Figure
+                    label="Stored override"
+                    value={`${feeOverride.percent}%`}
+                    sub={`${feeOverride.reason ?? "No reason recorded"}${feeOverride.expiresAt ? ` · expires ${new Date(feeOverride.expiresAt).toLocaleString()}` : ""}`}
+                  />
+                ) : feeOverride.percent != null ? (
+                  <p className="text-amber-200">Override is set but expired — seller uses the platform default.</p>
                 ) : null}
               </div>
-              <div>
-                <p className="text-[10px] text-zinc-500">Spent</p>
-                <p className="font-semibold text-zinc-200">${platformCredit.spentUsd.toFixed(2)}</p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5 text-xs text-zinc-400">
+                  Fee % (0–25)
+                  <input type="number" min={0} max={25} step={0.01} placeholder={`Default ${feeOverride.defaultMarketplacePercent}`} value={platformFeePercent} onChange={(e) => setPlatformFeePercent(e.target.value)} className={INPUT} />
+                </label>
+                <label className="flex flex-col gap-1.5 text-xs text-zinc-400">
+                  Expires (optional)
+                  <input type="datetime-local" value={platformFeeExpiresAt} onChange={(e) => setPlatformFeeExpiresAt(e.target.value)} className={INPUT} />
+                </label>
               </div>
-              <div>
-                <p className="text-[10px] text-zinc-500">Voided</p>
-                <p className="font-semibold text-zinc-200">${platformCredit.voidedUsd.toFixed(2)}</p>
+              <ReasonField reason={reason} setReason={setReason} />
+              {!feeOverride.canAssignPromoOverride ? (
+                <p className="mt-3 rounded-lg border border-amber-400/30 bg-amber-950/30 px-3 py-2 text-amber-100">
+                  All {feeOverride.launchPromoSlotsMax} launch promo slots are in use. Clear one before enrolling another seller.
+                </p>
+              ) : null}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" disabled={busy || !platformFeePercent.trim() || !feeOverride.canAssignPromoOverride} onClick={() => void act("override_platform_fee")} className={BTN_GOLD}>
+                  Set fee override
+                </button>
+                <button type="button" disabled={busy || feeOverride.percent == null} onClick={() => void act("clear_platform_fee_override")} className={BTN}>
+                  Clear override
+                </button>
               </div>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-white/[0.06] pt-4">
-              <label className="flex w-28 flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
-                Amount (USD)
-                <input
-                  type="number"
-                  min={0.01}
-                  step={0.01}
-                  value={creditAmount}
-                  onChange={(e) => setCreditAmount(e.target.value)}
-                  placeholder="25.00"
-                  className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
-                />
-              </label>
-              <label className="flex min-w-[14rem] flex-1 flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
-                Reason (required)
-                <input
-                  value={creditReason}
-                  onChange={(e) => setCreditReason(e.target.value)}
-                  placeholder="Goodwill credit for delayed shipment, promo, testing, etc."
-                  className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
-                />
-              </label>
-              <button
-                type="button"
-                disabled={creditBusy || !creditAmount.trim() || !creditReason.trim()}
-                onClick={() => void grantCredit()}
-                className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-200 disabled:opacity-40"
-              >
-                {creditBusy ? "Granting…" : "Grant credit"}
-              </button>
-            </div>
-
-            {platformCredit.credits.length > 0 ? (
-              <ul className="mt-4 max-h-48 space-y-1.5 overflow-y-auto border-t border-white/[0.04] pt-3">
-                {platformCredit.credits.map((c) => (
-                  <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                    <span className="text-zinc-400">
-                      {c.sourceType.replace(/_/g, " ")} · {c.status}
-                      {c.voidReason ? ` (${c.voidReason})` : ""}
-                    </span>
-                    <span className="tabular-nums text-zinc-200">${c.amountUsd.toFixed(2)}</span>
-                    <span className="text-zinc-600">{new Date(c.createdAt).toLocaleString()}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-4 text-zinc-500">No credit ledger rows for this user.</p>
-            )}
+            </Panel>
           </>
-        )}
-      </section>
+        ) : null}
 
-      <section className="mt-6 grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Recent activity</h2>
-          <p className="mt-1 text-[10px] text-zinc-600">
-            Last {activity?.lookbackDays ?? 90} days · joins/chats/bids/orders (silent lurkers may not appear)
-          </p>
-          {activityLoading ? (
-            <p className="mt-3 text-zinc-500">Loading…</p>
-          ) : !activity?.items.length ? (
-            <p className="mt-3 text-zinc-500">No recorded product activity in this window.</p>
-          ) : (
-            <ul className="mt-3 max-h-80 space-y-2 overflow-y-auto">
-              {activity.items.map((item) => (
-                <li key={item.id} className="border-b border-white/[0.04] pb-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      {item.href ? (
-                        <Link href={item.href} className="font-semibold text-gold-bright hover:underline">
-                          {item.label}
-                        </Link>
-                      ) : (
-                        <span className="font-semibold text-zinc-200">{item.label}</span>
-                      )}
-                      {item.detail ? <p className="mt-0.5 text-zinc-500">{item.detail}</p> : null}
-                    </div>
-                    <time className="shrink-0 text-[10px] tabular-nums text-zinc-600">
-                      {new Date(item.at).toLocaleString()}
-                    </time>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Possible linked accounts</h2>
-            <Link href="/admin/trust/linked-accounts" className="text-[10px] font-semibold text-gold-bright hover:underline">
-              Platform scan →
-            </Link>
-          </div>
-          <p className="mt-1 text-[10px] text-zinc-600">Shared Stripe / payment / device / email / ship-to signals</p>
-          {linkedLoading ? (
-            <p className="mt-3 text-zinc-500">Loading…</p>
-          ) : !linked?.peers.length ? (
-            <p className="mt-3 text-zinc-500">No linked-account signals found for this user.</p>
-          ) : (
-            <ul className="mt-3 max-h-80 space-y-2 overflow-y-auto">
-              {linked.peers.map((peer) => (
-                <li key={peer.userId} className="border-b border-white/[0.04] pb-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <Link
-                        href={`/admin/users/${encodeURIComponent(peer.userId)}`}
-                        className="font-semibold text-gold-bright hover:underline"
-                      >
-                        @{peer.username}
-                      </Link>
-                      <span className="ml-2 text-zinc-500">{peer.email}</span>
-                      {peer.suspendedAt ? <span className="ml-2 text-rose-300">Suspended</span> : null}
-                      <p className="mt-0.5 text-zinc-500">
-                        {peer.signals.map((s) => s.label).join(" · ")}
-                      </p>
-                    </div>
-                    <span className="shrink-0 tabular-nums text-amber-200">score {peer.score}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
-
-      <h2 className="font-display mt-10 text-lg font-black tracking-tight text-zinc-100">Seller risk & payout program</h2>
-
-      <SellerLockPanel userId={userId} />
-      <BuyerPurchaseLockPanel userId={userId} />
-
-      <section className="mt-4 grid gap-4 lg:grid-cols-3">
-        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs lg:col-span-1">
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Seller level</h2>
-          <p className="mt-2 text-lg font-black text-gold-bright">{data.seller.sellerLevelLabel}</p>
-          <p className="mt-1 text-zinc-400">
-            Payout tier: <span className="capitalize text-zinc-200">{data.seller.payoutTier}</span>
-          </p>
-          <p className="mt-1 text-zinc-400">
-            Natural: <span className="capitalize text-zinc-200">{data.tierEvaluation?.naturalTier ?? "—"}</span>
-          </p>
-          <p className="mt-1 text-zinc-400">
-            Fast status: <span className="text-zinc-200">{data.seller.fastPayoutStatus.replace(/_/g, " ")}</span>
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs lg:col-span-1">
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Instant payout workflow</h2>
-          <p className="mt-2 text-base font-bold text-zinc-100">{data.seller.instantPayoutApprovalLabel}</p>
-          {data.seller.instantPayoutReviewDate ? (
-            <p className="mt-1 text-zinc-500">Reviewed {new Date(data.seller.instantPayoutReviewDate).toLocaleString()}</p>
-          ) : null}
-          {data.seller.instantPayoutReviewNotes ? (
-            <p className="mt-2 text-zinc-400">Notes: {data.seller.instantPayoutReviewNotes}</p>
-          ) : null}
-          {data.seller.instantPayoutRejectionReason ? (
-            <p className="mt-2 text-amber-200/90">Rejection: {data.seller.instantPayoutRejectionReason}</p>
-          ) : null}
-          {data.seller.suspensionReason ? (
-            <p className="mt-2 text-[10px] text-rose-300">Suspended: {data.seller.suspensionReason}</p>
-          ) : null}
-        </div>
-
-        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs lg:col-span-1">
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Instant exposure</h2>
-          <p className="mt-2 text-zinc-300">
-            Today: <span className="tabular-nums text-zinc-100">{formatUsd(m?.dailyInstantPayoutUsd ?? 0)}</span>
-            <span className="text-zinc-500"> / {formatUsd(overrides?.dailyUsd ?? limits.dailyUsd)}</span>
-          </p>
-          <p className="mt-1 text-zinc-300">
-            Outstanding:{" "}
-            <span className="tabular-nums text-zinc-100">{formatUsd(m?.outstandingInstantPayoutUsd ?? 0)}</span>
-            <span className="text-zinc-500"> / {formatUsd(overrides?.exposureUsd ?? limits.maxOutstandingUsd)}</span>
-          </p>
-          <p className="mt-1 text-zinc-300">
-            Lifetime: <span className="tabular-nums text-zinc-100">{formatUsd(m?.lifetimeInstantPayoutUsd ?? 0)}</span>
-          </p>
-          <p className="mt-2 text-zinc-500">
-            Per-order limit: {formatUsd(overrides?.perOrderUsd ?? limits.perOrderUsd)}
-          </p>
-        </div>
-      </section>
-
-      {m ? (
-        <section className="mt-4 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Risk metrics</h2>
-          <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4">
-            <p className="text-zinc-300">
-              Lifetime GMV: <span className="tabular-nums text-zinc-100">${m.lifetimeGmvUsd.toLocaleString()}</span>
-            </p>
-            <p className="text-zinc-300">
-              Completed orders: <span className="tabular-nums text-zinc-100">{m.completedOrders}</span>
-            </p>
-            <p className="text-zinc-300">
-              Account standing: <span className="capitalize text-zinc-100">{m.accountStanding.replace(/_/g, " ")}</span>
-            </p>
-            <p className="text-zinc-300">
-              Account age: <span className="text-zinc-100">{m.accountAgeDays}d</span>
-            </p>
-            <p className="text-zinc-300">
-              Cancellation: <span className="text-zinc-100">{pct(m.cancellationRate)}</span>
-            </p>
-            <p className="text-zinc-300">
-              Chargeback: <span className="text-zinc-100">{pct(m.chargebackRate)}</span>
-            </p>
-            <p className="text-zinc-300">
-              Dispute: <span className="text-zinc-100">{pct(m.disputeRate)}</span>
-            </p>
-            <p className="text-zinc-300">
-              Fraud: <span className="capitalize text-zinc-100">{m.fraudStatus}</span>
-            </p>
-          </div>
-        </section>
-      ) : null}
-
-      {data.tierEvaluation?.checklist?.length ? (
-        <section className="mt-4 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Eligibility checklist</h2>
-          <ul className="mt-2 space-y-1">
-            {data.tierEvaluation.checklist.map((item) => (
-              <li key={item.key} className="text-zinc-300">
-                {item.met ? "✓" : item.pending ? "◷" : "○"} {item.label}
-                {item.current ? ` · ${item.current}` : ""}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-        <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Launch promo fee (per seller)</h2>
-        <p className="mt-2 text-zinc-400">
-          Only sellers you manually enroll get a reduced fee. Everyone else keeps the platform default.
-        </p>
-        <p className="mt-1 text-zinc-300">
-          Launch promo slots:{" "}
-          <span className="font-semibold text-zinc-100">
-            {feeOverride.launchPromoSlotsUsed}/{feeOverride.launchPromoSlotsMax}
-          </span>{" "}
-          active
-        </p>
-        <p className="mt-2 text-zinc-300">
-          Effective fee:{" "}
-          <span className="font-semibold text-gold-bright">{effectiveFeePercent}%</span>
-          {feeOverride.effectivePercent != null ? (
-            <span className="text-zinc-500"> (override active)</span>
-          ) : (
-            <span className="text-zinc-500"> (platform default {feeOverride.defaultMarketplacePercent}%)</span>
-          )}
-        </p>
-        {feeOverride.effectivePercent != null ? (
+        {tab === "seller" ? (
           <>
-            <p className="mt-1 text-zinc-400">
-              Stored override: {feeOverride.percent}% · {feeOverride.reason ?? "No reason recorded"}
-            </p>
-            {feeOverride.expiresAt ? (
-              <p className="mt-1 text-zinc-400">Expires: {new Date(feeOverride.expiresAt).toLocaleString()}</p>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <Panel title="Seller level">
+                <p className="text-xl font-semibold text-gold-bright">{data.seller.sellerLevelLabel}</p>
+                <KV k="Payout tier" v={data.seller.payoutTier} />
+                <KV k="Natural tier" v={data.tierEvaluation?.naturalTier ?? "—"} />
+                <KV k="Fast payout" v={data.seller.fastPayoutStatus.replace(/_/g, " ")} />
+              </Panel>
+              <Panel title="Instant payout">
+                <p className="text-base font-semibold text-zinc-50">{data.seller.instantPayoutApprovalLabel}</p>
+                {data.seller.instantPayoutReviewDate ? <p className="mt-1 text-[13px] text-zinc-400">Reviewed {new Date(data.seller.instantPayoutReviewDate).toLocaleString()}</p> : null}
+                {data.seller.instantPayoutReviewNotes ? <p className="mt-2 text-[13px] text-zinc-300">Notes: {data.seller.instantPayoutReviewNotes}</p> : null}
+                {data.seller.instantPayoutRejectionReason ? <p className="mt-2 text-[13px] text-amber-200">Rejection: {data.seller.instantPayoutRejectionReason}</p> : null}
+                {data.seller.suspensionReason ? <p className="mt-2 text-[13px] text-rose-300">Suspended: {data.seller.suspensionReason}</p> : null}
+              </Panel>
+              <Panel title="Instant payout exposure">
+                <KV k="Today" v={`${formatUsd(m?.dailyInstantPayoutUsd ?? 0)} of ${formatUsd(overrides?.dailyUsd ?? limits.dailyUsd)}`} />
+                <KV k="Outstanding" v={`${formatUsd(m?.outstandingInstantPayoutUsd ?? 0)} of ${formatUsd(overrides?.exposureUsd ?? limits.maxOutstandingUsd)}`} />
+                <KV k="Lifetime" v={formatUsd(m?.lifetimeInstantPayoutUsd ?? 0)} />
+                <KV k="Per-order limit" v={formatUsd(overrides?.perOrderUsd ?? limits.perOrderUsd)} />
+              </Panel>
+            </div>
+
+            {m ? (
+              <Panel title="Seller risk metrics">
+                <div className="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-4">
+                  <KV k="Lifetime GMV" v={`$${m.lifetimeGmvUsd.toLocaleString()}`} />
+                  <KV k="Completed orders" v={String(m.completedOrders)} />
+                  <KV k="Account standing" v={m.accountStanding.replace(/_/g, " ")} />
+                  <KV k="Account age" v={`${m.accountAgeDays} days`} />
+                  <KV k="Cancellation rate" v={pct(m.cancellationRate)} />
+                  <KV k="Chargeback rate" v={pct(m.chargebackRate)} />
+                  <KV k="Dispute rate" v={pct(m.disputeRate)} />
+                  <KV k="Fraud status" v={m.fraudStatus} />
+                </div>
+              </Panel>
+            ) : null}
+
+            {data.tierEvaluation?.checklist?.length ? (
+              <Panel title="Instant payout eligibility">
+                <ul className="grid gap-2 sm:grid-cols-2">
+                  {data.tierEvaluation.checklist.map((item) => (
+                    <li key={item.key} className="flex items-start gap-2 text-[13px]">
+                      <span aria-hidden className={item.met ? "text-teal-300" : item.pending ? "text-amber-300" : "text-zinc-500"}>
+                        {item.met ? "✓" : item.pending ? "◷" : "○"}
+                      </span>
+                      <span className="text-zinc-200">
+                        {item.label}
+                        {item.current ? <span className="text-zinc-400"> · {item.current}</span> : null}
+                        <span className="sr-only">{item.met ? " (met)" : item.pending ? " (pending)" : " (not met)"}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </Panel>
+            ) : null}
+
+            <Panel title="Seller program actions">
+              <ReasonField reason={reason} setReason={setReason} />
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5 text-xs text-zinc-400">
+                  Review / approval notes
+                  <textarea value={reviewNotes} onChange={(e) => setReviewNotes(e.target.value)} rows={2} className={INPUT} />
+                </label>
+                <label className="flex flex-col gap-1.5 text-xs text-zinc-400">
+                  Rejection reason
+                  <textarea value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} rows={2} className={INPUT} />
+                </label>
+              </div>
+              <label className="mt-3 flex items-center gap-2 text-[13px] text-zinc-300">
+                <input type="checkbox" checked={overrideRequirements} onChange={(e) => setOverrideRequirements(e.target.checked)} className="h-4 w-4" />
+                Override eligibility requirements on approval
+              </label>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <label className="flex flex-col gap-1.5 text-xs text-zinc-400">
+                  Per-order limit
+                  <input type="number" placeholder={`$${limits.perOrderUsd}`} value={perOrderLimit} onChange={(e) => setPerOrderLimit(e.target.value)} className={INPUT} />
+                </label>
+                <label className="flex flex-col gap-1.5 text-xs text-zinc-400">
+                  Daily limit
+                  <input type="number" placeholder={`$${limits.dailyUsd}`} value={dailyLimit} onChange={(e) => setDailyLimit(e.target.value)} className={INPUT} />
+                </label>
+                <label className="flex flex-col gap-1.5 text-xs text-zinc-400">
+                  Exposure limit
+                  <input type="number" placeholder={`$${limits.maxOutstandingUsd}`} value={exposureLimit} onChange={(e) => setExposureLimit(e.target.value)} className={INPUT} />
+                </label>
+              </div>
+              <div className="mt-4 flex flex-col gap-3">
+                <ActionRow label="Instant payout">
+                  <button type="button" disabled={busy} onClick={() => void act("start_instant_review")} className={BTN}>Start review</button>
+                  <button type="button" disabled={busy} onClick={() => void act("approve_instant_payout")} className={BTN_GOLD}>Approve</button>
+                  <button type="button" disabled={busy} onClick={() => void act("reject_instant_payout")} className={BTN}>Reject application</button>
+                  <button type="button" disabled={busy} onClick={() => void act("suspend_instant_payout")} className={BTN_DANGER}>Suspend instant payout</button>
+                  <button type="button" disabled={busy} onClick={() => void act("restore_instant_payout")} className={BTN}>Restore seller status</button>
+                </ActionRow>
+                <ActionRow label="Limits & status">
+                  <button type="button" disabled={busy} onClick={() => void act("override_instant_limits")} className={BTN}>Override limits</button>
+                  <button type="button" disabled={busy} onClick={() => void act("grant_fast_payout")} className={BTN}>Grant fast payout</button>
+                  <button type="button" disabled={busy} onClick={() => void act("assign_elite_vault_verified")} className={BTN_GOLD}>Assign Elite Vault Verified</button>
+                  <button type="button" disabled={busy} onClick={() => void act("remove_elite_vault_verified")} className={BTN}>Remove Elite</button>
+                  <button type="button" disabled={busy} onClick={() => void act("recalculate")} className={BTN}>Recalculate tier</button>
+                </ActionRow>
+              </div>
+            </Panel>
+          </>
+        ) : null}
+
+        {tab === "risk" ? (
+          <>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Panel title="Safety checks">{s ? <UserSafetyChecks summary={s} /> : <p className="text-zinc-400">Loading…</p>}</Panel>
+              <Panel title="Possible linked accounts" action={<Link href="/admin/trust/linked-accounts" className="text-[13px] text-gold-bright hover:underline">Platform scan →</Link>}>
+                <p className="text-[13px] text-zinc-400">Shared Stripe, payment, device, email or ship-to signals.</p>
+                {linkedLoading ? (
+                  <p className="mt-3 text-zinc-400">Loading…</p>
+                ) : !linked?.peers.length ? (
+                  <p className="mt-3 text-zinc-400">No linked-account signals found for this user.</p>
+                ) : (
+                  <ul className="mt-3 flex max-h-80 flex-col overflow-y-auto">
+                    {linked.peers.map((peer) => (
+                      <li key={peer.userId} className="flex items-start justify-between gap-3 border-t border-white/[0.06] py-2.5 first:border-t-0">
+                        <div className="min-w-0 text-[13px]">
+                          <Link href={`/admin/users/${encodeURIComponent(peer.userId)}`} className="font-semibold text-gold-bright hover:underline">
+                            @{peer.username}
+                          </Link>
+                          <span className="ml-2 text-zinc-400">{peer.email}</span>
+                          {peer.suspendedAt ? <span className="ml-2 text-rose-300">Suspended</span> : null}
+                          <p className="mt-0.5 text-zinc-400">{peer.signals.map((sg) => sg.label).join(" · ")}</p>
+                        </div>
+                        <span className="shrink-0 font-mono text-[13px] text-amber-200">score {peer.score}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Panel>
+            </div>
+            <div className="[&>section]:mt-0 grid gap-4 lg:grid-cols-2">
+              <BuyerPurchaseLockPanel userId={userId} />
+              <SellerLockPanel userId={userId} />
+            </div>
+          </>
+        ) : null}
+
+        {tab === "account" ? (
+          <>
+            <AdminUser360Panel userId={userId} sections={["notes", "tickets"]} />
+            <Panel title="Addresses">
+              {addressesLoading ? (
+                <p className="text-zinc-400">Loading…</p>
+              ) : !addresses?.length ? (
+                <p className="text-zinc-400">No addresses saved for this user.</p>
+              ) : (
+                <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {addresses.map((a) => (
+                    <li key={a.id} className="rounded-xl border border-white/[0.06] bg-[#0b0b0e] p-4 text-[13px]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold capitalize text-gold-bright">{a.type.replace(/_/g, " ")}</span>
+                        <span className="flex gap-1">
+                          {a.isDefault ? <Pill tone="good">Default</Pill> : null}
+                          {a.isVerified ? <Pill tone="info">Verified</Pill> : null}
+                        </span>
+                      </div>
+                      <p className="mt-2 font-semibold text-zinc-100">{a.fullName}</p>
+                      {a.company ? <p className="text-zinc-400">{a.company}</p> : null}
+                      <p className="mt-1 text-zinc-300">
+                        {a.line1}
+                        {a.line2 ? `, ${a.line2}` : ""}
+                      </p>
+                      <p className="text-zinc-300">
+                        {a.city}, {a.state} {a.postalCode} · {a.country}
+                      </p>
+                      {a.phone ? <p className="mt-1 text-zinc-400">{a.phone}</p> : null}
+                      {a.email ? <p className="text-zinc-400">{a.email}</p> : null}
+                      <p className="mt-2 text-xs text-zinc-500">Updated {new Date(a.updatedAt).toLocaleString()}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
+            <Panel title="Change username">
+              <p className="text-[13px] text-zinc-400">
+                Fix typos or mistaken usernames. Skips the 60-day self-service lock; still enforces uniqueness and reserved names.
+              </p>
+              <div className="mt-3 flex flex-wrap items-end gap-3">
+                <label className="flex min-w-[12rem] flex-1 flex-col gap-1.5 text-xs text-zinc-400">
+                  New username
+                  <input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} className={INPUT} placeholder={`currently @${data.seller.username}`} autoComplete="off" spellCheck={false} />
+                </label>
+                <label className="flex min-w-[16rem] flex-[2] flex-col gap-1.5 text-xs text-zinc-400">
+                  Reason
+                  <input value={usernameReason} onChange={(e) => setUsernameReason(e.target.value)} className={INPUT} placeholder="User typo / support request" />
+                </label>
+                <button type="button" disabled={usernameBusy} onClick={() => void changeUsername()} className={BTN_GOLD}>
+                  {usernameBusy ? "Saving…" : "Set username"}
+                </button>
+              </div>
+            </Panel>
+          </>
+        ) : null}
+
+        {tab === "history" ? (
+          <>
+            <Panel title="Activity">
+              <p className="mb-2 text-[13px] text-zinc-400">
+                Last {activity?.lookbackDays ?? 90} days · joins, chats, bids and orders (silent viewers may not appear).
+              </p>
+              <ActivityList loading={activityLoading} activity={activity} />
+            </Panel>
+            <AdminUser360Panel userId={userId} sections={["adminLog"]} />
+            {data.suspensionHistory.length > 0 ? (
+              <Panel title="Suspension history">
+                <LogList rows={data.suspensionHistory.map((l) => ({ id: l.id, action: l.action, detail: l.reason, at: l.createdAt }))} />
+              </Panel>
+            ) : null}
+            {data.auditLogs.length > 0 ? (
+              <Panel title="Payout program audit log">
+                <LogList
+                  rows={data.auditLogs.map((l) => ({
+                    id: l.id,
+                    action: `${l.action}${l.previousStatus || l.newStatus ? ` · ${l.previousStatus ?? "—"} → ${l.newStatus ?? "—"}` : ""}`,
+                    detail: l.reason,
+                    at: l.createdAt,
+                  }))}
+                />
+              </Panel>
             ) : null}
           </>
-        ) : feeOverride.percent != null ? (
-          <p className="mt-1 text-amber-200">Override is set but expired — seller uses platform default.</p>
         ) : null}
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          <input
-            type="number"
-            min={0}
-            max={25}
-            step={0.01}
-            placeholder={`Fee % (default ${feeOverride.defaultMarketplacePercent})`}
-            value={platformFeePercent}
-            onChange={(e) => setPlatformFeePercent(e.target.value)}
-            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
-          />
-          <input
-            type="datetime-local"
-            placeholder="Optional expiry"
-            value={platformFeeExpiresAt}
-            onChange={(e) => setPlatformFeeExpiresAt(e.target.value)}
-            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
-          />
-        </div>
-        <p className="mt-2 text-[10px] text-zinc-500">
-          Applies to marketplace and live sales for this seller only (0–25%). Max {feeOverride.launchPromoSlotsMax}{" "}
-          launch promos at once.
-        </p>
-        {!feeOverride.canAssignPromoOverride ? (
-          <p className="mt-2 rounded-lg border border-amber-400/25 bg-amber-950/30 px-3 py-2 text-amber-100">
-            All {feeOverride.launchPromoSlotsMax} launch promo slots are in use. Clear one before enrolling another
-            seller.
-          </p>
-        ) : null}
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={busy || !platformFeePercent.trim() || !feeOverride.canAssignPromoOverride}
-            onClick={() => void act("override_platform_fee")}
-            className="rounded-lg border border-gold/40 bg-gold/10 px-3 py-1.5 text-[10px] font-semibold text-gold-bright disabled:opacity-50"
-          >
-            Set fee override
-          </button>
-          <button
-            type="button"
-            disabled={busy || feeOverride.percent == null}
-            onClick={() => void act("clear_platform_fee_override")}
-            className="rounded-lg border border-white/15 px-3 py-1.5 text-[10px] font-semibold text-zinc-200 disabled:opacity-50"
-          >
-            Clear override
-          </button>
-        </div>
-      </section>
-
-      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-        <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Admin controls</h2>
-        <label className="mt-3 flex flex-col gap-1">
-          <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Reason (required)</span>
-          <textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            rows={2}
-            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
-            placeholder="Document why this action is taken…"
-          />
-        </label>
-        <label className="mt-2 flex flex-col gap-1">
-          <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Review / approval notes</span>
-          <textarea
-            value={reviewNotes}
-            onChange={(e) => setReviewNotes(e.target.value)}
-            rows={2}
-            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
-          />
-        </label>
-        <label className="mt-2 flex flex-col gap-1">
-          <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Rejection reason</span>
-          <textarea
-            value={rejectionReason}
-            onChange={(e) => setRejectionReason(e.target.value)}
-            rows={2}
-            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
-          />
-        </label>
-        <label className="mt-2 flex items-center gap-2 text-zinc-400">
-          <input
-            type="checkbox"
-            checked={overrideRequirements}
-            onChange={(e) => setOverrideRequirements(e.target.checked)}
-          />
-          Override eligibility requirements on approval
-        </label>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          <input
-            type="number"
-            placeholder={`Per-order ($${limits.perOrderUsd})`}
-            value={perOrderLimit}
-            onChange={(e) => setPerOrderLimit(e.target.value)}
-            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
-          />
-          <input
-            type="number"
-            placeholder={`Daily ($${limits.dailyUsd})`}
-            value={dailyLimit}
-            onChange={(e) => setDailyLimit(e.target.value)}
-            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
-          />
-          <input
-            type="number"
-            placeholder={`Exposure ($${limits.maxOutstandingUsd})`}
-            value={exposureLimit}
-            onChange={(e) => setExposureLimit(e.target.value)}
-            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
-          />
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("start_instant_review")}
-            className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-[10px] font-semibold text-sky-200 disabled:opacity-50"
-          >
-            Start Review
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("approve_instant_payout")}
-            className="rounded-lg border border-gold/40 bg-gold/10 px-3 py-1.5 text-[10px] font-semibold text-gold-bright disabled:opacity-50"
-          >
-            Approve Instant Payout
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("reject_instant_payout")}
-            className="rounded-lg border border-amber-500/40 px-3 py-1.5 text-[10px] font-semibold text-amber-200 disabled:opacity-50"
-          >
-            Reject Application
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("suspend_instant_payout")}
-            className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-[10px] font-semibold text-rose-300 disabled:opacity-50"
-          >
-            Suspend Instant Payout
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("restore_instant_payout")}
-            className="rounded-lg border border-emerald-500/40 px-3 py-1.5 text-[10px] font-semibold text-emerald-200 disabled:opacity-50"
-          >
-            Restore Seller Status
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("override_instant_limits")}
-            className="rounded-lg border border-white/15 px-3 py-1.5 text-[10px] font-semibold text-zinc-200 disabled:opacity-50"
-          >
-            Override Limits
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("assign_elite_vault_verified")}
-            className="rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-1.5 text-[10px] font-semibold text-violet-200 disabled:opacity-50"
-          >
-            Assign Elite Vault Verified
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("remove_elite_vault_verified")}
-            className="rounded-lg border border-white/15 px-3 py-1.5 text-[10px] font-semibold text-zinc-200 disabled:opacity-50"
-          >
-            Remove Elite
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("grant_fast_payout")}
-            className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-semibold text-emerald-200 disabled:opacity-50"
-          >
-            Grant Fast Payout
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("recalculate")}
-            className="rounded-lg border border-white/15 px-3 py-1.5 text-[10px] font-semibold text-zinc-200 disabled:opacity-50"
-          >
-            Recalculate tier
-          </button>
-        </div>
-      </section>
-
-      {data.suspensionHistory.length > 0 ? (
-        <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Suspension history</h2>
-          <ul className="mt-3 space-y-2">
-            {data.suspensionHistory.map((l) => (
-              <li key={l.id} className="border-b border-white/[0.05] pb-2 text-[10px] text-zinc-400">
-                <span className="font-mono text-zinc-300">{l.action}</span>
-                {l.reason ? <span className="block text-zinc-500">{l.reason}</span> : null}
-                <span className="block text-zinc-600">{new Date(l.createdAt).toLocaleString()}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {data.auditLogs.length > 0 ? (
-        <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Audit log</h2>
-          <ul className="mt-3 space-y-2">
-            {data.auditLogs.map((l) => (
-              <li key={l.id} className="border-b border-white/[0.05] pb-2 text-[10px] text-zinc-400">
-                <span className="font-mono text-zinc-300">{l.action}</span>
-                {l.previousStatus || l.newStatus ? (
-                  <span>
-                    {" "}
-                    · {l.previousStatus ?? "—"} → {l.newStatus ?? "—"}
-                  </span>
-                ) : null}
-                {l.reason ? <span className="block text-zinc-500">{l.reason}</span> : null}
-                <span className="block text-zinc-600">{new Date(l.createdAt).toLocaleString()}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      </div>
     </main>
+  );
+}
+
+const INPUT =
+  "rounded-lg border border-white/10 bg-[#0b0b0e] px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-gold/50 focus:outline-none";
+const BTN =
+  "min-h-[40px] rounded-lg border border-white/15 bg-[#18181d] px-3.5 text-sm font-medium text-zinc-100 hover:bg-white/[0.06] disabled:opacity-50";
+const BTN_GOLD =
+  "min-h-[40px] rounded-lg border border-gold/40 bg-gold/10 px-3.5 text-sm font-semibold text-gold-bright hover:bg-gold/15 disabled:opacity-50";
+const BTN_DANGER =
+  "min-h-[40px] rounded-lg border border-red-400/40 bg-red-400/[0.08] px-3.5 text-sm font-medium text-red-200 hover:bg-red-400/15 disabled:opacity-50";
+
+function Figure({ label, value, sub, tone = "text-zinc-50" }: { label: string; value: string; sub?: string; tone?: string }) {
+  return (
+    <div>
+      <p className="text-xs text-zinc-400">{label}</p>
+      <p className={`font-mono text-lg font-semibold ${tone}`}>{value}</p>
+      {sub ? <p className="text-xs text-zinc-400">{sub}</p> : null}
+    </div>
+  );
+}
+
+function KV({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="flex justify-between gap-3 border-t border-white/[0.06] py-2 text-[13px] first:border-t-0">
+      <span className="text-zinc-400">{k}</span>
+      <span className="text-right capitalize text-zinc-100">{v}</span>
+    </div>
+  );
+}
+
+function ReasonField({ reason, setReason }: { reason: string; setReason: (v: string) => void }) {
+  return (
+    <label className="mt-4 flex flex-col gap-1.5 text-xs text-zinc-400">
+      Reason (required, saved to the audit log)
+      <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} className={INPUT} placeholder="Why is this action being taken…" />
+    </label>
+  );
+}
+
+function ActionRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="w-32 text-xs font-medium text-zinc-400">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function Ledger({ rows, empty }: { rows: Array<{ id: string; left: string; amount: number; right: React.ReactNode }>; empty: string }) {
+  if (rows.length === 0) return <p className="mt-4 text-[13px] text-zinc-400">{empty}</p>;
+  return (
+    <ul className="mt-4 max-h-56 overflow-y-auto border-t border-white/[0.06]">
+      {rows.map((r) => (
+        <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.04] py-2 text-[13px]">
+          <span className="capitalize text-zinc-300">{r.left}</span>
+          <span className="ml-auto font-mono text-zinc-100">${r.amount.toFixed(2)}</span>
+          <span className="text-zinc-400">{r.right}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function LogList({ rows }: { rows: Array<{ id: string; action: string; detail: string | null; at: string }> }) {
+  return (
+    <ul className="flex flex-col">
+      {rows.map((l) => (
+        <li key={l.id} className="border-t border-white/[0.06] py-2.5 text-[13px] first:border-t-0">
+          <div className="flex flex-wrap justify-between gap-3">
+            <span className="font-mono text-zinc-200">{l.action}</span>
+            <time className="text-zinc-400">{new Date(l.at).toLocaleString()}</time>
+          </div>
+          {l.detail ? <p className="mt-0.5 text-zinc-400">{l.detail}</p> : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ActivityList({ loading, activity, limit }: { loading: boolean; activity: ActivityPayload | null; limit?: number }) {
+  if (loading) return <p className="text-zinc-400">Loading…</p>;
+  const items = activity?.items ?? [];
+  if (items.length === 0) return <p className="text-zinc-400">No recorded activity in this window.</p>;
+  return (
+    <ol className="flex max-h-[28rem] flex-col overflow-y-auto">
+      {(limit ? items.slice(0, limit) : items).map((item) => (
+        <li key={item.id} className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 border-t border-white/[0.06] py-2.5 text-[13px] first:border-t-0">
+          <time className="w-40 shrink-0 text-zinc-400">{new Date(item.at).toLocaleString()}</time>
+          <span className="min-w-0 flex-1">
+            {item.href ? (
+              <Link href={item.href} className="font-medium text-gold-bright hover:underline">
+                {item.label}
+              </Link>
+            ) : (
+              <span className="font-medium text-zinc-100">{item.label}</span>
+            )}
+            {item.detail ? <span className="block text-zinc-400">{item.detail}</span> : null}
+          </span>
+        </li>
+      ))}
+    </ol>
   );
 }
