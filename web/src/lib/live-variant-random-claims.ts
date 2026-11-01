@@ -3,10 +3,16 @@ import type { RandomSpotClaim } from "@/lib/live-variant-spot-board";
 import type { LiveRoomDetailDTO, LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { prisma } from "@/lib/prisma";
 
+/** Random-reveal spot items, plus Surprise Set auctions (whose claims are the drawn units). */
+function hasRandomClaims(item: LiveRoomItemDTO): boolean {
+  return (
+    (isVariantSalesFormat(item.salesFormat) && isRandomVariantAssignment(item.variantAssignmentMode)) ||
+    (item.salesFormat === "auction" && Array.isArray(item.surpriseSetItems) && item.surpriseSetItems.length > 0)
+  );
+}
+
 function attachClaimsToItem(item: LiveRoomItemDTO, claims: RandomSpotClaim[]): LiveRoomItemDTO {
-  if (!isVariantSalesFormat(item.salesFormat) || !isRandomVariantAssignment(item.variantAssignmentMode)) {
-    return item;
-  }
+  if (!hasRandomClaims(item)) return item;
   return { ...item, randomSpotClaims: claims };
 }
 
@@ -26,8 +32,13 @@ async function loadRandomSpotClaimsByItemId(itemIds: string[]): Promise<Map<stri
     },
   });
 
+  const auctionDraws = await prisma.surpriseAuctionDraw.findMany({
+    where: { liveRoomItemId: { in: itemIds }, revealedLabel: { not: null } },
+    select: { liveRoomItemId: true, revealedLabel: true, buyer: { select: { username: true } } },
+  });
+
   const byItem = new Map<string, RandomSpotClaim[]>();
-  for (const row of rows) {
+  for (const row of [...rows, ...auctionDraws]) {
     const label = row.revealedLabel?.trim();
     const buyerUsername = row.buyer?.username?.trim();
     if (!label || !buyerUsername) continue;
@@ -40,9 +51,7 @@ async function loadRandomSpotClaimsByItemId(itemIds: string[]): Promise<Map<stri
 
 /** Attach paid random-reveal assignments (team/division label → buyer) to queue items. */
 export async function enrichLiveRoomItemsRandomClaims(items: LiveRoomItemDTO[]): Promise<LiveRoomItemDTO[]> {
-  const randomItemIds = items
-    .filter((i) => isVariantSalesFormat(i.salesFormat) && isRandomVariantAssignment(i.variantAssignmentMode))
-    .map((i) => i.id);
+  const randomItemIds = items.filter(hasRandomClaims).map((i) => i.id);
   if (randomItemIds.length === 0) return items;
 
   const byItem = await loadRandomSpotClaimsByItemId(randomItemIds);

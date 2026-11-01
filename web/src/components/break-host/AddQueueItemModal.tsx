@@ -187,6 +187,8 @@ export function AddQueueItemModal({
   const [queueDraftExtras, setQueueDraftExtras] = useState<LeagueExtraSpotKey[]>([]);
   const [playerListText, setPlayerListText] = useState("");
   const [surpriseRows, setSurpriseRows] = useState<SurpriseSetRow[]>(initialSurpriseSetRows);
+  /** Surprise Set: fixed price per unit, or auction each unit (winner gets a random unit). */
+  const [surpriseSellAs, setSurpriseSellAs] = useState<"buy_now" | "auction">("buy_now");
   const [rulesText, setRulesText] = useState("");
   const [prizeDescription, setPrizeDescription] = useState("");
   const [openEntriesOnCreate, setOpenEntriesOnCreate] = useState(true);
@@ -217,6 +219,7 @@ export function AddQueueItemModal({
       setAddSource("new");
       setTitle("");
       setSurpriseRows(initialSurpriseSetRows());
+      setSurpriseSellAs("buy_now");
       setImageUrl("");
       setImageUploading(false);
       setImageError(null);
@@ -594,12 +597,31 @@ export function AddQueueItemModal({
 
     if (saleType === "surprise_set") {
       if (parsedPrice == null) {
-        setFormError("Enter a price per unit.");
+        setFormError(surpriseSellAs === "auction" ? "Enter a starting bid per unit." : "Enter a price per unit.");
         return;
       }
       const check = validateSurpriseRows(surpriseRows, trimmedTitle, parsedPrice);
       if (!check.ok) {
         setFormError(check.message);
+        return;
+      }
+      if (surpriseSellAs === "auction") {
+        // One unit per round; each round's winner gets a random unit, drawn when their payment completes.
+        const ok = await onSubmitAuction({
+          title: trimmedTitle,
+          imageUrl: imageUrl.trim(),
+          priceUsd: null,
+          startingBidUsd: parsedPrice,
+          quantity: check.totalUnits,
+          salesFormat: "auction",
+          variants: [],
+          teamBoardMisc: false,
+          teamBoardNcaa: false,
+          teamBoardLeagueExtras: [],
+          surpriseSetItems: check.items,
+          ...profilePayload,
+        });
+        if (ok) requestClose("success", onRequestClose);
         return;
       }
       const ok = await onSubmitAuction({
@@ -658,7 +680,7 @@ export function AddQueueItemModal({
       ...profilePayload,
     });
     if (ok) requestClose("success", onRequestClose);
-  }, [boardPack, imageUrl, onRequestClose, onSubmitAuction, playerListText, price, profileOptionsAreSeller, quantity, queueDraftMisc, queueDraftNcaa, queueDraftExtras, saleType, selectedProfileId, spotVariants, surpriseRows, title]);
+  }, [boardPack, imageUrl, onRequestClose, onSubmitAuction, playerListText, price, profileOptionsAreSeller, quantity, queueDraftMisc, queueDraftNcaa, queueDraftExtras, saleType, selectedProfileId, spotVariants, surpriseRows, surpriseSellAs, title]);
 
   const handleSubmitGiveaway = useCallback(async () => {
     if (!onSubmitGiveaway || (mode !== "giveaway" && mode !== "buyers_giveaway")) return;
@@ -835,7 +857,9 @@ export function AddQueueItemModal({
 
   const priceLabel =
     saleType === "surprise_set"
-      ? "Price per unit"
+      ? surpriseSellAs === "auction"
+        ? "Starting bid per unit"
+        : "Price per unit"
       : saleType === "auction"
       ? "Starting bid"
       : saleType === "pyt" || saleType === "random_pyt"
@@ -1154,6 +1178,39 @@ export function AddQueueItemModal({
               );
             })}
           </div>
+
+          {saleCategory === "surprise_set" ? (
+            <div className="mt-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Sell units as</p>
+              <div className="mt-1.5 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Sell units as">
+                {(
+                  [
+                    { id: "buy_now", label: "Buy now", sub: "Fixed price per unit" },
+                    { id: "auction", label: "Auction", sub: "Bid on each unit · winner gets a random draw" },
+                  ] as const
+                ).map((opt) => {
+                  const on = surpriseSellAs === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => setSurpriseSellAs(opt.id)}
+                      className={`rounded-lg border px-3 py-2 text-left transition ${
+                        on
+                          ? "border-gold/45 bg-gold/15 text-gold-bright"
+                          : "border-white/12 bg-[#0c0c10] text-zinc-400 hover:bg-white/[0.04]"
+                      }`}
+                    >
+                      <span className="block text-sm font-bold">{opt.label}</span>
+                      <span className="mt-0.5 block text-[11px] font-medium opacity-80">{opt.sub}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
 
           {saleCategory === "surprise_set" ? (
             <SurpriseSetFields

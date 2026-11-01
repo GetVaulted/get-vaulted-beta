@@ -219,9 +219,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   // Surprise Set: a random Player pool where every physical unit is its own pool label.
   let surpriseSetItems: Array<{ name: string; quantity: number; msrpUsd: number }> | null = null;
   let surpriseSetLabels: string[] | null = null;
-  if (body.surpriseSetItems != null) {
+  // Surprise Set auction: a plain multi-unit auction (one unit per round) — each round's winner
+  // gets a random unit, drawn when their payment completes (lib/surprise-set-auction).
+  let surpriseAuctionUnits: number | null = null;
+  if (body.surpriseSetItems != null && salesFormat === "auction") {
+    // The starting bid is the price floor: no unit can open above the lowest item's retail price.
+    const check = validateSurpriseSetItems(body.surpriseSetItems, title, startingBidFinal);
+    if (!check.ok) return NextResponse.json({ error: check.message }, { status: 400 });
+    surpriseSetItems = check.items;
+    surpriseSetLabels = expandSurpriseSetLabels(check.items);
+    surpriseAuctionUnits = check.totalUnits;
+  } else if (body.surpriseSetItems != null) {
     if (salesFormat !== "player_selection" || variantAssignmentMode !== "random") {
-      return NextResponse.json({ error: "Surprise Sets must be a random reveal item." }, { status: 400 });
+      return NextResponse.json({ error: "Surprise Sets must be a random reveal item or an auction." }, { status: 400 });
     }
     const check = validateSurpriseSetItems(body.surpriseSetItems, title, variantDrafts[0]?.priceUsd ?? null);
     if (!check.ok) return NextResponse.json({ error: check.message }, { status: 400 });
@@ -236,7 +246,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     surpriseSetLabels = expandSurpriseSetLabels(check.items);
   }
   const customRandomPoolLabels =
-    salesFormat === "player_selection" && variantAssignmentMode === "random"
+    (salesFormat === "player_selection" && variantAssignmentMode === "random") || surpriseAuctionUnits != null
       ? normalizeCustomRandomPoolLabels(
           surpriseSetLabels ?? body.customRandomPoolLabels,
           // Surprise Sets: one label per unit, up to SURPRISE_SET_MAX_UNITS. Player breaks keep the default cap.
@@ -313,10 +323,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     surpriseSetItems: surpriseSetItems ?? undefined,
     quantity: isVariantSalesFormat(salesFormat)
       ? Math.max(1, variantDrafts.reduce((sum, v) => sum + Math.max(1, Math.floor(v.quantityInitial ?? 1)), 0))
-      : quantity,
+      : (surpriseAuctionUnits ?? quantity),
     quantityInitial: isVariantSalesFormat(salesFormat)
       ? Math.max(1, variantDrafts.reduce((sum, v) => sum + Math.max(1, Math.floor(v.quantityInitial ?? 1)), 0))
-      : quantity,
+      : (surpriseAuctionUnits ?? quantity),
     salesFormat,
     variantAssignmentMode,
     variantSpotCommerceDefault: isVariantSalesFormat(salesFormat) ? ("hybrid" as const) : undefined,

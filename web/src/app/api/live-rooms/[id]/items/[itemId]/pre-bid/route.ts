@@ -1,3 +1,5 @@
+import { assertRandomPurchaseAllowedInTx, randomPurchaseGuardResponse } from "@/lib/random-purchase-guard";
+import { isSurpriseAuctionItem } from "@/lib/surprise-set-auction";
 import { NextResponse } from "next/server";
 import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
@@ -49,6 +51,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
         currentBidUsd: true,
         lastHighBidderId: true,
         bidIncrementUsd: true,
+        surpriseSetItems: true,
       },
     }),
   ]);
@@ -77,6 +80,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   const modRestrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId: auth.userId });
   if (modRestrictions.roomBanned || modRestrictions.kickedUntil || modRestrictions.bidBlocked) {
     return NextResponse.json({ error: "You cannot bid in this room." }, { status: 403 });
+  }
+
+  // Surprise Set auctions are chance-based: same 18+ confirmation and daily limits as random buys.
+  if (isSurpriseAuctionItem(item)) {
+    try {
+      await assertRandomPurchaseAllowedInTx(prisma, auth.userId);
+    } catch (e) {
+      const guard = randomPurchaseGuardResponse(e);
+      if (guard) return NextResponse.json(guard.body, { status: guard.status });
+      throw e;
+    }
   }
 
   if (isStripeConfigured()) {

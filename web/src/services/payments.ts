@@ -1,3 +1,4 @@
+import { revealSurpriseAuctionDrawForOrder } from "@/lib/surprise-set-auction";
 import Stripe from "stripe";
 import { loadBuyerRisk } from "@/lib/buyer-payment-risk";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
@@ -2037,6 +2038,10 @@ export async function finalizeStripeMarketplaceOrderPaid(
   });
 
   if (!result.claimed) return;
+
+  // Surprise Set auction win: draw the buyer's random unit and play the reveal now that it's paid.
+  // Awaited so the room broadcast goes out before the serverless function can freeze; never throws.
+  await revealSurpriseAuctionDrawForOrder(orderId);
   const { closedLayaways } = result;
 
   // Referral program: best-effort, never throws — see `web/src/lib/referral-credit.ts` for the
