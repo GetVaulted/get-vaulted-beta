@@ -17,6 +17,10 @@ const prismaMock = vi.hoisted(() => ({
   liveRoomItem: {
     findUnique: vi.fn().mockResolvedValue({ teamBoardNcaa: false }),
   },
+  // Surprise Set auction draws share the taken-label set; none in these tests.
+  surpriseAuctionDraw: {
+    findMany: vi.fn().mockResolvedValue([]),
+  },
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
