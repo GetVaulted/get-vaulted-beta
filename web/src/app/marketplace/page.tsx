@@ -1,34 +1,40 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { MarketplaceBrowse } from "@/components/marketplace/MarketplaceBrowse";
+import { MarketplaceShell } from "@/components/marketplace/MarketplaceShell";
 import { buildIndexablePageMetadata } from "@/lib/site-seo";
-import { loadMarketplaceInitialPage } from "@/lib/marketplace-browse-ssr";
+import {
+  loadMarketplaceInitialPage,
+  marketplacePagePath,
+  parseMarketplacePageParam,
+} from "@/lib/marketplace-browse-ssr";
 
 // Listings change constantly; render per request so the server-built grid (what Google reads) is current.
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = buildIndexablePageMetadata({
-  title: "Marketplace — Get Vaulted",
-  description:
-    "Browse verified listings, grails, slabs, and collector drops. Fixed-price collectibles separate from live streams.",
-  path: "/marketplace",
-});
+type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
-export default async function MarketplacePage() {
-  const initial = await loadMarketplaceInitialPage();
+export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
+  const page = parseMarketplacePageParam((await searchParams).page);
+  return buildIndexablePageMetadata({
+    title: page > 1 ? `Marketplace — Page ${page} — Get Vaulted` : "Marketplace — Get Vaulted",
+    description:
+      "Browse verified listings, grails, slabs, and collector drops. Fixed-price collectibles separate from live streams.",
+    // Each numbered page is its own canonical URL, so every page of listings can be indexed.
+    path: marketplacePagePath("All", page),
+  });
+}
+
+export default async function MarketplacePage({ searchParams }: Props) {
+  const page = parseMarketplacePageParam((await searchParams).page);
+  const initial = await loadMarketplaceInitialPage({ page });
+  if (initial && page > 1 && page > initial.totalPages) notFound();
   return (
-    <main className="relative flex min-h-0 flex-1 flex-col bg-[#030303]">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-        <div className="absolute inset-x-0 top-0 h-[min(520px,62vh)] bg-[radial-gradient(ellipse_90%_70%_at_50%_-15%,rgba(201,162,39,0.11),transparent_58%)]" />
-        <div className="absolute inset-y-0 left-0 w-[min(28vw,420px)] bg-[radial-gradient(ellipse_80%_60%_at_0%_30%,rgba(201,162,39,0.05),transparent_70%)]" />
-        <div className="absolute inset-y-0 right-0 w-[min(24vw,360px)] bg-[radial-gradient(ellipse_70%_50%_at_100%_40%,rgba(100,120,160,0.06),transparent_72%)]" />
-        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black via-black/80 to-transparent" />
-      </div>
-      <div className="relative">
-        <Suspense fallback={null}>
-          <MarketplaceBrowse initial={initial} />
-        </Suspense>
-      </div>
-    </main>
+    <MarketplaceShell>
+      <Suspense fallback={null}>
+        <MarketplaceBrowse initial={initial} />
+      </Suspense>
+    </MarketplaceShell>
   );
 }
