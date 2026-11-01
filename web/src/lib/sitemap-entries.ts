@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { MARKETPLACE_CATEGORY_PAGES, marketplaceCategoryPath } from "@/lib/marketplace-browse-paths";
 import { createPostgresPrismaClient } from "@/lib/prisma-pg-factory";
 import { isHiddenFixtureSellerEmail, prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
 import { HELP_ARTICLES } from "@/lib/help-center-articles";
@@ -38,9 +39,13 @@ export function sitemapEntry(
 }
 
 export function buildStaticSitemapEntries(now = new Date()): MetadataRoute.Sitemap {
-  return SITEMAP_STATIC_PATHS.map((path) =>
-    sitemapEntry(path, now, path === "/" ? "daily" : "weekly", path === "/" ? 1 : 0.8),
-  );
+  return [
+    ...SITEMAP_STATIC_PATHS.map((path) =>
+      sitemapEntry(path, now, path === "/" ? "daily" : "weekly", path === "/" ? 1 : 0.8),
+    ),
+    // Category pages list their listings server-side, giving search engines another route to every item.
+    ...MARKETPLACE_CATEGORY_PAGES.map((c) => sitemapEntry(marketplaceCategoryPath(c.category), now, "daily", 0.8)),
+  ];
 }
 
 export function buildHelpArticleSitemapEntries(now = new Date()): MetadataRoute.Sitemap {

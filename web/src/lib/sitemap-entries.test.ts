@@ -10,8 +10,10 @@ describe("sitemap-entries", () => {
     expect(SITEMAP_STATIC_PATHS).toContain("/marketplace");
     expect(SITEMAP_STATIC_PATHS).toContain("/privacy");
     const entries = buildStaticSitemapEntries(new Date("2026-07-09T00:00:00.000Z"));
-    expect(entries).toHaveLength(SITEMAP_STATIC_PATHS.length);
+    // Static pages plus one crawlable page per marketplace category.
+    expect(entries).toHaveLength(SITEMAP_STATIC_PATHS.length + 6);
     expect(entries[0]?.url).toBe("https://shopgetvaulted.com/");
+    expect(entries.map((e) => e.url)).toContain("https://shopgetvaulted.com/marketplace/category/trading-cards");
   });
 
   it("includes every help center article", () => {

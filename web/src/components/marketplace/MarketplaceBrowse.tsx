@@ -13,6 +13,8 @@ import {
 import { MarketplaceTrustStrip } from "@/components/marketplace/MarketplaceTrustStrip";
 import { shouldShowVaultPicksRail } from "@/components/marketplace/marketplace-browse-vault-picks";
 import { marketplaceCategories, type MarketplaceListing } from "@/content/marketplace-listings";
+import type { MarketplaceInitialPage } from "@/lib/marketplace-browse-ssr";
+import { marketplacePagePath } from "@/lib/marketplace-browse-paths";
 
 const sortOptions = [
   { value: "recent", label: "Recently listed" },
@@ -38,24 +40,31 @@ type BrowseResponse = {
   hasMore?: boolean;
 };
 
-export function MarketplaceBrowse() {
+export function MarketplaceBrowse({ initial = null }: { initial?: MarketplaceInitialPage | null } = {}) {
   const searchParams = useSearchParams();
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<(typeof sortOptions)[number]["value"]>("recent");
-  const [category, setCategory] = useState<(typeof marketplaceCategories)[number]>("All");
+  const [category, setCategory] = useState<(typeof marketplaceCategories)[number]>(
+    (initial?.category as (typeof marketplaceCategories)[number] | undefined) ?? "All",
+  );
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
   const [condition, setCondition] = useState<string>("Any");
   const [refineOpen, setRefineOpen] = useState(false);
 
-  const [listings, setListings] = useState<MarketplaceListing[]>([]);
-  const [page, setPage] = useState(1);
-  const [filteredListingCount, setFilteredListingCount] = useState(0);
-  const [totalListingCount, setTotalListingCount] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
+  // `initial` is the server-rendered first page (newest, unfiltered) so listing cards and their links are in
+  // the HTML for search engines; the client still refetches on mount to apply filters / the viewer's blocks.
+  const [listings, setListings] = useState<MarketplaceListing[]>(initial?.listings ?? []);
+  const [page, setPage] = useState(initial?.page ?? 1);
+  // The first client load keeps the server-rendered page number (e.g. /marketplace?page=3); later filter
+  // changes go back to page 1.
+  const startPageRef = useRef(initial?.page ?? 1);
+  const [filteredListingCount, setFilteredListingCount] = useState(initial?.filteredListingCount ?? 0);
+  const [totalListingCount, setTotalListingCount] = useState(initial?.totalListingCount ?? 0);
+  const [hasMore, setHasMore] = useState(initial?.hasMore ?? false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [initialLoadDone, setInitialLoadDone] = useState(false);
+  const [initialLoadDone, setInitialLoadDone] = useState(initial != null);
 
   const requestSeq = useRef(0);
 
@@ -93,8 +102,10 @@ export function MarketplaceBrowse() {
   // filter-change effect below and the "listings changed elsewhere" event listener.
   const loadFirstPage = async () => {
     const seq = ++requestSeq.current;
+    const startPage = startPageRef.current;
+    startPageRef.current = 1;
     try {
-      const res = await fetch(`/api/listings?${buildParams(1).toString()}`);
+      const res = await fetch(`/api/listings?${buildParams(startPage).toString()}`);
       if (seq !== requestSeq.current) return;
       if (!res.ok) {
         setListings([]);
@@ -104,7 +115,7 @@ export function MarketplaceBrowse() {
       }
       const data = (await res.json()) as BrowseResponse;
       if (seq !== requestSeq.current) return;
-      setPage(1);
+      setPage(startPage);
       setListings(Array.isArray(data.listings) ? data.listings : []);
       setFilteredListingCount(data.filteredListingCount ?? 0);
       setTotalListingCount(data.totalListingCount ?? 0);
@@ -169,6 +180,15 @@ export function MarketplaceBrowse() {
   );
 
   const refineActive = hasActiveRefine(priceMin, priceMax, condition);
+  // Numbered page links (real <a> tags, so search engines can reach every listing) describe the server-rendered
+  // view; hide them once the shopper searches, filters, re-sorts or switches category in the browser.
+  const showPageLinks =
+    initial != null &&
+    query.trim() === "" &&
+    !refineActive &&
+    sort === "recent" &&
+    category === initial.category &&
+    initial.totalPages > 1;
   const empty = initialLoadDone && listings.length === 0;
 
   const clearFilters = () => {
@@ -386,6 +406,10 @@ export function MarketplaceBrowse() {
             </div>
           )}
 
+          {initial && showPageLinks ? (
+            <MarketplacePageLinks category={initial.category} current={initial.page} totalPages={initial.totalPages} />
+          ) : null}
+
           {!empty && hasMore ? (
             <div className="mt-6 flex justify-center">
               <button
@@ -413,5 +437,43 @@ function FilterIcon({ className }: { className?: string }) {
         d="M3 4h18M6 12h12M10 20h4"
       />
     </svg>
+  );
+}
+
+/** "Page 1 2 3 …" links for the server-rendered marketplace view. Crawlable: plain links, no JavaScript needed. */
+function MarketplacePageLinks({
+  category,
+  current,
+  totalPages,
+}: {
+  category: MarketplaceInitialPage["category"];
+  current: number;
+  totalPages: number;
+}) {
+  const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
+  return (
+    <nav aria-label="Marketplace pages" className="mt-6 flex flex-wrap items-center justify-center gap-1.5 text-sm">
+      {current > 1 ? (
+        <Link href={marketplacePagePath(category, current - 1)} rel="prev" className="rounded-lg border border-white/10 px-3 py-2 text-zinc-300 hover:border-gold/35 hover:text-gold-bright">
+          ← Previous
+        </Link>
+      ) : null}
+      {pages.map((p) =>
+        p === current ? (
+          <span key={p} aria-current="page" className="rounded-lg border border-gold/40 bg-gold/10 px-3 py-2 font-semibold text-gold-bright">
+            {p}
+          </span>
+        ) : (
+          <Link key={p} href={marketplacePagePath(category, p)} className="rounded-lg border border-white/10 px-3 py-2 text-zinc-300 hover:border-gold/35 hover:text-gold-bright">
+            {p}
+          </Link>
+        ),
+      )}
+      {current < totalPages ? (
+        <Link href={marketplacePagePath(category, current + 1)} rel="next" className="rounded-lg border border-white/10 px-3 py-2 text-zinc-300 hover:border-gold/35 hover:text-gold-bright">
+          Next →
+        </Link>
+      ) : null}
+    </nav>
   );
 }
