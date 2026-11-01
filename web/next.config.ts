@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { withSentryConfig } from "@sentry/nextjs";
 import { buildSecurityHeaders } from "./src/lib/security-headers";
+import { canonicalHostRedirects } from "./src/lib/canonical-host-redirects";
 
 function supabasePublicStorageHostname(): string | undefined {
   const raw = process.env.SUPABASE_URL?.trim();
@@ -94,6 +95,10 @@ const nextConfig: NextConfig = {
           ]
         : []),
     ],
+  },
+  async redirects() {
+    // shopgetvaulted.app → shopgetvaulted.com so Google indexes one copy of each page (see the helper).
+    return canonicalHostRedirects();
   },
   async headers() {
     return [
