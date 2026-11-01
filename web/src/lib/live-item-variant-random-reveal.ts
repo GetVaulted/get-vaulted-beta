@@ -134,6 +134,29 @@ export function buildRandomRevealSpinPayload(args: {
   const surpriseCard = args.surpriseSetItemNames
     ? buildSurpriseCardFields(args.surpriseSetItemNames, winner.label) ?? undefined
     : undefined;
+  if (surpriseCard) {
+    // Surprise Sets can hold 500 units. Clients without the card (older app builds) fall back to the
+    // reel, which was built for ~32 entries and crams 500 unit labels together. Give the reel one
+    // entry per item name instead — it lands on the won item, and updated clients show the card.
+    const reelLabels = surpriseCard.cardItems;
+    const reelWinner = Math.max(
+      0,
+      reelLabels.findIndex((n) => n.toLowerCase() === surpriseCard.cardWinner.toLowerCase()),
+    );
+    return {
+      spinId: `random-${args.purchaseId}`,
+      kind: "random_reveal",
+      title: args.itemTitle.trim() || "Random reveal",
+      labels: reelLabels,
+      winnerIndex: reelWinner,
+      winnerLabel: surpriseCard.cardWinner,
+      durationMs: VAULT_REVEAL_DEFAULT_DURATION_MS,
+      referenceId: args.purchaseId,
+      segmentAbbrs: reelLabels.map((n) => playerSpotReelAbbr(n)),
+      buyerUsername: args.buyerUsername.replace(/^@+/, ""),
+      surpriseCard,
+    };
+  }
   return {
     spinId: `random-${args.purchaseId}`,
     kind: "random_reveal",
@@ -145,7 +168,6 @@ export function buildRandomRevealSpinPayload(args: {
     referenceId: args.purchaseId,
     segmentAbbrs: args.remaining.map((r) => r.abbr),
     buyerUsername: args.buyerUsername.replace(/^@+/, ""),
-    ...(surpriseCard ? { surpriseCard } : {}),
   };
 }
 

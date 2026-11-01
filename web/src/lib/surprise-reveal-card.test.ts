@@ -80,6 +80,27 @@ describe("Surprise Set reveal payload", () => {
     expect(vaultRevealDisplayMs(parsed!)).toBe(SURPRISE_CARD_TOTAL_MS);
   });
 
+  it("gives older clients a compact reel of item names, landing on the won item", () => {
+    const remaining = [
+      ...Array.from({ length: 450 }, (_, i) => ({ label: `ramdom card (${i + 1} of 450)`, abbr: "RAMDOM" })),
+      { label: "jow burrow", abbr: "JOW" },
+      ...Array.from({ length: 49 }, (_, i) => ({ label: `pick a box (${i + 1} of 49)`, abbr: "PICK" })),
+    ];
+    const spin = buildRandomRevealSpinPayload({
+      purchaseId: "p3",
+      itemTitle: "test",
+      remaining,
+      winnerIndex: 472, // "pick a box (22 of 49)"
+      buyerUsername: "getvaulted",
+      surpriseSetItemNames: ["ramdom card", "jow burrow", "pick a box"],
+    });
+    expect(spin.labels).toEqual(["ramdom card", "jow burrow", "pick a box"]);
+    expect(spin.labels[spin.winnerIndex]).toBe("pick a box");
+    expect(spin.winnerLabel).toBe("pick a box");
+    expect(spin.segmentAbbrs).toHaveLength(3);
+    expect(spin.surpriseCard?.cardWinner).toBe("pick a box");
+  });
+
   it("leaves non-Surprise random reveals on the reel", () => {
     const spin = buildRandomRevealSpinPayload({
       purchaseId: "p2",
