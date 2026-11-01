@@ -139,9 +139,8 @@ export function AdminNav() {
   return (
     <header className="sticky top-0 z-40 border-b border-white/[0.08] bg-[#0b0b0e]/95 backdrop-blur-md">
       <div className="mx-auto flex w-full max-w-[1920px] flex-wrap items-center gap-3 px-3 py-3 sm:px-4 lg:gap-6 lg:px-7">
-        <Link href="/admin" className="flex items-center gap-2.5">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gold text-[13px] font-bold text-black">GV</span>
-          <span className="text-[15px] font-semibold text-zinc-100">Ops Command</span>
+        <Link href="/admin" className="text-[15px] font-semibold text-zinc-100 hover:text-gold-bright">
+          Ops Command
         </Link>
         <div className="order-3 w-full lg:order-none lg:w-auto lg:flex-1">
           <AdminGlobalSearch />
