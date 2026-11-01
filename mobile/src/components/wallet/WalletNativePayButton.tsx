@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { shouldShowApplePay, shouldShowGooglePay } from '../../lib/paymentMethodCatalog';
+import { nativeGooglePayConfigured } from '../../lib/nativeGooglePay';
 import { LiveRoomText } from '../live/LiveRoomText';
 
 const STRIPE_MERCHANT_IDENTIFIER = 'merchant.com.getvaulted.app';
@@ -74,7 +75,7 @@ function NativePayButtonInner({
   if (platform !== 'ios' && platform !== 'android') return null;
 
   const showApple = shouldShowApplePay(platform, supported === true);
-  const showGoogle = shouldShowGooglePay(platform, supported === true);
+  const showGoogle = shouldShowGooglePay(platform, supported === true) && nativeGooglePayConfigured();
   if (supported === false) {
     return <NativePayFallbackRow onPress={onPress} appearance={appearance} disabled={disabled} />;
   }
