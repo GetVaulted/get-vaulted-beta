@@ -15,6 +15,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import { isSurpriseAuctionLot, SurpriseAuctionStrip } from './SurpriseAuctionStrip';
 import { LiveRoomText } from './LiveRoomText';
 import {
   createLiveBidIdempotencyKey,
@@ -1580,6 +1581,16 @@ export function LivePinnedActionBar({
       <View style={styles.hudBorder} />
 
       <View style={[styles.hudInner, compact && styles.hudInnerCompact]}>
+        {roomSnap?.activeItemId &&
+        roomSnap.activeItemSurpriseSetItems &&
+        isSurpriseAuctionLot(roomSnap.activeItemSalesFormat, roomSnap.activeItemSurpriseSetItems) ? (
+          <SurpriseAuctionStrip
+            itemId={roomSnap.activeItemId}
+            surpriseSetItems={roomSnap.activeItemSurpriseSetItems}
+            claimedLabels={roomSnap.activeItemClaimedLabels}
+            accessToken={accessToken}
+          />
+        ) : null}
         <View style={styles.topBand}>
           <LiveRoomText style={[styles.timer, { fontSize: hudFs(19) }]}>
             {m.timerMmSs}

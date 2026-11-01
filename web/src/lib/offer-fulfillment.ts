@@ -1,3 +1,4 @@
+import { recordSurpriseAuctionDrawTx } from "@/lib/surprise-set-auction";
 import { Prisma } from "@/generated/prisma/client";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { roundUsd } from "@/lib/round-usd";
@@ -357,6 +358,14 @@ export async function createOrderFromAuctionWin(
       await addOrderToLiveShippingSessionTx(tx, orderId, {
         liveShowId: params.liveAuctionLiveShowId ?? null,
         liveRoomItemId: params.liveRoomItemId ?? null,
+      });
+    }
+    if (params.liveRoomItemId) {
+      // Surprise Set auctions: reserve a draw for this won unit (drawn when the order is paid).
+      await recordSurpriseAuctionDrawTx(tx, {
+        liveRoomItemId: params.liveRoomItemId,
+        orderId,
+        buyerId: params.buyerId,
       });
     }
   } catch (e) {

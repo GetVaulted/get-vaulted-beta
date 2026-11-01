@@ -1,3 +1,4 @@
+import { releaseSurpriseAuctionDrawForCancelledOrder } from "@/lib/surprise-set-auction";
 import { NextResponse } from "next/server";
 import type {
   LiveRoomPaymentFailureKind,
@@ -976,6 +977,10 @@ export async function cancelLiveRoomPaymentFailureBySeller(args: {
         data: { paymentStatus: "failed", status: "cancelled", stripePaymentIntentId: null },
       })
       .catch(() => {});
+    // Surprise Set auction: the cancelled round never drew a unit — give it back to the set.
+    await releaseSurpriseAuctionDrawForCancelledOrder(prisma, failure.orderId).catch((e) =>
+      console.error("[payment failure] surprise auction unit release failed", { orderId: failure.orderId, error: e }),
+    );
     releaseStoreCreditAndRestoreOrder(failure.orderId).catch((e) =>
       console.error("[store-credit] release failed (host cancel payment retry)", {
         orderId: failure.orderId,

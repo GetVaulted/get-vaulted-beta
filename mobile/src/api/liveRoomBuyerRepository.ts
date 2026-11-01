@@ -58,6 +58,10 @@ export type LiveRoomBuyerSnapshot = {
   activeItemListingId?: string | null;
   activeItemVariantAssignmentMode?: 'pick' | 'random' | 'draft' | null;
   activeItemVariants?: LiveItemVariantSnapshot[];
+  /** Surprise Set contents when the active lot is a Surprise Set (auction or random reveal). */
+  activeItemSurpriseSetItems?: Array<{ name: string; quantity: number }> | null;
+  /** Pool labels already drawn for the active lot (drives live odds). */
+  activeItemClaimedLabels?: string[];
   /** ISO — sales closed (Sweet 16: 16 teams sold). Unsold tiles must not be buyable once set. */
   activeItemVariantBreakReadyAt?: string | null;
   /** PYT/PYD pinned spot mode (`fixed` = hold to buy, `auction` = timed bids). */
@@ -426,7 +430,17 @@ export async function fetchLiveRoomBuyerSnapshot(
     (typeof active?.displayTitle === 'string' && active.displayTitle.trim()) ||
     (typeof active?.title === 'string' && active.title.trim()) ||
     null;
-  const lineupItems = projectBuyerQueueLineup(parseRoomLineupItems(detail?.items), phaseNowMs);
+  const rawLineup = parseRoomLineupItems(detail?.items);
+  const lineupItems = projectBuyerQueueLineup(rawLineup, phaseNowMs);
+  const activeLineupRow = active?.id ? rawLineup.find((r) => r.id === active.id) : undefined;
+  const activeSurpriseItems =
+    parseSurpriseSetItems((active as { surpriseSetItems?: unknown } | undefined)?.surpriseSetItems) ??
+    activeLineupRow?.surpriseSetItems ??
+    null;
+  const activeClaimedRaw = (active as { randomSpotClaims?: unknown } | undefined)?.randomSpotClaims;
+  const activeClaimedLabels = Array.isArray(activeClaimedRaw)
+    ? parseClaimedLabels(activeClaimedRaw)
+    : activeLineupRow?.claimedLabels;
   const snapshot: LiveRoomBuyerSnapshot = {
     roomId,
     status: (detail?.status as LiveRoomBuyerSnapshot['status']) ?? 'ended',
@@ -439,6 +453,8 @@ export async function fetchLiveRoomBuyerSnapshot(
     activeItemVariantAssignmentMode:
       active ? parseVariantAssignmentMode(active.variantAssignmentMode) : null,
     activeItemVariants: activeVariants.length > 0 ? activeVariants : undefined,
+    activeItemSurpriseSetItems: activeSurpriseItems,
+    activeItemClaimedLabels: activeClaimedLabels ?? undefined,
     activeItemVariantBreakReadyAt:
       typeof active?.variantBreakReadyAt === 'string' && active.variantBreakReadyAt.trim()
         ? active.variantBreakReadyAt

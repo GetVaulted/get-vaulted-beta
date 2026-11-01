@@ -244,16 +244,25 @@ function pickIndex(seed: string, max: number): number {
   return Number.isFinite(n) ? n % max : 0;
 }
 
-async function assignedLabelsForItem(db: Db, liveRoomItemId: string): Promise<Set<string>> {
-  const assigned = await db.liveItemVariantPurchase.findMany({
-    where: {
-      liveRoomItemId,
-      paymentStatus: "paid",
-      revealedLabel: { not: null },
-    },
-    select: { revealedLabel: true },
-  });
-  return new Set(assigned.map((r) => r.revealedLabel!.trim().toLowerCase()));
+/** Pool labels already drawn for an item — random-reveal purchases plus Surprise Set auction wins. */
+export async function assignedLabelsForItem(db: Db, liveRoomItemId: string): Promise<Set<string>> {
+  const [assigned, auctionDraws] = await Promise.all([
+    db.liveItemVariantPurchase.findMany({
+      where: {
+        liveRoomItemId,
+        paymentStatus: "paid",
+        revealedLabel: { not: null },
+      },
+      select: { revealedLabel: true },
+    }),
+    db.surpriseAuctionDraw.findMany({
+      where: { liveRoomItemId, revealedLabel: { not: null } },
+      select: { revealedLabel: true },
+    }),
+  ]);
+  return new Set(
+    [...assigned, ...auctionDraws].map((r) => r.revealedLabel!.trim().toLowerCase()),
+  );
 }
 
 async function resolveRandomPool(args: {

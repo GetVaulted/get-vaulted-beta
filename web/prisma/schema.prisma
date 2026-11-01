@@ -583,6 +583,7 @@ enum TradeOfferEventType {
 }
 
 model User {
+  surpriseAuctionDraws SurpriseAuctionDraw[]
   id                            String                      @id @default(cuid())
   email                         String                      @unique
   username                      String                      @unique
@@ -1610,6 +1611,7 @@ model LiveRoomItem {
   proxyBids      LiveAuctionProxyBid[]
   inventoryHolds LiveAuctionInventoryHold[]
   roomBids       LiveRoomBid[]
+  surpriseAuctionDraws SurpriseAuctionDraw[]
   sweet16Draft   LiveSweet16Draft?
 
   @@index([liveRoomId, sortOrder])
@@ -2160,6 +2162,7 @@ model Order {
   /// Platform / giveaway store credit applied to this order's charge (USD).
   platformCreditAppliedUsd   Float                      @default(0)
   platformCreditsSpent       PlatformCredit[]           @relation("PlatformCreditSpentOrder")
+  surpriseAuctionDraw        SurpriseAuctionDraw?
   createdAt                  DateTime                   @default(now())
   updatedAt                  DateTime                   @updatedAt
   /// When the buyer's payment actually cleared (Stripe charge.created once the async ledger
@@ -3508,4 +3511,24 @@ model WinClipSave {
   @@unique([kind, refId])
   @@index([buyerId, momentAt])
   @@index([status, updatedAt])
+}
+
+/// One unit won in a Surprise Set auction. Created when the round's order is created; the random
+/// item is drawn (revealedLabel) only once that order is paid, so a failed/cancelled payment never
+/// consumes a unit. `(liveRoomItemId, revealedLabel)` is unique — the same guard random-reveal
+/// purchases use — so concurrent reveals can never hand out the same unit twice.
+model SurpriseAuctionDraw {
+  id             String       @id @default(cuid())
+  liveRoomItemId String
+  liveRoomItem   LiveRoomItem @relation(fields: [liveRoomItemId], references: [id], onDelete: Cascade)
+  orderId        String       @unique
+  order          Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  buyerId        String
+  buyer          User         @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  revealedLabel  String?
+  revealedAt     DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@unique([liveRoomItemId, revealedLabel])
+  @@index([buyerId, createdAt])
 }

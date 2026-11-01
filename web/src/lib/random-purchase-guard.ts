@@ -53,6 +53,13 @@ export async function assertRandomPurchaseAllowedInTx(
     : [];
   const randomItemIds = new Set(randomItems.map((i) => i.id));
   const randomTimes = recent.filter((r) => randomItemIds.has(r.liveRoomItemId)).map((r) => r.createdAt);
+  // Surprise Set auction wins count toward the same limits as random-reveal purchases.
+  const auctionWins = await tx.surpriseAuctionDraw.findMany({
+    where: { buyerId: userId, createdAt: { gt: new Date(now.getTime() - RANDOM_PURCHASE_WINDOW_MS) } },
+    select: { createdAt: true },
+  });
+  randomTimes.push(...auctionWins.map((w: { createdAt: Date }) => w.createdAt));
+  randomTimes.sort((a: Date, b: Date) => a.getTime() - b.getTime());
   const verdict = evaluateRandomPurchaseLimits(randomTimes, now);
   if (!verdict.allowed) {
     throw guardError(verdict.code, verdict.message, verdict.retryAt);

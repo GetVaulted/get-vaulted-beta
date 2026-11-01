@@ -86,6 +86,7 @@ import {
   type LiveCustomBidMode,
 } from "@/lib/live-custom-bid";
 import { DEFAULT_AUCTION_SEC } from "@/lib/live-auction-duration";
+import { SurpriseAuctionDisclosure } from "./SurpriseAuctionDisclosure";
 
 type SaleItem = {
   id: string;
@@ -1014,6 +1015,9 @@ export function LiveAuctionRoom({
           return;
         }
         if (!res.ok) {
+          if (data.code === "ADULT_CONFIRMATION_REQUIRED") {
+            document.getElementById("surprise-auction-adult-confirm")?.focus();
+          }
           const msg = toUserFacingErrorMessage(data.error, "We couldn't place that bid. Try again in a moment.");
           setActionError(msg);
           toast(msg);
@@ -2008,6 +2012,9 @@ export function LiveAuctionRoom({
         onAccept={handleAcceptBreakDisclaimer}
         onDecline={handleDeclineBreakDisclaimer}
       />
+      {!isHost && activeDbItem ? (
+        <SurpriseAuctionDisclosure item={activeDbItem} signedIn={Boolean(session?.user?.id)} />
+      ) : null}
       {showOutbidToast ? (
         <div
           role="status"
