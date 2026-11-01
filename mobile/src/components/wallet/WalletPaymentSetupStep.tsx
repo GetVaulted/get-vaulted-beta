@@ -50,11 +50,12 @@ import {
   liveAcceptedWalletMethods,
   LIVE_PREMIUM_WALLET_TITLE,
 } from '../../lib/livePremiumWallet';
+import { nativeGooglePayConfigured } from '../../lib/nativeGooglePay';
 
 const STRIPE_MERCHANT_IDENTIFIER = 'merchant.com.getvaulted.app';
 const STRIPE_URL_SCHEME = 'getvaulted';
-/** Matches app.json @stripe/stripe-react-native enableGooglePay. */
-const NATIVE_GOOGLE_PAY_ENABLED = true;
+/** app.json @stripe/stripe-react-native enableGooglePay — only true on Android binaries that ship it (OTA-safe). */
+const NATIVE_GOOGLE_PAY_ENABLED = nativeGooglePayConfigured();
 
 /** CardForm inside a React Native Modal crashes on Android — use Stripe Payment Sheet instead. */
 function useAndroidPaymentSheetForCard(): boolean {
