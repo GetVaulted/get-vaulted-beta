@@ -10,8 +10,14 @@ import {
   parseLiveBoardPack,
   type LiveBoardPackId,
 } from "@/lib/live-item-variant-presets";
-import { emitVaultRevealSpin } from "@/lib/realtime-emit-server";
-import { formatDivisionReelAbbr, VAULT_REVEAL_DEFAULT_DURATION_MS } from "@/lib/vault-reveal-spin";
+import { emitVaultRevealSpinAndWait } from "@/lib/realtime-emit-server";
+import {
+  formatDivisionReelAbbr,
+  VAULT_REVEAL_DEFAULT_DURATION_MS,
+  type VaultRevealSpinPayload,
+} from "@/lib/vault-reveal-spin";
+import { SURPRISE_SET_MAX_UNITS } from "../../../shared/surprise-set";
+import { buildSurpriseCardFields } from "../../../shared/surprise-reveal-card";
 import {
   normalizeCustomRandomPoolLabels,
   playerSpotReelAbbr,
@@ -92,13 +98,121 @@ async function resolveIncludeNcaaForItem(db: Db, liveRoomItemId: string): Promis
   return item?.teamBoardNcaa === true;
 }
 
+/** Item names of a Surprise Set (stored JSON), or null when the item isn't one. */
+export function surpriseSetItemNames(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const names = raw
+    .map((e) => (e && typeof e === "object" && typeof (e as { name?: unknown }).name === "string" ? (e as { name: string }).name : ""))
+    .filter((n) => n.trim().length > 0);
+  return names.length > 0 ? names : null;
+}
+
 async function resolveCustomPoolLabelsForItem(db: Db, liveRoomItemId: string): Promise<string[] | null> {
   const item = await db.liveRoomItem.findUnique({
     where: { id: liveRoomItemId },
-    select: { customRandomPoolLabels: true, salesFormat: true },
+    select: { customRandomPoolLabels: true, salesFormat: true, surpriseSetItems: true },
   });
   if (item?.salesFormat !== "player_selection") return null;
-  return normalizeCustomRandomPoolLabels(item.customRandomPoolLabels);
+  // Surprise Sets hold up to SURPRISE_SET_MAX_UNITS units (one label each); player breaks stay capped.
+  const isSurpriseSet = surpriseSetItemNames(item.surpriseSetItems) !== null;
+  return normalizeCustomRandomPoolLabels(item.customRandomPoolLabels, isSurpriseSet ? SURPRISE_SET_MAX_UNITS : undefined);
+}
+
+/**
+ * The reveal payload broadcast to the room (and returned to the buyer by the reveal endpoint).
+ * Surprise Sets get `surpriseCard` so clients play the TikTok-style card instead of the reel.
+ */
+export function buildRandomRevealSpinPayload(args: {
+  purchaseId: string;
+  itemTitle: string;
+  remaining: RandomPoolEntry[];
+  winnerIndex: number;
+  buyerUsername: string;
+  surpriseSetItemNames: string[] | null;
+}): VaultRevealSpinPayload {
+  const winner = args.remaining[args.winnerIndex]!;
+  const surpriseCard = args.surpriseSetItemNames
+    ? buildSurpriseCardFields(args.surpriseSetItemNames, winner.label) ?? undefined
+    : undefined;
+  return {
+    spinId: `random-${args.purchaseId}`,
+    kind: "random_reveal",
+    title: args.itemTitle.trim() || "Random reveal",
+    labels: args.remaining.map((r) => r.label),
+    winnerIndex: args.winnerIndex,
+    winnerLabel: winner.label,
+    durationMs: VAULT_REVEAL_DEFAULT_DURATION_MS,
+    referenceId: args.purchaseId,
+    segmentAbbrs: args.remaining.map((r) => r.abbr),
+    buyerUsername: args.buyerUsername.replace(/^@+/, ""),
+    ...(surpriseCard ? { surpriseCard } : {}),
+  };
+}
+
+async function loadSurpriseSetItemNames(db: Db, liveRoomItemId: string): Promise<string[] | null> {
+  const item = await db.liveRoomItem.findUnique({
+    where: { id: liveRoomItemId },
+    select: { surpriseSetItems: true },
+  });
+  return surpriseSetItemNames(item?.surpriseSetItems);
+}
+
+/**
+ * Rebuild the reveal for a purchase that already has its label — lets the buyer's own device play the
+ * animation from an API response even if it missed the realtime broadcast. Returns null until the
+ * purchase has been revealed.
+ */
+export async function buildRandomRevealSpinForPurchase(purchaseId: string): Promise<{
+  spin: VaultRevealSpinPayload;
+  buyerId: string;
+  liveRoomId: string;
+} | null> {
+  const purchase = await prisma.liveItemVariantPurchase.findUnique({
+    where: { id: purchaseId },
+    select: {
+      id: true,
+      buyerId: true,
+      liveRoomId: true,
+      liveRoomItemId: true,
+      revealedLabel: true,
+      buyer: { select: { username: true } },
+    },
+  });
+  const revealed = purchase?.revealedLabel?.trim();
+  if (!purchase || !revealed) return null;
+  const item = await prisma.liveRoomItem.findUnique({
+    where: { id: purchase.liveRoomItemId },
+    select: { title: true, salesFormat: true, surpriseSetItems: true },
+  });
+  if (!item) return null;
+
+  const pool = await resolveRandomPool({
+    liveRoomItemId: purchase.liveRoomItemId,
+    salesFormat: item.salesFormat,
+    db: prisma,
+  });
+  // Labels still open plus this purchase's own — approximately what the reel showed at draw time.
+  const taken = await assignedLabelsForItem(prisma, purchase.liveRoomItemId);
+  const revealedKey = revealed.toLowerCase();
+  const remaining = pool.filter((p) => {
+    const key = p.label.trim().toLowerCase();
+    return key === revealedKey || !taken.has(key);
+  });
+  let winnerIndex = remaining.findIndex((p) => p.label.trim().toLowerCase() === revealedKey);
+  if (winnerIndex < 0) {
+    remaining.push({ label: revealed, abbr: playerSpotReelAbbr(revealed) });
+    winnerIndex = remaining.length - 1;
+  }
+
+  const spin = buildRandomRevealSpinPayload({
+    purchaseId: purchase.id,
+    itemTitle: item.title,
+    remaining,
+    winnerIndex,
+    buyerUsername: purchase.buyer?.username ?? "",
+    surpriseSetItemNames: surpriseSetItemNames(item.surpriseSetItems),
+  });
+  return { spin, buyerId: purchase.buyerId, liveRoomId: purchase.liveRoomId };
 }
 
 function pickIndex(seed: string, max: number): number {
@@ -218,21 +332,21 @@ export async function executeRandomVariantRevealOnPurchase(args: {
       throw e;
     }
 
-    const wheelLabels = remaining.map((r) => r.label);
-    const spinId = `random-${args.purchaseId}`;
-
-    emitVaultRevealSpin(args.liveRoomId, {
-      spinId,
-      kind: "random_reveal",
-      title: args.itemTitle.trim() || "Random reveal",
-      labels: wheelLabels,
+    const spin = buildRandomRevealSpinPayload({
+      purchaseId: args.purchaseId,
+      itemTitle: args.itemTitle,
+      remaining,
       winnerIndex,
-      winnerLabel: winner.label,
-      durationMs: VAULT_REVEAL_DEFAULT_DURATION_MS,
-      referenceId: args.purchaseId,
-      segmentAbbrs: remaining.map((r) => r.abbr),
-      buyerUsername: args.buyerUsername.replace(/^@+/, ""),
+      buyerUsername: args.buyerUsername,
+      surpriseSetItemNames: await loadSurpriseSetItemNames(prisma, args.liveRoomItemId).catch(() => null),
     });
+    // Awaited: the label is already saved, so a failed broadcast must never fail the purchase — but a
+    // fire-and-forget one was being dropped when the serverless function froze after responding.
+    try {
+      await emitVaultRevealSpinAndWait(args.liveRoomId, spin);
+    } catch (e) {
+      console.error("[random reveal] broadcast failed", e);
+    }
 
     return winner;
   }

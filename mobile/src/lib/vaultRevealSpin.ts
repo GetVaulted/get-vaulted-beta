@@ -7,6 +7,11 @@ import {
   vaultDropPoolRunAnimationMs,
   type VaultDropPoolRunStep,
 } from '../../../shared/vault-drop-pool-run';
+import {
+  parseSurpriseCardFields,
+  SURPRISE_CARD_TOTAL_MS,
+  type SurpriseCardFields,
+} from '../../../shared/surprise-reveal-card';
 
 export type VaultRevealSpinKind = 'giveaway' | 'break_pyt' | 'random_reveal';
 export type VaultRevealGiveawayKind = 'open' | 'buyers';
@@ -25,6 +30,8 @@ export type VaultRevealSpinPayload = {
   assignments?: { order: number; label: string }[];
   segmentAbbrs?: string[];
   buyerUsername?: string;
+  /** Surprise Set draws render the TikTok-style reveal card instead of the reel. */
+  surpriseCard?: SurpriseCardFields;
 };
 
 export const GIVVY_REVEAL_ACCENT = '#6ee7b7';
@@ -177,8 +184,9 @@ export function vaultDropReelPillBackground(chipAccent: string, lightChip: boole
 }
 
 export function vaultRevealDisplayMs(
-  spin: Pick<VaultRevealSpinPayload, 'labels' | 'winnerIndex'>,
+  spin: Pick<VaultRevealSpinPayload, 'labels' | 'winnerIndex'> & { surpriseCard?: SurpriseCardFields },
 ): number {
+  if (spin.surpriseCard) return SURPRISE_CARD_TOTAL_MS;
   return vaultDropRevealTiming(spin).totalMs;
 }
 
@@ -327,6 +335,7 @@ export function parseVaultRevealSpinPayload(raw: unknown): VaultRevealSpinPayloa
     winnerUserId: typeof spin.winnerUserId === 'string' ? spin.winnerUserId : undefined,
     segmentAbbrs: segmentAbbrs.length > 0 ? segmentAbbrs : undefined,
     buyerUsername: typeof spin.buyerUsername === 'string' ? spin.buyerUsername : undefined,
+    surpriseCard: parseSurpriseCardFields(spin.surpriseCard) ?? undefined,
     assignments: Array.isArray(spin.assignments)
       ? spin.assignments
           .filter((a): a is { order: number; label: string } => {

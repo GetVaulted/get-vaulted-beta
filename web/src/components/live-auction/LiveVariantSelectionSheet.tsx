@@ -40,6 +40,10 @@ type LiveVariantSelectionSheetProps = {
     quantity: number;
     label: string;
     amountUsd: number;
+    /** Set for single-spot purchases so random reveals can fetch the buyer's own reveal. */
+    purchaseId?: string;
+    /** The server draws the label (random team/player/Surprise Set) — the reveal shows what was won. */
+    randomReveal?: boolean;
   }) => void;
 };
 
@@ -286,6 +290,7 @@ export function LiveVariantSelectionSheet({
       quantity: selectedVariants.length,
       label: celebrationLabel,
       amountUsd: checkoutPreview?.chargeNowUsd ?? spotPrice,
+      randomReveal: isRandom,
     };
     try {
       const res = useBatch
@@ -338,6 +343,7 @@ export function LiveVariantSelectionSheet({
         onPurchased?.({
           ...purchasedPayload,
           label: res.labels?.length ? formatBatchSpotCelebrationLabel(res.labels) : celebrationLabel,
+          purchaseId: res.purchaseId,
         });
         onClose();
         return;
@@ -371,7 +377,7 @@ export function LiveVariantSelectionSheet({
                 purchaseId: res.purchaseId,
               });
         if (synced.ok && "paid" in synced && synced.paid) {
-          onPurchased?.(purchasedPayload);
+          onPurchased?.({ ...purchasedPayload, purchaseId: synced.purchaseId ?? res.purchaseId });
           onClose();
           return;
         }

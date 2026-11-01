@@ -95,6 +95,15 @@ export function emitVaultRevealSpin(liveRoomId: string, spin: VaultRevealSpinPay
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.vaultRevealSpin, { spin });
 }
 
+/**
+ * Same as `emitVaultRevealSpin`, but waits for delivery. Use on the purchase path: a fire-and-forget
+ * broadcast can be dropped when the serverless function is frozen right after the response, which
+ * left buyers with a "you got X" popup and no reveal animation.
+ */
+export async function emitVaultRevealSpinAndWait(liveRoomId: string, spin: VaultRevealSpinPayload): Promise<void> {
+  await emitRoomEventWithAliasesAwait(liveRoomId, RT_EVENT.vaultRevealSpin, { spin });
+}
+
 export function emitBreakSpotsChanged(liveRoomId: string): void {
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.breakSpots, {});
 }

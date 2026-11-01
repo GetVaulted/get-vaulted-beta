@@ -13,7 +13,11 @@ import { ensureLiveBuyNowItemCheckoutListingTx } from "@/lib/live-buy-now-checko
 import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
 import { resolveDefaultSellerProfileForLiveShow } from "@/services/shipping/seller-shipping-profiles";
 import { normalizeCustomRandomPoolLabels } from "../../../../../../../shared/live-player-spot-list";
-import { expandSurpriseSetLabels, validateSurpriseSetItems } from "../../../../../../../shared/surprise-set";
+import {
+  expandSurpriseSetLabels,
+  SURPRISE_SET_MAX_UNITS,
+  validateSurpriseSetItems,
+} from "../../../../../../../shared/surprise-set";
 import { normalizeLeagueExtras } from "@/lib/team-board-sets";
 
 type PostBody = {
@@ -233,7 +237,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
   const customRandomPoolLabels =
     salesFormat === "player_selection" && variantAssignmentMode === "random"
-      ? normalizeCustomRandomPoolLabels(surpriseSetLabels ?? body.customRandomPoolLabels)
+      ? normalizeCustomRandomPoolLabels(
+          surpriseSetLabels ?? body.customRandomPoolLabels,
+          // Surprise Sets: one label per unit, up to SURPRISE_SET_MAX_UNITS. Player breaks keep the default cap.
+          surpriseSetLabels ? SURPRISE_SET_MAX_UNITS : undefined,
+        )
       : null;
   if (surpriseSetLabels && customRandomPoolLabels?.length !== surpriseSetLabels.length) {
     return NextResponse.json({ error: "Each item in a Surprise Set needs a unique name." }, { status: 400 });

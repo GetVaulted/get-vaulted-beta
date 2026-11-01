@@ -40,6 +40,7 @@ import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
 import { LiveImmersiveRestoreHint } from './LiveImmersiveRestoreHint';
 import { LiveSpotTakenCelebration } from './LiveSpotTakenCelebration';
 import { VaultRevealOverlay } from './VaultRevealOverlay';
+import { fetchOwnRandomReveal } from '../../api/liveVariantPurchaseRepository';
 import { LiveGiveawaySideTab } from './LiveGiveawaySideTab';
 import { useLiveImmersiveChrome } from '../../hooks/useLiveImmersiveChrome';
 import { useLiveStageInspectZoom } from '../../hooks/useLiveStageInspectZoom';
@@ -1226,6 +1227,14 @@ function LiveSlide({
     }
   };
 
+  /** Buyer's own random reveal — from the API, so it plays even if the room broadcast is missed. */
+  const playOwnRandomReveal = (purchaseId: string) => {
+    if (!accessToken) return;
+    void fetchOwnRandomReveal({ accessToken, liveRoomId: stream.id, purchaseId }).then((spin) => {
+      if (spin) liveSession.showVaultRevealSpin(spin);
+    });
+  };
+
   return (
     <>
       {liveSession.connectionBanner ? (
@@ -1823,6 +1832,7 @@ function LiveSlide({
         }}
       >
         <LivePinnedActionBar
+          onRandomRevealPurchased={playOwnRandomReveal}
           stream={stream}
           bottomSafeInset={stageInsets.bottom}
           signedIn={signedIn}
@@ -1953,6 +1963,7 @@ function LiveSlide({
             setShopSpotItem(null);
             void liveSession.fetchSnapshot();
           }}
+          onRandomRevealPurchased={playOwnRandomReveal}
           onSpotCelebration={liveSession.showSpotCelebration}
           viewerUsername={myChatSender.username}
           onRoomRefresh={() => void liveSession.fetchSnapshot()}

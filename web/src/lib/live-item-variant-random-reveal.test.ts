@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "@/generated/prisma/client";
 
 const hoisted = vi.hoisted(() => ({
-  emitVaultRevealSpin: vi.fn(),
+  emitVaultRevealSpin: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock("@/lib/realtime-emit-server", () => ({ emitVaultRevealSpin: hoisted.emitVaultRevealSpin }));
+vi.mock("@/lib/realtime-emit-server", () => ({ emitVaultRevealSpinAndWait: hoisted.emitVaultRevealSpin }));
 
 const prismaMock = vi.hoisted(() => ({
   liveItemVariantPurchase: {

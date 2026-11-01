@@ -1,7 +1,11 @@
 import type { VaultRevealSpinPayload } from '../../lib/vaultRevealSpin';
 import { VaultDropRevealOverlay } from './VaultDropRevealOverlay';
+import { SurpriseRevealCardOverlay } from './SurpriseRevealCardOverlay';
 
-/** Giveaways, PYT randomizer, and per-spot random reveals — Vault Drop hype reveal. */
+/**
+ * Giveaways, PYT randomizer, and per-spot random reveals — Vault Drop hype reveal.
+ * Surprise Set draws get their own TikTok-style card instead.
+ */
 export function VaultRevealOverlay({
   spin,
   onDismiss,
@@ -13,6 +17,17 @@ export function VaultRevealOverlay({
   viewerUsername?: string | null;
   viewerUserId?: string | null;
 }) {
+  if (spin?.surpriseCard) {
+    return (
+      <SurpriseRevealCardOverlay
+        key={spin.spinId}
+        spin={spin}
+        card={spin.surpriseCard}
+        onDismiss={onDismiss}
+        viewerUsername={viewerUsername}
+      />
+    );
+  }
   return (
     <VaultDropRevealOverlay
       spin={spin}

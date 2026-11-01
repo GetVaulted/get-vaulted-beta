@@ -21,6 +21,7 @@ import {
   type LiveItemVariantDTO,
 } from "@/lib/live-item-variant-serialize";
 import { normalizeCustomRandomPoolLabels } from "../../../shared/live-player-spot-list";
+import { SURPRISE_SET_MAX_UNITS } from "../../../shared/surprise-set";
 import { effectiveLiveRoomViewerCount } from "@/lib/live-room-viewer-count-freshness";
 import { resolveLiveRoomMediaUrl } from "@/lib/live-room-preview-image";
 
@@ -325,6 +326,9 @@ export function serializeLiveRoomItem(
     teamBoardNcaa: row.teamBoardNcaa,
     customRandomPoolLabels: normalizeCustomRandomPoolLabels(
       (row as { customRandomPoolLabels?: unknown }).customRandomPoolLabels,
+      publicSurpriseSetItems((row as { surpriseSetItems?: unknown }).surpriseSetItems)
+        ? SURPRISE_SET_MAX_UNITS
+        : undefined,
     ),
     surpriseSetItems: publicSurpriseSetItems((row as { surpriseSetItems?: unknown }).surpriseSetItems),
     itemVersion: row.itemVersion,

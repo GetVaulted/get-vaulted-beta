@@ -7,15 +7,16 @@
  * This file is shared by web and mobile — keep it dependency-free.
  */
 
-/** Hard cap on units in one set. Matches the random-pool label cap (PLAYER_SPOT_MAX). */
-export const SURPRISE_SET_MAX_UNITS = 60;
+/**
+ * Hard cap on units in one set (TikTok-style pools run to 500). Each unit is one pool label, so the
+ * random-pool label cap is raised to this for Surprise Sets only — player breaks stay at PLAYER_SPOT_MAX.
+ */
+export const SURPRISE_SET_MAX_UNITS = 500;
 export const SURPRISE_SET_MIN_UNITS = 2;
 export const SURPRISE_SET_MIN_DISTINCT_ITEMS = 2;
 export const SURPRISE_SET_ITEM_NAME_MAX_LEN = 48;
 /** Highest item MSRP a seller may declare for one item. */
 export const SURPRISE_SET_MAX_ITEM_MSRP_USD = 5000;
-/** The highest-value item must be at least this likely to be drawn (by unit count). */
-export const SURPRISE_SET_MIN_TOP_ITEM_ODDS = 0.05;
 /** Pool labels are capped at 64 chars server-side; leave room for the " (12 of 40)" suffix. */
 const LABEL_MAX_LEN = 64;
 
@@ -109,14 +110,9 @@ export function validateSurpriseSetItems(
 
   const topMsrp = Math.max(...items.map((i) => i.msrpUsd));
   const topUnits = items.filter((i) => i.msrpUsd === topMsrp).reduce((sum, i) => sum + i.quantity, 0);
+  // No minimum odds for the top item: a single 1-of-500 chase unit is allowed. Buyers still see
+  // every item's live odds (RandomRevealDisclosure) and confirm 18+ before they can pay.
   const topItemOdds = topUnits / totalUnits;
-  if (topItemOdds < SURPRISE_SET_MIN_TOP_ITEM_ODDS) {
-    const needed = Math.ceil(totalUnits * SURPRISE_SET_MIN_TOP_ITEM_ODDS);
-    return {
-      ok: false,
-      message: `The highest-value item must have at least a ${Math.round(SURPRISE_SET_MIN_TOP_ITEM_ODDS * 100)}% chance. Add more of it (at least ${needed} of ${totalUnits} units) or remove some other units.`,
-    };
-  }
 
   // Price floor: a buyer must never pay more than the retail value of the least valuable unit.
   if (typeof unitPriceUsd === 'number' && Number.isFinite(unitPriceUsd)) {

@@ -95,6 +95,11 @@ type Props = {
   walletReady: boolean;
   onWalletRequired: () => void;
   onPurchased: () => void;
+  /**
+   * Random reveal (random team/player, Surprise Set) paid. The parent plays the buyer's own reveal
+   * from the API so it shows even if the room's realtime broadcast is missed.
+   */
+  onRandomRevealPurchased?: (purchaseId: string) => void;
   /** Immediate buyer/seller celebration — do not wait on realtime. */
   onSpotCelebration?: (celebration: LiveSpotTakenCelebration) => void;
   viewerUsername?: string | null;
@@ -135,6 +140,7 @@ export function LiveBreakSpotGridSheet({
   walletReady,
   onWalletRequired,
   onPurchased,
+  onRandomRevealPurchased,
   onSpotCelebration,
   viewerUsername,
   onRoomRefresh,
@@ -354,14 +360,18 @@ export function LiveBreakSpotGridSheet({
 
   const allSold = (spotSummary.available <= 0 && pickerVariants.length > 0) || salesClosed;
 
-  const finishSuccessfulPurchase = (spotLabel: string, amountUsd: number) => {
+  const finishSuccessfulPurchase = (spotLabel: string, amountUsd: number, purchaseId?: string) => {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setBusy(false);
     setError(null);
     setSelectedIds([]);
     onClose();
     onPurchased();
-    if (isRandom || !onSpotCelebration) return;
+    if (isRandom) {
+      if (purchaseId) onRandomRevealPurchased?.(purchaseId);
+      return;
+    }
+    if (!onSpotCelebration) return;
     const celebration = buildLocalVariantPurchaseCelebration({
       viewerUsername,
       label: spotLabel,
@@ -519,6 +529,7 @@ export function LiveBreakSpotGridSheet({
         finishSuccessfulPurchase(
           res.labels?.length ? formatBatchSpotCelebrationLabel(res.labels) : celebrationLabel,
           checkoutPreview?.chargeNowUsd ?? chargeFallback,
+          res.purchaseId,
         );
         return;
       }
@@ -544,7 +555,7 @@ export function LiveBreakSpotGridSheet({
         }
         const synced = await syncPurchase(res);
         if (synced.ok && 'paid' in synced) {
-          finishSuccessfulPurchase(celebrationLabel, checkoutPreview?.chargeNowUsd ?? chargeFallback);
+          finishSuccessfulPurchase(celebrationLabel, checkoutPreview?.chargeNowUsd ?? chargeFallback, res.purchaseId);
           return;
         }
         setError(
@@ -568,7 +579,7 @@ export function LiveBreakSpotGridSheet({
           await new Promise((r) => setTimeout(r, 800 + attempt * 400));
           const synced = await syncPurchase(res);
           if (synced.ok && 'paid' in synced) {
-            finishSuccessfulPurchase(celebrationLabel, checkoutPreview?.chargeNowUsd ?? chargeFallback);
+            finishSuccessfulPurchase(celebrationLabel, checkoutPreview?.chargeNowUsd ?? chargeFallback, res.purchaseId);
             return;
           }
           if (!synced.ok && synced.paymentFailed) {

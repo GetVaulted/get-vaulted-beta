@@ -140,6 +140,8 @@ type Props = {
   /** Exposes in-room wallet opener for rail / external entry points. */
   onRegisterOpenWallet?: (open: (reason?: string) => void) => void;
   onSpotCelebration?: (celebration: LiveSpotTakenCelebration) => void;
+  /** Random reveal paid — parent plays the buyer's own reveal (see LiveBreakSpotGridSheet). */
+  onRandomRevealPurchased?: (purchaseId: string) => void;
   viewerUsername?: string | null;
   /** Signed-in viewer id — optimistic “you’re winning” + floor tracking. */
   viewerUserId?: string | null;
@@ -180,6 +182,7 @@ export function LivePinnedActionBar({
   layoutWidth,
   onRegisterOpenWallet,
   onSpotCelebration,
+  onRandomRevealPurchased,
   viewerUsername,
   viewerUserId,
   commerceActive = true,
@@ -1804,6 +1807,7 @@ export function LivePinnedActionBar({
             setVariantSheetInitialId(null);
             void refreshRoomSnapshot();
           }}
+          onRandomRevealPurchased={onRandomRevealPurchased}
           onSpotCelebration={onSpotCelebration}
           viewerUsername={viewerUsername}
           onRoomRefresh={() => void refreshRoomSnapshot()}
