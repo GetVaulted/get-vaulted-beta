@@ -44,7 +44,13 @@ import { LivePremiumWalletSheet } from "@/components/live-auction/LivePremiumWal
 import { LiveOpenInAppBanner } from "@/components/live-auction/LiveOpenInAppBanner";
 import { VaultRevealOverlay } from "@/components/live-auction/VaultRevealOverlay";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
-import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from "@/lib/vault-reveal-spin";
+import {
+  parseVaultRevealSpinPayload,
+  vaultRevealDisplayMs,
+  type VaultRevealSpinPayload,
+} from "@/lib/vault-reveal-spin";
+import { fetchOwnRandomReveal } from "@/lib/random-reveal-client";
+import { SURPRISE_CARD_TOTAL_MS } from "../../../../shared/surprise-reveal-card";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 import { isLiveRoomBroadcastOnAir, isLiveRoomBroadcastPurchasable, type LiveRoomBroadcastGate } from "@/lib/live-room-broadcast-on-air";
 import {
@@ -93,6 +99,9 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
   const [spotCelebration, setSpotCelebration] = useState<LiveSpotTakenCelebrationPayload | null>(null);
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
+  /** Latest reveal, readable from realtime handlers without re-subscribing. */
+  const vaultRevealSpinRef = useRef<VaultRevealSpinPayload | null>(null);
+  vaultRevealSpinRef.current = vaultRevealSpin;
   const [premiumWalletOpen, setPremiumWalletOpen] = useState(false);
   const [recoveryPaymentMethodId, setRecoveryPaymentMethodId] = useState<string | null>(null);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
@@ -445,8 +454,29 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   }, [roomId]);
 
   const handleBuyerVariantPurchased = useCallback(
-    (payload: VariantPurchasedMergePayload & { label?: string; amountUsd?: number }) => {
+    (
+      payload: VariantPurchasedMergePayload & {
+        label?: string;
+        amountUsd?: number;
+        purchaseId?: string;
+        randomReveal?: boolean;
+      },
+    ) => {
       applyVariantPurchase(payload);
+      if (payload.randomReveal) {
+        // The server draws what the buyer got. Play their reveal from the API (not just the room
+        // broadcast, which can be missed) — the "you got X" toast follows the reveal via the
+        // delayed variant_purchased celebration, so nothing pops up before the animation.
+        if (payload.purchaseId) {
+          void fetchOwnRandomReveal(roomId, payload.purchaseId).then((spin) => {
+            if (!spin || seenVaultRevealSpinIdsRef.current.has(spin.spinId)) return;
+            seenVaultRevealSpinIdsRef.current.add(spin.spinId);
+            setVaultRevealSpin(spin);
+          });
+        }
+        void load();
+        return;
+      }
       const username = session?.user?.username ?? session?.user?.name ?? "";
       if (username.trim() && payload.label?.trim()) {
         setSpotCelebration({
@@ -458,7 +488,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       }
       void load();
     },
-    [applyVariantPurchase, load, session?.user?.name, session?.user?.username],
+    [applyVariantPurchase, load, roomId, session?.user?.name, session?.user?.username],
   );
 
   /** Full GET snapshot when queue/break/listing events fire — covers missed typed payloads (host Start, claims, etc.). */
@@ -781,7 +811,16 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     onVariantPurchased: (payload) => {
       if (!shouldProcessRealtimePayload("variant_purchased", payload)) return;
       const taken = parseVariantPurchasedCelebration(payload);
-      if (taken) showSpotCelebration(taken);
+      if (taken) {
+        if ((payload as { randomReveal?: unknown }).randomReveal === true) {
+          // Let the reveal (card or reel) finish before the "@buyer got X" toast.
+          const active = vaultRevealSpinRef.current;
+          const delayMs = (active ? vaultRevealDisplayMs(active) : SURPRISE_CARD_TOTAL_MS) + 600;
+          window.setTimeout(() => showSpotCelebration(taken), delayMs);
+        } else {
+          showSpotCelebration(taken);
+        }
+      }
       const itemId = typeof payload.itemId === "string" ? payload.itemId : null;
       const variantId = typeof payload.variantId === "string" ? payload.variantId : null;
       if (itemId && variantId) {

@@ -85,7 +85,11 @@ export function buildRandomPlayerVariant(priceUsd: number, poolSize: number): {
 }
 
 /** Normalize JSON column / API payload into a clean string[]. */
-export function normalizeCustomRandomPoolLabels(raw: unknown): string[] | null {
+/**
+ * @param maxCount Pool size cap. Player breaks use PLAYER_SPOT_MAX; Surprise Sets pass their own
+ *   (larger) unit cap since every physical unit is one label.
+ */
+export function normalizeCustomRandomPoolLabels(raw: unknown, maxCount: number = PLAYER_SPOT_MAX): string[] | null {
   if (!Array.isArray(raw)) return null;
   const out: string[] = [];
   const seen = new Set<string>();
@@ -97,7 +101,7 @@ export function normalizeCustomRandomPoolLabels(raw: unknown): string[] | null {
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(name);
-    if (out.length >= PLAYER_SPOT_MAX) break;
+    if (out.length >= maxCount) break;
   }
   return out.length >= PLAYER_SPOT_MIN ? out : null;
 }

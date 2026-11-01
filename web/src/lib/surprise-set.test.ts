@@ -23,16 +23,33 @@ describe("validateSurpriseSetItems", () => {
     }
   });
 
-  it("rejects when the highest-value item is under 5% likely", () => {
+  it("allows a TikTok-style 1-of-500 chase item", () => {
     const r = validateSurpriseSetItems(
       [
         { name: "Chase card", quantity: 1, msrpUsd: 200 },
-        { name: "Common pack", quantity: 39, msrpUsd: 5 },
+        { name: "Common pack", quantity: 499, msrpUsd: 5 },
       ],
       "Set",
     );
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.message).toMatch(/at least a 5% chance/);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.totalUnits).toBe(500);
+      expect(r.topItemOdds).toBeCloseTo(0.002);
+    }
+  });
+
+  it("allows exactly 500 units and labels every one uniquely", () => {
+    const items = [
+      { name: "Chase", quantity: 2, msrpUsd: 100 },
+      { name: "Pack A", quantity: 249, msrpUsd: 8 },
+      { name: "Pack B", quantity: 249, msrpUsd: 8 },
+    ];
+    expect(SURPRISE_SET_MAX_UNITS).toBe(500);
+    const r = validateSurpriseSetItems(items);
+    expect(r.ok).toBe(true);
+    const labels = expandSurpriseSetLabels(items);
+    expect(labels).toHaveLength(500);
+    expect(new Set(labels.map((l) => l.toLowerCase())).size).toBe(500);
   });
 
   it("needs at least two different items", () => {

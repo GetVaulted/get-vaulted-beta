@@ -1,5 +1,6 @@
 import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import { WalletIncompleteError } from '../lib/buyerWalletErrors';
+import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from '../lib/vaultRevealSpin';
 
 /** Stripe charge + tax/shipping estimate can exceed the default 15s mobile abort, especially on Android. */
 const VARIANT_PURCHASE_TIMEOUT_MS = 45_000;
@@ -307,4 +308,35 @@ export async function confirmAdult(accessToken: string): Promise<{ ok: true } | 
   } catch {
     return { ok: false, error: 'Could not save your 18+ confirmation. Check your connection and try again.' };
   }
+}
+
+/**
+ * The reveal for the signed-in buyer's own random-reveal purchase, so the buyer's phone always plays
+ * it even if the room broadcast was missed. Retries briefly while the label is being assigned.
+ */
+export async function fetchOwnRandomReveal(args: {
+  accessToken: string;
+  liveRoomId: string;
+  purchaseId: string;
+  attempts?: number;
+  delayMs?: number;
+}): Promise<VaultRevealSpinPayload | null> {
+  const attempts = args.attempts ?? 6;
+  const delayMs = args.delayMs ?? 500;
+  const path = `/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/reveals/${encodeURIComponent(args.purchaseId)}`;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetchWebApiMobile(path, { headers: { Authorization: `Bearer ${args.accessToken}` } });
+      if (res.ok) {
+        const spin = parseVaultRevealSpinPayload(await res.json());
+        if (spin) return spin;
+      } else if (res.status !== 404) {
+        return null;
+      }
+    } catch {
+      /* network blip — retry */
+    }
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return null;
 }

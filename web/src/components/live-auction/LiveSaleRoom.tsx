@@ -227,7 +227,14 @@ export type LiveSaleRoomProps = {
   buyerLiveShippingReady?: boolean;
   giveaways?: ViewerGiveawayDTO[];
   onOpenWallet: () => void;
-  onApplyVariantPurchase?: (payload: VariantPurchasedMergePayload & { label?: string; amountUsd?: number }) => void;
+  onApplyVariantPurchase?: (
+    payload: VariantPurchasedMergePayload & {
+      label?: string;
+      amountUsd?: number;
+      purchaseId?: string;
+      randomReveal?: boolean;
+    },
+  ) => void;
   buyerPaymentRecoveryPending?: boolean;
   broadcastCommerceBlocked?: boolean;
   /** Offline-only — host pause does not block Buy Now / spots / shop. */

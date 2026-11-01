@@ -226,7 +226,14 @@ export type LiveAuctionRoomProps = {
   giveaways?: ViewerGiveawayDTO[];
   onOpenWallet: () => void;
   /** Instant PYT spot inventory merge after buyer checkout (before realtime round-trip). */
-  onApplyVariantPurchase?: (payload: VariantPurchasedMergePayload & { label?: string; amountUsd?: number }) => void;
+  onApplyVariantPurchase?: (
+    payload: VariantPurchasedMergePayload & {
+      label?: string;
+      amountUsd?: number;
+      purchaseId?: string;
+      randomReveal?: boolean;
+    },
+  ) => void;
   /** Buyer must resolve payment recovery before commerce or tips. */
   buyerPaymentRecoveryPending?: boolean;
   /** Host IVS broadcast offline/paused — block buyer bids and checkout. */

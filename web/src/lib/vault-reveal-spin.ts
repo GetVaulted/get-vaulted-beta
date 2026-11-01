@@ -8,6 +8,11 @@ import {
   vaultDropPoolRunAnimationMs,
   type VaultDropPoolRunStep,
 } from "../../../shared/vault-drop-pool-run";
+import {
+  parseSurpriseCardFields,
+  SURPRISE_CARD_TOTAL_MS,
+  type SurpriseCardFields,
+} from "../../../shared/surprise-reveal-card";
 
 export type VaultRevealSpinKind = "giveaway" | "break_pyt" | "random_reveal";
 export type VaultRevealGiveawayKind = "open" | "buyers";
@@ -30,6 +35,11 @@ export type VaultRevealSpinPayload = {
   segmentAbbrs?: string[];
   /** Buyer who won this random spot (shown on wheel result). */
   buyerUsername?: string;
+  /**
+   * Surprise Set draws render the TikTok-style reveal card instead of the reel. Absent for every
+   * other spin kind.
+   */
+  surpriseCard?: SurpriseCardFields;
 };
 
 /** Givvy draw chrome — matches mobile `givvyUi.ts`. */
@@ -185,8 +195,9 @@ export function vaultDropReelPillBackground(chipAccent: string, lightChip: boole
 }
 
 export function vaultRevealDisplayMs(
-  spin: Pick<VaultRevealSpinPayload, "labels" | "winnerIndex">,
+  spin: Pick<VaultRevealSpinPayload, "labels" | "winnerIndex"> & { surpriseCard?: SurpriseCardFields },
 ): number {
+  if (spin.surpriseCard) return SURPRISE_CARD_TOTAL_MS;
   return vaultDropRevealTiming(spin).totalMs;
 }
 
@@ -339,6 +350,7 @@ export function parseVaultRevealSpinPayload(raw: unknown): VaultRevealSpinPayloa
     winnerUserId: typeof spin.winnerUserId === "string" ? spin.winnerUserId : undefined,
     segmentAbbrs: segmentAbbrs.length > 0 ? segmentAbbrs : undefined,
     buyerUsername: typeof spin.buyerUsername === "string" ? spin.buyerUsername : undefined,
+    surpriseCard: parseSurpriseCardFields(spin.surpriseCard) ?? undefined,
     assignments: Array.isArray(spin.assignments)
       ? spin.assignments
           .filter((a): a is { order: number; label: string } => {

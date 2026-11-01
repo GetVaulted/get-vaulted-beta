@@ -289,6 +289,19 @@ export function useLiveRoomRealtimeSession(args: {
     [fetchSnapshot],
   );
 
+  /** Play a reveal that came from an API response (buyer's own purchase); no-op if already shown. */
+  const showVaultRevealSpin = useCallback(
+    (spin: VaultRevealSpinPayload) => {
+      if (seenVaultRevealSpinIdsRef.current.has(spin.spinId)) return;
+      seenVaultRevealSpinIdsRef.current.add(spin.spinId);
+      vaultRevealActiveRef.current = true;
+      setVaultRevealSpin(spin);
+      scheduleReconcile(250);
+    },
+    [scheduleReconcile],
+  );
+
+
   const refreshSkewFromRealtime = useCallback(
     (serverNowMs: number | undefined, clientStartMs?: number) => {
       if (typeof serverNowMs !== 'number') return;
@@ -669,6 +682,7 @@ export function useLiveRoomRealtimeSession(args: {
     showSpotCelebration,
     clearSpotCelebration,
     vaultRevealSpin,
+    showVaultRevealSpin,
     clearVaultRevealSpin,
     unresolvedPaymentFailure,
     fetchSnapshot,
