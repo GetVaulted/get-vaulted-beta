@@ -212,6 +212,22 @@ export function LivePinnedActionBar({
   const holdBidSeqRef = useRef(0);
   const [walletReadiness, setWalletReadiness] = useState<BuyerWalletReadiness | null>(null);
   const [variantSheetOpen, setVariantSheetOpen] = useState(false);
+  const variantSheetOpenRef = useRef(false);
+  variantSheetOpenRef.current = variantSheetOpen;
+  /**
+   * Open the spot board. If our state already says "open" but the sheet never appeared (iOS can
+   * refuse to present a modal while another one — e.g. the break notice — is up), close and
+   * re-open so tapping Claim always brings the board up instead of doing nothing.
+   */
+  const presentVariantSheet = useCallback((initialId: string | null) => {
+    setVariantSheetInitialId(initialId);
+    if (!variantSheetOpenRef.current) {
+      setVariantSheetOpen(true);
+      return;
+    }
+    setVariantSheetOpen(false);
+    setTimeout(() => setVariantSheetOpen(true), 60);
+  }, []);
   const [variantSheetInitialId, setVariantSheetInitialId] = useState<string | null>(null);
   const [teamsRosterOpen, setTeamsRosterOpen] = useState(false);
   const [sweet16DraftOpen, setSweet16DraftOpen] = useState(false);
@@ -361,11 +377,22 @@ export function LivePinnedActionBar({
       if (!variantItemActive) autoOpenedBreakItemRef.current = null;
       return;
     }
+    // Wait until no other popup (break notice, wallet setup) is up — iOS won't present a second
+    // modal on top, and the board would silently fail to appear.
+    if (participationBlocked || walletSheetOpen || walletOverlayActive) return;
     if (autoOpenedBreakItemRef.current === itemId) return;
     autoOpenedBreakItemRef.current = itemId;
-    setVariantSheetInitialId(null);
-    setVariantSheetOpen(true);
-  }, [commerceActive, variantItemActive, variantRosterClosed, roomSnap?.activeItemId]);
+    presentVariantSheet(null);
+  }, [
+    commerceActive,
+    variantItemActive,
+    variantRosterClosed,
+    roomSnap?.activeItemId,
+    participationBlocked,
+    walletSheetOpen,
+    walletOverlayActive,
+    presentVariantSheet,
+  ]);
 
   useEffect(() => {
     if (roomSnap?.lotBidPhase !== 'bidding_open' || !roomSnap.auctionEndsAt) return;
@@ -394,7 +421,8 @@ export function LivePinnedActionBar({
   const commerceBlocked =
     walletOverlayActive ||
     walletSheetOpen ||
-    variantSheetOpen ||
+    // NOT variantSheetOpen: when the board is really up it covers these buttons anyway, and when
+    // it failed to appear, a disabled Claim button left buyers stuck with no way to open it.
     teamsRosterOpen ||
     sweet16DraftOpen ||
     // Custom sheet is a full-screen modal — keep Hold enabled underneath so closing/outbid
@@ -1443,8 +1471,7 @@ export function LivePinnedActionBar({
         openWalletSetup('variant_checkout', walletFromSnap ?? undefined);
         return;
       }
-      setVariantSheetInitialId(m.buyerPinnedVariantId ?? featuredBuyerVariant(roomSnap)?.id ?? null);
-      setVariantSheetOpen(true);
+      presentVariantSheet(m.buyerPinnedVariantId ?? featuredBuyerVariant(roomSnap)?.id ?? null);
       void refreshRoomSnapshot();
       return;
     }
@@ -1514,8 +1541,7 @@ export function LivePinnedActionBar({
           return;
         }
         if (m.bottomLeftLabel === 'All teams') {
-          setVariantSheetInitialId(null);
-          setVariantSheetOpen(true);
+          presentVariantSheet(null);
           return;
         }
       }
@@ -1553,8 +1579,7 @@ export function LivePinnedActionBar({
           }
           return;
         }
-        setVariantSheetInitialId(null);
-        setVariantSheetOpen(true);
+        presentVariantSheet(null);
         return;
       }
       if (onOpenInlineShop) onOpenInlineShop();
