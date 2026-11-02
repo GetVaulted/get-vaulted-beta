@@ -13,6 +13,7 @@ import { SellerLiveTermsGate } from "@/components/break-host/SellerLiveTermsGate
 import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
 import { LiveSpotTakenCelebration } from "@/components/live-auction/LiveSpotTakenCelebration";
 import { VaultRevealOverlay } from "@/components/live-auction/VaultRevealOverlay";
+import { useRevealChatHold } from "@/hooks/useRevealChatHold";
 import { VaultHostAnnouncements } from "@/components/break-host/vault/VaultHostAnnouncements";
 import { VaultHostLiveChatPanel } from "@/components/break-host/vault/VaultHostLiveChatPanel";
 import { ExpandableLiveChatOverlay } from "@/components/live-auction/ExpandableLiveChatOverlay";
@@ -137,6 +138,9 @@ import {
 import { liveAuctionDisplayBidUsd } from "@/lib/live-auction-overlay-price";
 import { parseTeamBoardPublicPayload, type TeamBoardPublicPayload } from "@/lib/team-board-public";
 import { DEFAULT_AUCTION_SEC } from "@/lib/live-auction-duration";
+
+/** Stable empty list so the reveal chat hold doesn't recompute every render before data loads. */
+const NO_MESSAGES: LiveRoomMessageDTO[] = [];
 
 type RoomPayload = {
   id: string;
@@ -361,6 +365,8 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
   const [spotCelebration, setSpotCelebration] = useState<LiveSpotTakenCelebrationPayload | null>(null);
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
+  // "@buyer got X" chat lines wait for the reveal to finish on the host screen too.
+  const { visibleMessages: hostVisibleMessages } = useRevealChatHold(data?.messages ?? NO_MESSAGES, vaultRevealSpin);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const lastRefreshAtRef = useRef<number | null>(null);
   const reconnectCountRef = useRef(0);
@@ -2774,7 +2780,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     <VaultHostLiveChatPanel
       liveRoomId={roomId}
       hostUserId={room.sellerId}
-      messages={data.messages}
+      messages={hostVisibleMessages}
       systemMsg={systemMsg}
       onSystemMsgChange={setSystemMsg}
       onSendSystem={() => void sendSystem()}
@@ -2797,7 +2803,7 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
     <VaultHostLiveChatPanel
       liveRoomId={roomId}
       hostUserId={room.sellerId}
-      messages={data.messages}
+      messages={hostVisibleMessages}
       systemMsg={systemMsg}
       onSystemMsgChange={setSystemMsg}
       onSendSystem={() => void sendSystem()}

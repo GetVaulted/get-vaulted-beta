@@ -42,6 +42,7 @@ import { useLiveRoomModeration } from '../../../hooks/useLiveRoomModeration';
 import { useRealtimeRoomSubscription } from '../../../hooks/useRealtimeRoomSubscription';
 import { parseVaultRevealSpinPayload, VAULT_REVEAL_TOTAL_DISPLAY_MS, vaultRevealDisplayMs, type VaultRevealSpinPayload } from '../../../lib/vaultRevealSpin';
 import { VaultRevealOverlay } from '../../live/VaultRevealOverlay';
+import { useRevealChatHold } from '../../../hooks/useRevealChatHold';
 import { LiveSpotTakenCelebration } from '../../live/LiveSpotTakenCelebration';
 import {
   parseAuctionWinSpotCelebration,
@@ -542,7 +543,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     onSweet16DraftComplete: bumpSweet16DraftSignal,
   });
 
-  const chatPool = liveChat.messages;
+  // "@buyer got X" lines wait until the reveal has finished on the host screen too.
+  const { visibleMessages: chatPool } = useRevealChatHold(liveChat.messages, vaultRevealSpin);
 
   const pinnedModerator = useMemo(() => {
     if (!moderation.pinnedMessageActive) return null;

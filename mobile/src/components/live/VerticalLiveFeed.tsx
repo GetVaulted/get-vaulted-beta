@@ -40,6 +40,7 @@ import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
 import { LiveImmersiveRestoreHint } from './LiveImmersiveRestoreHint';
 import { LiveSpotTakenCelebration } from './LiveSpotTakenCelebration';
 import { VaultRevealOverlay } from './VaultRevealOverlay';
+import { useRevealChatHold } from '../../hooks/useRevealChatHold';
 import { fetchOwnRandomReveal } from '../../api/liveVariantPurchaseRepository';
 import { LiveGiveawaySideTab } from './LiveGiveawaySideTab';
 import { useLiveImmersiveChrome } from '../../hooks/useLiveImmersiveChrome';
@@ -757,12 +758,17 @@ function LiveSlide({
     };
   }, [signedIn, accessToken, liveChat.announceLeave]);
 
+  // "@buyer got X" lines wait until that buyer's reveal has finished playing (no spoilers).
+  const { visibleMessages: revealSafeMessages, holdBuyer: holdRevealChatForBuyer } = useRevealChatHold(
+    liveChat.messages,
+    liveSession.vaultRevealSpin,
+  );
   const chatPool = useMemo(
     () =>
       modActor.canModerate
-        ? liveChat.messages
-        : liveChat.messages.filter((m) => m.messageType !== 'staff'),
-    [liveChat.messages, modActor.canModerate],
+        ? revealSafeMessages
+        : revealSafeMessages.filter((m) => m.messageType !== 'staff'),
+    [revealSafeMessages, modActor.canModerate],
   );
 
   const pinnedModerator = useMemo(() => {
@@ -1230,6 +1236,7 @@ function LiveSlide({
   /** Buyer's own random reveal — from the API, so it plays even if the room broadcast is missed. */
   const playOwnRandomReveal = (purchaseId: string) => {
     if (!accessToken) return;
+    holdRevealChatForBuyer(myChatSender.username);
     void fetchOwnRandomReveal({ accessToken, liveRoomId: stream.id, purchaseId }).then((spin) => {
       if (spin) liveSession.showVaultRevealSpin(spin);
     });
