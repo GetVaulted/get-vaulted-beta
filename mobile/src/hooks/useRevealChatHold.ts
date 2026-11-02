@@ -1,67 +1,44 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { vaultRevealDisplayMs, type VaultRevealSpinPayload } from '../lib/vaultRevealSpin';
 import type { ChatMessage } from '../types';
-import {
-  addRevealChatHold,
-  isRevealChatLineHeld,
-  nextRevealChatRelease,
-  releaseRevealChatHold,
-  type RevealChatHolds,
-} from '../../../shared/reveal-chat-hold';
+import { RevealChatGate } from '../../../shared/reveal-chat-hold';
 import { SURPRISE_CARD_TOTAL_MS } from '../../../shared/surprise-reveal-card';
 
 /**
  * Keeps the "@buyer got X" chat line hidden until that buyer's reveal (card or wheel) has finished
- * playing on this screen. A line that has already been shown is never hidden again.
+ * playing on this screen — whichever order the chat line and the reveal arrive in. A line that has
+ * already been shown is never hidden again.
  */
 export function useRevealChatHold(
   messages: ChatMessage[],
   activeSpin: VaultRevealSpinPayload | null,
 ): { visibleMessages: ChatMessage[]; holdBuyer: (username: string | null | undefined, durationMs?: number) => void } {
-  const holdsRef = useRef<RevealChatHolds>(new Map());
-  const shownRef = useRef<Set<string>>(new Set());
-  const prevSpinRef = useRef<VaultRevealSpinPayload | null>(null);
+  const gateRef = useRef<RevealChatGate | null>(null);
+  if (!gateRef.current) gateRef.current = new RevealChatGate(Date.now());
+  const gate = gateRef.current;
   const [tick, setTick] = useState(0);
 
-  const holdBuyer = useCallback((username: string | null | undefined, durationMs = SURPRISE_CARD_TOTAL_MS) => {
-    if (addRevealChatHold(holdsRef.current, username, durationMs, Date.now()) != null) setTick((n) => n + 1);
-  }, []);
-
-  useEffect(() => {
-    const prev = prevSpinRef.current;
-    if (prev && prev.spinId !== activeSpin?.spinId) {
-      releaseRevealChatHold(holdsRef.current, prev.buyerUsername, Date.now());
-    }
-    if (activeSpin && activeSpin.spinId !== prev?.spinId && activeSpin.buyerUsername) {
-      addRevealChatHold(holdsRef.current, activeSpin.buyerUsername, vaultRevealDisplayMs(activeSpin), Date.now());
-    }
-    prevSpinRef.current = activeSpin;
-    setTick((n) => n + 1);
-  }, [activeSpin]);
-
-  useEffect(() => {
-    const next = nextRevealChatRelease(holdsRef.current, Date.now());
-    if (next == null) return;
-    const id = setTimeout(() => setTick((n) => n + 1), Math.max(0, next - Date.now()) + 16);
-    return () => clearTimeout(id);
-  }, [tick, messages]);
+  const holdBuyer = useCallback(
+    (username: string | null | undefined, durationMs = SURPRISE_CARD_TOTAL_MS) => {
+      gate.holdBuyer(username, durationMs, Date.now());
+      setTick((n) => n + 1);
+    },
+    [gate],
+  );
 
   const visibleMessages = useMemo(() => {
     const now = Date.now();
-    const shown = shownRef.current;
-    if (holdsRef.current.size === 0) {
-      for (const m of messages) shown.add(m.id);
-      return messages;
-    }
-    const out = messages.filter(
-      (m) =>
-        shown.has(m.id) ||
-        !isRevealChatLineHeld(holdsRef.current, { body: m.text, messageType: m.messageType ?? null }, now),
-    );
-    for (const m of out) shown.add(m.id);
-    return out;
+    gate.syncSpin(activeSpin, activeSpin ? vaultRevealDisplayMs(activeSpin) : 0, now);
+    return gate.visible(messages, (m) => ({ body: m.text, messageType: m.messageType ?? null }), now);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, tick]);
+  }, [gate, messages, activeSpin, tick]);
+
+  useEffect(() => {
+    const next = gate.nextWakeAt(Date.now());
+    if (next == null) return;
+    const id = setTimeout(() => setTick((n) => n + 1), Math.max(0, next - Date.now()) + 16);
+    return () => clearTimeout(id);
+  }, [gate, visibleMessages, tick]);
 
   return { visibleMessages, holdBuyer };
 }

@@ -7,6 +7,9 @@ import {
   REVEAL_CHAT_HOLD_MAX_MS,
   REVEAL_CHAT_HOLD_TAIL_MS,
   revealChatLineBuyer,
+  RevealChatGate,
+  REVEAL_CHAT_PENDING_GRACE_MS,
+  REVEAL_CHAT_WARMUP_MS,
   type RevealChatHolds,
 } from "../../../shared/reveal-chat-hold";
 
@@ -54,5 +57,54 @@ describe("reveal chat hold", () => {
     expect(nextRevealChatRelease(holds, 0)).toBe(1000 + REVEAL_CHAT_HOLD_TAIL_MS);
     expect(nextRevealChatRelease(holds, 3000)).toBe(5000 + REVEAL_CHAT_HOLD_TAIL_MS);
     expect(holds.has("bob")).toBe(false);
+  });
+});
+
+describe("RevealChatGate", () => {
+  const T0 = 1_000_000;
+  const READY = T0 + REVEAL_CHAT_WARMUP_MS;
+  const got = (id: string, buyer = "bob") => ({ id, body: `@${buyer} got Chase`, messageType: "system" });
+  const ids = (xs: { id: string }[]) => xs.map((x) => x.id);
+  const spin = { spinId: "s1", buyerUsername: "bob" };
+
+  it("never hides chat that was there when the screen opened", () => {
+    const g = new RevealChatGate(T0);
+    expect(ids(g.visible([got("old")], (m) => m, T0))).toEqual(["old"]);
+  });
+
+  it("holds the line when it arrives in the same render as the reveal", () => {
+    const g = new RevealChatGate(T0);
+    g.syncSpin(spin, 7000, READY);
+    expect(ids(g.visible([got("m1")], (m) => m, READY + 10))).toEqual([]);
+    expect(ids(g.visible([got("m1")], (m) => m, READY + 7500))).toEqual(["m1"]);
+  });
+
+  it("holds a line that arrives BEFORE the reveal, then for the whole animation", () => {
+    const g = new RevealChatGate(T0);
+    expect(ids(g.visible([got("m1")], (m) => m, READY))).toEqual([]);
+    g.syncSpin(spin, 7000, READY + 300);
+    expect(ids(g.visible([got("m1")], (m) => m, READY + 5000))).toEqual([]);
+    expect(ids(g.visible([got("m1")], (m) => m, READY + 300 + 7500))).toEqual(["m1"]);
+  });
+
+  it("shows the line after a short grace if no reveal ever comes", () => {
+    const g = new RevealChatGate(T0);
+    expect(ids(g.visible([got("m1")], (m) => m, READY))).toEqual([]);
+    expect(ids(g.visible([got("m1")], (m) => m, READY + REVEAL_CHAT_PENDING_GRACE_MS))).toEqual(["m1"]);
+  });
+
+  it("does not hold ordinary chat", () => {
+    const g = new RevealChatGate(T0);
+    g.syncSpin(spin, 7000, READY);
+    const chat = { id: "c1", body: "@bob got lucky lol", messageType: "chat" };
+    expect(ids(g.visible([chat], (m) => m, READY + 10))).toEqual(["c1"]);
+  });
+
+  it("keeps a shown line shown when the same buyer's next reveal starts", () => {
+    const g = new RevealChatGate(T0);
+    g.syncSpin(spin, 7000, READY);
+    g.visible([got("m1")], (m) => m, READY + 8000);
+    g.syncSpin({ spinId: "s2", buyerUsername: "bob" }, 7000, READY + 9000);
+    expect(ids(g.visible([got("m1"), got("m2")], (m) => m, READY + 9100))).toEqual(["m1"]);
   });
 });
