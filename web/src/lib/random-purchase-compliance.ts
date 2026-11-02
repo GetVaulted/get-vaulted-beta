@@ -2,8 +2,8 @@
  * Guardrails for chance-based live purchases (Random Team / Division / Player and Surprise Sets).
  *
  * - Buyers must confirm they are 18 or older before their first random purchase.
- * - Per-buyer limits over a rolling 24 hours: a daily cap, plus a short cooling-off pause after
- *   every `RANDOM_PURCHASE_COOLING_EVERY` purchases.
+ * - Per-buyer limits over a rolling 24 hours: a daily cap, plus an optional cooling-off pause after
+ *   every `RANDOM_PURCHASE_COOLING_EVERY` purchases (currently off).
  *
  * Pure functions only — the purchase route supplies the recent-purchase timestamps. Tune the
  * constants below to change the limits; nothing else needs to move.
@@ -12,8 +12,11 @@
 export const RANDOM_PURCHASE_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** Most random / surprise units one buyer may purchase in any rolling 24 hours. */
 export const RANDOM_PURCHASE_DAILY_CAP = 20;
-/** After every this-many purchases in the window, the buyer must wait out a cooling-off pause. */
-export const RANDOM_PURCHASE_COOLING_EVERY = 10;
+/**
+ * After every this-many purchases in the window, the buyer must wait out a cooling-off pause.
+ * 0 = no cooling-off pause (turned off Nov 2026 at the owner's request; the daily cap still applies).
+ */
+export const RANDOM_PURCHASE_COOLING_EVERY: number = 0;
 export const RANDOM_PURCHASE_COOLING_MS = 15 * 60 * 1000;
 
 export type RandomPurchaseLimitResult =
@@ -59,7 +62,7 @@ export function evaluateRandomPurchaseLimits(
     };
   }
 
-  if (count > 0 && count % RANDOM_PURCHASE_COOLING_EVERY === 0) {
+  if (RANDOM_PURCHASE_COOLING_EVERY > 0 && count > 0 && count % RANDOM_PURCHASE_COOLING_EVERY === 0) {
     const last = inWindow[count - 1]!;
     const until = last + RANDOM_PURCHASE_COOLING_MS;
     if (until > now.getTime()) {

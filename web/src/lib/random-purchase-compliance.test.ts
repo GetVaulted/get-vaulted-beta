@@ -31,18 +31,15 @@ describe("evaluateRandomPurchaseLimits", () => {
     }
   });
 
-  it("starts a cooling-off pause after every Nth purchase, then lifts it", () => {
-    const justNow = Array.from({ length: RANDOM_PURCHASE_COOLING_EVERY }, (_, i) => ago((i + 1) * MIN));
-    const blocked = evaluateRandomPurchaseLimits(justNow, NOW);
-    expect(blocked.allowed).toBe(false);
-    if (!blocked.allowed) expect(blocked.code).toBe("RANDOM_PURCHASE_COOLING_OFF");
-
-    const later = new Date(NOW.getTime() + RANDOM_PURCHASE_COOLING_MS + MIN);
-    expect(evaluateRandomPurchaseLimits(justNow, later)).toEqual({ allowed: true });
+  it("has no cooling-off pause while it is turned off", () => {
+    expect(RANDOM_PURCHASE_COOLING_EVERY).toBe(0);
+    const tenJustNow = Array.from({ length: 10 }, (_, i) => ago((i + 1) * MIN));
+    expect(evaluateRandomPurchaseLimits(tenJustNow, NOW)).toEqual({ allowed: true });
+    expect(RANDOM_PURCHASE_COOLING_MS).toBeGreaterThan(0);
   });
 
   it("does not pause on purchases that are not a multiple of N", () => {
-    const some = Array.from({ length: RANDOM_PURCHASE_COOLING_EVERY - 3 }, (_, i) => ago((i + 1) * MIN));
+    const some = Array.from({ length: 7 }, (_, i) => ago((i + 1) * MIN));
     expect(evaluateRandomPurchaseLimits(some, NOW)).toEqual({ allowed: true });
   });
 });
