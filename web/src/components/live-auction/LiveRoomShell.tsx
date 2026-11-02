@@ -43,6 +43,7 @@ import { LivePaymentFailureBlocker } from "@/components/live-auction/LivePayment
 import { LivePremiumWalletSheet } from "@/components/live-auction/LivePremiumWalletSheet";
 import { LiveOpenInAppBanner } from "@/components/live-auction/LiveOpenInAppBanner";
 import { VaultRevealOverlay } from "@/components/live-auction/VaultRevealOverlay";
+import { useRevealChatHold } from "@/hooks/useRevealChatHold";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import {
   parseVaultRevealSpinPayload,
@@ -105,6 +106,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const [premiumWalletOpen, setPremiumWalletOpen] = useState(false);
   const [recoveryPaymentMethodId, setRecoveryPaymentMethodId] = useState<string | null>(null);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
+  // "@buyer got X" chat lines wait for that buyer's reveal to finish (no spoilers).
+  const { visibleMessages, holdBuyer: holdRevealChatForBuyer } = useRevealChatHold(messages, vaultRevealSpin);
   const seenSpotCelebrationKeysRef = useRef<Set<string>>(new Set());
   const seenSoldCelebrationKeysRef = useRef<Set<string>>(new Set());
   /** Sticky last known count — must stay above loading/null early returns (React hooks rules). */
@@ -464,6 +467,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     ) => {
       applyVariantPurchase(payload);
       if (payload.randomReveal) {
+        holdRevealChatForBuyer(session?.user?.username ?? null, SURPRISE_CARD_TOTAL_MS);
         // The server draws what the buyer got. Play their reveal from the API (not just the room
         // broadcast, which can be missed) — the "you got X" toast follows the reveal via the
         // delayed variant_purchased celebration, so nothing pops up before the animation.
@@ -488,7 +492,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       }
       void load();
     },
-    [applyVariantPurchase, load, roomId, session?.user?.name, session?.user?.username],
+    [applyVariantPurchase, holdRevealChatForBuyer, load, roomId, session?.user?.name, session?.user?.username],
   );
 
   /** Full GET snapshot when queue/break/listing events fire — covers missed typed payloads (host Start, claims, etc.). */
@@ -815,6 +819,11 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         if ((payload as { randomReveal?: unknown }).randomReveal === true) {
           // Let the reveal (card or reel) finish before the "@buyer got X" toast.
           const active = vaultRevealSpinRef.current;
+          const buyer = (payload as { buyerUsername?: unknown }).buyerUsername;
+          holdRevealChatForBuyer(
+            typeof buyer === "string" ? buyer : null,
+            active ? vaultRevealDisplayMs(active) : SURPRISE_CARD_TOTAL_MS,
+          );
           const delayMs = (active ? vaultRevealDisplayMs(active) : SURPRISE_CARD_TOTAL_MS) + 600;
           window.setTimeout(() => showSpotCelebration(taken), delayMs);
         } else {
@@ -1213,7 +1222,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           roomStatus={detail.status}
           liveRoomId={detail.id}
           dbItems={detail.items}
-          messages={messages}
+          messages={visibleMessages}
           onMessagesChange={setMessages}
           onRefetch={load}
           onAuctionHttpAck={mergeAuctionHttpAck}
@@ -1286,7 +1295,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       roomType={detail.roomType}
       liveRoomId={detail.id}
       dbItems={detail.items}
-      messages={messages}
+      messages={visibleMessages}
       onMessagesChange={setMessages}
       onRefetch={load}
       onAuctionHttpAck={mergeAuctionHttpAck}
