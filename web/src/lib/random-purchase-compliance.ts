@@ -10,8 +10,11 @@
  */
 
 export const RANDOM_PURCHASE_WINDOW_MS = 24 * 60 * 60 * 1000;
-/** Most random / surprise units one buyer may purchase in any rolling 24 hours. */
-export const RANDOM_PURCHASE_DAILY_CAP = 20;
+/**
+ * Most random / surprise units one buyer may purchase in any rolling 24 hours.
+ * 0 = no cap (turned off Nov 2026 at the owner's request; the 18+ confirmation still applies).
+ */
+export const RANDOM_PURCHASE_DAILY_CAP: number = 0;
 /**
  * After every this-many purchases in the window, the buyer must wait out a cooling-off pause.
  * 0 = no cooling-off pause (turned off Nov 2026 at the owner's request; the daily cap still applies).
@@ -51,7 +54,7 @@ export function evaluateRandomPurchaseLimits(
     .sort((a, b) => a - b);
   const count = inWindow.length;
 
-  if (count >= RANDOM_PURCHASE_DAILY_CAP) {
+  if (RANDOM_PURCHASE_DAILY_CAP > 0 && count >= RANDOM_PURCHASE_DAILY_CAP) {
     // The cap frees up when enough old purchases age out of the window.
     const freesAt = inWindow[count - RANDOM_PURCHASE_DAILY_CAP]! + RANDOM_PURCHASE_WINDOW_MS;
     return {

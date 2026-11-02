@@ -16,19 +16,11 @@ describe("evaluateRandomPurchaseLimits", () => {
     expect(evaluateRandomPurchaseLimits([], NOW)).toEqual({ allowed: true });
   });
 
-  it("ignores purchases older than the 24 hour window", () => {
-    const old = Array.from({ length: RANDOM_PURCHASE_DAILY_CAP }, () => ago(RANDOM_PURCHASE_WINDOW_MS + MIN));
-    expect(evaluateRandomPurchaseLimits(old, NOW)).toEqual({ allowed: true });
-  });
-
-  it("blocks at the daily cap and says when the oldest purchase ages out", () => {
-    const times = Array.from({ length: RANDOM_PURCHASE_DAILY_CAP }, (_, i) => ago(5 * MIN + (RANDOM_PURCHASE_DAILY_CAP - i) * 60 * MIN));
-    const r = evaluateRandomPurchaseLimits(times, NOW);
-    expect(r.allowed).toBe(false);
-    if (!r.allowed) {
-      expect(r.code).toBe("RANDOM_PURCHASE_DAILY_CAP");
-      expect(r.retryAt.getTime()).toBeGreaterThan(NOW.getTime());
-    }
+  it("has no daily cap while it is turned off", () => {
+    expect(RANDOM_PURCHASE_DAILY_CAP).toBe(0);
+    const many = Array.from({ length: 200 }, (_, i) => ago((i + 1) * MIN));
+    expect(evaluateRandomPurchaseLimits(many, NOW)).toEqual({ allowed: true });
+    expect(RANDOM_PURCHASE_WINDOW_MS).toBeGreaterThan(0);
   });
 
   it("has no cooling-off pause while it is turned off", () => {
