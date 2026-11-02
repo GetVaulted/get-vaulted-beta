@@ -560,7 +560,7 @@ export function AddInventoryModal({
                 {priorLoading ? <ActivityIndicator color={vaultColors.gold} style={{ marginVertical: 12 }} /> : null}
                 {priorError ? <Text style={styles.errorTxt}>{priorError}</Text> : null}
                 {!priorLoading && !priorError && priorRooms.length === 0 ? (
-                  <Text style={styles.sub}>No prior shows found to copy from.</Text>
+                  <Text style={styles.sub}>No previous shows found.</Text>
                 ) : null}
                 {priorRooms.map((room) => {
                   const selected = selectedPriorRoomId === room.id;
@@ -592,14 +592,14 @@ export function AddInventoryModal({
                   ]}
                   onPress={() => {
                     if (!onImportFromPriorRoom || !selectedPriorRoomId) {
-                      Alert.alert('Copy last show', 'Pick a previous show to copy from.');
+                      Alert.alert('Move from last show', 'Pick a previous show to move from.');
                       return;
                     }
                     onImportFromPriorRoom(selectedPriorRoomId);
                   }}
                   disabled={busy || !selectedPriorRoomId || !onImportFromPriorRoom}
                 >
-                  <Text style={styles.primaryTxt}>{busy ? 'Copying…' : 'Copy unsold lineup'}</Text>
+                  <Text style={styles.primaryTxt}>{busy ? 'Checking…' : 'Preview move'}</Text>
                 </Pressable>
               </>
             ) : (

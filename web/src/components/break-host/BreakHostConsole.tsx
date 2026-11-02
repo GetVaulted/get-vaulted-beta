@@ -101,7 +101,8 @@ import {
   createLiveRoomItem,
   deleteLiveRoomItem,
   finalizeOverdueLiveAuctions,
-  importLiveRoomItemsFromRoom,
+  moveItemsFromRoom,
+  type ShowMovePreview,
   manualAssignLiveItemVariant,
   changeLiveVariantBuyer,
   patchLiveItemVariants,
@@ -1674,27 +1675,27 @@ export function BreakHostConsole({ roomId, roomType = "break" }: { roomId: strin
   );
 
   const handleImportFromPriorRoom = useCallback(
-    async (sourceRoomId: string): Promise<boolean> => {
+    async (sourceRoomId: string, expect: ShowMovePreview["totals"]): Promise<boolean> => {
       setBusy(true);
       setToast(null);
       try {
-        const res = await importLiveRoomItemsFromRoom(roomId, sourceRoomId);
+        const res = await moveItemsFromRoom(roomId, sourceRoomId, expect);
         if (!res.ok) {
           setToast(res.error);
           return false;
         }
         await load();
         router.refresh();
-        const label = res.data.sourceTitle?.trim() || "prior show";
+        const label = res.data.sourceTitle?.trim() || "previous show";
+        const n = res.data.moved.items;
         setToast(
-          res.data.skipped > 0
-            ? `Copied ${res.data.imported} from ${label} (${res.data.skipped} already in lineup).`
-            : `Copied ${res.data.imported} from ${label}.`,
+          `Moved ${n} lot${n === 1 ? "" : "s"} from ${label}` +
+            (res.data.moved.purchases > 0 ? ` with ${res.data.moved.purchases} sold spot${res.data.moved.purchases === 1 ? "" : "s"}.` : "."),
         );
         return true;
       } catch (err) {
         const msg = err instanceof Error ? err.message.trim() : "";
-        setToast(msg ? `Could not copy lineup (${msg}).` : "Could not copy lineup.");
+        setToast(msg ? `Could not move those items (${msg}).` : "Could not move those items.");
         return false;
       } finally {
         setBusy(false);

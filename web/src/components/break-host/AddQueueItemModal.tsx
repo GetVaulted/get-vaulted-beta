@@ -31,6 +31,8 @@ import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
 import {
   fetchLiveRoomShopInventory,
   fetchPriorLiveRoomsForCopy,
+  previewMoveFromRoom,
+  type ShowMovePreview,
   type LiveShopInventoryListing,
   type PriorLiveRoomOption,
 } from "@/lib/live-room-control-client";
@@ -93,8 +95,8 @@ type Props = {
   onSubmitGiveaway?: (payload: AddQueueItemGiveawayPayload) => Promise<boolean>;
   /** Pull one or more seller shop listings into the current room queue. */
   onSubmitFromShop?: (listingIds: string[]) => Promise<boolean>;
-  /** Clone unsold queue rows from a prior room. */
-  onImportFromPriorRoom?: (sourceRoomId: string) => Promise<boolean>;
+  /** Move a previous show's lots (with sold spots + shipping link) into this show, after preview. */
+  onImportFromPriorRoom?: (sourceRoomId: string, expect: ShowMovePreview["totals"]) => Promise<boolean>;
 };
 
 const ALLOWED_CLOSE: AddQueueItemCloseReason[] = ["cancel", "success", "escape"];
@@ -205,6 +207,8 @@ export function AddQueueItemModal({
   const [priorLoading, setPriorLoading] = useState(false);
   const [priorError, setPriorError] = useState<string | null>(null);
   const [selectedPriorRoomId, setSelectedPriorRoomId] = useState("");
+  const [movePreview, setMovePreview] = useState<ShowMovePreview | null>(null);
+  const [movePreviewLoading, setMovePreviewLoading] = useState(false);
   const wasOpenRef = useRef(false);
   const imageFileRef = useRef<HTMLInputElement>(null);
 
@@ -243,6 +247,7 @@ export function AddQueueItemModal({
       setPriorRooms([]);
       setPriorError(null);
       setSelectedPriorRoomId("");
+      setMovePreview(null);
     }
     wasOpenRef.current = open;
   }, [mode, open]);
@@ -704,16 +709,30 @@ export function AddQueueItemModal({
     if (ok) requestClose("success", onRequestClose);
   }, [onRequestClose, onSubmitFromShop, selectedShopIds]);
 
-  const handleImportFromPrior = useCallback(async () => {
-    if (!onImportFromPriorRoom) return;
+  const handlePreviewMove = useCallback(async () => {
     setFormError(null);
-    if (!selectedPriorRoomId.trim()) {
-      setFormError("Pick a previous show to copy from.");
+    const source = selectedPriorRoomId.trim();
+    if (!source) {
+      setFormError("Pick a previous show to move from.");
       return;
     }
-    const ok = await onImportFromPriorRoom(selectedPriorRoomId.trim());
+    setMovePreviewLoading(true);
+    const res = await previewMoveFromRoom(liveRoomId, source);
+    setMovePreviewLoading(false);
+    if (!res.ok) {
+      setFormError(res.error);
+      return;
+    }
+    setMovePreview(res.data);
+  }, [liveRoomId, selectedPriorRoomId]);
+
+  const handleImportFromPrior = useCallback(async () => {
+    if (!onImportFromPriorRoom || !movePreview) return;
+    setFormError(null);
+    const ok = await onImportFromPriorRoom(movePreview.from.id, movePreview.totals);
     if (ok) requestClose("success", onRequestClose);
-  }, [onImportFromPriorRoom, onRequestClose, selectedPriorRoomId]);
+    else setMovePreview(null);
+  }, [movePreview, onImportFromPriorRoom, onRequestClose]);
 
   if (!mounted || !open || !mode) return null;
 
@@ -1009,7 +1028,7 @@ export function AddQueueItemModal({
               {priorLoading ? <p className="text-sm text-zinc-500">Loading prior shows…</p> : null}
               {priorError ? <p className="text-xs text-rose-300">{priorError}</p> : null}
               {!priorLoading && !priorError && priorRooms.length === 0 ? (
-                <p className="text-sm text-zinc-500">No prior shows found to copy from.</p>
+                <p className="text-sm text-zinc-500">No previous shows found.</p>
               ) : null}
               <ul className="space-y-2">
                 {priorRooms.map((room) => {
@@ -1019,7 +1038,10 @@ export function AddQueueItemModal({
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => setSelectedPriorRoomId(room.id)}
+                        onClick={() => {
+                          setSelectedPriorRoomId(room.id);
+                          setMovePreview(null);
+                        }}
                         className={`flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left transition ${
                           selected
                             ? "border-gold/40 bg-gold/10"
@@ -1042,6 +1064,7 @@ export function AddQueueItemModal({
                   );
                 })}
               </ul>
+              {movePreview ? <MovePreviewSummary preview={movePreview} /> : null}
               {formError ? <p className="mt-3 text-xs text-rose-300">{formError}</p> : null}
               <div className="mt-5 flex gap-2">
                 <button
@@ -1051,14 +1074,25 @@ export function AddQueueItemModal({
                 >
                   Cancel
                 </button>
-                <button
-                  type="button"
-                  disabled={busy || !selectedPriorRoomId || !onImportFromPriorRoom}
-                  onClick={() => void handleImportFromPrior()}
-                  className="flex-1 rounded-lg bg-gold/25 py-2 text-sm font-bold text-gold-bright ring-1 ring-gold/35 hover:bg-gold/30 disabled:opacity-50"
-                >
-                  Copy unsold lineup
-                </button>
+                {movePreview ? (
+                  <button
+                    type="button"
+                    disabled={busy || movePreview.blockers.length > 0 || !onImportFromPriorRoom}
+                    onClick={() => void handleImportFromPrior()}
+                    className="flex-1 rounded-lg bg-gold/25 py-2 text-sm font-bold text-gold-bright ring-1 ring-gold/35 hover:bg-gold/30 disabled:opacity-50"
+                  >
+                    Move {movePreview.totals.items} lot{movePreview.totals.items === 1 ? "" : "s"} here
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={busy || movePreviewLoading || !selectedPriorRoomId || !onImportFromPriorRoom}
+                    onClick={() => void handlePreviewMove()}
+                    className="flex-1 rounded-lg bg-gold/25 py-2 text-sm font-bold text-gold-bright ring-1 ring-gold/35 hover:bg-gold/30 disabled:opacity-50"
+                  >
+                    {movePreviewLoading ? "Checking…" : "Preview move"}
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -1414,5 +1448,44 @@ export function AddQueueItemModal({
       </div>
     </div>,
     document.body,
+  );
+}
+
+/** What a "Move from last show" will do — shown before the seller confirms. */
+function MovePreviewSummary({ preview }: { preview: ShowMovePreview }) {
+  const t = preview.totals;
+  return (
+    <div className="mt-4 rounded-xl border border-white/10 bg-[#0c0c10] p-3 text-sm">
+      <p className="font-semibold text-zinc-100">
+        {t.items} lot{t.items === 1 ? "" : "s"} · {t.paidSpots} paid spot{t.paidSpots === 1 ? "" : "s"}
+        {t.pendingSpots ? ` · ${t.pendingSpots} awaiting payment` : ""} · {t.buyers} buyer{t.buyers === 1 ? "" : "s"}
+      </p>
+      <p className="mt-1 text-xs text-zinc-400">
+        From “{preview.from.title || "Untitled show"}”.{" "}
+        {preview.willLinkContinuation ? "Buyers' shipping from that show carries over to this one." : null}
+      </p>
+      {preview.items.length > 0 ? (
+        <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto text-xs text-zinc-300">
+          {preview.items.map((i) => (
+            <li key={i.id} className="flex justify-between gap-3">
+              <span className="min-w-0 truncate">{i.title}</span>
+              <span className="shrink-0 text-zinc-500">
+                {i.paidSpots + i.pendingSpots > 0 ? `${i.paidSpots + i.pendingSpots} sold` : i.status}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {preview.blockers.map((b) => (
+        <p key={b} className="mt-2 text-xs font-semibold text-rose-300">
+          {b}
+        </p>
+      ))}
+      {preview.warnings.map((w) => (
+        <p key={w} className="mt-2 text-xs text-amber-200/90">
+          {w}
+        </p>
+      ))}
+    </div>
   );
 }

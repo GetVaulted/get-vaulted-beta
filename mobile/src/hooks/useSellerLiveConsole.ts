@@ -13,7 +13,9 @@ import {
   createLiveRoomQueueItem,
   createOffPlatformPlatformFeeCheckout,
   deleteLiveRoomQueueItem,
-  importLiveRoomItemsFromRoom,
+  moveItemsFromRoom,
+  previewMoveFromRoom,
+  type ShowMovePreview,
   manualAssignLiveItemVariant,
   restoreLiveItemVariant,
   retireLiveItemVariant,
@@ -478,37 +480,76 @@ export function useSellerLiveConsole({
   };
 
   const onImportFromPriorRoom = (sourceRoomId: string) => {
+    const TITLE = 'Move from last show';
     if (busy) {
-      Alert.alert('Copy last show', 'Still saving the previous change. Try again in a moment.');
+      Alert.alert(TITLE, 'Still saving the previous change. Try again in a moment.');
       return;
     }
     if (roomStatus === 'ended') {
-      Alert.alert('Copy last show', 'This show has ended. You cannot add queue items.');
+      Alert.alert(TITLE, 'This show has ended. You cannot add queue items.');
       return;
     }
     setBusy(true);
     setConsoleError(null);
     void (async () => {
+      let preview: ShowMovePreview;
       try {
-        const result = await importLiveRoomItemsFromRoom(accessToken, roomId, sourceRoomId);
-        invalidateHostConsoleCache(roomId);
-        await reload({ force: true });
-        setInventoryOpen(false);
-        onAfterAddLot?.();
-        const label = result.sourceTitle?.trim() || 'prior show';
-        Alert.alert(
-          'Copy last show',
-          result.skipped > 0
-            ? `Copied ${result.imported} from ${label} (${result.skipped} already in lineup).`
-            : `Copied ${result.imported} from ${label}.`,
-        );
+        preview = await previewMoveFromRoom(accessToken, roomId, sourceRoomId);
       } catch (e) {
         const sanitized = sanitizeLiveError(e, 'console');
         setConsoleError(sanitized);
-        Alert.alert('Copy last show', sanitized.userMessage);
-      } finally {
+        Alert.alert(TITLE, sanitized.userMessage);
         setBusy(false);
+        return;
       }
+      setBusy(false);
+      const t = preview.totals;
+      if (preview.blockers.length > 0) {
+        Alert.alert(TITLE, preview.blockers.join('\n\n'));
+        return;
+      }
+      const summary = [
+        `${t.items} lot${t.items === 1 ? '' : 's'} · ${t.paidSpots} paid spot${t.paidSpots === 1 ? '' : 's'}` +
+          (t.pendingSpots ? ` · ${t.pendingSpots} awaiting payment` : '') +
+          ` · ${t.buyers} buyer${t.buyers === 1 ? '' : 's'}`,
+        `From "${preview.from.title || 'Untitled show'}".`,
+        preview.willLinkContinuation ? "Buyers' shipping from that show carries over to this one." : '',
+        ...preview.warnings,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+      Alert.alert(TITLE, summary, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: `Move ${t.items} lot${t.items === 1 ? '' : 's'}`,
+          onPress: () => {
+            setBusy(true);
+            void (async () => {
+              try {
+                const result = await moveItemsFromRoom(accessToken, roomId, preview.from.id, t);
+                invalidateHostConsoleCache(roomId);
+                await reload({ force: true });
+                setInventoryOpen(false);
+                onAfterAddLot?.();
+                const label = result.sourceTitle?.trim() || 'previous show';
+                const n = result.moved?.items ?? 0;
+                const p = result.moved?.purchases ?? 0;
+                Alert.alert(
+                  TITLE,
+                  `Moved ${n} lot${n === 1 ? '' : 's'} from ${label}` +
+                    (p > 0 ? ` with ${p} sold spot${p === 1 ? '' : 's'}.` : '.'),
+                );
+              } catch (e) {
+                const sanitized = sanitizeLiveError(e, 'console');
+                setConsoleError(sanitized);
+                Alert.alert(TITLE, sanitized.userMessage);
+              } finally {
+                setBusy(false);
+              }
+            })();
+          },
+        },
+      ]);
     })();
   };
 
