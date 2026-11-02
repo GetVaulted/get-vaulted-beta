@@ -517,6 +517,55 @@ export async function importLiveRoomItemsFromRoom(
   }
 }
 
+export type ShowMovePreview = {
+  from: { id: string; title: string; status: string };
+  to: { id: string; title: string; status: string };
+  items: { id: string; title: string; status: string; paidSpots: number; pendingSpots: number; bids: number }[];
+  totals: { items: number; paidSpots: number; pendingSpots: number; bids: number; buyers: number };
+  willLinkContinuation: boolean;
+  blockers: string[];
+  warnings: string[];
+};
+
+async function postMoveFromRoom<T>(liveRoomId: string, body: Record<string, unknown>, fallback: string): Promise<ApiResult<T>> {
+  try {
+    const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/move-from-room`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
+    const payload = await readJsonSafe<T & { error?: string }>(res);
+    if (!res.ok || !payload) {
+      const { error, issues } = normalizeError(payload, fallback);
+      return { ok: false, error, issues };
+    }
+    return { ok: true, data: payload };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server.",
+      issues: [],
+    };
+  }
+}
+
+/** Dry run of moving a previous show's lots (with sold spots) into this show. */
+export async function previewMoveFromRoom(liveRoomId: string, sourceRoomId: string): Promise<ApiResult<ShowMovePreview>> {
+  const r = await postMoveFromRoom<{ preview: ShowMovePreview }>(liveRoomId, { sourceRoomId, preview: true }, "Could not preview that show.");
+  return r.ok ? { ok: true, data: r.data.preview } : r;
+}
+
+/** Do the move; `expect` is the previewed totals (refused if the old show changed since). */
+export async function moveItemsFromRoom(
+  liveRoomId: string,
+  sourceRoomId: string,
+  expect: ShowMovePreview["totals"],
+): Promise<ApiResult<{ moved: { items: number; purchases: number }; linkedContinuation: boolean; sourceTitle?: string }>> {
+  return postMoveFromRoom(liveRoomId, { sourceRoomId, expect }, "Could not move those items.");
+}
+
 export async function sendLiveRoomSystemMessage(
   liveRoomId: string,
   body: string,

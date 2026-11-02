@@ -33,7 +33,7 @@ export const SELLER_CONSOLE = {
   /** Add-item modal — inventory source tabs */
   addSourceNew: 'New item',
   addSourceShop: 'From my shop',
-  addSourceCopyShow: 'Copy last show',
+  addSourceCopyShow: 'Move from last show',
   addSourceShopHint: 'Pull Live show or Marketplace inventory into this lineup.',
-  addSourceCopyHint: 'Bring unsold lots from a previous show — finish a break you did not complete.',
+  addSourceCopyHint: 'Move lots from a previous show to finish a break — sold spots, buyers and their shipping come with them.',
 } as const;

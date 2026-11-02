@@ -250,6 +250,52 @@ export async function importLiveRoomItemsFromRoom(
   };
 }
 
+export type ShowMovePreview = {
+  from: { id: string; title: string; status: string };
+  to: { id: string; title: string; status: string };
+  items: { id: string; title: string; status: string; paidSpots: number; pendingSpots: number; bids: number }[];
+  totals: { items: number; paidSpots: number; pendingSpots: number; bids: number; buyers: number };
+  willLinkContinuation: boolean;
+  blockers: string[];
+  warnings: string[];
+};
+
+async function postMoveFromRoom<T>(accessToken: string, roomId: string, body: Record<string, unknown>): Promise<T> {
+  const res = await controlFetch(
+    `/api/live-rooms/${encodeURIComponent(roomId)}/items/move-from-room`,
+    accessToken,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+  let j: T & { error?: string } = {} as T & { error?: string };
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+  return j;
+}
+
+/** Dry run: moving a previous show's lots (with sold spots + shipping link) into this show. */
+export async function previewMoveFromRoom(
+  accessToken: string,
+  roomId: string,
+  sourceRoomId: string,
+): Promise<ShowMovePreview> {
+  const j = await postMoveFromRoom<{ preview: ShowMovePreview }>(accessToken, roomId, { sourceRoomId, preview: true });
+  return j.preview;
+}
+
+/** Do the move; `expect` is the previewed totals (refused if the old show changed since). */
+export async function moveItemsFromRoom(
+  accessToken: string,
+  roomId: string,
+  sourceRoomId: string,
+  expect: ShowMovePreview['totals'],
+): Promise<{ moved: { items: number; purchases: number }; linkedContinuation: boolean; sourceTitle?: string }> {
+  return postMoveFromRoom(accessToken, roomId, { sourceRoomId, expect });
+}
+
 export async function patchLiveRoomItem(
   accessToken: string,
   roomId: string,

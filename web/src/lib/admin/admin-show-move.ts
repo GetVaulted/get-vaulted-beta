@@ -303,7 +303,10 @@ export class ShowMoveError extends Error {
  * data has changed since (a sale landed, someone edited), the move is refused so nothing surprising happens.
  */
 export async function executeShowMove(args: {
+  /** Who did it: the admin, or the seller themselves (seller "Move from previous show"). */
   adminUserId: string;
+  /** Audit action name. Defaults to the admin tool's. */
+  auditAction?: string;
   fromRoomId: string;
   toRoomId: string;
   itemIds?: string[] | null;
@@ -365,7 +368,7 @@ export async function executeShowMove(args: {
       await logAdminAction(
         {
           adminUserId: args.adminUserId,
-          action: "show.move_items",
+          action: args.auditAction ?? "show.move_items",
           targetType: "live_room",
           targetId: plan.to.id,
           targetUserId: plan.to.sellerId,
