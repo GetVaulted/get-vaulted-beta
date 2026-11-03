@@ -512,6 +512,19 @@ export function useSellerLiveConsole({
     })();
   };
 
+  /** The move itself already happened on the server (MoveSoldSpotsPanel); refresh and tell the seller. */
+  const onMovedSoldSpots = (result: { items: number; sourceTitle?: string }) => {
+    invalidateHostConsoleCache(roomId);
+    void reload({ force: true });
+    setInventoryOpen(false);
+    onAfterAddLot?.();
+    const label = result.sourceTitle?.trim() || 'your last show';
+    Alert.alert(
+      'Move sold spots',
+      `Moved ${result.items} lot${result.items === 1 ? '' : 's'} with their sold spots from ${label}. Pin a lot when you're ready to run it.`,
+    );
+  };
+
   const onSaveQueuePricing = (itemId: string, values: QuickLiveLotValues) => {
     void run(async () => {
       const existing =
@@ -1030,6 +1043,7 @@ export function useSellerLiveConsole({
     onQuickAddLot,
     onSubmitFromShop,
     onImportFromPriorRoom,
+    onMovedSoldSpots,
     consoleError,
     chatMessages,
     loadOnce,

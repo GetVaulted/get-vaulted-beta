@@ -1300,6 +1300,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         onSubmit={console.onQuickAddLot}
         onSubmitFromShop={console.onSubmitFromShop}
         onImportFromPriorRoom={console.onImportFromPriorRoom}
+        onMovedSoldSpots={console.onMovedSoldSpots}
         busy={console.busy}
       />
       <EditQueueItemPricingModal

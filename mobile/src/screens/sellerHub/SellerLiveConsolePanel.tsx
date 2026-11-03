@@ -118,6 +118,7 @@ export function SellerLiveConsolePanel({
         onSubmit={c.onQuickAddLot}
         onSubmitFromShop={c.onSubmitFromShop}
         onImportFromPriorRoom={c.onImportFromPriorRoom}
+        onMovedSoldSpots={c.onMovedSoldSpots}
         busy={c.busy}
       />
       <EditQueueItemPricingModal
