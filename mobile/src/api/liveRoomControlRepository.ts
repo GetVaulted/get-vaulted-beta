@@ -250,6 +250,81 @@ export async function importLiveRoomItemsFromRoom(
   };
 }
 
+export type MoveSoldSpotsPreview = {
+  from: { id: string; title: string; status: string };
+  to: { id: string; title: string; status: string };
+  items: { id: string; title: string; paidSpots: number; pendingSpots: number; bids: number; moving: boolean }[];
+  buyers: { username: string; spots: number }[];
+  totals: { items: number; paidSpots: number; pendingSpots: number; bids: number; buyers: number };
+  willLinkContinuation: boolean;
+  blockers: string[];
+  warnings: string[];
+};
+
+/**
+ * Seller "Move sold spots" — step 1: look at what would move (writes nothing). Pass no `itemIds` to
+ * list the lots in the old show; pass the picked lots to get blockers, warnings, and totals for them.
+ */
+export async function previewMoveSoldSpots(
+  accessToken: string,
+  roomId: string,
+  sourceRoomId: string,
+  itemIds: string[],
+): Promise<MoveSoldSpotsPreview> {
+  const res = await controlFetch(
+    `/api/live-rooms/${encodeURIComponent(roomId)}/items/move-from-room`,
+    accessToken,
+    { method: 'POST', body: JSON.stringify({ sourceRoomId, itemIds }) },
+  );
+  let j: { preview?: MoveSoldSpotsPreview; error?: string } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok || !j.preview) throw new Error(apiErrorMessage(res, j));
+  return j.preview;
+}
+
+/** Seller "Move sold spots" — step 2: do the move. `totals` must be the ones the seller just reviewed. */
+export async function moveSoldSpotsFromRoom(
+  accessToken: string,
+  roomId: string,
+  sourceRoomId: string,
+  itemIds: string[],
+  totals: MoveSoldSpotsPreview['totals'],
+): Promise<{ moved: { items: number; purchases: number }; sourceTitle?: string }> {
+  const res = await controlFetch(
+    `/api/live-rooms/${encodeURIComponent(roomId)}/items/move-from-room`,
+    accessToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        sourceRoomId,
+        itemIds,
+        confirm: true,
+        expect: {
+          items: totals.items,
+          paidSpots: totals.paidSpots,
+          pendingSpots: totals.pendingSpots,
+          buyers: totals.buyers,
+        },
+      }),
+    },
+  );
+  let j: { moved?: { items?: number; purchases?: number }; sourceTitle?: string; error?: string } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+  return {
+    moved: { items: j.moved?.items ?? 0, purchases: j.moved?.purchases ?? 0 },
+    sourceTitle: j.sourceTitle,
+  };
+}
+
 export async function patchLiveRoomItem(
   accessToken: string,
   roomId: string,

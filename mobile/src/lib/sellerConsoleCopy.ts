@@ -44,6 +44,7 @@ export const SELLER_CONSOLE = {
   addSourceNew: 'New item',
   addSourceShop: 'From my shop',
   addSourceCopyShow: 'Copy last show',
+  addSourceMoveSold: 'Move sold',
   addSourceShopHint: 'Pull Live show or Marketplace inventory into this lineup.',
   addSourceCopyHint: 'Bring unsold lots from a previous show — finish a break you did not complete.',
   /** Companion host — another device owns the camera. */

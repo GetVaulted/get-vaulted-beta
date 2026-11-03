@@ -122,7 +122,17 @@ async function chainContains(db: Db, startId: string, candidateId: string): Prom
 
 /** Dry run: what a move would do and why it might not be allowed. Never writes. */
 export async function planShowMove(
-  args: { fromRoomId: string; toRoomId: string; itemIds?: string[] | null; linkContinuation?: boolean },
+  args: {
+    fromRoomId: string;
+    toRoomId: string;
+    itemIds?: string[] | null;
+    linkContinuation?: boolean;
+    /**
+     * A seller moving their own sold spots (see `executeShowMove`). Adds extra blockers so it can only
+     * be used on an ended show, on lots the seller picked, that have sold spots and nothing in flight.
+     */
+    sellerMode?: boolean;
+  },
   db: Db = prisma,
 ): Promise<MovePlan | { error: "FROM_NOT_FOUND" | "TO_NOT_FOUND" }> {
   const [fromRow, toRow] = await Promise.all([
@@ -147,7 +157,7 @@ export async function planShowMove(
   const itemRows = await db.liveRoomItem.findMany({
     where: { liveRoomId: from.id },
     orderBy: { sortOrder: "asc" },
-    select: { id: true, title: true, status: true, sortOrder: true },
+    select: { id: true, title: true, status: true, sortOrder: true, variantBreakBeganAt: true },
   });
   const wanted = args.itemIds && args.itemIds.length > 0 ? new Set(args.itemIds) : null;
   const unknown = wanted ? [...wanted].filter((id) => !itemRows.some((i) => i.id === id)) : [];
@@ -233,6 +243,25 @@ export async function planShowMove(
   const pendingSpots = items.filter((i) => i.moving).reduce((n, i) => n + i.pendingSpots, 0);
   const bids = items.filter((i) => i.moving).reduce((n, i) => n + i.bids, 0);
 
+  if (args.sellerMode) {
+    if (from.status !== "ended") blockers.push("You can only move sold spots out of a show that has ended.");
+    if (!wanted) blockers.push("Pick the lots you want to move.");
+    const noSales = items.filter((i) => i.moving && i.paidSpots === 0);
+    if (wanted && noSales.length > 0) {
+      blockers.push(
+        `${noSales.length} selected lot(s) have no sold spots. Use Copy last show for lots that did not sell.`,
+      );
+    }
+    const began = itemRows.filter((r) => movingIds.includes(r.id) && r.variantBreakBeganAt != null);
+    if (began.length > 0) {
+      blockers.push(`${began.length} selected break(s) already started in the old show, so they can't be moved.`);
+    }
+    if (pendingSpots > 0) {
+      blockers.push(`${pendingSpots} spot(s) are still waiting on payment. Let them finish or expire first.`);
+    }
+    if (bids > 0) blockers.push(`${bids} auction bid(s) are on the selected lots, so they can't be moved.`);
+  }
+
   // Continuation link.
   let willLinkContinuation = false;
   if (args.linkContinuation !== false && from.id !== to.id) {
@@ -303,7 +332,10 @@ export class ShowMoveError extends Error {
  * data has changed since (a sale landed, someone edited), the move is refused so nothing surprising happens.
  */
 export async function executeShowMove(args: {
+  /** Whoever is doing the move (an admin, or the seller when `sellerMode` is on). Written to the audit log. */
   adminUserId: string;
+  /** Seller self-service: stricter rules (see `planShowMove`), and moved lots come over as queued. */
+  sellerMode?: boolean;
   fromRoomId: string;
   toRoomId: string;
   itemIds?: string[] | null;
@@ -315,7 +347,13 @@ export async function executeShowMove(args: {
     async (tx) => {
       const txDb = tx as unknown as Db;
       const plan = await planShowMove(
-        { fromRoomId: args.fromRoomId, toRoomId: args.toRoomId, itemIds: args.itemIds, linkContinuation: args.linkContinuation },
+        {
+          fromRoomId: args.fromRoomId,
+          toRoomId: args.toRoomId,
+          itemIds: args.itemIds,
+          linkContinuation: args.linkContinuation,
+          sellerMode: args.sellerMode,
+        },
         txDb,
       );
       if ("error" in plan) throw new ShowMoveError(plan.error, 404);
@@ -339,7 +377,21 @@ export async function executeShowMove(args: {
       for (const item of movingItems) {
         await tx.liveRoomItem.update({
           where: { id: item.id },
-          data: { liveRoomId: plan.to.id, sortOrder: nextSort++, itemVersion: { increment: 1 } },
+          data: {
+            liveRoomId: plan.to.id,
+            sortOrder: nextSort++,
+            itemVersion: { increment: 1 },
+            // A seller's moved lots arrive ready to pin, never half-live: the old show is over.
+            ...(args.sellerMode
+              ? {
+                  status: "queued" as const,
+                  biddingOpen: false,
+                  auctionEndsAt: null,
+                  activeSpotCommerceMode: null,
+                  auctionVariantId: null,
+                }
+              : {}),
+          },
         });
       }
 
@@ -365,7 +417,7 @@ export async function executeShowMove(args: {
       await logAdminAction(
         {
           adminUserId: args.adminUserId,
-          action: "show.move_items",
+          action: args.sellerMode ? "show.move_items_by_seller" : "show.move_items",
           targetType: "live_room",
           targetId: plan.to.id,
           targetUserId: plan.to.sellerId,

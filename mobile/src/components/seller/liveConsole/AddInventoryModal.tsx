@@ -61,12 +61,13 @@ import {
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
 import { colors, radii, spacing, vaultColors } from '../../../theme';
 import { BreakSpotSetupGrid } from './BreakSpotSetupGrid';
+import { MoveSoldSpotsPanel } from './MoveSoldSpotsPanel';
 
 const THUMBNAIL_MAX_BYTES = 20 * 1024 * 1024;
 
 type SaleCategory = 'teams_divisions' | 'auction' | 'buy_now';
 type BreakSaleType = 'pyt' | 'pyd' | 'pyp' | 'random_pyt' | 'random_pyd' | 'random_pyp' | 'sweet16';
-type AddSourceTab = 'new' | 'shop' | 'copy';
+type AddSourceTab = 'new' | 'shop' | 'copy' | 'move';
 
 const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
   {
@@ -126,6 +127,7 @@ export function AddInventoryModal({
   onSubmit,
   onSubmitFromShop,
   onImportFromPriorRoom,
+  onMovedSoldSpots,
 }: {
   visible: boolean;
   accessToken: string;
@@ -135,6 +137,8 @@ export function AddInventoryModal({
   onSubmit: (payload: QuickLiveLotSubmitPayload, options?: QuickLiveLotSubmitOptions) => void;
   onSubmitFromShop?: (listingIds: string[]) => void;
   onImportFromPriorRoom?: (sourceRoomId: string) => void;
+  /** Called after sold spots were moved in from an ended show (the screen should reload the lineup). */
+  onMovedSoldSpots?: (result: { items: number; sourceTitle?: string }) => void;
 }) {
   const insets = useSafeAreaInsets();
   const keyboardInset = useKeyboardInset();
@@ -455,8 +459,11 @@ export function AddInventoryModal({
                   { id: 'new' as const, label: SELLER_CONSOLE.addSourceNew },
                   { id: 'shop' as const, label: SELLER_CONSOLE.addSourceShop },
                   { id: 'copy' as const, label: SELLER_CONSOLE.addSourceCopyShow },
+                  { id: 'move' as const, label: SELLER_CONSOLE.addSourceMoveSold },
                 ] as const
-              ).map((tab) => {
+              )
+                .filter((tab) => tab.id !== 'move' || Boolean(onMovedSoldSpots))
+                .map((tab) => {
                 const on = addSource === tab.id;
                 return (
                   <Pressable
@@ -602,6 +609,13 @@ export function AddInventoryModal({
                   <Text style={styles.primaryTxt}>{busy ? 'Copying…' : 'Copy unsold lineup'}</Text>
                 </Pressable>
               </>
+            ) : addSource === 'move' && onMovedSoldSpots ? (
+              <MoveSoldSpotsPanel
+                accessToken={accessToken}
+                roomId={roomId}
+                busy={busy}
+                onMoved={onMovedSoldSpots}
+              />
             ) : (
               <>
             <Text style={styles.sub}>Title, photo, pricing, and quantity — queue as many lots as you need.</Text>
