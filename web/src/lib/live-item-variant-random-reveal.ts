@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "crypto";
+import { randomInt } from "crypto";
 import { Prisma } from "@/generated/prisma/client";
 import type { LiveItemSalesFormat, LiveItemVariantAssignmentMode } from "@/generated/prisma/client";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
@@ -238,11 +238,23 @@ export async function buildRandomRevealSpinForPurchase(purchaseId: string): Prom
   return { spin, buyerId: purchase.buyerId, liveRoomId: purchase.liveRoomId };
 }
 
-function pickIndex(seed: string, max: number): number {
-  if (max <= 0) return 0;
-  const hex = createHash("sha256").update(seed).digest("hex").slice(0, 8);
-  const n = Number.parseInt(hex, 16);
-  return Number.isFinite(n) ? n % max : 0;
+/**
+ * Uniform, unpredictable draw. `crypto.randomInt` uses rejection sampling, so every index in
+ * [0, max) is exactly equally likely. The candidates are shuffled first, so where an entry sits in
+ * the seller's list (e.g. every chase item typed in first) can never affect its chance.
+ */
+export function drawUniformIndex(max: number): number {
+  if (max <= 1) return 0;
+  return randomInt(max);
+}
+
+function shuffled<T>(items: readonly T[]): T[] {
+  const out = items.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
 }
 
 async function assignedLabelsForItem(db: Db, liveRoomItemId: string): Promise<Set<string>> {
@@ -334,12 +346,20 @@ export async function executeRandomVariantRevealOnPurchase(args: {
 
   for (let attempt = 0; attempt < MAX_DRAW_ATTEMPTS; attempt++) {
     const taken = await assignedLabelsForItem(prisma, args.liveRoomItemId);
-    const remaining = pool.filter((p) => !taken.has(p.label.trim().toLowerCase()));
+    const remaining = shuffled(pool.filter((p) => !taken.has(p.label.trim().toLowerCase())));
     if (remaining.length === 0) return null;
 
-    const seed = `${args.purchaseId}:${attempt}:${randomBytes(8).toString("hex")}`;
-    const winnerIndex = pickIndex(seed, remaining.length);
+    const winnerIndex = drawUniformIndex(remaining.length);
     const winner = remaining[winnerIndex]!;
+    // Audit trail for every draw (Netlify function logs): how many units were left and what was drawn.
+    console.info("[random reveal] draw", {
+      purchaseId: args.purchaseId,
+      liveRoomItemId: args.liveRoomItemId,
+      attempt,
+      poolSize: pool.length,
+      remaining: remaining.length,
+      winner: winner.label,
+    });
 
     try {
       await prisma.liveItemVariantPurchase.update({

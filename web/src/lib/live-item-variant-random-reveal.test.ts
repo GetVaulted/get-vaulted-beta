@@ -21,6 +21,7 @@ const prismaMock = vi.hoisted(() => ({
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
 import {
+  drawUniformIndex,
   executeRandomVariantRevealOnPurchase,
   remainingRandomPoolCount,
 } from "@/lib/live-item-variant-random-reveal";
@@ -263,5 +264,24 @@ describe("executeRandomVariantRevealOnPurchase — FIX 1 atomic pool draw", () =
         salesFormat: "team_break",
       }),
     ).rejects.toThrow("boom");
+  });
+});
+
+describe("drawUniformIndex", () => {
+  it("gives every position the same chance (500-unit set, 67 chase units listed first)", () => {
+    const N = 200_000;
+    let chase = 0;
+    let firstThirty = 0;
+    for (let i = 0; i < N; i++) {
+      const idx = drawUniformIndex(500);
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(idx).toBeLessThan(500);
+      if (idx < 67) chase++;
+      if (idx < 30) firstThirty++;
+    }
+    expect(chase / N).toBeGreaterThan(0.128);
+    expect(chase / N).toBeLessThan(0.14);
+    expect(firstThirty / N).toBeGreaterThan(0.055);
+    expect(firstThirty / N).toBeLessThan(0.065);
   });
 });
