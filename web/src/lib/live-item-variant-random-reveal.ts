@@ -113,9 +113,10 @@ async function resolveCustomPoolLabelsForItem(db: Db, liveRoomItemId: string): P
     select: { customRandomPoolLabels: true, salesFormat: true, surpriseSetItems: true },
   });
   if (item?.salesFormat !== "player_selection") return null;
-  // Surprise Sets hold up to SURPRISE_SET_MAX_UNITS units (one label each); player breaks stay capped.
-  const isSurpriseSet = surpriseSetItemNames(item.surpriseSetItems) !== null;
-  return normalizeCustomRandomPoolLabels(item.customRandomPoolLabels, isSurpriseSet ? SURPRISE_SET_MAX_UNITS : undefined);
+  // Draw from every stored label. Lists are already capped when they're saved (60 for player breaks,
+  // SURPRISE_SET_MAX_UNITS for Surprise Sets), so capping again here could only drop units — and if a
+  // set ever lost its item list, a 60 cap silently removed everything past the 60th label from the draw.
+  return normalizeCustomRandomPoolLabels(item.customRandomPoolLabels, SURPRISE_SET_MAX_UNITS);
 }
 
 /**

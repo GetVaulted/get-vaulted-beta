@@ -100,6 +100,46 @@ describe("remainingRandomPoolCount", () => {
   });
 });
 
+describe("random pool size for stored lists", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // A 500-unit Surprise Set copied from an earlier show had lost its item list, so it was read as a
+  // player break and capped at 60 labels — every card pack (labels 68–500) fell out of the draw.
+  const labels = [
+    ...Array.from({ length: 67 }, (_, i) => `box ${i + 1}`),
+    ...Array.from({ length: 433 }, (_, i) => `packs (${i + 1} of 433)`),
+  ];
+
+  it("draws from every stored label even when the Surprise Set item list is missing", async () => {
+    prismaMock.liveRoomItem.findUnique.mockResolvedValue({
+      customRandomPoolLabels: labels,
+      salesFormat: "player_selection",
+      surpriseSetItems: null,
+    });
+    prismaMock.liveItemVariantPurchase.findMany.mockResolvedValue([]);
+    await expect(
+      remainingRandomPoolCount({ liveRoomItemId: "item_1", salesFormat: "player_selection" }),
+    ).resolves.toBe(500);
+  });
+
+  it("draws from every unit of a Surprise Set", async () => {
+    prismaMock.liveRoomItem.findUnique.mockResolvedValue({
+      customRandomPoolLabels: labels,
+      salesFormat: "player_selection",
+      surpriseSetItems: [
+        { name: "box 1", quantity: 1, msrpUsd: 60 },
+        { name: "packs", quantity: 433, msrpUsd: 60 },
+      ],
+    });
+    prismaMock.liveItemVariantPurchase.findMany.mockResolvedValue([{ revealedLabel: "box 1" }]);
+    await expect(
+      remainingRandomPoolCount({ liveRoomItemId: "item_1", salesFormat: "player_selection" }),
+    ).resolves.toBe(499);
+  });
+});
+
 describe("executeRandomVariantRevealOnPurchase — FIX 1 atomic pool draw", () => {
   beforeEach(() => vi.clearAllMocks());
 

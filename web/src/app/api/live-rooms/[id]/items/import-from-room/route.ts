@@ -108,6 +108,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           teamBoardNcaa: item.teamBoardNcaa,
           teamBoardLeagueExtras: item.teamBoardLeagueExtras,
           customRandomPoolLabels: item.customRandomPoolLabels ?? undefined,
+          // Surprise Sets: without the item list the copy is treated as a player break, whose draw pool
+          // stops at the first 60 labels. That dropped every card pack from a 500-unit set and made
+          // every spin land on a high-value unit. The copy is a new item, so it starts as a full board.
+          surpriseSetItems: item.surpriseSetItems ?? undefined,
           quantity: isVariantSalesFormat(item.salesFormat) ? 1 : qty,
           quantityInitial: isVariantSalesFormat(item.salesFormat) ? 1 : qty,
           salesFormat: item.salesFormat,
