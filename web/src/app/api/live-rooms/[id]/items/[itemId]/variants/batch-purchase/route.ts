@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { scopedLivePurchaseIdempotencyKey } from "@/lib/live-purchase-idempotency";
 import { assertSweet16CapacityInTx } from "@/lib/live-sweet16-draft";
 import { NextResponse } from "next/server";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
@@ -189,7 +190,7 @@ export async function POST(
     );
   }
 
-  const idempotencyKey = req.headers.get("Idempotency-Key")?.trim().slice(0, 128) ?? null;
+  const idempotencyKey = scopedLivePurchaseIdempotencyKey(userId, req.headers.get("Idempotency-Key"));
   if (idempotencyKey) {
     const existing = await prisma.liveItemVariantPurchase.findFirst({
       where: { idempotencyKey, buyerId: userId },

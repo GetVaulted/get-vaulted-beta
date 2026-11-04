@@ -1,4 +1,5 @@
 import { assertSweet16CapacityInTx } from "@/lib/live-sweet16-draft";
+import { scopedLivePurchaseIdempotencyKey } from "@/lib/live-purchase-idempotency";
 import { NextResponse } from "next/server";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
 import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
@@ -161,7 +162,7 @@ export async function POST(
     typeof qtyRaw === "number" && Number.isFinite(qtyRaw) && qtyRaw >= 1 ? Math.min(99, Math.floor(qtyRaw)) : 1;
   const paymentMethodId = typeof body.paymentMethodId === "string" ? body.paymentMethodId.trim() : undefined;
 
-  const idempotencyKey = req.headers.get("Idempotency-Key")?.trim().slice(0, 128) ?? null;
+  const idempotencyKey = scopedLivePurchaseIdempotencyKey(userId, req.headers.get("Idempotency-Key"));
   if (idempotencyKey) {
     const existing = await prisma.liveItemVariantPurchase.findFirst({
       where: { idempotencyKey, buyerId: userId },
