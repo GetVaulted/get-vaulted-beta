@@ -17,6 +17,7 @@ import {
   expandSurpriseSetLabels,
   SURPRISE_SET_MAX_UNITS,
   validateSurpriseSetItems,
+  validateSurpriseSetMaxLabelWeightOz,
 } from "../../../../../../../shared/surprise-set";
 import { normalizeLeagueExtras } from "@/lib/team-board-sets";
 
@@ -37,6 +38,8 @@ type PostBody = {
   customRandomPoolLabels?: string[] | null;
   /** Surprise Set contents: [{ name, quantity, msrpUsd }] (random player_selection only). */
   surpriseSetItems?: unknown;
+  /** Surprise Sets: start another shipping label once a buyer's wins reach this many ounces. */
+  maxLabelWeightOz?: unknown;
   /** Units on this single queue row (one tile). Max 512. */
   quantity?: number | string;
   salesFormat?: string;
@@ -219,6 +222,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   // Surprise Set: a random Player pool where every physical unit is its own pool label.
   let surpriseSetItems: Array<{ name: string; quantity: number; msrpUsd: number }> | null = null;
   let surpriseSetLabels: string[] | null = null;
+  let maxLabelWeightOz: number | null = null;
   if (body.surpriseSetItems != null) {
     if (salesFormat !== "player_selection" || variantAssignmentMode !== "random") {
       return NextResponse.json({ error: "Surprise Sets must be a random reveal item." }, { status: 400 });
@@ -234,6 +238,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
     surpriseSetItems = check.items;
     surpriseSetLabels = expandSurpriseSetLabels(check.items);
+    const labelCap = validateSurpriseSetMaxLabelWeightOz(body.maxLabelWeightOz);
+    if (!labelCap.ok) return NextResponse.json({ error: labelCap.message }, { status: 400 });
+    maxLabelWeightOz = labelCap.value;
   }
   const customRandomPoolLabels =
     salesFormat === "player_selection" && variantAssignmentMode === "random"
@@ -311,6 +318,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     teamBoardLeagueExtras,
     customRandomPoolLabels: customRandomPoolLabels ?? undefined,
     surpriseSetItems: surpriseSetItems ?? undefined,
+    maxLabelWeightOz: maxLabelWeightOz ?? undefined,
     quantity: isVariantSalesFormat(salesFormat)
       ? Math.max(1, variantDrafts.reduce((sum, v) => sum + Math.max(1, Math.floor(v.quantityInitial ?? 1)), 0))
       : quantity,

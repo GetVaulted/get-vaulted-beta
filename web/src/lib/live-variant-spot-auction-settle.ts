@@ -15,6 +15,7 @@ import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
 import type { FinalizeTrigger } from "@/lib/live-auction-finalize";
 import { resolveSoldUnitDisplayTitle } from "@/lib/live-room-item-quantity-display";
 import { summarizeVariantSpots } from "@/lib/live-item-variant-presets";
+import { surpriseSetItemNames } from "@/lib/live-item-variant-random-reveal";
 
 /** Close a PYT/PYD spot auction with no bids — keep pin armed (not buy-now). */
 export async function resetVariantSpotAuctionNoBids(args: {
@@ -22,11 +23,18 @@ export async function resetVariantSpotAuctionNoBids(args: {
   itemId: string;
   trigger: FinalizeTrigger;
 }): Promise<{ reset: boolean }> {
+  // Surprise Sets have no pinned team to keep armed: return the lot to normal buy-now so the unit
+  // stays purchasable (and the host can open another round) instead of sitting in a dead "armed" state.
+  const lot = await prisma.liveRoomItem.findUnique({
+    where: { id: args.itemId },
+    select: { surpriseSetItems: true },
+  });
+  const isSurpriseSet = surpriseSetItemNames(lot?.surpriseSetItems) !== null;
   const next = await prisma.$transaction(async (tx) => {
     const updated = await tx.liveRoomItem.updateMany({
       where: { id: args.itemId, liveRoomId: args.liveRoomId, status: "active", biddingOpen: true },
       data: {
-        ...endVariantSpotAuctionNoBidsReset(),
+        ...(isSurpriseSet ? idleVariantSpotCommerceReset() : endVariantSpotAuctionNoBidsReset()),
         itemVersion: { increment: 1 },
       },
     });

@@ -5,13 +5,14 @@ import {
   SURPRISE_SET_MAX_UNITS,
   formatOddsPercent,
   validateSurpriseSetItems,
+  validateSurpriseSetMaxLabelWeightOz,
   type SurpriseSetValidation,
 } from "../../../../shared/surprise-set";
 
-export type SurpriseSetRow = { id: string; name: string; quantity: string; msrp: string };
+export type SurpriseSetRow = { id: string; name: string; quantity: string; msrp: string; weight: string };
 
 export function newSurpriseSetRow(): SurpriseSetRow {
-  return { id: Math.random().toString(36).slice(2, 10), name: "", quantity: "1", msrp: "" };
+  return { id: Math.random().toString(36).slice(2, 10), name: "", quantity: "1", msrp: "", weight: "" };
 }
 
 export function initialSurpriseSetRows(): SurpriseSetRow[] {
@@ -26,6 +27,8 @@ export function surpriseRowsToItems(rows: SurpriseSetRow[]) {
       name: r.name,
       quantity: r.quantity.trim() === "" ? Number.NaN : Number(r.quantity),
       msrpUsd: r.msrp.trim() === "" ? Number.NaN : Number(r.msrp),
+      // Blank = ship at the show's normal spot weight.
+      ...(r.weight.trim() === "" ? {} : { weightOz: Number(r.weight) }),
     }));
 }
 
@@ -37,9 +40,17 @@ export function validateSurpriseRows(
   return validateSurpriseSetItems(surpriseRowsToItems(rows), title, unitPriceUsd);
 }
 
+/** Validate the "max ounces per label" box: blank = no limit. */
+export function validateMaxLabelOzText(text: string) {
+  return validateSurpriseSetMaxLabelWeightOz(text.trim() === "" ? null : Number(text));
+}
+
 type Props = {
   rows: SurpriseSetRow[];
   onChange: (rows: SurpriseSetRow[]) => void;
+  /** Seller's max ounces per shipping label (text; blank = no limit). */
+  maxLabelOz: string;
+  onMaxLabelOzChange: (value: string) => void;
   title: string;
   /** Price per unit the seller entered (checked against the lowest retail price). */
   unitPriceUsd?: number | null;
@@ -48,7 +59,7 @@ type Props = {
 const inputClass =
   "w-full rounded-lg border border-white/10 bg-[#0c0c10] px-2.5 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600";
 
-export function SurpriseSetFields({ rows, onChange, title, unitPriceUsd }: Props) {
+export function SurpriseSetFields({ rows, onChange, maxLabelOz, onMaxLabelOzChange, title, unitPriceUsd }: Props) {
   const result = useMemo(() => validateSurpriseRows(rows, title, unitPriceUsd), [rows, title, unitPriceUsd]);
   const anyFilled = rows.some((r) => r.name.trim());
   const totalUnits = rows.reduce((sum, r) => {
@@ -71,15 +82,16 @@ export function SurpriseSetFields({ rows, onChange, title, unitPriceUsd }: Props
         Each unit is sold at the same price. Buyers see every item and their odds, but never the retail prices.
       </p>
 
-      <div className="mt-2 grid grid-cols-[1fr_64px_84px_28px] gap-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+      <div className="mt-2 grid grid-cols-[1fr_56px_76px_64px_28px] gap-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
         <span>Item</span>
         <span>Qty</span>
         <span>Retail $</span>
+        <span>Oz each</span>
         <span />
       </div>
       <div className="mt-1 flex flex-col gap-2">
         {rows.map((r, i) => (
-          <div key={r.id} className="grid grid-cols-[1fr_64px_84px_28px] items-center gap-2">
+          <div key={r.id} className="grid grid-cols-[1fr_56px_76px_64px_28px] items-center gap-2">
             <input
               id={`surprise-name-${r.id}`}
               value={r.name}
@@ -106,6 +118,15 @@ export function SurpriseSetFields({ rows, onChange, title, unitPriceUsd }: Props
               className={inputClass}
               aria-label={`Item ${i + 1} retail price`}
             />
+            <input
+              id={`surprise-weight-${r.id}`}
+              value={r.weight}
+              onChange={(e) => update(r.id, { weight: e.target.value.replace(/[^\d.]/g, "") })}
+              inputMode="decimal"
+              placeholder="oz"
+              className={inputClass}
+              aria-label={`Item ${i + 1} shipping weight in ounces`}
+            />
             <button
               type="button"
               onClick={() => onChange(rows.length > 2 ? rows.filter((x) => x.id !== r.id) : rows)}
@@ -125,6 +146,24 @@ export function SurpriseSetFields({ rows, onChange, title, unitPriceUsd }: Props
       >
         + Add item
       </button>
+
+      <div className="mt-3 flex flex-col gap-1">
+        <label htmlFor="surprise-max-label-oz" className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+          Max ounces per label
+        </label>
+        <input
+          id="surprise-max-label-oz"
+          value={maxLabelOz}
+          onChange={(e) => onMaxLabelOzChange(e.target.value.replace(/[^\d.]/g, ""))}
+          inputMode="decimal"
+          placeholder="e.g. 120 (blank = no limit)"
+          className={inputClass}
+        />
+        <p className="text-[10px] text-zinc-500">
+          Each win adds its “Oz each” to the buyer’s shipment. Once a label would go over this limit, a new label starts, so
+          nine 60 oz helmets at 120 oz ship as five labels instead of one overweight box. Ounces include packaging.
+        </p>
+      </div>
 
       {anyFilled ? (
         result.ok ? (

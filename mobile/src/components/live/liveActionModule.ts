@@ -87,7 +87,9 @@ function resolveBuyerVariantItemHud(
     stream.title?.trim() ||
     'Live spot board';
 
-  if (isRandom) {
+  // A Surprise Set auction (the only random lot the server lets a host auction) falls through to the
+  // auction HUD below; every other random lot keeps the vault-reveal shop HUD.
+  if (isRandom && !isVariantSpotAuctionLive(snap)) {
     const available = availableVariantCount(variants);
     const fromPrice = lowestAvailableVariantPrice(variants) ?? snap.priceUsd ?? snap.startingBidUsd ?? 0;
     return {
@@ -124,12 +126,13 @@ function resolveBuyerVariantItemHud(
     const biddingOpen = snap.lotBidPhase === 'bidding_open';
     const shopCount = shopVariantCountDuringSpotAuction(snap);
     const breakTitle = snap.activeItemTitle?.trim() || itemTitleFallback;
+    const spotLabel = isRandom ? 'Mystery unit' : pinned.label;
     return {
       ...base,
       format: 'auction',
       hybridFocus: null,
       timerMmSs: biddingOpen && snap.auctionEndsAt ? auctionCountdownMmSs(snap.auctionEndsAt, snap.fetchedAtMs) : '—',
-      itemTitle: pinned.label,
+      itemTitle: spotLabel,
       categoryType: breakTitle,
       currentPrefix: hasBid ? 'Current' : 'Opening',
       currentAmount: formatMoney(displayAmount),
@@ -141,9 +144,9 @@ function resolveBuyerVariantItemHud(
       }),
       stateLine: biddingOpen
         ? shopCount > 0
-          ? `${pinned.label} auction live — ${shopCount} other team${shopCount === 1 ? '' : 's'} still in shop.`
-          : `${pinned.label} auction live — place the next bid.`
-        : `${pinned.label} auction ended — waiting for host.`,
+          ? `${spotLabel} auction live — ${shopCount} other team${shopCount === 1 ? '' : 's'} still in shop.`
+          : `${spotLabel} auction live — place the next bid.`
+        : `${spotLabel} auction ended — waiting for host.`,
       bottomLeftLabel: 'Custom',
       bottomRightLabel: biddingOpen
         ? `Slide to Bid ${formatBidMoney(next)}`

@@ -8,6 +8,7 @@ import {
   pickCheapestShippoRate,
   resolveShippingProfileDimensions,
   selectShippoRatesForSellerQuote,
+  splitPackageGroupsByWeightCap,
   shipmentProfileEditLocked,
   suggestShippingProfileSlugForCategory,
 } from "@/lib/unified-shipping-engine";
@@ -191,5 +192,58 @@ describe("unified-shipping-engine", () => {
     expect(liability.estimatedLabelCostCents).toBe(3000);
     expect(liability.netCents).toBe(-1002);
     expect(liability.buyersCount).toBe(2);
+  });
+});
+
+describe("per-label weight limit (Surprise Set wins)", () => {
+  const unit = (itemId: string, weightOz: number) => ({
+    itemId,
+    profile: resolveShippingProfileDimensions({
+      id: `frozen:${itemId}`,
+      slug: "session_frozen",
+      name: "Prior purchase",
+      defaultWeightOz: weightOz,
+      defaultLengthIn: 6,
+      defaultWidthIn: 4,
+      defaultHeightIn: 1,
+      bundleAllowed: true,
+      requiresSeparatePackage: false,
+      bundleGroup: "session_frozen",
+    }),
+  });
+  const nineHelmets = Array.from({ length: 9 }, (_, i) => unit(`h${i}`, 60));
+
+  it("ships nine 60 oz hits as ONE heavy label when no limit is set", () => {
+    const groups = groupItemsIntoPackages(nineHelmets);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.weightOz).toBe(540);
+  });
+
+  it("starts a new label whenever the next win would pass the limit", () => {
+    const groups = groupItemsIntoPackages(nineHelmets, { maxPackageWeightOz: 120 });
+    expect(groups.map((g) => g.items.length)).toEqual([2, 2, 2, 2, 1]);
+    expect(groups.map((g) => g.weightOz)).toEqual([120, 120, 120, 120, 60]);
+    expect(groups.map((g) => g.packageIndex)).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("mixes heavy and light wins into the fewest labels", () => {
+    const mixed = [unit("a", 60), unit("b", 4), unit("c", 60), unit("d", 4), unit("e", 60)];
+    const groups = groupItemsIntoPackages(mixed, { maxPackageWeightOz: 128 });
+    expect(groups).toHaveLength(2);
+    expect(groups.every((g) => g.weightOz <= 128)).toBe(true);
+    expect(groups.flatMap((g) => g.items)).toHaveLength(5);
+  });
+
+  it("gives a single item over the limit its own label instead of dropping it", () => {
+    const groups = groupItemsIntoPackages([unit("big", 200), unit("small", 10)], { maxPackageWeightOz: 100 });
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.weightOz).toBe(200);
+  });
+
+  it("leaves groups alone for a missing, zero or invalid limit", () => {
+    const groups = groupItemsIntoPackages(nineHelmets);
+    for (const cap of [null, undefined, 0, -5, Number.NaN]) {
+      expect(splitPackageGroupsByWeightCap(groups, cap)).toBe(groups);
+    }
   });
 });
