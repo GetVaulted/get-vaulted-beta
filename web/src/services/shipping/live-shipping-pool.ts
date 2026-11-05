@@ -40,6 +40,7 @@ const LIVE_ITEM_SHIPPING_SELECT = {
   customWidthIn: true,
   customHeightIn: true,
   requiresSeparatePackage: true,
+  maxLabelWeightOz: true,
   shippingProfile: true,
   sellerShippingProfile: true,
 } as const;

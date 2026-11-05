@@ -30,6 +30,8 @@ export type LiveRoomItemRow = {
   sortOrder: number;
   salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break' | 'player_selection';
   variantAssignmentMode?: 'pick' | 'random' | 'draft';
+  /** Present on Surprise Sets (names + counts only; MSRP is never sent). */
+  surpriseSetItems?: Array<{ name: string; quantity: number }> | null;
   /** ISO — all spots sold; host can begin break. */
   variantBreakReadyAt?: string | null;
   /** ISO — host started the physical break / rip. */

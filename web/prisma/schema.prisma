@@ -1600,6 +1600,8 @@ model LiveRoomItem {
   customWidthIn               Float?
   customHeightIn              Float?
   requiresSeparatePackage     Boolean?
+  /// Surprise Sets: start a new shipping label for a buyer once their wins reach this many ounces. Null = no limit.
+  maxLabelWeightOz            Float?
   /// Frozen profile snapshot at sale time (JSON) — admin profile edits must not mutate sold rows.
   shippingProfileSnapshotJson String?
   createdAt                   DateTime                       @default(now())

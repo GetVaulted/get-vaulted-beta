@@ -36,6 +36,7 @@ type Db = Pick<
   | "sellerShippingProfile"
   | "shipmentPackage"
   | "listing"
+  | "liveItemVariantPurchase"
 >;
 
 function parseEnvFloat(name: string, fallback: number): number {
@@ -94,12 +95,31 @@ export async function buildSessionPackageGroups(
     overrides?: Parameters<typeof resolveShippingProfileDimensions>[1];
   }> = [];
 
+  // Surprise Sets: the seller's "max ounces per label". With wins from several sets in one session,
+  // the strictest (smallest) limit applies so no label exceeds any set's limit.
+  let maxPackageWeightOz: number | null = null;
+  // Spot wins link to their lot through the purchase row (the order's listing is an ephemeral one).
+  const wonLots = await db.liveItemVariantPurchase.findMany({
+    where: { fulfillmentOrderId: { in: session.items.map((i) => i.orderId) } },
+    select: { liveRoomItem: { select: { maxLabelWeightOz: true } } },
+  });
+  for (const w of wonLots) {
+    const cap = w.liveRoomItem.maxLabelWeightOz;
+    if (typeof cap === "number" && Number.isFinite(cap) && cap > 0) {
+      maxPackageWeightOz = maxPackageWeightOz == null ? cap : Math.min(maxPackageWeightOz, cap);
+    }
+  }
+
   for (const si of session.items) {
     const liveItem = await resolveLiveRoomItemForSessionOrder(db, {
       liveShowId: session.liveShowId,
       listingId: si.listingId,
       orderId: si.orderId,
     });
+    const itemCap = liveItem?.maxLabelWeightOz;
+    if (typeof itemCap === "number" && Number.isFinite(itemCap) && itemCap > 0) {
+      maxPackageWeightOz = maxPackageWeightOz == null ? itemCap : Math.min(maxPackageWeightOz, itemCap);
+    }
     const appliedWeightOz =
       Number.isFinite(si.appliedWeightOz) && si.appliedWeightOz > 0 ? si.appliedWeightOz : null;
     const itemId = liveItem?.id ?? si.orderId;
@@ -161,7 +181,7 @@ export async function buildSessionPackageGroups(
       itemId: r.itemId,
       profile: resolveShippingProfileDimensions(r.profile, r.overrides),
     })),
-    { bundleEligiblePurchases: session.liveShow.bundleEligiblePurchases },
+    { bundleEligiblePurchases: session.liveShow.bundleEligiblePurchases, maxPackageWeightOz },
   );
 
   return { groups, liveShowId: session.liveShowId };

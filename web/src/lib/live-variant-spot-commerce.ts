@@ -105,9 +105,19 @@ export function defaultActiveSpotModeForPin(
   return "auction";
 }
 
+/**
+ * A Surprise Set is a random-reveal lot with ONE variant holding every mystery unit. There is no team
+ * for the host to pin, so "the spot being auctioned" is simply the next unsold mystery unit.
+ */
+export function resolveSurpriseSetAuctionVariant(item: { variants?: VariantPinRow[] }): VariantPinRow | null {
+  const available = (item.variants ?? []).filter((v) => variantIsAvailable(v));
+  return available[0] ?? null;
+}
+
 export function resolvePinnedVariantForAuction(
-  item: ItemSpotCommerceRow,
+  item: ItemSpotCommerceRow & { isSurpriseSet?: boolean },
 ): VariantPinRow | null {
+  if (item.isSurpriseSet) return resolveSurpriseSetAuctionVariant(item);
   const pinned = hostPinnedBuyerVariant(item.variants ?? [], item.variantAssignmentMode);
   if (!pinned || !variantIsAvailable(pinned)) return null;
   return pinned;

@@ -25,6 +25,7 @@ import {
   isRandomVariantAssignment,
 } from "@/lib/live-item-variant-random-reveal";
 import { markVariantPurchaseExternalFulfillmentRequired } from "@/services/shipping/break-pyt-fulfillment-bridge";
+import { applySurpriseSetRevealWeightToShipping } from "@/services/shipping/surprise-set-shipping-weight";
 import { finalizeStripeMarketplaceOrderPaid, PAYMENT_REFUNDED } from "@/services/payments";
 import { executeOrderRefund } from "@/services/order-refund-request";
 import { ACTIVE_REFUND_REQUEST_STATUSES } from "@/lib/order-refund-eligibility";
@@ -207,6 +208,12 @@ export async function finalizeLiveItemVariantPurchasePaid(
     if (revealed) {
       displayLabel = revealed.label;
       randomReveal = true;
+      // Surprise Sets: ship at the drawn item's declared weight (no-op for sets without weights).
+      await applySurpriseSetRevealWeightToShipping({
+        fulfillmentOrderId: purchase.fulfillmentOrderId,
+        liveRoomItemId: purchase.liveRoomItemId,
+        revealedLabel: revealed.label,
+      });
     } else {
       // Charged but no label could be assigned (pool exhausted / every draw attempt lost the race).
       // Never leave this silent — refund automatically or alert loudly for manual refund (FIX 3).

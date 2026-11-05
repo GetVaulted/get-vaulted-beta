@@ -39,6 +39,7 @@ import {
   SurpriseSetFields,
   initialSurpriseSetRows,
   validateSurpriseRows,
+  validateMaxLabelOzText,
   type SurpriseSetRow,
 } from "./SurpriseSetFields";
 import {
@@ -65,7 +66,9 @@ export type AddQueueItemAuctionPayload = {
   teamBoardLeagueExtras?: LeagueExtraSpotKey[];
   customRandomPoolLabels?: string[] | null;
   /** Surprise Set contents (random player_selection). Server re-validates and expands to unit labels. */
-  surpriseSetItems?: Array<{ name: string; quantity: number; msrpUsd: number }>;
+  surpriseSetItems?: Array<{ name: string; quantity: number; msrpUsd: number; weightOz?: number }>;
+  /** Surprise Sets: start another shipping label once a buyer's wins reach this many ounces. */
+  maxLabelWeightOz?: number | null;
   sellerShippingProfileId?: string | null;
   shippingProfileId?: string | null;
 };
@@ -187,6 +190,7 @@ export function AddQueueItemModal({
   const [queueDraftExtras, setQueueDraftExtras] = useState<LeagueExtraSpotKey[]>([]);
   const [playerListText, setPlayerListText] = useState("");
   const [surpriseRows, setSurpriseRows] = useState<SurpriseSetRow[]>(initialSurpriseSetRows);
+  const [surpriseMaxLabelOz, setSurpriseMaxLabelOz] = useState("");
   const [rulesText, setRulesText] = useState("");
   const [prizeDescription, setPrizeDescription] = useState("");
   const [openEntriesOnCreate, setOpenEntriesOnCreate] = useState(true);
@@ -217,6 +221,7 @@ export function AddQueueItemModal({
       setAddSource("new");
       setTitle("");
       setSurpriseRows(initialSurpriseSetRows());
+      setSurpriseMaxLabelOz("");
       setImageUrl("");
       setImageUploading(false);
       setImageError(null);
@@ -602,6 +607,11 @@ export function AddQueueItemModal({
         setFormError(check.message);
         return;
       }
+      const labelCap = validateMaxLabelOzText(surpriseMaxLabelOz);
+      if (!labelCap.ok) {
+        setFormError(labelCap.message);
+        return;
+      }
       const ok = await onSubmitAuction({
         title: trimmedTitle,
         imageUrl: imageUrl.trim(),
@@ -611,6 +621,7 @@ export function AddQueueItemModal({
         salesFormat: "player_selection",
         variantAssignmentMode: "random",
         variants: [{ ...buildRandomPlayerVariant(parsedPrice, check.totalUnits), label: "Surprise unit" }],
+        maxLabelWeightOz: labelCap.value,
         teamBoardMisc: false,
         teamBoardNcaa: false,
         teamBoardLeagueExtras: [],
@@ -658,7 +669,7 @@ export function AddQueueItemModal({
       ...profilePayload,
     });
     if (ok) requestClose("success", onRequestClose);
-  }, [boardPack, imageUrl, onRequestClose, onSubmitAuction, playerListText, price, profileOptionsAreSeller, quantity, queueDraftMisc, queueDraftNcaa, queueDraftExtras, saleType, selectedProfileId, spotVariants, surpriseRows, title]);
+  }, [boardPack, imageUrl, onRequestClose, onSubmitAuction, playerListText, price, profileOptionsAreSeller, quantity, queueDraftMisc, queueDraftNcaa, queueDraftExtras, saleType, selectedProfileId, spotVariants, surpriseRows, surpriseMaxLabelOz, title]);
 
   const handleSubmitGiveaway = useCallback(async () => {
     if (!onSubmitGiveaway || (mode !== "giveaway" && mode !== "buyers_giveaway")) return;
@@ -1159,6 +1170,8 @@ export function AddQueueItemModal({
             <SurpriseSetFields
               rows={surpriseRows}
               onChange={setSurpriseRows}
+              maxLabelOz={surpriseMaxLabelOz}
+              onMaxLabelOzChange={setSurpriseMaxLabelOz}
               title={title}
               unitPriceUsd={parseUsd(price)}
             />

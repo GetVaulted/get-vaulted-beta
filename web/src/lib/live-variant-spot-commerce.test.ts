@@ -6,6 +6,7 @@ import {
   isVariantSpotAuctionArmed,
   isVariantSpotAuctionLive,
   isVariantSpotFixedCheckoutLive,
+  resolvePinnedVariantForAuction,
   shopAvailableSpotCount,
   shopAvailableVariants,
   shopVariantCountDuringSpotAuction,
@@ -177,5 +178,43 @@ describe("live-variant-spot-commerce", () => {
       lastHighBidderId: null,
     });
     expect(endVariantSpotAuctionNoBidsReset()).not.toHaveProperty("auctionVariantId");
+  });
+  describe("Surprise Set auctions", () => {
+    const unit = (id: string, qty: number) => ({
+      id,
+      isHot: false,
+      quantityRemaining: qty,
+      status: "available",
+      priceUsd: 20,
+    });
+
+    it("auctions the single mystery-unit variant even though random items never pin a team", () => {
+      const pinned = resolvePinnedVariantForAuction({
+        salesFormat: "player_selection",
+        variantAssignmentMode: "random",
+        variants: [unit("only", 7)],
+        isSurpriseSet: true,
+      });
+      expect(pinned?.id).toBe("only");
+    });
+
+    it("refuses a normal random player break (no pinned team to auction)", () => {
+      const pinned = resolvePinnedVariantForAuction({
+        salesFormat: "player_selection",
+        variantAssignmentMode: "random",
+        variants: [unit("only", 7)],
+      });
+      expect(pinned).toBeNull();
+    });
+
+    it("returns null once every mystery unit is sold", () => {
+      const pinned = resolvePinnedVariantForAuction({
+        salesFormat: "player_selection",
+        variantAssignmentMode: "random",
+        variants: [unit("only", 0)],
+        isSurpriseSet: true,
+      });
+      expect(pinned).toBeNull();
+    });
   });
 });

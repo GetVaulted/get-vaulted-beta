@@ -362,6 +362,61 @@ describe('resolveLiveBuyerCommerceHud', () => {
     expect(hud.bottomRightLabel).toBe('Slide to Bid $40.00');
   });
 
+  describe('Surprise Set (random) auctions', () => {
+    const surpriseSnap = (over: Partial<LiveRoomBuyerSnapshot> = {}) =>
+      ({
+        roomType: 'sale',
+        status: 'live',
+        activeItemId: 'item-1',
+        activeItemTitle: 'Mystery Hit Box',
+        activeItemSalesFormat: 'player_selection',
+        activeItemVariantAssignmentMode: 'random',
+        activeSpotCommerceMode: 'fixed',
+        auctionVariantId: null,
+        biddingOpen: false,
+        lotBidPhase: 'not_started',
+        activeItemVariants: [
+          {
+            id: 'v1',
+            label: 'Mystery unit',
+            priceUsd: 20,
+            quantityRemaining: 5,
+            soldCount: 0,
+            isHot: false,
+            status: 'available',
+            buyerUsername: null,
+          },
+        ],
+        fetchedAtMs: Date.now(),
+        ...over,
+      }) as LiveRoomBuyerSnapshot;
+
+    it('shows the bid HUD (not the vault shop) while a mystery unit is in timed auction', () => {
+      const hud = resolveLiveBuyerCommerceHud(
+        baseStream(),
+        surpriseSnap({
+          activeSpotCommerceMode: 'auction',
+          auctionVariantId: 'v1',
+          biddingOpen: true,
+          lotBidPhase: 'bidding_open',
+          startingBidUsd: 20,
+          minNextBidUsd: 21,
+        }),
+      );
+      expect(hud.format).toBe('auction');
+      expect(hud.itemTitle).toBe('Mystery unit');
+      expect(hud.categoryType).toBe('Mystery Hit Box');
+      expect(hud.bottomRightLabel).toBe('Slide to Bid $21.00');
+      expect(hud.buyerPrimaryDisabled).toBe(false);
+    });
+
+    it('keeps the vault-reveal shop HUD when no auction is running', () => {
+      const hud = resolveLiveBuyerCommerceHud(baseStream(), surpriseSnap());
+      expect(hud.format).toBe('shop');
+      expect(hud.stateLine).toContain('tap for vault reveal');
+    });
+  });
+
   it('shows hybrid auction + shop when one team auctions and others remain buyable', () => {
     const snap = {
       roomType: 'sale',

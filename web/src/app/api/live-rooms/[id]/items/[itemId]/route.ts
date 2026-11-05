@@ -21,6 +21,7 @@ import { settleAndChargeLiveAuctionLot, resetLiveAuctionLotAfterNoBids } from "@
 import { liveRoomHostCommerceBlockResponse } from "@/lib/live-room-payment-failure";
 import { resolveUnpinnedActiveItemStatus } from "@/lib/resolve-unpinned-active-item-status";
 import { applyHighestPreBidToLiveItem } from "@/lib/live-auction-pre-bid";
+import { surpriseSetItemNames } from "@/lib/live-item-variant-random-reveal";
 import {
   emitActiveItemChanged,
   emitActiveItemChangedAwait,
@@ -135,6 +136,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       activeSpotCommerceMode: true,
       auctionVariantId: true,
       variantAssignmentMode: true,
+      surpriseSetItems: true,
       variants: {
         where: { quantityRemaining: { gt: 0 }, status: { not: "sold_out" } },
         select: { id: true, isHot: true, quantityRemaining: true, status: true, priceUsd: true },
@@ -277,10 +279,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
         salesFormat: item.salesFormat,
         variantAssignmentMode: item.variantAssignmentMode,
         variants: item.variants,
+        isSurpriseSet: surpriseSetItemNames(item.surpriseSetItems) !== null,
       });
       if (!pinned) {
         return NextResponse.json(
-          { error: "Pin a team or division on the board before starting an auction." },
+          {
+            error:
+              surpriseSetItemNames(item.surpriseSetItems) !== null
+                ? "Every mystery unit in this set is already sold."
+                : "Pin a team or division on the board before starting an auction.",
+          },
           { status: 409 },
         );
       }

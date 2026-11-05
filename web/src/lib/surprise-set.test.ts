@@ -5,7 +5,9 @@ import {
   expandSurpriseSetLabels,
   findProhibitedSurpriseWording,
   surpriseSetItemNameFromLabel,
+  surpriseSetWeightOzForLabel,
   validateSurpriseSetItems,
+  validateSurpriseSetMaxLabelWeightOz,
 } from "../../../shared/surprise-set";
 
 const goodItems = [
@@ -132,5 +134,48 @@ describe("labels and odds", () => {
       ["A"],
     );
     expect(rows.map((r) => r.name)).toEqual(["B"]);
+  });
+});
+
+describe("Surprise Set shipping weights", () => {
+  const withWeights = [
+    { name: "Helmet", quantity: 3, msrpUsd: 90, weightOz: 60 },
+    { name: "Card pack", quantity: 7, msrpUsd: 90, weightOz: 4 },
+  ];
+
+  it("keeps declared weights, and weights are optional", () => {
+    const r = validateSurpriseSetItems(withWeights, "Gear set");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.items.find((i) => i.name === "Helmet")?.weightOz).toBe(60);
+    const none = validateSurpriseSetItems(goodItems, "No weights");
+    expect(none.ok).toBe(true);
+    if (none.ok) expect(none.items.every((i) => i.weightOz === undefined)).toBe(true);
+  });
+
+  it("rejects negative, non-numeric and over-limit weights", () => {
+    expect(validateSurpriseSetItems([{ ...withWeights[0]!, weightOz: -5 }, withWeights[1]!], "x").ok).toBe(false);
+    expect(validateSurpriseSetItems([{ ...withWeights[0]!, weightOz: Number.NaN }, withWeights[1]!], "x").ok).toBe(false);
+    expect(validateSurpriseSetItems([{ ...withWeights[0]!, weightOz: 5000 }, withWeights[1]!], "x").ok).toBe(false);
+  });
+
+  it("reads an item's weight from a drawn pool label, including the (k of n) suffix", () => {
+    const stored = [
+      { name: "Helmet", quantity: 3, msrpUsd: 90, weightOz: 60 },
+      { name: "Card pack", quantity: 7, msrpUsd: 90 },
+    ];
+    expect(surpriseSetWeightOzForLabel(stored, "Helmet (2 of 3)")).toBe(60);
+    expect(surpriseSetWeightOzForLabel(stored, "helmet (1 of 3)")).toBe(60);
+    expect(surpriseSetWeightOzForLabel(stored, "Card pack (1 of 7)")).toBeNull();
+    expect(surpriseSetWeightOzForLabel(stored, "Unknown")).toBeNull();
+    expect(surpriseSetWeightOzForLabel(null, "Helmet")).toBeNull();
+  });
+
+  it("validates the max ounces per label", () => {
+    expect(validateSurpriseSetMaxLabelWeightOz(null)).toEqual({ ok: true, value: null });
+    expect(validateSurpriseSetMaxLabelWeightOz("")).toEqual({ ok: true, value: null });
+    expect(validateSurpriseSetMaxLabelWeightOz(120)).toEqual({ ok: true, value: 120 });
+    expect(validateSurpriseSetMaxLabelWeightOz(2).ok).toBe(false);
+    expect(validateSurpriseSetMaxLabelWeightOz(5000).ok).toBe(false);
+    expect(validateSurpriseSetMaxLabelWeightOz("abc").ok).toBe(false);
   });
 });

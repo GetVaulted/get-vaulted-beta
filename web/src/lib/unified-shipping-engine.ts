@@ -320,7 +320,58 @@ function packageGroupsFromBundleOnly(units: PackageUnit[]): PackageGroup[] {
  *   so sellers can pack small items inside a helmet box and buy one label.
  * - With no host, nestables still merge by `bundleGroup` as before.
  */
+/**
+ * Split any package heavier than `maxWeightOz` into several packages (first-fit decreasing, heaviest
+ * items first). An item that alone exceeds the limit still gets a package of its own. Weight is the sum
+ * of the items' declared ounces. No limit (null / non-positive) returns the groups unchanged.
+ */
+export function splitPackageGroupsByWeightCap(
+  groups: PackageGroup[],
+  maxWeightOz: number | null | undefined,
+): PackageGroup[] {
+  if (typeof maxWeightOz !== "number" || !Number.isFinite(maxWeightOz) || maxWeightOz <= 0) return groups;
+
+  const out: PackageGroup[] = [];
+  for (const group of groups) {
+    const total = group.items.reduce((sum, u) => sum + u.profile.weightOz, 0);
+    if (total <= maxWeightOz || group.items.length <= 1) {
+      out.push({ ...group, packageIndex: out.length });
+      continue;
+    }
+    const sorted = [...group.items].sort((a, b) => b.profile.weightOz - a.profile.weightOz);
+    const bins: Array<{ items: PackageGroup["items"]; weightOz: number }> = [];
+    for (const unit of sorted) {
+      const w = unit.profile.weightOz;
+      const bin = bins.find((b) => b.weightOz + w <= maxWeightOz);
+      if (bin) {
+        bin.items.push(unit);
+        bin.weightOz += w;
+      } else {
+        bins.push({ items: [unit], weightOz: w });
+      }
+    }
+    for (const bin of bins) {
+      out.push({
+        packageIndex: out.length,
+        items: bin.items,
+        weightOz: Math.max(1, bin.weightOz),
+        lengthIn: Math.max(...bin.items.map((u) => u.profile.lengthIn)) || group.lengthIn,
+        widthIn: Math.max(...bin.items.map((u) => u.profile.widthIn)) || group.widthIn,
+        heightIn: Math.max(...bin.items.map((u) => u.profile.heightIn)) || group.heightIn,
+      });
+    }
+  }
+  return out;
+}
+
 export function groupItemsIntoPackages(
+  items: Array<{ itemId: string; profile: ResolvedShippingProfile; quantity?: number }>,
+  opts?: { bundleEligiblePurchases?: boolean; maxPackageWeightOz?: number | null },
+): PackageGroup[] {
+  return splitPackageGroupsByWeightCap(groupItemsIntoPackagesUnsplit(items, opts), opts?.maxPackageWeightOz);
+}
+
+function groupItemsIntoPackagesUnsplit(
   items: Array<{ itemId: string; profile: ResolvedShippingProfile; quantity?: number }>,
   opts?: { bundleEligiblePurchases?: boolean },
 ): PackageGroup[] {

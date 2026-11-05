@@ -333,6 +333,11 @@ export function VaultPinnedLotCard({
           item.variantAssignmentMode,
         )
       : null;
+  // Surprise Sets are random (no team to pin), so the "spot" a host auctions is the next unsold mystery unit.
+  const isSurpriseSet =
+    isVariantItem && item.variantAssignmentMode === 'random' && (item.surpriseSetItems?.length ?? 0) > 0;
+  const surpriseUnitAvailable =
+    isSurpriseSet && Boolean(item.variants?.some((v) => (v.quantityRemaining ?? 0) > 0 && v.status !== 'sold_out'));
   const hudPhase = resolveHostLotHudPhase({ item, roomLive, broadcastOnAir, lotBidPhase, queuePreview });
   const showStartAuction =
     !isBuyNowItem &&
@@ -341,7 +346,7 @@ export function VaultPinnedLotCard({
       lotBidPhase,
       isVariantItem,
       salesFormat: item.salesFormat,
-      hasPinnedVariant: Boolean(pinnedVariant),
+      hasPinnedVariant: Boolean(pinnedVariant) || surpriseUnitAvailable,
       activeSpotCommerceMode: item.activeSpotCommerceMode ?? null,
     });
   const showRunningStrip = !hostOverlayMinimal && hudPhase === 'running';

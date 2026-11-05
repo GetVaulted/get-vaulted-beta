@@ -17,6 +17,11 @@ export const SURPRISE_SET_MIN_DISTINCT_ITEMS = 2;
 export const SURPRISE_SET_ITEM_NAME_MAX_LEN = 48;
 /** Highest item MSRP a seller may declare for one item. */
 export const SURPRISE_SET_MAX_ITEM_MSRP_USD = 5000;
+/** Heaviest single item a seller may declare (carrier hard limit is 70 lb). */
+export const SURPRISE_SET_MAX_ITEM_WEIGHT_OZ = 1120;
+/** Smallest "max ounces per label" a seller may set, and the largest (70 lb). */
+export const SURPRISE_SET_MIN_LABEL_WEIGHT_OZ = 16;
+export const SURPRISE_SET_MAX_LABEL_WEIGHT_OZ = 1120;
 /** Pool labels are capped at 64 chars server-side; leave room for the " (12 of 40)" suffix. */
 const LABEL_MAX_LEN = 64;
 
@@ -25,6 +30,11 @@ export type SurpriseSetItemInput = {
   quantity: number;
   /** Manufacturer's suggested retail price per unit. Seller/admin only — never shown to buyers. */
   msrpUsd: number;
+  /**
+   * Shipping weight in ounces of ONE unit, packaging included (helmet ≈ 60). Optional — when blank the
+   * unit ships at the show's normal spot weight. Seller/admin only.
+   */
+  weightOz?: number;
 };
 
 export type SurpriseSetItem = SurpriseSetItemInput;
@@ -80,10 +90,24 @@ export function validateSurpriseSetItems(
     if (banned) {
       return { ok: false, message: `Item names can’t use the word “${banned}”.` };
     }
-    const key = `${name.toLowerCase()}|${msrpUsd}`;
+    // Weight is optional: blank / 0 / missing means "use the show's normal spot weight".
+    let weightOz: number | undefined;
+    if (e.weightOz != null && !(typeof e.weightOz === 'number' && e.weightOz === 0)) {
+      if (typeof e.weightOz !== 'number' || !Number.isFinite(e.weightOz) || e.weightOz < 0) {
+        return { ok: false, message: `Enter the shipping weight in ounces for “${name}”, or leave it blank.` };
+      }
+      if (e.weightOz > SURPRISE_SET_MAX_ITEM_WEIGHT_OZ) {
+        return {
+          ok: false,
+          message: `“${name}” is over the ${SURPRISE_SET_MAX_ITEM_WEIGHT_OZ} oz (70 lb) shipping limit.`,
+        };
+      }
+      weightOz = Math.round(e.weightOz * 10) / 10;
+    }
+    const key = `${name.toLowerCase()}|${msrpUsd}|${weightOz ?? ''}`;
     const existing = byKey.get(key);
     if (existing) existing.quantity += quantity;
-    else byKey.set(key, { name, quantity, msrpUsd });
+    else byKey.set(key, weightOz != null ? { name, quantity, msrpUsd, weightOz } : { name, quantity, msrpUsd });
   }
 
   const items = [...byKey.values()];
@@ -92,7 +116,7 @@ export function validateSurpriseSetItems(
   for (const item of items) {
     const n = item.name.toLowerCase();
     if (names.has(n)) {
-      return { ok: false, message: `“${item.name}” is listed twice with different prices. Use one price per item.` };
+      return { ok: false, message: `“${item.name}” is listed twice with a different price or weight. Use one price and weight per item.` };
     }
     names.add(n);
   }
@@ -185,4 +209,39 @@ export function formatOddsPercent(odds: number): string {
   const pct = odds * 100;
   if (pct >= 10) return `${Math.round(pct)}%`;
   return `${pct.toFixed(1).replace(/\.0$/, '')}%`;
+}
+
+/**
+ * Validate the seller's "max ounces per label" for a set. Blank/null = no limit (one label per buyer
+ * unless another shipping rule splits it).
+ */
+export function validateSurpriseSetMaxLabelWeightOz(
+  raw: unknown,
+): { ok: true; value: number | null } | { ok: false; message: string } {
+  if (raw == null || raw === '') return { ok: true, value: null };
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return { ok: false, message: 'Enter the max ounces per label as a number, or leave it blank.' };
+  if (n < SURPRISE_SET_MIN_LABEL_WEIGHT_OZ || n > SURPRISE_SET_MAX_LABEL_WEIGHT_OZ) {
+    return {
+      ok: false,
+      message: `Max ounces per label must be between ${SURPRISE_SET_MIN_LABEL_WEIGHT_OZ} and ${SURPRISE_SET_MAX_LABEL_WEIGHT_OZ}.`,
+    };
+  }
+  return { ok: true, value: Math.round(n * 10) / 10 };
+}
+
+/**
+ * Shipping weight (oz) of the item a pool label draws, read from the stored set JSON. Null when the
+ * item has no declared weight (or the label isn't in the set).
+ */
+export function surpriseSetWeightOzForLabel(rawItems: unknown, label: string): number | null {
+  if (!Array.isArray(rawItems)) return null;
+  const wanted = surpriseSetItemNameFromLabel(label).toLowerCase();
+  for (const entry of rawItems) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as { name?: unknown; weightOz?: unknown };
+    if (typeof e.name !== 'string' || e.name.trim().toLowerCase() !== wanted) continue;
+    return typeof e.weightOz === 'number' && Number.isFinite(e.weightOz) && e.weightOz > 0 ? e.weightOz : null;
+  }
+  return null;
 }
