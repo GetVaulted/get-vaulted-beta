@@ -50,7 +50,28 @@ export type SellerLiveShippingSessionRow = {
     trackingNumber: string | null;
     shippoTransactionId: string | null;
   } | null;
+  /** Purchased label packages for this bundle (first label + any extra labels), oldest first. */
+  packages?: SellerLiveShippingPackageRow[];
+  /**
+   * True when the seller may buy another label for this bundle: it already has its first label, the buyer
+   * won 2+ Surprise Set spins, and there are fewer labels than paid orders.
+   */
+  canBuyAdditionalLabel?: boolean;
+  /** Labels the seller can still add (paid orders minus labels bought). 0 when not allowed. */
+  additionalLabelsRemaining?: number;
+  /** Most labels this bundle can have (one per paid order). */
+  maxLabelCount?: number;
   orders: SellerLiveShippingOrderRow[];
+};
+
+export type SellerLiveShippingPackageRow = {
+  id: string;
+  packageIndex: number;
+  labelUrl: string | null;
+  trackingNumber: string | null;
+  carrier: string | null;
+  serviceLevel: string | null;
+  labelCostCents: number | null;
 };
 
 export type SellerLiveShippingDashboard = {

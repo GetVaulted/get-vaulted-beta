@@ -62,6 +62,12 @@ function formatBundledLabelError(error: string | undefined, code: string | undef
   if (code === "NO_ELIGIBLE_ORDERS") {
     return "No paid, unlabeled orders in this bundle. Wait for buyer payment or use per-order labels for ship-alone items.";
   }
+  if (code === "ALL_LABELS_BOUGHT") {
+    return "This bundle already has a label for every order.";
+  }
+  if (code === "ADDITIONAL_LABELS_UNAVAILABLE") {
+    return "Extra labels are only available when a buyer won more than one Surprise Set spin.";
+  }
   if (code === "NOT_A_COMBINED_BUNDLE_SESSION") {
     return "This session is ship-alone only — use Create label on each order in the table below.";
   }
@@ -518,6 +524,62 @@ export function AccountSalesPage() {
     }
   };
 
+  /** Buy one more label for a bundle that already has its first (Surprise Set wins in separate boxes). */
+  const buyAdditionalLabel = async (
+    sessionId: string,
+    parcel: { weightOz: number; lengthIn: number; widthIn: number; heightIn: number },
+    labelFormat: SellerLabelPrintFormat,
+    rate: { objectId: string; carrier: string; service: string },
+  ) => {
+    setLabelError(null);
+    setBundledSessionFeedback((prev) => {
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+    setBundledBusySessionId(sessionId);
+    try {
+      const res = await fetch("/api/account/live-shipping/additional-label", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, parcel, labelFormat, preferredRate: rate }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+        warning?: string;
+        packagesBought?: number;
+        maxPackages?: number;
+      };
+      if (!res.ok) {
+        const msg = formatBundledLabelError(j.error, j.code);
+        setLabelError(msg);
+        setBundledSessionFeedback((prev) => ({ ...prev, [sessionId]: { tone: "error", message: msg } }));
+        return;
+      }
+      if (typeof j.warning === "string" && j.warning.trim()) {
+        setLabelError(j.warning);
+        setBundledSessionFeedback((prev) => ({ ...prev, [sessionId]: { tone: "warning", message: j.warning! } }));
+      } else {
+        const progress =
+          typeof j.packagesBought === "number" && typeof j.maxPackages === "number"
+            ? ` (${j.packagesBought} of ${j.maxPackages})`
+            : "";
+        setBundledSessionFeedback((prev) => ({
+          ...prev,
+          [sessionId]: { tone: "success", message: `Extra label created${progress} — print it from the list below.` },
+        }));
+      }
+      await load();
+    } catch {
+      const msg = "Network error — could not reach the server. Try again.";
+      setLabelError(msg);
+      setBundledSessionFeedback((prev) => ({ ...prev, [sessionId]: { tone: "error", message: msg } }));
+    } finally {
+      setBundledBusySessionId(null);
+    }
+  };
+
   if (status === "loading" || sellerGateLoading || (salesView !== "live" && rows === null)) {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
@@ -602,6 +664,7 @@ export function AccountSalesPage() {
                 onCreateBundledLabel={(sid, mp, fmt, rateId) =>
                   void createBundledLabel(sid, fmt ?? "thermal_4x6", mp, rateId)
                 }
+                onBuyAdditionalLabel={(sid, parcel, fmt, rate) => void buyAdditionalLabel(sid, parcel, fmt, rate)}
                 onMarkShipped={(order) => {
                   const row = rows.find((r) => r.id === order.id);
                   if (row) setModal({ order: row, mode: "markShipped" });
