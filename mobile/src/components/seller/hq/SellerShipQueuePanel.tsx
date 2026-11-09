@@ -11,8 +11,10 @@ import {
   View,
 } from 'react-native';
 import {
+  createAdditionalBundledShippingLabel,
   createBundledShippingLabel,
   type ManualParcel,
+  type PreviewShippingRate,
   type SellerLabelPrintFormat,
   type SellerLiveShippingDashboard,
   type SellerLiveShippingSessionRow,
@@ -31,6 +33,7 @@ import {
   type SellerShipQueuePhase,
 } from '../../../lib/sellerShipQueue';
 import {
+  additionalLabelSuccessFeedback,
   bundledLabelSuccessFeedback,
   formatBundledLabelError,
   type BundleFeedback,
@@ -43,7 +46,9 @@ import { SellerMarkShippedSheet } from '../SellerMarkShippedSheet';
 
 type LabelTarget =
   | { kind: 'order'; order: SellerSalesOrderRow }
-  | { kind: 'bundle'; session: SellerLiveShippingSessionRow };
+  | { kind: 'bundle'; session: SellerLiveShippingSessionRow }
+  /** Another label for a bundle that already has its first (several helmets to ship). */
+  | { kind: 'bundle-extra'; session: SellerLiveShippingSessionRow };
 
 function openUrl(url: string) {
   void Linking.openURL(url).catch(() => {
@@ -161,17 +166,23 @@ function BundleCard({
   feedback,
   onCreateLabel,
   onShipOwnCarrier,
+  onBuyAnotherLabel,
 }: {
   session: SellerLiveShippingSessionRow;
   busy: boolean;
   feedback?: BundleFeedback;
   onCreateLabel: () => void;
   onShipOwnCarrier?: () => void;
+  onBuyAnotherLabel?: () => void;
 }) {
   const buyer = session.buyer.name?.trim()
     ? `${session.buyer.name} (@${session.buyer.username})`
     : `@${session.buyer.username}`;
   const labelUrl = session.bundledLabel?.labelUrl;
+  const labelPackages = session.packages.filter((p) => p.labelUrl);
+  const hasSeveralLabels = labelPackages.length > 1;
+  const labelsBought = Math.max(1, session.packages.length);
+  const canBuyAnother = Boolean(onBuyAnotherLabel) && session.canBuyAdditionalLabel;
 
   return (
     <View style={[styles.card, styles.bundleCard]}>
@@ -195,9 +206,27 @@ function BundleCard({
             <Text style={styles.btnMutedTxt}>Ship it yourself</Text>
           </Pressable>
         ) : null}
-        {labelUrl ? (
+        {labelUrl && !hasSeveralLabels ? (
           <Pressable style={[styles.btn, styles.btnGold]} onPress={() => openUrl(labelUrl)}>
-            <Text style={styles.btnGoldTxt}>Print</Text>
+            <Text style={styles.btnGoldTxt}>{canBuyAnother ? 'Print label 1' : 'Print'}</Text>
+          </Pressable>
+        ) : null}
+        {hasSeveralLabels
+          ? labelPackages.map((p, i) => (
+              <Pressable
+                key={p.id}
+                style={[styles.btn, styles.btnGold]}
+                onPress={() => openUrl(p.labelUrl!)}
+              >
+                <Text style={styles.btnGoldTxt}>Print label {i + 1}</Text>
+              </Pressable>
+            ))
+          : null}
+        {canBuyAnother ? (
+          <Pressable style={[styles.btn, styles.btnSky]} disabled={busy} onPress={onBuyAnotherLabel}>
+            <Text style={styles.btnSkyTxt}>
+              {busy ? 'Buying…' : `Buy another label (${labelsBought} of ${session.maxLabelCount})`}
+            </Text>
           </Pressable>
         ) : null}
       </View>
@@ -317,12 +346,13 @@ export function SellerShipQueuePanel({
     parcel: ManualParcel,
     labelFormat: SellerLabelPrintFormat,
     selectedRateObjectId?: string,
+    selectedRate?: PreviewShippingRate,
   ) => {
     if (!accessToken || !labelTarget) return;
     const id =
       labelTarget.kind === 'order' ? labelTarget.order.id : labelTarget.session.sessionId;
     setBusyId(id);
-    if (labelTarget.kind === 'bundle') {
+    if (labelTarget.kind === 'bundle' || labelTarget.kind === 'bundle-extra') {
       const sessionId = labelTarget.session.sessionId;
       setBundleFeedback((prev) => {
         const next = { ...prev };
@@ -340,6 +370,37 @@ export function SellerShipQueuePanel({
           Alert.alert('Label failed', result.error);
           return;
         }
+        if (result.labelUrl) openUrl(result.labelUrl);
+      } else if (labelTarget.kind === 'bundle-extra') {
+        const sessionId = labelTarget.session.sessionId;
+        const result = await createAdditionalBundledShippingLabel(accessToken, sessionId, {
+          parcel,
+          labelFormat,
+          // The extra label is quoted fresh on the server; send carrier + service so the seller's
+          // choice is honoured even though the quoted rate id belongs to a different shipment.
+          preferredRate: {
+            objectId: selectedRateObjectId,
+            carrier: selectedRate?.carrier,
+            service: selectedRate?.service,
+          },
+        });
+        if (!result.ok) {
+          const message = formatBundledLabelError(result.error, result.code);
+          setBundleFeedback((prev) => ({ ...prev, [sessionId]: { tone: 'error', message } }));
+          Alert.alert('Extra label failed', message);
+          // A refused purchase can mean the counts changed (e.g. bought on web) — refresh the card.
+          await onReload();
+          return;
+        }
+        setBundleFeedback((prev) => ({
+          ...prev,
+          [sessionId]: additionalLabelSuccessFeedback({
+            warning: result.warning,
+            labelUrl: result.labelUrl,
+            packagesBought: result.packagesBought,
+            maxPackages: result.maxPackages,
+          }),
+        }));
         if (result.labelUrl) openUrl(result.labelUrl);
       } else {
         const result = await createBundledShippingLabel(accessToken, labelTarget.session.sessionId, {
@@ -504,6 +565,7 @@ export function SellerShipQueuePanel({
           busy={busyId === session.sessionId}
           feedback={bundleFeedback[session.sessionId]}
           onCreateLabel={() => setLabelTarget({ kind: 'bundle', session })}
+          onBuyAnotherLabel={() => setLabelTarget({ kind: 'bundle-extra', session })}
         />
       ))}
       {buckets.needsLabel.map(({ order, phase }) => (
@@ -585,20 +647,33 @@ export function SellerShipQueuePanel({
 
       <SellerCreateLabelSheet
         visible={labelTarget != null}
-        title={labelTarget?.kind === 'bundle' ? 'Confirm bundle package' : 'Confirm package details'}
-        subtitle={
-          labelTarget?.kind === 'bundle'
-            ? `${labelTarget.session.liveShowTitle} · ${labelTarget.session.orderCount} orders · est ${labelTarget.session.pricingWeightOz.toFixed(1)} oz`
-            : labelTarget?.kind === 'order'
-              ? labelTarget.order.listingTitle
-              : undefined
+        title={
+          labelTarget?.kind === 'bundle-extra'
+            ? 'Buy another label'
+            : labelTarget?.kind === 'bundle'
+              ? 'Confirm bundle package'
+              : 'Confirm package details'
         }
-        bundleSessionId={labelTarget?.kind === 'bundle' ? labelTarget.session.sessionId : null}
+        subtitle={
+          labelTarget?.kind === 'bundle-extra'
+            ? `${labelTarget.session.liveShowTitle} · label ${Math.max(1, labelTarget.session.packages.length) + 1} of ${labelTarget.session.maxLabelCount}. Enter the weight and box for just this package — the label cost is taken from your seller balance.`
+            : labelTarget?.kind === 'bundle'
+              ? `${labelTarget.session.liveShowTitle} · ${labelTarget.session.orderCount} orders · est ${labelTarget.session.pricingWeightOz.toFixed(1)} oz`
+              : labelTarget?.kind === 'order'
+                ? labelTarget.order.listingTitle
+                : undefined
+        }
+        additionalMode={labelTarget?.kind === 'bundle-extra'}
+        bundleSessionId={
+          labelTarget?.kind === 'bundle' || labelTarget?.kind === 'bundle-extra'
+            ? labelTarget.session.sessionId
+            : null
+        }
         accessToken={accessToken}
         confirmBusy={busyId != null}
         onClose={() => setLabelTarget(null)}
-        onConfirm={(parcel, format, rateId) => {
-          void confirmCreate(parcel, format, rateId);
+        onConfirm={(parcel, format, rateId, rate) => {
+          void confirmCreate(parcel, format, rateId, rate);
         }}
       />
 

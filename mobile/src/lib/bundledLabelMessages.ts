@@ -21,6 +21,15 @@ export function formatBundledLabelError(error: string | undefined, code: string 
   if (code === 'NOT_A_COMBINED_BUNDLE_SESSION') {
     return 'This session is ship-alone only — create a label on each order instead.';
   }
+  if (code === 'ALL_LABELS_BOUGHT') {
+    return 'You’ve already bought a label for every order in this bundle.';
+  }
+  if (code === 'ADDITIONAL_LABELS_UNAVAILABLE') {
+    return 'Extra labels are only available when the buyer has more than one Surprise Set spin and the first label is bought.';
+  }
+  if (code === 'NO_PRIMARY_LABEL_YET') {
+    return 'Buy the first label for this bundle before adding extra ones.';
+  }
   if (error?.includes('No Shippo rates')) {
     return 'No USPS/UPS rates came back. Check your ship-from address and the buyer’s address.';
   }
@@ -46,5 +55,27 @@ export function bundledLabelSuccessFeedback(args: {
     message: args.labelUrl
       ? 'Bundled label created — tap Print to open it.'
       : 'Label purchase recorded. Pull to refresh if the Print button does not appear.',
+  };
+}
+
+/** Result message after buying one more label for a bundle. */
+export function additionalLabelSuccessFeedback(args: {
+  warning?: string;
+  labelUrl: string | null;
+  packagesBought: number;
+  maxPackages: number;
+}): BundleFeedback {
+  if (typeof args.warning === 'string' && args.warning.trim()) {
+    return { tone: 'warning', message: args.warning };
+  }
+  const count =
+    args.packagesBought > 0 && args.maxPackages > 0
+      ? ` (${args.packagesBought} of ${args.maxPackages} bought)`
+      : '';
+  return {
+    tone: 'success',
+    message: args.labelUrl
+      ? `Extra label bought${count} — tap Print to open it.`
+      : `Extra label purchase recorded${count}. Pull to refresh if the Print button does not appear.`,
   };
 }

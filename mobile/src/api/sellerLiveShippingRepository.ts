@@ -23,6 +23,17 @@ export type SellerLiveShippingOrderRow = {
   trackingNumber: string | null;
 };
 
+/** One purchased label for a bundle (a bundle can have several, e.g. one per helmet). */
+export type SellerLiveShippingPackageRow = {
+  id: string;
+  packageIndex: number;
+  labelUrl: string | null;
+  trackingNumber: string | null;
+  carrier: string | null;
+  serviceLevel: string | null;
+  labelCostCents: number | null;
+};
+
 export type SellerLiveShippingSessionRow = {
   sessionId: string;
   liveShowId: string;
@@ -41,6 +52,12 @@ export type SellerLiveShippingSessionRow = {
     shippoTransactionId: string | null;
   } | null;
   orders: SellerLiveShippingOrderRow[];
+  /** Every label bought for this bundle so far (empty until the first label exists). */
+  packages: SellerLiveShippingPackageRow[];
+  /** True when the seller may buy another label (2+ Surprise Set spins, labels left). */
+  canBuyAdditionalLabel: boolean;
+  additionalLabelsRemaining: number;
+  maxLabelCount: number;
 };
 
 export type SellerLiveShippingDashboard = {
@@ -85,7 +102,21 @@ function normalizeOrder(raw: Record<string, unknown>): SellerLiveShippingOrderRo
   };
 }
 
-function normalizeSession(raw: Record<string, unknown>): SellerLiveShippingSessionRow | null {
+function normalizePackage(raw: Record<string, unknown>): SellerLiveShippingPackageRow | null {
+  const id = asString(raw.id).trim();
+  if (!id) return null;
+  return {
+    id,
+    packageIndex: asNumber(raw.packageIndex),
+    labelUrl: typeof raw.labelUrl === 'string' ? raw.labelUrl : null,
+    trackingNumber: typeof raw.trackingNumber === 'string' ? raw.trackingNumber : null,
+    carrier: typeof raw.carrier === 'string' ? raw.carrier : null,
+    serviceLevel: typeof raw.serviceLevel === 'string' ? raw.serviceLevel : null,
+    labelCostCents: typeof raw.labelCostCents === 'number' ? raw.labelCostCents : null,
+  };
+}
+
+export function normalizeSession(raw: Record<string, unknown>): SellerLiveShippingSessionRow | null {
   const sessionId = asString(raw.sessionId).trim();
   if (!sessionId) return null;
   const buyerRaw = raw.buyer && typeof raw.buyer === 'object' ? (raw.buyer as Record<string, unknown>) : {};
@@ -98,6 +129,14 @@ function normalizeSession(raw: Record<string, unknown>): SellerLiveShippingSessi
         .map((o) => (o && typeof o === 'object' ? normalizeOrder(o as Record<string, unknown>) : null))
         .filter((o): o is SellerLiveShippingOrderRow => o != null)
     : [];
+
+  const packages = Array.isArray(raw.packages)
+    ? raw.packages
+        .map((x) => (x && typeof x === 'object' ? normalizePackage(x as Record<string, unknown>) : null))
+        .filter((x): x is SellerLiveShippingPackageRow => x != null)
+        .sort((a, b) => a.packageIndex - b.packageIndex)
+    : [];
+  const additionalLabelsRemaining = Math.max(0, Math.floor(asNumber(raw.additionalLabelsRemaining)));
 
   return {
     sessionId,
@@ -127,6 +166,10 @@ function normalizeSession(raw: Record<string, unknown>): SellerLiveShippingSessi
         }
       : null,
     orders,
+    packages,
+    canBuyAdditionalLabel: raw.canBuyAdditionalLabel === true && additionalLabelsRemaining > 0,
+    additionalLabelsRemaining,
+    maxLabelCount: Math.max(0, Math.floor(asNumber(raw.maxLabelCount))),
   };
 }
 
@@ -251,5 +294,72 @@ export async function createBundledShippingLabel(
     orderIds: Array.isArray(body?.orderIds) ? body!.orderIds : [],
     warning: body?.warning,
     alreadyExisted: body?.alreadyExisted === true,
+  };
+}
+
+export type AdditionalLabelRate = {
+  objectId?: string | null;
+  carrier?: string | null;
+  service?: string | null;
+};
+
+/**
+ * Buy ONE more label for a bundle that already has its first label (e.g. a buyer who won several
+ * helmets). Same `/api/account/live-shipping/additional-label` as web. The seller is charged the
+ * label cost and the server enforces the cap, so a retry can never buy more than the allowed count.
+ */
+export async function createAdditionalBundledShippingLabel(
+  accessToken: string,
+  sessionId: string,
+  opts: {
+    parcel: ManualParcel;
+    labelFormat?: SellerLabelPrintFormat;
+    preferredRate?: AdditionalLabelRate;
+  },
+): Promise<
+  | {
+      ok: true;
+      labelUrl: string | null;
+      trackingNumber: string | null;
+      trackingUrl: string | null;
+      packageIndex: number;
+      packagesBought: number;
+      maxPackages: number;
+      warning?: string;
+    }
+  | { ok: false; error: string; code?: string }
+> {
+  const res = await fetchWebApiAuthed('/api/account/live-shipping/additional-label', accessToken, {
+    method: 'POST',
+    body: JSON.stringify({
+      sessionId,
+      parcel: opts.parcel,
+      labelFormat: opts.labelFormat ?? 'thermal_4x6',
+      preferredRate: opts.preferredRate,
+    }),
+  });
+  const body = (await res.json().catch(() => null)) as {
+    error?: string;
+    code?: string;
+    warning?: string;
+    labelUrl?: string | null;
+    trackingNumber?: string | null;
+    trackingUrl?: string | null;
+    packageIndex?: number;
+    packagesBought?: number;
+    maxPackages?: number;
+  } | null;
+  if (!res.ok) {
+    return { ok: false, error: body?.error ?? 'Could not buy the extra label.', code: body?.code };
+  }
+  return {
+    ok: true,
+    labelUrl: body?.labelUrl ?? null,
+    trackingNumber: body?.trackingNumber ?? null,
+    trackingUrl: body?.trackingUrl ?? null,
+    packageIndex: asNumber(body?.packageIndex),
+    packagesBought: asNumber(body?.packagesBought),
+    maxPackages: asNumber(body?.maxPackages),
+    warning: body?.warning,
   };
 }

@@ -41,8 +41,19 @@ type Props = {
   bundleSessionId?: string | null;
   accessToken?: string;
   confirmBusy?: boolean;
+  /**
+   * Buying another label for a bundle that already has one (e.g. one box per helmet). Quotes rates
+   * the same way, starts on the full-size helmet box, and hides the buyer-margin line (the buyer
+   * already paid for the bundle's shipping once).
+   */
+  additionalMode?: boolean;
   onClose: () => void;
-  onConfirm: (parcel: ManualParcel, labelFormat: SellerLabelPrintFormat, selectedRateObjectId?: string) => void;
+  onConfirm: (
+    parcel: ManualParcel,
+    labelFormat: SellerLabelPrintFormat,
+    selectedRateObjectId?: string,
+    selectedRate?: PreviewShippingRate,
+  ) => void;
 };
 
 function fmtMargin(cents: number): string {
@@ -79,6 +90,7 @@ export function SellerCreateLabelSheet({
   bundleSessionId,
   accessToken,
   confirmBusy,
+  additionalMode,
   onClose,
   onConfirm,
 }: Props) {
@@ -138,6 +150,19 @@ export function SellerCreateLabelSheet({
     }, 450);
     return () => clearTimeout(t);
   }, [visible, isBundle, parcelValid, weightOz, lengthIn, widthIn, heightIn, bundleSessionId, accessToken]);
+
+  // Extra labels are almost always for another helmet: start on the full-size helmet box so the
+  // seller isn't quoting a card-mailer weight. They can still pick any preset or type their own.
+  useEffect(() => {
+    if (!visible || !additionalMode) return;
+    const helmet = PARCEL_PRESETS.find((p) => p.label === 'Full-size helmet');
+    if (!helmet) return;
+    setWeightOz(String(helmet.weightOz));
+    setLengthIn(String(helmet.lengthIn));
+    setWidthIn(String(helmet.widthIn));
+    setHeightIn(String(helmet.heightIn));
+    setActivePreset(helmet.label);
+  }, [visible, additionalMode]);
 
   const applyPreset = (p: (typeof PARCEL_PRESETS)[number]) => {
     setWeightOz(String(p.weightOz));
@@ -236,7 +261,7 @@ export function SellerCreateLabelSheet({
                       );
                     })
                   : null}
-                {selectedRate && chargedCents > 0 ? (
+                {!additionalMode && selectedRate && chargedCents > 0 ? (
                   <Text style={styles.marginHint}>
                     Buyer paid ${(chargedCents / 100).toFixed(2)} for shipping ·{' '}
                     <Text
@@ -254,14 +279,19 @@ export function SellerCreateLabelSheet({
             style={[styles.confirm, !canConfirm && styles.confirmDisabled]}
             disabled={!canConfirm}
             onPress={() =>
-              onConfirm(parsedParcel, labelFormat, isBundle ? selectedRate?.objectId : undefined)
+              onConfirm(
+                parsedParcel,
+                labelFormat,
+                isBundle ? selectedRate?.objectId : undefined,
+                isBundle ? (selectedRate ?? undefined) : undefined,
+              )
             }
           >
             {confirmBusy ? (
               <ActivityIndicator color="#0a0a0a" />
             ) : (
               <Text style={styles.confirmTxt}>
-                Create {labelFormat === 'thermal_4x6' ? '4×6' : 'letter'} label
+                {additionalMode ? 'Buy extra' : 'Create'} {labelFormat === 'thermal_4x6' ? '4×6' : 'letter'} label
                 {selectedRate ? ` · $${(selectedRate.amountCents / 100).toFixed(2)}` : ''}
               </Text>
             )}
