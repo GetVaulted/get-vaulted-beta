@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { bundledLabelSuccessFeedback, formatBundledLabelError } from './bundledLabelMessages';
+import {
+  additionalLabelSuccessFeedback,
+  bundledLabelSuccessFeedback,
+  formatBundledLabelError,
+} from './bundledLabelMessages';
 
 describe('formatBundledLabelError', () => {
   it('turns server codes into plain instructions', () => {
@@ -30,5 +34,22 @@ describe('bundledLabelSuccessFeedback', () => {
   it('confirms creation, or notes a missing PDF', () => {
     expect(bundledLabelSuccessFeedback({ labelUrl: 'u' }).message).toMatch(/created/);
     expect(bundledLabelSuccessFeedback({ labelUrl: null }).message).toMatch(/purchase recorded/);
+  });
+});
+
+describe('extra bundle labels', () => {
+  it('explains the extra-label refusals', () => {
+    expect(formatBundledLabelError('x', 'ALL_LABELS_BOUGHT')).toMatch(/every order/);
+    expect(formatBundledLabelError('x', 'ADDITIONAL_LABELS_UNAVAILABLE')).toMatch(/more than one Surprise Set spin/);
+    expect(formatBundledLabelError('x', 'NO_PRIMARY_LABEL_YET')).toMatch(/first label/);
+  });
+  it('confirms an extra label with the running count', () => {
+    expect(
+      additionalLabelSuccessFeedback({ labelUrl: 'u', packagesBought: 2, maxPackages: 9 }).message,
+    ).toMatch(/\(2 of 9 bought\)/);
+    expect(additionalLabelSuccessFeedback({ warning: 'charge failed', labelUrl: 'u', packagesBought: 2, maxPackages: 9 })).toEqual({
+      tone: 'warning',
+      message: 'charge failed',
+    });
   });
 });
