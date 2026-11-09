@@ -54,6 +54,13 @@ type Props = {
     labelFormat?: "letter" | "thermal_4x6",
     selectedRateObjectId?: string,
   ) => void;
+  /** Buy one more label for a bundle that already has its first (Surprise Set wins in separate boxes). */
+  onBuyAdditionalLabel: (
+    sessionId: string,
+    parcel: ManualParcel,
+    labelFormat: "letter" | "thermal_4x6",
+    rate: { objectId: string; carrier: string; service: string },
+  ) => void;
   onMarkShipped: (order: ShipWorkspaceOrder) => void;
   onMarkBundleShipped: (session: SellerLiveShippingSessionRow) => void;
 };
@@ -417,6 +424,7 @@ function BundleShipCard({
   bundledBusySessionId,
   bundledSessionFeedback,
   onCreateBundledLabel,
+  onBuyAdditionalLabel,
   onMarkBundleShipped,
 }: {
   session: SellerLiveShippingSessionRow;
@@ -428,9 +436,21 @@ function BundleShipCard({
     labelFormat?: "letter" | "thermal_4x6",
     selectedRateObjectId?: string,
   ) => void;
+  onBuyAdditionalLabel: (
+    sessionId: string,
+    parcel: ManualParcel,
+    labelFormat: "letter" | "thermal_4x6",
+    rate: { objectId: string; carrier: string; service: string },
+  ) => void;
   onMarkBundleShipped?: (session: SellerLiveShippingSessionRow) => void;
 }) {
   const [showParcelModal, setShowParcelModal] = useState(false);
+  // "additional" = buying another label for a bundle that already has its first one.
+  const [labelMode, setLabelMode] = useState<"first" | "additional">("first");
+  const packageList = session.packages ?? [];
+  const additionalLeft = session.additionalLabelsRemaining ?? 0;
+  const labelsBought = Math.max(1, packageList.length);
+  const maxLabels = session.maxLabelCount ?? labelsBought;
   const [activePreset, setActivePreset] = useState("Card mailer");
   const [labelFormat, setLabelFormat] = useState<SellerLabelPrintFormat>("thermal_4x6");
   const [weightOz, setWeightOz] = useState("4");
@@ -551,7 +571,14 @@ function BundleShipCard({
         </div>
         <div className="flex flex-wrap gap-2">
           {session.canCreateBundledLabel ? (
-            <PrimaryButton tone="gold" disabled={busy} onClick={() => setShowParcelModal(true)}>
+            <PrimaryButton
+              tone="gold"
+              disabled={busy}
+              onClick={() => {
+                setLabelMode("first");
+                setShowParcelModal(true);
+              }}
+            >
               {busy ? "Creating…" : "Create label"}
             </PrimaryButton>
           ) : null}
@@ -562,12 +589,54 @@ function BundleShipCard({
           ) : null}
           {labelUrl ? (
             <PrimaryButton tone="gold" onClick={() => openLabelForPrint(labelUrl)}>
-              Print
+              {packageList.length > 1 ? "Print label 1" : "Print"}
+            </PrimaryButton>
+          ) : null}
+          {session.canBuyAdditionalLabel && additionalLeft > 0 ? (
+            <PrimaryButton
+              tone="muted"
+              disabled={busy}
+              onClick={() => {
+                setLabelMode("additional");
+                // Extra labels exist for Surprise Set wins such as helmets: start from the helmet box.
+                if (activePreset === "Card mailer") {
+                  const helmet = PARCEL_PRESETS.find((x) => x.label === "Full-size helmet");
+                  if (helmet) applyPreset(helmet);
+                }
+                setShowParcelModal(true);
+              }}
+            >
+              {busy ? "Creating…" : `Buy another label (${labelsBought} of ${maxLabels} bought)`}
             </PrimaryButton>
           ) : null}
         </div>
       </div>
-      {session.bundledLabel?.trackingNumber ? (
+      {packageList.length > 1 ? (
+        <ul className="mt-3 space-y-1.5">
+          {packageList.map((pkg, i) => (
+            <li
+              key={pkg.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-zinc-900/40 px-3 py-2 text-xs text-zinc-300"
+            >
+              <span>
+                Label {i + 1}
+                {pkg.carrier ? ` · ${pkg.carrier}${pkg.serviceLevel ? ` ${pkg.serviceLevel}` : ""}` : ""}
+                {pkg.trackingNumber ? <span className="ml-2 font-mono text-zinc-400">{pkg.trackingNumber}</span> : null}
+              </span>
+              {pkg.labelUrl ? (
+                <button
+                  type="button"
+                  onClick={() => openLabelForPrint(pkg.labelUrl!)}
+                  className="rounded-md border border-gold/40 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-gold-bright hover:bg-gold/10"
+                >
+                  Print
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {session.bundledLabel?.trackingNumber && packageList.length <= 1 ? (
         <p className="mt-3 font-mono text-xs text-zinc-400">Tracking {session.bundledLabel.trackingNumber}</p>
       ) : null}
       {bundledSessionFeedback ? (
@@ -594,9 +663,15 @@ function BundleShipCard({
         onClick={(e) => { if (e.target === e.currentTarget) setShowParcelModal(false); }}
       >
         <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/[0.1] bg-[#0e0e12] p-5 shadow-2xl">
-          <h2 className="text-base font-bold text-zinc-100">Confirm package details</h2>
+          <h2 className="text-base font-bold text-zinc-100">
+            {labelMode === "additional"
+              ? `Label ${labelsBought + 1} of ${maxLabels} — package details`
+              : "Confirm package details"}
+          </h2>
           <p className="mt-1 text-[11px] text-zinc-400">
-            Adjust the package, then pick a USPS or UPS rate before creating the label.
+            {labelMode === "additional"
+              ? "Enter the weight and box for this extra package (for example one more helmet), then pick a USPS or UPS rate."
+              : "Adjust the package, then pick a USPS or UPS rate before creating the label."}
           </p>
           <div className="mt-3 rounded-lg border border-zinc-700/50 bg-zinc-900/60 px-3 py-2 text-[11px] text-zinc-400">
             <span className="font-semibold text-zinc-300">{session.liveShowTitle}</span>
@@ -735,6 +810,14 @@ function BundleShipCard({
               disabled={!parcelValid || rateBusy || !selectedRate}
               onClick={() => {
                 setShowParcelModal(false);
+                if (labelMode === "additional" && selectedRate) {
+                  onBuyAdditionalLabel(session.sessionId, parsedParcel, labelFormat, {
+                    objectId: selectedRate.objectId,
+                    carrier: selectedRate.carrier,
+                    service: selectedRate.service,
+                  });
+                  return;
+                }
                 onCreateBundledLabel(session.sessionId, parsedParcel, labelFormat, selectedRate?.objectId);
               }}
               className="rounded-lg border border-sky-400/40 bg-sky-500/20 px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-sky-50 transition hover:bg-sky-500/30 disabled:opacity-40"
@@ -841,6 +924,7 @@ export function AccountSellerShipWorkspace({
   labelError,
   onCreateLabel,
   onCreateBundledLabel,
+  onBuyAdditionalLabel,
   onMarkShipped,
   onMarkBundleShipped,
 }: Props) {
@@ -1094,6 +1178,7 @@ export function AccountSellerShipWorkspace({
                   bundledBusySessionId={bundledBusySessionId}
                   bundledSessionFeedback={bundledSessionFeedback?.[session.sessionId]}
                   onCreateBundledLabel={onCreateBundledLabel}
+                  onBuyAdditionalLabel={onBuyAdditionalLabel}
                   onMarkBundleShipped={onMarkBundleShipped}
                 />
               ))}
@@ -1104,6 +1189,7 @@ export function AccountSellerShipWorkspace({
                   bundledBusySessionId={bundledBusySessionId}
                   bundledSessionFeedback={bundledSessionFeedback?.[session.sessionId]}
                   onCreateBundledLabel={onCreateBundledLabel}
+                  onBuyAdditionalLabel={onBuyAdditionalLabel}
                 />
               ))}
               {needsLabelByDay.map((group) => (

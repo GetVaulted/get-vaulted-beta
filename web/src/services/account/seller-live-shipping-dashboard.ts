@@ -13,6 +13,7 @@ export type {
   SellerLiveShippingDashboard,
   SellerLiveShippingLabelStatus,
   SellerLiveShippingOrderRow,
+  SellerLiveShippingPackageRow,
   SellerLiveShippingSessionRow,
 } from "@/lib/seller-live-shipping-dashboard-types";
 
@@ -34,6 +35,20 @@ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db = 
       buyer: { select: { id: true, username: true, name: true } },
       liveShow: { select: { id: true, title: true, status: true } },
       _count: { select: { items: true } },
+      packages: {
+        where: { status: "label_created" },
+        orderBy: { packageIndex: "asc" },
+        select: {
+          id: true,
+          packageIndex: true,
+          shippoTransactionId: true,
+          labelUrl: true,
+          trackingNumber: true,
+          carrier: true,
+          serviceLevel: true,
+          labelCostCents: true,
+        },
+      },
       orders: {
         orderBy: { createdAt: "asc" },
         select: {
@@ -76,6 +91,10 @@ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db = 
             },
           },
           listing: { select: { title: true, shipAlone: true } },
+          // Surprise Set spins: the fulfillment order links back to the purchase and its lot.
+          variantPurchaseFulfillment: {
+            select: { liveRoomItem: { select: { surpriseSetItems: true } } },
+          },
         },
       },
     },
@@ -183,6 +202,29 @@ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db = 
         }
       : null;
 
+    // Extra labels (several Surprise Set spins shipping in separate boxes).
+    const paidBundledOrders = orders.filter((o) => o.paymentStatus === PAYMENT_PAID && !o.listing.shipAlone);
+    const spinCount = paidBundledOrders.filter((o) =>
+      o.variantPurchaseFulfillment.some(
+        (v) => Array.isArray(v.liveRoomItem.surpriseSetItems) && v.liveRoomItem.surpriseSetItems.length > 0,
+      ),
+    ).length;
+    const packageRows: SellerLiveShippingPackageRow[] = s.packages
+      .filter((pkg) => Boolean(pkg.shippoTransactionId?.trim()))
+      .map((pkg) => ({
+        id: pkg.id,
+        packageIndex: pkg.packageIndex,
+        labelUrl: pkg.labelUrl,
+        trackingNumber: pkg.trackingNumber,
+        carrier: pkg.carrier,
+        serviceLevel: pkg.serviceLevel,
+        labelCostCents: pkg.labelCostCents,
+      }));
+    const maxLabelCount = paidBundledOrders.length;
+    const boughtCount = Math.max(1, packageRows.length);
+    const additionalLabelsRemaining =
+      bundled && anyLabelInSession && spinCount >= 2 ? Math.max(0, maxLabelCount - boughtCount) : 0;
+
     sessionRows.push({
       sessionId: s.id,
       liveShowId: s.liveShowId,
@@ -211,6 +253,10 @@ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db = 
       ordersNeedingLabels,
       canCreateBundledLabel,
       bundledLabel,
+      packages: packageRows,
+      canBuyAdditionalLabel: additionalLabelsRemaining > 0,
+      additionalLabelsRemaining,
+      maxLabelCount,
       orders: orders.map((o, idx) => {
         const b = orderBreakdowns[idx]!;
         return {
