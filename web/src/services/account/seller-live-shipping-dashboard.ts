@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import type {
   SellerLiveShippingDashboard,
+  SellerLiveShippingPackageRow,
   SellerLiveShippingSessionRow,
 } from "@/lib/seller-live-shipping-dashboard-types";
 import { resolveSellerShippingBreakdown } from "@/lib/seller-shipping-breakdown";
@@ -25,7 +26,7 @@ function orderHasLabel(o: {
   return orderHasUsableShippingLabel(o);
 }
 
-type Db = Pick<PrismaClient, "liveShippingSession">;
+type Db = Pick<PrismaClient, "liveShippingSession" | "liveRoomItem">;
 
 export async function getSellerLiveShippingDashboard(sellerId: string, db: Db = prisma): Promise<SellerLiveShippingDashboard> {
   const sessions = await db.liveShippingSession.findMany({
@@ -93,12 +94,29 @@ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db = 
           listing: { select: { title: true, shipAlone: true } },
           // Surprise Set spins: the fulfillment order links back to the purchase and its lot.
           variantPurchaseFulfillment: {
-            select: { liveRoomItem: { select: { surpriseSetItems: true } } },
+            select: { liveRoomItemId: true },
           },
         },
       },
     },
   });
+
+  // Purchases have no Prisma relation to their lot, so find which lots are Surprise Sets in one query.
+  const spinLotIds = [
+    ...new Set(sessions.flatMap((s) => s.orders.flatMap((o) => o.variantPurchaseFulfillment.map((v) => v.liveRoomItemId)))),
+  ];
+  const surpriseLotIds = new Set(
+    spinLotIds.length
+      ? (
+          await db.liveRoomItem.findMany({
+            where: { id: { in: spinLotIds } },
+            select: { id: true, surpriseSetItems: true },
+          })
+        )
+          .filter((l) => Array.isArray(l.surpriseSetItems) && l.surpriseSetItems.length > 0)
+          .map((l) => l.id)
+      : [],
+  );
 
   const sessionRows: SellerLiveShippingSessionRow[] = [];
   let totalCharged = 0;
@@ -205,9 +223,7 @@ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db = 
     // Extra labels (several Surprise Set spins shipping in separate boxes).
     const paidBundledOrders = orders.filter((o) => o.paymentStatus === PAYMENT_PAID && !o.listing.shipAlone);
     const spinCount = paidBundledOrders.filter((o) =>
-      o.variantPurchaseFulfillment.some(
-        (v) => Array.isArray(v.liveRoomItem.surpriseSetItems) && v.liveRoomItem.surpriseSetItems.length > 0,
-      ),
+      o.variantPurchaseFulfillment.some((v) => surpriseLotIds.has(v.liveRoomItemId)),
     ).length;
     const packageRows: SellerLiveShippingPackageRow[] = s.packages
       .filter((pkg) => Boolean(pkg.shippoTransactionId?.trim()))
