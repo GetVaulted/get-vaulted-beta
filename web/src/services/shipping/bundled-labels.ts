@@ -1167,9 +1167,18 @@ export async function generateAdditionalBundledLabelForSession(
 
   const spins = await prisma.liveItemVariantPurchase.findMany({
     where: { fulfillmentOrderId: { in: paid.map((o) => o.id) } },
-    select: { fulfillmentOrderId: true, liveRoomItem: { select: { surpriseSetItems: true } } },
+    select: { fulfillmentOrderId: true, liveRoomItemId: true },
   });
-  const spinCount = spins.filter((sp) => surpriseSetItemsPresent(sp.liveRoomItem.surpriseSetItems)).length;
+  // LiveItemVariantPurchase has no Prisma relation to its lot, so look the lots up by id.
+  const lotIds = [...new Set(spins.map((sp) => sp.liveRoomItemId))];
+  const lots = lotIds.length
+    ? await prisma.liveRoomItem.findMany({
+        where: { id: { in: lotIds } },
+        select: { id: true, surpriseSetItems: true },
+      })
+    : [];
+  const surpriseLotIds = new Set(lots.filter((l) => surpriseSetItemsPresent(l.surpriseSetItems)).map((l) => l.id));
+  const spinCount = spins.filter((sp) => surpriseLotIds.has(sp.liveRoomItemId)).length;
   if (spinCount < ADDITIONAL_LABEL_MIN_SPINS) throw new Error("ADDITIONAL_LABELS_UNAVAILABLE");
 
   // The first label always counts, even for older bundles bought before package rows were recorded.

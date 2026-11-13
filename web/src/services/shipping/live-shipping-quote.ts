@@ -99,12 +99,20 @@ export async function buildSessionPackageGroups(
   // the strictest (smallest) limit applies so no label exceeds any set's limit.
   let maxPackageWeightOz: number | null = null;
   // Spot wins link to their lot through the purchase row (the order's listing is an ephemeral one).
-  const wonLots = await db.liveItemVariantPurchase.findMany({
+  const wonPurchases = await db.liveItemVariantPurchase.findMany({
     where: { fulfillmentOrderId: { in: session.items.map((i) => i.orderId) } },
-    select: { liveRoomItem: { select: { maxLabelWeightOz: true } } },
+    select: { liveRoomItemId: true },
   });
+  // No Prisma relation from the purchase to its lot, so load the lots by id.
+  const wonLotIds = [...new Set(wonPurchases.map((p) => p.liveRoomItemId))];
+  const wonLots = wonLotIds.length
+    ? await db.liveRoomItem.findMany({
+        where: { id: { in: wonLotIds } },
+        select: { maxLabelWeightOz: true },
+      })
+    : [];
   for (const w of wonLots) {
-    const cap = w.liveRoomItem.maxLabelWeightOz;
+    const cap = w.maxLabelWeightOz;
     if (typeof cap === "number" && Number.isFinite(cap) && cap > 0) {
       maxPackageWeightOz = maxPackageWeightOz == null ? cap : Math.min(maxPackageWeightOz, cap);
     }

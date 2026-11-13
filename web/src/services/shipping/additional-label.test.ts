@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({
   sessionFind: vi.fn(),
   spinsFind: vi.fn(),
+  lotsFind: vi.fn(),
   pkgCreate: vi.fn(),
   financeFind: vi.fn(),
   orderFind: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     liveShippingSession: { findFirst: m.sessionFind },
     liveItemVariantPurchase: { findMany: m.spinsFind },
+    liveRoomItem: { findMany: m.lotsFind },
     shipmentPackage: { create: m.pkgCreate },
     shipmentLabelFinance: { findFirst: m.financeFind },
     order: { findUnique: m.orderFind, update: m.orderUpdate },
@@ -104,13 +106,14 @@ function session(over: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-const surpriseSpin = (id: string) => ({ fulfillmentOrderId: id, liveRoomItem: { surpriseSetItems: [{ name: "Helmet", quantity: 3 }] } });
+const surpriseSpin = (id: string) => ({ fulfillmentOrderId: id, liveRoomItemId: "lot-1" });
 
 describe("generateAdditionalBundledLabelForSession", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     m.sessionFind.mockResolvedValue(session());
     m.spinsFind.mockResolvedValue([surpriseSpin("o1"), surpriseSpin("o2"), surpriseSpin("o3")]);
+    m.lotsFind.mockResolvedValue([{ id: "lot-1", surpriseSetItems: [{ name: "Helmet", quantity: 3 }] }]);
     m.createShipment.mockResolvedValue({ object_id: "shp-1" });
     m.listRates.mockResolvedValue({
       results: [
