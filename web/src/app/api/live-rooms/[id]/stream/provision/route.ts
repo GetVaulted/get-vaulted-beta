@@ -11,7 +11,7 @@ import {
   toHostStreamPayload,
 } from "../_shared";
 import { formatIvsObsIngestUrl } from "@/lib/ivs-obs-ingest-url";
-import { isBackupLiveVideoActive } from "@/services/cloudflare-stream";
+import { isBackupLiveVideoActive, isCloudflareStreamConfigured } from "@/services/cloudflare-stream";
 import { provisionCloudflareRoomStream } from "@/services/cloudflare-stream-room";
 
 type ProvisionBody = {
@@ -47,7 +47,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // A room already running on AWS keeps AWS so a live show is never moved mid-stream.
     const current = await getStreamRow(id);
     const alreadyAws = current?.streamProvider === "aws_ivs" && current.streamHealth === "live";
-    if (!alreadyAws && (current?.streamProvider === "cloudflare_stream" || (await isBackupLiveVideoActive()))) {
+    if (!alreadyAws && (current?.streamProvider === "cloudflare_stream" || ((await isBackupLiveVideoActive()) && isCloudflareStreamConfigured()))) {
       const provisioned = await provisionCloudflareRoomStream(id);
       const row = await getStreamRow(id);
       if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });

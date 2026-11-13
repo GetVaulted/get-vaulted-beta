@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
-import { stopAgoraRelay } from "@/services/agora-rtc";
 import {
   createCloudflareLiveInput,
   deleteCloudflareLiveInput,
@@ -42,8 +41,6 @@ export async function provisionCloudflareRoomStream(
   }
 
   const input = await createCloudflareLiveInput(roomId);
-  // A new input has a new stream key, so any relay still pushing to the old one is stale.
-  if (room.externalRelayId) await stopAgoraRelay(room.externalRelayId);
   const now = new Date();
   await prisma.liveRoom.update({
     where: { id: roomId },
@@ -107,7 +104,6 @@ export async function teardownCloudflareRoomStream(roomId: string): Promise<void
     where: { id: roomId },
     select: { externalStreamId: true, externalRelayId: true },
   });
-  if (room?.externalRelayId) await stopAgoraRelay(room.externalRelayId);
   if (room?.externalStreamId) await deleteCloudflareLiveInput(room.externalStreamId);
   const now = new Date();
   await prisma.liveRoom.update({

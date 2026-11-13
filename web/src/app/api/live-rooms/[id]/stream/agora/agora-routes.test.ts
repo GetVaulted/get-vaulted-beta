@@ -8,9 +8,10 @@ const hoisted = vi.hoisted(() => ({
   resolveHostPublisher: vi.fn(),
   prepareAgoraHostSession: vi.fn(),
   refreshAgoraHostSession: vi.fn(),
-  stopAgoraRelayForRoom: vi.fn(),
-  ensureAgoraRelay: vi.fn(),
-  endHostStageSession: vi.fn(),
+  endAgoraHostSession: vi.fn(),
+  confirmAgoraHostLive: vi.fn(),
+  createAgoraViewerSession: vi.fn(),
+  isAgoraConfigured: vi.fn(),
   getAgoraConfig: vi.fn(),
 }));
 
@@ -26,17 +27,22 @@ vi.mock("@/services/agora-room", () => ({
   resolveHostPublisher: hoisted.resolveHostPublisher,
   prepareAgoraHostSession: hoisted.prepareAgoraHostSession,
   refreshAgoraHostSession: hoisted.refreshAgoraHostSession,
-  stopAgoraRelayForRoom: hoisted.stopAgoraRelayForRoom,
-  ensureAgoraRelay: hoisted.ensureAgoraRelay,
+  endAgoraHostSession: hoisted.endAgoraHostSession,
+  confirmAgoraHostLive: hoisted.confirmAgoraHostLive,
 }));
-vi.mock("@/services/agora-rtc", () => ({ getAgoraConfig: hoisted.getAgoraConfig }));
-vi.mock("@/services/ivs", () => ({ endHostStageSession: hoisted.endHostStageSession }));
+vi.mock("@/services/agora-rtc", () => ({
+  getAgoraConfig: hoisted.getAgoraConfig,
+  isAgoraConfigured: hoisted.isAgoraConfigured,
+  createAgoraViewerSession: hoisted.createAgoraViewerSession,
+}));
+vi.mock("@/lib/ip-capture", () => ({ extractClientIp: () => "1.2.3.4" }));
 vi.mock("@/lib/realtime-emit-server", () => ({ emitStreamStatusChanged: vi.fn() }));
 vi.mock("@/lib/ivs-ops-log", () => ({ logIvsOpsServer: vi.fn() }));
 
 import { GET as getPublisher } from "../publisher/route";
 import { DELETE as deleteSession, PATCH as patchSession, POST as postSession } from "./route";
-import { POST as postRelay } from "./relay/route";
+import { POST as postLive } from "../live/route";
+import { GET as getViewer } from "../agora-viewer/route";
 
 const ctx = { params: Promise.resolve({ id: "room_1" }) };
 const req = (method: string) => new Request("http://x", { method, body: method === "GET" ? undefined : "{}" });
@@ -52,7 +58,9 @@ beforeEach(() => {
   hoisted.getAgoraConfig.mockReturnValue({ appId: "app", appCertificate: "SECRET-CERT" });
   hoisted.prepareAgoraHostSession.mockResolvedValue(SESSION);
   hoisted.refreshAgoraHostSession.mockReturnValue(SESSION);
-  hoisted.ensureAgoraRelay.mockResolvedValue({ converterId: "c1", state: "connecting", started: true });
+  hoisted.confirmAgoraHostLive.mockResolvedValue(true);
+  hoisted.isAgoraConfigured.mockReturnValue(true);
+  hoisted.createAgoraViewerSession.mockReturnValue({ appId: "app", channel: "gv-room_1", hostUid: 7, uid: 0, token: "viewer-tok", expiresInSeconds: 7200 });
 });
 
 describe("GET publisher", () => {
@@ -112,29 +120,46 @@ describe("agora session routes", () => {
     expect(((await res.json()) as { agora: typeof SESSION }).agora.token).toBe("tok");
   });
 
-  it("DELETE stops the relay and ends the session", async () => {
+  it("DELETE ends the Agora session", async () => {
     const res = await deleteSession(req("DELETE"), ctx);
     expect(res.status).toBe(200);
-    expect(hoisted.stopAgoraRelayForRoom).toHaveBeenCalledWith("room_1");
-    expect(hoisted.endHostStageSession).toHaveBeenCalledWith("room_1");
+    expect(hoisted.endAgoraHostSession).toHaveBeenCalledWith("room_1");
   });
 });
 
-describe("relay route", () => {
-  it("starts the relay for the host", async () => {
-    const res = await postRelay(req("POST"), ctx);
+describe("live route", () => {
+  it("confirms the host is publishing", async () => {
+    const res = await postLive(req("POST"), ctx);
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { relay: { state: string } }).relay.state).toBe("connecting");
+    expect(hoisted.confirmAgoraHostLive).toHaveBeenCalledWith("room_1");
   });
 
   it("rejects non-hosts", async () => {
     hoisted.requireHostAccess.mockResolvedValue({ ok: false, response: NextResponse.json({}, { status: 401 }) });
-    expect((await postRelay(req("POST"), ctx)).status).toBe(401);
-    expect(hoisted.ensureAgoraRelay).not.toHaveBeenCalled();
+    expect((await postLive(req("POST"), ctx)).status).toBe(401);
+    expect(hoisted.confirmAgoraHostLive).not.toHaveBeenCalled();
+  });
+});
+
+describe("viewer route", () => {
+  it("gives anyone (guests included) a subscribe-only pass for an Agora room", async () => {
+    hoisted.getStreamRow.mockResolvedValue({ ...ROW, streamProvider: "agora_rtc" });
+    const res = await getViewer(req("GET"), ctx);
+    expect(res.status).toBe(200);
+    const text = JSON.stringify(await res.json());
+    expect(text).toContain("viewer-tok");
+    expect(text).not.toContain("SECRET-CERT");
   });
 
-  it("reports a relay failure", async () => {
-    hoisted.ensureAgoraRelay.mockRejectedValue(new Error("Agora Media Push request failed: boom"));
-    expect((await postRelay(req("POST"), ctx)).status).toBe(500);
+  it("refuses rooms that are not on Agora", async () => {
+    hoisted.getStreamRow.mockResolvedValue({ ...ROW, streamProvider: "aws_ivs" });
+    expect((await getViewer(req("GET"), ctx)).status).toBe(409);
+  });
+
+  it("404s an unknown room and 503s when Agora is not configured", async () => {
+    hoisted.getStreamRow.mockResolvedValue(null);
+    expect((await getViewer(req("GET"), ctx)).status).toBe(404);
+    hoisted.isAgoraConfigured.mockReturnValue(false);
+    expect((await getViewer(req("GET"), ctx)).status).toBe(503);
   });
 });

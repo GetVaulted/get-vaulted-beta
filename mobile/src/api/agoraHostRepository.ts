@@ -93,7 +93,7 @@ async function sessionCall(
   return session;
 }
 
-/** Start a phone broadcast on the backup provider: sets up buyer playback and returns join details. */
+/** Start a phone broadcast on Agora: marks the room as an Agora show and returns join details. */
 export function requestAgoraHostSession(roomId: string, accessToken: string): Promise<AgoraHostSession> {
   return sessionCall(roomId, accessToken, 'POST', 45_000);
 }
@@ -103,12 +103,15 @@ export function refreshAgoraHostSession(roomId: string, accessToken: string): Pr
   return sessionCall(roomId, accessToken, 'PATCH', 20_000);
 }
 
-/** Start (or keep) the relay that feeds buyers. Call after joining the channel and after a rejoin. */
-export async function startAgoraRelay(roomId: string, accessToken: string): Promise<void> {
+/**
+ * Tell the server this phone is publishing in its Agora channel. The first call turns the show live;
+ * repeat calls (~every 25 s) are the heartbeat that keeps it live.
+ */
+export async function confirmAgoraLive(roomId: string, accessToken: string): Promise<void> {
   const res = await fetchWebApiMobile(
-    streamPath(roomId, 'agora/relay'),
+    streamPath(roomId, 'live'),
     { method: 'POST', headers: authHeaders(accessToken, true), body: '{}' },
-    { timeoutMs: 25_000 },
+    { timeoutMs: 15_000 },
   );
   if (!res) throw new Error('Set EXPO_PUBLIC_SITE_URL to your Next.js API host.');
   if (!res.ok) {
@@ -117,7 +120,7 @@ export async function startAgoraRelay(roomId: string, accessToken: string): Prom
   }
 }
 
-/** Host stopped: stop the relay and end the server-side session. */
+/** Host stopped: end the server-side session. */
 export async function endAgoraHostSession(roomId: string, accessToken: string): Promise<void> {
   if (!accessToken.trim()) return;
   const res = await fetchWebApiMobile(streamPath(roomId, 'agora'), {

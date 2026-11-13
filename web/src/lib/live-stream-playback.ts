@@ -15,6 +15,8 @@ export type BuyerSafeStreamFields = {
   streamMode: string;
   /** Whether a Real-Time Stage exists (gates the WebRTC subscribe attempt). */
   stageAvailable: boolean;
+  /** Which service carries this show: "aws_ivs", "cloudflare_stream", or "agora_rtc" (direct Agora). */
+  streamProvider: string | null;
   /**
    * True when the source is desktop OBS — legacy RTMP→HLS *or* OBS 30+ WHIP→Stage. Stage rooms
    * fed by OBS over WHIP still report `streamMode: "stage_webrtc"` (it really is WebRTC), but the
@@ -47,6 +49,7 @@ export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamField
   const latencyMode = typeof s.latencyMode === "string" && s.latencyMode.trim() ? s.latencyMode.trim() : null;
   const streamMode = typeof s.streamMode === "string" && s.streamMode.trim() ? s.streamMode.trim() : "channel_hls";
   const stageAvailable = s.stageAvailable === true;
+  const streamProvider = typeof s.streamProvider === "string" && s.streamProvider.trim() ? s.streamProvider.trim() : null;
   const isObsDesktopSource = s.isObsDesktopSource === true;
   return {
     playbackUrl,
@@ -58,8 +61,14 @@ export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamField
     latencyMode,
     streamMode,
     stageAvailable,
+    streamProvider,
     isObsDesktopSource,
   };
+}
+
+/** True when buyers watch this show through Agora (direct) instead of an IVS Stage / HLS. */
+export function isAgoraDirectProvider(streamProvider: string | null | undefined): boolean {
+  return streamProvider === "agora_rtc";
 }
 
 /** True on iOS Safari / iPadOS — used for transport and `<video>` HLS attach decisions. */

@@ -9,6 +9,7 @@ import { useHlsLiveEdgeSeek } from '../../hooks/useHlsLiveEdgeSeek';
 import { useStageRemotePictureInPicture } from '../../hooks/useStageRemotePictureInPicture';
 import { leaveStageSerialized } from '../../lib/ivsStageGate';
 import {
+  isAgoraDirectStream,
   isBuyerStageWebrtcRejoinBlocked,
   resolveLivePlaybackSurfaceState,
   shouldAttachHlsPlayback,
@@ -40,6 +41,7 @@ import { liveStageContentFitForPlayback } from '../../lib/liveRoomViewport';
 import { viewerLifecycleLog } from '../../lib/viewerLifecycleLog';
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
+import { AgoraSubscriberVideo } from './AgoraSubscriberVideo';
 import { StageSubscriberVideo } from './StageSubscriberVideo';
 
 /**
@@ -373,6 +375,8 @@ export function LiveStagePlayback({
   const playbackActive = isForeground;
   // Keep Stage subscribed while Host paused (TikTok/Whatnot/eBay). Unmounting Stage on pause
   // leave-latches buyers onto a dead HLS mirror and "Waiting for host video" after Play.
+  // Direct Agora shows use Agora's player; every other real-time show uses the IVS Stage subscriber.
+  const RealtimeSubscriberVideo = isAgoraDirectStream(playback.stream) ? AgoraSubscriberVideo : StageSubscriberVideo;
   const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
   useWebrtcRef.current = useWebrtc;
   const webrtcReadyRef = useRef(false);
@@ -1286,7 +1290,7 @@ export function LiveStagePlayback({
             onPictureInPictureStop={() => setPipActive(false)}
             collapsable={false}
           />
-          <StageSubscriberVideo
+          <RealtimeSubscriberVideo
             roomId={roomId}
             accessToken={accessToken}
             active={useWebrtc && !stageMediaSuspended && !blockStageAfterBackgroundLeave}
@@ -1305,7 +1309,7 @@ export function LiveStagePlayback({
       ) : (
         <>
           {showWebrtcLayer ? (
-            <StageSubscriberVideo
+            <RealtimeSubscriberVideo
               roomId={roomId}
               accessToken={accessToken}
               active={useWebrtc && !stageMediaSuspended && !blockStageAfterBackgroundLeave}

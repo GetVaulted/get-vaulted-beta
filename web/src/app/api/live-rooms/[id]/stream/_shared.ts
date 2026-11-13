@@ -71,7 +71,7 @@ export function toBuyerSafeStreamPayload(row: StreamRow) {
     streamMode: row.streamMode,
     // Whether a Real-Time Stage exists for this room (gates the client's WebRTC subscribe attempt).
     // No ARN is exposed — buyers fetch a subscribe-only token from the stage-token endpoint.
-    stageAvailable: Boolean(row.ivsStageArn),
+    stageAvailable: Boolean(row.ivsStageArn) || row.streamProvider === "agora_rtc",
     streamHealth: row.streamHealth,
     streamPaused: row.streamPaused,
     playbackUrl: row.ivsPlaybackUrl,
@@ -142,15 +142,16 @@ export async function requireSellerTermsToStart(
 }
 
 /**
- * In-app Go Live (phone camera) publishes to AWS IVS. While the admin "backup live video" switch is
- * on, send hosts to OBS / an RTMP app instead of failing deep inside the AWS client.
+ * Older app versions publish the phone camera to AWS IVS only. While the admin "backup live video"
+ * switch is on, tell them to update (or use OBS) instead of failing deep inside the AWS client. Newer
+ * app versions ask `stream/publisher` first and use Agora.
  */
 export async function blockInAppBroadcastOnBackupProvider(): Promise<NextResponse | null> {
   if (!(await isBackupLiveVideoActive())) return null;
   return NextResponse.json(
     {
       error:
-        "Live video is running on the backup service right now. Start your show from OBS or an RTMP app using the stream settings in your host console.",
+        "Live video is running on the backup service right now. Update the Get Vaulted app to the latest version to go live from your phone, or start your show from OBS or an RTMP app using the stream settings in your host console.",
       code: "BACKUP_LIVE_VIDEO_ACTIVE",
     },
     { status: 409 },

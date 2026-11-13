@@ -2,12 +2,11 @@ import { NextResponse } from "next/server";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
 import { emitStreamStatusChanged } from "@/lib/realtime-emit-server";
 import {
+  endAgoraHostSession,
   prepareAgoraHostSession,
   refreshAgoraHostSession,
   resolveHostPublisher,
-  stopAgoraRelayForRoom,
 } from "@/services/agora-room";
-import { endHostStageSession } from "@/services/ivs";
 import {
   errorResponse,
   getStreamRow,
@@ -17,9 +16,8 @@ import {
 } from "../_shared";
 
 /**
- * POST — host only. Start a phone broadcast on the backup real-time provider: set up the buyer HLS
- * (Cloudflare) and return the host's Agora join details. The app then joins the Agora channel and
- * calls `relay` to start pushing it to Cloudflare.
+ * POST — host only. Start a phone broadcast on Agora: mark the room as an Agora show and return the
+ * host's join details. The app then joins the channel and calls `live` once it is publishing.
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
@@ -70,7 +68,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 }
 
-/** DELETE — host only. Host stopped broadcasting: stop the relay and run the normal end-of-session path. */
+/** DELETE — host only. Host stopped broadcasting. */
 export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
@@ -79,8 +77,7 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
   if (!auth.ok) return auth.response;
 
   try {
-    await stopAgoraRelayForRoom(id);
-    await endHostStageSession(id);
+    await endAgoraHostSession(id);
     const row = await getStreamRow(id);
     if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
     emitStreamStatusChanged(id, {

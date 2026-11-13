@@ -1,5 +1,6 @@
 import { fetchBuyerLiveStream, fetchViewerStageToken } from '../api/liveRoomStreamRepository';
 import {
+  isAgoraDirectStream,
   isLiveStreamSignal,
   shouldUseStageWebrtcPlayback,
   type BuyerSafeStreamFields,
@@ -85,7 +86,8 @@ async function warmStream(
         if (
           accessToken?.trim() &&
           isLiveStreamSignal(value.streamHealth) &&
-          shouldUseStageWebrtcPlayback(value, false, accessToken)
+          shouldUseStageWebrtcPlayback(value, false, accessToken) &&
+          !isAgoraDirectStream(value)
         ) {
           void warmStageToken(roomId, accessToken);
         }
@@ -130,7 +132,8 @@ export function prefetchLiveStreamRooms(roomIds: string[], accessToken?: string)
       accessToken?.trim() &&
       cached &&
       isLiveStreamSignal(cached.streamHealth) &&
-      shouldUseStageWebrtcPlayback(cached, false, accessToken)
+      shouldUseStageWebrtcPlayback(cached, false, accessToken) &&
+      !isAgoraDirectStream(cached)
     ) {
       void warmStageToken(roomId, accessToken);
     }

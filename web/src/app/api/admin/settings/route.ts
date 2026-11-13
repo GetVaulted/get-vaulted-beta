@@ -4,7 +4,6 @@ import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 import { ADMIN_SETTINGS, clearAdminSettingCache, getBoolAdminSetting, type AdminSettingKey } from "@/lib/admin/admin-settings";
 import { prisma } from "@/lib/prisma";
 import { isAgoraConfigured } from "@/services/agora-rtc";
-import { isCloudflareStreamConfigured } from "@/services/cloudflare-stream";
 
 export async function GET(request: Request) {
   const gate = await requireAdminPermission("settings.manage", request);
@@ -37,21 +36,11 @@ export async function POST(request: Request) {
   const reason = normalizeAdminReason(body.reason);
   if (!reason) return NextResponse.json({ error: "REASON_REQUIRED" }, { status: 400 });
 
-  if (def.key === "live_video_use_cloudflare" && body.enabled && !isCloudflareStreamConfigured()) {
-    return NextResponse.json(
-      {
-        error:
-          "Backup live video is not set up yet. Add CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_STREAM_API_TOKEN and CLOUDFLARE_STREAM_CUSTOMER_CODE in Netlify first.",
-      },
-      { status: 400 },
-    );
-  }
-
   if (def.key === "live_video_use_cloudflare" && body.enabled && !isAgoraConfigured()) {
     return NextResponse.json(
       {
         error:
-          "In-app backup live video is not set up yet. Add AGORA_APP_ID, AGORA_APP_CERTIFICATE, AGORA_REST_CUSTOMER_ID and AGORA_REST_CUSTOMER_SECRET in Netlify first.",
+          "Backup live video is not set up yet. Add AGORA_APP_ID and AGORA_APP_CERTIFICATE in Netlify first.",
       },
       { status: 400 },
     );
