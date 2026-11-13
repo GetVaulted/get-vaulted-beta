@@ -78,6 +78,8 @@ enum LiveStreamProvider {
   aws_ivs
   /// Backup provider (Cloudflare Stream live input, RTMPS ingest -> HLS playback). Admin-switched.
   cloudflare_stream
+  /// Agora RTC, direct: the seller's phone publishes into an Agora channel and buyers subscribe to it.
+  agora_rtc
 }
 
 /// How a room's video is delivered. `stage_webrtc` = IVS Real-Time (sub-second WebRTC);

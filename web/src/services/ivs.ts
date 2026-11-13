@@ -1192,11 +1192,14 @@ export async function reconcileStagePublisherHealth(
       streamStartedAt: true,
       streamHealth: true,
       ivsIngestEndpoint: true,
+      streamProvider: true,
     },
   });
   if (!room || room.streamMode !== "stage_webrtc" || !room.ivsStageArn) {
     return "skip";
   }
+  // Agora rooms report health from the host app's heartbeat, never from an (old) AWS Stage.
+  if (room.streamProvider === "agora_rtc") return "skip";
   // Live rooms always reconcile. Scheduled OBS WHIP rooms also reconcile so Start Streaming
   // can flip health + auto-start without waiting for an unrelated channel GetStream.
   const whipScheduled =
@@ -1256,9 +1259,11 @@ export async function ensureStageHlsCompositionActive(roomId: string): Promise<v
       ivsStageArn: true,
       ivsChannelArn: true,
       streamStartedAt: true,
+      streamProvider: true,
     },
   });
   if (!room || room.status !== "live" || room.streamMode !== "stage_webrtc") return;
+  if (room.streamProvider === "agora_rtc") return;
   // Host paused / overnight hold — never restart the mirror (that was burning Input + Encode hours).
   if (room.streamPaused === true) return;
   if (!room.ivsStageArn || !room.ivsChannelArn) return;

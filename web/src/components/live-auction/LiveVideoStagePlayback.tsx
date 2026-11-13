@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Hls from "hls.js";
 import {
   browserCanLoadHlsJsBundle,
+  isAgoraDirectProvider,
   isLiveStreamSignal,
   liveStageObjectFitForPlayback,
   parseBuyerSafeStreamPayload,
@@ -15,6 +16,7 @@ import {
 import { isLiveDebugEnabled, logLiveDebugEvent } from "@/lib/live-debug";
 import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 import { isStageWebrtcEnabled, isWebRtcPlaybackSupported, useStageSubscribe } from "@/hooks/useStageSubscribe";
+import { useAgoraSubscribe } from "@/hooks/useAgoraSubscribe";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 import {
   formatScheduledStartLong,
@@ -243,6 +245,7 @@ export function LiveVideoStagePlayback({
   const [liveDebug, setLiveDebug] = useState<{ drift: number | null; liveEdge: number | null; currentTime: number } | null>(null);
   const [streamMode, setStreamMode] = useState<string>("channel_hls");
   const [stageAvailable, setStageAvailable] = useState(false);
+  const [streamProvider, setStreamProvider] = useState<string | null>(null);
   const [isObsDesktopSource, setIsObsDesktopSource] = useState(false);
   const [inStreamWarmupGrace, setInStreamWarmupGrace] = useState(true);
   const [transport, setTransport] = useState<"none" | "webrtc" | "hls">("none");
@@ -514,6 +517,7 @@ export function LiveVideoStagePlayback({
       setLatencyMode(safe.latencyMode ?? null);
       setStreamMode(safe.streamMode);
       setStageAvailable(safe.stageAvailable);
+      setStreamProvider(safe.streamProvider);
       setIsObsDesktopSource(safe.isObsDesktopSource);
       if (!loggedLatencyModeRef.current) {
         loggedLatencyModeRef.current = true;
@@ -552,8 +556,9 @@ export function LiveVideoStagePlayback({
         webrtcFailoverCountRef.current = 0;
       }
 
+      // Agora passes are subscribe-only and served to guests too, so no sign-in is required for them.
       const wantWebrtc =
-        viewerAuthenticated &&
+        (viewerAuthenticated || isAgoraDirectProvider(safe.streamProvider)) &&
         isStageWebrtcEnabled() &&
         !preferHlsOverWebrtcOnClient() &&
         safe.streamMode === "stage_webrtc" &&
@@ -687,10 +692,24 @@ export function LiveVideoStagePlayback({
     [fetchStream, liveRoomId],
   );
 
+  const agoraDirect = isAgoraDirectProvider(streamProvider);
+
+  useAgoraSubscribe({
+    roomId: liveRoomId,
+    videoRef,
+    active: transport === "webrtc" && !streamPaused && agoraDirect,
+    muted,
+    refreshNonce: streamPlaybackRefreshNonce,
+    subscribeEpoch: webrtcSubscribeEpoch,
+    onConnected: handleWebrtcConnected,
+    onFailed: handleWebrtcFailed,
+    onDisconnected: handleWebrtcDisconnected,
+  });
+
   useStageSubscribe({
     roomId: liveRoomId,
     videoRef,
-    active: transport === "webrtc" && !streamPaused,
+    active: transport === "webrtc" && !streamPaused && !agoraDirect,
     muted,
     refreshNonce: streamPlaybackRefreshNonce,
     subscribeEpoch: webrtcSubscribeEpoch,

@@ -11,6 +11,8 @@ export type BuyerSafeStreamFields = {
   streamMode: string;
   /** Whether a Real-Time Stage exists for this room (gates WebRTC subscribe). */
   stageAvailable: boolean;
+  /** Which service carries this show: "aws_ivs", "cloudflare_stream", or "agora_rtc" (direct Agora). */
+  streamProvider?: string;
   /**
    * True when the source is desktop OBS — legacy RTMP→HLS *or* OBS 30+ WHIP→Stage. Stage rooms
    * fed by OBS over WHIP still report `streamMode: "stage_webrtc"` (it really is WebRTC), but the
@@ -130,6 +132,7 @@ export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamField
   const lastStatusSyncAt = typeof s.lastStatusSyncAt === 'string' ? s.lastStatusSyncAt : null;
   const streamMode = typeof s.streamMode === 'string' && s.streamMode.trim() ? s.streamMode.trim() : 'channel_hls';
   const stageAvailable = s.stageAvailable === true;
+  const streamProvider = typeof s.streamProvider === 'string' ? s.streamProvider.trim() : undefined;
   const isObsDesktopSource = s.isObsDesktopSource === true;
   return {
     playbackUrl,
@@ -140,8 +143,14 @@ export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamField
     lastStatusSyncAt,
     streamMode,
     stageAvailable,
+    streamProvider,
     isObsDesktopSource,
   };
+}
+
+/** True when buyers watch this show through Agora (direct) instead of an IVS Stage / HLS. */
+export function isAgoraDirectStream(stream: Pick<BuyerSafeStreamFields, 'streamProvider'> | null | undefined): boolean {
+  return stream?.streamProvider === 'agora_rtc';
 }
 
 export function shouldAttachHlsPlayback(streamHealth: string, playbackUrl: string | null): boolean {
@@ -277,7 +286,7 @@ export type ActiveTransportPlan =
  * - Not WebRTC-eligible (channel_hls, guest, failed-over, offline): attach HLS when available.
  */
 export function resolveSurfaceTransportPlan(input: {
-  stream: Pick<BuyerSafeStreamFields, 'streamMode' | 'stageAvailable' | 'streamHealth' | 'playbackUrl'>;
+  stream: Pick<BuyerSafeStreamFields, 'streamMode' | 'stageAvailable' | 'streamHealth' | 'playbackUrl' | 'streamProvider'>;
   isActive: boolean;
   webrtcFailed: boolean;
   accessToken?: string;
@@ -328,15 +337,16 @@ export function preferHlsOverWebrtcOnClient(): boolean {
 
 /** Whether the buyer should attempt IVS Real-Time Stage subscribe (before one-shot HLS failover). */
 export function shouldUseStageWebrtcPlayback(
-  stream: Pick<BuyerSafeStreamFields, 'streamMode' | 'stageAvailable' | 'streamHealth'>,
+  stream: Pick<BuyerSafeStreamFields, 'streamMode' | 'stageAvailable' | 'streamHealth' | 'streamProvider'>,
   webrtcFailed: boolean,
   accessToken?: string,
 ): boolean {
   // Note: `isBuyerStageWebrtcRejoinBlocked` is applied in `resolveSurfaceTransportPlan` so that
   // post-leave visits prefer HLS when a mirror URL exists, but can still attempt WebRTC when it
   // does not (hard-blocking WebRTC with no HLS left stage shows with no video at all).
+  // Agora passes are subscribe-only and served to guests too, so no sign-in is required for them.
   return (
-    Boolean(accessToken?.trim()) &&
+    (isAgoraDirectStream(stream) || Boolean(accessToken?.trim())) &&
     isStageWebrtcEnabled() &&
     !preferHlsOverWebrtcOnClient() &&
     stream.streamMode === 'stage_webrtc' &&

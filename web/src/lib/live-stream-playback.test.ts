@@ -70,6 +70,7 @@ describe("live-stream-playback", () => {
       streamMode: "stage_webrtc",
       stageAvailable: true,
       streamPaused: false,
+      streamProvider: null,
       isObsDesktopSource: false,
     });
   });

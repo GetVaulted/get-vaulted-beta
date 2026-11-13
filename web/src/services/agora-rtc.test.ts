@@ -1,21 +1,16 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   agoraChannelName,
   agoraHostUid,
   createAgoraHostSession,
+  createAgoraViewerSession,
   getAgoraConfig,
-  getAgoraRelay,
   isAgoraConfigured,
-  joinRtmpUrl,
-  startAgoraRelay,
-  stopAgoraRelay,
 } from "./agora-rtc";
 
 const ENV_VARS = {
   AGORA_APP_ID: "0123456789abcdef0123456789abcdef",
   AGORA_APP_CERTIFICATE: "fedcba9876543210fedcba9876543210",
-  AGORA_REST_CUSTOMER_ID: "cust-id",
-  AGORA_REST_CUSTOMER_SECRET: "cust-secret",
 };
 
 function setEnv(env: Record<string, string | undefined>) {
@@ -26,27 +21,20 @@ function setEnv(env: Record<string, string | undefined>) {
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals();
-  setEnv({
-    AGORA_APP_ID: undefined,
-    AGORA_APP_CERTIFICATE: undefined,
-    AGORA_REST_CUSTOMER_ID: undefined,
-    AGORA_REST_CUSTOMER_SECRET: undefined,
-    AGORA_REST_REGION: undefined,
-  });
+  setEnv({ AGORA_APP_ID: undefined, AGORA_APP_CERTIFICATE: undefined });
 });
 
 describe("agora config", () => {
-  it("is null until every credential is set", () => {
+  it("needs only the App ID and App Certificate", () => {
     expect(isAgoraConfigured()).toBe(false);
-    setEnv({ ...ENV_VARS, AGORA_REST_CUSTOMER_SECRET: undefined });
+    setEnv({ AGORA_APP_ID: ENV_VARS.AGORA_APP_ID });
     expect(getAgoraConfig()).toBeNull();
     setEnv(ENV_VARS);
-    expect(getAgoraConfig()).toMatchObject({ appId: ENV_VARS.AGORA_APP_ID, region: "na" });
-    setEnv({ AGORA_REST_REGION: "EU" });
-    expect(getAgoraConfig()?.region).toBe("eu");
-    setEnv({ AGORA_REST_REGION: "bogus" });
-    expect(getAgoraConfig()?.region).toBe("na");
+    expect(getAgoraConfig()).toEqual({
+      appId: ENV_VARS.AGORA_APP_ID,
+      appCertificate: ENV_VARS.AGORA_APP_CERTIFICATE,
+    });
+    expect(isAgoraConfigured()).toBe(true);
   });
 });
 
@@ -59,15 +47,6 @@ describe("channel and uid", () => {
     expect(agoraHostUid("room_other")).not.toBe(a);
     expect(a).toBeGreaterThanOrEqual(1);
     expect(a).toBeLessThanOrEqual(0xffffffff);
-  });
-
-  it("joins an RTMPS base and key with a single slash", () => {
-    expect(joinRtmpUrl("rtmps://live.cloudflare.com:443/live/", "key123")).toBe(
-      "rtmps://live.cloudflare.com:443/live/key123",
-    );
-    expect(joinRtmpUrl("rtmps://live.cloudflare.com:443/live", "/key123")).toBe(
-      "rtmps://live.cloudflare.com:443/live/key123",
-    );
   });
 });
 
@@ -84,50 +63,26 @@ describe("host session token", () => {
 
   it("refuses to mint without configuration", () => {
     expect(() => createAgoraHostSession("room_abc")).toThrow(/not configured/);
+    expect(() => createAgoraViewerSession("room_abc")).toThrow(/not configured/);
   });
 });
 
-describe("media push relay", () => {
-  it("creates an untranscoded converter pointing the host's stream at the RTMPS url", async () => {
+describe("viewer session token", () => {
+  it("mints a subscribe-only pass for the same channel and tells the player which uid is the host", () => {
     setEnv(ENV_VARS);
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ converter: { id: "conv-1", state: "connecting" } }), { status: 200 }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const relay = await startAgoraRelay({ roomId: "room_abc", rtmpUrl: "rtmps://live.cloudflare.com:443/live/key" });
-    expect(relay).toEqual({ converterId: "conv-1", state: "connecting" });
-
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe(`https://api.agora.io/na/v1/projects/${ENV_VARS.AGORA_APP_ID}/rtmp-converters`);
-    expect(init.method).toBe("POST");
-    const headers = init.headers as Record<string, string>;
-    expect(headers.Authorization).toBe(`Basic ${Buffer.from("cust-id:cust-secret").toString("base64")}`);
-    const body = JSON.parse(String(init.body)) as { converter: Record<string, unknown> };
-    expect(body.converter.rtmpUrl).toBe("rtmps://live.cloudflare.com:443/live/key");
-    expect(body.converter.rawOptions).toEqual({ rtcChannel: "gv-room_abc", rtcStreamUid: agoraHostUid("room_abc") });
-    expect(body.converter.transcodeOptions).toBeUndefined();
-    expect(body.converter.idleTimeOut).toBe(300);
-    expect(String(body.converter.name)).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+    const viewer = createAgoraViewerSession("room_abc");
+    expect(viewer.appId).toBe(ENV_VARS.AGORA_APP_ID);
+    expect(viewer.channel).toBe("gv-room_abc");
+    expect(viewer.hostUid).toBe(agoraHostUid("room_abc"));
+    expect(viewer.uid).toBe(0);
+    expect(viewer.token.startsWith("007")).toBe(true);
+    expect(viewer.expiresInSeconds).toBe(2 * 60 * 60);
+    // A viewer pass is a different token from the host's publish token.
+    expect(viewer.token).not.toBe(createAgoraHostSession("room_abc").token);
   });
 
-  it("surfaces Agora's error message", async () => {
+  it("never contains the certificate", () => {
     setEnv(ENV_VARS);
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ message: "rtmpUrl invalid" }), { status: 400 })));
-    await expect(startAgoraRelay({ roomId: "r", rtmpUrl: "x" })).rejects.toThrow(/rtmpUrl invalid/);
-  });
-
-  it("reads converter state and treats 404 as gone", async () => {
-    setEnv(ENV_VARS);
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ state: "running" }), { status: 200 })));
-    expect(await getAgoraRelay("conv-1")).toEqual({ converterId: "conv-1", state: "running" });
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
-    expect(await getAgoraRelay("conv-1")).toBeNull();
-  });
-
-  it("stopping never throws", async () => {
-    setEnv(ENV_VARS);
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
-    await expect(stopAgoraRelay("conv-1")).resolves.toBeUndefined();
-    await expect(stopAgoraRelay(null)).resolves.toBeUndefined();
+    expect(JSON.stringify(createAgoraViewerSession("room_abc"))).not.toContain(ENV_VARS.AGORA_APP_CERTIFICATE);
   });
 });

@@ -10,8 +10,8 @@ export const ADMIN_SETTINGS = [
   },
   {
     key: "live_video_use_cloudflare",
-    label: "Use backup live video (Agora + Cloudflare)",
-    help: "When on, new shows go out on the backup service instead of AWS IVS. The in-app Play button sends video through Agora (app version with backup support required; older app versions show a message and sellers can use OBS or an RTMP app instead). Buyers watch through Cloudflare. Shows already running keep their provider. Off by default.",
+    label: "Use backup live video (Agora)",
+    help: "When on, the in-app Play button sends video through Agora instead of AWS IVS, and buyers watch through Agora too (app version with Agora support required; older app versions show a message and sellers can use OBS or an RTMP app instead). Shows already running keep their provider. Off by default.",
     envFallback: "LIVE_VIDEO_USE_CLOUDFLARE",
   },
 ] as const;

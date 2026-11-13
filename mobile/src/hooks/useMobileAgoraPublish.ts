@@ -7,7 +7,7 @@ import {
   endAgoraHostSession,
   refreshAgoraHostSession,
   requestAgoraHostSession,
-  startAgoraRelay,
+  confirmAgoraLive,
   type AgoraHostSession,
 } from '../api/agoraHostRepository';
 import { getAgoraEngine, loadAgoraSdk, releaseAgoraEngine } from '../lib/agoraEngine';
@@ -37,6 +37,8 @@ const MAX_REJOIN_ATTEMPTS = 8;
 const REJOIN_LOOP_DELAY_MS = 5_000;
 const RELAY_ATTEMPTS = 3;
 
+const HEARTBEAT_MS = 25_000;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -45,11 +47,11 @@ function sleep(ms: number): Promise<void> {
  * Seller publisher for the backup real-time provider (Agora). Same inputs and outputs as
  * `useMobileStagePublish` so the host screen drives either one identically:
  *
- *   phone camera -> Agora channel -> (server-side Media Push) -> Cloudflare -> buyers' HLS
+ *   phone camera -> Agora channel -> buyers (app + web subscribe to the same channel, direct)
  *
  * The camera preview starts on mount (rear camera). Play joins the Agora channel as the broadcaster
- * and asks the server to start the relay. Pause stops publishing but stays in the channel; Resume
- * republishes and re-checks the relay. Stop leaves the channel and ends the server session.
+ * and tells the server it is live (then heartbeats every ~25 s). Pause stops publishing but stays in
+ * the channel; Resume republishes and confirms again. Stop leaves the channel and ends the session.
  */
 export function useMobileAgoraPublish(args: {
   roomId: string;
@@ -195,7 +197,7 @@ export function useMobileAgoraPublish(args: {
         }
         if (state === S.ConnectionStateConnected && sawReconnectingRef.current) {
           sawReconnectingRef.current = false;
-          // Back after a drop: make sure the relay (which idles out after a few minutes) is still up.
+          // Back after a drop: tell the server we are live again.
           if (phaseRef.current === 'live' && !intentionalPauseRef.current) rejoinRef.current('reconnected');
           return;
         }
@@ -346,20 +348,20 @@ export function useMobileAgoraPublish(args: {
     [attachHandler, scheduleTokenRefresh],
   );
 
-  /** Ask the server to start the relay; retried briefly because the first call can race the join. */
+  /** Tell the server we are live; retried briefly because the first call can race the join. */
   const ensureRelay = useCallback(async () => {
     const { roomId, accessToken } = cbRef.current;
     let lastErr: unknown = null;
     for (let attempt = 1; attempt <= RELAY_ATTEMPTS; attempt += 1) {
       try {
-        await startAgoraRelay(roomId, accessToken);
+        await confirmAgoraLive(roomId, accessToken);
         return;
       } catch (err) {
         lastErr = err;
         if (attempt < RELAY_ATTEMPTS) await sleep(relayRetryDelayMs(attempt));
       }
     }
-    throw lastErr instanceof Error ? lastErr : new Error('Could not start live video for buyers.');
+    throw lastErr instanceof Error ? lastErr : new Error('Could not start live video.');
   }, []);
 
   const leaveChannelQuietly = useCallback(() => {
@@ -442,13 +444,23 @@ export function useMobileAgoraPublish(args: {
     try {
       await endAgoraHostSession(roomId, accessToken);
     } catch {
-      /* the room's own end-of-show path also tears the relay down */
+      /* the server also drops a silent host after ~90 s */
     }
     if (mountedRef.current) {
       setPhase('idle');
       setError(null);
     }
   }, [clearTokenTimer, leaveChannelQuietly, setPublishingActive]);
+
+  /** While live, tell the server every ~25 s that we are still publishing. */
+  useEffect(() => {
+    if (phase !== 'live') return undefined;
+    const timer = setInterval(() => {
+      const { roomId, accessToken } = cbRef.current;
+      void confirmAgoraLive(roomId, accessToken).catch(() => undefined);
+    }, HEARTBEAT_MS);
+    return () => clearInterval(timer);
+  }, [phase]);
 
   /** Pause button and leaving the app: stop publishing, stay in the channel. */
   const minimizeShow = useCallback(
@@ -490,7 +502,7 @@ export function useMobileAgoraPublish(args: {
   const minimizeShowRef = useRef(minimizeShow);
   minimizeShowRef.current = minimizeShow;
 
-  /** Play after Pause (or after a drop): republish, re-check the relay. */
+  /** Play after Pause (or after a drop): republish, tell the server we are live. */
   const resumeShow = useCallback(async (): Promise<boolean> => {
     const { roomId, accessToken, agoraAppId } = cbRef.current;
     if (!agoraAppId || !accessToken.trim()) return false;

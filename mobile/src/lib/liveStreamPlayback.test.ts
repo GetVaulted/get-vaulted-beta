@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  isAgoraDirectStream,
   HOST_AWAY_NO_VIDEO_MS,
   clearBuyerStageSubscribeTornDown,
   isBuyerStageWebrtcRejoinBlocked,
@@ -469,5 +470,34 @@ describe('warmNeighborRadiusForMemory', () => {
     expect(warmNeighborRadiusForMemory(null)).toBe(WARM_NEIGHBOR_RADIUS);
     expect(warmNeighborRadiusForMemory(undefined)).toBe(WARM_NEIGHBOR_RADIUS);
     expect(warmNeighborRadiusForMemory(0)).toBe(WARM_NEIGHBOR_RADIUS);
+  });
+});
+
+describe('direct Agora shows', () => {
+  const agora = {
+    streamMode: 'stage_webrtc',
+    stageAvailable: true,
+    streamHealth: 'live',
+    streamProvider: 'agora_rtc',
+  } as const;
+
+  it('parses the provider and detects an Agora show', () => {
+    const parsed = parseBuyerSafeStreamPayload({
+      stream: { streamHealth: 'live', streamMode: 'stage_webrtc', stageAvailable: true, streamProvider: 'agora_rtc' },
+    });
+    expect(parsed?.streamProvider).toBe('agora_rtc');
+    expect(isAgoraDirectStream(parsed)).toBe(true);
+    expect(isAgoraDirectStream({ streamProvider: 'aws_ivs' })).toBe(false);
+    expect(isAgoraDirectStream(null)).toBe(false);
+  });
+
+  it('lets guests (no access token) use the real-time path for Agora, but not for AWS', () => {
+    expect(shouldUseStageWebrtcPlayback(agora, false, undefined)).toBe(true);
+    expect(shouldUseStageWebrtcPlayback({ ...agora, streamProvider: 'aws_ivs' }, false, undefined)).toBe(false);
+    expect(shouldUseStageWebrtcPlayback({ ...agora, streamProvider: 'aws_ivs' }, false, 'tok')).toBe(true);
+  });
+
+  it('still honors failover for Agora', () => {
+    expect(shouldUseStageWebrtcPlayback(agora, true, undefined)).toBe(false);
   });
 });

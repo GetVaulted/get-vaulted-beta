@@ -92,7 +92,7 @@ export async function recoverStuckLiveRooms(): Promise<StuckLiveRecoverySummary>
   if (!recoveryEnabled()) return summary;
 
   const rooms = await prisma.liveRoom.findMany({
-    where: { status: "live", streamMode: "stage_webrtc", ivsStageArn: { not: null } },
+    where: { status: "live", streamMode: "stage_webrtc", streamProvider: "aws_ivs", ivsStageArn: { not: null } },
     select: {
       id: true,
       ivsStageArn: true,

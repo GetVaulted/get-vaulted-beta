@@ -11,6 +11,7 @@ import {
   reconcileStaleLiveStreamWithRoomStatus,
   syncLiveRoomStreamFromIvs,
 } from "@/services/ivs";
+import { demoteStaleAgoraHealth } from "@/services/agora-room";
 import { getStreamRow, toBuyerSafeStreamPayload, toHostStreamPayload } from "./_shared";
 
 /**
@@ -120,6 +121,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   // webhook, streamHealth stayed offline while OBS was already encoding. Throttled GetStream
   // keeps playbackUrl + health honest for the HLS path.
   row = (await maybeSyncChannelHlsHealth(row)) ?? row;
+
+  // Agora shows: a host app that died without saying goodbye stops heartbeating — drop to connecting.
+  if (row.streamProvider === "agora_rtc" && (await demoteStaleAgoraHealth(id).catch(() => false))) {
+    row = (await getStreamRow(id)) ?? row;
+  }
 
   // Guests / in-app mini depend on Stage→Channel HLS. Prefer an explicit heal request
   // (mini player recovery) over the soft poll throttle so Back→float can restart a dead mirror.
