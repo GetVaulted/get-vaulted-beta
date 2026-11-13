@@ -44,7 +44,7 @@
     "android": {
       "package": "com.getvaulted.app",
       "version": "1.1.0",
-      "versionCode": 255,
+      "versionCode": 256,
       "googleServicesFile": "./google-services.json",
       "playStoreUrl": "https://play.google.com/store/apps/details?id=com.getvaulted.app",
       "adaptiveIcon": {

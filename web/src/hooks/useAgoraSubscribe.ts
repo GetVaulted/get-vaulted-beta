@@ -58,6 +58,8 @@ export function useAgoraSubscribe({
   onConnected,
   onFailed,
   onDisconnected,
+  onAutoplayMuted,
+  onAutoplayBlocked,
 }: {
   roomId: string;
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -68,12 +70,16 @@ export function useAgoraSubscribe({
   onConnected: () => void;
   onFailed: (reason: string) => void;
   onDisconnected?: () => void;
+  /** Sound-on autoplay was refused, so playback fell back to muted. */
+  onAutoplayMuted?: () => void;
+  /** Even muted playback was refused; the viewer must tap to start. */
+  onAutoplayBlocked?: () => void;
 }) {
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
   const streamRef = useRef<MediaStream | null>(null);
-  const cbRef = useRef({ onConnected, onFailed, onDisconnected });
-  cbRef.current = { onConnected, onFailed, onDisconnected };
+  const cbRef = useRef({ onConnected, onFailed, onDisconnected, onAutoplayMuted, onAutoplayBlocked });
+  cbRef.current = { onConnected, onFailed, onDisconnected, onAutoplayMuted, onAutoplayBlocked };
 
   useEffect(() => {
     const el = videoRef.current;
@@ -100,7 +106,14 @@ export function useAgoraSubscribe({
       el.muted = mutedRef.current;
       el.volume = 1;
       void el.play().catch(() => {
-        /* autoplay may be blocked; the player's tap-for-sound UI handles it */
+        // Browsers (Android Chrome especially) refuse autoplay with sound before a tap, which leaves a
+        // black, paused frame. Fall back to muted playback and let the page show "Tap for sound".
+        if (cancelled || el.srcObject !== stream) return;
+        el.muted = true;
+        void el
+          .play()
+          .then(() => cbRef.current.onAutoplayMuted?.())
+          .catch(() => cbRef.current.onAutoplayBlocked?.());
       });
     };
 

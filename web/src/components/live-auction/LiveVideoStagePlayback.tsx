@@ -704,6 +704,8 @@ export function LiveVideoStagePlayback({
     onConnected: handleWebrtcConnected,
     onFailed: handleWebrtcFailed,
     onDisconnected: handleWebrtcDisconnected,
+    onAutoplayMuted: () => setMuted(true),
+    onAutoplayBlocked: () => setAutoplayBlocked(true),
   });
 
   useStageSubscribe({
