@@ -3,6 +3,7 @@ import { logAdminAction, normalizeAdminReason } from "@/lib/admin/admin-audit";
 import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 import { ADMIN_SETTINGS, clearAdminSettingCache, getBoolAdminSetting, type AdminSettingKey } from "@/lib/admin/admin-settings";
 import { prisma } from "@/lib/prisma";
+import { isAgoraConfigured } from "@/services/agora-rtc";
 import { isCloudflareStreamConfigured } from "@/services/cloudflare-stream";
 
 export async function GET(request: Request) {
@@ -41,6 +42,16 @@ export async function POST(request: Request) {
       {
         error:
           "Backup live video is not set up yet. Add CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_STREAM_API_TOKEN and CLOUDFLARE_STREAM_CUSTOMER_CODE in Netlify first.",
+      },
+      { status: 400 },
+    );
+  }
+
+  if (def.key === "live_video_use_cloudflare" && body.enabled && !isAgoraConfigured()) {
+    return NextResponse.json(
+      {
+        error:
+          "In-app backup live video is not set up yet. Add AGORA_APP_ID, AGORA_APP_CERTIFICATE, AGORA_REST_CUSTOMER_ID and AGORA_REST_CUSTOMER_SECRET in Netlify first.",
       },
       { status: 400 },
     );

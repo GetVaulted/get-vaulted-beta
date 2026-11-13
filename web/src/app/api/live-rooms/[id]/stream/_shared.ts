@@ -30,6 +30,8 @@ export type StreamRow = {
   streamEndedAt: Date | null;
   lastIvsStatusSyncAt: Date | null;
   lastIvsError: string | null;
+  /** Phone camera relayed to the backup provider (see Agora relay). */
+  phoneRelay?: boolean;
 };
 
 export async function getStreamRow(liveRoomId: string): Promise<StreamRow | null> {
@@ -52,6 +54,7 @@ export async function getStreamRow(liveRoomId: string): Promise<StreamRow | null
       streamEndedAt: true,
       lastIvsStatusSyncAt: true,
       lastIvsError: true,
+      phoneRelay: true,
     },
   });
 }
@@ -83,6 +86,7 @@ export function toBuyerSafeStreamPayload(row: StreamRow) {
     isObsDesktopSource: isObsDesktopBroadcastMode({
       streamMode: row.streamMode,
       ingestEndpoint: row.ivsIngestEndpoint,
+      phoneRelay: row.phoneRelay,
     }),
   };
 }
@@ -91,6 +95,8 @@ export function toHostStreamPayload(row: StreamRow) {
   const whip = isIvsWhipIngestEndpoint(row.ivsIngestEndpoint);
   return {
     ...toBuyerSafeStreamPayload(row),
+    // True when the seller's phone camera is the source (backup provider relay), not OBS.
+    phoneRelay: row.phoneRelay === true,
     // OBS Custom / WHIP: RTMPS URL for legacy, WHIP server for WebRTC OBS.
     ingestEndpoint: whip
       ? row.ivsIngestEndpoint

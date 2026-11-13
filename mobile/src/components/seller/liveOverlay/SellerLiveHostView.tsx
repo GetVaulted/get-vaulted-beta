@@ -224,6 +224,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const obsMode = isObsDesktopBroadcastMode({
     streamMode: host.stream?.streamMode,
     ingestEndpoint: host.stream?.ingestEndpoint,
+    phoneRelay: host.stream?.phoneRelay,
   });
   /** Room is live from another device / OBS; this phone is queue / start-auction only. */
   const hostCompanionMode = (remotePublisherActive || (obsMode && roomLive)) && !localPublishing;
@@ -721,6 +722,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       isObsDesktopBroadcastMode({
         streamMode: host.stream?.streamMode,
         ingestEndpoint: host.stream?.ingestEndpoint,
+        phoneRelay: host.stream?.phoneRelay,
       })
     ) {
       if (host.room?.status === 'scheduled') {
