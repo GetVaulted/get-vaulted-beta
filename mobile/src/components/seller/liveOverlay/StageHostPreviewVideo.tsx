@@ -2,6 +2,8 @@ import { StyleSheet, View } from 'react-native';
 import { ExpoIVSStagePreviewView } from 'expo-realtime-ivs-broadcast';
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import { sellerPreviewMirror } from '../../../lib/sellerHostCamera';
+import { useHostPublisherKind } from '../../../lib/hostPublisherContext';
+import { AgoraHostPreviewVideo } from './AgoraHostPreviewVideo';
 
 type Props = {
   active: boolean;
@@ -18,7 +20,19 @@ export function StageHostPreviewVideo({
   mirrorOverride = null,
   contentFit = 'cover',
 }: Props) {
+  const publisherKind = useHostPublisherKind();
   if (!active) return null;
+
+  if (publisherKind === 'agora') {
+    return (
+      <AgoraHostPreviewVideo
+        active={active}
+        cameraFacing={cameraFacing}
+        mirrorOverride={mirrorOverride}
+        contentFit={contentFit}
+      />
+    );
+  }
 
   return (
     <View style={styles.root} pointerEvents="none">

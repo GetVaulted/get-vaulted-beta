@@ -54,7 +54,8 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "intentFilters": [
         {
@@ -120,7 +121,7 @@
           "android": {
             "enableProguardInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
-            "extraProguardRules": "-keep class com.amazonaws.ivs.** { *; }\n-dontwarn com.amazonaws.ivs.**\n-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class expo.modules.realtimeivsbroadcast.** { *; }\n-dontwarn com.stripe.**\n-dontwarn io.sentry.**"
+            "extraProguardRules": "-keep class com.amazonaws.ivs.** { *; }\n-dontwarn com.amazonaws.ivs.**\n-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class expo.modules.realtimeivsbroadcast.** { *; }\n-keep class io.agora.** { *; }\n-dontwarn io.agora.**\n-dontwarn com.stripe.**\n-dontwarn io.sentry.**"
           }
         }
       ],

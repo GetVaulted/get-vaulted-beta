@@ -10,7 +10,10 @@ export function isObsChannelHlsMode(streamMode: string | null | undefined): bool
 export function isObsDesktopBroadcastMode(args: {
   streamMode?: string | null;
   ingestEndpoint?: string | null;
+  /** Phone camera relayed to the backup provider: portrait phone video, never a desktop capture. */
+  phoneRelay?: boolean | null;
 }): boolean {
+  if (args.phoneRelay) return false;
   if (isObsChannelHlsMode(args.streamMode)) return true;
   const mode = (args.streamMode ?? '').trim().toLowerCase();
   if (mode !== 'stage_webrtc') return false;

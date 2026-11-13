@@ -54,6 +54,8 @@ export type HostStreamPayload = {
   lastStatusSyncAt: string | null;
   ingestEndpoint?: string | null;
   lastIvsError?: string | null;
+  /** Phone camera relayed to the backup provider (not OBS): the phone keeps its camera controls. */
+  phoneRelay?: boolean;
 };
 
 export type LiveRoomHostDetail = {

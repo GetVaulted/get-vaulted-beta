@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
+import { stopAgoraRelay } from "@/services/agora-rtc";
 import {
   createCloudflareLiveInput,
   deleteCloudflareLiveInput,
@@ -25,7 +26,7 @@ export async function provisionCloudflareRoomStream(
 ): Promise<CloudflareProvisionResult> {
   const room = await prisma.liveRoom.findUnique({
     where: { id: roomId },
-    select: { id: true, streamProvider: true, externalStreamId: true },
+    select: { id: true, streamProvider: true, externalStreamId: true, externalRelayId: true },
   });
   if (!room) throw new Error("Live room not found.");
 
@@ -41,6 +42,8 @@ export async function provisionCloudflareRoomStream(
   }
 
   const input = await createCloudflareLiveInput(roomId);
+  // A new input has a new stream key, so any relay still pushing to the old one is stale.
+  if (room.externalRelayId) await stopAgoraRelay(room.externalRelayId);
   const now = new Date();
   await prisma.liveRoom.update({
     where: { id: roomId },
@@ -49,6 +52,8 @@ export async function provisionCloudflareRoomStream(
       streamMode: "channel_hls",
       streamHealth: "offline",
       externalStreamId: input.uid,
+      externalRelayId: null,
+      phoneRelay: false,
       ivsPlaybackUrl: input.playbackUrl,
       ivsIngestEndpoint: input.rtmpsUrl,
       ivsStreamKeyCreatedAt: now,
@@ -100,12 +105,13 @@ export async function syncLiveRoomStreamFromCloudflare(liveRoomId: string) {
 export async function teardownCloudflareRoomStream(roomId: string): Promise<void> {
   const room = await prisma.liveRoom.findUnique({
     where: { id: roomId },
-    select: { externalStreamId: true },
+    select: { externalStreamId: true, externalRelayId: true },
   });
+  if (room?.externalRelayId) await stopAgoraRelay(room.externalRelayId);
   if (room?.externalStreamId) await deleteCloudflareLiveInput(room.externalStreamId);
   const now = new Date();
   await prisma.liveRoom.update({
     where: { id: roomId },
-    data: { streamHealth: "ended", streamEndedAt: now, streamPaused: false, lastIvsStatusSyncAt: now },
+    data: { externalRelayId: null, streamHealth: "ended", streamEndedAt: now, streamPaused: false, lastIvsStatusSyncAt: now },
   });
 }
