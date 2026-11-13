@@ -1,0 +1,153 @@
+diff --git a/web/src/services/account/seller-live-shipping-dashboard.ts b/web/src/services/account/seller-live-shipping-dashboard.ts
+index cd444c5..667e0c3 100644
+--- a/web/src/services/account/seller-live-shipping-dashboard.ts
++++ b/web/src/services/account/seller-live-shipping-dashboard.ts
+@@ -1,6 +1,7 @@
+ import type { PrismaClient } from "@/generated/prisma/client";
+ import type {
+   SellerLiveShippingDashboard,
++  SellerLiveShippingPackageRow,
+   SellerLiveShippingSessionRow,
+ } from "@/lib/seller-live-shipping-dashboard-types";
+ import { resolveSellerShippingBreakdown } from "@/lib/seller-shipping-breakdown";
+@@ -25,7 +26,7 @@ function orderHasLabel(o: {
+   return orderHasUsableShippingLabel(o);
+ }
+ 
+-type Db = Pick<PrismaClient, "liveShippingSession">;
++type Db = Pick<PrismaClient, "liveShippingSession" | "liveRoomItem">;
+ 
+ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db = prisma): Promise<SellerLiveShippingDashboard> {
+   const sessions = await db.liveShippingSession.findMany({
+@@ -93,13 +94,30 @@ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db =
+           listing: { select: { title: true, shipAlone: true } },
+           // Surprise Set spins: the fulfillment order links back to the purchase and its lot.
+           variantPurchaseFulfillment: {
+-            select: { liveRoomItem: { select: { surpriseSetItems: true } } },
++            select: { liveRoomItemId: true },
+           },
+         },
+       },
+     },
+   });
+ 
++  // Purchases have no Prisma relation to their lot, so find which lots are Surprise Sets in one query.
++  const spinLotIds = [
++    ...new Set(sessions.flatMap((s) => s.orders.flatMap((o) => o.variantPurchaseFulfillment.map((v) => v.liveRoomItemId)))),
++  ];
++  const surpriseLotIds = new Set(
++    spinLotIds.length
++      ? (
++          await db.liveRoomItem.findMany({
++            where: { id: { in: spinLotIds } },
++            select: { id: true, surpriseSetItems: true },
++          })
++        )
++          .filter((l) => Array.isArray(l.surpriseSetItems) && l.surpriseSetItems.length > 0)
++          .map((l) => l.id)
++      : [],
++  );
++
+   const sessionRows: SellerLiveShippingSessionRow[] = [];
+   let totalCharged = 0;
+   let totalLabel = 0;
+@@ -205,9 +223,7 @@ export async function getSellerLiveShippingDashboard(sellerId: string, db: Db =
+     // Extra labels (several Surprise Set spins shipping in separate boxes).
+     const paidBundledOrders = orders.filter((o) => o.paymentStatus === PAYMENT_PAID && !o.listing.shipAlone);
+     const spinCount = paidBundledOrders.filter((o) =>
+-      o.variantPurchaseFulfillment.some(
+-        (v) => Array.isArray(v.liveRoomItem.surpriseSetItems) && v.liveRoomItem.surpriseSetItems.length > 0,
+-      ),
++      o.variantPurchaseFulfillment.some((v) => surpriseLotIds.has(v.liveRoomItemId)),
+     ).length;
+     const packageRows: SellerLiveShippingPackageRow[] = s.packages
+       .filter((pkg) => Boolean(pkg.shippoTransactionId?.trim()))
+diff --git a/web/src/services/shipping/additional-label.test.ts b/web/src/services/shipping/additional-label.test.ts
+index 0ce779f..c981250 100644
+--- a/web/src/services/shipping/additional-label.test.ts
++++ b/web/src/services/shipping/additional-label.test.ts
+@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
+ const m = vi.hoisted(() => ({
+   sessionFind: vi.fn(),
+   spinsFind: vi.fn(),
++  lotsFind: vi.fn(),
+   pkgCreate: vi.fn(),
+   financeFind: vi.fn(),
+   orderFind: vi.fn(),
+@@ -21,6 +22,7 @@ vi.mock("@/lib/prisma", () => ({
+   prisma: {
+     liveShippingSession: { findFirst: m.sessionFind },
+     liveItemVariantPurchase: { findMany: m.spinsFind },
++    liveRoomItem: { findMany: m.lotsFind },
+     shipmentPackage: { create: m.pkgCreate },
+     shipmentLabelFinance: { findFirst: m.financeFind },
+     order: { findUnique: m.orderFind, update: m.orderUpdate },
+@@ -104,13 +106,14 @@ function session(over: Partial<Record<string, unknown>> = {}) {
+   };
+ }
+ 
+-const surpriseSpin = (id: string) => ({ fulfillmentOrderId: id, liveRoomItem: { surpriseSetItems: [{ name: "Helmet", quantity: 3 }] } });
++const surpriseSpin = (id: string) => ({ fulfillmentOrderId: id, liveRoomItemId: "lot-1" });
+ 
+ describe("generateAdditionalBundledLabelForSession", () => {
+   beforeEach(() => {
+     vi.clearAllMocks();
+     m.sessionFind.mockResolvedValue(session());
+     m.spinsFind.mockResolvedValue([surpriseSpin("o1"), surpriseSpin("o2"), surpriseSpin("o3")]);
++    m.lotsFind.mockResolvedValue([{ id: "lot-1", surpriseSetItems: [{ name: "Helmet", quantity: 3 }] }]);
+     m.createShipment.mockResolvedValue({ object_id: "shp-1" });
+     m.listRates.mockResolvedValue({
+       results: [
+diff --git a/web/src/services/shipping/bundled-labels.ts b/web/src/services/shipping/bundled-labels.ts
+index 0f01baf..e3d8eb3 100644
+--- a/web/src/services/shipping/bundled-labels.ts
++++ b/web/src/services/shipping/bundled-labels.ts
+@@ -1167,9 +1167,18 @@ export async function generateAdditionalBundledLabelForSession(
+ 
+   const spins = await prisma.liveItemVariantPurchase.findMany({
+     where: { fulfillmentOrderId: { in: paid.map((o) => o.id) } },
+-    select: { fulfillmentOrderId: true, liveRoomItem: { select: { surpriseSetItems: true } } },
++    select: { fulfillmentOrderId: true, liveRoomItemId: true },
+   });
+-  const spinCount = spins.filter((sp) => surpriseSetItemsPresent(sp.liveRoomItem.surpriseSetItems)).length;
++  // LiveItemVariantPurchase has no Prisma relation to its lot, so look the lots up by id.
++  const lotIds = [...new Set(spins.map((sp) => sp.liveRoomItemId))];
++  const lots = lotIds.length
++    ? await prisma.liveRoomItem.findMany({
++        where: { id: { in: lotIds } },
++        select: { id: true, surpriseSetItems: true },
++      })
++    : [];
++  const surpriseLotIds = new Set(lots.filter((l) => surpriseSetItemsPresent(l.surpriseSetItems)).map((l) => l.id));
++  const spinCount = spins.filter((sp) => surpriseLotIds.has(sp.liveRoomItemId)).length;
+   if (spinCount < ADDITIONAL_LABEL_MIN_SPINS) throw new Error("ADDITIONAL_LABELS_UNAVAILABLE");
+ 
+   // The first label always counts, even for older bundles bought before package rows were recorded.
+diff --git a/web/src/services/shipping/live-shipping-quote.ts b/web/src/services/shipping/live-shipping-quote.ts
+index 12fa5a6..0949ac7 100644
+--- a/web/src/services/shipping/live-shipping-quote.ts
++++ b/web/src/services/shipping/live-shipping-quote.ts
+@@ -99,12 +99,20 @@ export async function buildSessionPackageGroups(
+   // the strictest (smallest) limit applies so no label exceeds any set's limit.
+   let maxPackageWeightOz: number | null = null;
+   // Spot wins link to their lot through the purchase row (the order's listing is an ephemeral one).
+-  const wonLots = await db.liveItemVariantPurchase.findMany({
++  const wonPurchases = await db.liveItemVariantPurchase.findMany({
+     where: { fulfillmentOrderId: { in: session.items.map((i) => i.orderId) } },
+-    select: { liveRoomItem: { select: { maxLabelWeightOz: true } } },
++    select: { liveRoomItemId: true },
+   });
++  // No Prisma relation from the purchase to its lot, so load the lots by id.
++  const wonLotIds = [...new Set(wonPurchases.map((p) => p.liveRoomItemId))];
++  const wonLots = wonLotIds.length
++    ? await db.liveRoomItem.findMany({
++        where: { id: { in: wonLotIds } },
++        select: { maxLabelWeightOz: true },
++      })
++    : [];
+   for (const w of wonLots) {
+-    const cap = w.liveRoomItem.maxLabelWeightOz;
++    const cap = w.maxLabelWeightOz;
+     if (typeof cap === "number" && Number.isFinite(cap) && cap > 0) {
+       maxPackageWeightOz = maxPackageWeightOz == null ? cap : Math.min(maxPackageWeightOz, cap);
+     }

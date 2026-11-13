@@ -1,0 +1,703 @@
+diff --git a/web/prisma/migrations/20261113010000_cloudflare_stream_provider/migration.sql b/web/prisma/migrations/20261113010000_cloudflare_stream_provider/migration.sql
+new file mode 100644
+index 0000000..7f7149a
+--- /dev/null
++++ b/web/prisma/migrations/20261113010000_cloudflare_stream_provider/migration.sql
+@@ -0,0 +1,3 @@
++-- Backup live-video provider (Cloudflare Stream). Additive only; nothing changes until an admin enables it.
++ALTER TYPE "LiveStreamProvider" ADD VALUE IF NOT EXISTS 'cloudflare_stream';
++ALTER TABLE "LiveRoom" ADD COLUMN IF NOT EXISTS "externalStreamId" TEXT;
+diff --git a/web/prisma/schema.prisma b/web/prisma/schema.prisma
+index 819dbf7..498cf32 100644
+--- a/web/prisma/schema.prisma
++++ b/web/prisma/schema.prisma
+@@ -76,6 +76,8 @@ enum LiveRoomDiscoveryVisibility {
+ enum LiveStreamProvider {
+   none
+   aws_ivs
++  /// Backup provider (Cloudflare Stream live input, RTMPS ingest -> HLS playback). Admin-switched.
++  cloudflare_stream
+ }
+ 
+ /// How a room's video is delivered. `stage_webrtc` = IVS Real-Time (sub-second WebRTC);
+@@ -1283,6 +1285,8 @@ model LiveRoom {
+   ivsCompositionArn       String?
+   ivsStreamKeyArn         String?
+   ivsStreamKeyCreatedAt   DateTime?
++  /// Provider-side stream id for non-IVS providers (Cloudflare Stream live input uid).
++  externalStreamId        String?
+   streamStartedAt         DateTime?
+   streamEndedAt           DateTime?
+   lastIvsStatusSyncAt     DateTime?
+diff --git a/web/src/app/api/admin/settings/route.ts b/web/src/app/api/admin/settings/route.ts
+index 034a7c7..1a37411 100644
+--- a/web/src/app/api/admin/settings/route.ts
++++ b/web/src/app/api/admin/settings/route.ts
+@@ -3,6 +3,7 @@ import { logAdminAction, normalizeAdminReason } from "@/lib/admin/admin-audit";
+ import { requireAdminPermission } from "@/lib/admin/admin-permissions";
+ import { ADMIN_SETTINGS, clearAdminSettingCache, getBoolAdminSetting, type AdminSettingKey } from "@/lib/admin/admin-settings";
+ import { prisma } from "@/lib/prisma";
++import { isCloudflareStreamConfigured } from "@/services/cloudflare-stream";
+ 
+ export async function GET(request: Request) {
+   const gate = await requireAdminPermission("settings.manage", request);
+@@ -35,6 +36,16 @@ export async function POST(request: Request) {
+   const reason = normalizeAdminReason(body.reason);
+   if (!reason) return NextResponse.json({ error: "REASON_REQUIRED" }, { status: 400 });
+ 
++  if (def.key === "live_video_use_cloudflare" && body.enabled && !isCloudflareStreamConfigured()) {
++    return NextResponse.json(
++      {
++        error:
++          "Backup live video is not set up yet. Add CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_STREAM_API_TOKEN and CLOUDFLARE_STREAM_CUSTOMER_CODE in Netlify first.",
++      },
++      { status: 400 },
++    );
++  }
++
+   const key = def.key as AdminSettingKey;
+   const before = await getBoolAdminSetting(key);
+   await prisma.$transaction(async (tx) => {
+diff --git a/web/src/app/api/live-rooms/[id]/route.ts b/web/src/app/api/live-rooms/[id]/route.ts
+index 59139de..b572bc8 100644
+--- a/web/src/app/api/live-rooms/[id]/route.ts
++++ b/web/src/app/api/live-rooms/[id]/route.ts
+@@ -392,6 +392,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
+       completedSalesGmvUsd: true,
+       discoveryVisibility: true,
+       streamMode: true,
++      streamProvider: true,
+       ivsChannelArn: true,
+     },
+   });
+@@ -491,7 +492,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
+     }
+     // OBS path: pull IVS GetStream ASAP so buyers flip from offline → live without waiting
+     // for the host to keep the OBS Studio tab open.
+-    if (existing.streamMode === "channel_hls" && existing.ivsChannelArn) {
++    if (existing.streamMode === "channel_hls" && (existing.ivsChannelArn || existing.streamProvider === "cloudflare_stream")) {
+       void syncLiveRoomStreamFromIvs(id).catch((e) =>
+         console.error("[live-rooms] syncLiveRoomStreamFromIvs after start failed", id, e),
+       );
+diff --git a/web/src/app/api/live-rooms/[id]/stream/_shared.ts b/web/src/app/api/live-rooms/[id]/stream/_shared.ts
+index b4eda80..f238b03 100644
+--- a/web/src/app/api/live-rooms/[id]/stream/_shared.ts
++++ b/web/src/app/api/live-rooms/[id]/stream/_shared.ts
+@@ -4,6 +4,7 @@ import { requireLiveRoomHostAccess } from "@/lib/resolve-live-host-access";
+ import { formatIvsObsIngestUrl } from "@/lib/ivs-obs-ingest-url";
+ import { isIvsWhipIngestEndpoint } from "@/lib/ivs-whip-ingest";
+ import { isObsDesktopBroadcastMode } from "@/lib/live-obs-channel-mode";
++import { isBackupLiveVideoActive } from "@/services/cloudflare-stream";
+ import { sellerLiveTermsRequired, sellerTermsRequiredResponse } from "@/lib/seller-live-terms";
+ 
+ /** Configured IVS channel latency mode ("LOW" = low-latency HLS), without pulling in the AWS SDK service. */
+@@ -93,7 +94,9 @@ export function toHostStreamPayload(row: StreamRow) {
+     // OBS Custom / WHIP: RTMPS URL for legacy, WHIP server for WebRTC OBS.
+     ingestEndpoint: whip
+       ? row.ivsIngestEndpoint
+-      : formatIvsObsIngestUrl(row.ivsIngestEndpoint),
++      : row.streamProvider === "cloudflare_stream"
++        ? row.ivsIngestEndpoint
++        : formatIvsObsIngestUrl(row.ivsIngestEndpoint),
+     ingestProtocol: whip ? ("whip" as const) : row.streamMode === "channel_hls" ? ("rtmps" as const) : null,
+     whipServerUrl: whip ? row.ivsIngestEndpoint : null,
+     channelArn: row.ivsChannelArn,
+@@ -131,3 +134,19 @@ export async function requireSellerTermsToStart(
+   if (await sellerLiveTermsRequired(auth.userId)) return sellerTermsRequiredResponse();
+   return null;
+ }
++
++/**
++ * In-app Go Live (phone camera) publishes to AWS IVS. While the admin "backup live video" switch is
++ * on, send hosts to OBS / an RTMP app instead of failing deep inside the AWS client.
++ */
++export async function blockInAppBroadcastOnBackupProvider(): Promise<NextResponse | null> {
++  if (!(await isBackupLiveVideoActive())) return null;
++  return NextResponse.json(
++    {
++      error:
++        "Live video is running on the backup service right now. Start your show from OBS or an RTMP app using the stream settings in your host console.",
++      code: "BACKUP_LIVE_VIDEO_ACTIVE",
++    },
++    { status: 409 },
++  );
++}
+diff --git a/web/src/app/api/live-rooms/[id]/stream/broadcast-start/route.ts b/web/src/app/api/live-rooms/[id]/stream/broadcast-start/route.ts
+index 03b3444..4bdca29 100644
+--- a/web/src/app/api/live-rooms/[id]/stream/broadcast-start/route.ts
++++ b/web/src/app/api/live-rooms/[id]/stream/broadcast-start/route.ts
+@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
+ import { logIvsOpsServer } from "@/lib/ivs-ops-log";
+ import { prepareHostWebBroadcastSession } from "@/services/ivs";
+ import {
++  blockInAppBroadcastOnBackupProvider,
+   errorResponse,
+   getStreamRow,
+   requireHostAccess,
+@@ -17,6 +18,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }>
+   if (!auth.ok) return auth.response;
+   const termsBlock = await requireSellerTermsToStart(id, auth);
+   if (termsBlock) return termsBlock;
++  const backupBlock = await blockInAppBroadcastOnBackupProvider();
++  if (backupBlock) return backupBlock;
+ 
+   try {
+     const session = await prepareHostWebBroadcastSession(id);
+diff --git a/web/src/app/api/live-rooms/[id]/stream/provision/route.ts b/web/src/app/api/live-rooms/[id]/stream/provision/route.ts
+index 3f2ab27..469d152 100644
+--- a/web/src/app/api/live-rooms/[id]/stream/provision/route.ts
++++ b/web/src/app/api/live-rooms/[id]/stream/provision/route.ts
+@@ -11,6 +11,8 @@ import {
+   toHostStreamPayload,
+ } from "../_shared";
+ import { formatIvsObsIngestUrl } from "@/lib/ivs-obs-ingest-url";
++import { isBackupLiveVideoActive } from "@/services/cloudflare-stream";
++import { provisionCloudflareRoomStream } from "@/services/cloudflare-stream-room";
+ 
+ type ProvisionBody = {
+   /** Default `whip` (OBS → Stage WebRTC). Pass `rtmps` for legacy HLS OBS. */
+@@ -41,6 +43,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }>
+   const protocol = body.protocol === "rtmps" ? "rtmps" : "whip";
+ 
+   try {
++    // Admin switch: backup provider (Cloudflare). Always RTMPS (OBS / any RTMP app), never WHIP.
++    // A room already running on AWS keeps AWS so a live show is never moved mid-stream.
++    const current = await getStreamRow(id);
++    const alreadyAws = current?.streamProvider === "aws_ivs" && current.streamHealth === "live";
++    if (!alreadyAws && (current?.streamProvider === "cloudflare_stream" || (await isBackupLiveVideoActive()))) {
++      const provisioned = await provisionCloudflareRoomStream(id);
++      const row = await getStreamRow(id);
++      if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
++      logIvsOpsServer("cloudflare_provision_route_success", { roomId: id });
++      return NextResponse.json({
++        ok: true,
++        protocol: "rtmps",
++        stream: toHostStreamPayload(row),
++        ingest: {
++          endpoint: provisioned.ingestEndpoint,
++          oneTimeStreamKey: provisioned.streamKeyValue,
++        },
++      });
++    }
++
+     if (protocol === "rtmps") {
+       const provisioned = await provisionRoomStream(id);
+       await prisma.liveRoom.update({
+diff --git a/web/src/app/api/live-rooms/[id]/stream/rotate-key/route.ts b/web/src/app/api/live-rooms/[id]/stream/rotate-key/route.ts
+index f0af9cc..2a1aa7d 100644
+--- a/web/src/app/api/live-rooms/[id]/stream/rotate-key/route.ts
++++ b/web/src/app/api/live-rooms/[id]/stream/rotate-key/route.ts
+@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
+ import { logIvsOpsServer } from "@/lib/ivs-ops-log";
+ import { IVS_WHIP_SERVER_URL, isIvsWhipIngestEndpoint } from "@/lib/ivs-whip-ingest";
+ import { rotateObsWhipParticipantToken, rotateStreamKey } from "@/services/ivs";
++import { provisionCloudflareRoomStream } from "@/services/cloudflare-stream-room";
+ import { errorResponse, getStreamRow, requireHostAccess, toHostStreamPayload } from "../_shared";
+ 
+ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+@@ -15,6 +16,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }>
+     const rowBefore = await getStreamRow(id);
+     if (!rowBefore) return NextResponse.json({ error: "Room not found." }, { status: 404 });
+ 
++    if (rowBefore.streamProvider === "cloudflare_stream") {
++      // New input = new stream key + playback URL. Not allowed mid-broadcast (would drop the feed).
++      if (rowBefore.streamHealth === "live" || rowBefore.streamHealth === "connecting") {
++        return NextResponse.json({ error: "Stop streaming before rotating the key." }, { status: 409 });
++      }
++      const fresh = await provisionCloudflareRoomStream(id, { fresh: true });
++      const row = await getStreamRow(id);
++      if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
++      logIvsOpsServer("ivs_rotate_key_success", { roomId: id, protocol: "rtmps", provider: "cloudflare_stream" });
++      return NextResponse.json({
++        ok: true,
++        protocol: "rtmps",
++        stream: toHostStreamPayload(row),
++        ingest: { endpoint: fresh.ingestEndpoint, oneTimeStreamKey: fresh.streamKeyValue },
++      });
++    }
++
+     if (
+       rowBefore.streamMode === "stage_webrtc" &&
+       isIvsWhipIngestEndpoint(rowBefore.ivsIngestEndpoint)
+diff --git a/web/src/app/api/live-rooms/[id]/stream/route.ts b/web/src/app/api/live-rooms/[id]/stream/route.ts
+index 5746806..48a32e6 100644
+--- a/web/src/app/api/live-rooms/[id]/stream/route.ts
++++ b/web/src/app/api/live-rooms/[id]/stream/route.ts
+@@ -36,7 +36,7 @@ async function maybeSyncChannelHlsHealth(row: Awaited<ReturnType<typeof getStrea
+   NonNullable<Awaited<ReturnType<typeof getStreamRow>>> | null
+ > {
+   if (!row) return null;
+-  if (row.streamMode !== "channel_hls" || !row.ivsChannelArn) return row;
++  if (row.streamMode !== "channel_hls" || (!row.ivsChannelArn && row.streamProvider !== "cloudflare_stream")) return row;
+   if (row.streamHealth === "ended" || row.streamHealth === "not_provisioned") return row;
+   // Already live and recently synced — skip AWS call.
+   const syncedAt = row.lastIvsStatusSyncAt?.getTime() ?? 0;
+diff --git a/web/src/app/api/live-rooms/[id]/stream/stage-token/route.ts b/web/src/app/api/live-rooms/[id]/stream/stage-token/route.ts
+index cf2d44b..93f88aa 100644
+--- a/web/src/app/api/live-rooms/[id]/stream/stage-token/route.ts
++++ b/web/src/app/api/live-rooms/[id]/stream/stage-token/route.ts
+@@ -9,6 +9,7 @@ import {
+   refreshHostStageToken,
+ } from "@/services/ivs";
+ import {
++  blockInAppBroadcastOnBackupProvider,
+   errorResponse,
+   getStreamRow,
+   requireHostAccess,
+@@ -37,6 +38,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }>
+   if (!auth.ok) return auth.response;
+   const termsBlock = await requireSellerTermsToStart(id, auth);
+   if (termsBlock) return termsBlock;
++  const backupBlock = await blockInAppBroadcastOnBackupProvider();
++  if (backupBlock) return backupBlock;
+ 
+   try {
+     const token = await prepareHostStageSession(id, auth.userId);
+diff --git a/web/src/components/live-auction/HostStreamSetupCard.tsx b/web/src/components/live-auction/HostStreamSetupCard.tsx
+index 950741c..486f35d 100644
+--- a/web/src/components/live-auction/HostStreamSetupCard.tsx
++++ b/web/src/components/live-auction/HostStreamSetupCard.tsx
+@@ -38,6 +38,7 @@ function healthLabel(v: string) {
+ }
+ 
+ function friendlyStreamError(message: string) {
++  if (message.toLowerCase().includes("backup live video")) return message;
+   if (message.toLowerCase().includes("not configured")) {
+     return "Streaming is not configured yet. Add AWS IVS environment values, then try again.";
+   }
+diff --git a/web/src/lib/admin/admin-settings.ts b/web/src/lib/admin/admin-settings.ts
+index 3f594e9..98a0ad1 100644
+--- a/web/src/lib/admin/admin-settings.ts
++++ b/web/src/lib/admin/admin-settings.ts
+@@ -8,6 +8,12 @@ export const ADMIN_SETTINGS = [
+     help: "When on, members must be approved (Seller Applications) before they can list or host shows. Grandfathered sellers keep access. Off by default.",
+     envFallback: "SELLER_APPLICATIONS_ENFORCED",
+   },
++  {
++    key: "live_video_use_cloudflare",
++    label: "Use backup live video (Cloudflare)",
++    help: "When on, new stream setups use Cloudflare instead of AWS IVS. Sellers broadcast from OBS or an RTMP app (the in-app Go Live button uses AWS and is paused). Shows already running keep their provider. Off by default.",
++    envFallback: "LIVE_VIDEO_USE_CLOUDFLARE",
++  },
+ ] as const;
+ 
+ export type AdminSettingKey = (typeof ADMIN_SETTINGS)[number]["key"];
+diff --git a/web/src/services/cloudflare-stream-room.ts b/web/src/services/cloudflare-stream-room.ts
+new file mode 100644
+index 0000000..706cc6a
+--- /dev/null
++++ b/web/src/services/cloudflare-stream-room.ts
+@@ -0,0 +1,111 @@
++import { prisma } from "@/lib/prisma";
++import { logIvsOpsServer } from "@/lib/ivs-ops-log";
++import {
++  createCloudflareLiveInput,
++  deleteCloudflareLiveInput,
++  getCloudflareLiveInput,
++  getCloudflareStreamStatus,
++} from "@/services/cloudflare-stream";
++
++export type CloudflareProvisionResult = {
++  roomId: string;
++  playbackUrl: string;
++  ingestEndpoint: string;
++  streamKeyValue: string;
++};
++
++/**
++ * Point a room at Cloudflare Stream (RTMPS ingest -> HLS). Idempotent: an already-provisioned room
++ * gets its existing input back. `fresh: true` replaces the input (new stream key + playback URL).
++ * Any IVS Stage / channel references are cleared so buyer clients take the plain HLS path.
++ */
++export async function provisionCloudflareRoomStream(
++  roomId: string,
++  opts: { fresh?: boolean } = {},
++): Promise<CloudflareProvisionResult> {
++  const room = await prisma.liveRoom.findUnique({
++    where: { id: roomId },
++    select: { id: true, streamProvider: true, externalStreamId: true },
++  });
++  if (!room) throw new Error("Live room not found.");
++
++  const existingUid = room.streamProvider === "cloudflare_stream" ? room.externalStreamId : null;
++  if (existingUid && !opts.fresh) {
++    try {
++      const input = await getCloudflareLiveInput(existingUid);
++      return { roomId, playbackUrl: input.playbackUrl, ingestEndpoint: input.rtmpsUrl, streamKeyValue: input.streamKey };
++    } catch (e) {
++      // Input was deleted on Cloudflare's side — fall through and create a new one.
++      logIvsOpsServer("cloudflare_input_missing_recreate", { roomId, error: e instanceof Error ? e.message : "unknown" });
++    }
++  }
++
++  const input = await createCloudflareLiveInput(roomId);
++  const now = new Date();
++  await prisma.liveRoom.update({
++    where: { id: roomId },
++    data: {
++      streamProvider: "cloudflare_stream",
++      streamMode: "channel_hls",
++      streamHealth: "offline",
++      externalStreamId: input.uid,
++      ivsPlaybackUrl: input.playbackUrl,
++      ivsIngestEndpoint: input.rtmpsUrl,
++      ivsStreamKeyCreatedAt: now,
++      ivsChannelArn: null,
++      ivsChannelName: null,
++      ivsStageArn: null,
++      ivsCompositionArn: null,
++      ivsStreamKeyArn: null,
++      streamEndedAt: now,
++      streamStartedAt: null,
++      lastIvsStatusSyncAt: now,
++      lastIvsError: null,
++    },
++  });
++  if (existingUid && existingUid !== input.uid) void deleteCloudflareLiveInput(existingUid);
++  logIvsOpsServer("cloudflare_provision_success", { roomId, fresh: Boolean(opts.fresh) });
++  return { roomId, playbackUrl: input.playbackUrl, ingestEndpoint: input.rtmpsUrl, streamKeyValue: input.streamKey };
++}
++
++/** Poll Cloudflare for ingest status and reconcile `LiveRoom.streamHealth` (same commit path as IVS). */
++export async function syncLiveRoomStreamFromCloudflare(liveRoomId: string) {
++  const room = await prisma.liveRoom.findUnique({
++    where: { id: liveRoomId },
++    select: { id: true, streamProvider: true, externalStreamId: true },
++  });
++  if (!room || room.streamProvider !== "cloudflare_stream" || !room.externalStreamId) return null;
++
++  const status = await getCloudflareStreamStatus(room.externalStreamId);
++  if (status.probeFailed) {
++    logIvsOpsServer("cloudflare_stream_sync_skipped_probe_failed", { roomId: liveRoomId });
++    return null;
++  }
++  const { commitLiveRoomStreamHealthFromIvs } = await import("@/services/ivs");
++  const result = await commitLiveRoomStreamHealthFromIvs({
++    liveRoomId,
++    newHealth: status.health,
++    opSource: "sync_get_stream",
++  });
++  if (status.health === "live") {
++    const { maybeAutoStartObsRoomOnIngestSignal } = await import("@/lib/live-obs-auto-start");
++    await maybeAutoStartObsRoomOnIngestSignal(liveRoomId).catch((e) =>
++      console.error("[cloudflare] obs auto-start failed", liveRoomId, e),
++    );
++  }
++  return result;
++}
++
++/** Show ended: stop billing for storage by deleting the input and its recording. Never throws. */
++export async function teardownCloudflareRoomStream(roomId: string): Promise<void> {
++  const room = await prisma.liveRoom.findUnique({
++    where: { id: roomId },
++    select: { externalStreamId: true },
++  });
++  if (room?.externalStreamId) await deleteCloudflareLiveInput(room.externalStreamId);
++  const now = new Date();
++  await prisma.liveRoom.update({
++    where: { id: roomId },
++    data: { streamHealth: "ended", streamEndedAt: now, streamPaused: false, lastIvsStatusSyncAt: now },
++  });
++}
+diff --git a/web/src/services/cloudflare-stream.test.ts b/web/src/services/cloudflare-stream.test.ts
+new file mode 100644
+index 0000000..938e53b
+--- /dev/null
++++ b/web/src/services/cloudflare-stream.test.ts
+@@ -0,0 +1,108 @@
++import { afterEach, describe, expect, it, vi } from "vitest";
++import {
++  cloudflareHlsPlaybackUrl,
++  createCloudflareLiveInput,
++  getCloudflareStreamConfig,
++  getCloudflareStreamStatus,
++  isCloudflareStreamConfigured,
++} from "./cloudflare-stream";
++
++const ENV = {
++  CLOUDFLARE_ACCOUNT_ID: "acct123",
++  CLOUDFLARE_STREAM_API_TOKEN: "tok",
++  CLOUDFLARE_STREAM_CUSTOMER_CODE: "abc123xyz",
++} as unknown as NodeJS.ProcessEnv;
++
++function setEnv(env: Record<string, string | undefined>) {
++  for (const [k, v] of Object.entries(env)) {
++    if (v === undefined) delete process.env[k];
++    else process.env[k] = v;
++  }
++}
++
++afterEach(() => {
++  vi.unstubAllGlobals();
++  setEnv({
++    CLOUDFLARE_ACCOUNT_ID: undefined,
++    CLOUDFLARE_STREAM_API_TOKEN: undefined,
++    CLOUDFLARE_STREAM_CUSTOMER_CODE: undefined,
++    CLOUDFLARE_STREAM_LOW_LATENCY: undefined,
++  });
++});
++
++describe("cloudflare stream config", () => {
++  it("needs account id, token and customer code", () => {
++    expect(isCloudflareStreamConfigured({} as NodeJS.ProcessEnv)).toBe(false);
++    expect(isCloudflareStreamConfigured({ ...ENV, CLOUDFLARE_STREAM_API_TOKEN: "" } as NodeJS.ProcessEnv)).toBe(false);
++    expect(isCloudflareStreamConfigured(ENV)).toBe(true);
++  });
++
++  it("accepts the customer code pasted as a full subdomain", () => {
++    const cfg = getCloudflareStreamConfig({
++      ...ENV,
++      CLOUDFLARE_STREAM_CUSTOMER_CODE: "customer-abc123xyz.cloudflarestream.com",
++    } as NodeJS.ProcessEnv);
++    expect(cfg?.customerCode).toBe("abc123xyz");
++  });
++
++  it("builds the HLS manifest URL from the live input id", () => {
++    expect(cloudflareHlsPlaybackUrl("abc123xyz", "uid1")).toBe(
++      "https://customer-abc123xyz.cloudflarestream.com/uid1/manifest/video.m3u8",
++    );
++  });
++});
++
++describe("cloudflare stream API", () => {
++  it("creates a recording live input and returns RTMPS + playback URL", async () => {
++    setEnv(ENV as Record<string, string>);
++    const fetchMock = vi.fn(async () =>
++      new Response(
++        JSON.stringify({
++          success: true,
++          result: { uid: "uid1", rtmps: { url: "rtmps://live.cloudflare.com:443/live/", streamKey: "key1" } },
++        }),
++        { status: 200 },
++      ),
++    );
++    vi.stubGlobal("fetch", fetchMock);
++    const input = await createCloudflareLiveInput("room1");
++    expect(input).toEqual({
++      uid: "uid1",
++      rtmpsUrl: "rtmps://live.cloudflare.com:443/live/",
++      streamKey: "key1",
++      playbackUrl: "https://customer-abc123xyz.cloudflarestream.com/uid1/manifest/video.m3u8",
++    });
++    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
++    expect(url).toBe("https://api.cloudflare.com/client/v4/accounts/acct123/stream/live_inputs");
++    expect(init.method).toBe("POST");
++    expect(JSON.parse(String(init.body)).recording.mode).toBe("automatic");
++    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
++  });
++
++  it("surfaces Cloudflare errors", async () => {
++    setEnv(ENV as Record<string, string>);
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async () => new Response(JSON.stringify({ success: false, errors: [{ message: "bad token" }] }), { status: 403 })),
++    );
++    await expect(createCloudflareLiveInput("room1")).rejects.toThrow(/bad token/);
++  });
++
++  it("maps lifecycle live:true/false to health and treats failures as a failed probe", async () => {
++    setEnv(ENV as Record<string, string>);
++    const respond = (body: unknown, status = 200) =>
++      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), { status })));
++    respond({ isInput: true, videoUID: "v", live: true });
++    expect(await getCloudflareStreamStatus("uid1")).toEqual({ probeFailed: false, health: "live" });
++    respond({ isInput: true, videoUID: null, live: false });
++    expect(await getCloudflareStreamStatus("uid1")).toEqual({ probeFailed: false, health: "offline" });
++    respond({}, 500);
++    expect(await getCloudflareStreamStatus("uid1")).toEqual({ probeFailed: true });
++    respond({ nope: 1 });
++    expect(await getCloudflareStreamStatus("uid1")).toEqual({ probeFailed: true });
++  });
++
++  it("reports not configured when env is missing", async () => {
++    await expect(createCloudflareLiveInput("room1")).rejects.toThrow(/not configured/);
++  });
++});
+diff --git a/web/src/services/cloudflare-stream.ts b/web/src/services/cloudflare-stream.ts
+new file mode 100644
+index 0000000..e8c2960
+--- /dev/null
++++ b/web/src/services/cloudflare-stream.ts
+@@ -0,0 +1,147 @@
++import type { LiveStreamHealth } from "@/generated/prisma/client";
++import { getBoolAdminSetting } from "@/lib/admin/admin-settings";
++import { logIvsOpsServer } from "@/lib/ivs-ops-log";
++
++/**
++ * Backup live-video provider: Cloudflare Stream live inputs.
++ * Seller pushes RTMPS (OBS / Larix / any RTMP app) -> Cloudflare -> HLS that the existing buyer
++ * players already play (same `playbackUrl` contract as the IVS channel_hls path).
++ *
++ * Env: CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_STREAM_API_TOKEN (Stream:Edit), CLOUDFLARE_STREAM_CUSTOMER_CODE
++ * (the "customer-<CODE>" subdomain shown in the Stream dashboard). Optional CLOUDFLARE_STREAM_LOW_LATENCY=1.
++ */
++
++export type CloudflareStreamConfig = {
++  accountId: string;
++  apiToken: string;
++  customerCode: string;
++  lowLatency: boolean;
++};
++
++export function getCloudflareStreamConfig(env: NodeJS.ProcessEnv = process.env): CloudflareStreamConfig | null {
++  const accountId = env.CLOUDFLARE_ACCOUNT_ID?.trim() ?? "";
++  const apiToken = env.CLOUDFLARE_STREAM_API_TOKEN?.trim() ?? "";
++  const rawCode = env.CLOUDFLARE_STREAM_CUSTOMER_CODE?.trim() ?? "";
++  const customerCode = rawCode.replace(/^customer-/i, "").replace(/\.cloudflarestream\.com.*$/i, "");
++  if (!accountId || !apiToken || !customerCode) return null;
++  const ll = env.CLOUDFLARE_STREAM_LOW_LATENCY?.trim().toLowerCase();
++  return { accountId, apiToken, customerCode, lowLatency: ll === "1" || ll === "true" };
++}
++
++export function isCloudflareStreamConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
++  return getCloudflareStreamConfig(env) !== null;
++}
++
++function requireConfig(): CloudflareStreamConfig {
++  const cfg = getCloudflareStreamConfig();
++  if (!cfg) {
++    throw new Error(
++      "Backup live video is not configured. Set CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_STREAM_API_TOKEN and CLOUDFLARE_STREAM_CUSTOMER_CODE.",
++    );
++  }
++  return cfg;
++}
++
++/** Admin switch (Settings -> "Use backup live video"). Off by default. */
++export async function isBackupLiveVideoActive(): Promise<boolean> {
++  return getBoolAdminSetting("live_video_use_cloudflare");
++}
++
++export function cloudflareHlsPlaybackUrl(customerCode: string, inputUid: string): string {
++  return `https://customer-${customerCode}.cloudflarestream.com/${inputUid}/manifest/video.m3u8`;
++}
++
++export type CloudflareLiveInput = {
++  uid: string;
++  rtmpsUrl: string;
++  streamKey: string;
++  playbackUrl: string;
++};
++
++type CfEnvelope<T> = { success?: boolean; result?: T; errors?: Array<{ message?: string }> };
++
++async function cfApi<T>(cfg: CloudflareStreamConfig, method: string, path: string, body?: unknown): Promise<T> {
++  const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${cfg.accountId}${path}`, {
++    method,
++    headers: {
++      Authorization: `Bearer ${cfg.apiToken}`,
++      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
++    },
++    body: body !== undefined ? JSON.stringify(body) : undefined,
++    cache: "no-store",
++  });
++  const json = (await res.json().catch(() => ({}))) as CfEnvelope<T>;
++  if (!res.ok || json.success === false) {
++    const msg = json.errors?.map((e) => e.message).filter(Boolean).join("; ") || `HTTP ${res.status}`;
++    throw new Error(`Cloudflare Stream request failed: ${msg}`);
++  }
++  return json.result as T;
++}
++
++type RawLiveInput = { uid: string; rtmps?: { url?: string; streamKey?: string } };
++
++function toLiveInput(cfg: CloudflareStreamConfig, raw: RawLiveInput): CloudflareLiveInput {
++  const url = raw.rtmps?.url?.trim();
++  const key = raw.rtmps?.streamKey?.trim();
++  if (!raw.uid || !url || !key) throw new Error("Cloudflare Stream returned an incomplete live input.");
++  return { uid: raw.uid, rtmpsUrl: url, streamKey: key, playbackUrl: cloudflareHlsPlaybackUrl(cfg.customerCode, raw.uid) };
++}
++
++/**
++ * Create a live input for a room. Recording must be `automatic`: Cloudflare only serves HLS for
++ * inputs that record (the recording is deleted when the show ends — see deleteCloudflareLiveInput).
++ */
++export async function createCloudflareLiveInput(roomId: string): Promise<CloudflareLiveInput> {
++  const cfg = requireConfig();
++  const raw = await cfApi<RawLiveInput>(cfg, "POST", "/stream/live_inputs", {
++    meta: { name: `vaulted-live-${roomId}` },
++    recording: { mode: "automatic" },
++    ...(cfg.lowLatency ? { preferLowLatency: true } : {}),
++  });
++  return toLiveInput(cfg, raw);
++}
++
++export async function getCloudflareLiveInput(uid: string): Promise<CloudflareLiveInput> {
++  const cfg = requireConfig();
++  return toLiveInput(cfg, await cfApi<RawLiveInput>(cfg, "GET", `/stream/live_inputs/${encodeURIComponent(uid)}`));
++}
++
++/** Delete the input and any recording it produced. Best effort; never throws. */
++export async function deleteCloudflareLiveInput(uid: string): Promise<void> {
++  const cfg = getCloudflareStreamConfig();
++  if (!cfg || !uid) return;
++  try {
++    const videos = await cfApi<Array<{ uid?: string }>>(
++      cfg,
++      "GET",
++      `/stream/live_inputs/${encodeURIComponent(uid)}/videos`,
++    ).catch(() => []);
++    for (const v of videos ?? []) {
++      if (v?.uid) await cfApi(cfg, "DELETE", `/stream/${encodeURIComponent(v.uid)}`).catch(() => {});
++    }
++    await cfApi(cfg, "DELETE", `/stream/live_inputs/${encodeURIComponent(uid)}`);
++    logIvsOpsServer("cloudflare_live_input_deleted", { videoCount: videos?.length ?? 0 });
++  } catch {
++    logIvsOpsServer("cloudflare_live_input_delete_failed", {});
++  }
++}
++
++export type CloudflareStatusResult = { probeFailed: true } | { probeFailed: false; health: LiveStreamHealth };
++
++/** Public lifecycle endpoint: `{ isInput, videoUID, live }`. */
++export async function getCloudflareStreamStatus(uid: string): Promise<CloudflareStatusResult> {
++  const cfg = getCloudflareStreamConfig();
++  if (!cfg) return { probeFailed: true };
++  try {
++    const res = await fetch(`https://customer-${cfg.customerCode}.cloudflarestream.com/${encodeURIComponent(uid)}/lifecycle`, {
++      headers: { Authorization: `Bearer ${cfg.apiToken}` },
++      cache: "no-store",
++    });
++    if (!res.ok) return { probeFailed: true };
++    const j = (await res.json().catch(() => null)) as { live?: unknown } | null;
++    if (!j || typeof j.live !== "boolean") return { probeFailed: true };
++    return { probeFailed: false, health: j.live ? "live" : "offline" };
++  } catch {
++    return { probeFailed: true };
++  }
++}
+diff --git a/web/src/services/ivs.ts b/web/src/services/ivs.ts
+index 8051b5e..f6165bd 100644
+--- a/web/src/services/ivs.ts
++++ b/web/src/services/ivs.ts
+@@ -580,6 +580,11 @@ export async function commitLiveRoomStreamHealthFromIvs(args: {
+  * do not need to tap Play on the phone for inventory to go live.
+  */
+ export async function syncLiveRoomStreamFromIvs(liveRoomId: string): Promise<StreamHealthCommitResult | null> {
++  const provider = await prisma.liveRoom.findUnique({ where: { id: liveRoomId }, select: { streamProvider: true } });
++  if (provider?.streamProvider === "cloudflare_stream") {
++    const { syncLiveRoomStreamFromCloudflare } = await import("@/services/cloudflare-stream-room");
++    return syncLiveRoomStreamFromCloudflare(liveRoomId);
++  }
+   const room = await prisma.liveRoom.findUnique({
+     where: { id: liveRoomId },
+     select: {
+@@ -1633,8 +1638,17 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
+ export async function endHostStageSession(roomId: string): Promise<void> {
+   const room = await prisma.liveRoom.findUnique({
+     where: { id: roomId },
+-    select: { status: true },
++    select: { status: true, streamProvider: true },
+   });
++  if (room?.streamProvider === "cloudflare_stream") {
++    // Backup provider: no AWS resources to tear down. A still-live room keeps its input so the
++    // seller can reconnect OBS; once the show is over, delete the input + recording.
++    if (room.status !== "live") {
++      const { teardownCloudflareRoomStream } = await import("@/services/cloudflare-stream-room");
++      await teardownCloudflareRoomStream(roomId);
++    }
++    return;
++  }
+   if (room?.status === "live") {
+     cancelDelayedCompositionStop(roomId);
+     // Soft disconnect: room stays live so host can Go Live again, but stop lying that video is up.

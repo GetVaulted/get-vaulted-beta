@@ -20,7 +20,9 @@ import { SellerLiveHostView } from '../components/seller/liveOverlay/SellerLiveH
 import { LiveConsoleWarningBanner } from '../components/seller/liveConsole/LiveConsoleWarningBanner';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
 import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
-import { useMobileStagePublish, type MobileHostBroadcastPhase } from '../hooks/useMobileStagePublish';
+import type { MobileHostBroadcastPhase } from '../hooks/useMobileStagePublish';
+import { useHostPublisher } from '../hooks/useHostPublisher';
+import { HostPublisherKindContext } from '../lib/hostPublisherContext';
 import { shouldClearStreamPausedAfterHostResume } from '../lib/livePlaybackAppState';
 import { isLiveRoomRemotePublisherActive } from '../lib/liveRoomBroadcastOnAir';
 import { isObsDesktopBroadcastMode } from '../lib/liveObsChannelMode';
@@ -155,6 +157,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     isObsDesktopBroadcastMode({
       streamMode: stream?.streamMode,
       ingestEndpoint: stream?.ingestEndpoint ?? ingestEndpoint,
+      phoneRelay: stream?.phoneRelay,
     });
 
   // `onResumeBroadcast` is defined further down (it calls `stagePublish.resumeShow()`, so it
@@ -163,7 +166,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   // latest closure.
   const onResumeBroadcastRef = useRef<() => Promise<void>>(async () => {});
 
-  const stagePublish = useMobileStagePublish({
+  const stagePublish = useHostPublisher({
     roomId,
     accessToken: token ?? '',
     previewEnabled:
@@ -271,6 +274,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       !isObsDesktopBroadcastMode({
         streamMode: stream?.streamMode,
         ingestEndpoint: stream?.ingestEndpoint ?? ingestEndpoint,
+        phoneRelay: stream?.phoneRelay,
       })
     )
       return;
@@ -584,6 +588,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   }
 
   return (
+    <HostPublisherKindContext.Provider value={stagePublish.publisherKind}>
     <View style={styles.root}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <SellerLiveHostView
@@ -637,6 +642,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
         }}
       />
     </View>
+    </HostPublisherKindContext.Provider>
   );
 }
 

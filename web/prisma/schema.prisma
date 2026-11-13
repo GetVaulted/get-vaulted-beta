@@ -1287,6 +1287,10 @@ model LiveRoom {
   ivsStreamKeyCreatedAt   DateTime?
   /// Provider-side stream id for non-IVS providers (Cloudflare Stream live input uid).
   externalStreamId        String?
+  /// Agora Media Push converter id while a phone is relaying to the Cloudflare input.
+  externalRelayId         String?
+  /// True when the seller's phone (not OBS) is the source of a non-AWS stream, so clients treat it as a portrait phone camera.
+  phoneRelay              Boolean   @default(false)
   streamStartedAt         DateTime?
   streamEndedAt           DateTime?
   lastIvsStatusSyncAt     DateTime?

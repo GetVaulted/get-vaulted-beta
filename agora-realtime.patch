@@ -1,0 +1,2938 @@
+diff --git a/mobile/app.json b/mobile/app.json
+index f4d79ab..ad71282 100644
+--- a/mobile/app.json
++++ b/mobile/app.json
+@@ -54,7 +54,8 @@
+       "edgeToEdgeEnabled": true,
+       "predictiveBackGestureEnabled": false,
+       "permissions": [
+-        "android.permission.RECORD_AUDIO"
++        "android.permission.RECORD_AUDIO",
++        "android.permission.MODIFY_AUDIO_SETTINGS"
+       ],
+       "intentFilters": [
+         {
+@@ -120,7 +121,7 @@
+           "android": {
+             "enableProguardInReleaseBuilds": true,
+             "enableShrinkResourcesInReleaseBuilds": true,
+-            "extraProguardRules": "-keep class com.amazonaws.ivs.** { *; }\n-dontwarn com.amazonaws.ivs.**\n-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class expo.modules.realtimeivsbroadcast.** { *; }\n-dontwarn com.stripe.**\n-dontwarn io.sentry.**"
++            "extraProguardRules": "-keep class com.amazonaws.ivs.** { *; }\n-dontwarn com.amazonaws.ivs.**\n-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class expo.modules.realtimeivsbroadcast.** { *; }\n-keep class io.agora.** { *; }\n-dontwarn io.agora.**\n-dontwarn com.stripe.**\n-dontwarn io.sentry.**"
+           }
+         }
+       ],
+diff --git a/mobile/package-lock.json b/mobile/package-lock.json
+index 02614cf..7c02a02 100644
+--- a/mobile/package-lock.json
++++ b/mobile/package-lock.json
+@@ -49,6 +49,7 @@
+         "expo-web-browser": "~15.0.11",
+         "react": "19.1.0",
+         "react-native": "0.81.5",
++        "react-native-agora": "4.6.4",
+         "react-native-draggable-flatlist": "^4.0.3",
+         "react-native-gesture-handler": "~2.28.0",
+         "react-native-pager-view": "6.9.1",
+@@ -3685,6 +3686,7 @@
+       "cpu": [
+         "arm"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3698,6 +3700,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3711,6 +3714,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3724,6 +3728,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3737,6 +3742,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3750,6 +3756,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3763,6 +3770,7 @@
+       "cpu": [
+         "arm"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3776,6 +3784,7 @@
+       "cpu": [
+         "arm"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3789,6 +3798,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3802,6 +3812,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3815,6 +3826,7 @@
+       "cpu": [
+         "loong64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3828,6 +3840,7 @@
+       "cpu": [
+         "loong64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3841,6 +3854,7 @@
+       "cpu": [
+         "ppc64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3854,6 +3868,7 @@
+       "cpu": [
+         "ppc64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3867,6 +3882,7 @@
+       "cpu": [
+         "riscv64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3880,6 +3896,7 @@
+       "cpu": [
+         "riscv64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3893,6 +3910,7 @@
+       "cpu": [
+         "s390x"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3906,6 +3924,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3919,6 +3938,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3932,6 +3952,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3945,6 +3966,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3958,6 +3980,7 @@
+       "cpu": [
+         "arm64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3971,6 +3994,7 @@
+       "cpu": [
+         "ia32"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3984,6 +4008,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3997,6 +4022,7 @@
+       "cpu": [
+         "x64"
+       ],
++      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -5872,6 +5898,15 @@
+         "node": ">=0.6"
+       }
+     },
++    "node_modules/bignumber.js": {
++      "version": "9.3.1",
++      "resolved": "https://registry.npmjs.org/bignumber.js/-/bignumber.js-9.3.1.tgz",
++      "integrity": "sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ==",
++      "license": "MIT",
++      "engines": {
++        "node": "*"
++      }
++    },
+     "node_modules/boolbase": {
+       "version": "1.0.0",
+       "resolved": "https://registry.npmjs.org/boolbase/-/boolbase-1.0.0.tgz",
+@@ -7052,6 +7087,12 @@
+         "node": ">=6"
+       }
+     },
++    "node_modules/eventemitter3": {
++      "version": "5.0.4",
++      "resolved": "https://registry.npmjs.org/eventemitter3/-/eventemitter3-5.0.4.tgz",
++      "integrity": "sha512-mlsTRyGaPBjPedk6Bvw+aqbsXDtoAyAzm5MO7JgU+yVRyMQ5O8bD4Kcci7BS85f93veegeCPkL8R4GLClnjLFw==",
++      "license": "MIT"
++    },
+     "node_modules/expect-type": {
+       "version": "1.3.0",
+       "resolved": "https://registry.npmjs.org/expect-type/-/expect-type-1.3.0.tgz",
+@@ -9366,6 +9407,15 @@
+         "node": ">=6"
+       }
+     },
++    "node_modules/json-bigint": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/json-bigint/-/json-bigint-1.0.0.tgz",
++      "integrity": "sha512-SiPv/8VpZuWbvLSMtTDU8hEfrZWg/mH/nV/b4o0CYbSxu1UIQPLdwKOCIyLQX+VIPO5vrLX3i8qtqFyhdPSUSQ==",
++      "license": "MIT",
++      "dependencies": {
++        "bignumber.js": "^9.0.0"
++      }
++    },
+     "node_modules/json-parse-even-better-errors": {
+       "version": "2.3.1",
+       "resolved": "https://registry.npmjs.org/json-parse-even-better-errors/-/json-parse-even-better-errors-2.3.1.tgz",
+@@ -11329,6 +11379,58 @@
+         }
+       }
+     },
++    "node_modules/react-native-agora": {
++      "version": "4.6.4",
++      "resolved": "https://registry.npmjs.org/react-native-agora/-/react-native-agora-4.6.4.tgz",
++      "integrity": "sha512-CEHW/bs3UCZMJLOtK1Ojt52/3Qy2SZLKjsqnnpQuZs4vv138WpUFb3QbJc72gardVFPZ0PfeHsK5dHNIO4/ZMA==",
++      "license": "MIT",
++      "workspaces": [
++        "examples/*"
++      ],
++      "dependencies": {
++        "buffer": "^6.0.3",
++        "eventemitter3": "^5.0.1",
++        "json-bigint": "^1.0.0",
++        "ts-interface-checker": "^1.0.2"
++      },
++      "engines": {
++        "node": ">=18"
++      },
++      "peerDependencies": {
++        "react": "*",
++        "react-native": "*"
++      }
++    },
++    "node_modules/react-native-agora/node_modules/buffer": {
++      "version": "6.0.3",
++      "resolved": "https://registry.npmjs.org/buffer/-/buffer-6.0.3.tgz",
++      "integrity": "sha512-FTiCpNxtwiZZHEZbcbTIcZjERVICn9yq/pDFkTl95/AxzD1naBctN7YO68riM/gLSDY7sdrMby8hofADYuuqOA==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/feross"
++        },
++        {
++          "type": "patreon",
++          "url": "https://www.patreon.com/feross"
++        },
++        {
++          "type": "consulting",
++          "url": "https://feross.org/support"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "base64-js": "^1.3.1",
++        "ieee754": "^1.2.1"
++      }
++    },
++    "node_modules/react-native-agora/node_modules/ts-interface-checker": {
++      "version": "1.0.2",
++      "resolved": "https://registry.npmjs.org/ts-interface-checker/-/ts-interface-checker-1.0.2.tgz",
++      "integrity": "sha512-4IKKvhZRXhvtYF/mtu+OCfBqJKV6LczUq4kQYcpT+iSB7++R9+giWnp2ecwWMIcnG16btVOkXFnoxLSYMN1Q1g==",
++      "license": "Apache-2.0"
++    },
+     "node_modules/react-native-draggable-flatlist": {
+       "version": "4.0.3",
+       "resolved": "https://registry.npmjs.org/react-native-draggable-flatlist/-/react-native-draggable-flatlist-4.0.3.tgz",
+diff --git a/mobile/package.json b/mobile/package.json
+index b96ac64..eba047b 100644
+--- a/mobile/package.json
++++ b/mobile/package.json
+@@ -67,6 +67,7 @@
+     "expo-web-browser": "~15.0.11",
+     "react": "19.1.0",
+     "react-native": "0.81.5",
++    "react-native-agora": "4.6.4",
+     "react-native-draggable-flatlist": "^4.0.3",
+     "react-native-gesture-handler": "~2.28.0",
+     "react-native-pager-view": "6.9.1",
+diff --git a/mobile/src/api/agoraHostRepository.test.ts b/mobile/src/api/agoraHostRepository.test.ts
+new file mode 100644
+index 0000000..0416a89
+--- /dev/null
++++ b/mobile/src/api/agoraHostRepository.test.ts
+@@ -0,0 +1,41 @@
++import { describe, expect, it } from 'vitest';
++import { parseAgoraHostSession, parseHostPublisher } from './agoraHostRepository';
++
++describe('parseHostPublisher', () => {
++  it('selects Agora only with an App ID', () => {
++    expect(parseHostPublisher({ publisher: 'agora', agoraAppId: ' abc123 ' })).toEqual({
++      publisher: 'agora',
++      agoraAppId: 'abc123',
++    });
++    expect(parseHostPublisher({ publisher: 'agora', agoraAppId: null })).toEqual({ publisher: 'aws_ivs', agoraAppId: null });
++  });
++
++  it('defaults to AWS for anything else', () => {
++    expect(parseHostPublisher({ publisher: 'aws_ivs' }).publisher).toBe('aws_ivs');
++    expect(parseHostPublisher(null).publisher).toBe('aws_ivs');
++    expect(parseHostPublisher('x').publisher).toBe('aws_ivs');
++    expect(parseHostPublisher({ publisher: 'something' }).publisher).toBe('aws_ivs');
++  });
++});
++
++describe('parseAgoraHostSession', () => {
++  const good = { agora: { appId: 'app', channel: 'gv-room', uid: 42, token: 'tok', expiresInSeconds: 43200 } };
++
++  it('reads a complete session', () => {
++    expect(parseAgoraHostSession(good)).toEqual({
++      appId: 'app',
++      channel: 'gv-room',
++      uid: 42,
++      token: 'tok',
++      expiresInSeconds: 43200,
++    });
++  });
++
++  it('rejects incomplete sessions', () => {
++    expect(parseAgoraHostSession({})).toBeNull();
++    expect(parseAgoraHostSession({ agora: { ...good.agora, token: '' } })).toBeNull();
++    expect(parseAgoraHostSession({ agora: { ...good.agora, uid: 0 } })).toBeNull();
++    expect(parseAgoraHostSession({ agora: { ...good.agora, channel: ' ' } })).toBeNull();
++    expect(parseAgoraHostSession(null)).toBeNull();
++  });
++});
+diff --git a/mobile/src/api/agoraHostRepository.ts b/mobile/src/api/agoraHostRepository.ts
+new file mode 100644
+index 0000000..93d8bcc
+--- /dev/null
++++ b/mobile/src/api/agoraHostRepository.ts
+@@ -0,0 +1,132 @@
++import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
++
++export type HostPublisherKind = 'aws_ivs' | 'agora';
++
++export type HostPublisherSelection = {
++  publisher: HostPublisherKind;
++  /** Agora App ID (public). Needed to open the camera preview before a session exists. */
++  agoraAppId: string | null;
++};
++
++export type AgoraHostSession = {
++  appId: string;
++  channel: string;
++  uid: number;
++  token: string;
++  expiresInSeconds: number;
++};
++
++const AWS_DEFAULT: HostPublisherSelection = { publisher: 'aws_ivs', agoraAppId: null };
++
++export function parseHostPublisher(raw: unknown): HostPublisherSelection {
++  if (!raw || typeof raw !== 'object') return AWS_DEFAULT;
++  const r = raw as Record<string, unknown>;
++  const appId = typeof r.agoraAppId === 'string' ? r.agoraAppId.trim() : '';
++  if (r.publisher === 'agora' && appId) return { publisher: 'agora', agoraAppId: appId };
++  return AWS_DEFAULT;
++}
++
++export function parseAgoraHostSession(raw: unknown): AgoraHostSession | null {
++  if (!raw || typeof raw !== 'object') return null;
++  const a = (raw as Record<string, unknown>).agora;
++  if (!a || typeof a !== 'object') return null;
++  const s = a as Record<string, unknown>;
++  const appId = typeof s.appId === 'string' ? s.appId.trim() : '';
++  const channel = typeof s.channel === 'string' ? s.channel.trim() : '';
++  const token = typeof s.token === 'string' ? s.token.trim() : '';
++  const uid = typeof s.uid === 'number' && Number.isFinite(s.uid) ? s.uid : 0;
++  const expiresInSeconds = typeof s.expiresInSeconds === 'number' ? s.expiresInSeconds : 0;
++  if (!appId || !channel || !token || uid <= 0) return null;
++  return { appId, channel, uid, token, expiresInSeconds };
++}
++
++function errorMessage(res: Response, raw: unknown, fallback: string): string {
++  if (raw && typeof raw === 'object') {
++    const err = (raw as { error?: string }).error;
++    if (typeof err === 'string' && err.trim()) return err.trim();
++  }
++  return `${fallback} (${res.status})`;
++}
++
++function streamPath(roomId: string, suffix: string): string {
++  return `/api/live-rooms/${encodeURIComponent(roomId)}/stream/${suffix}`;
++}
++
++function authHeaders(accessToken: string, json: boolean): Record<string, string> {
++  return { Authorization: `Bearer ${accessToken}`, ...(json ? { 'Content-Type': 'application/json' } : {}) };
++}
++
++/**
++ * Which sender should this room use? Any failure falls back to AWS so hosting is never blocked by
++ * this lookup.
++ */
++export async function fetchHostPublisher(roomId: string, accessToken: string): Promise<HostPublisherSelection> {
++  if (!accessToken.trim()) return AWS_DEFAULT;
++  try {
++    const res = await fetchWebApiMobile(
++      streamPath(roomId, 'publisher'),
++      { method: 'GET', headers: authHeaders(accessToken, false) },
++      { timeoutMs: 6_000 },
++    );
++    if (!res.ok) return AWS_DEFAULT;
++    return parseHostPublisher(await res.json().catch(() => null));
++  } catch {
++    return AWS_DEFAULT;
++  }
++}
++
++async function sessionCall(
++  roomId: string,
++  accessToken: string,
++  method: 'POST' | 'PATCH',
++  timeoutMs: number,
++): Promise<AgoraHostSession> {
++  const res = await fetchWebApiMobile(
++    streamPath(roomId, 'agora'),
++    { method, headers: authHeaders(accessToken, true), body: '{}' },
++    { timeoutMs },
++  );
++  if (!res) throw new Error('Set EXPO_PUBLIC_SITE_URL to your Next.js API host.');
++  const raw = (await res.json().catch(() => null)) as unknown;
++  const session = parseAgoraHostSession(raw);
++  if (!res.ok || !session) throw new Error(errorMessage(res, raw, 'Live video request failed'));
++  return session;
++}
++
++/** Start a phone broadcast on the backup provider: sets up buyer playback and returns join details. */
++export function requestAgoraHostSession(roomId: string, accessToken: string): Promise<AgoraHostSession> {
++  return sessionCall(roomId, accessToken, 'POST', 45_000);
++}
++
++/** Fresh token for a running broadcast (renewal or rejoin). */
++export function refreshAgoraHostSession(roomId: string, accessToken: string): Promise<AgoraHostSession> {
++  return sessionCall(roomId, accessToken, 'PATCH', 20_000);
++}
++
++/** Start (or keep) the relay that feeds buyers. Call after joining the channel and after a rejoin. */
++export async function startAgoraRelay(roomId: string, accessToken: string): Promise<void> {
++  const res = await fetchWebApiMobile(
++    streamPath(roomId, 'agora/relay'),
++    { method: 'POST', headers: authHeaders(accessToken, true), body: '{}' },
++    { timeoutMs: 25_000 },
++  );
++  if (!res) throw new Error('Set EXPO_PUBLIC_SITE_URL to your Next.js API host.');
++  if (!res.ok) {
++    const raw = (await res.json().catch(() => null)) as unknown;
++    throw new Error(errorMessage(res, raw, 'Could not start live video'));
++  }
++}
++
++/** Host stopped: stop the relay and end the server-side session. */
++export async function endAgoraHostSession(roomId: string, accessToken: string): Promise<void> {
++  if (!accessToken.trim()) return;
++  const res = await fetchWebApiMobile(streamPath(roomId, 'agora'), {
++    method: 'DELETE',
++    headers: authHeaders(accessToken, false),
++  });
++  if (!res) return;
++  if (!res.ok) {
++    const raw = (await res.json().catch(() => null)) as unknown;
++    throw new Error(errorMessage(res, raw, 'Could not end live video'));
++  }
++}
+diff --git a/mobile/src/api/liveHostRepository.ts b/mobile/src/api/liveHostRepository.ts
+index 4b7d027..0aa1b89 100644
+--- a/mobile/src/api/liveHostRepository.ts
++++ b/mobile/src/api/liveHostRepository.ts
+@@ -54,6 +54,8 @@ export type HostStreamPayload = {
+   lastStatusSyncAt: string | null;
+   ingestEndpoint?: string | null;
+   lastIvsError?: string | null;
++  /** Phone camera relayed to the backup provider (not OBS): the phone keeps its camera controls. */
++  phoneRelay?: boolean;
+ };
+ 
+ export type LiveRoomHostDetail = {
+diff --git a/mobile/src/components/seller/liveOverlay/AgoraHostPreviewVideo.tsx b/mobile/src/components/seller/liveOverlay/AgoraHostPreviewVideo.tsx
+new file mode 100644
+index 0000000..b9c6cc1
+--- /dev/null
++++ b/mobile/src/components/seller/liveOverlay/AgoraHostPreviewVideo.tsx
+@@ -0,0 +1,47 @@
++import { Platform, StyleSheet, View } from 'react-native';
++import { loadAgoraSdk } from '../../../lib/agoraEngine';
++import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
++import { sellerPreviewMirror } from '../../../lib/sellerHostCamera';
++
++type Props = {
++  active: boolean;
++  cameraFacing?: SellerCameraFacing;
++  mirrorOverride?: boolean | null;
++  contentFit?: 'cover' | 'contain';
++};
++
++/** Local camera preview for the Agora host publisher (same slot as the IVS preview view). */
++export function AgoraHostPreviewVideo({
++  active,
++  cameraFacing = 'back',
++  mirrorOverride = null,
++  contentFit = 'cover',
++}: Props) {
++  const lib = loadAgoraSdk();
++  if (!active || !lib) return null;
++
++  // Android: a texture view composites correctly under the host overlays (a surface view can punch through).
++  const PreviewView = Platform.OS === 'android' ? lib.RtcTextureView : lib.RtcSurfaceView;
++  const mirror = sellerPreviewMirror(cameraFacing, mirrorOverride);
++
++  return (
++    <View style={styles.root} pointerEvents="none">
++      <PreviewView
++        style={styles.video}
++        canvas={{
++          uid: 0,
++          sourceType: lib.VideoSourceType.VideoSourceCamera,
++          renderMode: contentFit === 'cover' ? lib.RenderModeType.RenderModeHidden : lib.RenderModeType.RenderModeFit,
++          mirrorMode: mirror
++            ? lib.VideoMirrorModeType.VideoMirrorModeEnabled
++            : lib.VideoMirrorModeType.VideoMirrorModeDisabled,
++        }}
++      />
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  root: { ...StyleSheet.absoluteFillObject },
++  video: { ...StyleSheet.absoluteFillObject },
++});
+diff --git a/mobile/src/components/seller/liveOverlay/SellerLiveHostView.tsx b/mobile/src/components/seller/liveOverlay/SellerLiveHostView.tsx
+index 523691a..c3c34fa 100644
+--- a/mobile/src/components/seller/liveOverlay/SellerLiveHostView.tsx
++++ b/mobile/src/components/seller/liveOverlay/SellerLiveHostView.tsx
+@@ -224,6 +224,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
+   const obsMode = isObsDesktopBroadcastMode({
+     streamMode: host.stream?.streamMode,
+     ingestEndpoint: host.stream?.ingestEndpoint,
++    phoneRelay: host.stream?.phoneRelay,
+   });
+   /** Room is live from another device / OBS; this phone is queue / start-auction only. */
+   const hostCompanionMode = (remotePublisherActive || (obsMode && roomLive)) && !localPublishing;
+@@ -721,6 +722,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
+       isObsDesktopBroadcastMode({
+         streamMode: host.stream?.streamMode,
+         ingestEndpoint: host.stream?.ingestEndpoint,
++        phoneRelay: host.stream?.phoneRelay,
+       })
+     ) {
+       if (host.room?.status === 'scheduled') {
+diff --git a/mobile/src/components/seller/liveOverlay/StageHostPreviewVideo.tsx b/mobile/src/components/seller/liveOverlay/StageHostPreviewVideo.tsx
+index 67d533b..701ee6e 100644
+--- a/mobile/src/components/seller/liveOverlay/StageHostPreviewVideo.tsx
++++ b/mobile/src/components/seller/liveOverlay/StageHostPreviewVideo.tsx
+@@ -2,6 +2,8 @@ import { StyleSheet, View } from 'react-native';
+ import { ExpoIVSStagePreviewView } from 'expo-realtime-ivs-broadcast';
+ import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
+ import { sellerPreviewMirror } from '../../../lib/sellerHostCamera';
++import { useHostPublisherKind } from '../../../lib/hostPublisherContext';
++import { AgoraHostPreviewVideo } from './AgoraHostPreviewVideo';
+ 
+ type Props = {
+   active: boolean;
+@@ -18,8 +20,20 @@ export function StageHostPreviewVideo({
+   mirrorOverride = null,
+   contentFit = 'cover',
+ }: Props) {
++  const publisherKind = useHostPublisherKind();
+   if (!active) return null;
+ 
++  if (publisherKind === 'agora') {
++    return (
++      <AgoraHostPreviewVideo
++        active={active}
++        cameraFacing={cameraFacing}
++        mirrorOverride={mirrorOverride}
++        contentFit={contentFit}
++      />
++    );
++  }
++
+   return (
+     <View style={styles.root} pointerEvents="none">
+       <ExpoIVSStagePreviewView
+diff --git a/mobile/src/hooks/useHostPublisher.ts b/mobile/src/hooks/useHostPublisher.ts
+new file mode 100644
+index 0000000..5afd3af
+--- /dev/null
++++ b/mobile/src/hooks/useHostPublisher.ts
+@@ -0,0 +1,56 @@
++import { useEffect, useState } from 'react';
++import { fetchHostPublisher, type HostPublisherKind } from '../api/agoraHostRepository';
++import { isAgoraNativeAvailable } from '../lib/agoraEngine';
++import { useMobileAgoraPublish } from './useMobileAgoraPublish';
++import { useMobileStagePublish } from './useMobileStagePublish';
++
++type PublishArgs = Parameters<typeof useMobileStagePublish>[0];
++
++type Selection = { resolved: boolean; kind: HostPublisherKind; agoraAppId: string | null };
++
++/**
++ * Picks the seller's video sender for this room: AWS IVS Stage (default) or Agora (backup
++ * provider, chosen by the admin switch). Both publishers expose the same controls, so the host
++ * screen treats the result identically. Only the selected one is active; the other stays idle.
++ *
++ * Any lookup failure, or an app build without the Agora native module, selects AWS.
++ */
++export function useHostPublisher(args: PublishArgs) {
++  const { roomId, accessToken } = args;
++  const [selection, setSelection] = useState<Selection>({ resolved: false, kind: 'aws_ivs', agoraAppId: null });
++
++  useEffect(() => {
++    let cancelled = false;
++    if (!roomId || !accessToken.trim()) {
++      setSelection({ resolved: false, kind: 'aws_ivs', agoraAppId: null });
++      return;
++    }
++    void (async () => {
++      const result = await fetchHostPublisher(roomId, accessToken);
++      if (cancelled) return;
++      const useAgora = result.publisher === 'agora' && Boolean(result.agoraAppId) && isAgoraNativeAvailable();
++      setSelection({
++        resolved: true,
++        kind: useAgora ? 'agora' : 'aws_ivs',
++        agoraAppId: useAgora ? result.agoraAppId : null,
++      });
++    })();
++    return () => {
++      cancelled = true;
++    };
++  }, [roomId, accessToken]);
++
++  const agoraActive = selection.resolved && selection.kind === 'agora';
++
++  const aws = useMobileStagePublish({
++    ...args,
++    previewEnabled: args.previewEnabled && selection.resolved && !agoraActive,
++  });
++  const agora = useMobileAgoraPublish({
++    ...args,
++    previewEnabled: args.previewEnabled && agoraActive,
++    agoraAppId: selection.agoraAppId,
++  });
++
++  return { ...(agoraActive ? agora : aws), publisherKind: (agoraActive ? 'agora' : 'aws_ivs') as HostPublisherKind };
++}
+diff --git a/mobile/src/hooks/useMobileAgoraPublish.ts b/mobile/src/hooks/useMobileAgoraPublish.ts
+new file mode 100644
+index 0000000..a268b23
+--- /dev/null
++++ b/mobile/src/hooks/useMobileAgoraPublish.ts
+@@ -0,0 +1,755 @@
++import { useCallback, useEffect, useRef, useState } from 'react';
++import { AppState, type AppStateStatus } from 'react-native';
++import * as Sentry from '@sentry/react-native';
++import type * as AgoraSdk from 'react-native-agora';
++import { requestPermissions } from 'expo-realtime-ivs-broadcast';
++import {
++  endAgoraHostSession,
++  refreshAgoraHostSession,
++  requestAgoraHostSession,
++  startAgoraRelay,
++  type AgoraHostSession,
++} from '../api/agoraHostRepository';
++import { getAgoraEngine, loadAgoraSdk, releaseAgoraEngine } from '../lib/agoraEngine';
++import {
++  AGORA_HOST_VIDEO,
++  agoraTokenRefreshDelayMs,
++  agoraZoomStops,
++  clampAgoraZoom,
++  friendlyAgoraError,
++  relayRetryDelayMs,
++} from '../lib/agoraHost';
++import {
++  LIVE_BACKGROUND_SUSPEND_DWELL_MS,
++  shouldAutoResumeOnForeground,
++  shouldHostBackgroundAutoPause,
++} from '../lib/livePlaybackAppState';
++import {
++  cameraPermissionDeniedMessage,
++  cameraPermissionUnavailableMessage,
++  SELLER_DEFAULT_CAMERA_FACING,
++  type SellerCameraFacing,
++} from '../lib/sellerHostCamera';
++import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from './useMobileStagePublish';
++
++const JOIN_TIMEOUT_MS = 20_000;
++const MAX_REJOIN_ATTEMPTS = 8;
++const REJOIN_LOOP_DELAY_MS = 5_000;
++const RELAY_ATTEMPTS = 3;
++
++function sleep(ms: number): Promise<void> {
++  return new Promise((resolve) => setTimeout(resolve, ms));
++}
++
++/**
++ * Seller publisher for the backup real-time provider (Agora). Same inputs and outputs as
++ * `useMobileStagePublish` so the host screen drives either one identically:
++ *
++ *   phone camera -> Agora channel -> (server-side Media Push) -> Cloudflare -> buyers' HLS
++ *
++ * The camera preview starts on mount (rear camera). Play joins the Agora channel as the broadcaster
++ * and asks the server to start the relay. Pause stops publishing but stays in the channel; Resume
++ * republishes and re-checks the relay. Stop leaves the channel and ends the server session.
++ */
++export function useMobileAgoraPublish(args: {
++  roomId: string;
++  accessToken: string;
++  /** When true, request permissions and start the rear-camera preview. */
++  previewEnabled: boolean;
++  /** Agora App ID (public) from the publisher lookup. */
++  agoraAppId: string | null;
++  onBroadcastStarted?: () => void;
++  onStreamRefresh?: () => void;
++  onBackgroundAutoPause?: () => void | Promise<void>;
++  onBackgroundAutoResume?: () => void | Promise<void>;
++}) {
++  const cbRef = useRef(args);
++  cbRef.current = args;
++
++  const [phase, setPhase] = useState<MobileHostBroadcastPhase>('idle');
++  const [error, setError] = useState<string | null>(null);
++  const [localPreviewReady, setLocalPreviewReady] = useState(false);
++  const [permissionState, setPermissionState] = useState<SellerCameraPermissionState>('idle');
++  const [permissionError, setPermissionError] = useState<string | null>(null);
++  const [cameraFacing, setCameraFacing] = useState<SellerCameraFacing>(SELLER_DEFAULT_CAMERA_FACING);
++  const [cameraMirrorOverride, setCameraMirrorOverrideState] = useState<boolean | null>(null);
++  const [cameraZoom, setCameraZoomState] = useState(1);
++  const [zoomStops, setZoomStops] = useState<number[]>([1]);
++  const [microphoneMuted, setMicrophoneMutedState] = useState(false);
++  const [publishing, setPublishing] = useState(false);
++
++  const mountedRef = useRef(true);
++  const phaseRef = useRef<MobileHostBroadcastPhase>('idle');
++  const publishingRef = useRef(false);
++  const wentLiveRef = useRef(false);
++  const intentionalStopRef = useRef(false);
++  const intentionalPauseRef = useRef(false);
++  const backgroundedWhilePausedRef = useRef(false);
++  const joinedRef = useRef(false);
++  const previewRunningRef = useRef(false);
++  const previewPromiseRef = useRef<Promise<boolean> | null>(null);
++  const startPromiseRef = useRef<Promise<boolean> | null>(null);
++  const reconnectInFlightRef = useRef(false);
++  const epochRef = useRef(0);
++  const sessionRef = useRef<AgoraHostSession | null>(null);
++  const mutedRef = useRef(false);
++  const facingRef = useRef<SellerCameraFacing>(SELLER_DEFAULT_CAMERA_FACING);
++  const maxZoomRef = useRef(1);
++  const tokenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
++  const joinWaiterRef = useRef<{ resolve: () => void; reject: (e: Error) => void } | null>(null);
++  const handlerRef = useRef<AgoraSdk.IRtcEngineEventHandler | null>(null);
++  const handlerEngineRef = useRef<AgoraSdk.IRtcEngine | null>(null);
++  const sawReconnectingRef = useRef(false);
++  const rejoinRef = useRef<(trigger: string) => void>(() => {});
++  const refreshTokenRef = useRef<() => Promise<void>>(async () => {});
++
++  useEffect(() => {
++    phaseRef.current = phase;
++  }, [phase]);
++
++  useEffect(() => {
++    mountedRef.current = true;
++    return () => {
++      mountedRef.current = false;
++    };
++  }, []);
++
++  const setPublishingActive = useCallback((next: boolean) => {
++    publishingRef.current = next;
++    if (mountedRef.current) setPublishing(next);
++  }, []);
++
++  const clearTokenTimer = useCallback(() => {
++    if (tokenTimerRef.current != null) {
++      clearTimeout(tokenTimerRef.current);
++      tokenTimerRef.current = null;
++    }
++  }, []);
++
++  const scheduleTokenRefresh = useCallback(
++    (expiresInSeconds: number) => {
++      clearTokenTimer();
++      tokenTimerRef.current = setTimeout(() => {
++        void refreshTokenRef.current();
++      }, agoraTokenRefreshDelayMs(expiresInSeconds));
++    },
++    [clearTokenTimer],
++  );
++
++  /** Fresh server token -> Agora renewToken. Best effort; a failed renewal falls back to rejoin on expiry. */
++  const refreshToken = useCallback(async () => {
++    const { roomId, accessToken, agoraAppId } = cbRef.current;
++    if (!joinedRef.current || !agoraAppId || !accessToken.trim()) return;
++    try {
++      const session = await refreshAgoraHostSession(roomId, accessToken);
++      sessionRef.current = session;
++      getAgoraEngine(agoraAppId).renewToken(session.token);
++      scheduleTokenRefresh(session.expiresInSeconds);
++    } catch (err) {
++      Sentry.addBreadcrumb({
++        category: 'agora_host',
++        message: `token refresh failed: ${err instanceof Error ? err.message : String(err)}`,
++        level: 'warning',
++      });
++    }
++  }, [scheduleTokenRefresh]);
++  refreshTokenRef.current = refreshToken;
++
++  const attachHandler = useCallback((engine: AgoraSdk.IRtcEngine) => {
++    const lib = loadAgoraSdk();
++    if (!lib || handlerEngineRef.current === engine) return;
++    if (handlerRef.current && handlerEngineRef.current) {
++      try {
++        handlerEngineRef.current.unregisterEventHandler(handlerRef.current);
++      } catch {
++        /* ignore */
++      }
++    }
++    const handler: AgoraSdk.IRtcEngineEventHandler = {
++      onJoinChannelSuccess: () => {
++        joinedRef.current = true;
++        joinWaiterRef.current?.resolve();
++        joinWaiterRef.current = null;
++      },
++      onLeaveChannel: () => {
++        joinedRef.current = false;
++      },
++      onError: (code, msg) => {
++        // Join failures surface here when the token or App ID is rejected.
++        if (joinWaiterRef.current) {
++          joinWaiterRef.current.reject(new Error(msg || `Live video error ${code}`));
++          joinWaiterRef.current = null;
++        }
++      },
++      onTokenPrivilegeWillExpire: () => {
++        void refreshTokenRef.current();
++      },
++      onRequestToken: () => {
++        void refreshTokenRef.current();
++      },
++      onConnectionStateChanged: (_connection, state) => {
++        const S = lib.ConnectionStateType;
++        if (state === S.ConnectionStateReconnecting) {
++          sawReconnectingRef.current = true;
++          return;
++        }
++        if (state === S.ConnectionStateConnected && sawReconnectingRef.current) {
++          sawReconnectingRef.current = false;
++          // Back after a drop: make sure the relay (which idles out after a few minutes) is still up.
++          if (phaseRef.current === 'live' && !intentionalPauseRef.current) rejoinRef.current('reconnected');
++          return;
++        }
++        if (state === S.ConnectionStateFailed) {
++          joinedRef.current = false;
++          if (phaseRef.current === 'live' && !intentionalPauseRef.current) rejoinRef.current('connection_failed');
++        }
++      },
++    };
++    engine.registerEventHandler(handler);
++    handlerRef.current = handler;
++    handlerEngineRef.current = engine;
++  }, []);
++
++  /** Camera on, rear by default, portrait encoder. Safe to call repeatedly. */
++  const configureAndPreview = useCallback(
++    (engine: AgoraSdk.IRtcEngine, opts: { resetFacing: boolean }) => {
++      const lib = loadAgoraSdk();
++      if (!lib) throw new Error('Live video backup is not available in this version of the app.');
++      attachHandler(engine);
++      engine.enableVideo();
++      engine.enableAudio();
++      engine.setVideoEncoderConfiguration({
++        dimensions: { width: AGORA_HOST_VIDEO.width, height: AGORA_HOST_VIDEO.height },
++        frameRate: AGORA_HOST_VIDEO.frameRate,
++        bitrate: AGORA_HOST_VIDEO.bitrateKbps,
++        orientationMode: lib.OrientationMode.OrientationModeFixedPortrait,
++        mirrorMode: lib.VideoMirrorModeType.VideoMirrorModeDisabled,
++        codecType: lib.VideoCodecType.VideoCodecH264,
++      });
++      if (opts.resetFacing) {
++        engine.setCameraCapturerConfiguration({ cameraDirection: lib.CameraDirection.CameraRear });
++        facingRef.current = SELLER_DEFAULT_CAMERA_FACING;
++        setCameraFacing(SELLER_DEFAULT_CAMERA_FACING);
++      }
++      const code = engine.startPreview();
++      if (typeof code === 'number' && code < 0) throw new Error(`Could not start the camera (code ${code}).`);
++      previewRunningRef.current = true;
++    },
++    [attachHandler],
++  );
++
++  const refreshZoomStops = useCallback((engine: AgoraSdk.IRtcEngine) => {
++    try {
++      const supported = facingRef.current === 'back' && engine.isCameraZoomSupported();
++      const max = supported ? engine.getCameraMaxZoomFactor() : 1;
++      maxZoomRef.current = max;
++      if (mountedRef.current) setZoomStops(agoraZoomStops(max, supported));
++    } catch {
++      maxZoomRef.current = 1;
++      if (mountedRef.current) setZoomStops([1]);
++    }
++  }, []);
++
++  const ensureLocalPreview = useCallback(async (): Promise<boolean> => {
++    if (previewRunningRef.current) return true;
++    if (previewPromiseRef.current) return previewPromiseRef.current;
++    const run = (async () => {
++      const appId = cbRef.current.agoraAppId;
++      if (!appId) {
++        setPermissionState('unavailable');
++        setPermissionError(cameraPermissionUnavailableMessage());
++        return false;
++      }
++      setPermissionState('requesting');
++      setPermissionError(null);
++      try {
++        const perms = await requestPermissions();
++        if (perms.camera === 'unavailable' || perms.microphone === 'unavailable') {
++          setPermissionState('unavailable');
++          setPermissionError(cameraPermissionUnavailableMessage());
++          return false;
++        }
++        if (perms.camera === 'denied' || perms.microphone === 'denied') {
++          setPermissionState('denied');
++          setPermissionError(cameraPermissionDeniedMessage());
++          return false;
++        }
++        const engine = getAgoraEngine(appId);
++        configureAndPreview(engine, { resetFacing: true });
++        refreshZoomStops(engine);
++        if (mountedRef.current) {
++          setLocalPreviewReady(true);
++          setPermissionState('granted');
++        }
++        return true;
++      } catch (err) {
++        const msg = friendlyAgoraError(err);
++        if (mountedRef.current) {
++          setLocalPreviewReady(false);
++          if (/permission|denied/i.test(msg)) {
++            setPermissionState('denied');
++            setPermissionError(cameraPermissionDeniedMessage());
++          } else {
++            setPermissionState('unavailable');
++            setPermissionError(msg);
++          }
++        }
++        return false;
++      }
++    })().finally(() => {
++      previewPromiseRef.current = null;
++    });
++    previewPromiseRef.current = run;
++    return run;
++  }, [configureAndPreview, refreshZoomStops]);
++
++  useEffect(() => {
++    if (!args.previewEnabled || !args.agoraAppId) return;
++    const frame = requestAnimationFrame(() => {
++      void ensureLocalPreview();
++    });
++    return () => cancelAnimationFrame(frame);
++  }, [args.previewEnabled, args.agoraAppId, ensureLocalPreview]);
++
++  /** Join the channel with a session and wait until Agora confirms. */
++  const joinWithSession = useCallback(
++    async (session: AgoraHostSession) => {
++      const lib = loadAgoraSdk();
++      if (!lib) throw new Error('Live video backup is not available in this version of the app.');
++      const engine = getAgoraEngine(session.appId);
++      attachHandler(engine);
++      sessionRef.current = session;
++      const joined = new Promise<void>((resolve, reject) => {
++        joinWaiterRef.current = { resolve, reject };
++        setTimeout(() => {
++          if (joinWaiterRef.current?.resolve === resolve) {
++            joinWaiterRef.current = null;
++            reject(new Error('Could not reach the live video service. Check your connection and try again.'));
++          }
++        }, JOIN_TIMEOUT_MS);
++      });
++      const code = engine.joinChannel(session.token, session.channel, session.uid, {
++        channelProfile: lib.ChannelProfileType.ChannelProfileLiveBroadcasting,
++        clientRoleType: lib.ClientRoleType.ClientRoleBroadcaster,
++        publishCameraTrack: true,
++        publishMicrophoneTrack: !mutedRef.current,
++        autoSubscribeAudio: false,
++        autoSubscribeVideo: false,
++      });
++      if (typeof code === 'number' && code < 0) {
++        joinWaiterRef.current = null;
++        throw new Error(`Could not join live video (code ${code}).`);
++      }
++      await joined;
++      scheduleTokenRefresh(session.expiresInSeconds);
++    },
++    [attachHandler, scheduleTokenRefresh],
++  );
++
++  /** Ask the server to start the relay; retried briefly because the first call can race the join. */
++  const ensureRelay = useCallback(async () => {
++    const { roomId, accessToken } = cbRef.current;
++    let lastErr: unknown = null;
++    for (let attempt = 1; attempt <= RELAY_ATTEMPTS; attempt += 1) {
++      try {
++        await startAgoraRelay(roomId, accessToken);
++        return;
++      } catch (err) {
++        lastErr = err;
++        if (attempt < RELAY_ATTEMPTS) await sleep(relayRetryDelayMs(attempt));
++      }
++    }
++    throw lastErr instanceof Error ? lastErr : new Error('Could not start live video for buyers.');
++  }, []);
++
++  const leaveChannelQuietly = useCallback(() => {
++    const appId = cbRef.current.agoraAppId;
++    if (!appId) return;
++    try {
++      getAgoraEngine(appId).leaveChannel();
++    } catch {
++      /* ignore */
++    }
++    joinedRef.current = false;
++  }, []);
++
++  const start = useCallback(
++    async (_opts?: { force?: boolean }): Promise<boolean> => {
++      if (startPromiseRef.current) return startPromiseRef.current;
++      const run = (async () => {
++        const { roomId, accessToken } = cbRef.current;
++        if (!accessToken.trim()) {
++          setError('Sign in to go live.');
++          return false;
++        }
++        intentionalStopRef.current = false;
++        intentionalPauseRef.current = false;
++        epochRef.current += 1;
++        setError(null);
++        setPhase('starting');
++        try {
++          const previewOk = await ensureLocalPreview();
++          if (!previewOk) throw new Error(cbRef.current.agoraAppId ? cameraPermissionDeniedMessage() : cameraPermissionUnavailableMessage());
++          const session = await requestAgoraHostSession(roomId, accessToken);
++          if (session.appId !== cbRef.current.agoraAppId) {
++            // App ID changed under us (rotated in the console): rebuild the engine with the new one.
++            releaseAgoraEngine();
++            previewRunningRef.current = false;
++            handlerEngineRef.current = null;
++            const engine = getAgoraEngine(session.appId);
++            configureAndPreview(engine, { resetFacing: false });
++          }
++          await joinWithSession(session);
++          await ensureRelay();
++          wentLiveRef.current = true;
++          setPublishingActive(true);
++          if (mountedRef.current) setPhase('live');
++          cbRef.current.onBroadcastStarted?.();
++          cbRef.current.onStreamRefresh?.();
++          return true;
++        } catch (err) {
++          leaveChannelQuietly();
++          clearTokenTimer();
++          void endAgoraHostSession(roomId, accessToken).catch(() => undefined);
++          setPublishingActive(false);
++          wentLiveRef.current = false;
++          if (mountedRef.current) {
++            setPhase('idle');
++            setError(friendlyAgoraError(err));
++          }
++          return false;
++        }
++      })().finally(() => {
++        startPromiseRef.current = null;
++      });
++      startPromiseRef.current = run;
++      return run;
++    },
++    [clearTokenTimer, configureAndPreview, ensureLocalPreview, ensureRelay, joinWithSession, leaveChannelQuietly, setPublishingActive],
++  );
++
++  const stop = useCallback(async (): Promise<void> => {
++    const { roomId, accessToken } = cbRef.current;
++    intentionalStopRef.current = true;
++    epochRef.current += 1;
++    if (mountedRef.current) setPhase('stopping');
++    clearTokenTimer();
++    leaveChannelQuietly();
++    setPublishingActive(false);
++    wentLiveRef.current = false;
++    intentionalPauseRef.current = false;
++    backgroundedWhilePausedRef.current = false;
++    try {
++      await endAgoraHostSession(roomId, accessToken);
++    } catch {
++      /* the room's own end-of-show path also tears the relay down */
++    }
++    if (mountedRef.current) {
++      setPhase('idle');
++      setError(null);
++    }
++  }, [clearTokenTimer, leaveChannelQuietly, setPublishingActive]);
++
++  /** Pause button and leaving the app: stop publishing, stay in the channel. */
++  const minimizeShow = useCallback(
++    async (opts?: { causedByBackground?: boolean }) => {
++      if (intentionalStopRef.current) return;
++      const p = phaseRef.current;
++      if (p !== 'live' && p !== 'paused' && p !== 'starting') return;
++      const alreadyMinimized = intentionalPauseRef.current && p === 'paused' && !publishingRef.current;
++
++      backgroundedWhilePausedRef.current = Boolean(opts?.causedByBackground);
++      intentionalPauseRef.current = true;
++      epochRef.current += 1;
++      setPublishingActive(false);
++      if (mountedRef.current) {
++        setPhase('paused');
++        setError(null);
++      }
++      try {
++        await cbRef.current.onBackgroundAutoPause?.();
++      } catch {
++        /* retried on foreground */
++      }
++      if (alreadyMinimized) return;
++      try {
++        const appId = cbRef.current.agoraAppId;
++        if (appId && joinedRef.current) {
++          getAgoraEngine(appId).updateChannelMediaOptions({
++            publishCameraTrack: false,
++            publishMicrophoneTrack: false,
++          });
++        }
++      } catch {
++        /* stay paused — the native call can throw after the OS suspends the app */
++      }
++    },
++    [setPublishingActive],
++  );
++
++  const minimizeShowRef = useRef(minimizeShow);
++  minimizeShowRef.current = minimizeShow;
++
++  /** Play after Pause (or after a drop): republish, re-check the relay. */
++  const resumeShow = useCallback(async (): Promise<boolean> => {
++    const { roomId, accessToken, agoraAppId } = cbRef.current;
++    if (!agoraAppId || !accessToken.trim()) return false;
++    if (phaseRef.current === 'live' && publishingRef.current) return true;
++    intentionalStopRef.current = false;
++    setError(null);
++    try {
++      const engine = getAgoraEngine(agoraAppId);
++      configureAndPreview(engine, { resetFacing: false });
++      if (!joinedRef.current) {
++        const session = await refreshAgoraHostSession(roomId, accessToken);
++        await joinWithSession(session);
++      } else {
++        await refreshTokenRef.current();
++        engine.updateChannelMediaOptions({
++          publishCameraTrack: true,
++          publishMicrophoneTrack: !mutedRef.current,
++        });
++      }
++      await ensureRelay();
++      intentionalPauseRef.current = false;
++      backgroundedWhilePausedRef.current = false;
++      wentLiveRef.current = true;
++      setPublishingActive(true);
++      if (mountedRef.current) setPhase('live');
++      cbRef.current.onStreamRefresh?.();
++      return true;
++    } catch (err) {
++      intentionalPauseRef.current = true;
++      setPublishingActive(false);
++      if (mountedRef.current) {
++        setPhase('paused');
++        setError(friendlyAgoraError(err));
++      }
++      return false;
++    }
++  }, [configureAndPreview, ensureRelay, joinWithSession, setPublishingActive]);
++
++  /** Network drop / failed connection while live: rejoin with a fresh token, then re-check the relay. */
++  const rejoin = useCallback(
++    async (trigger: string) => {
++      if (reconnectInFlightRef.current) return;
++      if (!wentLiveRef.current || intentionalStopRef.current || intentionalPauseRef.current) return;
++      reconnectInFlightRef.current = true;
++      const epoch = epochRef.current;
++      try {
++        for (let attempt = 1; attempt <= MAX_REJOIN_ATTEMPTS; attempt += 1) {
++          if (epoch !== epochRef.current || !mountedRef.current) return;
++          try {
++            if (!joinedRef.current) {
++              const { roomId, accessToken } = cbRef.current;
++              const session = await refreshAgoraHostSession(roomId, accessToken);
++              await joinWithSession(session);
++            }
++            await ensureRelay();
++            cbRef.current.onStreamRefresh?.();
++            return;
++          } catch (err) {
++            Sentry.addBreadcrumb({
++              category: 'agora_host',
++              message: `rejoin (${trigger}) attempt ${attempt} failed: ${err instanceof Error ? err.message : String(err)}`,
++              level: 'warning',
++            });
++            await sleep(REJOIN_LOOP_DELAY_MS);
++          }
++        }
++        if (epoch === epochRef.current && mountedRef.current) {
++          setError('Lost connection to live video. Tap Resume to reconnect.');
++          intentionalPauseRef.current = true;
++          setPublishingActive(false);
++          setPhase('paused');
++        }
++      } finally {
++        reconnectInFlightRef.current = false;
++      }
++    },
++    [ensureRelay, joinWithSession, setPublishingActive],
++  );
++  rejoinRef.current = (trigger) => void rejoin(trigger);
++
++  // Leaving the app while live pauses (debounced); coming back auto-resumes when it was a real background.
++  useEffect(() => {
++    let minimizeTimer: ReturnType<typeof setTimeout> | null = null;
++    const clearMinimizeTimer = () => {
++      if (minimizeTimer != null) {
++        clearTimeout(minimizeTimer);
++        minimizeTimer = null;
++      }
++    };
++    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
++      if (
++        shouldHostBackgroundAutoPause({
++          appState: next,
++          wentLive: wentLiveRef.current,
++          intentionalStop: intentionalStopRef.current,
++          phase: phaseRef.current,
++        })
++      ) {
++        clearMinimizeTimer();
++        minimizeTimer = setTimeout(() => {
++          minimizeTimer = null;
++          if (AppState.currentState !== 'background') return;
++          void minimizeShowRef.current({ causedByBackground: true });
++        }, LIVE_BACKGROUND_SUSPEND_DWELL_MS);
++        return;
++      }
++      if (next !== 'active') return;
++      clearMinimizeTimer();
++      if (intentionalPauseRef.current || (phaseRef.current === 'paused' && !publishingRef.current)) {
++        if (
++          shouldAutoResumeOnForeground({
++            intentionalPause: intentionalPauseRef.current,
++            causedByBackground: backgroundedWhilePausedRef.current,
++          })
++        ) {
++          void cbRef.current.onBackgroundAutoResume?.();
++          return;
++        }
++        if (intentionalPauseRef.current) {
++          if (mountedRef.current) {
++            setPhase('paused');
++            setError(null);
++          }
++          void Promise.resolve(cbRef.current.onBackgroundAutoPause?.()).catch(() => undefined);
++        }
++      }
++    });
++    return () => {
++      clearMinimizeTimer();
++      sub.remove();
++    };
++  }, []);
++
++  const flipCamera = useCallback(async () => {
++    const appId = cbRef.current.agoraAppId;
++    if (!appId || !previewRunningRef.current) return;
++    try {
++      const engine = getAgoraEngine(appId);
++      engine.switchCamera();
++      const next: SellerCameraFacing = facingRef.current === 'back' ? 'front' : 'back';
++      facingRef.current = next;
++      setCameraFacing(next);
++      setCameraZoomState(1);
++      refreshZoomStops(engine);
++    } catch (err) {
++      setError(friendlyAgoraError(err));
++    }
++  }, [refreshZoomStops]);
++
++  const setCameraZoom = useCallback(async (factor: number) => {
++    const appId = cbRef.current.agoraAppId;
++    if (!appId || !previewRunningRef.current) return;
++    const next = clampAgoraZoom(factor, maxZoomRef.current);
++    try {
++      getAgoraEngine(appId).setCameraZoomFactor(next);
++      setCameraZoomState(next);
++    } catch {
++      /* zoom is best effort */
++    }
++  }, []);
++
++  const toggleMirrorFix = useCallback(async () => {
++    // The broadcast is never mirrored; this only controls whether the host's own preview is.
++    setCameraMirrorOverrideState((prev) => (prev === false ? null : false));
++  }, []);
++
++  const toggleMicrophoneMute = useCallback(async () => {
++    const appId = cbRef.current.agoraAppId;
++    if (!appId || !previewRunningRef.current) return;
++    const next = !mutedRef.current;
++    try {
++      getAgoraEngine(appId).muteLocalAudioStream(next);
++      mutedRef.current = next;
++      setMicrophoneMutedState(next);
++    } catch (err) {
++      setError(friendlyAgoraError(err));
++    }
++  }, []);
++
++  const retryPreviewPermission = useCallback(async () => {
++    if (previewPromiseRef.current) await previewPromiseRef.current.catch(() => false);
++    previewRunningRef.current = false;
++    setLocalPreviewReady(false);
++    setPermissionState('requesting');
++    setPermissionError(null);
++    await ensureLocalPreview();
++  }, [ensureLocalPreview]);
++
++  const releaseLocalDevices = useCallback(() => {
++    clearTokenTimer();
++    const engine = handlerEngineRef.current;
++    if (engine) {
++      try {
++        if (handlerRef.current) engine.unregisterEventHandler(handlerRef.current);
++        engine.stopPreview();
++      } catch {
++        /* ignore */
++      }
++    }
++    handlerRef.current = null;
++    handlerEngineRef.current = null;
++    previewRunningRef.current = false;
++    releaseAgoraEngine();
++    joinedRef.current = false;
++    mutedRef.current = false;
++    facingRef.current = SELLER_DEFAULT_CAMERA_FACING;
++    if (mountedRef.current) {
++      setLocalPreviewReady(false);
++      setCameraFacing(SELLER_DEFAULT_CAMERA_FACING);
++      setCameraMirrorOverrideState(null);
++      setCameraZoomState(1);
++      setZoomStops([1]);
++      setMicrophoneMutedState(false);
++      setPermissionState('idle');
++    }
++  }, [clearTokenTimer]);
++
++  const releaseCamera = useCallback(async () => {
++    if (publishingRef.current || phaseRef.current === 'live' || phaseRef.current === 'paused' || phaseRef.current === 'starting') {
++      await stop();
++    }
++    releaseLocalDevices();
++  }, [releaseLocalDevices, stop]);
++
++  useEffect(() => {
++    return () => {
++      leaveChannelQuietly();
++      releaseLocalDevices();
++    };
++    // Unmount only.
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, []);
++
++  const pause = minimizeShow;
++  const resume = resumeShow;
++
++  return {
++    phase,
++    error,
++    localPreviewReady,
++    permissionState,
++    permissionError,
++    cameraFacing,
++    cameraMirrorOverride,
++    toggleMirrorFix,
++    cameraZoom,
++    zoomStops,
++    setCameraZoom,
++    start,
++    stop,
++    minimizeShow,
++    resumeShow,
++    pause,
++    resume,
++    releaseCamera,
++    flipCamera,
++    toggleMicrophoneMute,
++    microphoneMuted,
++    retryPreviewPermission,
++    isPublishing: publishing,
++  };
++}
+diff --git a/mobile/src/lib/agoraEngine.ts b/mobile/src/lib/agoraEngine.ts
+new file mode 100644
+index 0000000..b7fbd13
+--- /dev/null
++++ b/mobile/src/lib/agoraEngine.ts
+@@ -0,0 +1,79 @@
++import { NativeModules, TurboModuleRegistry } from 'react-native';
++import type * as AgoraSdk from 'react-native-agora';
++
++/**
++ * Lazy loader for the Agora React Native SDK.
++ *
++ * The SDK is a native module. A JS update (OTA) can land on an app build that was compiled without
++ * it; a top-level import would then crash the whole app at startup. Requiring it on demand lets
++ * those builds report "not available" and keep using the AWS publisher instead.
++ */
++let sdk: typeof AgoraSdk | null | undefined;
++
++/** True only when this app binary was built with the Agora native module linked in. */
++function agoraNativeModulePresent(): boolean {
++  try {
++    return Boolean(
++      (NativeModules as Record<string, unknown>).AgoraRtcNg || TurboModuleRegistry.get('AgoraRtcNg'),
++    );
++  } catch {
++    return false;
++  }
++}
++
++export function loadAgoraSdk(): typeof AgoraSdk | null {
++  if (sdk !== undefined) return sdk;
++  if (!agoraNativeModulePresent()) {
++    sdk = null;
++    return sdk;
++  }
++  try {
++    // eslint-disable-next-line @typescript-eslint/no-require-imports
++    sdk = require('react-native-agora') as typeof AgoraSdk;
++  } catch {
++    sdk = null;
++  }
++  return sdk;
++}
++
++export function isAgoraNativeAvailable(): boolean {
++  return loadAgoraSdk() != null;
++}
++
++let engine: AgoraSdk.IRtcEngine | null = null;
++let engineAppId: string | null = null;
++
++/** One engine per process. Re-created only if the App ID changes. */
++export function getAgoraEngine(appId: string): AgoraSdk.IRtcEngine {
++  const lib = loadAgoraSdk();
++  if (!lib) throw new Error('Live video backup is not available in this version of the app.');
++  if (engine && engineAppId === appId) return engine;
++  releaseAgoraEngine();
++  const next = lib.createAgoraRtcEngine();
++  const code = next.initialize({
++    appId,
++    channelProfile: lib.ChannelProfileType.ChannelProfileLiveBroadcasting,
++  });
++  if (typeof code === 'number' && code !== 0) {
++    try {
++      next.release();
++    } catch {
++      /* ignore */
++    }
++    throw new Error(`Could not start the live video engine (code ${code}).`);
++  }
++  engine = next;
++  engineAppId = appId;
++  return next;
++}
++
++export function releaseAgoraEngine(): void {
++  if (!engine) return;
++  try {
++    engine.release();
++  } catch {
++    /* ignore */
++  }
++  engine = null;
++  engineAppId = null;
++}
+diff --git a/mobile/src/lib/agoraHost.test.ts b/mobile/src/lib/agoraHost.test.ts
+new file mode 100644
+index 0000000..5c50bb1
+--- /dev/null
++++ b/mobile/src/lib/agoraHost.test.ts
+@@ -0,0 +1,49 @@
++import { describe, expect, it } from 'vitest';
++import {
++  AGORA_HOST_VIDEO,
++  agoraTokenRefreshDelayMs,
++  agoraZoomStops,
++  clampAgoraZoom,
++  friendlyAgoraError,
++  relayRetryDelayMs,
++} from './agoraHost';
++
++describe('agoraHost helpers', () => {
++  it('sends portrait video', () => {
++    expect(AGORA_HOST_VIDEO.height).toBeGreaterThan(AGORA_HOST_VIDEO.width);
++  });
++
++  it('offers zoom stops only the camera can reach', () => {
++    expect(agoraZoomStops(1, true)).toEqual([1]);
++    expect(agoraZoomStops(8, false)).toEqual([1]);
++    expect(agoraZoomStops(NaN, true)).toEqual([1]);
++    expect(agoraZoomStops(2.5, true)).toEqual([1, 2]);
++    expect(agoraZoomStops(10, true)).toEqual([1, 2, 3, 5]);
++  });
++
++  it('clamps zoom into the supported range', () => {
++    expect(clampAgoraZoom(0.5, 5)).toBe(1);
++    expect(clampAgoraZoom(9, 5)).toBe(5);
++    expect(clampAgoraZoom(2, 5)).toBe(2);
++    expect(clampAgoraZoom(NaN, 5)).toBe(1);
++    expect(clampAgoraZoom(3, NaN)).toBe(1);
++  });
++
++  it('backs off relay retries', () => {
++    expect(relayRetryDelayMs(1)).toBe(1_500);
++    expect(relayRetryDelayMs(3)).toBe(4_500);
++    expect(relayRetryDelayMs(0)).toBe(1_500);
++  });
++
++  it('refreshes the token an hour before it lapses, never in the past', () => {
++    expect(agoraTokenRefreshDelayMs(12 * 3600)).toBe(11 * 3600 * 1000);
++    expect(agoraTokenRefreshDelayMs(30 * 60)).toBe(60_000);
++    expect(agoraTokenRefreshDelayMs(0)).toBe(11 * 3600 * 1000);
++  });
++
++  it('turns permission failures into the camera message and keeps other messages', () => {
++    expect(friendlyAgoraError(new Error('Permission denied'))).toMatch(/Camera and microphone access/);
++    expect(friendlyAgoraError(new Error('Could not join live video (code -2).'))).toBe('Could not join live video (code -2).');
++    expect(friendlyAgoraError('')).toBe('Could not start the live broadcast.');
++  });
++});
+diff --git a/mobile/src/lib/agoraHost.ts b/mobile/src/lib/agoraHost.ts
+new file mode 100644
+index 0000000..3439731
+--- /dev/null
++++ b/mobile/src/lib/agoraHost.ts
+@@ -0,0 +1,37 @@
++/** Pure helpers for the Agora host publisher (kept free of native imports so they unit-test). */
++
++/** Portrait 720p at 30 fps — the phone is always a portrait camera and Media Push forwards it as-is. */
++export const AGORA_HOST_VIDEO = { width: 720, height: 1280, frameRate: 30, bitrateKbps: 2500 } as const;
++
++/** Zoom steps the host UI offers: 1x plus whole-number stops the camera can actually reach. */
++export function agoraZoomStops(maxZoom: number, supported: boolean): number[] {
++  if (!supported || !Number.isFinite(maxZoom) || maxZoom < 2) return [1];
++  return [1, 2, 3, 5].filter((z) => z <= maxZoom);
++}
++
++export function clampAgoraZoom(factor: number, maxZoom: number): number {
++  if (!Number.isFinite(factor)) return 1;
++  const max = Number.isFinite(maxZoom) && maxZoom >= 1 ? maxZoom : 1;
++  return Math.min(Math.max(factor, 1), max);
++}
++
++/** Delay before the nth retry (1-based) of the relay start call: 1.5 s, 3 s, 4.5 s. */
++export function relayRetryDelayMs(attempt: number): number {
++  return 1_500 * Math.max(1, attempt);
++}
++
++/** Refresh the Agora token this long before it lapses (never sooner than a minute from now). */
++export function agoraTokenRefreshDelayMs(expiresInSeconds: number): number {
++  const leadMs = 60 * 60 * 1000;
++  if (expiresInSeconds > 0) return Math.max(60_000, expiresInSeconds * 1000 - leadMs);
++  return 11 * 60 * 60 * 1000;
++}
++
++export function friendlyAgoraError(err: unknown): string {
++  const msg = err instanceof Error ? err.message : String(err);
++  if (/permission|denied|not allowed/i.test(msg)) {
++    return 'Camera and microphone access is required to preview and go live. Enable both in Settings, then tap Retry.';
++  }
++  if (msg.trim()) return msg.trim();
++  return 'Could not start the live broadcast.';
++}
+diff --git a/mobile/src/lib/hostPublisherContext.ts b/mobile/src/lib/hostPublisherContext.ts
+new file mode 100644
+index 0000000..36bcf5a
+--- /dev/null
++++ b/mobile/src/lib/hostPublisherContext.ts
+@@ -0,0 +1,9 @@
++import { createContext, useContext } from 'react';
++import type { HostPublisherKind } from '../api/agoraHostRepository';
++
++/** Which sender the host screen is using, so deep children (camera preview) render the matching view. */
++export const HostPublisherKindContext = createContext<HostPublisherKind>('aws_ivs');
++
++export function useHostPublisherKind(): HostPublisherKind {
++  return useContext(HostPublisherKindContext);
++}
+diff --git a/mobile/src/lib/liveObsChannelMode.phoneRelay.test.ts b/mobile/src/lib/liveObsChannelMode.phoneRelay.test.ts
+new file mode 100644
+index 0000000..7d72b0d
+--- /dev/null
++++ b/mobile/src/lib/liveObsChannelMode.phoneRelay.test.ts
+@@ -0,0 +1,17 @@
++import { describe, expect, it } from 'vitest';
++import { isObsDesktopBroadcastMode } from './liveObsChannelMode';
++
++describe('isObsDesktopBroadcastMode with a phone relay', () => {
++  it('treats a relayed phone camera as a phone, not OBS', () => {
++    expect(isObsDesktopBroadcastMode({ streamMode: 'channel_hls', phoneRelay: true })).toBe(false);
++  });
++
++  it('still treats plain HLS ingest as OBS', () => {
++    expect(isObsDesktopBroadcastMode({ streamMode: 'channel_hls' })).toBe(true);
++    expect(isObsDesktopBroadcastMode({ streamMode: 'channel_hls', phoneRelay: false })).toBe(true);
++  });
++
++  it('leaves the AWS Stage path alone', () => {
++    expect(isObsDesktopBroadcastMode({ streamMode: 'stage_webrtc', ingestEndpoint: 'rtmps://x' })).toBe(false);
++  });
++});
+diff --git a/mobile/src/lib/liveObsChannelMode.ts b/mobile/src/lib/liveObsChannelMode.ts
+index b1b6185..8564ac1 100644
+--- a/mobile/src/lib/liveObsChannelMode.ts
++++ b/mobile/src/lib/liveObsChannelMode.ts
+@@ -10,7 +10,10 @@ export function isObsChannelHlsMode(streamMode: string | null | undefined): bool
+ export function isObsDesktopBroadcastMode(args: {
+   streamMode?: string | null;
+   ingestEndpoint?: string | null;
++  /** Phone camera relayed to the backup provider: portrait phone video, never a desktop capture. */
++  phoneRelay?: boolean | null;
+ }): boolean {
++  if (args.phoneRelay) return false;
+   if (isObsChannelHlsMode(args.streamMode)) return true;
+   const mode = (args.streamMode ?? '').trim().toLowerCase();
+   if (mode !== 'stage_webrtc') return false;
+diff --git a/mobile/src/screens/SellerHostRoomScreen.tsx b/mobile/src/screens/SellerHostRoomScreen.tsx
+index fbbc434..1c87ee7 100644
+--- a/mobile/src/screens/SellerHostRoomScreen.tsx
++++ b/mobile/src/screens/SellerHostRoomScreen.tsx
+@@ -20,7 +20,9 @@ import { SellerLiveHostView } from '../components/seller/liveOverlay/SellerLiveH
+ import { LiveConsoleWarningBanner } from '../components/seller/liveConsole/LiveConsoleWarningBanner';
+ import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
+ import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
+-import { useMobileStagePublish, type MobileHostBroadcastPhase } from '../hooks/useMobileStagePublish';
++import type { MobileHostBroadcastPhase } from '../hooks/useMobileStagePublish';
++import { useHostPublisher } from '../hooks/useHostPublisher';
++import { HostPublisherKindContext } from '../lib/hostPublisherContext';
+ import { shouldClearStreamPausedAfterHostResume } from '../lib/livePlaybackAppState';
+ import { isLiveRoomRemotePublisherActive } from '../lib/liveRoomBroadcastOnAir';
+ import { isObsDesktopBroadcastMode } from '../lib/liveObsChannelMode';
+@@ -155,6 +157,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
+     isObsDesktopBroadcastMode({
+       streamMode: stream?.streamMode,
+       ingestEndpoint: stream?.ingestEndpoint ?? ingestEndpoint,
++      phoneRelay: stream?.phoneRelay,
+     });
+ 
+   // `onResumeBroadcast` is defined further down (it calls `stagePublish.resumeShow()`, so it
+@@ -163,7 +166,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
+   // latest closure.
+   const onResumeBroadcastRef = useRef<() => Promise<void>>(async () => {});
+ 
+-  const stagePublish = useMobileStagePublish({
++  const stagePublish = useHostPublisher({
+     roomId,
+     accessToken: token ?? '',
+     previewEnabled:
+@@ -271,6 +274,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
+       !isObsDesktopBroadcastMode({
+         streamMode: stream?.streamMode,
+         ingestEndpoint: stream?.ingestEndpoint ?? ingestEndpoint,
++        phoneRelay: stream?.phoneRelay,
+       })
+     )
+       return;
+@@ -584,6 +588,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
+   }
+ 
+   return (
++    <HostPublisherKindContext.Provider value={stagePublish.publisherKind}>
+     <View style={styles.root}>
+       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+       <SellerLiveHostView
+@@ -637,6 +642,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
+         }}
+       />
+     </View>
++    </HostPublisherKindContext.Provider>
+   );
+ }
+ 
+diff --git a/web/package-lock.json b/web/package-lock.json
+index 7e7cb13..0c3f4f5 100644
+--- a/web/package-lock.json
++++ b/web/package-lock.json
+@@ -27,6 +27,7 @@
+         "@stripe/stripe-js": "^9.4.0",
+         "@supabase/ssr": "^0.12.0",
+         "@supabase/supabase-js": "^2.105.1",
++        "agora-token": "^2.0.7",
+         "amazon-ivs-web-broadcast": "^1.35.0",
+         "archiver": "^8.0.0",
+         "bcryptjs": "^3.0.3",
+@@ -5921,7 +5922,7 @@
+       "version": "19.2.3",
+       "resolved": "https://registry.npmjs.org/@types/react-dom/-/react-dom-19.2.3.tgz",
+       "integrity": "sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==",
+-      "devOptional": true,
++      "dev": true,
+       "license": "MIT",
+       "peerDependencies": {
+         "@types/react": "^19.2.0"
+@@ -6889,6 +6890,17 @@
+         "node": ">= 14"
+       }
+     },
++    "node_modules/agora-token": {
++      "version": "2.0.7",
++      "resolved": "https://registry.npmjs.org/agora-token/-/agora-token-2.0.7.tgz",
++      "integrity": "sha512-DfDXjZjUFyv6NENIDjhMj77KKmA6uG7kMHdpBWXZU3LnLNZ0/jGSsZ4UdQWxaF7ZUETxmnmxvrnVIsUscV3Y5A==",
++      "license": "ISC",
++      "dependencies": {
++        "crc-32": "^1.2.0",
++        "cuint": "0.2.2",
++        "md5": "^2.3.0"
++      }
++    },
+     "node_modules/ajv": {
+       "version": "6.15.0",
+       "resolved": "https://registry.npmjs.org/ajv/-/ajv-6.15.0.tgz",
+@@ -7675,6 +7687,15 @@
+         "url": "https://github.com/chalk/chalk?sponsor=1"
+       }
+     },
++    "node_modules/charenc": {
++      "version": "0.0.2",
++      "resolved": "https://registry.npmjs.org/charenc/-/charenc-0.0.2.tgz",
++      "integrity": "sha512-yrLQ/yVUFXkzg7EDQsPieE/53+0RlaWTs+wBrvW36cyilJ2SaDWfl4Yj7MtLTXleV9uEKefbAGUPv2/iWSooRA==",
++      "license": "BSD-3-Clause",
++      "engines": {
++        "node": "*"
++      }
++    },
+     "node_modules/chart.js": {
+       "version": "4.5.1",
+       "resolved": "https://registry.npmjs.org/chart.js/-/chart.js-4.5.1.tgz",
+@@ -7896,6 +7917,15 @@
+         "node": ">= 8"
+       }
+     },
++    "node_modules/crypt": {
++      "version": "0.0.2",
++      "resolved": "https://registry.npmjs.org/crypt/-/crypt-0.0.2.tgz",
++      "integrity": "sha512-mCxBlsHFYh9C+HVpiEacem8FEBnMXgU9gy4zmNC+SXAZNB/1idgp/aulFJ4FgCi7GPEVbfyng092GqL2k2rmow==",
++      "license": "BSD-3-Clause",
++      "engines": {
++        "node": "*"
++      }
++    },
+     "node_modules/cssstyle": {
+       "version": "4.6.0",
+       "resolved": "https://registry.npmjs.org/cssstyle/-/cssstyle-4.6.0.tgz",
+@@ -7916,6 +7946,12 @@
+       "devOptional": true,
+       "license": "MIT"
+     },
++    "node_modules/cuint": {
++      "version": "0.2.2",
++      "resolved": "https://registry.npmjs.org/cuint/-/cuint-0.2.2.tgz",
++      "integrity": "sha512-d4ZVpCW31eWwCMe1YT3ur7mUDnTXbgwyzaL320DrcRT45rfjYxkt5QWLrmOJ+/UEAI2+fQgKe/fCjR8l4TpRgw==",
++      "license": "MIT"
++    },
+     "node_modules/damerau-levenshtein": {
+       "version": "1.0.8",
+       "resolved": "https://registry.npmjs.org/damerau-levenshtein/-/damerau-levenshtein-1.0.8.tgz",
+@@ -9817,6 +9853,12 @@
+         "url": "https://github.com/sponsors/ljharb"
+       }
+     },
++    "node_modules/is-buffer": {
++      "version": "1.1.6",
++      "resolved": "https://registry.npmjs.org/is-buffer/-/is-buffer-1.1.6.tgz",
++      "integrity": "sha512-NcdALwpXkTm5Zvvbk7owOUSvVvBKDgKP5/ewfXEznmQFfs4ZRmanOeKBTjRVjka3QFoN6XJ+9F3USqfHqTaU5w==",
++      "license": "MIT"
++    },
+     "node_modules/is-bun-module": {
+       "version": "2.0.0",
+       "resolved": "https://registry.npmjs.org/is-bun-module/-/is-bun-module-2.0.0.tgz",
+@@ -11016,6 +11058,17 @@
+         "node": ">= 0.4"
+       }
+     },
++    "node_modules/md5": {
++      "version": "2.3.0",
++      "resolved": "https://registry.npmjs.org/md5/-/md5-2.3.0.tgz",
++      "integrity": "sha512-T1GITYmFaKuO91vxyoQMFETst+O71VUPEU3ze5GNzDm0OWdP8v1ziTaAEPUr/3kLsY3Sftgz242A1SetQiDL7g==",
++      "license": "BSD-3-Clause",
++      "dependencies": {
++        "charenc": "0.0.2",
++        "crypt": "0.0.2",
++        "is-buffer": "~1.1.6"
++      }
++    },
+     "node_modules/merge-stream": {
+       "version": "2.0.0",
+       "resolved": "https://registry.npmjs.org/merge-stream/-/merge-stream-2.0.0.tgz",
+@@ -11964,6 +12017,7 @@
+       "version": "2.3.2",
+       "resolved": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.2.tgz",
+       "integrity": "sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==",
++      "dev": true,
+       "hasInstallScript": true,
+       "license": "MIT",
+       "optional": true,
+diff --git a/web/package.json b/web/package.json
+index d15ff2f..d7254e2 100644
+--- a/web/package.json
++++ b/web/package.json
+@@ -83,6 +83,7 @@
+     "@stripe/stripe-js": "^9.4.0",
+     "@supabase/ssr": "^0.12.0",
+     "@supabase/supabase-js": "^2.105.1",
++    "agora-token": "^2.0.7",
+     "amazon-ivs-web-broadcast": "^1.35.0",
+     "archiver": "^8.0.0",
+     "bcryptjs": "^3.0.3",
+diff --git a/web/prisma/migrations/20261113120000_agora_relay_id/migration.sql b/web/prisma/migrations/20261113120000_agora_relay_id/migration.sql
+new file mode 100644
+index 0000000..ee7d461
+--- /dev/null
++++ b/web/prisma/migrations/20261113120000_agora_relay_id/migration.sql
+@@ -0,0 +1,4 @@
++-- In-app backup live video: Agora Media Push converter id + a flag marking a phone-sourced non-AWS stream.
++-- Additive; nothing changes until an admin enables the backup provider.
++ALTER TABLE "LiveRoom" ADD COLUMN IF NOT EXISTS "externalRelayId" TEXT;
++ALTER TABLE "LiveRoom" ADD COLUMN IF NOT EXISTS "phoneRelay" BOOLEAN NOT NULL DEFAULT false;
+diff --git a/web/prisma/schema.prisma b/web/prisma/schema.prisma
+index 498cf32..8ed6156 100644
+--- a/web/prisma/schema.prisma
++++ b/web/prisma/schema.prisma
+@@ -1287,6 +1287,10 @@ model LiveRoom {
+   ivsStreamKeyCreatedAt   DateTime?
+   /// Provider-side stream id for non-IVS providers (Cloudflare Stream live input uid).
+   externalStreamId        String?
++  /// Agora Media Push converter id while a phone is relaying to the Cloudflare input.
++  externalRelayId         String?
++  /// True when the seller's phone (not OBS) is the source of a non-AWS stream, so clients treat it as a portrait phone camera.
++  phoneRelay              Boolean   @default(false)
+   streamStartedAt         DateTime?
+   streamEndedAt           DateTime?
+   lastIvsStatusSyncAt     DateTime?
+diff --git a/web/src/app/api/admin/settings/route.ts b/web/src/app/api/admin/settings/route.ts
+index 1a37411..5d6fdda 100644
+--- a/web/src/app/api/admin/settings/route.ts
++++ b/web/src/app/api/admin/settings/route.ts
+@@ -3,6 +3,7 @@ import { logAdminAction, normalizeAdminReason } from "@/lib/admin/admin-audit";
+ import { requireAdminPermission } from "@/lib/admin/admin-permissions";
+ import { ADMIN_SETTINGS, clearAdminSettingCache, getBoolAdminSetting, type AdminSettingKey } from "@/lib/admin/admin-settings";
+ import { prisma } from "@/lib/prisma";
++import { isAgoraConfigured } from "@/services/agora-rtc";
+ import { isCloudflareStreamConfigured } from "@/services/cloudflare-stream";
+ 
+ export async function GET(request: Request) {
+@@ -46,6 +47,16 @@ export async function POST(request: Request) {
+     );
+   }
+ 
++  if (def.key === "live_video_use_cloudflare" && body.enabled && !isAgoraConfigured()) {
++    return NextResponse.json(
++      {
++        error:
++          "In-app backup live video is not set up yet. Add AGORA_APP_ID, AGORA_APP_CERTIFICATE, AGORA_REST_CUSTOMER_ID and AGORA_REST_CUSTOMER_SECRET in Netlify first.",
++      },
++      { status: 400 },
++    );
++  }
++
+   const key = def.key as AdminSettingKey;
+   const before = await getBoolAdminSetting(key);
+   await prisma.$transaction(async (tx) => {
+diff --git a/web/src/app/api/live-rooms/[id]/stream/_shared.ts b/web/src/app/api/live-rooms/[id]/stream/_shared.ts
+index f238b03..20db713 100644
+--- a/web/src/app/api/live-rooms/[id]/stream/_shared.ts
++++ b/web/src/app/api/live-rooms/[id]/stream/_shared.ts
+@@ -30,6 +30,8 @@ export type StreamRow = {
+   streamEndedAt: Date | null;
+   lastIvsStatusSyncAt: Date | null;
+   lastIvsError: string | null;
++  /** Phone camera relayed to the backup provider (see Agora relay). */
++  phoneRelay?: boolean;
+ };
+ 
+ export async function getStreamRow(liveRoomId: string): Promise<StreamRow | null> {
+@@ -52,6 +54,7 @@ export async function getStreamRow(liveRoomId: string): Promise<StreamRow | null
+       streamEndedAt: true,
+       lastIvsStatusSyncAt: true,
+       lastIvsError: true,
++      phoneRelay: true,
+     },
+   });
+ }
+@@ -83,6 +86,7 @@ export function toBuyerSafeStreamPayload(row: StreamRow) {
+     isObsDesktopSource: isObsDesktopBroadcastMode({
+       streamMode: row.streamMode,
+       ingestEndpoint: row.ivsIngestEndpoint,
++      phoneRelay: row.phoneRelay,
+     }),
+   };
+ }
+@@ -91,6 +95,8 @@ export function toHostStreamPayload(row: StreamRow) {
+   const whip = isIvsWhipIngestEndpoint(row.ivsIngestEndpoint);
+   return {
+     ...toBuyerSafeStreamPayload(row),
++    // True when the seller's phone camera is the source (backup provider relay), not OBS.
++    phoneRelay: row.phoneRelay === true,
+     // OBS Custom / WHIP: RTMPS URL for legacy, WHIP server for WebRTC OBS.
+     ingestEndpoint: whip
+       ? row.ivsIngestEndpoint
+diff --git a/web/src/app/api/live-rooms/[id]/stream/agora/agora-routes.test.ts b/web/src/app/api/live-rooms/[id]/stream/agora/agora-routes.test.ts
+new file mode 100644
+index 0000000..809294c
+--- /dev/null
++++ b/web/src/app/api/live-rooms/[id]/stream/agora/agora-routes.test.ts
+@@ -0,0 +1,140 @@
++import { NextResponse } from "next/server";
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++const hoisted = vi.hoisted(() => ({
++  requireHostAccess: vi.fn(),
++  requireSellerTermsToStart: vi.fn(),
++  getStreamRow: vi.fn(),
++  resolveHostPublisher: vi.fn(),
++  prepareAgoraHostSession: vi.fn(),
++  refreshAgoraHostSession: vi.fn(),
++  stopAgoraRelayForRoom: vi.fn(),
++  ensureAgoraRelay: vi.fn(),
++  endHostStageSession: vi.fn(),
++  getAgoraConfig: vi.fn(),
++}));
++
++vi.mock("../_shared", () => ({
++  requireHostAccess: hoisted.requireHostAccess,
++  requireSellerTermsToStart: hoisted.requireSellerTermsToStart,
++  getStreamRow: hoisted.getStreamRow,
++  toHostStreamPayload: (row: Record<string, unknown>) => ({ roomId: row.id, phoneRelay: true }),
++  errorResponse: (e: unknown) =>
++    NextResponse.json({ error: e instanceof Error ? e.message : "x" }, { status: 500 }),
++}));
++vi.mock("@/services/agora-room", () => ({
++  resolveHostPublisher: hoisted.resolveHostPublisher,
++  prepareAgoraHostSession: hoisted.prepareAgoraHostSession,
++  refreshAgoraHostSession: hoisted.refreshAgoraHostSession,
++  stopAgoraRelayForRoom: hoisted.stopAgoraRelayForRoom,
++  ensureAgoraRelay: hoisted.ensureAgoraRelay,
++}));
++vi.mock("@/services/agora-rtc", () => ({ getAgoraConfig: hoisted.getAgoraConfig }));
++vi.mock("@/services/ivs", () => ({ endHostStageSession: hoisted.endHostStageSession }));
++vi.mock("@/lib/realtime-emit-server", () => ({ emitStreamStatusChanged: vi.fn() }));
++vi.mock("@/lib/ivs-ops-log", () => ({ logIvsOpsServer: vi.fn() }));
++
++import { GET as getPublisher } from "../publisher/route";
++import { DELETE as deleteSession, PATCH as patchSession, POST as postSession } from "./route";
++import { POST as postRelay } from "./relay/route";
++
++const ctx = { params: Promise.resolve({ id: "room_1" }) };
++const req = (method: string) => new Request("http://x", { method, body: method === "GET" ? undefined : "{}" });
++const SESSION = { appId: "app", channel: "gv-room_1", uid: 7, token: "tok", expiresInSeconds: 43200 };
++const ROW = { id: "room_1", streamHealth: "offline", lastIvsStatusSyncAt: new Date() };
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  hoisted.requireHostAccess.mockResolvedValue({ ok: true, userId: "u1", access: { isAdmin: false } });
++  hoisted.requireSellerTermsToStart.mockResolvedValue(null);
++  hoisted.getStreamRow.mockResolvedValue(ROW);
++  hoisted.resolveHostPublisher.mockResolvedValue("agora");
++  hoisted.getAgoraConfig.mockReturnValue({ appId: "app", appCertificate: "SECRET-CERT" });
++  hoisted.prepareAgoraHostSession.mockResolvedValue(SESSION);
++  hoisted.refreshAgoraHostSession.mockReturnValue(SESSION);
++  hoisted.ensureAgoraRelay.mockResolvedValue({ converterId: "c1", state: "connecting", started: true });
++});
++
++describe("GET publisher", () => {
++  it("rejects non-hosts", async () => {
++    hoisted.requireHostAccess.mockResolvedValue({ ok: false, response: NextResponse.json({}, { status: 403 }) });
++    expect((await getPublisher(req("GET"), ctx)).status).toBe(403);
++  });
++
++  it("returns the App ID only, never the certificate", async () => {
++    const res = await getPublisher(req("GET"), ctx);
++    const text = JSON.stringify(await res.json());
++    expect(text).toContain('"publisher":"agora"');
++    expect(text).toContain('"agoraAppId":"app"');
++    expect(text).not.toContain("SECRET-CERT");
++  });
++
++  it("defaults to AWS and no App ID when AWS is selected", async () => {
++    hoisted.resolveHostPublisher.mockResolvedValue("aws_ivs");
++    const body = (await (await getPublisher(req("GET"), ctx)).json()) as Record<string, unknown>;
++    expect(body.publisher).toBe("aws_ivs");
++    expect(body.agoraAppId).toBeNull();
++  });
++
++  it("falls back to AWS when the lookup throws", async () => {
++    hoisted.resolveHostPublisher.mockRejectedValue(new Error("db down"));
++    const res = await getPublisher(req("GET"), ctx);
++    expect(res.status).toBe(200);
++    expect(((await res.json()) as { publisher: string }).publisher).toBe("aws_ivs");
++  });
++});
++
++describe("agora session routes", () => {
++  it("POST refuses when the backup provider is not active for the room", async () => {
++    hoisted.resolveHostPublisher.mockResolvedValue("aws_ivs");
++    const res = await postSession(req("POST"), ctx);
++    expect(res.status).toBe(409);
++    expect(((await res.json()) as { code: string }).code).toBe("AGORA_NOT_ACTIVE");
++    expect(hoisted.prepareAgoraHostSession).not.toHaveBeenCalled();
++  });
++
++  it("POST honors the seller terms gate", async () => {
++    hoisted.requireSellerTermsToStart.mockResolvedValue(NextResponse.json({ error: "terms" }, { status: 403 }));
++    expect((await postSession(req("POST"), ctx)).status).toBe(403);
++    expect(hoisted.prepareAgoraHostSession).not.toHaveBeenCalled();
++  });
++
++  it("POST returns join details for the host", async () => {
++    const res = await postSession(req("POST"), ctx);
++    expect(res.status).toBe(200);
++    const body = (await res.json()) as { ok: boolean; agora: typeof SESSION };
++    expect(body.ok).toBe(true);
++    expect(body.agora).toEqual(SESSION);
++  });
++
++  it("PATCH mints a fresh token", async () => {
++    const res = await patchSession(req("PATCH"), ctx);
++    expect(((await res.json()) as { agora: typeof SESSION }).agora.token).toBe("tok");
++  });
++
++  it("DELETE stops the relay and ends the session", async () => {
++    const res = await deleteSession(req("DELETE"), ctx);
++    expect(res.status).toBe(200);
++    expect(hoisted.stopAgoraRelayForRoom).toHaveBeenCalledWith("room_1");
++    expect(hoisted.endHostStageSession).toHaveBeenCalledWith("room_1");
++  });
++});
++
++describe("relay route", () => {
++  it("starts the relay for the host", async () => {
++    const res = await postRelay(req("POST"), ctx);
++    expect(res.status).toBe(200);
++    expect(((await res.json()) as { relay: { state: string } }).relay.state).toBe("connecting");
++  });
++
++  it("rejects non-hosts", async () => {
++    hoisted.requireHostAccess.mockResolvedValue({ ok: false, response: NextResponse.json({}, { status: 401 }) });
++    expect((await postRelay(req("POST"), ctx)).status).toBe(401);
++    expect(hoisted.ensureAgoraRelay).not.toHaveBeenCalled();
++  });
++
++  it("reports a relay failure", async () => {
++    hoisted.ensureAgoraRelay.mockRejectedValue(new Error("Agora Media Push request failed: boom"));
++    expect((await postRelay(req("POST"), ctx)).status).toBe(500);
++  });
++});
+diff --git a/web/src/app/api/live-rooms/[id]/stream/agora/relay/route.ts b/web/src/app/api/live-rooms/[id]/stream/agora/relay/route.ts
+new file mode 100644
+index 0000000..5ded206
+--- /dev/null
++++ b/web/src/app/api/live-rooms/[id]/stream/agora/relay/route.ts
+@@ -0,0 +1,27 @@
++import { NextResponse } from "next/server";
++import { logIvsOpsServer } from "@/lib/ivs-ops-log";
++import { ensureAgoraRelay } from "@/services/agora-room";
++import { errorResponse, requireHostAccess } from "../../_shared";
++
++/**
++ * POST — host only. Call after the phone has joined the Agora channel (and after any reconnect):
++ * starts, or keeps, the Agora -> Cloudflare relay that buyers watch as HLS.
++ */
++export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
++  const { id: raw } = await ctx.params;
++  const id = decodeURIComponent(raw);
++
++  const auth = await requireHostAccess(id, req);
++  if (!auth.ok) return auth.response;
++
++  try {
++    const relay = await ensureAgoraRelay(id);
++    return NextResponse.json({ ok: true, relay: { state: relay.state, started: relay.started } });
++  } catch (error) {
++    logIvsOpsServer("agora_relay_failure", {
++      roomId: id,
++      errorName: error instanceof Error ? error.name : "unknown",
++    });
++    return errorResponse(error);
++  }
++}
+diff --git a/web/src/app/api/live-rooms/[id]/stream/agora/route.ts b/web/src/app/api/live-rooms/[id]/stream/agora/route.ts
+new file mode 100644
+index 0000000..5f57e06
+--- /dev/null
++++ b/web/src/app/api/live-rooms/[id]/stream/agora/route.ts
+@@ -0,0 +1,94 @@
++import { NextResponse } from "next/server";
++import { logIvsOpsServer } from "@/lib/ivs-ops-log";
++import { emitStreamStatusChanged } from "@/lib/realtime-emit-server";
++import {
++  prepareAgoraHostSession,
++  refreshAgoraHostSession,
++  resolveHostPublisher,
++  stopAgoraRelayForRoom,
++} from "@/services/agora-room";
++import { endHostStageSession } from "@/services/ivs";
++import {
++  errorResponse,
++  getStreamRow,
++  requireHostAccess,
++  requireSellerTermsToStart,
++  toHostStreamPayload,
++} from "../_shared";
++
++/**
++ * POST — host only. Start a phone broadcast on the backup real-time provider: set up the buyer HLS
++ * (Cloudflare) and return the host's Agora join details. The app then joins the Agora channel and
++ * calls `relay` to start pushing it to Cloudflare.
++ */
++export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
++  const { id: raw } = await ctx.params;
++  const id = decodeURIComponent(raw);
++
++  const auth = await requireHostAccess(id, req);
++  if (!auth.ok) return auth.response;
++  const termsBlock = await requireSellerTermsToStart(id, auth);
++  if (termsBlock) return termsBlock;
++
++  if ((await resolveHostPublisher(id)) !== "agora") {
++    return NextResponse.json(
++      { error: "Backup live video is not active for this room.", code: "AGORA_NOT_ACTIVE" },
++      { status: 409 },
++    );
++  }
++
++  try {
++    const agora = await prepareAgoraHostSession(id);
++    const row = await getStreamRow(id);
++    if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
++    emitStreamStatusChanged(id, {
++      streamHealth: row.streamHealth,
++      lastStatusSyncAt: (row.lastIvsStatusSyncAt ?? new Date()).toISOString(),
++    });
++    return NextResponse.json({ ok: true, stream: toHostStreamPayload(row), agora });
++  } catch (error) {
++    logIvsOpsServer("agora_host_session_failure", {
++      roomId: id,
++      errorName: error instanceof Error ? error.name : "unknown",
++    });
++    return errorResponse(error);
++  }
++}
++
++/** PATCH — host only. Fresh Agora token for a running broadcast (token about to expire / reconnect). */
++export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
++  const { id: raw } = await ctx.params;
++  const id = decodeURIComponent(raw);
++
++  const auth = await requireHostAccess(id, req);
++  if (!auth.ok) return auth.response;
++
++  try {
++    return NextResponse.json({ ok: true, agora: refreshAgoraHostSession(id) });
++  } catch (error) {
++    return errorResponse(error);
++  }
++}
++
++/** DELETE — host only. Host stopped broadcasting: stop the relay and run the normal end-of-session path. */
++export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
++  const { id: raw } = await ctx.params;
++  const id = decodeURIComponent(raw);
++
++  const auth = await requireHostAccess(id, req);
++  if (!auth.ok) return auth.response;
++
++  try {
++    await stopAgoraRelayForRoom(id);
++    await endHostStageSession(id);
++    const row = await getStreamRow(id);
++    if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
++    emitStreamStatusChanged(id, {
++      streamHealth: row.streamHealth,
++      lastStatusSyncAt: (row.lastIvsStatusSyncAt ?? new Date()).toISOString(),
++    });
++    return NextResponse.json({ ok: true, stream: toHostStreamPayload(row) });
++  } catch (error) {
++    return errorResponse(error);
++  }
++}
+diff --git a/web/src/app/api/live-rooms/[id]/stream/publisher/route.ts b/web/src/app/api/live-rooms/[id]/stream/publisher/route.ts
+new file mode 100644
+index 0000000..51cbb19
+--- /dev/null
++++ b/web/src/app/api/live-rooms/[id]/stream/publisher/route.ts
+@@ -0,0 +1,28 @@
++import { NextResponse } from "next/server";
++import { getAgoraConfig } from "@/services/agora-rtc";
++import { resolveHostPublisher } from "@/services/agora-room";
++import { requireHostAccess } from "../_shared";
++
++/**
++ * GET — host only. Which sender the phone should use for this room: the AWS IVS Stage publisher
++ * (default) or the backup real-time provider (Agora -> Cloudflare). The app calls this before it
++ * opens the camera preview so it mounts the right publisher.
++ */
++export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
++  const { id: raw } = await ctx.params;
++  const id = decodeURIComponent(raw);
++
++  const auth = await requireHostAccess(id, req);
++  if (!auth.ok) return auth.response;
++
++  try {
++    const publisher = await resolveHostPublisher(id);
++    // The Agora App ID is public (it ships in every client); the app needs it to open the camera
++    // preview before a session exists. Certificate and REST credentials never leave the server.
++    const agoraAppId = publisher === "agora" ? (getAgoraConfig()?.appId ?? null) : null;
++    return NextResponse.json({ ok: true, publisher: agoraAppId ? publisher : "aws_ivs", agoraAppId });
++  } catch {
++    // Never block hosting on a lookup failure: AWS is the default sender.
++    return NextResponse.json({ ok: true, publisher: "aws_ivs" });
++  }
++}
+diff --git a/web/src/lib/admin/admin-settings.ts b/web/src/lib/admin/admin-settings.ts
+index 98a0ad1..1128f39 100644
+--- a/web/src/lib/admin/admin-settings.ts
++++ b/web/src/lib/admin/admin-settings.ts
+@@ -10,8 +10,8 @@ export const ADMIN_SETTINGS = [
+   },
+   {
+     key: "live_video_use_cloudflare",
+-    label: "Use backup live video (Cloudflare)",
+-    help: "When on, new stream setups use Cloudflare instead of AWS IVS. Sellers broadcast from OBS or an RTMP app (the in-app Go Live button uses AWS and is paused). Shows already running keep their provider. Off by default.",
++    label: "Use backup live video (Agora + Cloudflare)",
++    help: "When on, new shows go out on the backup service instead of AWS IVS. The in-app Play button sends video through Agora (app version with backup support required; older app versions show a message and sellers can use OBS or an RTMP app instead). Buyers watch through Cloudflare. Shows already running keep their provider. Off by default.",
+     envFallback: "LIVE_VIDEO_USE_CLOUDFLARE",
+   },
+ ] as const;
+diff --git a/web/src/lib/live-obs-channel-mode.ts b/web/src/lib/live-obs-channel-mode.ts
+index e22dc3d..dd43c7d 100644
+--- a/web/src/lib/live-obs-channel-mode.ts
++++ b/web/src/lib/live-obs-channel-mode.ts
+@@ -10,7 +10,10 @@ export function isObsChannelHlsMode(streamMode: string | null | undefined): bool
+ export function isObsDesktopBroadcastMode(args: {
+   streamMode?: string | null;
+   ingestEndpoint?: string | null;
++  /** Phone camera relayed to the backup provider: portrait phone video, never a desktop capture. */
++  phoneRelay?: boolean | null;
+ }): boolean {
++  if (args.phoneRelay) return false;
+   if (isObsChannelHlsMode(args.streamMode)) return true;
+   const mode = (args.streamMode ?? "").trim().toLowerCase();
+   if (mode !== "stage_webrtc") return false;
+diff --git a/web/src/services/agora-room.test.ts b/web/src/services/agora-room.test.ts
+new file mode 100644
+index 0000000..5f89107
+--- /dev/null
++++ b/web/src/services/agora-room.test.ts
+@@ -0,0 +1,116 @@
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++const findUnique = vi.fn();
++const update = vi.fn();
++vi.mock("@/lib/prisma", () => ({ prisma: { liveRoom: { findUnique: (...a: unknown[]) => findUnique(...a), update: (...a: unknown[]) => update(...a) } } }));
++
++const backupActive = vi.fn();
++const cloudflareConfigured = vi.fn();
++const getInput = vi.fn();
++vi.mock("@/services/cloudflare-stream", () => ({
++  isBackupLiveVideoActive: () => backupActive(),
++  isCloudflareStreamConfigured: () => cloudflareConfigured(),
++  getCloudflareLiveInput: (...a: unknown[]) => getInput(...a),
++}));
++vi.mock("@/services/cloudflare-stream-room", () => ({ provisionCloudflareRoomStream: vi.fn() }));
++
++const agoraConfigured = vi.fn();
++const getRelay = vi.fn();
++const startRelay = vi.fn();
++const stopRelay = vi.fn();
++vi.mock("@/services/agora-rtc", async () => {
++  const actual = await vi.importActual<typeof import("@/services/agora-rtc")>("@/services/agora-rtc");
++  return {
++    ...actual,
++    isAgoraConfigured: () => agoraConfigured(),
++    getAgoraRelay: (...a: unknown[]) => getRelay(...a),
++    startAgoraRelay: (...a: unknown[]) => startRelay(...a),
++    stopAgoraRelay: (...a: unknown[]) => stopRelay(...a),
++  };
++});
++
++import { ensureAgoraRelay, resolveHostPublisher } from "./agora-room";
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  backupActive.mockResolvedValue(true);
++  cloudflareConfigured.mockReturnValue(true);
++  agoraConfigured.mockReturnValue(true);
++});
++
++describe("resolveHostPublisher", () => {
++  it("uses AWS when the switch is off", async () => {
++    findUnique.mockResolvedValue({ streamProvider: "none", streamHealth: "offline", phoneRelay: false });
++    backupActive.mockResolvedValue(false);
++    expect(await resolveHostPublisher("r1")).toBe("aws_ivs");
++  });
++
++  it("uses Agora when the switch is on and both providers are configured", async () => {
++    findUnique.mockResolvedValue({ streamProvider: "none", streamHealth: "offline", phoneRelay: false });
++    expect(await resolveHostPublisher("r1")).toBe("agora");
++  });
++
++  it("falls back to AWS if either provider is not configured", async () => {
++    findUnique.mockResolvedValue({ streamProvider: "none", streamHealth: "offline", phoneRelay: false });
++    agoraConfigured.mockReturnValue(false);
++    expect(await resolveHostPublisher("r1")).toBe("aws_ivs");
++    agoraConfigured.mockReturnValue(true);
++    cloudflareConfigured.mockReturnValue(false);
++    expect(await resolveHostPublisher("r1")).toBe("aws_ivs");
++  });
++
++  it("never moves a running AWS show", async () => {
++    findUnique.mockResolvedValue({ streamProvider: "aws_ivs", streamHealth: "live", phoneRelay: false });
++    expect(await resolveHostPublisher("r1")).toBe("aws_ivs");
++    findUnique.mockResolvedValue({ streamProvider: "aws_ivs", streamHealth: "connecting", phoneRelay: false });
++    expect(await resolveHostPublisher("r1")).toBe("aws_ivs");
++  });
++
++  it("keeps a phone-relay show on Agora even after the switch is turned off", async () => {
++    findUnique.mockResolvedValue({ streamProvider: "cloudflare_stream", streamHealth: "live", phoneRelay: true });
++    backupActive.mockResolvedValue(false);
++    expect(await resolveHostPublisher("r1")).toBe("agora");
++  });
++
++  it("an ended AWS show does not block a new Agora start", async () => {
++    findUnique.mockResolvedValue({ streamProvider: "aws_ivs", streamHealth: "ended", phoneRelay: false });
++    expect(await resolveHostPublisher("r1")).toBe("agora");
++  });
++});
++
++describe("ensureAgoraRelay", () => {
++  const room = { streamProvider: "cloudflare_stream", externalStreamId: "uid1", externalRelayId: null as string | null };
++
++  it("starts a relay to the Cloudflare ingest and records the converter id", async () => {
++    findUnique.mockResolvedValue(room);
++    getInput.mockResolvedValue({ rtmpsUrl: "rtmps://live.cloudflare.com:443/live/", streamKey: "k1" });
++    startRelay.mockResolvedValue({ converterId: "c1", state: "connecting" });
++    const out = await ensureAgoraRelay("r1");
++    expect(startRelay).toHaveBeenCalledWith({ roomId: "r1", rtmpUrl: "rtmps://live.cloudflare.com:443/live/k1" });
++    expect(update).toHaveBeenCalledWith({ where: { id: "r1" }, data: { externalRelayId: "c1" } });
++    expect(out).toEqual({ converterId: "c1", state: "connecting", started: true });
++  });
++
++  it("leaves a running relay alone", async () => {
++    findUnique.mockResolvedValue({ ...room, externalRelayId: "c1" });
++    getRelay.mockResolvedValue({ converterId: "c1", state: "running" });
++    const out = await ensureAgoraRelay("r1");
++    expect(startRelay).not.toHaveBeenCalled();
++    expect(out.started).toBe(false);
++  });
++
++  it("replaces a failed or vanished relay", async () => {
++    findUnique.mockResolvedValue({ ...room, externalRelayId: "old" });
++    getRelay.mockResolvedValue({ converterId: "old", state: "failed" });
++    getInput.mockResolvedValue({ rtmpsUrl: "rtmps://x/live/", streamKey: "k" });
++    startRelay.mockResolvedValue({ converterId: "new", state: "connecting" });
++    const out = await ensureAgoraRelay("r1");
++    expect(stopRelay).toHaveBeenCalledWith("old");
++    expect(out.converterId).toBe("new");
++  });
++
++  it("requires the room to be set up first", async () => {
++    findUnique.mockResolvedValue({ streamProvider: "none", externalStreamId: null, externalRelayId: null });
++    await expect(ensureAgoraRelay("r1")).rejects.toThrow(/not set up/);
++  });
++});
+diff --git a/web/src/services/agora-room.ts b/web/src/services/agora-room.ts
+new file mode 100644
+index 0000000..56f5577
+--- /dev/null
++++ b/web/src/services/agora-room.ts
+@@ -0,0 +1,89 @@
++import { prisma } from "@/lib/prisma";
++import { logIvsOpsServer } from "@/lib/ivs-ops-log";
++import {
++  createAgoraHostSession,
++  getAgoraRelay,
++  isAgoraConfigured,
++  joinRtmpUrl,
++  startAgoraRelay,
++  stopAgoraRelay,
++  type AgoraHostSession,
++} from "@/services/agora-rtc";
++import {
++  getCloudflareLiveInput,
++  isBackupLiveVideoActive,
++  isCloudflareStreamConfigured,
++} from "@/services/cloudflare-stream";
++import { provisionCloudflareRoomStream } from "@/services/cloudflare-stream-room";
++
++export type HostPublisherKind = "aws_ivs" | "agora";
++
++/**
++ * Which sender the seller's phone should use for this room.
++ * - A show already running on AWS never moves mid-stream.
++ * - A show already running on the phone-relay path keeps it, even if the admin switch flips.
++ * - Otherwise the admin switch decides, and only when both Agora and Cloudflare are configured.
++ */
++export async function resolveHostPublisher(roomId: string): Promise<HostPublisherKind> {
++  const row = await prisma.liveRoom.findUnique({
++    where: { id: roomId },
++    select: { streamProvider: true, streamHealth: true, phoneRelay: true },
++  });
++  if (row?.streamProvider === "aws_ivs" && (row.streamHealth === "live" || row.streamHealth === "connecting")) {
++    return "aws_ivs";
++  }
++  if (row?.streamProvider === "cloudflare_stream" && row.phoneRelay) return "agora";
++  if (!(await isBackupLiveVideoActive())) return "aws_ivs";
++  if (!isAgoraConfigured() || !isCloudflareStreamConfigured()) return "aws_ivs";
++  return "agora";
++}
++
++/** Provision the Cloudflare input (HLS for buyers), mark the room phone-sourced, mint the host's Agora token. */
++export async function prepareAgoraHostSession(roomId: string): Promise<AgoraHostSession> {
++  await provisionCloudflareRoomStream(roomId);
++  await prisma.liveRoom.update({ where: { id: roomId }, data: { phoneRelay: true } });
++  logIvsOpsServer("agora_host_session_prepared", { roomId });
++  return createAgoraHostSession(roomId);
++}
++
++export function refreshAgoraHostSession(roomId: string): AgoraHostSession {
++  return createAgoraHostSession(roomId);
++}
++
++export type EnsureRelayResult = { converterId: string; state: string; started: boolean };
++
++/**
++ * Make sure Agora is pushing the host's stream to the room's Cloudflare input. Idempotent: a
++ * converter that is still connecting/running is left alone; a failed or vanished one is replaced.
++ * Call after the host has joined the Agora channel (and again after a reconnect).
++ */
++export async function ensureAgoraRelay(roomId: string): Promise<EnsureRelayResult> {
++  const room = await prisma.liveRoom.findUnique({
++    where: { id: roomId },
++    select: { streamProvider: true, externalStreamId: true, externalRelayId: true },
++  });
++  if (!room || room.streamProvider !== "cloudflare_stream" || !room.externalStreamId) {
++    throw new Error("Live video is not set up for this room yet.");
++  }
++
++  if (room.externalRelayId) {
++    const existing = await getAgoraRelay(room.externalRelayId).catch(() => null);
++    if (existing && (existing.state === "running" || existing.state === "connecting")) {
++      return { converterId: existing.converterId, state: existing.state, started: false };
++    }
++    await stopAgoraRelay(room.externalRelayId);
++  }
++
++  const input = await getCloudflareLiveInput(room.externalStreamId);
++  const relay = await startAgoraRelay({ roomId, rtmpUrl: joinRtmpUrl(input.rtmpsUrl, input.streamKey) });
++  await prisma.liveRoom.update({ where: { id: roomId }, data: { externalRelayId: relay.converterId } });
++  return { converterId: relay.converterId, state: relay.state, started: true };
++}
++
++/** Host stopped / left: stop the relay. The Cloudflare input is torn down by the normal end-of-show path. */
++export async function stopAgoraRelayForRoom(roomId: string): Promise<void> {
++  const room = await prisma.liveRoom.findUnique({ where: { id: roomId }, select: { externalRelayId: true } });
++  if (!room?.externalRelayId) return;
++  await stopAgoraRelay(room.externalRelayId);
++  await prisma.liveRoom.update({ where: { id: roomId }, data: { externalRelayId: null } });
++}
+diff --git a/web/src/services/agora-rtc.test.ts b/web/src/services/agora-rtc.test.ts
+new file mode 100644
+index 0000000..9490a5e
+--- /dev/null
++++ b/web/src/services/agora-rtc.test.ts
+@@ -0,0 +1,133 @@
++import { afterEach, describe, expect, it, vi } from "vitest";
++import {
++  agoraChannelName,
++  agoraHostUid,
++  createAgoraHostSession,
++  getAgoraConfig,
++  getAgoraRelay,
++  isAgoraConfigured,
++  joinRtmpUrl,
++  startAgoraRelay,
++  stopAgoraRelay,
++} from "./agora-rtc";
++
++const ENV_VARS = {
++  AGORA_APP_ID: "0123456789abcdef0123456789abcdef",
++  AGORA_APP_CERTIFICATE: "fedcba9876543210fedcba9876543210",
++  AGORA_REST_CUSTOMER_ID: "cust-id",
++  AGORA_REST_CUSTOMER_SECRET: "cust-secret",
++};
++
++function setEnv(env: Record<string, string | undefined>) {
++  for (const [k, v] of Object.entries(env)) {
++    if (v === undefined) delete process.env[k];
++    else process.env[k] = v;
++  }
++}
++
++afterEach(() => {
++  vi.unstubAllGlobals();
++  setEnv({
++    AGORA_APP_ID: undefined,
++    AGORA_APP_CERTIFICATE: undefined,
++    AGORA_REST_CUSTOMER_ID: undefined,
++    AGORA_REST_CUSTOMER_SECRET: undefined,
++    AGORA_REST_REGION: undefined,
++  });
++});
++
++describe("agora config", () => {
++  it("is null until every credential is set", () => {
++    expect(isAgoraConfigured()).toBe(false);
++    setEnv({ ...ENV_VARS, AGORA_REST_CUSTOMER_SECRET: undefined });
++    expect(getAgoraConfig()).toBeNull();
++    setEnv(ENV_VARS);
++    expect(getAgoraConfig()).toMatchObject({ appId: ENV_VARS.AGORA_APP_ID, region: "na" });
++    setEnv({ AGORA_REST_REGION: "EU" });
++    expect(getAgoraConfig()?.region).toBe("eu");
++    setEnv({ AGORA_REST_REGION: "bogus" });
++    expect(getAgoraConfig()?.region).toBe("na");
++  });
++});
++
++describe("channel and uid", () => {
++  it("derives a stable channel name and a valid 32-bit uid per room", () => {
++    expect(agoraChannelName("room_abc")).toBe("gv-room_abc");
++    expect(agoraChannelName("x".repeat(100)).length).toBeLessThanOrEqual(63);
++    const a = agoraHostUid("room_abc");
++    expect(agoraHostUid("room_abc")).toBe(a);
++    expect(agoraHostUid("room_other")).not.toBe(a);
++    expect(a).toBeGreaterThanOrEqual(1);
++    expect(a).toBeLessThanOrEqual(0xffffffff);
++  });
++
++  it("joins an RTMPS base and key with a single slash", () => {
++    expect(joinRtmpUrl("rtmps://live.cloudflare.com:443/live/", "key123")).toBe(
++      "rtmps://live.cloudflare.com:443/live/key123",
++    );
++    expect(joinRtmpUrl("rtmps://live.cloudflare.com:443/live", "/key123")).toBe(
++      "rtmps://live.cloudflare.com:443/live/key123",
++    );
++  });
++});
++
++describe("host session token", () => {
++  it("mints a signed publisher token bound to the room's channel and uid", () => {
++    setEnv(ENV_VARS);
++    const session = createAgoraHostSession("room_abc");
++    expect(session.appId).toBe(ENV_VARS.AGORA_APP_ID);
++    expect(session.channel).toBe("gv-room_abc");
++    expect(session.uid).toBe(agoraHostUid("room_abc"));
++    expect(session.token.startsWith("007")).toBe(true);
++    expect(session.expiresInSeconds).toBe(12 * 60 * 60);
++  });
++
++  it("refuses to mint without configuration", () => {
++    expect(() => createAgoraHostSession("room_abc")).toThrow(/not configured/);
++  });
++});
++
++describe("media push relay", () => {
++  it("creates an untranscoded converter pointing the host's stream at the RTMPS url", async () => {
++    setEnv(ENV_VARS);
++    const fetchMock = vi.fn(async () =>
++      new Response(JSON.stringify({ converter: { id: "conv-1", state: "connecting" } }), { status: 200 }),
++    );
++    vi.stubGlobal("fetch", fetchMock);
++    const relay = await startAgoraRelay({ roomId: "room_abc", rtmpUrl: "rtmps://live.cloudflare.com:443/live/key" });
++    expect(relay).toEqual({ converterId: "conv-1", state: "connecting" });
++
++    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
++    expect(url).toBe(`https://api.agora.io/na/v1/projects/${ENV_VARS.AGORA_APP_ID}/rtmp-converters`);
++    expect(init.method).toBe("POST");
++    const headers = init.headers as Record<string, string>;
++    expect(headers.Authorization).toBe(`Basic ${Buffer.from("cust-id:cust-secret").toString("base64")}`);
++    const body = JSON.parse(String(init.body)) as { converter: Record<string, unknown> };
++    expect(body.converter.rtmpUrl).toBe("rtmps://live.cloudflare.com:443/live/key");
++    expect(body.converter.rawOptions).toEqual({ rtcChannel: "gv-room_abc", rtcStreamUid: agoraHostUid("room_abc") });
++    expect(body.converter.transcodeOptions).toBeUndefined();
++    expect(body.converter.idleTimeOut).toBe(300);
++    expect(String(body.converter.name)).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
++  });
++
++  it("surfaces Agora's error message", async () => {
++    setEnv(ENV_VARS);
++    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ message: "rtmpUrl invalid" }), { status: 400 })));
++    await expect(startAgoraRelay({ roomId: "r", rtmpUrl: "x" })).rejects.toThrow(/rtmpUrl invalid/);
++  });
++
++  it("reads converter state and treats 404 as gone", async () => {
++    setEnv(ENV_VARS);
++    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ state: "running" }), { status: 200 })));
++    expect(await getAgoraRelay("conv-1")).toEqual({ converterId: "conv-1", state: "running" });
++    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
++    expect(await getAgoraRelay("conv-1")).toBeNull();
++  });
++
++  it("stopping never throws", async () => {
++    setEnv(ENV_VARS);
++    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
++    await expect(stopAgoraRelay("conv-1")).resolves.toBeUndefined();
++    await expect(stopAgoraRelay(null)).resolves.toBeUndefined();
++  });
++});
+diff --git a/web/src/services/agora-rtc.ts b/web/src/services/agora-rtc.ts
+new file mode 100644
+index 0000000..d618993
+--- /dev/null
++++ b/web/src/services/agora-rtc.ts
+@@ -0,0 +1,181 @@
++import { createHash } from "node:crypto";
++import { RtcRole, RtcTokenBuilder } from "agora-token";
++import { logIvsOpsServer } from "@/lib/ivs-ops-log";
++
++/**
++ * Second real-time live-video provider: Agora RTC for the seller's phone.
++ *
++ *   phone camera --(Agora RTC, real time)--> Agora channel
++ *       --(Media Push, no transcode)--> Cloudflare Stream RTMPS input --> HLS --> buyers
++ *
++ * Buyers keep watching the same `playbackUrl` HLS as the other providers; only the seller's
++ * sender changes. Env: AGORA_APP_ID, AGORA_APP_CERTIFICATE (token signing),
++ * AGORA_REST_CUSTOMER_ID + AGORA_REST_CUSTOMER_SECRET (Media Push REST API), optional
++ * AGORA_REST_REGION (na | eu | ap, default na).
++ */
++
++export type AgoraConfig = {
++  appId: string;
++  appCertificate: string;
++  customerId: string;
++  customerSecret: string;
++  region: "na" | "eu" | "ap";
++};
++
++export function getAgoraConfig(env: NodeJS.ProcessEnv = process.env): AgoraConfig | null {
++  const appId = env.AGORA_APP_ID?.trim() ?? "";
++  const appCertificate = env.AGORA_APP_CERTIFICATE?.trim() ?? "";
++  const customerId = env.AGORA_REST_CUSTOMER_ID?.trim() ?? "";
++  const customerSecret = env.AGORA_REST_CUSTOMER_SECRET?.trim() ?? "";
++  if (!appId || !appCertificate || !customerId || !customerSecret) return null;
++  const r = env.AGORA_REST_REGION?.trim().toLowerCase();
++  const region = r === "eu" || r === "ap" ? r : "na";
++  return { appId, appCertificate, customerId, customerSecret, region };
++}
++
++export function isAgoraConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
++  return getAgoraConfig(env) !== null;
++}
++
++function requireConfig(): AgoraConfig {
++  const cfg = getAgoraConfig();
++  if (!cfg) {
++    throw new Error(
++      "Agora live video is not configured. Set AGORA_APP_ID, AGORA_APP_CERTIFICATE, AGORA_REST_CUSTOMER_ID and AGORA_REST_CUSTOMER_SECRET.",
++    );
++  }
++  return cfg;
++}
++
++/** One Agora channel per live room. */
++export function agoraChannelName(roomId: string): string {
++  return `gv-${roomId}`.slice(0, 63);
++}
++
++/** Stable numeric uid (1..2^32-1) for a room's host, so a rejoin keeps the same stream uid. */
++export function agoraHostUid(roomId: string): number {
++  const digest = createHash("sha256").update(`gv-host:${roomId}`).digest();
++  const n = digest.readUInt32BE(0);
++  return n === 0 ? 1 : n;
++}
++
++/** Host token lifetime. Agora caps a token at 24 h; the app refreshes before it lapses. */
++export const AGORA_HOST_TOKEN_TTL_SECONDS = 12 * 60 * 60;
++
++export type AgoraHostSession = {
++  appId: string;
++  channel: string;
++  uid: number;
++  token: string;
++  expiresInSeconds: number;
++};
++
++export function createAgoraHostSession(roomId: string): AgoraHostSession {
++  const cfg = requireConfig();
++  const channel = agoraChannelName(roomId);
++  const uid = agoraHostUid(roomId);
++  const ttl = AGORA_HOST_TOKEN_TTL_SECONDS;
++  const token = RtcTokenBuilder.buildTokenWithUid(cfg.appId, cfg.appCertificate, channel, uid, RtcRole.PUBLISHER, ttl, ttl);
++  return { appId: cfg.appId, channel, uid, token, expiresInSeconds: ttl };
++}
++
++// --- Media Push (RTMP relay) -------------------------------------------------------------------
++
++type ConverterState = "connecting" | "running" | "failed" | string;
++
++export type AgoraRelay = { converterId: string; state: ConverterState };
++
++function restBase(cfg: AgoraConfig): string {
++  return `https://api.agora.io/${cfg.region}/v1/projects/${encodeURIComponent(cfg.appId)}/rtmp-converters`;
++}
++
++function authHeader(cfg: AgoraConfig): string {
++  return `Basic ${Buffer.from(`${cfg.customerId}:${cfg.customerSecret}`).toString("base64")}`;
++}
++
++async function agoraRest<T>(cfg: AgoraConfig, method: string, url: string, body?: unknown): Promise<T> {
++  const res = await fetch(url, {
++    method,
++    headers: {
++      Authorization: authHeader(cfg),
++      "X-Request-ID": crypto.randomUUID(),
++      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
++    },
++    body: body !== undefined ? JSON.stringify(body) : undefined,
++    cache: "no-store",
++  });
++  const text = await res.text();
++  let json: Record<string, unknown> = {};
++  try {
++    json = text ? (JSON.parse(text) as Record<string, unknown>) : {};
++  } catch {
++    json = {};
++  }
++  if (!res.ok) {
++    const message = typeof json.message === "string" && json.message ? json.message : `HTTP ${res.status}`;
++    const err = new Error(`Agora Media Push request failed: ${message}`) as Error & { status?: number };
++    err.status = res.status;
++    throw err;
++  }
++  return json as T;
++}
++
++/** Joins an RTMPS base URL and a stream key the way Cloudflare expects (single slash). */
++export function joinRtmpUrl(base: string, streamKey: string): string {
++  return `${base.replace(/\/+$/, "")}/${streamKey.replace(/^\/+/, "")}`;
++}
++
++/**
++ * Start pushing the host's raw (untranscoded) camera stream from the Agora channel to an RTMP(S)
++ * URL. Untranscoded single-host push is the cheapest Media Push tier. The phone publishes H.264.
++ * `idleTimeOut` lets a short drop (host backgrounds, network blip) recover without a new converter.
++ */
++export async function startAgoraRelay(args: { roomId: string; rtmpUrl: string }): Promise<AgoraRelay> {
++  const cfg = requireConfig();
++  const name = `gv-${args.roomId}-${Date.now().toString(36)}`.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 64);
++  const json = await agoraRest<{ converter?: { id?: string; state?: string } }>(cfg, "POST", restBase(cfg), {
++    converter: {
++      name,
++      rawOptions: {
++        rtcChannel: agoraChannelName(args.roomId),
++        rtcStreamUid: agoraHostUid(args.roomId),
++      },
++      rtmpUrl: args.rtmpUrl,
++      idleTimeOut: 300,
++    },
++  });
++  const id = json.converter?.id;
++  if (!id) throw new Error("Agora Media Push did not return a converter id.");
++  logIvsOpsServer("agora_relay_started", { roomId: args.roomId, state: json.converter?.state ?? "unknown" });
++  return { converterId: id, state: json.converter?.state ?? "connecting" };
++}
++
++/** Current state of a converter, or null when Agora no longer knows it (idle-timed-out / deleted). */
++export async function getAgoraRelay(converterId: string): Promise<AgoraRelay | null> {
++  const cfg = requireConfig();
++  try {
++    const json = await agoraRest<{ state?: string; converter?: { state?: string } }>(
++      cfg,
++      "GET",
++      `${restBase(cfg)}/${encodeURIComponent(converterId)}`,
++    );
++    return { converterId, state: json.state ?? json.converter?.state ?? "unknown" };
++  } catch (e) {
++    const status = (e as { status?: number }).status;
++    if (status === 404) return null;
++    throw e;
++  }
++}
++
++/** Stop a converter. Best effort; never throws (an already-gone converter is fine). */
++export async function stopAgoraRelay(converterId: string | null | undefined): Promise<void> {
++  if (!converterId) return;
++  const cfg = getAgoraConfig();
++  if (!cfg) return;
++  try {
++    await agoraRest(cfg, "DELETE", `${restBase(cfg)}/${encodeURIComponent(converterId)}`);
++    logIvsOpsServer("agora_relay_stopped", {});
++  } catch {
++    logIvsOpsServer("agora_relay_stop_failed", {});
++  }
++}
+diff --git a/web/src/services/cloudflare-stream-room.ts b/web/src/services/cloudflare-stream-room.ts
+index 706cc6a..e0bb6ac 100644
+--- a/web/src/services/cloudflare-stream-room.ts
++++ b/web/src/services/cloudflare-stream-room.ts
+@@ -1,5 +1,6 @@
+ import { prisma } from "@/lib/prisma";
+ import { logIvsOpsServer } from "@/lib/ivs-ops-log";
++import { stopAgoraRelay } from "@/services/agora-rtc";
+ import {
+   createCloudflareLiveInput,
+   deleteCloudflareLiveInput,
+@@ -25,7 +26,7 @@ export async function provisionCloudflareRoomStream(
+ ): Promise<CloudflareProvisionResult> {
+   const room = await prisma.liveRoom.findUnique({
+     where: { id: roomId },
+-    select: { id: true, streamProvider: true, externalStreamId: true },
++    select: { id: true, streamProvider: true, externalStreamId: true, externalRelayId: true },
+   });
+   if (!room) throw new Error("Live room not found.");
+ 
+@@ -41,6 +42,8 @@ export async function provisionCloudflareRoomStream(
+   }
+ 
+   const input = await createCloudflareLiveInput(roomId);
++  // A new input has a new stream key, so any relay still pushing to the old one is stale.
++  if (room.externalRelayId) await stopAgoraRelay(room.externalRelayId);
+   const now = new Date();
+   await prisma.liveRoom.update({
+     where: { id: roomId },
+@@ -49,6 +52,8 @@ export async function provisionCloudflareRoomStream(
+       streamMode: "channel_hls",
+       streamHealth: "offline",
+       externalStreamId: input.uid,
++      externalRelayId: null,
++      phoneRelay: false,
+       ivsPlaybackUrl: input.playbackUrl,
+       ivsIngestEndpoint: input.rtmpsUrl,
+       ivsStreamKeyCreatedAt: now,
+@@ -100,12 +105,13 @@ export async function syncLiveRoomStreamFromCloudflare(liveRoomId: string) {
+ export async function teardownCloudflareRoomStream(roomId: string): Promise<void> {
+   const room = await prisma.liveRoom.findUnique({
+     where: { id: roomId },
+-    select: { externalStreamId: true },
++    select: { externalStreamId: true, externalRelayId: true },
+   });
++  if (room?.externalRelayId) await stopAgoraRelay(room.externalRelayId);
+   if (room?.externalStreamId) await deleteCloudflareLiveInput(room.externalStreamId);
+   const now = new Date();
+   await prisma.liveRoom.update({
+     where: { id: roomId },
+-    data: { streamHealth: "ended", streamEndedAt: now, streamPaused: false, lastIvsStatusSyncAt: now },
++    data: { externalRelayId: null, streamHealth: "ended", streamEndedAt: now, streamPaused: false, lastIvsStatusSyncAt: now },
+   });
+ }
