@@ -3,6 +3,7 @@ import { logAdminAction, normalizeAdminReason } from "@/lib/admin/admin-audit";
 import { requireAdminPermission } from "@/lib/admin/admin-permissions";
 import { ADMIN_SETTINGS, clearAdminSettingCache, getBoolAdminSetting, type AdminSettingKey } from "@/lib/admin/admin-settings";
 import { prisma } from "@/lib/prisma";
+import { isCloudflareStreamConfigured } from "@/services/cloudflare-stream";
 
 export async function GET(request: Request) {
   const gate = await requireAdminPermission("settings.manage", request);
@@ -34,6 +35,16 @@ export async function POST(request: Request) {
   if (!def || typeof body.enabled !== "boolean") return NextResponse.json({ error: "BAD_REQUEST" }, { status: 400 });
   const reason = normalizeAdminReason(body.reason);
   if (!reason) return NextResponse.json({ error: "REASON_REQUIRED" }, { status: 400 });
+
+  if (def.key === "live_video_use_cloudflare" && body.enabled && !isCloudflareStreamConfigured()) {
+    return NextResponse.json(
+      {
+        error:
+          "Backup live video is not set up yet. Add CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_STREAM_API_TOKEN and CLOUDFLARE_STREAM_CUSTOMER_CODE in Netlify first.",
+      },
+      { status: 400 },
+    );
+  }
 
   const key = def.key as AdminSettingKey;
   const before = await getBoolAdminSetting(key);

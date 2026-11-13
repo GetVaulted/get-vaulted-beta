@@ -38,6 +38,7 @@ function healthLabel(v: string) {
 }
 
 function friendlyStreamError(message: string) {
+  if (message.toLowerCase().includes("backup live video")) return message;
   if (message.toLowerCase().includes("not configured")) {
     return "Streaming is not configured yet. Add AWS IVS environment values, then try again.";
   }

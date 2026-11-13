@@ -11,6 +11,8 @@ import {
   toHostStreamPayload,
 } from "../_shared";
 import { formatIvsObsIngestUrl } from "@/lib/ivs-obs-ingest-url";
+import { isBackupLiveVideoActive } from "@/services/cloudflare-stream";
+import { provisionCloudflareRoomStream } from "@/services/cloudflare-stream-room";
 
 type ProvisionBody = {
   /** Default `whip` (OBS → Stage WebRTC). Pass `rtmps` for legacy HLS OBS. */
@@ -41,6 +43,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const protocol = body.protocol === "rtmps" ? "rtmps" : "whip";
 
   try {
+    // Admin switch: backup provider (Cloudflare). Always RTMPS (OBS / any RTMP app), never WHIP.
+    // A room already running on AWS keeps AWS so a live show is never moved mid-stream.
+    const current = await getStreamRow(id);
+    const alreadyAws = current?.streamProvider === "aws_ivs" && current.streamHealth === "live";
+    if (!alreadyAws && (current?.streamProvider === "cloudflare_stream" || (await isBackupLiveVideoActive()))) {
+      const provisioned = await provisionCloudflareRoomStream(id);
+      const row = await getStreamRow(id);
+      if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
+      logIvsOpsServer("cloudflare_provision_route_success", { roomId: id });
+      return NextResponse.json({
+        ok: true,
+        protocol: "rtmps",
+        stream: toHostStreamPayload(row),
+        ingest: {
+          endpoint: provisioned.ingestEndpoint,
+          oneTimeStreamKey: provisioned.streamKeyValue,
+        },
+      });
+    }
+
     if (protocol === "rtmps") {
       const provisioned = await provisionRoomStream(id);
       await prisma.liveRoom.update({

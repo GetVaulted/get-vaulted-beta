@@ -8,6 +8,12 @@ export const ADMIN_SETTINGS = [
     help: "When on, members must be approved (Seller Applications) before they can list or host shows. Grandfathered sellers keep access. Off by default.",
     envFallback: "SELLER_APPLICATIONS_ENFORCED",
   },
+  {
+    key: "live_video_use_cloudflare",
+    label: "Use backup live video (Cloudflare)",
+    help: "When on, new stream setups use Cloudflare instead of AWS IVS. Sellers broadcast from OBS or an RTMP app (the in-app Go Live button uses AWS and is paused). Shows already running keep their provider. Off by default.",
+    envFallback: "LIVE_VIDEO_USE_CLOUDFLARE",
+  },
 ] as const;
 
 export type AdminSettingKey = (typeof ADMIN_SETTINGS)[number]["key"];

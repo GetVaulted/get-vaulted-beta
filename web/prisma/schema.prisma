@@ -76,6 +76,8 @@ enum LiveRoomDiscoveryVisibility {
 enum LiveStreamProvider {
   none
   aws_ivs
+  /// Backup provider (Cloudflare Stream live input, RTMPS ingest -> HLS playback). Admin-switched.
+  cloudflare_stream
 }
 
 /// How a room's video is delivered. `stage_webrtc` = IVS Real-Time (sub-second WebRTC);
@@ -1283,6 +1285,8 @@ model LiveRoom {
   ivsCompositionArn       String?
   ivsStreamKeyArn         String?
   ivsStreamKeyCreatedAt   DateTime?
+  /// Provider-side stream id for non-IVS providers (Cloudflare Stream live input uid).
+  externalStreamId        String?
   streamStartedAt         DateTime?
   streamEndedAt           DateTime?
   lastIvsStatusSyncAt     DateTime?
