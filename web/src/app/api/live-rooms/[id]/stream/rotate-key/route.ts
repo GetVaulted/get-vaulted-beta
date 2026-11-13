@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
 import { IVS_WHIP_SERVER_URL, isIvsWhipIngestEndpoint } from "@/lib/ivs-whip-ingest";
 import { rotateObsWhipParticipantToken, rotateStreamKey } from "@/services/ivs";
+import { provisionCloudflareRoomStream } from "@/services/cloudflare-stream-room";
 import { errorResponse, getStreamRow, requireHostAccess, toHostStreamPayload } from "../_shared";
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -14,6 +15,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   try {
     const rowBefore = await getStreamRow(id);
     if (!rowBefore) return NextResponse.json({ error: "Room not found." }, { status: 404 });
+
+    if (rowBefore.streamProvider === "cloudflare_stream") {
+      // New input = new stream key + playback URL. Not allowed mid-broadcast (would drop the feed).
+      if (rowBefore.streamHealth === "live" || rowBefore.streamHealth === "connecting") {
+        return NextResponse.json({ error: "Stop streaming before rotating the key." }, { status: 409 });
+      }
+      const fresh = await provisionCloudflareRoomStream(id, { fresh: true });
+      const row = await getStreamRow(id);
+      if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
+      logIvsOpsServer("ivs_rotate_key_success", { roomId: id, protocol: "rtmps", provider: "cloudflare_stream" });
+      return NextResponse.json({
+        ok: true,
+        protocol: "rtmps",
+        stream: toHostStreamPayload(row),
+        ingest: { endpoint: fresh.ingestEndpoint, oneTimeStreamKey: fresh.streamKeyValue },
+      });
+    }
 
     if (
       rowBefore.streamMode === "stage_webrtc" &&

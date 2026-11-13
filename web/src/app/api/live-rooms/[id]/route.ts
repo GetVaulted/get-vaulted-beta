@@ -392,6 +392,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       completedSalesGmvUsd: true,
       discoveryVisibility: true,
       streamMode: true,
+      streamProvider: true,
       ivsChannelArn: true,
     },
   });
@@ -491,7 +492,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     }
     // OBS path: pull IVS GetStream ASAP so buyers flip from offline → live without waiting
     // for the host to keep the OBS Studio tab open.
-    if (existing.streamMode === "channel_hls" && existing.ivsChannelArn) {
+    if (existing.streamMode === "channel_hls" && (existing.ivsChannelArn || existing.streamProvider === "cloudflare_stream")) {
       void syncLiveRoomStreamFromIvs(id).catch((e) =>
         console.error("[live-rooms] syncLiveRoomStreamFromIvs after start failed", id, e),
       );

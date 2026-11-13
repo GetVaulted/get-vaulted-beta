@@ -4,6 +4,7 @@ import { requireLiveRoomHostAccess } from "@/lib/resolve-live-host-access";
 import { formatIvsObsIngestUrl } from "@/lib/ivs-obs-ingest-url";
 import { isIvsWhipIngestEndpoint } from "@/lib/ivs-whip-ingest";
 import { isObsDesktopBroadcastMode } from "@/lib/live-obs-channel-mode";
+import { isBackupLiveVideoActive } from "@/services/cloudflare-stream";
 import { sellerLiveTermsRequired, sellerTermsRequiredResponse } from "@/lib/seller-live-terms";
 
 /** Configured IVS channel latency mode ("LOW" = low-latency HLS), without pulling in the AWS SDK service. */
@@ -93,7 +94,9 @@ export function toHostStreamPayload(row: StreamRow) {
     // OBS Custom / WHIP: RTMPS URL for legacy, WHIP server for WebRTC OBS.
     ingestEndpoint: whip
       ? row.ivsIngestEndpoint
-      : formatIvsObsIngestUrl(row.ivsIngestEndpoint),
+      : row.streamProvider === "cloudflare_stream"
+        ? row.ivsIngestEndpoint
+        : formatIvsObsIngestUrl(row.ivsIngestEndpoint),
     ingestProtocol: whip ? ("whip" as const) : row.streamMode === "channel_hls" ? ("rtmps" as const) : null,
     whipServerUrl: whip ? row.ivsIngestEndpoint : null,
     channelArn: row.ivsChannelArn,
@@ -130,4 +133,20 @@ export async function requireSellerTermsToStart(
   if (row?.streamStartedAt && !row.streamEndedAt) return null;
   if (await sellerLiveTermsRequired(auth.userId)) return sellerTermsRequiredResponse();
   return null;
+}
+
+/**
+ * In-app Go Live (phone camera) publishes to AWS IVS. While the admin "backup live video" switch is
+ * on, send hosts to OBS / an RTMP app instead of failing deep inside the AWS client.
+ */
+export async function blockInAppBroadcastOnBackupProvider(): Promise<NextResponse | null> {
+  if (!(await isBackupLiveVideoActive())) return null;
+  return NextResponse.json(
+    {
+      error:
+        "Live video is running on the backup service right now. Start your show from OBS or an RTMP app using the stream settings in your host console.",
+      code: "BACKUP_LIVE_VIDEO_ACTIVE",
+    },
+    { status: 409 },
+  );
 }

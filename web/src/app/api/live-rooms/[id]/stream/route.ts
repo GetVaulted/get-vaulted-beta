@@ -36,7 +36,7 @@ async function maybeSyncChannelHlsHealth(row: Awaited<ReturnType<typeof getStrea
   NonNullable<Awaited<ReturnType<typeof getStreamRow>>> | null
 > {
   if (!row) return null;
-  if (row.streamMode !== "channel_hls" || !row.ivsChannelArn) return row;
+  if (row.streamMode !== "channel_hls" || (!row.ivsChannelArn && row.streamProvider !== "cloudflare_stream")) return row;
   if (row.streamHealth === "ended" || row.streamHealth === "not_provisioned") return row;
   // Already live and recently synced — skip AWS call.
   const syncedAt = row.lastIvsStatusSyncAt?.getTime() ?? 0;

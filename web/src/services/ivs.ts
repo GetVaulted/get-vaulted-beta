@@ -580,6 +580,11 @@ export async function commitLiveRoomStreamHealthFromIvs(args: {
  * do not need to tap Play on the phone for inventory to go live.
  */
 export async function syncLiveRoomStreamFromIvs(liveRoomId: string): Promise<StreamHealthCommitResult | null> {
+  const provider = await prisma.liveRoom.findUnique({ where: { id: liveRoomId }, select: { streamProvider: true } });
+  if (provider?.streamProvider === "cloudflare_stream") {
+    const { syncLiveRoomStreamFromCloudflare } = await import("@/services/cloudflare-stream-room");
+    return syncLiveRoomStreamFromCloudflare(liveRoomId);
+  }
   const room = await prisma.liveRoom.findUnique({
     where: { id: liveRoomId },
     select: {
@@ -1633,8 +1638,17 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
 export async function endHostStageSession(roomId: string): Promise<void> {
   const room = await prisma.liveRoom.findUnique({
     where: { id: roomId },
-    select: { status: true },
+    select: { status: true, streamProvider: true },
   });
+  if (room?.streamProvider === "cloudflare_stream") {
+    // Backup provider: no AWS resources to tear down. A still-live room keeps its input so the
+    // seller can reconnect OBS; once the show is over, delete the input + recording.
+    if (room.status !== "live") {
+      const { teardownCloudflareRoomStream } = await import("@/services/cloudflare-stream-room");
+      await teardownCloudflareRoomStream(roomId);
+    }
+    return;
+  }
   if (room?.status === "live") {
     cancelDelayedCompositionStop(roomId);
     // Soft disconnect: room stays live so host can Go Live again, but stop lying that video is up.

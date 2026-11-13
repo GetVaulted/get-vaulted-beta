@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
 import { prepareHostWebBroadcastSession } from "@/services/ivs";
 import {
+  blockInAppBroadcastOnBackupProvider,
   errorResponse,
   getStreamRow,
   requireHostAccess,
@@ -17,6 +18,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!auth.ok) return auth.response;
   const termsBlock = await requireSellerTermsToStart(id, auth);
   if (termsBlock) return termsBlock;
+  const backupBlock = await blockInAppBroadcastOnBackupProvider();
+  if (backupBlock) return backupBlock;
 
   try {
     const session = await prepareHostWebBroadcastSession(id);
