@@ -126,7 +126,7 @@ async function shareHitClipNative(args: {
 
   if (args.localUri) {
     try {
-      const perm = await MediaLibrary.requestPermissionsAsync();
+      const perm = await MediaLibrary.requestPermissionsAsync(true);
       if (perm.granted) {
         await MediaLibrary.saveToLibraryAsync(args.localUri);
       }
