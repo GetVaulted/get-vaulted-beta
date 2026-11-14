@@ -1867,6 +1867,7 @@ export async function closeStaleOpenLiveRooms(): Promise<{ scanned: number; clos
       // Paused shows are expected to have no publisher; the paused-show safety net owns them.
       streamPaused: false,
       streamStartedAt: { lt: cutoff },
+      streamProvider: { not: "agora_rtc" },
     },
     select: { id: true, ivsStageArn: true, ivsChannelArn: true, ivsCompositionArn: true },
   });
