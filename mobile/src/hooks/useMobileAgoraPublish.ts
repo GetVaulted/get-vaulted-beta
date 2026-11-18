@@ -682,10 +682,18 @@ export function useMobileAgoraPublish(args: {
     if (!appId || !previewRunningRef.current) return;
     const next = clampAgoraZoom(factor, maxZoomRef.current);
     try {
-      getAgoraEngine(appId).setCameraZoomFactor(next);
+      const code = getAgoraEngine(appId).setCameraZoomFactor(next);
+      if (typeof code === 'number' && code < 0) {
+        // The SDK refused the zoom. Report it so we can see the exact error code.
+        Sentry.captureMessage(
+          `agora setCameraZoomFactor failed (code ${code}, factor ${next}, max ${maxZoomRef.current}, facing ${facingRef.current}, phase ${phaseRef.current})`,
+          'warning',
+        );
+        return;
+      }
       setCameraZoomState(next);
-    } catch {
-      /* zoom is best effort */
+    } catch (err) {
+      Sentry.captureException(err);
     }
   }, []);
 
