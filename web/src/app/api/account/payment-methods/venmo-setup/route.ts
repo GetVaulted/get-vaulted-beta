@@ -37,7 +37,10 @@ export async function POST(req: Request) {
     if (auth instanceof NextResponse) return auth;
 
     if (!isWalletVenmoEnabled()) {
-      return jsonError(403, { error: "Venmo is not enabled.", code: "VENMO_DISABLED" });
+      return jsonError(403, {
+        error: "Venmo is temporarily unavailable. Please use a card for now.",
+        code: "VENMO_DISABLED",
+      });
     }
 
     if (!isBuyerVenmoPayConfigured()) {

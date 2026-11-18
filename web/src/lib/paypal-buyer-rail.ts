@@ -12,6 +12,7 @@ import {
   isPayPalWalletPaymentMethodId,
 } from "@/lib/paypal-buyer-wallet";
 import { getPayPalAccessToken, paypalApiBase, paypalCredentialsConfigured } from "@/lib/paypal-auth";
+import { isWalletPayPalEnabled, isWalletVenmoEnabled } from "@/lib/payment-processor";
 import type { WalletPaymentMethodType } from "@/generated/prisma/client";
 
 export function isPayPalRailWalletPaymentMethodId(id: string | null | undefined): boolean {
@@ -37,6 +38,22 @@ export async function chargeOrderWithPayPalRailWallet(args: {
   walletPaymentMethodId: string;
 }): Promise<ChargePayPalRailResult> {
   const pm = args.walletPaymentMethodId.trim();
+  // Temporary kill switch: WALLET_PAYPAL_ENABLED=false / WALLET_VENMO_ENABLED=false also stops
+  // charging already-saved PayPal / Venmo wallets, with a clear message for the buyer.
+  if (isPayPalWalletPaymentMethodId(pm) && !isWalletPayPalEnabled()) {
+    return {
+      outcome: "error",
+      code: "PAYPAL_TEMPORARILY_UNAVAILABLE",
+      message: "PayPal is temporarily unavailable. Please pay with a card for now.",
+    };
+  }
+  if (isVenmoWalletPaymentMethodId(pm) && !isWalletVenmoEnabled()) {
+    return {
+      outcome: "error",
+      code: "VENMO_TEMPORARILY_UNAVAILABLE",
+      message: "Venmo is temporarily unavailable. Please pay with a card for now.",
+    };
+  }
   if (isPayPalWalletPaymentMethodId(pm)) {
     const charged = await chargeOrderWithVaultedPayPalWallet({
       buyerId: args.buyerId,
