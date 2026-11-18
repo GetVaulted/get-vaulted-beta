@@ -36,7 +36,10 @@ export async function POST(req: Request) {
     if (auth instanceof NextResponse) return auth;
 
     if (!isWalletPayPalEnabled()) {
-      return jsonError(403, { error: "PayPal is not enabled.", code: "PAYPAL_DISABLED" });
+      return jsonError(403, {
+        error: "PayPal is temporarily unavailable. Please use a card for now.",
+        code: "PAYPAL_DISABLED",
+      });
     }
 
     if (!isBuyerPayPalWalletConfigured()) {
