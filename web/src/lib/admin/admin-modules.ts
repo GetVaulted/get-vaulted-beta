@@ -276,6 +276,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { href: "/admin/seller-applications", label: "Seller Applications" },
       { href: "/admin/seller-risk", label: "Seller Risk" },
       { href: "/admin/risk-watch", label: "Risk watch" },
+      { href: "/admin/off-app-watch", label: "Off-app watch" },
       { href: "/admin/trust", label: "Trust" },
       { href: "/admin/trust/linked-accounts", label: "Linked accounts" },
       { href: "/admin/support-tickets", label: "Support" },
