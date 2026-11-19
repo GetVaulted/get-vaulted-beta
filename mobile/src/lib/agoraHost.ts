@@ -4,15 +4,18 @@
 export const AGORA_HOST_VIDEO = { width: 720, height: 1280, frameRate: 30, bitrateKbps: 2500 } as const;
 
 /** Zoom steps the host UI offers: 1x plus whole-number stops the camera can actually reach. */
-export function agoraZoomStops(maxZoom: number, supported: boolean): number[] {
-  if (!supported || !Number.isFinite(maxZoom) || maxZoom < 2) return [1];
-  return [1, 2, 3, 5].filter((z) => z <= maxZoom);
+export function agoraZoomStops(maxZoom: number, supported: boolean, ultraWide = false): number[] {
+  if (!supported || !Number.isFinite(maxZoom)) return [1];
+  const stops = maxZoom < 2 ? [1] : [1, 2, 3, 5].filter((z) => z <= maxZoom);
+  // Phones with an ultra-wide rear lens can go below 1x (down to 0.5x).
+  return ultraWide ? [0.5, ...stops] : stops;
 }
 
-export function clampAgoraZoom(factor: number, maxZoom: number): number {
+export function clampAgoraZoom(factor: number, maxZoom: number, ultraWide = false): number {
   if (!Number.isFinite(factor)) return 1;
+  const min = ultraWide ? 0.5 : 1;
   const max = Number.isFinite(maxZoom) && maxZoom >= 1 ? maxZoom : 1;
-  return Math.min(Math.max(factor, 1), max);
+  return Math.min(Math.max(factor, min), max);
 }
 
 /** Delay before the nth retry (1-based) of the relay start call: 1.5 s, 3 s, 4.5 s. */

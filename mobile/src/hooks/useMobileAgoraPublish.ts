@@ -97,6 +97,7 @@ export function useMobileAgoraPublish(args: {
   const mutedRef = useRef(false);
   const facingRef = useRef<SellerCameraFacing>(SELLER_DEFAULT_CAMERA_FACING);
   const maxZoomRef = useRef(1);
+  const zoomRecheckTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const tokenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const joinWaiterRef = useRef<{ resolve: () => void; reject: (e: Error) => void } | null>(null);
   const handlerRef = useRef<AgoraSdk.IRtcEngineEventHandler | null>(null);
@@ -252,6 +253,28 @@ export function useMobileAgoraPublish(args: {
     }
   }, []);
 
+  /**
+   * The camera can report "no zoom" for a moment after it starts or flips, which left the host
+   * stuck on 1x. Re-check a few times until the camera reports a usable zoom range.
+   */
+  const scheduleZoomRecheck = useCallback(
+    (appId: string) => {
+      for (const t of zoomRecheckTimersRef.current) clearTimeout(t);
+      zoomRecheckTimersRef.current = [500, 1500, 3000, 6000].map((ms) =>
+        setTimeout(() => {
+          if (!mountedRef.current || !previewRunningRef.current || facingRef.current !== 'back') return;
+          if (maxZoomRef.current >= 2) return;
+          try {
+            refreshZoomStops(getAgoraEngine(appId));
+          } catch {
+            /* best effort */
+          }
+        }, ms),
+      );
+    },
+    [refreshZoomStops],
+  );
+
   const ensureLocalPreview = useCallback(async (): Promise<boolean> => {
     if (previewRunningRef.current) return true;
     if (previewPromiseRef.current) return previewPromiseRef.current;
@@ -279,6 +302,7 @@ export function useMobileAgoraPublish(args: {
         const engine = getAgoraEngine(appId);
         configureAndPreview(engine, { resetFacing: true });
         refreshZoomStops(engine);
+        scheduleZoomRecheck(appId);
         if (mountedRef.current) {
           setLocalPreviewReady(true);
           setPermissionState('granted');
@@ -303,7 +327,7 @@ export function useMobileAgoraPublish(args: {
     });
     previewPromiseRef.current = run;
     return run;
-  }, [configureAndPreview, refreshZoomStops]);
+  }, [configureAndPreview, refreshZoomStops, scheduleZoomRecheck]);
 
   useEffect(() => {
     if (!args.previewEnabled || !args.agoraAppId) return;
@@ -647,20 +671,29 @@ export function useMobileAgoraPublish(args: {
       setCameraFacing(next);
       setCameraZoomState(1);
       refreshZoomStops(engine);
+      scheduleZoomRecheck(appId);
     } catch (err) {
       setError(friendlyAgoraError(err));
     }
-  }, [refreshZoomStops]);
+  }, [refreshZoomStops, scheduleZoomRecheck]);
 
   const setCameraZoom = useCallback(async (factor: number) => {
     const appId = cbRef.current.agoraAppId;
     if (!appId || !previewRunningRef.current) return;
     const next = clampAgoraZoom(factor, maxZoomRef.current);
     try {
-      getAgoraEngine(appId).setCameraZoomFactor(next);
+      const code = getAgoraEngine(appId).setCameraZoomFactor(next);
+      if (typeof code === 'number' && code < 0) {
+        // The SDK refused the zoom. Report it so we can see the exact error code.
+        Sentry.captureMessage(
+          `agora setCameraZoomFactor failed (code ${code}, factor ${next}, max ${maxZoomRef.current}, facing ${facingRef.current}, phase ${phaseRef.current})`,
+          'warning',
+        );
+        return;
+      }
       setCameraZoomState(next);
-    } catch {
-      /* zoom is best effort */
+    } catch (err) {
+      Sentry.captureException(err);
     }
   }, []);
 
@@ -693,6 +726,8 @@ export function useMobileAgoraPublish(args: {
 
   const releaseLocalDevices = useCallback(() => {
     clearTokenTimer();
+    for (const t of zoomRecheckTimersRef.current) clearTimeout(t);
+    zoomRecheckTimersRef.current = [];
     const engine = handlerEngineRef.current;
     if (engine) {
       try {

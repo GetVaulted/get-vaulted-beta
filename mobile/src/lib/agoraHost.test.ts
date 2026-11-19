@@ -21,6 +21,14 @@ describe('agoraHost helpers', () => {
     expect(agoraZoomStops(10, true)).toEqual([1, 2, 3, 5]);
   });
 
+  it('adds 0.5x only when the camera has an ultra-wide lens', () => {
+    expect(agoraZoomStops(10, true, true)).toEqual([0.5, 1, 2, 3, 5]);
+    expect(agoraZoomStops(1.5, true, true)).toEqual([0.5, 1]);
+    expect(agoraZoomStops(10, false, true)).toEqual([1]);
+    expect(clampAgoraZoom(0.5, 5, true)).toBe(0.5);
+    expect(clampAgoraZoom(0.1, 5, true)).toBe(0.5);
+  });
+
   it('clamps zoom into the supported range', () => {
     expect(clampAgoraZoom(0.5, 5)).toBe(1);
     expect(clampAgoraZoom(9, 5)).toBe(5);
