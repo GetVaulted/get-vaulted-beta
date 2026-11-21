@@ -243,6 +243,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { href: "/admin/payouts/paypal", label: "PayPal payouts" },
       { href: "/admin/finance", label: "Finance" },
       { href: "/admin/fees", label: "Fees" },
+      { href: "/admin/credit-compensation", label: "Credit compensation" },
       { href: "/admin/reconciliation", label: "Reconciliation" },
       { href: "/admin/refund-requests", label: "Refunds" },
       { href: "/admin/disputes", label: "Disputes" },
