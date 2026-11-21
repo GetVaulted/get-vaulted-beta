@@ -78,6 +78,8 @@ enum LiveStreamProvider {
   aws_ivs
   /// Backup provider (Cloudflare Stream live input, RTMPS ingest -> HLS playback). Admin-switched.
   cloudflare_stream
+  /// Agora RTC, direct: the seller's phone publishes into an Agora channel and buyers subscribe to it.
+  agora_rtc
 }
 
 /// How a room's video is delivered. `stage_webrtc` = IVS Real-Time (sub-second WebRTC);
@@ -1287,6 +1289,10 @@ model LiveRoom {
   ivsStreamKeyCreatedAt   DateTime?
   /// Provider-side stream id for non-IVS providers (Cloudflare Stream live input uid).
   externalStreamId        String?
+  /// Agora Media Push converter id while a phone is relaying to the Cloudflare input.
+  externalRelayId         String?
+  /// True when the seller's phone (not OBS) is the source of a non-AWS stream, so clients treat it as a portrait phone camera.
+  phoneRelay              Boolean   @default(false)
   streamStartedAt         DateTime?
   streamEndedAt           DateTime?
   lastIvsStatusSyncAt     DateTime?
@@ -2445,7 +2451,7 @@ model PlatformCredit {
   spentAt        DateTime?
   voidedAt       DateTime?
   voidReason     String?
-  /// When true the credit is only spendable on live-show orders (never marketplace checkouts).
+  /// When true, this credit can only be spent on live-show orders (never on marketplace orders).
   liveOnly       Boolean                  @default(false)
   createdAt      DateTime                 @default(now())
   updatedAt      DateTime                 @updatedAt
