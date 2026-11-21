@@ -5,12 +5,18 @@ import { prisma } from "@/lib/prisma";
 
 const STALE_RESERVATION_MS = 24 * 60 * 60 * 1000;
 
-/** Idempotent grant of spendable Get Vaulted Credit (not withdrawable). */
+/**
+ * Idempotent grant of spendable Get Vaulted Credit (not withdrawable).
+ *
+ * `liveOnly: true` restricts the credit to live-show orders — it is never applied to marketplace
+ * (non-live) checkouts. See `reservePlatformCreditForCheckout`.
+ */
 export async function awardPlatformCredit(args: {
   userId: string;
   amountUsd: number;
   sourceType: PlatformCreditSourceType;
   sourceRef: string;
+  liveOnly?: boolean;
 }): Promise<{ id: string; created: boolean }> {
   const amount = Math.round(Math.max(0, args.amountUsd) * 100) / 100;
   if (amount < 0.01) throw new Error("amount_too_small");
@@ -23,6 +29,7 @@ export async function awardPlatformCredit(args: {
         status: PlatformCreditStatus.available,
         sourceType: args.sourceType,
         sourceRef: args.sourceRef,
+        liveOnly: args.liveOnly === true,
       },
       select: { id: true },
     });
@@ -66,6 +73,23 @@ async function releaseStalePlatformCreditReservations(userId: string) {
   });
 }
 
+/**
+ * True only when `checkoutRef` is an order attached to a live-show shipping session.
+ * Fails closed: an unknown ref, a missing order, or a lookup error all count as "not live", so
+ * live-only credit is never spent anywhere we can't positively identify as a live-show order.
+ */
+export async function isLiveShowOrderForCredit(checkoutRef: string): Promise<boolean> {
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: checkoutRef },
+      select: { liveShippingSessionId: true },
+    });
+    return Boolean(order?.liveShippingSessionId);
+  } catch {
+    return false;
+  }
+}
+
 export async function reservePlatformCreditForCheckout(
   userId: string,
   maxApplyUsd: number,
@@ -75,8 +99,15 @@ export async function reservePlatformCreditForCheckout(
   const max = Math.max(0, maxApplyUsd);
   if (max < 0.01) return 0;
 
+  // Live-only credit (e.g. admin grants meant for live shows) is skipped on marketplace orders.
+  const isLiveOrder = await isLiveShowOrderForCredit(checkoutRef);
+
   const available = await prisma.platformCredit.findMany({
-    where: { userId, status: PlatformCreditStatus.available },
+    where: {
+      userId,
+      status: PlatformCreditStatus.available,
+      ...(isLiveOrder ? {} : { liveOnly: false }),
+    },
     orderBy: { createdAt: "asc" },
   });
 
@@ -122,6 +153,9 @@ export async function reservePlatformCreditForCheckout(
         amountUsd: splitUsd,
         status: PlatformCreditStatus.reserved,
         sourceType: row.sourceType,
+        // The split chunk must inherit the restriction, or releasing it back to `available`
+        // later would turn live-only credit into spend-anywhere credit.
+        liveOnly: row.liveOnly,
         sourceRef: `${row.sourceRef}:split:${randomUUID()}`,
         reservedForRef: checkoutRef,
         reservedAt: now,

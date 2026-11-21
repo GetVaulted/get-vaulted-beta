@@ -14,6 +14,7 @@ export type AdminPlatformCreditRow = {
   spentAt: string | null;
   voidedAt: string | null;
   voidReason: string | null;
+  liveOnly?: boolean;
   createdAt: string;
 };
 
@@ -60,6 +61,7 @@ export async function getAdminUserPlatformCreditSnapshot(userId: string): Promis
       spentAt: r.spentAt?.toISOString() ?? null,
       voidedAt: r.voidedAt?.toISOString() ?? null,
       voidReason: r.voidReason,
+      liveOnly: r.liveOnly,
       createdAt: r.createdAt.toISOString(),
     })),
   };
@@ -74,6 +76,8 @@ export async function grantAdminPlatformCredit(args: {
   amountUsd: number;
   reason: string;
   adminId: string;
+  /** When true the credit can only be spent on live-show orders (never on the marketplace). */
+  liveOnly?: boolean;
 }): Promise<{ id: string }> {
   const reason = args.reason.trim();
   if (!reason) throw new Error("reason_required");
@@ -86,13 +90,14 @@ export async function grantAdminPlatformCredit(args: {
     amountUsd: amount,
     sourceType: PlatformCreditSourceType.admin_grant,
     sourceRef,
+    liveOnly: args.liveOnly === true,
   });
 
   await logPayoutEligibilityDecision({
     sellerId: args.userId,
     adminId: args.adminId,
     action: "platform_credit_granted",
-    newStatus: `$${amount.toFixed(2)}`,
+    newStatus: `$${amount.toFixed(2)}${args.liveOnly === true ? " (live shows only)" : ""}`,
     reason,
   });
 
