@@ -134,3 +134,38 @@ export const PAYMENT_RECOVERY_SUCCESS_TOAST = "Payment successful — you're bac
 
 export const PAYMENT_RECOVERY_SUBTITLE =
   'Tap Retry payment to charge your saved card. If checkout failed on shipping, use Update Wallet first, then retry.';
+
+export const BANK_VERIFICATION_SUBTITLE =
+  'Your bank needs to confirm this purchase. Tap Verify payment to finish it. The show is waiting on you.';
+
+/**
+ * True when the bank (not the card) is asking the buyer to confirm the charge. The fix is to verify with the
+ * bank, not to change cards, so the recovery screen leads with "Verify payment" instead of "Update Wallet".
+ */
+export function isBankVerificationFailure(raw?: string | null, code?: string | null): boolean {
+  const codeKey = normalizeCode(code);
+  if (codeKey === 'authentication_required' || codeKey === 'card_declined_authentication_required') {
+    return true;
+  }
+  const lower = (raw ?? '').trim().toLowerCase();
+  // Match the bank wording only, so "phone verification required" is not mistaken for a bank check.
+  return lower.includes('additional verification') || lower.includes('authentication required');
+}
+
+/**
+ * How long the host must wait before cancelling a retry that is waiting on the buyer's bank. Before this,
+ * the host could cancel a few seconds after the charge, before the winner had time to finish verifying.
+ */
+export const HOST_CANCEL_GRACE_MS = 90_000;
+
+/** Seconds the host still has to wait before cancelling this retry (0 = can cancel now). Fails open. */
+export function hostCancelWaitSeconds(
+  failure: { failureReason: string | null; failedAt: string },
+  nowMs: number,
+): number {
+  if (!isBankVerificationFailure(failure.failureReason)) return 0;
+  const failedMs = Date.parse(failure.failedAt);
+  if (!Number.isFinite(failedMs)) return 0;
+  const remainingMs = failedMs + HOST_CANCEL_GRACE_MS - nowMs;
+  return remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0;
+}

@@ -13,6 +13,8 @@ import type { LiveBuyerPaymentFailureSnapshot } from '../../api/liveRoomBuyerRep
 import { retryLivePaymentFailure } from '../../api/livePaymentFailureRepository';
 import { useLiveConfirmPayment } from './LiveStripeProvider';
 import {
+  BANK_VERIFICATION_SUBTITLE,
+  isBankVerificationFailure,
   isShippingAddressRecoveryFailure,
   mapLivePaymentFailureMessage,
   recoveryStatusMessage,
@@ -64,6 +66,8 @@ export function LivePaymentFailureModal({
 
   const reasonLine = cardSaved ? null : mapLivePaymentFailureMessage(failure.failureReason);
   const shippingRecovery = isShippingAddressRecoveryFailure(failure.failureReason);
+  // The bank (not the card) asked for confirmation: lead with "Verify payment", which opens the bank check.
+  const bankVerification = !cardSaved && !shippingRecovery && isBankVerificationFailure(failure.failureReason);
   // Card declines jump into payment setup; shipping failures open the address step.
   // Android must NOT auto-start PaymentSheet (`card`) inside nested Modals — that stuck buyers.
   const walletInitialStep = shippingRecovery ? ('shipping' as const) : ('payment' as const);
@@ -256,8 +260,12 @@ export function LivePaymentFailureModal({
             <View style={styles.iconWrap}>
               <Ionicons name="shield-checkmark" size={22} color={colors.gold} />
             </View>
-            <LiveRoomText style={styles.title}>Secure payment recovery</LiveRoomText>
-            <LiveRoomText style={styles.subtitle}>{PAYMENT_RECOVERY_SUBTITLE}</LiveRoomText>
+            <LiveRoomText style={styles.title}>
+              {bankVerification ? 'Verify your payment' : 'Secure payment recovery'}
+            </LiveRoomText>
+            <LiveRoomText style={styles.subtitle}>
+              {bankVerification ? BANK_VERIFICATION_SUBTITLE : PAYMENT_RECOVERY_SUBTITLE}
+            </LiveRoomText>
 
             {failure.itemTitle ? (
               <LiveRoomText style={styles.itemName} numberOfLines={2}>
@@ -274,28 +282,57 @@ export function LivePaymentFailureModal({
                 pointerEvents="none"
                 style={[styles.primaryGlow, { opacity: glowOpacity }]}
               />
-              <Pressable
-                style={[styles.primaryBtn, busy && styles.disabled]}
-                disabled={busy}
-                onPress={openWalletForRecovery}
-                accessibilityRole="button"
-                accessibilityLabel="Update Wallet"
-              >
-                <LiveRoomText style={styles.primaryLabel}>Update Wallet</LiveRoomText>
-              </Pressable>
-              <Pressable
-                style={[styles.secondaryBtn, busy && styles.disabled]}
-                disabled={busy}
-                onPress={() => void runRetry()}
-                accessibilityRole="button"
-                accessibilityLabel="Retry payment"
-              >
-                {busy ? (
-                  <ActivityIndicator color={colors.textPrimary} />
-                ) : (
-                  <LiveRoomText style={styles.secondaryLabel}>Retry payment</LiveRoomText>
-                )}
-              </Pressable>
+              {bankVerification ? (
+                <>
+                  <Pressable
+                    style={[styles.primaryBtn, busy && styles.disabled]}
+                    disabled={busy}
+                    onPress={() => void runRetry()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Verify payment"
+                  >
+                    {busy ? (
+                      <ActivityIndicator color={colors.background} />
+                    ) : (
+                      <LiveRoomText style={styles.primaryLabel}>Verify payment</LiveRoomText>
+                    )}
+                  </Pressable>
+                  <Pressable
+                    style={[styles.secondaryBtn, busy && styles.disabled]}
+                    disabled={busy}
+                    onPress={openWalletForRecovery}
+                    accessibilityRole="button"
+                    accessibilityLabel="Use a different card"
+                  >
+                    <LiveRoomText style={styles.secondaryLabel}>Use a different card</LiveRoomText>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Pressable
+                    style={[styles.primaryBtn, busy && styles.disabled]}
+                    disabled={busy}
+                    onPress={openWalletForRecovery}
+                    accessibilityRole="button"
+                    accessibilityLabel="Update Wallet"
+                  >
+                    <LiveRoomText style={styles.primaryLabel}>Update Wallet</LiveRoomText>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.secondaryBtn, busy && styles.disabled]}
+                    disabled={busy}
+                    onPress={() => void runRetry()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Retry payment"
+                  >
+                    {busy ? (
+                      <ActivityIndicator color={colors.textPrimary} />
+                    ) : (
+                      <LiveRoomText style={styles.secondaryLabel}>Retry payment</LiveRoomText>
+                    )}
+                  </Pressable>
+                </>
+              )}
               <Pressable
                 style={[styles.tertiaryBtn, busy && styles.disabled]}
                 disabled={busy}

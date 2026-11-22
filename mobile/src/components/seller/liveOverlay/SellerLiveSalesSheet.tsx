@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -18,6 +18,7 @@ import type {
 } from '../../../api/liveHostRepository';
 import { createOffPlatformPlatformFeeCheckout } from '../../../api/liveRoomControlRepository';
 import { cancelHostPaymentFailure } from '../../../api/livePaymentFailureRepository';
+import { hostCancelWaitSeconds } from '../../../lib/livePaymentFailureCopy';
 import { openStripeCheckoutSession } from '../../../lib/openStripeCheckoutSession';
 import { colors, radii, spacing, vaultColors } from '../../../theme';
 
@@ -77,6 +78,18 @@ export function SellerLiveSalesSheet({
   const [refreshing, setRefreshing] = useState(false);
   const [cancelBusyId, setCancelBusyId] = useState<string | null>(null);
   const [feeBusyId, setFeeBusyId] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  // While a retry is waiting on the buyer's bank, tick once a second so "Cancel in Ns" counts down.
+  const anyCancelWait = useMemo(
+    () => paymentFailures.some((f) => hostCancelWaitSeconds(f, nowMs) > 0),
+    [paymentFailures, nowMs],
+  );
+  useEffect(() => {
+    if (!visible || !anyCancelWait) return;
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [visible, anyCancelWait]);
 
   const needsAttention = useMemo(
     () =>
@@ -124,6 +137,11 @@ export function SellerLiveSalesSheet({
 
   const onCancelRetry = useCallback(
     async (failureId: string) => {
+      const row = paymentFailures.find((p) => p.id === failureId);
+      if (row && hostCancelWaitSeconds(row, Date.now()) > 0) {
+        onToast?.('Waiting for the buyer to verify with their bank. Try again in a moment.');
+        return;
+      }
       setCancelBusyId(failureId);
       try {
         const res = await cancelHostPaymentFailure({ accessToken, roomId, failureId });
@@ -139,7 +157,7 @@ export function SellerLiveSalesSheet({
         setCancelBusyId(null);
       }
     },
-    [accessToken, onRefresh, onToast, roomId],
+    [accessToken, onRefresh, onToast, paymentFailures, roomId],
   );
 
   return (
@@ -174,7 +192,9 @@ export function SellerLiveSalesSheet({
                 <Text style={styles.sectionHint}>
                   Start the next auction or buy now after the buyer fixes payment, or cancel the retry.
                 </Text>
-                {paymentFailures.map((f) => (
+                {paymentFailures.map((f) => {
+                  const waitSec = hostCancelWaitSeconds(f, nowMs);
+                  return (
                   <View key={f.id} style={styles.failureRow}>
                     <View style={styles.failureBody}>
                       <Text style={styles.failureUser} numberOfLines={1}>
@@ -191,20 +211,27 @@ export function SellerLiveSalesSheet({
                           {f.failureReason}
                         </Text>
                       ) : null}
+                      {waitSec > 0 ? (
+                        <Text style={styles.failureWait}>Waiting for the buyer to verify with their bank.</Text>
+                      ) : null}
                     </View>
                     <Pressable
-                      style={[styles.cancelBtn, cancelBusyId === f.id && styles.disabled]}
+                      style={[styles.cancelBtn, (cancelBusyId === f.id || waitSec > 0) && styles.disabled]}
                       onPress={() => void onCancelRetry(f.id)}
-                      disabled={cancelBusyId === f.id}
+                      disabled={cancelBusyId === f.id || waitSec > 0}
+                      accessibilityState={{ disabled: cancelBusyId === f.id || waitSec > 0 }}
                     >
                       {cancelBusyId === f.id ? (
                         <ActivityIndicator size="small" color="#fff" />
                       ) : (
-                        <Text style={styles.cancelTxt}>Cancel retry</Text>
+                        <Text style={styles.cancelTxt}>
+                          {waitSec > 0 ? `Cancel in ${waitSec}s` : 'Cancel retry'}
+                        </Text>
                       )}
                     </Pressable>
                   </View>
-                ))}
+                  );
+                })}
               </View>
             ) : null}
 
@@ -435,6 +462,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   failureReason: { fontSize: 10, color: '#fecdd3', marginTop: 4 },
+  failureWait: { fontSize: 10, color: vaultColors.gold, marginTop: 4 },
   cancelBtn: {
     borderRadius: radii.sm,
     paddingHorizontal: 10,
