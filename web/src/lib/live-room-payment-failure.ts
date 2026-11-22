@@ -14,6 +14,7 @@ import { finalizeLiveItemVariantPurchasePaid, releaseVariantPurchaseOnCheckoutEx
 import { releaseVariantPurchaseBatchOnCheckoutExpired } from "@/lib/live-item-variant-batch-purchase";
 import { finalizeBreakSpotPaid, releaseBreakSpotOnDefiniteFailure } from "@/lib/live-buy-now-purchase";
 import { releaseActiveInventoryHoldsForOrderId } from "@/lib/live-auction-inventory-hold";
+import { cancelGraceRemainingMs } from "@/lib/live-payment-cancel-grace";
 import { prisma } from "@/lib/prisma";
 import { releaseStoreCreditAndRestoreOrder } from "@/lib/store-credit-release";
 import {
@@ -945,6 +946,16 @@ export async function cancelLiveRoomPaymentFailureBySeller(args: {
     },
   });
   if (!failure) return { ok: false, error: "Payment retry not found or already resolved.", code: "NOT_FOUND" };
+
+  // The winner's bank is asking them to confirm the purchase: give them time to finish before the host can cancel.
+  const graceMs = cancelGraceRemainingMs(failure, Date.now());
+  if (graceMs > 0) {
+    return {
+      ok: false,
+      error: `Waiting for the buyer to verify with their bank. You can cancel in ${Math.ceil(graceMs / 1000)}s.`,
+      code: "BANK_VERIFICATION_PENDING",
+    };
+  }
 
   if (failure.variantPurchaseId) {
     const purchase = await prisma.liveItemVariantPurchase.findUnique({
