@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  HOST_CANCEL_GRACE_MS,
+  hostCancelWaitSeconds,
+  isBankVerificationFailure,
   isShippingAddressRecoveryFailure,
   mapLivePaymentFailureMessage,
   recoveryStatusMessage,
@@ -60,6 +63,47 @@ describe('isShippingAddressRecoveryFailure', () => {
   it('does not treat card declines as shipping recovery', () => {
     expect(isShippingAddressRecoveryFailure('Your card was declined.')).toBe(false);
     expect(isShippingAddressRecoveryFailure(null, 'card_declined')).toBe(false);
+  });
+});
+
+describe('isBankVerificationFailure', () => {
+  it('detects the bank-verification reason and codes', () => {
+    expect(isBankVerificationFailure('Your bank requires additional verification.')).toBe(true);
+    expect(isBankVerificationFailure(null, 'authentication_required')).toBe(true);
+    expect(isBankVerificationFailure(null, 'card_declined_authentication_required')).toBe(true);
+  });
+
+  it('does not treat declines or shipping problems as verification', () => {
+    expect(isBankVerificationFailure('Your card was declined.')).toBe(false);
+    expect(isBankVerificationFailure('Insufficient funds.')).toBe(false);
+    expect(isBankVerificationFailure('Phone verification is required for this purchase.')).toBe(false);
+    expect(isBankVerificationFailure('Add a delivery address to your Wallet.')).toBe(false);
+    expect(isBankVerificationFailure(null, null)).toBe(false);
+  });
+});
+
+describe('hostCancelWaitSeconds', () => {
+  const failedAt = '2026-11-22T20:18:04.000Z';
+  const t0 = Date.parse(failedAt);
+  const verification = { failureReason: 'Your bank requires additional verification.', failedAt };
+
+  it('makes the host wait the full grace right after a verification failure', () => {
+    expect(hostCancelWaitSeconds(verification, t0)).toBe(HOST_CANCEL_GRACE_MS / 1000);
+  });
+
+  it('counts down and then allows cancelling', () => {
+    expect(hostCancelWaitSeconds(verification, t0 + 12_000)).toBe(78);
+    expect(hostCancelWaitSeconds(verification, t0 + HOST_CANCEL_GRACE_MS)).toBe(0);
+    expect(hostCancelWaitSeconds(verification, t0 + HOST_CANCEL_GRACE_MS + 5_000)).toBe(0);
+  });
+
+  it('never delays cancelling an ordinary decline', () => {
+    expect(hostCancelWaitSeconds({ failureReason: 'Your card was declined.', failedAt }, t0)).toBe(0);
+    expect(hostCancelWaitSeconds({ failureReason: null, failedAt }, t0)).toBe(0);
+  });
+
+  it('fails open when the timestamp cannot be read', () => {
+    expect(hostCancelWaitSeconds({ ...verification, failedAt: 'not a date' }, t0)).toBe(0);
   });
 });
 
