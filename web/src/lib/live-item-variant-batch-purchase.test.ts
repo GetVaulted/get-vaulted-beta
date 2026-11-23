@@ -3,7 +3,26 @@ import {
   formatVariantBatchCelebrationLabel,
   formatVariantBatchOrderTitle,
   LIVE_VARIANT_BATCH_MAX_SPOTS,
+  partitionBatchPurchaseRows,
 } from "@/lib/live-item-variant-batch-purchase";
+
+describe("partitionBatchPurchaseRows", () => {
+  it("separates paid, pending and failed rows (the eroc32 Cardinals/Raiders shape)", () => {
+    const rows = [
+      { id: "cardinals", paymentStatus: "paid" },
+      { id: "raiders", paymentStatus: "failed" },
+      { id: "chiefs", paymentStatus: "pending_payment" },
+    ];
+    const { paid, pending, failed } = partitionBatchPurchaseRows(rows);
+    expect(paid.map((r) => r.id)).toEqual(["cardinals"]);
+    expect(pending.map((r) => r.id)).toEqual(["chiefs"]);
+    expect(failed.map((r) => r.id)).toEqual(["raiders"]);
+  });
+
+  it("handles an empty batch", () => {
+    expect(partitionBatchPurchaseRows([])).toEqual({ paid: [], pending: [], failed: [] });
+  });
+});
 
 describe("live-item-variant-batch-purchase helpers", () => {
   it("caps batch size at 32", () => {

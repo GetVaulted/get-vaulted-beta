@@ -126,6 +126,14 @@ export async function finalizeLiveItemVariantPurchasePaid(
   });
   if (!purchase) return;
 
+  // A spot that belongs to a multi-spot batch is paid by ONE charge for the whole batch. Finalize every spot
+  // together so a retry/webhook that arrives through a single spot can never leave the others unpaid.
+  if (purchase.batchId) {
+    const { finalizeLiveItemVariantPurchaseBatchPaid } = await import("@/lib/live-item-variant-batch-purchase");
+    await finalizeLiveItemVariantPurchaseBatchPaid(purchase.batchId, rawStripePaymentIntentId, notificationChargeUsd);
+    return;
+  }
+
   if (purchase.fulfillmentOrderId) {
     try {
       await finalizeStripeMarketplaceOrderPaid(

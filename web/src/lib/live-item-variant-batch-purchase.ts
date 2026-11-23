@@ -38,6 +38,68 @@ export function formatVariantBatchCelebrationLabel(labels: string[]): string {
   return `${cleaned.slice(0, 2).join(" · ")} +${cleaned.length - 2} more`;
 }
 
+/** Split a batch's rows by payment state (pure, unit-tested). */
+export function partitionBatchPurchaseRows<T extends { paymentStatus: string }>(rows: T[]) {
+  return {
+    paid: rows.filter((r) => r.paymentStatus === "paid"),
+    pending: rows.filter((r) => r.paymentStatus === "pending_payment"),
+    failed: rows.filter((r) => r.paymentStatus === "failed"),
+  };
+}
+
+/**
+ * Stripe has confirmed payment for the whole batch, but some rows are still "failed" (an earlier decline
+ * released them and a retry only reopened part of the batch). The buyer already paid for these spots, so
+ * re-reserve each one and put it back to pending so the claim loop below can mark it paid. If a spot was
+ * sold to someone else in the meantime, alert loudly for a manual refund instead of failing silently.
+ */
+async function reclaimFailedBatchPurchasesForPaidCharge(
+  batchId: string,
+  failed: { id: string; variantId: string; quantity: number; liveRoomItemId: string; variant: { label: string } }[],
+): Promise<void> {
+  if (failed.length === 0) return;
+  const lost: string[] = [];
+  let reclaimedAny = false;
+  for (const row of failed) {
+    try {
+      const outcome = await prisma.$transaction(async (tx) => {
+        const flipped = await tx.liveItemVariantPurchase.updateMany({
+          where: { id: row.id, paymentStatus: "failed" },
+          data: { paymentStatus: "pending_payment" },
+        });
+        if (flipped.count === 0) return "skip" as const;
+        const reserved = await tx.liveItemVariant.updateMany({
+          where: { id: row.variantId, quantityRemaining: { gte: row.quantity } },
+          data: {
+            quantityRemaining: { decrement: row.quantity },
+            soldCount: { increment: row.quantity },
+          },
+        });
+        if (reserved.count === 0) throw Object.assign(new Error("SOLD_OUT"), { code: "SOLD_OUT" });
+        return "reclaimed" as const;
+      });
+      if (outcome === "reclaimed") reclaimedAny = true;
+    } catch (e) {
+      const code = e && typeof e === "object" && "code" in e ? String((e as { code: string }).code) : "";
+      if (!(code === "SOLD_OUT" || (e instanceof Error && e.message === "SOLD_OUT"))) {
+        console.error("[variant batch] reclaim failed spot after paid charge", { batchId, purchaseId: row.id, e });
+      }
+      lost.push(row.variant.label);
+    }
+  }
+  if (reclaimedAny) {
+    await prisma.liveRoomItem
+      .update({ where: { id: failed[0]!.liveRoomItemId }, data: { itemVersion: { increment: 1 } } })
+      .catch(() => {});
+  }
+  if (lost.length > 0) {
+    reportUrgentPaymentAnomaly(
+      "live-variant-batch-paid-spot-lost",
+      `A multi-spot batch was PAID but ${lost.length} spot(s) could not be re-reserved (${lost.join(", ")}) — the buyer was charged for spots they do not hold. MANUAL REFUND/ASSIGNMENT REQUIRED. batchId=${batchId}`,
+    );
+  }
+}
+
 /**
  * Finalize every pending purchase in a batch after Stripe confirms payment.
  * Order is finalized once; each purchase row is claimed atomically.
@@ -59,6 +121,21 @@ export async function finalizeLiveItemVariantPurchaseBatchPaid(
     orderBy: { createdAt: "asc" },
   });
   if (purchases.length === 0) return;
+
+  // Payment is confirmed for the whole batch: any row still "failed" (released by an earlier decline) is
+  // re-reserved first so it is paid with the rest instead of being left behind.
+  await reclaimFailedBatchPurchasesForPaidCharge(
+    batchId,
+    purchases
+      .filter((p) => p.paymentStatus === "failed")
+      .map((p) => ({
+        id: p.id,
+        variantId: p.variantId,
+        quantity: p.quantity,
+        liveRoomItemId: p.liveRoomItemId,
+        variant: { label: p.variant.label },
+      })),
+  );
 
   const fulfillmentOrderId = purchases.find((p) => p.fulfillmentOrderId)?.fulfillmentOrderId ?? null;
   if (fulfillmentOrderId) {
