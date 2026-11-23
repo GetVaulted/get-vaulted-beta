@@ -6,12 +6,18 @@ import type {
 import { createNotification } from "@/lib/notifications";
 import {
   chargeLiveItemVariantPurchaseWithSavedCard,
+  chargeLiveItemVariantPurchaseBatchWithSavedCard,
   syncLiveItemVariantPurchasePaymentIntent,
+  syncLiveItemVariantPurchaseBatchPaymentIntent,
   chargeBreakSpotWithSavedCard,
   syncBreakSpotPaymentIntent,
 } from "@/lib/live-payment-pipeline";
 import { finalizeLiveItemVariantPurchasePaid, releaseVariantPurchaseOnCheckoutExpired, reopenVariantPurchaseForRecovery } from "@/lib/live-item-variant-purchase";
-import { releaseVariantPurchaseBatchOnCheckoutExpired } from "@/lib/live-item-variant-batch-purchase";
+import {
+  finalizeLiveItemVariantPurchaseBatchPaid,
+  releaseVariantPurchaseBatchOnCheckoutExpired,
+  reopenVariantPurchaseBatchForRecovery,
+} from "@/lib/live-item-variant-batch-purchase";
 import { finalizeBreakSpotPaid, releaseBreakSpotOnDefiniteFailure } from "@/lib/live-buy-now-purchase";
 import { releaseActiveInventoryHoldsForOrderId } from "@/lib/live-auction-inventory-hold";
 import { cancelGraceRemainingMs } from "@/lib/live-payment-cancel-grace";
@@ -607,15 +613,24 @@ export async function retryLiveRoomPaymentFailure(args: {
       charge,
     );
   } else if (failureRow.variantPurchaseId) {
-    const reopen = await reopenVariantPurchaseForRecovery({
-      purchaseId: failureRow.variantPurchaseId,
-      buyerId: args.buyerId,
+    // Multi-spot purchases share one batch and one charge. The failure row points at the first spot only, so
+    // recover the WHOLE batch (reopen every spot, charge once, mark every spot paid) — never just that one spot.
+    const failedPurchase = await prisma.liveItemVariantPurchase.findUnique({
+      where: { id: failureRow.variantPurchaseId },
+      select: { batchId: true },
     });
+    const recoveryBatchId = failedPurchase?.batchId ?? null;
+    const reopen = recoveryBatchId
+      ? await reopenVariantPurchaseBatchForRecovery({ batchId: recoveryBatchId, buyerId: args.buyerId })
+      : await reopenVariantPurchaseForRecovery({
+          purchaseId: failureRow.variantPurchaseId,
+          buyerId: args.buyerId,
+        });
     reopenedForRecovery = reopen.reopened;
     reopenReason = reopen.reason ?? null;
     if (!reopen.reopened) {
       const reason =
-        reopen.reason === "SPOT_UNAVAILABLE"
+        reopen.reason === "SPOT_UNAVAILABLE" || reopen.reason === "SOLD_OUT"
           ? "That spot is no longer available — pick another team or ask the host to cancel this retry."
           : reopen.reason === "ROOM_NOT_LIVE"
             ? "This room is not live."
@@ -657,13 +672,21 @@ export async function retryLiveRoomPaymentFailure(args: {
         },
       };
     }
-    const purchaseCharge = await chargeLiveItemVariantPurchaseWithSavedCard({
-      buyerId: args.buyerId,
-      purchaseId: failureRow.variantPurchaseId,
-      paymentMethodId: recoveryPmId,
-      // Re-enabled — see live-payment-pipeline.ts for why this was safe to restore.
-      applyReferralCredit: true,
-    });
+    const purchaseCharge = recoveryBatchId
+      ? await chargeLiveItemVariantPurchaseBatchWithSavedCard({
+          buyerId: args.buyerId,
+          batchId: recoveryBatchId,
+          paymentMethodId: recoveryPmId,
+          // Re-enabled — see live-payment-pipeline.ts for why this was safe to restore.
+          applyReferralCredit: true,
+        })
+      : await chargeLiveItemVariantPurchaseWithSavedCard({
+          buyerId: args.buyerId,
+          purchaseId: failureRow.variantPurchaseId,
+          paymentMethodId: recoveryPmId,
+          // Re-enabled — see live-payment-pipeline.ts for why this was safe to restore.
+          applyReferralCredit: true,
+        });
     logRecoveryChargeResult(
       {
         failureId: failureRow.id,
@@ -673,11 +696,19 @@ export async function retryLiveRoomPaymentFailure(args: {
       purchaseCharge,
     );
     if (purchaseCharge.outcome === "paid") {
-      await finalizeLiveItemVariantPurchasePaid(
-        failureRow.variantPurchaseId,
-        purchaseCharge.paymentIntentId,
-        purchaseCharge.chargeUsd,
-      );
+      if (recoveryBatchId) {
+        await finalizeLiveItemVariantPurchaseBatchPaid(
+          recoveryBatchId,
+          purchaseCharge.paymentIntentId,
+          purchaseCharge.chargeUsd,
+        );
+      } else {
+        await finalizeLiveItemVariantPurchasePaid(
+          failureRow.variantPurchaseId,
+          purchaseCharge.paymentIntentId,
+          purchaseCharge.chargeUsd,
+        );
+      }
       emitLiveRoomQueueItemsChanged(args.liveRoomId);
       await resolveLiveRoomPaymentFailure({
         failureId: failureRow.id,
@@ -851,10 +882,19 @@ export async function syncLiveRoomPaymentFailureAfterSca(args: {
   if (!failureRow) return { ok: true, paid: true };
 
   if (failureRow.variantPurchaseId) {
-    const sync = await syncLiveItemVariantPurchasePaymentIntent({
-      buyerId: args.buyerId,
-      purchaseId: failureRow.variantPurchaseId,
+    const scaPurchase = await prisma.liveItemVariantPurchase.findUnique({
+      where: { id: failureRow.variantPurchaseId },
+      select: { batchId: true },
     });
+    const sync = scaPurchase?.batchId
+      ? await syncLiveItemVariantPurchaseBatchPaymentIntent({
+          buyerId: args.buyerId,
+          batchId: scaPurchase.batchId,
+        })
+      : await syncLiveItemVariantPurchasePaymentIntent({
+          buyerId: args.buyerId,
+          purchaseId: failureRow.variantPurchaseId,
+        });
     if (sync.outcome === "paid") {
       await resolveLiveRoomPaymentFailure({
         failureId: failureRow.id,
