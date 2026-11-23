@@ -8,6 +8,7 @@ import { closeAuctionIfDuePrisma } from "@/lib/auction-close";
 import { isListingMarketplaceDetailVisible, isListingPubliclyVisible } from "@/lib/listing-moderation";
 import { getLatestEndRequestForListing } from "@/lib/listing-end-service";
 import { prisma } from "@/lib/prisma";
+import { isBrowseLockedViewer } from "@/lib/browse-lock";
 import { assertSellerCanPublishListing } from "@/lib/seller-publish-readiness";
 import { dbListingToMarketplace, dbListingToStored } from "@/lib/listing-mapper";
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
@@ -57,6 +58,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
   const isOwner = viewerUserId === row.sellerId;
   const isAdmin = session?.user?.role === "admin";
+  // Admin "browse lock": a locked account cannot open any listing, even by direct link (sellers still see their own).
+  if (!isOwner && !isAdmin && (await isBrowseLockedViewer(viewerUserId))) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   const isPublic = isListingPubliclyVisible(row);
   const isDetailVisible = isListingMarketplaceDetailVisible(row);
   const ownerCanView = isOwner && (isDetailVisible || row.status === "ended" || row.status === "draft");

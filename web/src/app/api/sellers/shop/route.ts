@@ -6,6 +6,7 @@ import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-i
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { NEW_SELLER_CREDIBILITY_LABEL } from "@/lib/marketplace-item-extras";
 import { prisma } from "@/lib/prisma";
+import { isBrowseLockedViewer } from "@/lib/browse-lock";
 import { profileLinksFromStored } from "@/lib/seller-profile-fields";
 import {
   buildProfileTrust,
@@ -86,6 +87,10 @@ export async function GET(req: Request) {
   const isOwnShop = viewerId === user.id;
   const isAdmin = viewer?.role === "admin";
   if (isHiddenFixtureSellerEmail(user.email) && !isOwnShop && !isAdmin) {
+    return NextResponse.json({ error: "Seller not found." }, { status: 404 });
+  }
+  // Admin "browse lock": a locked account sees no seller shops (and so no inventory).
+  if (!isOwnShop && !isAdmin && (await isBrowseLockedViewer(viewerId))) {
     return NextResponse.json({ error: "Seller not found." }, { status: 404 });
   }
   if (!(await viewerCanSeeUser(prisma, viewerId, user.id))) {

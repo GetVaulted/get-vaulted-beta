@@ -7,6 +7,7 @@ import { isDevTempNoDatabaseMode } from "@/lib/dev-temp-no-db";
 import { isHiddenFixtureSellerEmail, prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
 import { prismaLiveRoomCreateHint, serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
 import { prisma } from "@/lib/prisma";
+import { isBrowseLockedViewer } from "@/lib/browse-lock";
 import { parseTeamBoardLeague } from "@/lib/team-board-sets";
 import { emitLiveDiscoveryChanged } from "@/lib/realtime-emit-server";
 import { buildLiveTipRoomData } from "@/lib/live-tip-moderator";
@@ -110,6 +111,10 @@ export async function GET(req: Request) {
       bearerUserId ??
       session?.user?.id ??
       (await resolveOptionalLiveRoomsUserId(req));
+    // Admin "browse lock": this account sees no live shows at all (it can still use the rest of the app).
+    if (viewerId && !viewingOwnSellerRooms && (await isBrowseLockedViewer(viewerId))) {
+      return NextResponse.json({ rooms: [] });
+    }
     if (viewerId && !viewingOwnSellerRooms) {
       const hiddenHosts = await listHiddenPeerIdsForViewer(prisma, viewerId);
       if (hiddenHosts.length > 0) {
