@@ -5,6 +5,7 @@ import { computeAuctionEndsAt } from "@/lib/auction";
 import { auctionBidCountsByListingIds } from "@/lib/listing-bid-counts";
 import { hasCompleteParcel } from "@/lib/listing-publish";
 import { prisma } from "@/lib/prisma";
+import { isBrowseLockedViewer } from "@/lib/browse-lock";
 import { processAuctionPaymentExpiries } from "@/services/payments";
 import { processAuctionPaymentExpiriesThrottled } from "@/lib/throttled-expiry-sweep";
 import { assertSellerCanPublishListing } from "@/lib/seller-publish-readiness";
@@ -225,6 +226,10 @@ export async function GET(req: Request) {
       .filter(Boolean)
       .slice(0, 60);
     if (!ids.length) return NextResponse.json({ listings: [] });
+    // Admin "browse lock": no inventory is visible to this account.
+    if (await isBrowseLockedViewer(await resolveOptionalListingsUserId(req))) {
+      return NextResponse.json({ listings: [] });
+    }
     const rows = await prisma.listing.findMany({
       where: {
         AND: [{ id: { in: ids } }, PUBLIC_MARKETPLACE_LISTING_WHERE],
@@ -237,6 +242,9 @@ export async function GET(req: Request) {
   }
 
   if (scope === "merch") {
+    if (await isBrowseLockedViewer(await resolveOptionalListingsUserId(req))) {
+      return NextResponse.json({ listings: [] });
+    }
     const rows = await prisma.listing.findMany({
       where: {
         isCompanyListing: true,
@@ -270,6 +278,19 @@ export async function GET(req: Request) {
         ...(hiddenSellerIds.length > 0 ? { sellerId: { notIn: hiddenSellerIds } } : {}),
       };
       const query = parseMarketplaceBrowseQueryParams(searchParams);
+      if (await isBrowseLockedViewer(viewerId)) {
+        return NextResponse.json(
+          {
+            listings: [],
+            page: query.page,
+            pageSize: query.pageSize,
+            filteredListingCount: 0,
+            totalListingCount: 0,
+            hasMore: false,
+          },
+          { headers: { "Cache-Control": "no-store, max-age=0" } },
+        );
+      }
       const filteredWhere: Prisma.ListingWhereInput = {
         ...buildMarketplaceBrowseWhere(query),
         ...(hiddenSellerIds.length > 0 ? { sellerId: { notIn: hiddenSellerIds } } : {}),

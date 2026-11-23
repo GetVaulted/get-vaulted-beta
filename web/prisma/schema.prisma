@@ -606,6 +606,8 @@ model User {
   /// repeated failed payments, or by an admin. NULL = not locked. See `src/lib/buyer-payment-risk.ts`.
   purchasesLockedAt             DateTime?
   purchasesLockReason           String?
+  browseLockedAt                DateTime?
+  browseLockReason              String?
   /// Phone number (E.164) a person verified by SMS code. Unique: one number = one account.
   phoneE164                     String?                     @unique
   phoneVerifiedAt               DateTime?

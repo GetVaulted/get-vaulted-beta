@@ -9,6 +9,7 @@ import { liveRoomItemsWithVariantsInclude } from "@/lib/live-item-variant-includ
 import { logLiveLoaderDebug, safeDecodeRouteSegment } from "@/lib/live-loader-debug";
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { prisma } from "@/lib/prisma";
+import { isBrowseLockedViewer } from "@/lib/browse-lock";
 import { getBuyerLiveWalletReadiness } from "@/lib/buyer-live-wallet-readiness";
 import { getLiveBuyerPaymentSessionState } from "@/lib/live-payment-pipeline";
 import {
@@ -134,6 +135,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       idParamRaw: raw,
       sessionUserId: viewerId,
     });
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // Admin "browse lock": a locked account cannot open any show (even by direct link) unless it is the host.
+  if (viewerId && room.sellerId !== viewerId && (await isBrowseLockedViewer(viewerId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
